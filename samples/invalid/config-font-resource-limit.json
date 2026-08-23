@@ -1,0 +1,1 @@
+{"$fixture":"package_config","mutations":[{"path":["limits","max_font_bytes"],"value":1073741825}]}

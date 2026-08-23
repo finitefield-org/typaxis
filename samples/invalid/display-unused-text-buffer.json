@@ -1,0 +1,1 @@
+{"$fixture":"display_list","mutations":[{"path":["text_buffers",1],"value":{"text_id":1,"origin":{"kind":"parsed","text_buffer_id":2},"utf8":""}}]}

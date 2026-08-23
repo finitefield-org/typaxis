@@ -1,0 +1,13 @@
+[package]
+name = "typaxis-style"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }

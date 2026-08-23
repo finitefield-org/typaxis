@@ -1,0 +1,23 @@
+[package]
+name = "typaxis-display-list"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-font = { path = "../typaxis-font" }
+typaxis-text = { path = "../typaxis-text" }
+typaxis-document = { path = "../typaxis-document" }
+typaxis-layout = { path = "../typaxis-layout" }
+typaxis-pagination = { path = "../typaxis-pagination" }
+typaxis-syntax = { path = "../typaxis-syntax" }
+
+[dev-dependencies]
+typaxis-linebreak = { path = "../typaxis-linebreak" }
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }
+typaxis-style = { path = "../typaxis-style" }

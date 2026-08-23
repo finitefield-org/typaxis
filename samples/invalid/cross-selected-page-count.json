@@ -1,0 +1,1 @@
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"manifest","path":["output","sink"],"value":"stdout"},{"artifact":"manifest","path":["output","page_count"],"value":2}]}

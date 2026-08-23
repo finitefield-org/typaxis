@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["resources","font_faces",1],"value":{"font_face_id":0,"family":"Other","uri":"external/other.ttf","face_index":0,"expected_sha256":null}}]}

@@ -1,0 +1,957 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.0/display-list.schema.json",
+  "title": "Typaxis Display List 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "coordinate_unit",
+    "source_layout",
+    "text_buffers",
+    "font_instances",
+    "destinations",
+    "pages"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "coordinate_unit": {
+      "$ref": "common.schema.json#/$defs/coordinate_unit"
+    },
+    "source_layout": {
+      "$ref": "#/$defs/source_layout"
+    },
+    "text_buffers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/display_text_buffer"
+      }
+    },
+    "font_instances": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/font_instance"
+      }
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    },
+    "destinations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/named_destination"
+      }
+    }
+  },
+  "$defs": {
+    "layout_epoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_sha256", "style_page_master_sha256", "admitted_resources_sha256", "resolved_input_sha256"],
+      "properties": {
+        "document_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "style_page_master_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "admitted_resources_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "resolved_input_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "source_layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layout_epoch", "state_fingerprint"],
+      "properties": {
+        "layout_epoch": {"$ref": "#/$defs/layout_epoch"},
+        "state_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "font_instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "font_instance_id",
+        "font_face_id"
+      ],
+      "properties": {
+        "font_instance_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "font_face_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        }
+      }
+    },
+    "display_command_ops": {
+      "enum": [
+        "save",
+        "restore",
+        "concat_transform",
+        "clip_path",
+        "fill_path",
+        "stroke_path",
+        "draw_glyph_run",
+        "draw_image"
+      ]
+    },
+    "display_text_buffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text_id",
+        "origin",
+        "utf8"
+      ],
+      "properties": {
+        "text_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "origin": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "text_buffer_id"],
+              "properties": {
+                "kind": {"const": "parsed"},
+                "text_buffer_id": {"$ref": "common.schema.json#/$defs/id32"}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "key"],
+              "properties": {
+                "kind": {"const": "generated"},
+                "key": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["generation_kind", "owner", "owner_local_ordinal"],
+                  "properties": {
+                    "generation_kind": {"enum": ["page_reference", "counter", "list_marker", "footnote_marker", "discretionary"]},
+                    "owner": {"$ref": "common.schema.json#/$defs/id32"},
+                    "owner_local_ordinal": {"$ref": "common.schema.json#/$defs/id32"}
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "utf8": {
+          "type": "string"
+        }
+      }
+    },
+    "display_glyph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "original_gid",
+        "advance_x",
+        "advance_y",
+        "offset_x",
+        "offset_y"
+      ],
+      "properties": {
+        "original_gid": {
+          "$ref": "common.schema.json#/$defs/u16"
+        },
+        "advance_x": {
+          "$ref": "common.schema.json#/$defs/length"
+        },
+        "advance_y": {
+          "$ref": "common.schema.json#/$defs/length"
+        },
+        "offset_x": {
+          "$ref": "common.schema.json#/$defs/length"
+        },
+        "offset_y": {
+          "$ref": "common.schema.json#/$defs/length"
+        }
+      }
+    },
+    "display_cluster": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "logical_ordinal",
+            "glyph_start",
+            "glyph_end",
+            "extraction",
+            "text_span"
+          ],
+          "properties": {
+            "logical_ordinal": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "glyph_start": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "glyph_end": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "extraction": {
+              "const": "unicode"
+            },
+            "text_span": {
+              "$ref": "common.schema.json#/$defs/text_span"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "logical_ordinal",
+            "glyph_start",
+            "glyph_end",
+            "extraction"
+          ],
+          "properties": {
+            "logical_ordinal": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "glyph_start": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "glyph_end": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "extraction": {
+              "const": "artifact"
+            }
+          }
+        }
+      ]
+    },
+    "stroke_style": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "line_cap",
+        "line_join",
+        "miter_limit_16_16",
+        "dash"
+      ],
+      "properties": {
+        "width": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "line_cap": {
+          "enum": [
+            "butt",
+            "round",
+            "square"
+          ]
+        },
+        "line_join": {
+          "enum": [
+            "miter",
+            "round",
+            "bevel"
+          ]
+        },
+        "miter_limit_16_16": {
+          "$ref": "common.schema.json#/$defs/positive_unitless_16_16"
+        },
+        "dash": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "array",
+            "phase"
+          ],
+          "properties": {
+            "array": {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/nonnegative_length"
+              }
+            },
+            "phase": {
+              "$ref": "common.schema.json#/$defs/nonnegative_length"
+            }
+          }
+        }
+      }
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "save"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op"
+          ],
+          "properties": {
+            "op": {
+              "const": "restore"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "matrix"
+          ],
+          "properties": {
+            "op": {
+              "const": "concat_transform"
+            },
+            "matrix": {
+              "$ref": "common.schema.json#/$defs/affine_transform"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "path",
+            "rule"
+          ],
+          "properties": {
+            "op": {
+              "const": "clip_path"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "move_to"
+                      },
+                      "x": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "line_to"
+                      },
+                      "x": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x1",
+                      "y1",
+                      "x2",
+                      "y2",
+                      "x3",
+                      "y3"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "curve_to"
+                      },
+                      "x1": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y1": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "x2": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y2": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "x3": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y3": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "close"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "rule": {
+              "enum": [
+                "nonzero",
+                "evenodd"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "path",
+            "paint",
+            "rule"
+          ],
+          "properties": {
+            "op": {
+              "const": "fill_path"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "move_to"
+                      },
+                      "x": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "line_to"
+                      },
+                      "x": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x1",
+                      "y1",
+                      "x2",
+                      "y2",
+                      "x3",
+                      "y3"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "curve_to"
+                      },
+                      "x1": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y1": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "x2": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y2": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "x3": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y3": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "close"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "paint": {
+              "$ref": "#/$defs/paint"
+            },
+            "rule": {
+              "enum": [
+                "nonzero",
+                "evenodd"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "path",
+            "paint",
+            "stroke"
+          ],
+          "properties": {
+            "op": {
+              "const": "stroke_path"
+            },
+            "path": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "move_to"
+                      },
+                      "x": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "line_to"
+                      },
+                      "x": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb",
+                      "x1",
+                      "y1",
+                      "x2",
+                      "y2",
+                      "x3",
+                      "y3"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "curve_to"
+                      },
+                      "x1": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y1": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "x2": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y2": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "x3": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      },
+                      "y3": {
+                        "$ref": "common.schema.json#/$defs/length"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "verb"
+                    ],
+                    "properties": {
+                      "verb": {
+                        "const": "close"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "paint": {
+              "$ref": "#/$defs/paint"
+            },
+            "stroke": {
+              "$ref": "#/$defs/stroke_style"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "run_id",
+            "font_instance_id",
+            "text_span",
+            "origin",
+            "font_size",
+            "bidi_level",
+            "fill",
+            "glyphs",
+            "clusters"
+          ],
+          "properties": {
+            "op": {
+              "const": "draw_glyph_run"
+            },
+            "run_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "font_instance_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "text_span": {
+              "$ref": "common.schema.json#/$defs/text_span"
+            },
+            "origin": {
+              "$ref": "common.schema.json#/$defs/point"
+            },
+            "font_size": {
+              "$ref": "common.schema.json#/$defs/positive_length"
+            },
+            "glyphs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/display_glyph"
+              }
+            },
+            "clusters": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/display_cluster"
+              }
+            },
+            "bidi_level": {
+              "$ref": "common.schema.json#/$defs/bidi_level"
+            },
+            "fill": {
+              "$ref": "#/$defs/paint"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "op",
+            "image_id",
+            "rect"
+          ],
+          "properties": {
+            "op": {
+              "const": "draw_image"
+            },
+            "image_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "rect": {
+              "$ref": "common.schema.json#/$defs/rect"
+            }
+          }
+        }
+      ]
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "target",
+        "rect"
+      ],
+      "properties": {
+        "kind": {
+          "const": "link"
+        },
+        "target": {
+          "$ref": "common.schema.json#/$defs/link_target"
+        },
+        "rect": {
+          "$ref": "common.schema.json#/$defs/rect"
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page_index",
+        "width",
+        "height",
+        "commands",
+        "annotations"
+      ],
+      "properties": {
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "width": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "height": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/command"
+          }
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/annotation"
+          }
+        }
+      }
+    },
+    "paint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "space",
+            "g"
+          ],
+          "properties": {
+            "space": {
+              "const": "gray"
+            },
+            "g": {
+              "$ref": "common.schema.json#/$defs/u16"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "space",
+            "r",
+            "g",
+            "b"
+          ],
+          "properties": {
+            "space": {
+              "const": "rgb"
+            },
+            "r": {
+              "$ref": "common.schema.json#/$defs/u16"
+            },
+            "g": {
+              "$ref": "common.schema.json#/$defs/u16"
+            },
+            "b": {
+              "$ref": "common.schema.json#/$defs/u16"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "space",
+            "c",
+            "m",
+            "y",
+            "k"
+          ],
+          "properties": {
+            "space": {
+              "const": "cmyk"
+            },
+            "c": {
+              "$ref": "common.schema.json#/$defs/u16"
+            },
+            "m": {
+              "$ref": "common.schema.json#/$defs/u16"
+            },
+            "y": {
+              "$ref": "common.schema.json#/$defs/u16"
+            },
+            "k": {
+              "$ref": "common.schema.json#/$defs/u16"
+            }
+          }
+        }
+      ]
+    },
+    "destination_view": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "point"
+          ],
+          "properties": {
+            "kind": {
+              "const": "xyz"
+            },
+            "point": {
+              "$ref": "common.schema.json#/$defs/point"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "fit_page"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "top"
+          ],
+          "properties": {
+            "kind": {
+              "const": "fit_width"
+            },
+            "top": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "common.schema.json#/$defs/length"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "named_destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor_id",
+        "page_index",
+        "view"
+      ],
+      "properties": {
+        "anchor_id": {
+          "$ref": "common.schema.json#/$defs/anchor_id"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "view": {
+          "$ref": "#/$defs/destination_view"
+        }
+      }
+    }
+  }
+}

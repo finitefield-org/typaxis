@@ -1,0 +1,1 @@
+{"$fixture":"layout_trace","mutations":[{"path":["passes",0,"state","pages",0,"fragments",0],"value":{"bounds":{"x":3715427,"y":3715427,"width":1,"height":1},"column_index":0,"end":{"$copy":["passes",0,"state","flow_positions",0]},"frame_kind":"body","owner":0,"owner_local_ordinal":0,"start":{"$copy":["passes",0,"state","flow_positions",0]}}}]}

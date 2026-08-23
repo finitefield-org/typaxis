@@ -1,0 +1,8 @@
+{
+  "$fixture": "layout_trace",
+  "mutations": [
+    {"path": ["passes"], "value": [{"$copy": ["passes", 0]}]},
+    {"path": ["result", "pass_count"], "value": 1},
+    {"path": ["result", "selected_state"], "value": 1}
+  ]
+}

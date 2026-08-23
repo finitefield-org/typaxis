@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["text_buffers",1,"mappings"],"value":[{"text_range":{"start_byte":0,"end_byte":1},"kind":"replacement","source_span":{"source_id":0,"start_byte":153,"end_byte":154}},{"text_range":{"start_byte":1,"end_byte":48},"kind":"replacement","source_span":{"source_id":0,"start_byte":154,"end_byte":201}}]}]}

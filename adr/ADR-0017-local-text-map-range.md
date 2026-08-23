@@ -1,11 +1,12 @@
-# Local text-map ranges
+# ADR-0017: Local text-map ranges
 
-- Status: Accepted
-- Contract: `typaxis.contract/1.0`
+## Status
+
+Accepted in `typaxis.contract/1.0`.
 
 ## Decision
 
-Text-map segments use an owning-buffer-local `Utf8ByteRange`, not a cross-buffer `TextSpan`. This makes a segment incapable of naming another text buffer.
+Text-map segments use an owning-buffer-local `Utf8ByteRange`, not a cross-buffer `TextSpan`. This makes a segment incapable of naming another text buffer. An identity segment additionally requires equal byte lengths and byte-for-byte equality between its text and source ranges.
 
 ## Consequences
 

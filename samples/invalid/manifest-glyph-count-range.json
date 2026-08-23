@@ -1,0 +1,1 @@
+{"$fixture":"build_manifest","mutations":[{"path":["fonts",0],"value":{"font_face_id":0,"uri":"test-font.bin","face_index":0,"bytes":1,"sha256":"0000000000000000000000000000000000000000000000000000000000000000","units_per_em":16,"glyph_count":4294967296}}]}

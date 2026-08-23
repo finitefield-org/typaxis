@@ -1,0 +1,21 @@
+[package]
+name = "typaxis-layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-document = { path = "../typaxis-document" }
+typaxis-style = { path = "../typaxis-style" }
+typaxis-linebreak = { path = "../typaxis-linebreak" }
+typaxis-layout-contract = { path = "../typaxis-layout-contract" }
+typaxis-syntax = { path = "../typaxis-syntax" }
+typaxis-text = { path = "../typaxis-text" }
+
+[dev-dependencies]
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }

@@ -1,0 +1,1 @@
+{"$fixture":"build_manifest","mutations":[{"path":["images",0],"value":{"image_id":0,"uri":"test-font.bin","bytes":1,"sha256":"0000000000000000000000000000000000000000000000000000000000000000","pixel_width":1,"pixel_height":4294967296,"decoded_bytes":1}}]}

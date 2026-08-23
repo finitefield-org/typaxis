@@ -1,0 +1,1 @@
+{"$fixture":"layout_trace","mutations":[{"path":["passes",0,"state","layout_epoch","resolved_input_sha256"],"value":"0000000000000000000000000000000000000000000000000000000000000000"},{"path":["passes",0,"state","flow_positions",0,"epoch","resolved_input_sha256"],"value":"0000000000000000000000000000000000000000000000000000000000000000"}]}

@@ -1,0 +1,21 @@
+[package]
+name = "typaxis-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-text = { path = "../typaxis-text" }
+typaxis-document = { path = "../typaxis-document" }
+typaxis-style = { path = "../typaxis-style" }
+typaxis-layout = { path = "../typaxis-layout" }
+typaxis-pagination = { path = "../typaxis-pagination" }
+typaxis-resources = { path = "../typaxis-resources" }
+typaxis-display-list = { path = "../typaxis-display-list" }
+typaxis-pdf = { path = "../typaxis-pdf" }
+typaxis-syntax = { path = "../typaxis-syntax" }

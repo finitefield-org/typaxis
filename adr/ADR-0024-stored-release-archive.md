@@ -1,7 +1,8 @@
-# Stored reproducible release archive
+# ADR-0024: Stored reproducible release archive
 
-- Status: Accepted
-- Contract: `typaxis.contract/1.0`
+## Status
+
+Accepted in `typaxis.contract/1.0`.
 
 ## Decision
 

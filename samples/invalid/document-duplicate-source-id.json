@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["sources",1],"value":{"source_id":0,"uri":"duplicate.tsf","utf8_byte_length":202,"sha256":"0000000000000000000000000000000000000000000000000000000000000000"}}]}

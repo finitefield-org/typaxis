@@ -1,12 +1,21 @@
 # Deterministic resource finalization
 
-Display pagesをspoolしながらlogical useを収集し、次の順でfinalizeする。
+Parser後・shaping前の`typaxis-resource-admission::AdmittedResourceResolver`はdeclaration count、resourceごとのencoded input bytes、全admitted input bytesをread/allocation前にconsumeする。raw `HostPath` sliceからresolverを作らず、EffectiveConfig/CLIと同一sessionへbindされたopaque `AdmittedRootSet`を必須とする。contained regular-file opener/stat ownerだけが、そのroot set、same no-follow open handle、logical resource ID、観測したexact lengthをbindしたopaque `VerifiedResourceSource`を発行できる。resolverはcaller-supplied lengthや任意`Read`を直接受けず、このsource receiptのlengthをreserveしてからpermit付き`BoundedResourceReader`でexact lengthをchunk readし、同時にSHA-256をstream計算する。limit判定用のmax+1 probeは行わず、read完了後にsame handleのextentが不変であることを再検査する。platform openerはread期間をimmutable snapshot/lockとして扱い、no-follow directory-handle-relative openとopened-handle identity照合を実装できないplatformではreceiptを発行せずfail closedにする。crate-owned parserはlogical URI、font face index、exact bytes/hashから`VerifiedMetadataReceipt`を発行する。pending bytesとmetadata receiptはbudgetをconsumeしたresolverのopaque session identityにもbindし、別resolverへの移送をparse/bind前に拒否する。resolverは全declarationがdense ID順にちょうど1件bindされた時だけimmutable `AdmittedResourceLedger`を発行する。callerが組み立てた`Vec`、hash、font/image metadataはledgerにならない。`ResourceCollector`はDisplay pagesをspoolしながらfont glyph/cluster useとimage useをlogical IDごとにunionし、同じglyph/extraction tupleを複数run/pageで見ても1 canonical usage recordへ集約する。Display ListまではPDF非依存であり、late finalizer以降はprofile 1.0のPDF-specific phaseである。late finalizerは次の順でPDF-readyかつbackend identity-freeな`FrozenPdfResourcePlans`を作る。
 
-1. input/resource bytes hashを確定。
-2. font glyph closureとimage decode profileを確定。
-3. resourceを`(kind, content_hash, logical_id)`でstable sort。
-4. subset GID、CID、backend handleを固定。
-5. PDF resource nameとobject IDをstable sort後に付与。
-6. frozen resource manifestをPDF backendへ渡す。
+built manifestのfont/image recordsはDisplay usage集合ではなく、Documentで宣言されadmitに成功した全resource集合である。Displayのlogical usageはそのmanifest集合のsubsetで、未使用だがadmit済みの宣言をmanifestから落とさない。failed manifestだけが失敗境界までのadmitted subsetを記録できる。
 
-HashMap iteration、parallel completion、file discovery orderから番号を決めない。same original GIDが複数Unicode clusterを表してもsubset GIDは共有できるがCID/ActualTextはcluster extraction planに従う。
+1. selected DisplayのLayoutEpochに記録されたadmitted-resource fingerprintと、供給ledgerの再計算fingerprintをexact照合してから、各logical IDが1件のadmitted resource/hash/metadataへ解決することを検証。別ledgerへの差替え、同じIDの異なるhash、face index、dimensions、その他admitted metadataはerror。
+2. exact duplicate useを除去してlogical IDごとのusage unionを確定。font cluster useは`(logical extraction/text span, original glyph sequence)`のcanonical unique集合であり、occurrence数をplan multiplicityにしない。
+3. deterministic subsetter/image encoderだけがsealed `VerifiedEncoderReceipt`を発行し、font glyph closure/subset bytesとimage encoding profileを確定。caller supplied encoded bytes/metadataを直接plan constructorへ渡す経路を持たない。
+4. font plan keyを`(font, admitted_source_sha256, FontInstanceId)`、image plan keyを`(image, admitted_source_sha256, ImageResourceId)`としてcanonical sort。
+5. 全OriginalGlyphIdがreceiptと同じadmitted font metadataの`glyph_count`未満であることを再検証してから、subset GID、CID、extraction、descriptor/image metadataを固定し、`FrozenPdfResourcePlans`をPDF backendへ渡す。
+
+canonical sortの比較規則は、`kind`が`font < image`、`admitted_source_sha256`がSHA-256 raw 32-byte列の辞書式昇順、`FontInstanceId`/`ImageResourceId`が各identifier space内のunsigned numeric昇順である。usage union後に同じcanonical keyを持つplan recordが2件以上残る場合はfinalization errorとし、planを返さない。これは複数pageの通常useをdedupeする処理とは別のinvariant violationである。
+
+late finalizerはCID/CIDToGIDMap、FontDescriptor metrics、PDF image encoding policyを固定できるが、backend handle、PDF resource name、PDF object IDを割り当てない。font metricsはnondegenerate FontBBox、positive StemV、required CapHeight、Symbolic/Nonsymbolic flagsのexactly-oneを検証する。各font planは`Type0Font, CIDFont, FontDescriptor, EmbeddedFontProgram, ToUnicodeCMap, CIDToGidMap`の6 indirect-object roleを宣言し、image planも型付きrole countを宣言する。PDF backendがcanonical resource sequenceとplan内role sequenceをそのまま入力とし、nameとobject IDを割り当てるsole ownerである。各resource plan内部のobject traversal orderもplan型の宣言済みfield/variant順で固定し、map iterationを順序として使わない。HashMap iteration、parallel completion、file discovery orderから番号を決めない。same original GIDが複数Unicode clusterを表してもsubset GIDは共有できるがCID/ActualTextはcluster extraction planに従う。
+
+`max_font_bytes`、`max_image_bytes`、`max_resource_bytes`はadmission source bytesのlimitであり、subset/image encoder outputへ再適用しない。finalizerが同時保持するverified plan payloadは`max_spool_bytes`、CID数は`max_cids_per_font`で制限し、最終PDF bytesはPDF writerの`max_output_bytes`で別に制限する。
+
+PNG admissionはIHDRのcolor-type/bit-depth合法組合せ、compression/filter method 0、interlace 0/1を先に検証する。`max_decoded_image_bytes`はpacked scanline sizeではなくcanonical alpha-capable decoded pixel bufferを測る。`tRNS`を取り得るgrayscaleはGA（8-bit以下で2 bytes/pixel、16-bitで4）、truecolorはRGBA（8-bitで4、16-bitで8）、paletteはRGBA8、explicit gray-alpha/RGBAもsample幅を含む同じexpanded formとしてchecked計算する。これによりchunk走査前でもtransparency展開を過小計上しない。exact limitは許可し、max+1 decoded byteを必要とするimageはdecode allocation前に拒否する。
+
+font subset receiptは、rewritten embedded font programのbounded sfnt table-directory/name-table parseからowner自身が再抽出した完全なPostScript名を保持する。public encoder outputは別のname文字列を渡せない。Profile 1.0はformat 0 tableのcanonical Windows Unicode BMP/English-US name ID 6 recordをexactly一つ要求し、duplicate、unsupported encoding、bounds違反を拒否する。finalizerはdense FontInstanceId由来の`AAAAAA+Typaxis`形式とexact一致しないreceiptを拒否し、PDFのBaseFont/FontNameとembedded `name` tableが乖離するplanを発行しない。

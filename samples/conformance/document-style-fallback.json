@@ -1,0 +1,7 @@
+{
+  "$fixture": "document_package",
+  "mutations": [
+    {"path": ["style_sheet", "rules", 0, "declarations", 0, "value", "families"], "value": ["Unknown Alias", "Noto Serif JP"]},
+    {"path": ["style_sheet", "rules", 0, "declarations", 3], "value": {"name": "font_size", "value": {"kind": "length", "value": 720896}, "important": false}}
+  ]
+}

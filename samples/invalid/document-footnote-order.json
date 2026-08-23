@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["document","footnotes"],"value":[{"footnote_id":"b","node_id":5,"span":{"source_id":0,"start_byte":0,"end_byte":0},"blocks":[]},{"footnote_id":"a","node_id":6,"span":{"source_id":0,"start_byte":0,"end_byte":0},"blocks":[]}]}]}

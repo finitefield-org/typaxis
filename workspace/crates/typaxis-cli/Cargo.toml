@@ -1,0 +1,24 @@
+[package]
+name = "typaxis-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "typaxis"
+path = "src/main.rs"
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-diagnostics = { path = "../typaxis-diagnostics" }
+typaxis-syntax = { path = "../typaxis-syntax" }
+typaxis-layout = { path = "../typaxis-layout" }
+typaxis-pagination = { path = "../typaxis-pagination" }
+typaxis-display-list = { path = "../typaxis-display-list" }
+typaxis-resources = { path = "../typaxis-resources" }
+typaxis-pdf = { path = "../typaxis-pdf" }
+typaxis-manifest = { path = "../typaxis-manifest" }

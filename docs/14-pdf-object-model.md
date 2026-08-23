@@ -2,8 +2,12 @@
 
 初期profileは新規PDF 1.7互換生成、classic xref table、generation 0。`PdfValue`はdirect valueだけでstreamを持たない。streamは`IndirectObjectBody::Stream`のみ。
 
-`PdfObjectGraphBuilder::insert`はduplicate時に最初のobjectを保持する。`freeze`は全reference、root、page tree、stream dictionary予約keyを検査し、以後mutation不能なgraphを返す。Catalogの`/Pages`は必ずroot `/Pages` dictionaryを指し、そのroot nodeは`/Parent`を持たない。
+低level `UntrustedPdfObjectGraphBuilder::insert`はduplicate object IDを検出するとbuilderを変更せずerrorを返すが、そのvalidation結果は明示的な`ValidatedUntrustedPdfObjectGraph`でありpublication用`FrozenPdfGraph`へ変換できない。trusted `PdfBackend::build`だけがselected paginationへbind済みの`ValidatedDisplayDocument`、そのDisplayから収集した`FrozenPdfResourcePlans`、Display内に保持されたselected page/master geometry receiptを消費する。backendはCatalog/Pages、各planが宣言する全indirect-object role、各page/content、各link annotationをchecked合計して`max_pdf_objects`を最初のID/body allocation前にconsumeする。その後font/image planのcanonical traversal、page/annotation encounter orderからresource nameと1-based dense generation-0 object IDを内部割当する。allocatorのnext stateはObjectIdより広い整数で保持し、`u32::MAX`番目を発行した後のsentinelも表現するため、configured exact maximumは成功可能でmax+1だけを拒否する。font 1件を1 objectと仮定する固定式は使わない。
 
-`/Length`は圧縮後data bytesからserializerが生成し、caller dictionaryに指定させない。PdfNameはraw bytesを保持し、whitespace、delimiter、`#`、非regular byteを`#XX` escapeする。ユーザー文字列をraw tokenとしてwriteしない。
+`FrozenPdfGraph`発行前に全reference、root、nonempty page tree、effective `/MediaBox`、selected page/master geometry、resource key/use closure、stream payload/filter policy、stream dictionary予約key、Catalog `/Names/Dests`、page `/Annots`とannotation target closureを検査する。Catalogの`/Pages`は必ずroot `/Pages` dictionaryを指し、そのroot nodeは`/Parent`を持たず、validated descendant `/Page`を1件以上持つ。empty documentもdefault-master blank pageを1件持つため、`/Count = 0`のbuilt PDFを生成しない。untrusted direct value/reference walkとpage-tree count/cycle walkはiterativeに行い、両方にprofile fixed depth 64をinclusive適用する。indirect bodyのroot `PdfValue`、stream dictionary、root `/Pages`をdepth 1とし、配下のarray/dictionary valueまたはpage-tree childごとに1増やす。depth 64は成功でき、65を必要とするpayloadは拒否する。`PdfValue`のdestructorもchildrenをiterativeにdrainし、深いreject payloadをrecursive dropしない。
 
-classic xref offsetは10 decimal digitsのため、outputが10,000,000,000 bytesへ達する前に失敗する。
+stream payload、filter policy、reference integrityはserializer前にfreezeする。`/Length`、`/Filter`、`/DecodeParms`のdictionary materializationはserializerだけが所有し、caller dictionaryに指定させない。`/Length`は選択済みfilter適用後のdata bytesから生成する。PdfNameはraw bytesを保持し、whitespace、delimiter、`#`、非regular byteを`#XX` escapeする。ユーザー文字列をraw tokenとしてwriteしない。
+
+serializerは`FrozenPdfGraph`からのみbytesを生成し、graphのselected layout fingerprint、page count、object count、actual byte length、SHA-256、実際に適用した`PdfStreamCompression`、serializationに使用した`EffectiveConfigFingerprint`へbindした`VerifiedPdfBytesReceipt`を発行する。manifest publicationとmanifest-free outputはarbitrary byte sliceではなくこのreceiptを消費し、receiptのconfig fingerprint/compression modeをexact output contextと照合する。別build configで発行した同一bytes receiptを流用しない。
+
+classic xref entryのbyte offsetは`0..=9,999,999,999`だけを表せる。次のwriteでoffset `10,000,000,000`以上が必要になることを割当/write前に検出してD8xxx errorにする。

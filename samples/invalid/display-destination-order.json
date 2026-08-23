@@ -1,0 +1,1 @@
+{"$fixture":"display_list","mutations":[{"path":["destinations",1],"value":{"anchor_id":"a-first","page_index":0,"view":{"kind":"fit_page"}}}]}

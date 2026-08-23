@@ -6,7 +6,7 @@ Accepted in `typaxis.contract/1.0`.
 
 ## Decision
 
-footnote/frame変更後に同じcursorから本文を再フローできるようにする。
+footnote/frame/reference state変更後にglobal structured `FlowPosition`から本文を再フローできるようにする。`Continuation::More`は同じepoch内でpositionを厳密に前進させ、owner境界を跨げる。opaque fingerprintの変化だけを進捗とみなさない。
 
 ## Consequences
 

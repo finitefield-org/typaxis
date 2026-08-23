@@ -1,0 +1,216 @@
+{
+  "contract": "typaxis.contract/1.0",
+  "coordinate_unit": "pdf_point_1_65536",
+  "sources": [
+    {
+      "source_id": 0,
+      "uri": "input.tsf",
+      "utf8_byte_length": 202,
+      "sha256": "bff5c19bd64e19e29a631f5bf6d7b949080248b1bf4b7a1e25c1ddfe90c49cd7"
+    }
+  ],
+  "text_buffers": [
+    {
+      "text_id": 0,
+      "utf8": "第1章",
+      "mappings": [
+        {
+          "text_range": {
+            "start_byte": 0,
+            "end_byte": 7
+          },
+          "kind": "identity",
+          "source_span": {
+            "source_id": 0,
+            "start_byte": 144,
+            "end_byte": 151
+          }
+        }
+      ]
+    },
+    {
+      "text_id": 1,
+      "utf8": "日本語横書きの最小サンプルです。",
+      "mappings": [
+        {
+          "text_range": {
+            "start_byte": 0,
+            "end_byte": 48
+          },
+          "kind": "identity",
+          "source_span": {
+            "source_id": 0,
+            "start_byte": 153,
+            "end_byte": 201
+          }
+        }
+      ]
+    }
+  ],
+  "document": {
+    "node_id": 0,
+    "blocks": [
+      {
+        "kind": "heading",
+        "node_id": 1,
+        "span": {
+          "source_id": 0,
+          "start_byte": 142,
+          "end_byte": 152
+        },
+        "classes": [],
+        "level": 1,
+        "anchor_id": "chapter-1",
+        "children": [
+          {
+            "kind": "text",
+            "node_id": 2,
+            "span": {
+              "source_id": 0,
+              "start_byte": 144,
+              "end_byte": 151
+            },
+            "text_span": {
+              "text_id": 0,
+              "start_byte": 0,
+              "end_byte": 7
+            }
+          }
+        ]
+      },
+      {
+        "kind": "paragraph",
+        "node_id": 3,
+        "span": {
+          "source_id": 0,
+          "start_byte": 153,
+          "end_byte": 202
+        },
+        "classes": [
+          "body"
+        ],
+        "children": [
+          {
+            "kind": "text",
+            "node_id": 4,
+            "span": {
+              "source_id": 0,
+              "start_byte": 153,
+              "end_byte": 201
+            },
+            "text_span": {
+              "text_id": 1,
+              "start_byte": 0,
+              "end_byte": 48
+            }
+          }
+        ]
+      }
+    ],
+    "footnotes": []
+  },
+  "style_sheet": {
+    "rules": [
+      {
+        "style_id": "body",
+        "extends": null,
+        "selector": "paragraph.body",
+        "source_order": 0,
+        "declarations": [
+          {
+            "name": "font_family",
+            "value": {
+              "kind": "font_family_list",
+              "families": [
+                "Noto Serif JP"
+              ]
+            },
+            "important": false
+          },
+          {
+            "name": "font_size",
+            "value": {
+              "kind": "length",
+              "value": 688128
+            },
+            "important": false
+          },
+          {
+            "name": "line_height",
+            "value": {
+              "kind": "length",
+              "value": 1114112
+            },
+            "important": false
+          }
+        ]
+      },
+      {
+        "style_id": "heading",
+        "extends": null,
+        "selector": "heading",
+        "source_order": 1,
+        "declarations": [
+          {
+            "name": "font_family",
+            "value": {
+              "kind": "font_family_list",
+              "families": [
+                "Noto Serif JP"
+              ]
+            },
+            "important": false
+          },
+          {
+            "name": "font_size",
+            "value": {
+              "kind": "length",
+              "value": 917504
+            },
+            "important": false
+          },
+          {
+            "name": "line_height",
+            "value": {
+              "kind": "length",
+              "value": 1376256
+            },
+            "important": false
+          }
+        ]
+      }
+    ]
+  },
+  "page_masters": {
+    "default_master_id": "a4",
+    "masters": [
+      {
+        "master_id": "a4",
+        "width": 39011981,
+        "height": 55174088,
+        "body": {
+          "x": 3715427,
+          "y": 3715427,
+          "width": 31581127,
+          "height": 47743234
+        },
+        "header": null,
+        "footer": null,
+        "footnote": null
+      }
+    ],
+    "selection_rules": []
+  },
+  "resources": {
+    "font_faces": [
+      {
+        "font_face_id": 0,
+        "family": "Noto Serif JP",
+        "uri": "test-font.bin",
+        "face_index": 0,
+        "expected_sha256": "4c73d2e7a7fbe4b19f2e2e8215bce21ed810d1a117c71b3064a0798351a3bc55"
+      }
+    ],
+    "images": []
+  }
+}

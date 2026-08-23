@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["document","blocks",1,"children",1],"value":{"kind":"link","node_id":5,"span":{"source_id":0,"start_byte":153,"end_byte":154},"target":{"kind":"uri","uri":{"$repeat":"あ","count":2725,"prefix":"https://example.com/"}},"children":[]}}]}

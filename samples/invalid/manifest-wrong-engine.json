@@ -1,0 +1,31 @@
+{
+  "contract": "typaxis.contract/1.0",
+  "status": "failed",
+  "deterministic": true,
+  "engine": {
+    "name": "other-engine",
+    "version": "0.1.0",
+    "rust_version": "1.75.0",
+    "git_commit": null
+  },
+  "data_versions": {
+    "unicode": "16.0.0",
+    "japanese_line_break": "typaxis-jlreq-horizontal/1.0.0",
+    "shaper_backend": "typaxis-reference-shaper",
+    "shaper_version": "0.1.0"
+  },
+  "config_sha256": "583021260f14cb709bd0f1eec0c41eb458cb670ff28e8ae948f1b87cb1224d0d",
+  "inputs": [
+    {
+      "uri": "input.tsf",
+      "bytes": 202,
+      "sha256": "bff5c19bd64e19e29a631f5bf6d7b949080248b1bf4b7a1e25c1ddfe90c49cd7"
+    }
+  ],
+  "fonts": [],
+  "images": [],
+  "pdf_profile": "pdf-1.7-classic-xref",
+  "stream_compression": "flate",
+  "layout": null,
+  "output": null
+}

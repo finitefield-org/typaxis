@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.0/package-config.schema.json",
+  "title": "Typaxis Project Configuration 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "deterministic",
+    "strict",
+    "pdf_stream_compression",
+    "resource_roots",
+    "allowed_uri_schemes",
+    "data_versions",
+    "limits"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "deterministic": {
+      "const": true
+    },
+    "strict": {
+      "type": "boolean"
+    },
+    "pdf_stream_compression": {
+      "enum": [
+        "flate",
+        "none"
+      ]
+    },
+    "resource_roots": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common.schema.json#/$defs/resource_root"
+      }
+    },
+    "allowed_uri_schemes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "https",
+          "http",
+          "mailto",
+          "tel"
+        ]
+      }
+    },
+    "data_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unicode",
+        "japanese_line_break"
+      ],
+      "properties": {
+        "unicode": {
+          "const": "16.0.0"
+        },
+        "japanese_line_break": {
+          "const": "typaxis-jlreq-horizontal/1.0.0"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_input_bytes",
+        "max_source_bytes",
+        "max_include_depth",
+        "max_include_files",
+        "max_ast_nesting_depth",
+        "max_ast_nodes",
+        "max_style_rules",
+        "max_text_bytes",
+        "max_text_buffer_bytes",
+        "max_shaping_context_bytes",
+        "max_font_bytes",
+        "max_fonts",
+        "max_image_bytes",
+        "max_images",
+        "max_resource_bytes",
+        "max_image_pixels",
+        "max_decoded_image_bytes",
+        "max_pages",
+        "max_layout_passes",
+        "max_uri_bytes",
+        "max_line_reshape_passes",
+        "max_page_break_lookback",
+        "max_footnote_reflows_per_page",
+        "max_column_balance_candidates",
+        "max_float_queue",
+        "max_float_carry_pages",
+        "max_cids_per_font",
+        "max_fragments",
+        "max_spool_bytes",
+        "max_pdf_objects",
+        "max_output_bytes"
+      ],
+      "properties": {
+        "max_input_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_source_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_include_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_include_files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_ast_nesting_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_ast_nodes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_style_rules": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_text_buffer_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_shaping_context_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_font_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_fonts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 308915776
+        },
+        "max_image_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_images": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_resource_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_image_pixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_decoded_image_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_layout_passes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max_uri_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_line_reshape_passes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max_page_break_lookback": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max_footnote_reflows_per_page": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max_column_balance_candidates": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max_float_queue": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_float_carry_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max_cids_per_font": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max_fragments": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_spool_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "max_pdf_objects": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "max_output_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9999999999
+        }
+      }
+    }
+  }
+}

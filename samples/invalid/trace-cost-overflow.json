@@ -1,0 +1,1 @@
+{"$fixture":"layout_trace","mutations":[{"path":["passes",0,"cost","keep"],"value":9007199254740991},{"path":["passes",0,"cost","unused_space"],"value":1},{"path":["passes",0,"cost","total"],"value":9007199254740991}]}

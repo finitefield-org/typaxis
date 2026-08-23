@@ -45,7 +45,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 
 - [`contracts/`](contracts/) — contract ID、phase ownership、横断 invariant
 - [`schemas/`](schemas/) — canonical JSON/TOML Schema
-- [`adr/`](adr/) — 採用済みの設計判断と適用範囲
+- [ADR catalog](adr/README.md) — 採用済みの設計判断と適用範囲
 - [`samples/`](samples/) — valid/invalid contract fixture
 
 ## 実装

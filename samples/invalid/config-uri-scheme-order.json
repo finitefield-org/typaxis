@@ -1,0 +1,1 @@
+{"$fixture":"package_config","mutations":[{"path":["allowed_uri_schemes"],"value":["https","http","mailto"]}]}

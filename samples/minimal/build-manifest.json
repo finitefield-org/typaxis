@@ -1,0 +1,43 @@
+{
+  "contract": "typaxis.contract/1.0",
+  "status": "built",
+  "deterministic": true,
+  "engine": {
+    "name": "typaxis",
+    "version": "0.1.0",
+    "rust_version": "1.75.0",
+    "git_commit": null
+  },
+  "data_versions": {
+    "unicode": "16.0.0",
+    "japanese_line_break": "typaxis-jlreq-horizontal/1.0.0",
+    "shaper_backend": "typaxis-reference-shaper",
+    "shaper_version": "0.1.0"
+  },
+  "config_sha256": "583021260f14cb709bd0f1eec0c41eb458cb670ff28e8ae948f1b87cb1224d0d",
+  "inputs": [
+    {
+      "uri": "empty.tsf",
+      "bytes": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    }
+  ],
+  "fonts": [],
+  "images": [],
+  "pdf_profile": "pdf-1.7-classic-xref",
+  "stream_compression": "flate",
+  "layout": {
+    "status": "converged",
+    "pass_count": 2,
+    "selected_state": 2,
+    "final_fingerprint": "885759631f118f0ee315336517ca03ff9cea19d6ac946f01e8e4a7005c7d662d",
+    "fallback_policy": null
+  },
+  "output": {
+    "sink": "file",
+    "bytes": 430,
+    "sha256": "e7763a7a6d62e48fa5038dba3df009a1023a2595a5177d17447202d23de226f5",
+    "page_count": 1,
+    "pdf_object_count": 4
+  }
+}

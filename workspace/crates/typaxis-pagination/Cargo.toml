@@ -1,0 +1,22 @@
+[package]
+name = "typaxis-pagination"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-style = { path = "../typaxis-style" }
+typaxis-layout = { path = "../typaxis-layout" }
+typaxis-diagnostics = { path = "../typaxis-diagnostics" }
+typaxis-text = { path = "../typaxis-text" }
+typaxis-document = { path = "../typaxis-document" }
+typaxis-syntax = { path = "../typaxis-syntax" }
+
+[dev-dependencies]
+typaxis-linebreak = { path = "../typaxis-linebreak" }
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }

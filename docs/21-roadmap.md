@@ -1,14 +1,14 @@
 # Implementation roadmap
 
-M0 contract: core newtypes、TextStore、ParsedPackage、Fragmenter、Display/PDF model、validator。
+M0 contract: scoped core newtypes、separate SourceCatalog/TextStore ownership、`ValidatedParsedPackage`/`ParseOutcome`/`AdvisoryDiagnostic`、SafeUri、structured Fragmenter continuation、Display/PDF model、validator。
 
 M1 minimal PDF: path/JPEG、Type0/CIDFontType2、CIDToGIDMap、ToUnicode、absolute Japanese run、xref。
 
-M2 text: grapheme/bidi/itemization/fallback/shaping、cluster extraction round-trip。
+M2 text: admitted resource resolution、grapheme/bidi/itemization/fallback/shaping、line-level UAX #9 reorder、cluster extraction round-trip。
 
 M3 paragraph: UAX #14、Japanese pair table、greedy/optimal、justification。
 
-M4 flow/pagination: paragraph/heading/list/image、page masters、keep/widow/orphan、trace convergence。
+M4 flow/pagination: LayoutPassCoordinator feedback、paragraph/heading/list/image、page masters、keep/widow/orphan、scored fallback、trace convergence。
 
 M5 table/footnote/reference: basic table、bounded footnote、TOC/page reference。
 

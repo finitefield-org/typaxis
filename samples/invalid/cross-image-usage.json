@@ -1,0 +1,1 @@
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"display","path":["pages",0,"commands",0],"value":{"op":"draw_image","image_id":0,"rect":{"x":0,"y":0,"width":1,"height":1}}}]}

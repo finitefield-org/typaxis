@@ -1,0 +1,1 @@
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"display","path":["destinations",0],"value":{"anchor_id":"a","page_index":0,"view":{"kind":"fit_page"}}}]}

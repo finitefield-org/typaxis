@@ -6,7 +6,7 @@
 
 ## 品質目標
 
-1. 同一source bytes、config、font/image bytes、data version、engine versionからbyte-identicalなPDFを生成する。
+1. 同一source bytes、解決済みeffective config、admitted font/image bytes、data version、engine version、PDF profile/compression implementationからbyte-identicalなPDFを生成する。profile 1.0ではdeterminismを無効化できない。
 2. 日本語横書きの禁則、和欧文間隔、均等割付をversioned data tableで扱う。
 3. 検索・copy用Unicodeをcluster単位で保存し、必要時はActualTextを使う。
 4. source位置と変換後text位置を混同しない。

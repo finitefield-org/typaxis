@@ -1,0 +1,14 @@
+@page a4 {
+  size: 210mm 297mm;
+  margin: 20mm;
+}
+
+@style body {
+  font-family: "Noto Serif JP";
+  font-size: 10.5pt;
+  line-height: 17pt;
+}
+
+# 第1章
+
+日本語横書きの最小サンプルです。

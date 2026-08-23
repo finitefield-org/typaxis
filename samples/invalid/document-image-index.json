@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["resources","images",0],"value":{"image_id":2,"uri":"test-font.bin","expected_sha256":"4c73d2e7a7fbe4b19f2e2e8215bce21ed810d1a117c71b3064a0798351a3bc55"}}]}

@@ -1,0 +1,491 @@
+{
+  "$fixture": "cross_artifacts",
+  "mutations": [
+    {
+      "artifact": "config",
+      "path": [
+        "limits",
+        "max_fragments"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "config_sha256"
+      ],
+      "value": "6ef66d3c751d26cf066e1a3040ea0dc861d2ca59331e0f68e36397784a522384"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        1
+      ],
+      "value": {
+        "$copy": [
+          "passes",
+          0,
+          "state",
+          "flow_positions",
+          0
+        ]
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        1,
+        "global_flow_ordinal"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        1,
+        "block_child_path"
+      ],
+      "value": [
+        0
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        2
+      ],
+      "value": {
+        "$copy": [
+          "passes",
+          0,
+          "state",
+          "flow_positions",
+          0
+        ]
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        2,
+        "global_flow_ordinal"
+      ],
+      "value": 2
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        2,
+        "block_child_path"
+      ],
+      "value": [
+        0
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        2,
+        "owner_local_boundary"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        3
+      ],
+      "value": {
+        "$copy": [
+          "passes",
+          0,
+          "state",
+          "flow_positions",
+          0
+        ]
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        3,
+        "global_flow_ordinal"
+      ],
+      "value": 3
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions",
+        3,
+        "owner_local_boundary"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "pages",
+        0,
+        "fragments"
+      ],
+      "value": [
+        {
+          "bounds": {
+            "x": 3715427,
+            "y": 3715427,
+            "width": 1,
+            "height": 1
+          },
+          "column_index": 0,
+          "end": {
+            "$copy": [
+              "passes",
+              0,
+              "state",
+              "flow_positions",
+              2
+            ]
+          },
+          "frame_kind": "body",
+          "owner": 0,
+          "owner_local_ordinal": 0,
+          "start": {
+            "$copy": [
+              "passes",
+              0,
+              "state",
+              "flow_positions",
+              1
+            ]
+          }
+        },
+        {
+          "bounds": {
+            "x": 3715427,
+            "y": 3715427,
+            "width": 1,
+            "height": 1
+          },
+          "column_index": 0,
+          "end": {
+            "$copy": [
+              "passes",
+              0,
+              "state",
+              "flow_positions",
+              3
+            ]
+          },
+          "frame_kind": "body",
+          "owner": 0,
+          "owner_local_ordinal": 1,
+          "start": {
+            "$copy": [
+              "passes",
+              0,
+              "state",
+              "flow_positions",
+              2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "output_fingerprint"
+      ],
+      "value": "a4b3092dd7e381c6bcc66ac7928bffa0de4c2dcc3a82fc01b09e96188b01c473"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        1
+      ],
+      "value": {
+        "$copy": [
+          "passes",
+          1,
+          "state",
+          "flow_positions",
+          0
+        ]
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        1,
+        "global_flow_ordinal"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        1,
+        "block_child_path"
+      ],
+      "value": [
+        0
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        2
+      ],
+      "value": {
+        "$copy": [
+          "passes",
+          1,
+          "state",
+          "flow_positions",
+          0
+        ]
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        2,
+        "global_flow_ordinal"
+      ],
+      "value": 2
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        2,
+        "block_child_path"
+      ],
+      "value": [
+        0
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        2,
+        "owner_local_boundary"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        3
+      ],
+      "value": {
+        "$copy": [
+          "passes",
+          1,
+          "state",
+          "flow_positions",
+          0
+        ]
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        3,
+        "global_flow_ordinal"
+      ],
+      "value": 3
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions",
+        3,
+        "owner_local_boundary"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "pages",
+        0,
+        "fragments"
+      ],
+      "value": [
+        {
+          "bounds": {
+            "x": 3715427,
+            "y": 3715427,
+            "width": 1,
+            "height": 1
+          },
+          "column_index": 0,
+          "end": {
+            "$copy": [
+              "passes",
+              1,
+              "state",
+              "flow_positions",
+              2
+            ]
+          },
+          "frame_kind": "body",
+          "owner": 0,
+          "owner_local_ordinal": 0,
+          "start": {
+            "$copy": [
+              "passes",
+              1,
+              "state",
+              "flow_positions",
+              1
+            ]
+          }
+        },
+        {
+          "bounds": {
+            "x": 3715427,
+            "y": 3715427,
+            "width": 1,
+            "height": 1
+          },
+          "column_index": 0,
+          "end": {
+            "$copy": [
+              "passes",
+              1,
+              "state",
+              "flow_positions",
+              3
+            ]
+          },
+          "frame_kind": "body",
+          "owner": 0,
+          "owner_local_ordinal": 1,
+          "start": {
+            "$copy": [
+              "passes",
+              1,
+              "state",
+              "flow_positions",
+              2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "output_fingerprint"
+      ],
+      "value": "a4b3092dd7e381c6bcc66ac7928bffa0de4c2dcc3a82fc01b09e96188b01c473"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "input_fingerprint"
+      ],
+      "value": "a4b3092dd7e381c6bcc66ac7928bffa0de4c2dcc3a82fc01b09e96188b01c473"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "result",
+        "final_fingerprint"
+      ],
+      "value": "a4b3092dd7e381c6bcc66ac7928bffa0de4c2dcc3a82fc01b09e96188b01c473"
+    }
+  ]
+}

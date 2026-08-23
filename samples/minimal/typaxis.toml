@@ -1,0 +1,43 @@
+contract = "typaxis.contract/1.0"
+deterministic = true
+strict = true
+pdf_stream_compression = "flate"
+resource_roots = ["."]
+allowed_uri_schemes = ["http", "https", "mailto"]
+
+[data_versions]
+unicode = "16.0.0"
+japanese_line_break = "typaxis-jlreq-horizontal/1.0.0"
+
+[limits]
+max_input_bytes = 16777216
+max_source_bytes = 16777216
+max_include_depth = 16
+max_include_files = 1024
+max_ast_nesting_depth = 64
+max_ast_nodes = 1000000
+max_style_rules = 100000
+max_text_bytes = 67108864
+max_text_buffer_bytes = 16777216
+max_shaping_context_bytes = 65536
+max_font_bytes = 134217728
+max_fonts = 256
+max_image_bytes = 134217728
+max_images = 1024
+max_resource_bytes = 1073741824
+max_image_pixels = 100000000
+max_decoded_image_bytes = 536870912
+max_pages = 10000
+max_layout_passes = 8
+max_uri_bytes = 8192
+max_line_reshape_passes = 4
+max_page_break_lookback = 32
+max_footnote_reflows_per_page = 8
+max_column_balance_candidates = 16
+max_float_queue = 1024
+max_float_carry_pages = 16
+max_cids_per_font = 65535
+max_fragments = 10000000
+max_spool_bytes = 4294967296
+max_pdf_objects = 5000000
+max_output_bytes = 8589934592

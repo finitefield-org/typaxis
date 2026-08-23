@@ -1,0 +1,14 @@
+{
+  "contract": "typaxis.contract/1.0",
+  "diagnostics": [
+    {
+      "code": "P1000",
+      "severity": "note",
+      "message": "minimal diagnostic fixture",
+      "source_span": null,
+      "text_span": null,
+      "node_id": null,
+      "notes": []
+    }
+  ]
+}

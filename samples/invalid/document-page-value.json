@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["style_sheet","rules",0,"declarations",0,"name"],"value":"page"}]}

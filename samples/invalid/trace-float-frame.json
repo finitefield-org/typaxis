@@ -1,0 +1,1 @@
+{"$fixture":"layout_trace","mutations":[{"path":["passes",0,"state","pages",0,"float_decisions",0],"value":{"bounds":{"x":3715427,"y":3715427,"width":1,"height":1},"column_index":0,"frame_kind":"header","owner":0,"owner_local_ordinal":0}}]}

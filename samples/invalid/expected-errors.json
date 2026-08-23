@@ -1,0 +1,621 @@
+{
+  "config-ast-nesting-depth.json": {
+    "rule_id": "CONFIG_AST_NESTING_DEPTH",
+    "schema_rejects": true
+  },
+  "config-font-resource-limit.json": {
+    "rule_id": "CONFIG_FONT_RESOURCE_LIMIT",
+    "schema_rejects": false
+  },
+  "config-font-count-profile-max.json": {
+    "rule_id": "CONFIG_FONT_COUNT_PROFILE_MAX",
+    "schema_rejects": true
+  },
+  "config-image-resource-limit.json": {
+    "rule_id": "CONFIG_IMAGE_RESOURCE_LIMIT",
+    "schema_rejects": false
+  },
+  "config-nondeterministic.toml": {
+    "rule_id": "CONFIG_DETERMINISTIC",
+    "schema_rejects": true
+  },
+  "config-resource-root-order.json": {
+    "rule_id": "CONFIG_RESOURCE_ROOT_ORDER",
+    "schema_rejects": false
+  },
+  "config-shaping-context-limit.json": {
+    "rule_id": "CONFIG_SHAPING_CONTEXT_LIMIT",
+    "schema_rejects": false
+  },
+  "config-source-input-limit.json": {
+    "rule_id": "CONFIG_SOURCE_INPUT_LIMIT",
+    "schema_rejects": false
+  },
+  "config-text-buffer-limit.json": {
+    "rule_id": "CONFIG_TEXT_BUFFER_LIMIT",
+    "schema_rejects": false
+  },
+  "config-uri-scheme-order.json": {
+    "rule_id": "CONFIG_URI_SCHEME_ORDER",
+    "schema_rejects": false
+  },
+  "cross-compression.json": {
+    "rule_id": "CROSS_COMPRESSION",
+    "schema_rejects": false
+  },
+  "cross-layout-projection.json": {
+    "rule_id": "CROSS_LAYOUT_PROJECTION",
+    "schema_rejects": false
+  },
+  "cross-max-layout-passes.json": {
+    "rule_id": "CROSS_MAX_LAYOUT_PASSES",
+    "schema_rejects": false
+  },
+  "cross-output-fact.json": {
+    "rule_id": "CROSS_OUTPUT_FACT",
+    "schema_rejects": false
+  },
+  "cross-strict-fallback-build.json": {
+    "rule_id": "CROSS_STRICT_FALLBACK_BUILD",
+    "schema_rejects": false
+  },
+  "diagnostics-invalid-code.json": {
+    "rule_id": "DIAGNOSTIC_CODE",
+    "schema_rejects": true
+  },
+  "display-annotation-bounds.json": {
+    "rule_id": "DISPLAY_ANNOTATION_BOUNDS",
+    "schema_rejects": false
+  },
+  "display-cluster-coverage.json": {
+    "rule_id": "DISPLAY_CLUSTER_COVERAGE",
+    "schema_rejects": false
+  },
+  "display-cluster-index.json": {
+    "rule_id": "DISPLAY_CLUSTER_INDEX",
+    "schema_rejects": false
+  },
+  "display-dash-all-zero.json": {
+    "rule_id": "DISPLAY_DASH_ALL_ZERO",
+    "schema_rejects": false
+  },
+  "display-destination-anchor.json": {
+    "rule_id": "DISPLAY_DESTINATION_ANCHOR",
+    "schema_rejects": false
+  },
+  "display-destination-bounds.json": {
+    "rule_id": "DISPLAY_DESTINATION_BOUNDS",
+    "schema_rejects": false
+  },
+  "display-destination-order.json": {
+    "rule_id": "DISPLAY_DESTINATION_ORDER",
+    "schema_rejects": false
+  },
+  "display-destination-page.json": {
+    "rule_id": "DISPLAY_DESTINATION_PAGE",
+    "schema_rejects": false
+  },
+  "display-disallowed-uri-scheme.json": {
+    "rule_id": "DISPLAY_URI_SCHEME",
+    "schema_rejects": true
+  },
+  "display-duplicate-font-face.json": {
+    "rule_id": "DISPLAY_DUPLICATE_FONT_FACE",
+    "schema_rejects": false
+  },
+  "display-duplicate-text-buffer-id.json": {
+    "rule_id": "DISPLAY_TEXT_BUFFER_INDEX",
+    "schema_rejects": false
+  },
+  "display-empty-pages.json": {
+    "rule_id": "DISPLAY_EMPTY_PAGES",
+    "schema_rejects": true
+  },
+  "display-empty-unicode-cluster.json": {
+    "rule_id": "DISPLAY_EMPTY_UNICODE_CLUSTER",
+    "schema_rejects": false
+  },
+  "display-fit-width-bounds.json": {
+    "rule_id": "DISPLAY_DESTINATION_BOUNDS",
+    "schema_rejects": false
+  },
+  "display-font-instance-index.json": {
+    "rule_id": "DISPLAY_FONT_INSTANCE_INDEX",
+    "schema_rejects": false
+  },
+  "display-font-instance-order.json": {
+    "rule_id": "DISPLAY_FONT_INSTANCE_ORDER",
+    "schema_rejects": false
+  },
+  "display-glyph-partition.json": {
+    "rule_id": "DISPLAY_GLYPH_PARTITION",
+    "schema_rejects": false
+  },
+  "display-glyph-run-index.json": {
+    "rule_id": "DISPLAY_GLYPH_RUN_INDEX",
+    "schema_rejects": false
+  },
+  "display-graphics-unbalanced.json": {
+    "rule_id": "DISPLAY_GRAPHICS_UNBALANCED",
+    "schema_rejects": false
+  },
+  "display-graphics-underflow.json": {
+    "rule_id": "DISPLAY_GRAPHICS_UNDERFLOW",
+    "schema_rejects": false
+  },
+  "display-missing-text-paint.json": {
+    "rule_id": "DISPLAY_TEXT_PAINT",
+    "schema_rejects": true
+  },
+  "display-overlapping-cluster.json": {
+    "rule_id": "DISPLAY_CLUSTER_OVERLAP",
+    "schema_rejects": false
+  },
+  "display-page-index.json": {
+    "rule_id": "DISPLAY_PAGE_INDEX",
+    "schema_rejects": false
+  },
+  "display-path-arity.json": {
+    "rule_id": "DISPLAY_PATH_ARITY",
+    "schema_rejects": true
+  },
+  "display-path-state.json": {
+    "rule_id": "DISPLAY_PATH_STATE",
+    "schema_rejects": false
+  },
+  "display-pdf-resource-leak.json": {
+    "rule_id": "DISPLAY_RESOURCE_ID",
+    "schema_rejects": true
+  },
+  "display-text-buffer-index.json": {
+    "rule_id": "DISPLAY_TEXT_BUFFER_INDEX",
+    "schema_rejects": false
+  },
+  "display-text-origin-order.json": {
+    "rule_id": "DISPLAY_TEXT_ORIGIN_ORDER",
+    "schema_rejects": false
+  },
+  "display-text-span-bounds.json": {
+    "rule_id": "DISPLAY_TEXT_SPAN_BOUNDS",
+    "schema_rejects": false
+  },
+  "display-undimensioned-transform.json": {
+    "rule_id": "DISPLAY_TRANSFORM_SHAPE",
+    "schema_rejects": true
+  },
+  "display-unknown-op.json": {
+    "rule_id": "DISPLAY_UNKNOWN_OP",
+    "schema_rejects": true
+  },
+  "display-unknown-text-buffer.json": {
+    "rule_id": "DISPLAY_UNKNOWN_TEXT",
+    "schema_rejects": false
+  },
+  "display-unresolved-anchor.json": {
+    "rule_id": "DISPLAY_UNRESOLVED_ANCHOR",
+    "schema_rejects": false
+  },
+  "display-unused-text-buffer.json": {
+    "rule_id": "DISPLAY_UNUSED_TEXT_BUFFER",
+    "schema_rejects": false
+  },
+  "display-uri-byte-limit.json": {
+    "rule_id": "DISPLAY_URI_LIMIT",
+    "schema_rejects": false
+  },
+  "display-utf8-boundary.json": {
+    "rule_id": "DISPLAY_UTF8_BOUNDARY",
+    "schema_rejects": false
+  },
+  "document-class-control.json": {
+    "rule_id": "STYLE_CLASS_TOKEN",
+    "schema_rejects": true
+  },
+  "document-class-order.json": {
+    "rule_id": "STYLE_CLASS_ORDER",
+    "schema_rejects": false
+  },
+  "document-cyclic-style-extends.json": {
+    "rule_id": "STYLE_EXTENDS_CYCLE",
+    "schema_rejects": false
+  },
+  "document-declaration-name-control.json": {
+    "rule_id": "STYLE_DECLARATION_NAME",
+    "schema_rejects": true
+  },
+  "document-duplicate-anchor-id.json": {
+    "rule_id": "DOC_DUPLICATE_ANCHOR_ID",
+    "schema_rejects": false
+  },
+  "document-duplicate-font-family.json": {
+    "rule_id": "DOC_DUPLICATE_FONT_FAMILY",
+    "schema_rejects": false
+  },
+  "document-duplicate-font-id.json": {
+    "rule_id": "DOC_DUPLICATE_FONT_ID",
+    "schema_rejects": false
+  },
+  "document-duplicate-footnote-id.json": {
+    "rule_id": "DOC_DUPLICATE_FOOTNOTE_ID",
+    "schema_rejects": false
+  },
+  "document-duplicate-image-id.json": {
+    "rule_id": "DOC_DUPLICATE_IMAGE_ID",
+    "schema_rejects": false
+  },
+  "document-duplicate-node-id.json": {
+    "rule_id": "DOC_DUPLICATE_NODE",
+    "schema_rejects": false
+  },
+  "document-duplicate-selector-class.json": {
+    "rule_id": "STYLE_SELECTOR_DUPLICATE_CLASS",
+    "schema_rejects": false
+  },
+  "document-duplicate-source-id.json": {
+    "rule_id": "DOC_DUPLICATE_SOURCE_ID",
+    "schema_rejects": false
+  },
+  "document-duplicate-style-id.json": {
+    "rule_id": "STYLE_DUPLICATE_ID",
+    "schema_rejects": false
+  },
+  "document-duplicate-text-id.json": {
+    "rule_id": "DOC_DUPLICATE_TEXT_ID",
+    "schema_rejects": false
+  },
+  "document-empty-list.json": {
+    "rule_id": "DOC_EMPTY_LIST",
+    "schema_rejects": true
+  },
+  "document-empty-table.json": {
+    "rule_id": "DOC_EMPTY_TABLE",
+    "schema_rejects": true
+  },
+  "document-font-family-list-control.json": {
+    "rule_id": "STYLE_FONT_FAMILY_LIST",
+    "schema_rejects": false
+  },
+  "document-font-family-list-duplicate.json": {
+    "rule_id": "STYLE_FONT_FAMILY_LIST",
+    "schema_rejects": false
+  },
+  "document-font-family-list-empty.json": {
+    "rule_id": "STYLE_FONT_FAMILY_LIST",
+    "schema_rejects": true
+  },
+  "document-font-family-list-whitespace.json": {
+    "rule_id": "STYLE_FONT_FAMILY_LIST",
+    "schema_rejects": false
+  },
+  "document-font-index.json": {
+    "rule_id": "DOC_FONT_INDEX",
+    "schema_rejects": false
+  },
+  "document-footnote-order.json": {
+    "rule_id": "DOC_FOOTNOTE_ORDER",
+    "schema_rejects": false
+  },
+  "document-identity-length-mismatch.json": {
+    "rule_id": "TEXT_MAP_IDENTITY_LENGTH",
+    "schema_rejects": false
+  },
+  "document-image-index.json": {
+    "rule_id": "DOC_IMAGE_INDEX",
+    "schema_rejects": false
+  },
+  "document-inserted-source-span.json": {
+    "rule_id": "TEXT_MAP_INSERTED_SOURCE",
+    "schema_rejects": true
+  },
+  "document-list-marker-overflow.json": {
+    "rule_id": "DOC_LIST_MARKER_OVERFLOW",
+    "schema_rejects": false
+  },
+  "document-list-ordered-null-start.json": {
+    "rule_id": "DOC_LIST_START",
+    "schema_rejects": true
+  },
+  "document-list-unordered-number-start.json": {
+    "rule_id": "DOC_LIST_START",
+    "schema_rejects": true
+  },
+  "document-malformed-selector.json": {
+    "rule_id": "STYLE_SELECTOR_SYNTAX",
+    "schema_rejects": true
+  },
+  "document-mapping-source-span-bounds.json": {
+    "rule_id": "DOC_SOURCE_SPAN_BOUNDS",
+    "schema_rejects": false
+  },
+  "document-missing-computed-style.json": {
+    "rule_id": "STYLE_REQUIRED_COMPUTED_VALUE",
+    "schema_rejects": false
+  },
+  "document-node-index.json": {
+    "rule_id": "DOC_NODE_INDEX",
+    "schema_rejects": false
+  },
+  "document-page-master-default-unknown.json": {
+    "rule_id": "PAGE_MASTER_DEFAULT_UNKNOWN",
+    "schema_rejects": false
+  },
+  "document-page-master-duplicate.json": {
+    "rule_id": "PAGE_MASTER_DUPLICATE_ID",
+    "schema_rejects": false
+  },
+  "document-page-master-order.json": {
+    "rule_id": "PAGE_MASTER_ORDER",
+    "schema_rejects": false
+  },
+  "document-page-master-rect-bounds.json": {
+    "rule_id": "PAGE_MASTER_RECT_BOUNDS",
+    "schema_rejects": false
+  },
+  "document-page-master-rule-unknown.json": {
+    "rule_id": "PAGE_MASTER_RULE_UNKNOWN",
+    "schema_rejects": false
+  },
+  "document-page-master-source-order.json": {
+    "rule_id": "PAGE_MASTER_SOURCE_ORDER",
+    "schema_rejects": false
+  },
+  "document-page-value.json": {
+    "rule_id": "STYLE_PAGE_VALUE",
+    "schema_rejects": true
+  },
+  "document-reversed-source-span.json": {
+    "rule_id": "DOC_SPAN_REVERSED",
+    "schema_rejects": false
+  },
+  "document-selector-class-order.json": {
+    "rule_id": "STYLE_SELECTOR_CLASS_ORDER",
+    "schema_rejects": false
+  },
+  "document-selector-control.json": {
+    "rule_id": "STYLE_SELECTOR_SYNTAX",
+    "schema_rejects": true
+  },
+  "document-source-index.json": {
+    "rule_id": "DOC_SOURCE_INDEX",
+    "schema_rejects": false
+  },
+  "document-source-span-bounds.json": {
+    "rule_id": "DOC_SOURCE_SPAN_BOUNDS",
+    "schema_rejects": false
+  },
+  "document-style-property-type.json": {
+    "rule_id": "STYLE_PROPERTY_TYPE",
+    "schema_rejects": true
+  },
+  "document-style-source-order.json": {
+    "rule_id": "STYLE_SOURCE_ORDER",
+    "schema_rejects": false
+  },
+  "document-table-grid.json": {
+    "rule_id": "TABLE_GRID",
+    "schema_rejects": false
+  },
+  "document-table-head-body-cross.json": {
+    "rule_id": "TABLE_HEAD_BODY_CROSS",
+    "schema_rejects": false
+  },
+  "document-text-index.json": {
+    "rule_id": "DOC_TEXT_INDEX",
+    "schema_rejects": false
+  },
+  "document-text-map-bounds.json": {
+    "rule_id": "DOC_TEXT_SPAN_BOUNDS",
+    "schema_rejects": false
+  },
+  "document-text-map-empty-segment.json": {
+    "rule_id": "TEXT_MAP_EMPTY_SEGMENT",
+    "schema_rejects": false
+  },
+  "document-text-map-gap.json": {
+    "rule_id": "TEXT_MAP_COVERAGE",
+    "schema_rejects": false
+  },
+  "document-text-map-utf8-boundary.json": {
+    "rule_id": "DOC_UTF8_BOUNDARY",
+    "schema_rejects": false
+  },
+  "document-text-span-bounds.json": {
+    "rule_id": "DOC_TEXT_SPAN_BOUNDS",
+    "schema_rejects": false
+  },
+  "document-unknown-anchor.json": {
+    "rule_id": "DOC_UNKNOWN_ANCHOR",
+    "schema_rejects": false
+  },
+  "document-unknown-font-family.json": {
+    "rule_id": "STYLE_UNKNOWN_FONT_FAMILY",
+    "schema_rejects": false
+  },
+  "document-unknown-footnote.json": {
+    "rule_id": "DOC_UNKNOWN_FOOTNOTE",
+    "schema_rejects": false
+  },
+  "document-unknown-image.json": {
+    "rule_id": "DOC_UNKNOWN_IMAGE",
+    "schema_rejects": false
+  },
+  "document-unknown-source-id.json": {
+    "rule_id": "DOC_UNKNOWN_SOURCE",
+    "schema_rejects": false
+  },
+  "document-unknown-style-extends.json": {
+    "rule_id": "STYLE_EXTENDS_UNKNOWN",
+    "schema_rejects": false
+  },
+  "document-unknown-style-property.json": {
+    "rule_id": "STYLE_DECLARATION_NAME",
+    "schema_rejects": true
+  },
+  "document-unknown-text-buffer.json": {
+    "rule_id": "DOC_UNKNOWN_TEXT",
+    "schema_rejects": false
+  },
+  "document-unsafe-path.json": {
+    "rule_id": "PATH_PORTABILITY",
+    "schema_rejects": true
+  },
+  "document-unsafe-trailing-slash.json": {
+    "rule_id": "PATH_PORTABILITY",
+    "schema_rejects": true
+  },
+  "document-uri-byte-limit.json": {
+    "rule_id": "DOC_URI_LIMIT",
+    "schema_rejects": false
+  },
+  "document-uri-scheme.json": {
+    "rule_id": "DOC_URI_SCHEME",
+    "schema_rejects": false
+  },
+  "document-utf8-boundary.json": {
+    "rule_id": "DOC_UTF8_BOUNDARY",
+    "schema_rejects": false
+  },
+  "manifest-converged-state.json": {
+    "rule_id": "MANIFEST_CONVERGED_STATE",
+    "schema_rejects": false
+  },
+  "manifest-duplicate-input.json": {
+    "rule_id": "MANIFEST_DUPLICATE_RESOURCE",
+    "schema_rejects": false
+  },
+  "manifest-noncanonical-order.json": {
+    "rule_id": "MANIFEST_ORDER",
+    "schema_rejects": false
+  },
+  "manifest-planned-status.json": {
+    "rule_id": "MANIFEST_STATUS",
+    "schema_rejects": true
+  },
+  "manifest-selected-state-range.json": {
+    "rule_id": "MANIFEST_SELECTED_STATE_RANGE",
+    "schema_rejects": false
+  },
+  "manifest-wrong-engine.json": {
+    "rule_id": "MANIFEST_ENGINE",
+    "schema_rejects": true
+  },
+  "trace-chain-break.json": {
+    "rule_id": "TRACE_CHAIN_BREAK",
+    "schema_rejects": false
+  },
+  "trace-continued-after-terminal.json": {
+    "rule_id": "TRACE_TERMINATION",
+    "schema_rejects": false
+  },
+  "trace-cost-overflow.json": {
+    "rule_id": "TRACE_COST_TOTAL",
+    "schema_rejects": false
+  },
+  "trace-cost-total.json": {
+    "rule_id": "TRACE_COST_TOTAL",
+    "schema_rejects": false
+  },
+  "trace-empty-pages.json": {
+    "rule_id": "TRACE_EMPTY_PAGES",
+    "schema_rejects": true
+  },
+  "trace-false-convergence.json": {
+    "rule_id": "TRACE_FALSE_CONVERGENCE",
+    "schema_rejects": false
+  },
+  "trace-page-index.json": {
+    "rule_id": "TRACE_PAGE_INDEX",
+    "schema_rejects": false
+  },
+  "trace-pass-index.json": {
+    "rule_id": "TRACE_PASS_INDEX",
+    "schema_rejects": false
+  },
+  "trace-pass-limit.json": {
+    "rule_id": "TRACE_PASS_LIMIT",
+    "schema_rejects": false
+  },
+  "trace-premature-max-pass.json": {
+    "rule_id": "TRACE_MAX_PASS",
+    "schema_rejects": false
+  },
+  "trace-selected-state.json": {
+    "rule_id": "TRACE_SELECTED_STATE",
+    "schema_rejects": false
+  },
+  "trace-wrong-cycle-state.json": {
+    "rule_id": "TRACE_CYCLE_STATE",
+    "schema_rejects": false
+  },
+  "trace-wrong-terminal.json": {
+    "rule_id": "TRACE_TERMINATION",
+    "schema_rejects": false
+  },
+  "trace-initial-fingerprint.json": {"rule_id": "TRACE_INITIAL_FINGERPRINT", "schema_rejects": false},
+  "trace-fingerprint.json": {"rule_id": "TRACE_FINGERPRINT", "schema_rejects": false},
+  "trace-epoch-input.json": {"rule_id": "TRACE_EPOCH_INPUT", "schema_rejects": false},
+  "trace-flow-registry.json": {"rule_id": "TRACE_FLOW_REGISTRY", "schema_rejects": false},
+  "trace-flow-terminal.json": {"rule_id": "TRACE_FLOW_REGISTRY", "schema_rejects": false},
+  "trace-flow-two-sentinels.json": {"rule_id": "TRACE_FLOW_REGISTRY", "schema_rejects": false},
+  "trace-frame-order.json": {"rule_id": "TRACE_FRAME_ORDER", "schema_rejects": false},
+  "trace-footnote-order.json": {"rule_id": "TRACE_FOOTNOTE_ORDER", "schema_rejects": false},
+  "trace-fragment-frame.json": {"rule_id": "TRACE_FRAGMENT_FRAME", "schema_rejects": false},
+  "trace-flow-position.json": {"rule_id": "TRACE_FLOW_POSITION", "schema_rejects": false},
+  "trace-fragment-closure.json": {"rule_id": "TRACE_FRAGMENT_CLOSURE", "schema_rejects": false},
+  "trace-fragment-ordinal.json": {"rule_id": "TRACE_FRAGMENT_ORDINAL", "schema_rejects": false},
+  "trace-fragment-order.json": {"rule_id": "TRACE_FRAGMENT_ORDER", "schema_rejects": false},
+  "trace-float-frame.json": {"rule_id": "TRACE_FLOAT_FRAME", "schema_rejects": false},
+  "trace-float-order.json": {"rule_id": "TRACE_FLOAT_ORDER", "schema_rejects": false},
+  "trace-column-order.json": {"rule_id": "TRACE_COLUMN_ORDER", "schema_rejects": false},
+  "trace-generated-text-order.json": {"rule_id": "TRACE_GENERATED_TEXT_ORDER", "schema_rejects": false},
+  "trace-generated-text-span.json": {"rule_id": "TRACE_GENERATED_TEXT_SPAN", "schema_rejects": false},
+  "trace-resolved-reference-order.json": {"rule_id": "TRACE_RESOLVED_REFERENCE_ORDER", "schema_rejects": false},
+  "trace-resolved-reference-span.json": {"rule_id": "TRACE_RESOLVED_REFERENCE_SPAN", "schema_rejects": false},
+  "trace-placed-anchor.json": {"rule_id": "TRACE_PLACED_ANCHOR", "schema_rejects": false},
+  "trace-placed-anchor-overflow.json": {"rule_id": "TRACE_PLACED_ANCHOR", "schema_rejects": false},
+  "config-unknown-data-version.json": {"rule_id": "CONFIG_DATA_VERSION", "schema_rejects": true},
+  "manifest-unknown-data-version.json": {"rule_id": "MANIFEST_DATA_VERSION", "schema_rejects": true},
+  "manifest-unicode-scalar.json": {"rule_id": "JSON_UNICODE_SCALAR", "schema_rejects": false},
+  "cross-config-hash.json": {"rule_id": "CROSS_CONFIG_HASH", "schema_rejects": false},
+  "cross-engine-identity.json": {"rule_id": "CROSS_ENGINE_IDENTITY", "schema_rejects": false},
+  "cross-display-layout.json": {"rule_id": "CROSS_DISPLAY_LAYOUT", "schema_rejects": false},
+  "cross-display-page.json": {"rule_id": "CROSS_DISPLAY_PAGE", "schema_rejects": false},
+  "cross-display-anchor.json": {"rule_id": "CROSS_DISPLAY_ANCHOR", "schema_rejects": false},
+  "cross-trace-anchor.json": {"rule_id": "CROSS_TRACE_ANCHOR", "schema_rejects": false},
+  "cross-flow-owner-kind.json": {"rule_id": "CROSS_FLOW_OWNER", "schema_rejects": false},
+  "cross-flow-owner-local.json": {"rule_id": "CROSS_FLOW_OWNER", "schema_rejects": false},
+  "cross-image-usage.json": {"rule_id": "CROSS_IMAGE_USAGE", "schema_rejects": false},
+  "cross-font-usage.json": {"rule_id": "CROSS_FONT_USAGE", "schema_rejects": false},
+  "cross-source-catalog.json": {"rule_id": "CROSS_SOURCE_CATALOG", "schema_rejects": false},
+  "cross-selected-page-count.json": {"rule_id": "CROSS_SELECTED_PAGE_COUNT", "schema_rejects": false},
+  "cross-limit-source-bytes.json": {"rule_id": "CROSS_LIMIT_SOURCE_BYTES", "schema_rejects": false},
+  "cross-limit-input-bytes.json": {"rule_id": "CROSS_LIMIT_INPUT_BYTES", "schema_rejects": false},
+  "cross-limit-include-files.json": {"rule_id": "CROSS_LIMIT_INCLUDE_FILES", "schema_rejects": false},
+  "cross-limit-ast-nesting-depth.json": {"rule_id": "CROSS_LIMIT_AST_NESTING_DEPTH", "schema_rejects": false},
+  "cross-limit-style-nesting-depth.json": {"rule_id": "CROSS_LIMIT_AST_NESTING_DEPTH", "schema_rejects": false},
+  "cross-limit-ast-nodes.json": {"rule_id": "CROSS_LIMIT_AST_NODES", "schema_rejects": false},
+  "cross-limit-style-rules.json": {"rule_id": "CROSS_LIMIT_STYLE_RULES", "schema_rejects": false},
+  "cross-limit-text-buffer-bytes.json": {"rule_id": "CROSS_LIMIT_TEXT_BUFFER_BYTES", "schema_rejects": false},
+  "cross-limit-text-bytes.json": {"rule_id": "CROSS_LIMIT_TEXT_BYTES", "schema_rejects": false},
+  "cross-limit-font-count.json": {"rule_id": "CROSS_LIMIT_FONT_COUNT", "schema_rejects": false},
+  "cross-limit-font-bytes.json": {"rule_id": "CROSS_LIMIT_FONT_BYTES", "schema_rejects": false},
+  "cross-limit-image-count.json": {"rule_id": "CROSS_LIMIT_IMAGE_COUNT", "schema_rejects": false},
+  "cross-limit-image-bytes.json": {"rule_id": "CROSS_LIMIT_IMAGE_BYTES", "schema_rejects": false},
+  "cross-limit-image-pixels.json": {"rule_id": "CROSS_LIMIT_IMAGE_PIXELS", "schema_rejects": false},
+  "cross-limit-decoded-image-bytes.json": {"rule_id": "CROSS_LIMIT_DECODED_IMAGE_BYTES", "schema_rejects": false},
+  "cross-limit-resource-bytes.json": {"rule_id": "CROSS_LIMIT_RESOURCE_BYTES", "schema_rejects": false},
+  "cross-limit-pdf-objects.json": {"rule_id": "CROSS_LIMIT_PDF_OBJECTS", "schema_rejects": false},
+  "cross-limit-output-bytes.json": {"rule_id": "CROSS_LIMIT_OUTPUT_BYTES", "schema_rejects": false},
+  "manifest-font-units-range.json": {"rule_id": "MANIFEST_FONT_UNITS_RANGE", "schema_rejects": true},
+  "manifest-font-units-min-range.json": {"rule_id": "MANIFEST_FONT_UNITS_RANGE", "schema_rejects": true},
+  "manifest-glyph-count-range.json": {"rule_id": "MANIFEST_GLYPH_COUNT_RANGE", "schema_rejects": true},
+  "manifest-image-width-range.json": {"rule_id": "MANIFEST_IMAGE_WIDTH_RANGE", "schema_rejects": true},
+  "manifest-image-height-range.json": {"rule_id": "MANIFEST_IMAGE_HEIGHT_RANGE", "schema_rejects": true},
+  "cross-limit-pages.json": {"rule_id": "CROSS_LIMIT_PAGES", "schema_rejects": false},
+  "cross-limit-fragments.json": {"rule_id": "CROSS_LIMIT_FRAGMENTS", "schema_rejects": false},
+  "cross-limit-generated-buffer-bytes.json": {"rule_id": "CROSS_LIMIT_TEXT_BUFFER_BYTES", "schema_rejects": false},
+  "cross-limit-generated-text-bytes.json": {"rule_id": "CROSS_LIMIT_TEXT_BYTES", "schema_rejects": false},
+  "cross-reference-target.json": {"rule_id": "CROSS_REFERENCE_TARGET", "schema_rejects": false},
+  "trace-flow-registry-order.json": {"rule_id": "TRACE_FLOW_REGISTRY", "schema_rejects": false},
+  "trace-flow-registry-gap.json": {"rule_id": "TRACE_FLOW_REGISTRY", "schema_rejects": false}
+}

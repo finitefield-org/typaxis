@@ -1,0 +1,3767 @@
+#!/usr/bin/env python3
+"""Offline contract validation for the bundled Typaxis schemas and fixtures."""
+
+from __future__ import annotations
+
+import copy
+import base64
+import hashlib
+import json
+import re
+import sys
+import tomllib
+from pathlib import Path
+from typing import Any
+from urllib.parse import unquote, urldefrag, urljoin
+
+try:
+    from jsonschema import Draft202012Validator
+    from referencing import Registry, Resource
+except ImportError as error:  # pragma: no cover - dependency guidance
+    raise SystemExit(
+        "schemas/validate.py requires jsonschema>=4.18 and referencing"
+    ) from error
+
+
+SCHEMA_DIR = Path(__file__).resolve().parent
+REPOSITORY_ROOT = SCHEMA_DIR.parent
+MINIMAL_DIR = REPOSITORY_ROOT / "samples" / "minimal"
+CONFORMANCE_DIR = REPOSITORY_ROOT / "samples" / "conformance"
+INVALID_DIR = REPOSITORY_ROOT / "samples" / "invalid"
+JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
+MAX_AST_NESTING_DEPTH = 64
+MAX_FONT_SUBSET_TAGS = 26**6
+JCS_GOLDEN_PATH = MINIMAL_DIR / "jcs-golden.json"
+
+POSITIVE_FIXTURES = {
+    MINIMAL_DIR / "typaxis.toml": "package-config.schema.json",
+    MINIMAL_DIR / "document-package.json": "document-package.schema.json",
+    MINIMAL_DIR / "display-list.json": "display-list.schema.json",
+    MINIMAL_DIR / "layout-trace.json": "layout-trace.schema.json",
+    MINIMAL_DIR / "build-manifest.json": "build-manifest.schema.json",
+    MINIMAL_DIR / "diagnostics.json": "diagnostics.schema.json",
+    CONFORMANCE_DIR / "document-rich.json": "document-package.schema.json",
+    CONFORMANCE_DIR / "display-text.json": "display-list.schema.json",
+    CONFORMANCE_DIR / "manifest-numeric-boundaries.json": "build-manifest.schema.json",
+    CONFORMANCE_DIR / "config-font-count-boundary.json": "package-config.schema.json",
+    CONFORMANCE_DIR / "display-rtl.json": "display-list.schema.json",
+    CONFORMANCE_DIR / "document-style-fallback.json": "document-package.schema.json",
+}
+POSITIVE_CROSS_FIXTURES = (CONFORMANCE_DIR / "cross-generated-sites.json",)
+
+INVALID_SCHEMA_BY_PREFIX = {
+    "config-": "package-config.schema.json",
+    "diagnostics-": "diagnostics.schema.json",
+    "display-": "display-list.schema.json",
+    "document-": "document-package.schema.json",
+    "manifest-": "build-manifest.schema.json",
+    "trace-": "layout-trace.schema.json",
+}
+
+RULE_ID = re.compile(r"^[A-Z][A-Z0-9_]*$")
+DIAGNOSTIC_CODE = re.compile(r"^(?:P1|T2|S3|F4|L5|G6|R7|D8|I9)[0-9]{3}$")
+STYLE_SELECTOR = re.compile(
+    r"^(?:paragraph|heading|list|table|figure|page_break)"
+    r"(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$"
+)
+CLASS_TOKEN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+DECLARATION_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
+STYLE_PROPERTY_NAMES = {"font_family", "font_size", "line_height", "page"}
+DISPLAY_OPS = {
+    "save",
+    "restore",
+    "concat_transform",
+    "clip_path",
+    "fill_path",
+    "stroke_path",
+    "draw_glyph_run",
+    "draw_image",
+}
+PATH_KEYS = {
+    "move_to": {"verb", "x", "y"},
+    "line_to": {"verb", "x", "y"},
+    "curve_to": {"verb", "x1", "y1", "x2", "y2", "x3", "y3"},
+    "close": {"verb"},
+}
+
+PATCH_FIXTURE_BASES = {
+    "package_config": (MINIMAL_DIR / "typaxis.toml", "package-config.schema.json"),
+    "document_package": (
+        CONFORMANCE_DIR / "document-rich.json",
+        "document-package.schema.json",
+    ),
+    "display_list": (CONFORMANCE_DIR / "display-text.json", "display-list.schema.json"),
+    "layout_trace": (MINIMAL_DIR / "layout-trace.json", "layout-trace.schema.json"),
+    "build_manifest": (
+        MINIMAL_DIR / "build-manifest.json",
+        "build-manifest.schema.json",
+    ),
+}
+CROSS_ARTIFACT_NAMES = {"config", "document", "display", "trace", "manifest"}
+FRAME_KIND_ORDER = {"body": 0, "header": 1, "footer": 2, "footnote": 3}
+GENERATION_KIND_ORDER = {
+    "page_reference": 0,
+    "counter": 1,
+    "list_marker": 2,
+    "footnote_marker": 3,
+    "discretionary": 4,
+}
+
+
+class ValidationFailure(Exception):
+    """Raised for a contract-suite consistency failure."""
+
+
+def reject_duplicate_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValidationFailure(f"duplicate JSON member: {key!r}")
+        value[key] = item
+    return value
+
+
+def load_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_members)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValidationFailure(f"{path}: invalid UTF-8 JSON: {error}") from error
+
+
+def load_instance(path: Path) -> Any:
+    if path.suffix == ".json":
+        return load_json(path)
+    if path.suffix == ".toml":
+        try:
+            with path.open("rb") as source:
+                return tomllib.load(source)
+        except tomllib.TOMLDecodeError as error:
+            raise ValidationFailure(f"{path}: invalid TOML: {error}") from error
+    raise ValidationFailure(f"{path}: unsupported fixture extension")
+
+
+def utf8_sort_key(value: str) -> bytes:
+    try:
+        return value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ValidationFailure("canonical string contains an unpaired surrogate") from error
+
+
+def contains_non_scalar_string(value: Any) -> bool:
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, str):
+            if any(0xD800 <= ord(character) <= 0xDFFF for character in current):
+                return True
+        elif isinstance(current, dict):
+            for key, child in current.items():
+                stack.extend((key, child))
+        elif isinstance(current, list):
+            stack.extend(current)
+    return False
+
+
+def is_canonical_string_list(value: Any) -> bool:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return False
+    return len(value) == len(set(value)) and value == sorted(value, key=utf8_sort_key)
+
+
+def utf8_boundary_set(value: str) -> tuple[int, set[int]] | None:
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+    boundaries = {0}
+    byte_offset = 0
+    for character in value:
+        byte_offset += len(character.encode("utf-8"))
+        boundaries.add(byte_offset)
+    return len(encoded), boundaries
+
+
+def materialize_fixture_value(value: Any, label: str, source: Any = None) -> Any:
+    if isinstance(value, dict) and set(value) == {"$copy"}:
+        path = value["$copy"]
+        if not isinstance(path, list) or any(type(token) not in {str, int} for token in path):
+            raise ValidationFailure(f"{label}: $copy must be a string/integer path")
+        current = source
+        try:
+            for token in path:
+                current = current[token]
+        except (KeyError, IndexError, TypeError) as error:
+            raise ValidationFailure(f"{label}: $copy path does not exist") from error
+        return copy.deepcopy(current)
+    if isinstance(value, dict) and "$repeat" in value:
+        if set(value) != {"$repeat", "count", "prefix"}:
+            raise ValidationFailure(
+                f"{label}: generated string must contain $repeat, count, and prefix"
+            )
+        repeated = value["$repeat"]
+        count = value["count"]
+        prefix = value["prefix"]
+        if (
+            not isinstance(repeated, str)
+            or type(count) is not int
+            or count < 0
+            or not isinstance(prefix, str)
+        ):
+            raise ValidationFailure(f"{label}: invalid generated string operands")
+        return prefix + repeated * count
+    if isinstance(value, dict):
+        return {
+            key: materialize_fixture_value(child, f"{label}.{key}", source)
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            materialize_fixture_value(child, f"{label}[{index}]", source)
+            for index, child in enumerate(value)
+        ]
+    return copy.deepcopy(value)
+
+
+def apply_fixture_mutations(document: Any, mutations: Any, label: str) -> Any:
+    if not isinstance(mutations, list) or not mutations:
+        raise ValidationFailure(f"{label}: mutations must be a non-empty array")
+    result = copy.deepcopy(document)
+    for mutation_index, mutation in enumerate(mutations):
+        mutation_label = f"{label}: mutation {mutation_index}"
+        if not isinstance(mutation, dict) or set(mutation) != {"path", "value"}:
+            raise ValidationFailure(
+                f"{mutation_label}: mutation must contain exactly path and value"
+            )
+        path = mutation["path"]
+        if (
+            not isinstance(path, list)
+            or not path
+            or any(type(token) not in {str, int} for token in path)
+        ):
+            raise ValidationFailure(f"{mutation_label}: path must contain string/integer tokens")
+        current = result
+        try:
+            for token in path[:-1]:
+                current = current[token]
+            final_token = path[-1]
+            if (
+                isinstance(current, list)
+                and type(final_token) is int
+                and final_token == len(current)
+            ):
+                current.append(materialize_fixture_value(mutation["value"], mutation_label, result))
+            else:
+                current[final_token] = materialize_fixture_value(
+                    mutation["value"], mutation_label, result
+                )
+        except (KeyError, IndexError, TypeError) as error:
+            raise ValidationFailure(f"{mutation_label}: path does not exist") from error
+    return result
+
+
+def materialize_patch_fixture(
+    raw_fixture: Any, expected_schema: str, label: str
+) -> Any:
+    if not isinstance(raw_fixture, dict) or "$fixture" not in raw_fixture:
+        return raw_fixture
+    if set(raw_fixture) != {"$fixture", "mutations"}:
+        raise ValidationFailure(
+            f"{label}: patch fixture must contain exactly $fixture and mutations"
+        )
+    fixture_name = raw_fixture["$fixture"]
+    fixture_base = PATCH_FIXTURE_BASES.get(fixture_name)
+    if fixture_base is None:
+        raise ValidationFailure(f"{label}: unknown patch fixture base {fixture_name!r}")
+    base_path, base_schema = fixture_base
+    if base_schema != expected_schema:
+        raise ValidationFailure(
+            f"{label}: patch base {fixture_name!r} does not match {expected_schema}"
+        )
+    return apply_fixture_mutations(
+        load_instance(base_path), raw_fixture["mutations"], label
+    )
+
+
+def walk_references(value: Any, path: str = ""):
+    if isinstance(value, dict):
+        if "$ref" in value:
+            yield path or "/", value["$ref"]
+        for key, child in value.items():
+            yield from walk_references(child, f"{path}/{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from walk_references(child, f"{path}/{index}")
+
+
+def resolve_json_pointer(document: Any, fragment: str) -> None:
+    if not fragment:
+        return
+    if not fragment.startswith("/"):
+        raise ValidationFailure(f"unsupported non-pointer schema fragment: #{fragment}")
+    current = document
+    for encoded_token in fragment[1:].split("/"):
+        token = unquote(encoded_token).replace("~1", "/").replace("~0", "~")
+        try:
+            current = current[int(token)] if isinstance(current, list) else current[token]
+        except (KeyError, IndexError, ValueError, TypeError) as error:
+            raise ValidationFailure(f"missing JSON Pointer target: #{fragment}") from error
+
+
+def validate_references(schemas: dict[str, Any]) -> int:
+    by_id = {schema["$id"]: schema for schema in schemas.values()}
+    if len(by_id) != len(schemas):
+        raise ValidationFailure("schema $id values must be unique")
+
+    reference_count = 0
+    for filename, schema in schemas.items():
+        schema_id = schema["$id"]
+        for pointer, reference in walk_references(schema):
+            reference_count += 1
+            absolute = urljoin(schema_id, reference)
+            resource_id, fragment = urldefrag(absolute)
+            target = by_id.get(resource_id)
+            if target is None:
+                raise ValidationFailure(
+                    f"{filename}{pointer}: unregistered $ref resource {resource_id!r}"
+                )
+            try:
+                resolve_json_pointer(target, fragment)
+            except ValidationFailure as error:
+                raise ValidationFailure(f"{filename}{pointer}: {error}") from error
+    return reference_count
+
+
+def schema_errors(validator: Draft202012Validator, instance: Any) -> list[str]:
+    schema_id = validator.schema.get("$id")
+    if (
+        schema_id == "https://schemas.typaxis.invalid/1.0/document-package.schema.json"
+        and canonical_ast_nesting_depth(instance) > MAX_AST_NESTING_DEPTH
+    ):
+        # The semantic depth rule is authoritative. Do not enter jsonschema's
+        # recursive `$ref` evaluator with a document the profile must reject.
+        return []
+    errors = sorted(validator.iter_errors(instance), key=lambda error: list(error.absolute_path))
+    return [f"{error.json_path}: {error.message}" for error in errors]
+
+
+def check_safe_integers(value: Any, path: str = "$") -> None:
+    stack = [(value, path)]
+    while stack:
+        current, current_path = stack.pop()
+        if isinstance(current, bool):
+            continue
+        if isinstance(current, int):
+            if not -JSON_SAFE_INTEGER_MAX <= current <= JSON_SAFE_INTEGER_MAX:
+                raise ValidationFailure(
+                    f"{current_path}: integer is outside the JCS exact range"
+                )
+            continue
+        if isinstance(current, dict):
+            for key, child in reversed(tuple(current.items())):
+                stack.append((child, f"{current_path}.{key}"))
+        elif isinstance(current, list):
+            for index in range(len(current) - 1, -1, -1):
+                stack.append((current[index], f"{current_path}[{index}]"))
+
+
+def jcs_bytes(value: Any) -> bytes:
+    """Serialize the effective config's JSON data model using its JCS subset.
+
+    Configuration member names are ASCII and values contain only strings,
+    booleans, arrays, objects, and exact-range integers, so Python's compact,
+    sorted JSON encoding is byte-identical to RFC 8785 for this data model.
+    """
+
+    if contains_non_scalar_string(value):
+        raise ValidationFailure("JCS input contains an unpaired Unicode surrogate")
+    check_safe_integers(value)
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def verify_file_record(base: Path, record: dict[str, Any], label: str) -> None:
+    path = base / record["uri"]
+    if not path.is_file():
+        raise ValidationFailure(f"{label}: recorded file does not exist: {path}")
+    contents = path.read_bytes()
+    if len(contents) != record["bytes"]:
+        raise ValidationFailure(f"{label}: byte count does not match {path}")
+    digest = hashlib.sha256(contents).hexdigest()
+    if digest != record["sha256"]:
+        raise ValidationFailure(f"{label}: SHA-256 does not match {path}")
+
+
+def validate_jcs_golden(effective_config: dict[str, Any]) -> int:
+    golden = load_json(JCS_GOLDEN_PATH)
+    if (
+        not isinstance(golden, dict)
+        or golden.get("algorithm") != "rfc8785-jcs/base64/1"
+        or set(golden) != {"algorithm", "entries"}
+        or not isinstance(golden.get("entries"), list)
+    ):
+        raise ValidationFailure(f"{JCS_GOLDEN_PATH}: malformed JCS golden root")
+    expected_values: dict[str, Any] = {"effective-config": effective_config}
+    for path in sorted(MINIMAL_DIR.glob("*.json")):
+        if path != JCS_GOLDEN_PATH:
+            expected_values[path.name] = load_json(path)
+    entries = golden["entries"]
+    names = [entry.get("artifact") for entry in entries if isinstance(entry, dict)]
+    if (
+        len(names) != len(entries)
+        or len(names) != len(set(names))
+        or names != sorted(names, key=utf8_sort_key)
+        or set(names) != set(expected_values)
+    ):
+        raise ValidationFailure(f"{JCS_GOLDEN_PATH}: noncanonical or incomplete entry set")
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {
+            "artifact", "canonical_jcs_base64", "sha256"
+        }:
+            raise ValidationFailure(f"{JCS_GOLDEN_PATH}: malformed JCS golden entry")
+        expected = jcs_bytes(expected_values[entry["artifact"]])
+        encoded = entry["canonical_jcs_base64"]
+        try:
+            observed = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError) as error:
+            raise ValidationFailure(
+                f"{JCS_GOLDEN_PATH}: invalid canonical_jcs_base64"
+            ) from error
+        if observed != expected:
+            raise ValidationFailure(
+                f"{JCS_GOLDEN_PATH}: JCS bytes differ for {entry['artifact']}"
+            )
+        if entry["sha256"] != hashlib.sha256(expected).hexdigest():
+            raise ValidationFailure(
+                f"{JCS_GOLDEN_PATH}: JCS SHA-256 differs for {entry['artifact']}"
+            )
+    return len(entries)
+
+
+def pdf_dictionary_tokens(body: bytes) -> bytes:
+    """Remove comments/strings and stop before a top-level stream payload."""
+
+    output = bytearray()
+    index = 0
+    literal_depth = 0
+    while index < len(body):
+        byte = body[index]
+        if literal_depth:
+            if byte == 0x5C:
+                index += 2
+                continue
+            if byte == 0x28:
+                literal_depth += 1
+            elif byte == 0x29:
+                literal_depth -= 1
+            index += 1
+            continue
+        if byte == 0x25:
+            newline = body.find(b"\n", index)
+            index = len(body) if newline < 0 else newline + 1
+            output.append(0x20)
+            continue
+        if byte == 0x28:
+            literal_depth = 1
+            output.append(0x20)
+            index += 1
+            continue
+        if body.startswith(b"<<", index) or body.startswith(b">>", index):
+            output.extend(body[index:index + 2])
+            index += 2
+            continue
+        if byte == 0x3C:
+            close = body.find(b">", index + 1)
+            index = len(body) if close < 0 else close + 1
+            output.append(0x20)
+            continue
+        if body.startswith(b"stream", index) and (
+            index == 0 or body[index - 1] in b"\x00\t\n\x0c\r "
+        ):
+            break
+        output.append(byte)
+        index += 1
+    return bytes(output)
+
+
+def parse_classic_pdf_facts(contents: bytes) -> tuple[int, int]:
+    start_match = re.search(rb"startxref\s+(\d+)\s+%%EOF\s*$", contents)
+    if start_match is None:
+        raise ValidationFailure("PDF lacks a terminal classic startxref")
+    xref_offset = int(start_match.group(1))
+    if not contents.startswith(b"xref", xref_offset):
+        raise ValidationFailure("PDF startxref does not point to a classic xref table")
+    cursor = xref_offset + 4
+
+    def read_line() -> bytes:
+        nonlocal cursor
+        while cursor < len(contents) and contents[cursor] in b"\r\n":
+            cursor += 1
+        end = contents.find(b"\n", cursor)
+        if end < 0:
+            raise ValidationFailure("truncated PDF xref table")
+        line = contents[cursor:end].rstrip(b"\r")
+        cursor = end + 1
+        return line
+
+    in_use: dict[int, tuple[int, int]] = {}
+    while True:
+        while cursor < len(contents) and contents[cursor] in b"\r\n":
+            cursor += 1
+        if contents.startswith(b"trailer", cursor):
+            cursor += len(b"trailer")
+            break
+        subsection = read_line()
+        match = re.fullmatch(rb"(\d+)\s+(\d+)", subsection)
+        if match is None:
+            raise ValidationFailure("malformed PDF xref subsection")
+        first, count = map(int, match.groups())
+        for object_id in range(first, first + count):
+            entry = read_line()
+            entry_match = re.fullmatch(rb"(\d{10})\s(\d{5})\s([nf])\s?", entry)
+            if entry_match is None:
+                raise ValidationFailure("malformed PDF xref entry")
+            offset, generation, state = entry_match.groups()
+            if state == b"n":
+                if object_id in in_use:
+                    raise ValidationFailure("duplicate in-use PDF xref object")
+                in_use[object_id] = (int(offset), int(generation))
+
+    trailer_end = contents.find(b"startxref", cursor)
+    if trailer_end < 0:
+        raise ValidationFailure("PDF trailer is not terminated")
+    trailer = pdf_dictionary_tokens(contents[cursor:trailer_end])
+    root_match = re.search(rb"/Root\s+(\d+)\s+(\d+)\s+R\b", trailer)
+    size_match = re.search(rb"/Size\s+(\d+)\b", trailer)
+    if root_match is None or size_match is None:
+        raise ValidationFailure("PDF trailer lacks Root or Size")
+    root_ref = (int(root_match.group(1)), int(root_match.group(2)))
+    if int(size_match.group(1)) <= max(in_use, default=0):
+        raise ValidationFailure("PDF trailer Size does not cover xref objects")
+
+    object_bodies: dict[int, bytes] = {}
+    offsets = sorted((offset, object_id, generation) for object_id, (offset, generation) in in_use.items())
+    for offset_index, (offset, object_id, generation) in enumerate(offsets):
+        header = f"{object_id} {generation} obj".encode()
+        if not contents.startswith(header, offset):
+            raise ValidationFailure("PDF xref offset does not match its object header")
+        next_offset = offsets[offset_index + 1][0] if offset_index + 1 < len(offsets) else xref_offset
+        object_slice = contents[offset + len(header):next_offset]
+        endobj = object_slice.rfind(b"endobj")
+        if endobj < 0:
+            raise ValidationFailure("PDF indirect object lacks endobj before the next xref offset")
+        object_bodies[object_id] = pdf_dictionary_tokens(object_slice[:endobj])
+
+    root_id, root_generation = root_ref
+    if in_use.get(root_id, (None, None))[1] != root_generation:
+        raise ValidationFailure("PDF trailer Root is not an in-use object")
+    root_body = object_bodies[root_id]
+    if re.search(rb"/Type\s*/Catalog\b", root_body) is None:
+        raise ValidationFailure("PDF Root is not a Catalog")
+    pages_match = re.search(rb"/Pages\s+(\d+)\s+(\d+)\s+R\b", root_body)
+    if pages_match is None:
+        raise ValidationFailure("PDF Catalog lacks a Pages reference")
+
+    visiting: set[int] = set()
+
+    def count_page_leaves(object_id: int, generation: int) -> int:
+        if in_use.get(object_id, (None, None))[1] != generation or object_id not in object_bodies:
+            raise ValidationFailure("PDF page tree references a missing object")
+        if object_id in visiting:
+            raise ValidationFailure("PDF page tree contains a cycle")
+        visiting.add(object_id)
+        body = object_bodies[object_id]
+        if re.search(rb"/Type\s*/Page\b", body):
+            visiting.remove(object_id)
+            return 1
+        if re.search(rb"/Type\s*/Pages\b", body) is None:
+            raise ValidationFailure("PDF page tree child is neither Page nor Pages")
+        kids_match = re.search(rb"/Kids\s*\[(.*?)\]", body, re.DOTALL)
+        count_match = re.search(rb"/Count\s+(\d+)\b", body)
+        if kids_match is None or count_match is None:
+            raise ValidationFailure("PDF Pages node lacks Kids or Count")
+        kid_refs = [
+            (int(match.group(1)), int(match.group(2)))
+            for match in re.finditer(rb"(\d+)\s+(\d+)\s+R\b", kids_match.group(1))
+        ]
+        leaves = sum(count_page_leaves(kid_id, kid_generation) for kid_id, kid_generation in kid_refs)
+        if leaves != int(count_match.group(1)):
+            raise ValidationFailure("PDF Pages Count does not match reachable leaf pages")
+        visiting.remove(object_id)
+        return leaves
+
+    page_count = count_page_leaves(int(pages_match.group(1)), int(pages_match.group(2)))
+    return page_count, len(in_use)
+
+
+def walk_objects(value: Any):
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            yield current
+            stack.extend(reversed(tuple(current.values())))
+        elif isinstance(current, list):
+            stack.extend(reversed(current))
+
+
+def is_portable_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value or value.startswith("/"):
+        return False
+    if "\\" in value or ":" in value:
+        return False
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        return False
+    return all(component not in {"", ".", ".."} for component in value.split("/"))
+
+
+def is_nonempty_scalar_name(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and not value.isspace()
+        and not contains_non_scalar_string(value)
+        and not any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    )
+
+
+def rect_contains(parent: Any, child: Any) -> bool:
+    if not isinstance(child, dict) or not isinstance(parent, dict):
+        return False
+    if not all(
+        type(rect.get(field)) is int
+        for rect in (child, parent)
+        for field in ("x", "y", "width", "height")
+    ):
+        return False
+    return (
+        child["x"] >= parent["x"]
+        and child["y"] >= parent["y"]
+        and child["x"] + child["width"] <= parent["x"] + parent["width"]
+        and child["y"] + child["height"] <= parent["y"] + parent["height"]
+    )
+
+
+def typed_document_nodes_with_depth(document: Any):
+    """Yield typed semantic nodes iteratively in canonical preorder."""
+
+    stack = [("document", document, 1)]
+    while stack:
+        node_type, node, depth = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        yield node, depth
+        child_depth = depth + 1
+        if node_type == "document":
+            footnotes = node.get("footnotes", [])
+            if isinstance(footnotes, list):
+                stack.extend(
+                    ("footnote", footnote, child_depth)
+                    for footnote in reversed(footnotes)
+                )
+            blocks = node.get("blocks", [])
+            if isinstance(blocks, list):
+                stack.extend(
+                    ("block", block, child_depth) for block in reversed(blocks)
+                )
+        elif node_type == "block":
+            kind = node.get("kind")
+            if kind in {"paragraph", "heading"}:
+                children = node.get("children", [])
+                if isinstance(children, list):
+                    stack.extend(
+                        ("inline", child, child_depth)
+                        for child in reversed(children)
+                    )
+            elif kind == "list":
+                items = node.get("items", [])
+                if isinstance(items, list):
+                    stack.extend(
+                        ("list_item", item, child_depth)
+                        for item in reversed(items)
+                    )
+            elif kind == "table":
+                body = node.get("body", [])
+                if isinstance(body, list):
+                    stack.extend(
+                        ("table_row", row, child_depth) for row in reversed(body)
+                    )
+                head = node.get("head", [])
+                if isinstance(head, list):
+                    stack.extend(
+                        ("table_row", row, child_depth) for row in reversed(head)
+                    )
+            elif kind == "figure":
+                caption = node.get("caption", [])
+                if isinstance(caption, list):
+                    stack.extend(
+                        ("block", block, child_depth) for block in reversed(caption)
+                    )
+        elif node_type == "inline":
+            if node.get("kind") in {"emphasis", "strong", "link"}:
+                children = node.get("children", [])
+                if isinstance(children, list):
+                    stack.extend(
+                        ("inline", child, child_depth)
+                        for child in reversed(children)
+                    )
+        elif node_type in {"footnote", "list_item", "table_cell"}:
+            blocks = node.get("blocks", [])
+            if isinstance(blocks, list):
+                stack.extend(
+                    ("block", block, child_depth) for block in reversed(blocks)
+                )
+        elif node_type == "table_row":
+            cells = node.get("cells", [])
+            if isinstance(cells, list):
+                stack.extend(
+                    ("table_cell", cell, child_depth) for cell in reversed(cells)
+                )
+
+
+def typed_document_preorder(document: Any) -> list[dict[str, Any]]:
+    """Return the Profile 1.0 typed preorder, independent of JSON member order."""
+
+    return [node for node, _depth in typed_document_nodes_with_depth(document)]
+
+
+def canonical_style_inheritance_depth(package: Any) -> tuple[int, bool]:
+    """Return the deepest valid style chain and whether any chain is cyclic."""
+
+    if not isinstance(package, dict):
+        return 0, False
+    rules = package.get("style_sheet", {}).get("rules", [])
+    if not isinstance(rules, list):
+        return 0, False
+    parents: dict[str, str | None] = {}
+    for rule in rules:
+        if not isinstance(rule, dict) or not isinstance(rule.get("style_id"), str):
+            continue
+        parent = rule.get("extends")
+        parents[rule["style_id"]] = parent if isinstance(parent, str) else None
+
+    depths: dict[str, int] = {}
+    max_depth = 0
+    for start in parents:
+        if start in depths:
+            max_depth = max(max_depth, depths[start])
+            continue
+        path: list[str] = []
+        positions: dict[str, int] = {}
+        current: str | None = start
+        while current is not None and current in parents and current not in depths:
+            if current in positions:
+                return max_depth, True
+            positions[current] = len(path)
+            path.append(current)
+            current = parents[current]
+        depth = depths.get(current, 0) if current is not None else 0
+        for style_id in reversed(path):
+            depth += 1
+            depths[style_id] = depth
+            max_depth = max(max_depth, depth)
+    return max_depth, False
+
+
+def canonical_ast_nesting_depth(package: Any) -> int:
+    """Return the max typed Document or style-inheritance depth (roots are 1)."""
+
+    if not isinstance(package, dict):
+        return 0
+    document_depth = max(
+        (depth for _node, depth in typed_document_nodes_with_depth(package.get("document"))),
+        default=0,
+    )
+    style_depth, style_cycle = canonical_style_inheritance_depth(package)
+    return document_depth if style_cycle else max(document_depth, style_depth)
+
+
+def typed_document_paths(document: Any) -> dict[int, tuple[int, ...]]:
+    """Map NodeId to its typed child path without using JSON member order."""
+
+    paths: dict[int, tuple[int, ...]] = {}
+    if not isinstance(document, dict):
+        return paths
+
+    stack = [("document", document, ())]
+    while stack:
+        node_type, node, path = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        if type(node.get("node_id")) is int:
+            paths[node["node_id"]] = path
+        if node_type == "document":
+            blocks = node.get("blocks", [])
+            block_count = len(blocks) if isinstance(blocks, list) else 0
+            footnotes = node.get("footnotes", [])
+            if isinstance(footnotes, list):
+                for index in range(len(footnotes) - 1, -1, -1):
+                    stack.append(
+                        ("footnote", footnotes[index], (block_count + index,))
+                    )
+            if isinstance(blocks, list):
+                for index in range(len(blocks) - 1, -1, -1):
+                    stack.append(("block", blocks[index], (index,)))
+        elif node_type == "block":
+            kind = node.get("kind")
+            if kind in {"paragraph", "heading"}:
+                children = node.get("children", [])
+                if isinstance(children, list):
+                    for index in range(len(children) - 1, -1, -1):
+                        stack.append(("inline", children[index], (*path, index)))
+            elif kind == "list":
+                items = node.get("items", [])
+                if isinstance(items, list):
+                    for index in range(len(items) - 1, -1, -1):
+                        stack.append(("list_item", items[index], (*path, index)))
+            elif kind == "table":
+                head = node.get("head", [])
+                head_count = len(head) if isinstance(head, list) else 0
+                body = node.get("body", [])
+                if isinstance(body, list):
+                    for index in range(len(body) - 1, -1, -1):
+                        stack.append(
+                            ("table_row", body[index], (*path, head_count + index))
+                        )
+                if isinstance(head, list):
+                    for index in range(len(head) - 1, -1, -1):
+                        stack.append(("table_row", head[index], (*path, index)))
+            elif kind == "figure":
+                caption = node.get("caption", [])
+                if isinstance(caption, list):
+                    for index in range(len(caption) - 1, -1, -1):
+                        stack.append(("block", caption[index], (*path, index)))
+        elif node_type == "inline":
+            if node.get("kind") in {"emphasis", "strong", "link"}:
+                children = node.get("children", [])
+                if isinstance(children, list):
+                    for index in range(len(children) - 1, -1, -1):
+                        stack.append(("inline", children[index], (*path, index)))
+        elif node_type in {"footnote", "list_item", "table_cell"}:
+            blocks = node.get("blocks", [])
+            if isinstance(blocks, list):
+                for index in range(len(blocks) - 1, -1, -1):
+                    stack.append(("block", blocks[index], (*path, index)))
+        elif node_type == "table_row":
+            cells = node.get("cells", [])
+            if isinstance(cells, list):
+                for index in range(len(cells) - 1, -1, -1):
+                    stack.append(("table_cell", cells[index], (*path, index)))
+    return paths
+
+
+def typed_document_node_kinds(document: Any) -> dict[int, str]:
+    """Map NodeId to its typed semantic kind without JSON-member-order inference."""
+
+    kinds: dict[int, str] = {}
+    stack = [("document", document)]
+    while stack:
+        node_type, node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        node_id = node.get("node_id")
+        if type(node_id) is int:
+            kinds[node_id] = node.get("kind") if node_type in {"block", "inline"} else node_type
+        if node_type == "document":
+            footnotes = node.get("footnotes", [])
+            blocks = node.get("blocks", [])
+            if isinstance(footnotes, list):
+                stack.extend(("footnote", item) for item in reversed(footnotes))
+            if isinstance(blocks, list):
+                stack.extend(("block", item) for item in reversed(blocks))
+        elif node_type == "block":
+            kind = node.get("kind")
+            if kind in {"paragraph", "heading"}:
+                children = node.get("children", [])
+                if isinstance(children, list):
+                    stack.extend(("inline", item) for item in reversed(children))
+            elif kind == "list":
+                items = node.get("items", [])
+                if isinstance(items, list):
+                    stack.extend(("list_item", item) for item in reversed(items))
+            elif kind == "table":
+                body = node.get("body", [])
+                head = node.get("head", [])
+                if isinstance(body, list):
+                    stack.extend(("table_row", item) for item in reversed(body))
+                if isinstance(head, list):
+                    stack.extend(("table_row", item) for item in reversed(head))
+            elif kind == "figure":
+                caption = node.get("caption", [])
+                if isinstance(caption, list):
+                    stack.extend(("block", item) for item in reversed(caption))
+        elif node_type == "inline":
+            if node.get("kind") in {"emphasis", "strong", "link"}:
+                children = node.get("children", [])
+                if isinstance(children, list):
+                    stack.extend(("inline", item) for item in reversed(children))
+        elif node_type in {"footnote", "list_item", "table_cell"}:
+            blocks = node.get("blocks", [])
+            if isinstance(blocks, list):
+                stack.extend(("block", item) for item in reversed(blocks))
+        elif node_type == "table_row":
+            cells = node.get("cells", [])
+            if isinstance(cells, list):
+                stack.extend(("table_cell", item) for item in reversed(cells))
+    return kinds
+
+
+def canonical_ast_node_count(package: dict[str, Any]) -> int:
+    """Count Profile 1.0 syntax AST nodes represented in the package."""
+
+    count = len(typed_document_preorder(package.get("document", {})))
+    rules = package.get("style_sheet", {}).get("rules", [])
+    if not isinstance(rules, list):
+        return count
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        declarations = rule.get("declarations", [])
+        if not isinstance(declarations, list):
+            continue
+        for declaration in declarations:
+            if isinstance(declaration, dict):
+                count += 1
+                if isinstance(declaration.get("value"), dict):
+                    count += 1
+    return count
+
+
+def expected_generated_sites(package: dict[str, Any]) -> dict[tuple[Any, ...], dict[str, Any]]:
+    """Derive Profile 1.0 generated-text sites from the typed Document preorder."""
+
+    sites: dict[tuple[Any, ...], dict[str, Any]] = {}
+    root = package.get("document", {})
+    for node in typed_document_preorder(root):
+        owner = node.get("node_id")
+        kind = node.get("kind")
+        if type(owner) is not int:
+            continue
+        generation_kind = None
+        target = None
+        if kind == "reference":
+            generation_kind = "page_reference" if node.get("format") == "page" else "counter"
+            target = node.get("target")
+        elif kind == "footnote_reference":
+            generation_kind = "footnote_marker"
+            target = node.get("footnote_id")
+        elif kind == "soft_break":
+            generation_kind = "discretionary"
+        if generation_kind is not None:
+            key = generated_key_tuple({
+                "owner": owner,
+                "generation_kind": generation_kind,
+                "owner_local_ordinal": 0,
+            })
+            if key is not None:
+                sites[key] = {"generation_kind": generation_kind, "target": target}
+        if kind == "list":
+            for item in node.get("items", []):
+                item_owner = item.get("node_id") if isinstance(item, dict) else None
+                key = generated_key_tuple({
+                    "owner": item_owner,
+                    "generation_kind": "list_marker",
+                    "owner_local_ordinal": 0,
+                })
+                if key is not None:
+                    sites[key] = {"generation_kind": "list_marker", "target": None}
+    for footnote in root.get("footnotes", []) if isinstance(root, dict) else []:
+        owner = footnote.get("node_id") if isinstance(footnote, dict) else None
+        key = generated_key_tuple({
+            "owner": owner,
+            "generation_kind": "footnote_marker",
+            "owner_local_ordinal": 0,
+        })
+        if key is not None:
+            sites[key] = {
+                "generation_kind": "footnote_marker",
+                "target": footnote.get("footnote_id"),
+            }
+    return sites
+
+
+def display_rule_ids(
+    instance: dict[str, Any],
+    allowed_uri_schemes: set[str] | None = None,
+    max_uri_bytes: int | None = None,
+) -> set[str]:
+    rules: set[str] = set()
+    pages = instance.get("pages", [])
+    if isinstance(pages, list):
+        if not pages:
+            rules.add("DISPLAY_EMPTY_PAGES")
+        if any(
+            not isinstance(page, dict) or page.get("page_index") != page_index
+            for page_index, page in enumerate(pages)
+        ):
+            rules.add("DISPLAY_PAGE_INDEX")
+
+    text_buffers = instance.get("text_buffers", [])
+    display_text_info: dict[int, tuple[int, set[int]]] = {}
+    referenced_display_text_ids: set[int] = set()
+    duplicate_display_text_ids: set[Any] = set()
+    if isinstance(text_buffers, list):
+        text_ids = [
+            text_buffer.get("text_id")
+            for text_buffer in text_buffers
+            if isinstance(text_buffer, dict)
+        ]
+        duplicate_display_text_ids = {
+            text_id for text_id in text_ids if text_ids.count(text_id) > 1
+        }
+        if text_ids and (
+            any(type(text_id) is not int for text_id in text_ids)
+            or text_ids != list(range(len(text_ids)))
+        ):
+            rules.add("DISPLAY_TEXT_BUFFER_INDEX")
+        origin_keys: list[tuple[Any, ...]] = []
+        for text_buffer in text_buffers:
+            if not isinstance(text_buffer, dict):
+                continue
+            origin = text_buffer.get("origin")
+            if not isinstance(origin, dict):
+                continue
+            if origin.get("kind") == "parsed" and type(origin.get("text_buffer_id")) is int:
+                origin_keys.append((0, origin["text_buffer_id"]))
+            elif origin.get("kind") == "generated":
+                key = generated_key_tuple(origin.get("key"))
+                if key is not None:
+                    origin_keys.append((1, *key))
+        if len(origin_keys) != len(set(origin_keys)) or origin_keys != sorted(origin_keys):
+            rules.add("DISPLAY_TEXT_ORIGIN_ORDER")
+        for text_buffer in text_buffers:
+            if not isinstance(text_buffer, dict):
+                continue
+            text_id = text_buffer.get("text_id")
+            utf8 = text_buffer.get("utf8")
+            if (
+                type(text_id) is int
+                and text_id not in duplicate_display_text_ids
+                and isinstance(utf8, str)
+            ):
+                boundary_info = utf8_boundary_set(utf8)
+                if boundary_info is None:
+                    rules.add("DISPLAY_UTF8_BOUNDARY")
+                else:
+                    display_text_info[text_id] = boundary_info
+
+    font_instances = instance.get("font_instances", [])
+    known_font_instance_ids: set[int] = set()
+    referenced_font_instance_ids: set[int] = set()
+    if isinstance(font_instances, list):
+        instance_ids = [
+            font_instance.get("font_instance_id")
+            for font_instance in font_instances
+            if isinstance(font_instance, dict)
+        ]
+        valid_instance_ids = all(type(instance_id) is int for instance_id in instance_ids)
+        if valid_instance_ids and len(instance_ids) == len(set(instance_ids)):
+            if instance_ids != list(range(len(instance_ids))):
+                rules.add("DISPLAY_FONT_INSTANCE_INDEX")
+        elif instance_ids:
+            rules.add("DISPLAY_FONT_INSTANCE_INDEX")
+        face_ids = [
+            font_instance.get("font_face_id")
+            for font_instance in font_instances
+            if isinstance(font_instance, dict)
+        ]
+        if all(type(face_id) is int for face_id in face_ids):
+            if len(face_ids) != len(set(face_ids)):
+                rules.add("DISPLAY_DUPLICATE_FONT_FACE")
+            elif face_ids != sorted(face_ids):
+                rules.add("DISPLAY_FONT_INSTANCE_ORDER")
+        known_font_instance_ids = {
+            instance_id for instance_id in instance_ids if type(instance_id) is int
+        }
+
+    destinations_in_order = instance.get("destinations", [])
+    if isinstance(destinations_in_order, list):
+        destination_anchors = [
+            destination.get("anchor_id")
+            for destination in destinations_in_order
+            if isinstance(destination, dict)
+        ]
+        if len(destination_anchors) != len(set(destination_anchors)):
+            rules.add("DISPLAY_DESTINATION_ANCHOR")
+        elif all(isinstance(anchor, str) for anchor in destination_anchors) and (
+            destination_anchors != sorted(destination_anchors, key=utf8_sort_key)
+        ):
+            rules.add("DISPLAY_DESTINATION_ORDER")
+        known_pages = {
+            page.get("page_index") for page in pages if isinstance(page, dict)
+        }
+        if any(
+            isinstance(destination, dict)
+            and destination.get("page_index") not in known_pages
+            for destination in destinations_in_order
+        ):
+            rules.add("DISPLAY_DESTINATION_PAGE")
+        pages_by_id = {
+            page.get("page_index"): page for page in pages if isinstance(page, dict)
+        }
+        for destination in destinations_in_order:
+            if not isinstance(destination, dict):
+                continue
+            page = pages_by_id.get(destination.get("page_index"))
+            view = destination.get("view", {})
+            point = view.get("point", {}) if isinstance(view, dict) else {}
+            if (
+                isinstance(page, dict)
+                and isinstance(view, dict)
+                and view.get("kind") == "xyz"
+                and isinstance(point, dict)
+                and all(type(point.get(axis)) is int for axis in ("x", "y"))
+                and type(page.get("width")) is int
+                and type(page.get("height")) is int
+                and (
+                    point["x"] < 0
+                    or point["y"] < 0
+                    or point["x"] > page["width"]
+                    or point["y"] > page["height"]
+                )
+            ):
+                rules.add("DISPLAY_DESTINATION_BOUNDS")
+            if (
+                isinstance(page, dict)
+                and isinstance(view, dict)
+                and view.get("kind") == "fit_width"
+                and view.get("top") is not None
+                and type(view.get("top")) is int
+                and type(page.get("height")) is int
+                and not 0 <= view["top"] <= page["height"]
+            ):
+                rules.add("DISPLAY_DESTINATION_BOUNDS")
+
+    destinations = {
+        destination.get("anchor_id")
+        for destination in destinations_in_order
+        if isinstance(destination, dict)
+    }
+
+    glyph_run_ids: list[Any] = []
+    for page in instance.get("pages", []):
+        if not isinstance(page, dict):
+            continue
+        page_width = page.get("width")
+        page_height = page.get("height")
+        graphics_depth = 0
+        for command in page.get("commands", []):
+            if not isinstance(command, dict):
+                continue
+            if command.get("op") == "save":
+                graphics_depth += 1
+            elif command.get("op") == "restore":
+                if graphics_depth == 0:
+                    rules.add("DISPLAY_GRAPHICS_UNDERFLOW")
+                else:
+                    graphics_depth -= 1
+        if graphics_depth != 0:
+            rules.add("DISPLAY_GRAPHICS_UNBALANCED")
+
+        for annotation in page.get("annotations", []):
+            if not isinstance(annotation, dict):
+                continue
+            target = annotation.get("target", {})
+            if isinstance(target, dict):
+                if target.get("kind") == "internal" and target.get("anchor_id") not in destinations:
+                    rules.add("DISPLAY_UNRESOLVED_ANCHOR")
+                if target.get("kind") == "uri":
+                    uri = target.get("uri")
+                    scheme = uri.split(":", 1)[0] if isinstance(uri, str) and ":" in uri else None
+                    if (
+                        scheme not in {"http", "https", "mailto", "tel"}
+                        or (
+                            allowed_uri_schemes is not None
+                            and scheme not in allowed_uri_schemes
+                        )
+                    ):
+                        rules.add("DISPLAY_URI_SCHEME")
+                    if (
+                        isinstance(uri, str)
+                        and max_uri_bytes is not None
+                        and len(uri.encode("utf-8")) > max_uri_bytes
+                    ):
+                        rules.add("DISPLAY_URI_LIMIT")
+            rect = annotation.get("rect", {})
+            if (
+                isinstance(rect, dict)
+                and all(isinstance(rect.get(key), int) for key in ("x", "y", "width", "height"))
+                and isinstance(page_width, int)
+                and isinstance(page_height, int)
+                and (
+                    rect["x"] < 0
+                    or rect["y"] < 0
+                    or rect["x"] + rect["width"] > page_width
+                    or rect["y"] + rect["height"] > page_height
+                )
+            ):
+                rules.add("DISPLAY_ANNOTATION_BOUNDS")
+
+        for command in page.get("commands", []):
+            if not isinstance(command, dict):
+                continue
+            operation = command.get("op")
+            if operation not in DISPLAY_OPS:
+                rules.add("DISPLAY_UNKNOWN_OP")
+                continue
+            if operation == "concat_transform":
+                matrix = command.get("matrix")
+                if not isinstance(matrix, dict) or set(matrix) != {
+                    "a_16_16",
+                    "b_16_16",
+                    "c_16_16",
+                    "d_16_16",
+                    "e",
+                    "f",
+                }:
+                    rules.add("DISPLAY_TRANSFORM_SHAPE")
+            if operation == "draw_glyph_run":
+                glyph_run_ids.append(command.get("run_id"))
+                resource_id = command.get("font_instance_id")
+                if type(resource_id) is not int or not 0 <= resource_id <= 0xFFFF_FFFF:
+                    rules.add("DISPLAY_RESOURCE_ID")
+                elif resource_id not in known_font_instance_ids:
+                    rules.add("DISPLAY_UNKNOWN_FONT_INSTANCE")
+                else:
+                    referenced_font_instance_ids.add(resource_id)
+                if "fill" not in command:
+                    rules.add("DISPLAY_TEXT_PAINT")
+                run_span = command.get("text_span", {})
+
+                def validate_display_span(span: Any) -> bool:
+                    if not isinstance(span, dict):
+                        return False
+                    text_id = span.get("text_id")
+                    start = span.get("start_byte")
+                    end = span.get("end_byte")
+                    if text_id in duplicate_display_text_ids:
+                        return False
+                    if type(text_id) is not int or text_id not in display_text_info:
+                        rules.add("DISPLAY_UNKNOWN_TEXT")
+                        return False
+                    referenced_display_text_ids.add(text_id)
+                    if type(start) is not int or type(end) is not int:
+                        return False
+                    text_length, boundaries = display_text_info[text_id]
+                    if start > end or start < 0 or end > text_length:
+                        rules.add("DISPLAY_TEXT_SPAN_BOUNDS")
+                        return False
+                    if start not in boundaries or end not in boundaries:
+                        rules.add("DISPLAY_UTF8_BOUNDARY")
+                        return False
+                    return True
+
+                run_span_valid = validate_display_span(run_span)
+                unicode_spans: list[dict[str, Any]] = []
+                cluster_spans_valid = True
+                glyphs = command.get("glyphs", [])
+                glyph_count = len(glyphs) if isinstance(glyphs, list) else 0
+                clusters = command.get("clusters", [])
+                covered_glyphs: list[int] = []
+                for logical_ordinal, cluster in enumerate(clusters):
+                    if not isinstance(cluster, dict):
+                        continue
+                    if cluster.get("logical_ordinal") != logical_ordinal:
+                        rules.add("DISPLAY_CLUSTER_INDEX")
+                    glyph_start = cluster.get("glyph_start")
+                    glyph_end = cluster.get("glyph_end")
+                    if (
+                        type(glyph_start) is not int or type(glyph_end) is not int
+                        or not 0 <= glyph_start < glyph_end <= glyph_count
+                    ):
+                        rules.add("DISPLAY_GLYPH_PARTITION")
+                    else:
+                        covered_glyphs.extend(range(glyph_start, glyph_end))
+                    if cluster.get("extraction") != "unicode":
+                        continue
+                    span = cluster.get("text_span", {})
+                    if not validate_display_span(span):
+                        cluster_spans_valid = False
+                    elif isinstance(span, dict):
+                        if span.get("start_byte") == span.get("end_byte"):
+                            rules.add("DISPLAY_EMPTY_UNICODE_CLUSTER")
+                            cluster_spans_valid = False
+                        unicode_spans.append(span)
+
+                if sorted(covered_glyphs) != list(range(glyph_count)) or len(covered_glyphs) != len(set(covered_glyphs)):
+                    rules.add("DISPLAY_GLYPH_PARTITION")
+
+                if run_span_valid and cluster_spans_valid:
+                    overlap = any(
+                        current.get("text_id") == previous.get("text_id")
+                        and current.get("start_byte") < previous.get("end_byte")
+                        for previous, current in zip(unicode_spans, unicode_spans[1:])
+                    )
+                    if overlap:
+                        rules.add("DISPLAY_CLUSTER_OVERLAP")
+                    else:
+                        expected_start = run_span.get("start_byte")
+                        coverage_valid = True
+                        for span in unicode_spans:
+                            if (
+                                span.get("text_id") != run_span.get("text_id")
+                                or span.get("start_byte") != expected_start
+                                or span.get("end_byte") > run_span.get("end_byte")
+                            ):
+                                coverage_valid = False
+                                break
+                            expected_start = span.get("end_byte")
+                        if expected_start != run_span.get("end_byte"):
+                            coverage_valid = False
+                        if not coverage_valid:
+                            rules.add("DISPLAY_CLUSTER_COVERAGE")
+            if operation == "draw_image":
+                resource_id = command.get("image_id")
+                if type(resource_id) is not int or not 0 <= resource_id <= 0xFFFF_FFFF:
+                    rules.add("DISPLAY_RESOURCE_ID")
+            if operation == "stroke_path":
+                dash = command.get("stroke", {}).get("dash", {})
+                values = dash.get("array") if isinstance(dash, dict) else None
+                if isinstance(values, list) and values and all(value == 0 for value in values):
+                    rules.add("DISPLAY_DASH_ALL_ZERO")
+            if operation in {"clip_path", "fill_path", "stroke_path"}:
+                path = command.get("path")
+                arity_valid = isinstance(path, list) and bool(path)
+                if arity_valid:
+                    for verb in path:
+                        if (
+                            not isinstance(verb, dict)
+                            or verb.get("verb") not in PATH_KEYS
+                            or set(verb) != PATH_KEYS[verb["verb"]]
+                        ):
+                            arity_valid = False
+                            break
+                if not arity_valid:
+                    rules.add("DISPLAY_PATH_ARITY")
+                    continue
+
+                open_subpath = False
+                drawable_in_subpath = False
+                any_drawable = False
+                valid_state = path[0]["verb"] == "move_to"
+                for verb in path:
+                    kind = verb["verb"]
+                    if kind == "move_to":
+                        open_subpath = True
+                        drawable_in_subpath = False
+                    elif kind in {"line_to", "curve_to"}:
+                        if not open_subpath:
+                            valid_state = False
+                        drawable_in_subpath = True
+                        any_drawable = True
+                    elif kind == "close":
+                        if not open_subpath or not drawable_in_subpath:
+                            valid_state = False
+                        open_subpath = False
+                        drawable_in_subpath = False
+                if not valid_state or not any_drawable:
+                    rules.add("DISPLAY_PATH_STATE")
+    if glyph_run_ids and (
+        any(type(run_id) is not int for run_id in glyph_run_ids)
+        or glyph_run_ids != list(range(len(glyph_run_ids)))
+    ):
+        rules.add("DISPLAY_GLYPH_RUN_INDEX")
+    if (
+        not duplicate_display_text_ids
+        and not rules.intersection({"DISPLAY_EMPTY_PAGES", "DISPLAY_TEXT_BUFFER_INDEX", "DISPLAY_TEXT_ORIGIN_ORDER", "DISPLAY_UNKNOWN_TEXT", "DISPLAY_TEXT_SPAN_BOUNDS", "DISPLAY_UTF8_BOUNDARY"})
+        and set(display_text_info) != referenced_display_text_ids
+    ):
+        rules.add("DISPLAY_UNUSED_TEXT_BUFFER")
+    if not rules.intersection(
+        {"DISPLAY_EMPTY_PAGES", "DISPLAY_RESOURCE_ID", "DISPLAY_UNKNOWN_FONT_INSTANCE", "DISPLAY_FONT_INSTANCE_INDEX", "DISPLAY_FONT_INSTANCE_ORDER", "DISPLAY_DUPLICATE_FONT_FACE"}
+    ) and known_font_instance_ids != referenced_font_instance_ids:
+        rules.add("DISPLAY_UNUSED_FONT_INSTANCE")
+    return rules
+
+
+def document_rule_ids(
+    instance: dict[str, Any],
+    allowed_uri_schemes: set[str] | None = None,
+    max_uri_bytes: int | None = None,
+    max_ast_nesting_depth: int | None = None,
+) -> set[str]:
+    rules: set[str] = set()
+    document = instance.get("document", {})
+    if (
+        type(max_ast_nesting_depth) is int
+        and canonical_ast_nesting_depth(instance) > max_ast_nesting_depth
+    ):
+        return {"CROSS_LIMIT_AST_NESTING_DEPTH"}
+    document_objects = list(walk_objects(document))
+    typed_nodes = typed_document_preorder(document)
+    footnotes_for_order = (
+        [footnote for footnote in document.get("footnotes", []) if isinstance(footnote, dict)]
+        if isinstance(document, dict)
+        else []
+    )
+    footnote_ids_for_order = [footnote.get("footnote_id") for footnote in footnotes_for_order]
+    footnotes_canonical = (
+        all(isinstance(footnote_id, str) for footnote_id in footnote_ids_for_order)
+        and len(footnote_ids_for_order) == len(set(footnote_ids_for_order))
+        and footnote_ids_for_order == sorted(footnote_ids_for_order, key=utf8_sort_key)
+    )
+
+    for value in document_objects:
+        classes = value.get("classes")
+        if isinstance(classes, list):
+            valid_classes = all(
+                isinstance(class_name, str)
+                and CLASS_TOKEN.fullmatch(class_name) is not None
+                for class_name in classes
+            )
+            if not valid_classes:
+                rules.add("STYLE_CLASS_TOKEN")
+            elif not is_canonical_string_list(classes):
+                rules.add("STYLE_CLASS_ORDER")
+
+        if value.get("kind") == "list" and isinstance(value.get("ordered"), bool):
+            start = value.get("start")
+            if value["ordered"]:
+                if type(start) is not int or not 1 <= start <= 0xFFFF_FFFF:
+                    rules.add("DOC_LIST_START")
+                else:
+                    items = value.get("items")
+                    if (
+                        isinstance(items, list)
+                        and items
+                        and start + len(items) - 1 > 0xFFFF_FFFF
+                    ):
+                        rules.add("DOC_LIST_MARKER_OVERFLOW")
+            elif start is not None:
+                rules.add("DOC_LIST_START")
+            if value.get("items") == []:
+                rules.add("DOC_EMPTY_LIST")
+
+        if (
+            value.get("kind") == "table"
+            and value.get("head") == []
+            and value.get("body") == []
+        ):
+            rules.add("DOC_EMPTY_TABLE")
+
+    node_ids = [value.get("node_id") for value in typed_nodes]
+    if all(type(node_id) is int for node_id in node_ids):
+        if len(node_ids) != len(set(node_ids)):
+            rules.add("DOC_DUPLICATE_NODE")
+        elif footnotes_canonical and node_ids != list(range(len(node_ids))):
+            rules.add("DOC_NODE_INDEX")
+
+    source_records = [
+        source for source in instance.get("sources", []) if isinstance(source, dict)
+    ]
+    source_ids = [source.get("source_id") for source in source_records]
+    if all(type(source_id) is int for source_id in source_ids) and len(source_ids) != len(set(source_ids)):
+        rules.add("DOC_DUPLICATE_SOURCE_ID")
+    elif all(type(source_id) is int for source_id in source_ids) and source_ids != list(range(len(source_ids))):
+        rules.add("DOC_SOURCE_INDEX")
+    source_lengths = {
+        source.get("source_id"): source.get("utf8_byte_length")
+        for source in source_records
+        if type(source.get("source_id")) is int
+        and type(source.get("utf8_byte_length")) is int
+    }
+    for value in walk_objects(instance):
+        if {"source_id", "start_byte", "end_byte"} <= set(value):
+            source_id = value.get("source_id")
+            start = value.get("start_byte")
+            end = value.get("end_byte")
+            if type(start) is not int or type(end) is not int:
+                continue
+            if start > end:
+                rules.add("DOC_SPAN_REVERSED")
+                continue
+            if source_id not in source_lengths:
+                rules.add("DOC_UNKNOWN_SOURCE")
+            elif start < 0 or end > source_lengths[source_id]:
+                rules.add("DOC_SOURCE_SPAN_BOUNDS")
+
+    text_buffers = [
+        buffer for buffer in instance.get("text_buffers", []) if isinstance(buffer, dict)
+    ]
+    text_ids_in_order = [buffer.get("text_id") for buffer in text_buffers]
+    duplicate_text_ids = {
+        text_id
+        for text_id in text_ids_in_order
+        if text_ids_in_order.count(text_id) > 1
+    }
+    if duplicate_text_ids:
+        rules.add("DOC_DUPLICATE_TEXT_ID")
+    elif all(type(text_id) is int for text_id in text_ids_in_order) and (
+        text_ids_in_order != list(range(len(text_ids_in_order)))
+    ):
+        rules.add("DOC_TEXT_INDEX")
+    text_info: dict[int, tuple[int, set[int]]] = {}
+    for buffer in text_buffers:
+        text_id = buffer.get("text_id")
+        utf8 = buffer.get("utf8")
+        if (
+            type(text_id) is int
+            and text_id not in duplicate_text_ids
+            and isinstance(utf8, str)
+        ):
+            boundary_info = utf8_boundary_set(utf8)
+            if boundary_info is None:
+                rules.add("DOC_UTF8_BOUNDARY")
+            else:
+                text_info[text_id] = boundary_info
+
+    for value in document_objects:
+        text_span = value.get("text_span")
+        if not isinstance(text_span, dict):
+            continue
+        text_id = text_span.get("text_id")
+        start = text_span.get("start_byte")
+        end = text_span.get("end_byte")
+        if text_id in duplicate_text_ids:
+            continue
+        if text_id not in text_info:
+            rules.add("DOC_UNKNOWN_TEXT")
+            continue
+        if type(start) is not int or type(end) is not int:
+            continue
+        text_length, boundaries = text_info[text_id]
+        if start > end or start < 0 or end > text_length:
+            rules.add("DOC_TEXT_SPAN_BOUNDS")
+        elif start not in boundaries or end not in boundaries:
+            rules.add("DOC_UTF8_BOUNDARY")
+
+    for buffer in text_buffers:
+        expected_start = 0
+        coverage_valid = True
+        ranges_in_bounds = True
+        utf8 = buffer.get("utf8")
+        boundary_info = utf8_boundary_set(utf8) if isinstance(utf8, str) else None
+        for mapping in buffer.get("mappings", []):
+            if not isinstance(mapping, dict):
+                continue
+            text_range = mapping.get("text_range", {})
+            start = text_range.get("start_byte") if isinstance(text_range, dict) else None
+            end = text_range.get("end_byte") if isinstance(text_range, dict) else None
+            if type(start) is not int or type(end) is not int:
+                continue
+            if start == end:
+                rules.add("TEXT_MAP_EMPTY_SEGMENT")
+            if start != expected_start:
+                coverage_valid = False
+            expected_start = end
+            if boundary_info is not None:
+                text_length, boundaries = boundary_info
+                if start > end or start < 0 or end > text_length:
+                    rules.add("DOC_TEXT_SPAN_BOUNDS")
+                    ranges_in_bounds = False
+                elif start not in boundaries or end not in boundaries:
+                    rules.add("DOC_UTF8_BOUNDARY")
+            source_span = mapping.get("source_span")
+            kind = mapping.get("kind")
+            if kind == "inserted" and source_span is not None:
+                rules.add("TEXT_MAP_INSERTED_SOURCE")
+            if kind == "identity" and isinstance(source_span, dict):
+                source_length = source_span.get("end_byte", 0) - source_span.get("start_byte", 0)
+                if end - start != source_length:
+                    rules.add("TEXT_MAP_IDENTITY_LENGTH")
+        if boundary_info is not None and expected_start != boundary_info[0]:
+            coverage_valid = False
+        if not coverage_valid and ranges_in_bounds:
+            rules.add("TEXT_MAP_COVERAGE")
+
+    footnotes = [
+        footnote
+        for footnote in document.get("footnotes", [])
+        if isinstance(footnote, dict)
+    ] if isinstance(document, dict) else []
+    footnote_ids = [footnote.get("footnote_id") for footnote in footnotes]
+    if len(footnote_ids) != len(set(footnote_ids)):
+        rules.add("DOC_DUPLICATE_FOOTNOTE_ID")
+    elif all(isinstance(footnote_id, str) for footnote_id in footnote_ids) and (
+        footnote_ids != sorted(footnote_ids, key=utf8_sort_key)
+    ):
+        rules.add("DOC_FOOTNOTE_ORDER")
+    known_footnotes = set(footnote_ids)
+    if any(
+        value.get("kind") == "footnote_reference"
+        and value.get("footnote_id") not in known_footnotes
+        for value in document_objects
+    ):
+        rules.add("DOC_UNKNOWN_FOOTNOTE")
+
+    anchor_definitions = [
+        value.get("anchor_id")
+        for value in document_objects
+        if (
+            value.get("kind") == "anchor"
+            or (value.get("kind") == "heading" and value.get("anchor_id") is not None)
+        )
+    ]
+    if len(anchor_definitions) != len(set(anchor_definitions)):
+        rules.add("DOC_DUPLICATE_ANCHOR_ID")
+    known_anchors = set(anchor_definitions)
+    unknown_anchor = False
+    for value in document_objects:
+        if value.get("kind") == "reference" and value.get("target") not in known_anchors:
+            unknown_anchor = True
+        if value.get("kind") == "link":
+            target = value.get("target", {})
+            if (
+                isinstance(target, dict)
+                and target.get("kind") == "internal"
+                and target.get("anchor_id") not in known_anchors
+            ):
+                unknown_anchor = True
+    if unknown_anchor:
+        rules.add("DOC_UNKNOWN_ANCHOR")
+
+    resources = instance.get("resources", {})
+    font_faces = resources.get("font_faces", []) if isinstance(resources, dict) else []
+    images = resources.get("images", []) if isinstance(resources, dict) else []
+    font_ids = [font.get("font_face_id") for font in font_faces if isinstance(font, dict)]
+    font_families = [font.get("family") for font in font_faces if isinstance(font, dict)]
+    image_ids = [image.get("image_id") for image in images if isinstance(image, dict)]
+    if len(font_ids) != len(set(font_ids)):
+        rules.add("DOC_DUPLICATE_FONT_ID")
+    elif all(type(font_id) is int for font_id in font_ids) and font_ids != list(range(len(font_ids))):
+        rules.add("DOC_FONT_INDEX")
+    if len(image_ids) != len(set(image_ids)):
+        rules.add("DOC_DUPLICATE_IMAGE_ID")
+    elif all(type(image_id) is int for image_id in image_ids) and image_ids != list(range(len(image_ids))):
+        rules.add("DOC_IMAGE_INDEX")
+    if len(font_families) != len(set(font_families)):
+        rules.add("DOC_DUPLICATE_FONT_FAMILY")
+    if any(
+        not isinstance(family, str)
+        or not family
+        or family.isspace()
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in family)
+        for family in font_families
+    ):
+        rules.add("DOC_FONT_FAMILY_NAME")
+    known_font_families = {
+        family for family in font_families if isinstance(family, str)
+    }
+    known_images = set(image_ids)
+    if any(
+        value.get("kind") == "figure" and value.get("image_id") not in known_images
+        for value in document_objects
+    ):
+        rules.add("DOC_UNKNOWN_IMAGE")
+
+    page_masters = instance.get("page_masters", {})
+    masters = page_masters.get("masters", []) if isinstance(page_masters, dict) else []
+    master_ids = [master.get("master_id") for master in masters if isinstance(master, dict)]
+    if len(master_ids) != len(set(master_ids)):
+        rules.add("PAGE_MASTER_DUPLICATE_ID")
+    elif all(isinstance(master_id, str) for master_id in master_ids) and (
+        master_ids != sorted(master_ids, key=utf8_sort_key)
+    ):
+        rules.add("PAGE_MASTER_ORDER")
+    known_masters = set(master_ids)
+    if (
+        isinstance(page_masters, dict)
+        and page_masters.get("default_master_id") not in known_masters
+    ):
+        rules.add("PAGE_MASTER_DEFAULT_UNKNOWN")
+    selection_rules = (
+        page_masters.get("selection_rules", []) if isinstance(page_masters, dict) else []
+    )
+    if any(
+        not isinstance(selection_rule, dict)
+        or selection_rule.get("source_order") != index
+        for index, selection_rule in enumerate(selection_rules)
+    ):
+        rules.add("PAGE_MASTER_SOURCE_ORDER")
+    if any(
+        isinstance(selection_rule, dict)
+        and selection_rule.get("master_id") not in known_masters
+        for selection_rule in selection_rules
+    ):
+        rules.add("PAGE_MASTER_RULE_UNKNOWN")
+    for master in masters:
+        if not isinstance(master, dict):
+            continue
+        width = master.get("width")
+        height = master.get("height")
+        if type(width) is not int or type(height) is not int:
+            continue
+        for region_name in ("body", "header", "footer", "footnote"):
+            region = master.get(region_name)
+            if not isinstance(region, dict):
+                continue
+            if all(type(region.get(key)) is int for key in ("x", "y", "width", "height")) and (
+                region["x"] < 0
+                or region["y"] < 0
+                or region["x"] + region["width"] > width
+                or region["y"] + region["height"] > height
+            ):
+                rules.add("PAGE_MASTER_RECT_BOUNDS")
+
+    for table in (value for value in document_objects if value.get("kind") == "table"):
+        columns = table.get("columns", [])
+        head = table.get("head", [])
+        body = table.get("body", [])
+        if not all(isinstance(part, list) for part in (columns, head, body)):
+            continue
+        column_count = len(columns)
+        rows = [*head, *body]
+        occupied_rows = [0] * column_count
+        grid_valid = column_count > 0
+        crosses_head_body = False
+        for row_index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                grid_valid = False
+                cells = []
+            else:
+                cells = row.get("cells", [])
+            if not isinstance(cells, list):
+                grid_valid = False
+                cells = []
+            for cell in cells:
+                if not isinstance(cell, dict):
+                    grid_valid = False
+                    continue
+                colspan = cell.get("colspan")
+                rowspan = cell.get("rowspan")
+                if (
+                    type(colspan) is not int
+                    or type(rowspan) is not int
+                    or colspan <= 0
+                    or rowspan <= 0
+                ):
+                    grid_valid = False
+                    continue
+                column_index = next(
+                    (
+                        index
+                        for index, remaining in enumerate(occupied_rows)
+                        if remaining == 0
+                    ),
+                    column_count,
+                )
+                column_end = column_index + colspan
+                row_end = row_index + rowspan
+                if (
+                    column_end > column_count
+                    or row_end > len(rows)
+                    or any(
+                        occupied_rows[target_column] != 0
+                        for target_column in range(column_index, column_end)
+                    )
+                ):
+                    grid_valid = False
+                    continue
+                if row_index < len(head) and row_end > len(head):
+                    crosses_head_body = True
+                for target_column in range(column_index, column_end):
+                    occupied_rows[target_column] = rowspan
+            if 0 in occupied_rows:
+                grid_valid = False
+            for column_index, remaining in enumerate(occupied_rows):
+                if remaining > 0:
+                    occupied_rows[column_index] = remaining - 1
+        if any(remaining != 0 for remaining in occupied_rows):
+            grid_valid = False
+        if not grid_valid:
+            rules.add("TABLE_GRID")
+        if crosses_head_body:
+            rules.add("TABLE_HEAD_BODY_CROSS")
+
+    rules_in_order = instance.get("style_sheet", {}).get("rules", [])
+    if isinstance(rules_in_order, list):
+        if any(
+            not isinstance(rule, dict) or rule.get("source_order") != index
+            for index, rule in enumerate(rules_in_order)
+        ):
+            rules.add("STYLE_SOURCE_ORDER")
+
+        style_rules = [rule for rule in rules_in_order if isinstance(rule, dict)]
+        style_ids = [
+            rule.get("style_id")
+            for rule in style_rules
+            if isinstance(rule.get("style_id"), str)
+        ]
+        if len(style_ids) != len(set(style_ids)):
+            rules.add("STYLE_DUPLICATE_ID")
+        known_style_ids = set(style_ids)
+
+        extends_by_style: dict[str, str] = {}
+        for rule in style_rules:
+            selector = rule.get("selector")
+            if not isinstance(selector, str) or STYLE_SELECTOR.fullmatch(selector) is None:
+                rules.add("STYLE_SELECTOR_SYNTAX")
+            else:
+                class_components = selector.split(".")[1:]
+                if len(class_components) != len(set(class_components)):
+                    rules.add("STYLE_SELECTOR_DUPLICATE_CLASS")
+                elif class_components != sorted(class_components, key=utf8_sort_key):
+                    rules.add("STYLE_SELECTOR_CLASS_ORDER")
+
+            for declaration in rule.get("declarations", []):
+                if not isinstance(declaration, dict):
+                    continue
+                declaration_name = declaration.get("name")
+                if not isinstance(declaration_name, str) or declaration_name not in STYLE_PROPERTY_NAMES:
+                    rules.add("STYLE_DECLARATION_NAME")
+                    continue
+                declaration_value = declaration.get("value", {})
+                property_type_valid = False
+                if declaration_name == "font_family":
+                    families = (
+                        declaration_value.get("families")
+                        if isinstance(declaration_value, dict)
+                        and declaration_value.get("kind") == "font_family_list"
+                        else None
+                    )
+                    property_type_valid = isinstance(families, list) and bool(families)
+                    if property_type_valid:
+                        aliases_valid = all(
+                            isinstance(family, str)
+                            and bool(family)
+                            and not family.isspace()
+                            and not any(
+                                ord(character) < 0x20 or ord(character) == 0x7F
+                                for character in family
+                            )
+                            for family in families
+                        )
+                        if not aliases_valid or len(families) != len(set(families)):
+                            rules.add("STYLE_FONT_FAMILY_LIST")
+                        elif not any(family in known_font_families for family in families):
+                            rules.add("STYLE_UNKNOWN_FONT_FAMILY")
+                elif declaration_name in {"font_size", "line_height"}:
+                    property_type_valid = (
+                        isinstance(declaration_value, dict)
+                        and declaration_value.get("kind") == "length"
+                        and type(declaration_value.get("value")) is int
+                        and 1 <= declaration_value["value"] <= JSON_SAFE_INTEGER_MAX
+                    )
+                if declaration_name == "page":
+                    page_value_valid = isinstance(declaration_value, dict) and (
+                        (
+                            declaration_value.get("kind") == "keyword"
+                            and declaration_value.get("value") == "auto"
+                        )
+                        or (
+                            declaration_value.get("kind") == "string"
+                            and isinstance(declaration_value.get("value"), str)
+                            and CLASS_TOKEN.fullmatch(declaration_value["value"]) is not None
+                        )
+                    )
+                    if not page_value_valid:
+                        rules.add("STYLE_PAGE_VALUE")
+                    property_type_valid = page_value_valid
+                if not property_type_valid and declaration_name != "page":
+                    rules.add("STYLE_PROPERTY_TYPE")
+
+            style_id = rule.get("style_id")
+            parent_style_id = rule.get("extends")
+            if isinstance(parent_style_id, str):
+                if parent_style_id not in known_style_ids:
+                    rules.add("STYLE_EXTENDS_UNKNOWN")
+                elif isinstance(style_id, str):
+                    extends_by_style[style_id] = parent_style_id
+
+        visit_state: dict[str, int] = {}
+        extends_cycle = False
+        for start in known_style_ids:
+            if visit_state.get(start) == 2:
+                continue
+            path: list[str] = []
+            current: str | None = start
+            while current is not None:
+                state = visit_state.get(current, 0)
+                if state == 1:
+                    extends_cycle = True
+                    break
+                if state == 2:
+                    break
+                visit_state[current] = 1
+                path.append(current)
+                current = extends_by_style.get(current)
+            for style_id in path:
+                visit_state[style_id] = 2
+            if extends_cycle:
+                break
+
+        if extends_cycle:
+            rules.add("STYLE_EXTENDS_CYCLE")
+
+        style_prerequisite_rules = {
+            "STYLE_CLASS_TOKEN",
+            "STYLE_CLASS_ORDER",
+            "STYLE_SELECTOR_SYNTAX",
+            "STYLE_SELECTOR_DUPLICATE_CLASS",
+            "STYLE_SELECTOR_CLASS_ORDER",
+            "STYLE_DUPLICATE_ID",
+            "STYLE_EXTENDS_UNKNOWN",
+            "STYLE_EXTENDS_CYCLE",
+            "STYLE_DECLARATION_NAME",
+            "STYLE_PROPERTY_TYPE",
+            "STYLE_FONT_FAMILY_LIST",
+            "STYLE_UNKNOWN_FONT_FAMILY",
+            "STYLE_PAGE_VALUE",
+        }
+        if not rules.intersection(style_prerequisite_rules):
+            rules_by_id = {rule["style_id"]: rule for rule in style_rules}
+
+            def expanded_chain(rule: dict[str, Any]) -> list[dict[str, Any]]:
+                chain: list[dict[str, Any]] = []
+                current: dict[str, Any] | None = rule
+                while current is not None:
+                    chain.append(current)
+                    parent = current.get("extends")
+                    current = rules_by_id.get(parent) if isinstance(parent, str) else None
+                chain.reverse()
+                return chain
+
+            for block in (
+                value
+                for value in document_objects
+                if value.get("kind") in {"paragraph", "heading", "list", "table", "figure"}
+                and (
+                    value.get("kind") == "list"
+                    or any(
+                        child.get("kind") in {"text", "reference", "footnote_reference"}
+                        for child in walk_objects(value)
+                    )
+                )
+            ):
+                block_kind = block.get("kind")
+                block_classes = set(block.get("classes", []))
+                winners: dict[str, tuple[tuple[int, ...], Any]] = {}
+                for matched_rule in style_rules:
+                    selector = matched_rule["selector"]
+                    selector_parts = selector.split(".")
+                    selector_classes = selector_parts[1:]
+                    if selector_parts[0] != block_kind or not set(selector_classes) <= block_classes:
+                        continue
+                    specificity = (0, len(selector_classes), 1)
+                    for inheritance_depth, origin_rule in enumerate(expanded_chain(matched_rule)):
+                        for declaration_order, declaration in enumerate(
+                            origin_rule.get("declarations", [])
+                        ):
+                            name = declaration.get("name")
+                            if name not in STYLE_PROPERTY_NAMES:
+                                continue
+                            precedence = (
+                                int(declaration.get("important") is True),
+                                *specificity,
+                                matched_rule["source_order"],
+                                inheritance_depth,
+                                declaration_order,
+                            )
+                            current = winners.get(name)
+                            if current is None or precedence > current[0]:
+                                winners[name] = (precedence, declaration.get("value"))
+                if not {"font_family", "font_size", "line_height"} <= set(winners):
+                    rules.add("STYLE_REQUIRED_COMPUTED_VALUE")
+
+    for value in document_objects:
+        if value.get("kind") != "link":
+            continue
+        target = value.get("target", {})
+        if not isinstance(target, dict) or target.get("kind") != "uri":
+            continue
+        uri = target.get("uri")
+        scheme = uri.split(":", 1)[0] if isinstance(uri, str) and ":" in uri else None
+        if (
+            scheme not in {"http", "https", "mailto", "tel"}
+            or (allowed_uri_schemes is not None and scheme not in allowed_uri_schemes)
+        ):
+            rules.add("DOC_URI_SCHEME")
+        if isinstance(uri, str) and max_uri_bytes is not None:
+            try:
+                uri_length = len(uri.encode("utf-8"))
+            except UnicodeEncodeError:
+                uri_length = max_uri_bytes + 1
+            if uri_length > max_uri_bytes:
+                rules.add("DOC_URI_LIMIT")
+
+    paths: list[Any] = [source.get("uri") for source in source_records]
+    paths.extend(font.get("uri") for font in font_faces if isinstance(font, dict))
+    paths.extend(image.get("uri") for image in images if isinstance(image, dict))
+    if any(not is_portable_path(path) for path in paths):
+        rules.add("PATH_PORTABILITY")
+    if rules.intersection({"TABLE_GRID", "TABLE_HEAD_BODY_CROSS"}):
+        rules.discard("DOC_NODE_INDEX")
+    if "STYLE_REQUIRED_COMPUTED_VALUE" in rules and len(rules) > 1:
+        rules.discard("STYLE_REQUIRED_COMPUTED_VALUE")
+    return rules
+
+
+def manifest_rule_ids(instance: dict[str, Any]) -> set[str]:
+    rules: set[str] = set()
+    if instance.get("data_versions") != {
+        "unicode": "16.0.0",
+        "japanese_line_break": "typaxis-jlreq-horizontal/1.0.0",
+        "shaper_backend": "typaxis-reference-shaper",
+        "shaper_version": "0.1.0",
+    }:
+        rules.add("MANIFEST_DATA_VERSION")
+    if instance.get("status") not in {"built", "failed"}:
+        rules.add("MANIFEST_STATUS")
+    if instance.get("engine", {}).get("name") != "typaxis":
+        rules.add("MANIFEST_ENGINE")
+    collections = (
+        (instance.get("inputs", []), lambda record: record.get("uri")),
+        (instance.get("fonts", []), lambda record: record.get("font_face_id")),
+        (instance.get("images", []), lambda record: record.get("image_id")),
+    )
+    for records, identity in collections:
+        identities = [identity(record) for record in records if isinstance(record, dict)]
+        if len(identities) != len(set(identities)):
+            rules.add("MANIFEST_DUPLICATE_RESOURCE")
+        if identities != sorted(identities):
+            rules.add("MANIFEST_ORDER")
+    for record in instance.get("fonts", []):
+        if not isinstance(record, dict):
+            continue
+        units_per_em = record.get("units_per_em")
+        glyph_count = record.get("glyph_count")
+        if type(units_per_em) is int and not 16 <= units_per_em <= 16384:
+            rules.add("MANIFEST_FONT_UNITS_RANGE")
+        if type(glyph_count) is int and not 1 <= glyph_count <= 4294967295:
+            rules.add("MANIFEST_GLYPH_COUNT_RANGE")
+    for record in instance.get("images", []):
+        if not isinstance(record, dict):
+            continue
+        width = record.get("pixel_width")
+        height = record.get("pixel_height")
+        if type(width) is int and not 1 <= width <= 4294967295:
+            rules.add("MANIFEST_IMAGE_WIDTH_RANGE")
+        if type(height) is int and not 1 <= height <= 4294967295:
+            rules.add("MANIFEST_IMAGE_HEIGHT_RANGE")
+
+    layout = instance.get("layout")
+    if isinstance(layout, dict):
+        pass_count = layout.get("pass_count")
+        selected_state = layout.get("selected_state")
+        if type(pass_count) is int and type(selected_state) is int:
+            if not 1 <= selected_state <= pass_count:
+                rules.add("MANIFEST_SELECTED_STATE_RANGE")
+            elif layout.get("status") == "converged" and selected_state != pass_count:
+                rules.add("MANIFEST_CONVERGED_STATE")
+    return rules
+
+
+def config_rule_ids(instance: dict[str, Any]) -> set[str]:
+    rules: set[str] = set()
+    if instance.get("data_versions") != {
+        "unicode": "16.0.0",
+        "japanese_line_break": "typaxis-jlreq-horizontal/1.0.0",
+    }:
+        rules.add("CONFIG_DATA_VERSION")
+    if instance.get("deterministic") is not True:
+        rules.add("CONFIG_DETERMINISTIC")
+
+    allowed_uri_schemes = instance.get("allowed_uri_schemes")
+    if isinstance(allowed_uri_schemes, list) and not is_canonical_string_list(
+        allowed_uri_schemes
+    ):
+        rules.add("CONFIG_URI_SCHEME_ORDER")
+    resource_roots = instance.get("resource_roots")
+    if isinstance(resource_roots, list) and not is_canonical_string_list(resource_roots):
+        rules.add("CONFIG_RESOURCE_ROOT_ORDER")
+
+    limits = instance.get("limits", {})
+    if isinstance(limits, dict):
+        max_ast_nesting_depth = limits.get("max_ast_nesting_depth")
+        if (
+            type(max_ast_nesting_depth) is int
+            and max_ast_nesting_depth > MAX_AST_NESTING_DEPTH
+        ):
+            rules.add("CONFIG_AST_NESTING_DEPTH")
+        max_fonts = limits.get("max_fonts")
+        if type(max_fonts) is int and max_fonts > MAX_FONT_SUBSET_TAGS:
+            rules.add("CONFIG_FONT_COUNT_PROFILE_MAX")
+        max_source_bytes = limits.get("max_source_bytes")
+        max_input_bytes = limits.get("max_input_bytes")
+        if (
+            type(max_source_bytes) is int
+            and type(max_input_bytes) is int
+            and max_source_bytes > max_input_bytes
+        ):
+            rules.add("CONFIG_SOURCE_INPUT_LIMIT")
+
+        max_text_buffer_bytes = limits.get("max_text_buffer_bytes")
+        max_text_bytes = limits.get("max_text_bytes")
+        if (
+            type(max_text_buffer_bytes) is int
+            and type(max_text_bytes) is int
+            and max_text_buffer_bytes > max_text_bytes
+        ):
+            rules.add("CONFIG_TEXT_BUFFER_LIMIT")
+
+        max_shaping_context_bytes = limits.get("max_shaping_context_bytes")
+        if (
+            type(max_shaping_context_bytes) is int
+            and type(max_text_buffer_bytes) is int
+            and max_shaping_context_bytes > max_text_buffer_bytes
+        ):
+            rules.add("CONFIG_SHAPING_CONTEXT_LIMIT")
+
+        max_resource_bytes = limits.get("max_resource_bytes")
+        max_font_bytes = limits.get("max_font_bytes")
+        if (
+            type(max_font_bytes) is int
+            and type(max_resource_bytes) is int
+            and max_font_bytes > max_resource_bytes
+        ):
+            rules.add("CONFIG_FONT_RESOURCE_LIMIT")
+        max_image_bytes = limits.get("max_image_bytes")
+        if (
+            type(max_image_bytes) is int
+            and type(max_resource_bytes) is int
+            and max_image_bytes > max_resource_bytes
+        ):
+            rules.add("CONFIG_IMAGE_RESOURCE_LIMIT")
+    return rules
+
+
+def flow_position_key(position: Any) -> tuple[Any, ...] | None:
+    if not isinstance(position, dict):
+        return None
+    path = position.get("block_child_path")
+    if not isinstance(path, list) or not all(type(item) is int for item in path):
+        return None
+    fields = (
+        position.get("global_flow_ordinal"),
+        position.get("owner"),
+        tuple(path),
+        position.get("owner_local_boundary"),
+    )
+    return fields if type(fields[0]) is int and type(fields[1]) is int and type(fields[3]) is int else None
+
+
+def generated_key_tuple(key: Any) -> tuple[Any, ...] | None:
+    if not isinstance(key, dict):
+        return None
+    owner = key.get("owner")
+    generation_kind = key.get("generation_kind")
+    ordinal = key.get("owner_local_ordinal")
+    if type(owner) is not int or generation_kind not in GENERATION_KIND_ORDER or type(ordinal) is not int:
+        return None
+    return owner, GENERATION_KIND_ORDER[generation_kind], ordinal
+
+
+def canonical_generated_records_from_state(state: Any) -> list[dict[str, Any]]:
+    if not isinstance(state, dict):
+        return []
+    return copy.deepcopy(state.get("resolved_generated_text", []))
+
+
+def reference_fingerprint(records: Any) -> str:
+    return hashlib.sha256(
+        jcs_bytes({
+            "algorithm": "typaxis.reference-state.jcs-sha256/1",
+            "resolved_generated_text": records,
+        })
+    ).hexdigest()
+
+
+def generated_record_rule_ids(records: Any, order_rule: str, span_rule: str) -> set[str]:
+    rules: set[str] = set()
+    if not isinstance(records, list):
+        return rules
+    keys: list[tuple[Any, ...]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        key = generated_key_tuple(record.get("key", record.get("buffer_key")))
+        start = record.get("start_byte")
+        end = record.get("end_byte")
+        utf8 = record.get("utf8")
+        if key is not None and type(start) is int and type(end) is int:
+            keys.append((*key, start, end))
+        if (
+            type(start) is int and type(end) is int and isinstance(utf8, str)
+            and (start > end or end - start != len(utf8.encode("utf-8")))
+        ):
+            rules.add(span_rule)
+    if len(keys) != len(set(keys)) or keys != sorted(keys):
+        rules.add(order_rule)
+    sites = sorted({key[:3] for key in keys})
+    by_owner_kind: dict[tuple[Any, Any], list[int]] = {}
+    for owner, generation_kind, ordinal in sites:
+        by_owner_kind.setdefault((owner, generation_kind), []).append(ordinal)
+    if any(ordinals != list(range(len(ordinals))) for ordinals in by_owner_kind.values()):
+        rules.add(order_rule)
+    return rules
+
+
+def flow_registry_info(record: Any) -> tuple[set[bytes], set[int], set[str]]:
+    """Validate and index the canonical FlowTree boundary registry in one state."""
+
+    rules: set[str] = set()
+    if not isinstance(record, dict):
+        return set(), set(), rules
+    epoch = record.get("layout_epoch")
+    positions = record.get("flow_positions")
+    if not isinstance(positions, list) or not positions:
+        return set(), set(), {"TRACE_FLOW_REGISTRY"}
+    encoded: set[bytes] = set()
+    owners: set[int] = set()
+    boundaries: set[tuple[Any, ...]] = set()
+    boundary_keys: list[tuple[Any, ...]] = []
+    for ordinal, position in enumerate(positions):
+        key = flow_position_key(position)
+        if (
+            key is None
+            or position.get("global_flow_ordinal") != ordinal
+            or position.get("epoch") != epoch
+        ):
+            rules.add("TRACE_FLOW_REGISTRY")
+            continue
+        boundary = (position.get("owner"), tuple(position.get("block_child_path", [])), position.get("owner_local_boundary"))
+        boundary_keys.append(boundary)
+        if boundary in boundaries:
+            rules.add("TRACE_FLOW_REGISTRY")
+        boundaries.add(boundary)
+        encoded.add(jcs_bytes(position))
+        owners.add(position["owner"])
+    first = positions[0]
+    if (
+        not isinstance(first, dict)
+        or first.get("global_flow_ordinal") != 0
+        or first.get("owner") != 0
+        or first.get("block_child_path") != []
+        or first.get("owner_local_boundary") != 0
+    ):
+        rules.add("TRACE_FLOW_REGISTRY")
+    if len(encoded) != len(positions):
+        rules.add("TRACE_FLOW_REGISTRY")
+    if len(positions) == 2:
+        rules.add("TRACE_FLOW_REGISTRY")
+    intermediate_keys = boundary_keys[1:-1] if len(boundary_keys) > 1 else []
+    if intermediate_keys != sorted(intermediate_keys):
+        rules.add("TRACE_FLOW_REGISTRY")
+    if len(positions) > 1:
+        terminal = positions[-1]
+        if (
+            not isinstance(terminal, dict)
+            or terminal.get("owner") != 0
+            or terminal.get("block_child_path") != []
+            or terminal.get("owner_local_boundary") != 1
+        ):
+            rules.add("TRACE_FLOW_REGISTRY")
+    local_boundaries: dict[tuple[Any, ...], list[int]] = {}
+    for owner, path, boundary in intermediate_keys:
+        if type(boundary) is int:
+            local_boundaries.setdefault((owner, path), []).append(boundary)
+    if any(
+        values != list(range(len(values)))
+        for values in local_boundaries.values()
+    ):
+        rules.add("TRACE_FLOW_REGISTRY")
+    return encoded, owners, rules
+
+
+def trace_record_rule_ids(record: Any, expected_resolved_input: str) -> set[str]:
+    rules: set[str] = set()
+    if not isinstance(record, dict):
+        return rules
+    epoch = record.get("layout_epoch")
+    flow_positions, flow_owners, flow_rules = flow_registry_info(record)
+    rules.update(flow_rules)
+    if isinstance(epoch, dict) and epoch.get("resolved_input_sha256") != expected_resolved_input:
+        rules.add("TRACE_EPOCH_INPUT")
+    rules.update(
+        generated_record_rule_ids(
+            canonical_generated_records_from_state(record),
+            "TRACE_GENERATED_TEXT_ORDER",
+            "TRACE_GENERATED_TEXT_SPAN",
+        )
+    )
+    pages = record.get("pages", [])
+    if isinstance(pages, list):
+        if not pages:
+            rules.add("TRACE_EMPTY_PAGES")
+        elif any(
+            not isinstance(page, dict) or page.get("page_index") != page_index
+            for page_index, page in enumerate(pages)
+        ):
+            rules.add("TRACE_PAGE_INDEX")
+    known_pages = {
+        page.get("page_index") for page in pages if isinstance(page, dict)
+    }
+    frames_by_page_key: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
+    flattened_fragments: list[dict[str, Any]] = []
+
+    def rect_within(child: Any, parent: Any) -> bool:
+        if not isinstance(child, dict) or not isinstance(parent, dict):
+            return False
+        if not all(type(rect.get(field)) is int for rect in (child, parent) for field in ("x", "y", "width", "height")):
+            return False
+        return (
+            child["x"] >= parent["x"] and child["y"] >= parent["y"]
+            and child["x"] + child["width"] <= parent["x"] + parent["width"]
+            and child["y"] + child["height"] <= parent["y"] + parent["height"]
+        )
+    for page in pages if isinstance(pages, list) else []:
+        if not isinstance(page, dict):
+            continue
+        frames = page.get("frames", [])
+        frame_keys = [
+            (FRAME_KIND_ORDER.get(frame.get("kind"), 99), frame.get("column_index"))
+            for frame in frames
+            if isinstance(frame, dict)
+        ]
+        frame_by_key = {
+            (frame.get("kind"), frame.get("column_index")): frame
+            for frame in frames if isinstance(frame, dict)
+        }
+        for (kind, column_index), frame in frame_by_key.items():
+            frames_by_page_key[(page.get("page_index"), kind, column_index)] = frame
+        dense_frame_columns = True
+        previous: tuple[int, int] | None = None
+        for frame_key in frame_keys:
+            expected_column = previous[1] + 1 if previous is not None and previous[0] == frame_key[0] else 0
+            if frame_key[1] != expected_column:
+                dense_frame_columns = False
+            previous = frame_key
+        if (
+            not frame_keys or frame_keys[0] != (FRAME_KIND_ORDER["body"], 0)
+            or len(frame_keys) != len(set(frame_keys))
+            or frame_keys != sorted(frame_keys)
+            or not dense_frame_columns
+        ):
+            rules.add("TRACE_FRAME_ORDER")
+        footnote_ids = page.get("footnote_ids", [])
+        if isinstance(footnote_ids, list) and not is_canonical_string_list(footnote_ids):
+            rules.add("TRACE_FOOTNOTE_ORDER")
+        fragments = page.get("fragments", [])
+        fragment_keys: list[tuple[Any, ...]] = []
+        for fragment in fragments if isinstance(fragments, list) else []:
+            if not isinstance(fragment, dict):
+                continue
+            flattened_fragments.append(fragment)
+            start = fragment.get("start")
+            end = fragment.get("end")
+            start_key = flow_position_key(start)
+            end_key = flow_position_key(end)
+            owner = fragment.get("owner")
+            frame = frame_by_key.get((fragment.get("frame_kind"), fragment.get("column_index")))
+            if frame is None or not rect_within(fragment.get("bounds"), frame.get("bounds")):
+                rules.add("TRACE_FRAGMENT_FRAME")
+            if (
+                start_key is None or end_key is None or start_key >= end_key
+                or not isinstance(start, dict) or not isinstance(end, dict)
+                or start.get("epoch") != epoch or end.get("epoch") != epoch
+                or start.get("owner") != owner
+                or jcs_bytes(start) not in flow_positions
+                or jcs_bytes(end) not in flow_positions
+            ):
+                rules.add("TRACE_FLOW_POSITION")
+                continue
+            fragment_keys.append((start_key, owner, fragment.get("owner_local_ordinal")))
+        if len(fragment_keys) != len(set(fragment_keys)) or fragment_keys != sorted(fragment_keys):
+            rules.add("TRACE_FRAGMENT_ORDER")
+
+        floats = page.get("float_decisions", [])
+        if isinstance(floats, list):
+            float_keys = [
+                (decision.get("owner"), decision.get("owner_local_ordinal"))
+                for decision in floats if isinstance(decision, dict)
+            ]
+            if len(float_keys) != len(set(float_keys)) or float_keys != sorted(float_keys):
+                rules.add("TRACE_FLOAT_ORDER")
+            if any(
+                frame_by_key.get((decision.get("frame_kind"), decision.get("column_index"))) is None
+                or not rect_within(
+                    decision.get("bounds"),
+                    frame_by_key[(decision.get("frame_kind"), decision.get("column_index"))].get("bounds"),
+                )
+                for decision in floats if isinstance(decision, dict)
+            ):
+                rules.add("TRACE_FLOAT_FRAME")
+            if any(
+                decision.get("owner") not in flow_owners
+                for decision in floats if isinstance(decision, dict)
+            ):
+                rules.add("TRACE_FLOW_REGISTRY")
+
+        columns = page.get("column_decisions", [])
+        if isinstance(columns, list):
+            column_keys = [
+                (decision.get("container"), decision.get("column_index"))
+                for decision in columns if isinstance(decision, dict)
+            ]
+            dense_columns = True
+            previous_column: tuple[Any, Any] | None = None
+            for key in column_keys:
+                expected_column = previous_column[1] + 1 if previous_column is not None and previous_column[0] == key[0] else 0
+                if key[1] != expected_column:
+                    dense_columns = False
+                previous_column = key
+            if len(column_keys) != len(set(column_keys)) or column_keys != sorted(column_keys) or not dense_columns:
+                rules.add("TRACE_COLUMN_ORDER")
+            if any(
+                decision.get("container") not in flow_owners
+                for decision in columns if isinstance(decision, dict)
+            ):
+                rules.add("TRACE_FLOW_REGISTRY")
+
+        references = page.get("resolved_references", [])
+        reference_rules = generated_record_rule_ids(
+            references, "TRACE_RESOLVED_REFERENCE_ORDER", "TRACE_RESOLVED_REFERENCE_SPAN"
+        )
+        if isinstance(references, list):
+            reference_sort_keys = []
+            for reference in references:
+                if not isinstance(reference, dict):
+                    continue
+                key = generated_key_tuple(reference.get("buffer_key"))
+                if key is not None:
+                    reference_sort_keys.append((*key, reference.get("start_byte"), reference.get("end_byte"), utf8_sort_key(reference.get("anchor_id", ""))))
+            if len(reference_sort_keys) != len(set(reference_sort_keys)) or reference_sort_keys != sorted(reference_sort_keys):
+                reference_rules.add("TRACE_RESOLVED_REFERENCE_ORDER")
+        rules.update(reference_rules)
+
+    placed_anchors = record.get("placed_anchors", [])
+    if isinstance(placed_anchors, list):
+        anchor_ids = [
+            anchor.get("anchor_id")
+            for anchor in placed_anchors if isinstance(anchor, dict)
+        ]
+        if (
+            len(anchor_ids) != len(placed_anchors)
+            or len(anchor_ids) != len(set(anchor_ids))
+            or not all(isinstance(anchor_id, str) for anchor_id in anchor_ids)
+            or anchor_ids != sorted(anchor_ids, key=utf8_sort_key)
+        ):
+            rules.add("TRACE_PLACED_ANCHOR")
+        for anchor in placed_anchors:
+            if not isinstance(anchor, dict):
+                continue
+            frame = frames_by_page_key.get((
+                anchor.get("page_index"), anchor.get("frame_kind"), anchor.get("column_index")
+            ))
+            point = anchor.get("position_in_frame")
+            bounds = frame.get("bounds") if isinstance(frame, dict) else None
+            if (
+                not isinstance(point, dict)
+                or not isinstance(bounds, dict)
+                or not all(type(point.get(axis)) is int for axis in ("x", "y"))
+                or not all(
+                    type(bounds.get(field)) is int
+                    for field in ("x", "y", "width", "height")
+                )
+                or point["x"] < 0
+                or point["y"] < 0
+                or point["x"] > bounds["width"]
+                or point["y"] > bounds["height"]
+                or not -JSON_SAFE_INTEGER_MAX <= bounds.get("x", 0) + point["x"] <= JSON_SAFE_INTEGER_MAX
+                or not -JSON_SAFE_INTEGER_MAX <= bounds.get("y", 0) + point["y"] <= JSON_SAFE_INTEGER_MAX
+            ):
+                rules.add("TRACE_PLACED_ANCHOR")
+
+    positions = record.get("flow_positions", [])
+    if isinstance(positions, list) and positions:
+        if len(positions) == 1:
+            if flattened_fragments and "TRACE_FLOW_POSITION" not in rules:
+                rules.add("TRACE_FRAGMENT_CLOSURE")
+        elif not rules.intersection({
+            "TRACE_FLOW_REGISTRY", "TRACE_FLOW_POSITION", "TRACE_FRAGMENT_ORDER",
+        }):
+            fragment_positions = [
+                (jcs_bytes(fragment.get("start")), jcs_bytes(fragment.get("end")))
+                for fragment in flattened_fragments
+            ]
+            expected_start = jcs_bytes(positions[1])
+            expected_end = jcs_bytes(positions[-1])
+            if (
+                not fragment_positions
+                or fragment_positions[0][0] != expected_start
+                or fragment_positions[-1][1] != expected_end
+                or any(
+                    previous[1] != following[0]
+                    for previous, following in zip(fragment_positions, fragment_positions[1:])
+                )
+            ):
+                rules.add("TRACE_FRAGMENT_CLOSURE")
+        ordinals_by_owner: dict[Any, list[Any]] = {}
+        for fragment in flattened_fragments:
+            ordinals_by_owner.setdefault(fragment.get("owner"), []).append(
+                fragment.get("owner_local_ordinal")
+            )
+        if any(
+            not all(type(value) is int for value in values)
+            or sorted(values) != list(range(len(values)))
+            for values in ordinals_by_owner.values()
+        ):
+            rules.add("TRACE_FRAGMENT_ORDINAL")
+    return rules
+
+
+def trace_rule_ids(instance: dict[str, Any]) -> set[str]:
+    rules: set[str] = set()
+    passes = instance.get("passes", [])
+    result = instance.get("result", {})
+    initial_state = instance.get("initial_state", {})
+    initial = instance.get("initial_fingerprint")
+    initial_records = canonical_generated_records_from_state(initial_state)
+    _, _, initial_flow_rules = flow_registry_info(initial_state)
+    rules.update(initial_flow_rules)
+    expected_initial_reference = reference_fingerprint(initial_records)
+    initial_record_rules = generated_record_rule_ids(
+        initial_records, "TRACE_GENERATED_TEXT_ORDER", "TRACE_GENERATED_TEXT_SPAN"
+    )
+    if (
+        isinstance(initial_state, dict)
+        and initial_state.get("layout_epoch", {}).get("resolved_input_sha256")
+        != expected_initial_reference
+    ):
+        initial_record_rules.add("TRACE_EPOCH_INPUT")
+    rules.update(initial_record_rules)
+    if not initial_record_rules and isinstance(initial_state, dict):
+        if hashlib.sha256(jcs_bytes(initial_state)).hexdigest() != initial:
+            rules.add("TRACE_INITIAL_FINGERPRINT")
+
+    record_rules: set[str] = set()
+    if isinstance(passes, list):
+        if any(
+            not isinstance(layout_pass, dict)
+            or layout_pass.get("pass_index") != pass_index
+            for pass_index, layout_pass in enumerate(passes)
+        ):
+            rules.add("TRACE_PASS_INDEX")
+        previous_state = initial_state
+        for layout_pass in passes:
+            if not isinstance(layout_pass, dict):
+                continue
+            expected_resolved_input = reference_fingerprint(
+                canonical_generated_records_from_state(previous_state)
+            )
+            state = layout_pass.get("state", {})
+            state_rules = trace_record_rule_ids(state, expected_resolved_input)
+            record_rules.update(state_rules)
+            rules.update(state_rules)
+            if not state_rules and isinstance(state, dict) and (
+                hashlib.sha256(jcs_bytes(state)).hexdigest()
+                != layout_pass.get("output_fingerprint")
+            ):
+                rules.add("TRACE_FINGERPRINT")
+            previous_state = state
+
+            cost = layout_pass.get("cost", {})
+            cost_components = (
+                "keep", "widow_orphan", "heading_isolation", "table_split",
+                "footnote_split", "unused_space", "overflow",
+            )
+            if isinstance(cost, dict):
+                values = [cost.get(component) for component in cost_components]
+                if all(type(value) is int for value in values) and type(cost.get("total")) is int:
+                    total = sum(values)
+                    if not -JSON_SAFE_INTEGER_MAX <= total <= JSON_SAFE_INTEGER_MAX or cost["total"] != total:
+                        rules.add("TRACE_COST_TOTAL")
+
+    pass_limit_invalid = (
+        not isinstance(passes, list)
+        or len(passes) > instance.get("max_layout_passes", 0)
+        or (isinstance(result, dict) and result.get("pass_count") != len(passes))
+    )
+    if pass_limit_invalid:
+        rules.add("TRACE_PASS_LIMIT")
+
+    hash_prerequisites = {
+        "TRACE_INITIAL_FINGERPRINT", "TRACE_FINGERPRINT", "TRACE_EPOCH_INPUT",
+        "TRACE_PAGE_INDEX", "TRACE_EMPTY_PAGES", "TRACE_FRAME_ORDER",
+        "TRACE_FOOTNOTE_ORDER", "TRACE_FLOW_POSITION", "TRACE_FRAGMENT_ORDER",
+        "TRACE_FRAGMENT_FRAME", "TRACE_FLOAT_ORDER", "TRACE_FLOAT_FRAME",
+        "TRACE_COLUMN_ORDER", "TRACE_GENERATED_TEXT_ORDER",
+        "TRACE_GENERATED_TEXT_SPAN", "TRACE_RESOLVED_REFERENCE_ORDER",
+        "TRACE_RESOLVED_REFERENCE_SPAN",
+        "TRACE_FLOW_REGISTRY", "TRACE_PLACED_ANCHOR",
+        "TRACE_FRAGMENT_CLOSURE", "TRACE_FRAGMENT_ORDINAL",
+    }
+    chain_invalid = False
+    if passes and not rules.intersection(hash_prerequisites):
+        expected_inputs = [initial, *(layout_pass.get("output_fingerprint") for layout_pass in passes[:-1])]
+        chain_invalid = any(
+            layout_pass.get("input_fingerprint") != expected
+            for layout_pass, expected in zip(passes, expected_inputs)
+        )
+        if chain_invalid:
+            rules.add("TRACE_CHAIN_BREAK")
+
+    status = result.get("status") if isinstance(result, dict) else None
+    max_layout_passes = instance.get("max_layout_passes")
+    if status == "max_pass_fallback" and type(max_layout_passes) is int and len(passes) != max_layout_passes:
+        rules.add("TRACE_MAX_PASS")
+
+    if not pass_limit_invalid and not chain_invalid and not rules.intersection(hash_prerequisites):
+        terminal_kinds: list[str | None] = []
+        prior_state_fingerprints: list[Any] = []
+        for layout_pass in passes:
+            input_fingerprint = layout_pass.get("input_fingerprint")
+            output_fingerprint = layout_pass.get("output_fingerprint")
+            if input_fingerprint == output_fingerprint:
+                terminal_kinds.append("stable")
+            elif output_fingerprint in prior_state_fingerprints:
+                terminal_kinds.append("cycle")
+            else:
+                terminal_kinds.append(None)
+            prior_state_fingerprints.append(output_fingerprint)
+
+        if any(kind is not None for kind in terminal_kinds[:-1]):
+            rules.add("TRACE_TERMINATION")
+        if terminal_kinds:
+            final_kind = terminal_kinds[-1]
+            expected_kind = {
+                "converged": "stable", "cycle_fallback": "cycle", "max_pass_fallback": None,
+            }.get(status)
+            if status in {"cycle_fallback", "max_pass_fallback"} and final_kind != expected_kind:
+                rules.add("TRACE_TERMINATION")
+
+        if status == "converged":
+            if not passes or passes[-1].get("input_fingerprint") != passes[-1].get("output_fingerprint"):
+                rules.add("TRACE_FALSE_CONVERGENCE")
+            if result.get("selected_state") != len(passes) or (
+                passes and result.get("final_fingerprint") != passes[-1].get("output_fingerprint")
+            ):
+                rules.add("TRACE_SELECTED_STATE")
+        elif status in {"cycle_fallback", "max_pass_fallback"} and passes:
+            candidates = []
+            for state_index, layout_pass in enumerate(passes, start=1):
+                cost = layout_pass.get("cost", {})
+                page_count = len(layout_pass.get("state", {}).get("pages", []))
+                candidates.append(((cost.get("hard_violations", JSON_SAFE_INTEGER_MAX), cost.get("total", JSON_SAFE_INTEGER_MAX), page_count, state_index), state_index))
+            selected_state = min(candidates)[1]
+            if result.get("selected_state") != selected_state or result.get("final_fingerprint") != passes[selected_state - 1].get("output_fingerprint"):
+                rules.add("TRACE_SELECTED_STATE")
+
+        if status == "cycle_fallback" and passes:
+            prior_states = [layout_pass.get("output_fingerprint") for layout_pass in passes[:-1]]
+            repeated = passes[-1].get("output_fingerprint")
+            cycle_start = next((index for index, fingerprint in enumerate(prior_states, start=1) if fingerprint == repeated), None)
+            if cycle_start is None or result.get("cycle_start_state") != cycle_start:
+                rules.add("TRACE_CYCLE_STATE")
+    return rules
+
+
+def cross_artifact_rule_ids(
+    config: dict[str, Any],
+    document: dict[str, Any],
+    display: dict[str, Any],
+    trace: dict[str, Any],
+    manifest: dict[str, Any],
+    artifact_directory: Path,
+) -> set[str]:
+    rules: set[str] = set()
+
+    limits = config.get("limits", {})
+    sources = document.get("sources", [])
+    text_buffers = document.get("text_buffers", [])
+    resources = document.get("resources", {})
+    font_records = manifest.get("fonts", [])
+    image_records = manifest.get("images", [])
+    materialized_states = [
+        layout_pass.get("state", {})
+        for layout_pass in trace.get("passes", []) if isinstance(layout_pass, dict)
+    ]
+    epoch_states = [trace.get("initial_state", {}), *materialized_states]
+
+    def exceeds(limit_name: str, observed: int) -> bool:
+        limit = limits.get(limit_name)
+        return type(limit) is int and observed > limit
+
+    if exceeds("max_ast_nesting_depth", canonical_ast_nesting_depth(document)):
+        # This rule is a recursion-safety precheck. Nothing below may traverse
+        # an out-of-profile AST before the stable limit result is returned.
+        return {"CROSS_LIMIT_AST_NESTING_DEPTH"}
+
+    limit_rules: set[str] = set()
+    source_lengths = [
+        source.get("utf8_byte_length", 0) for source in sources if isinstance(source, dict)
+    ]
+    if any(type(length) is int and exceeds("max_source_bytes", length) for length in source_lengths):
+        limit_rules.add("CROSS_LIMIT_SOURCE_BYTES")
+    if exceeds("max_input_bytes", sum(length for length in source_lengths if type(length) is int)):
+        limit_rules.add("CROSS_LIMIT_INPUT_BYTES")
+    if exceeds("max_include_files", max(0, len(sources) - 1)):
+        limit_rules.add("CROSS_LIMIT_INCLUDE_FILES")
+    if exceeds("max_ast_nodes", canonical_ast_node_count(document)):
+        limit_rules.add("CROSS_LIMIT_AST_NODES")
+    if exceeds("max_style_rules", len(document.get("style_sheet", {}).get("rules", []))):
+        limit_rules.add("CROSS_LIMIT_STYLE_RULES")
+    text_lengths = [
+        len(buffer.get("utf8", "").encode("utf-8"))
+        for buffer in text_buffers
+        if isinstance(buffer, dict) and isinstance(buffer.get("utf8"), str)
+    ]
+    overlay_buffer_lengths: list[list[int]] = []
+    for state in epoch_states:
+        lengths_by_key: dict[tuple[Any, ...], int] = {}
+        for record in canonical_generated_records_from_state(state):
+            if not isinstance(record, dict):
+                continue
+            key = generated_key_tuple(record.get("key"))
+            utf8 = record.get("utf8")
+            if key is not None and isinstance(utf8, str):
+                lengths_by_key[key] = lengths_by_key.get(key, 0) + len(utf8.encode("utf-8"))
+        overlay_buffer_lengths.append(list(lengths_by_key.values()))
+    if any(
+        exceeds("max_text_buffer_bytes", length)
+        for length in [*text_lengths, *(length for overlay in overlay_buffer_lengths for length in overlay)]
+    ):
+        limit_rules.add("CROSS_LIMIT_TEXT_BUFFER_BYTES")
+    if any(
+        exceeds("max_text_bytes", sum(text_lengths) + sum(overlay))
+        for overlay in overlay_buffer_lengths or [[]]
+    ):
+        limit_rules.add("CROSS_LIMIT_TEXT_BYTES")
+    if exceeds("max_fonts", len(font_records)):
+        limit_rules.add("CROSS_LIMIT_FONT_COUNT")
+    if any(exceeds("max_font_bytes", record.get("bytes", 0)) for record in font_records if isinstance(record, dict)):
+        limit_rules.add("CROSS_LIMIT_FONT_BYTES")
+    if exceeds("max_images", len(image_records)):
+        limit_rules.add("CROSS_LIMIT_IMAGE_COUNT")
+    if any(exceeds("max_image_bytes", record.get("bytes", 0)) for record in image_records if isinstance(record, dict)):
+        limit_rules.add("CROSS_LIMIT_IMAGE_BYTES")
+    if any(
+        exceeds("max_image_pixels", record.get("pixel_width", 0) * record.get("pixel_height", 0))
+        for record in image_records
+        if isinstance(record, dict)
+        and type(record.get("pixel_width")) is int
+        and type(record.get("pixel_height")) is int
+    ):
+        limit_rules.add("CROSS_LIMIT_IMAGE_PIXELS")
+    if any(
+        exceeds("max_decoded_image_bytes", record.get("decoded_bytes", 0))
+        for record in image_records if isinstance(record, dict)
+    ):
+        limit_rules.add("CROSS_LIMIT_DECODED_IMAGE_BYTES")
+    resource_bytes = sum(
+        record.get("bytes", 0)
+        for record in [*font_records, *image_records]
+        if isinstance(record, dict) and type(record.get("bytes")) is int
+    )
+    if exceeds("max_resource_bytes", resource_bytes):
+        limit_rules.add("CROSS_LIMIT_RESOURCE_BYTES")
+    if any(exceeds("max_pages", len(state.get("pages", []))) for state in materialized_states if isinstance(state, dict)):
+        limit_rules.add("CROSS_LIMIT_PAGES")
+    if any(
+        exceeds(
+            "max_fragments",
+            sum(
+                len(page.get("fragments", []))
+                for page in state.get("pages", []) if isinstance(page, dict)
+            ),
+        )
+        for state in materialized_states if isinstance(state, dict)
+    ):
+        limit_rules.add("CROSS_LIMIT_FRAGMENTS")
+    output = manifest.get("output")
+    if isinstance(output, dict):
+        if exceeds("max_pdf_objects", output.get("pdf_object_count", 0)):
+            limit_rules.add("CROSS_LIMIT_PDF_OBJECTS")
+        if exceeds("max_output_bytes", output.get("bytes", 0)):
+            limit_rules.add("CROSS_LIMIT_OUTPUT_BYTES")
+    if limit_rules:
+        return limit_rules
+
+    if manifest.get("config_sha256") != hashlib.sha256(jcs_bytes(config)).hexdigest():
+        rules.add("CROSS_CONFIG_HASH")
+
+    try:
+        cargo_workspace = tomllib.loads(
+            (REPOSITORY_ROOT / "workspace" / "Cargo.toml").read_text(encoding="utf-8")
+        )
+        expected_engine = {
+            "name": "typaxis",
+            "version": cargo_workspace["workspace"]["package"]["version"],
+        }
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        expected_engine = None
+    engine = manifest.get("engine", {})
+    if expected_engine is None or any(engine.get(key) != value for key, value in expected_engine.items()):
+        rules.add("CROSS_ENGINE_IDENTITY")
+
+    if manifest.get("stream_compression") != config.get("pdf_stream_compression"):
+        rules.add("CROSS_COMPRESSION")
+
+    config_versions = config.get("data_versions", {})
+    manifest_versions = manifest.get("data_versions", {})
+    if any(
+        manifest_versions.get(name) != config_versions.get(name)
+        for name in ("unicode", "japanese_line_break")
+    ):
+        rules.add("CROSS_DATA_VERSIONS")
+
+    if trace.get("max_layout_passes") != config.get("limits", {}).get(
+        "max_layout_passes"
+    ):
+        rules.add("CROSS_MAX_LAYOUT_PASSES")
+
+    trace_result = trace.get("result", {})
+    expected_layout = {
+        name: trace_result.get(name)
+        for name in (
+            "status",
+            "pass_count",
+            "selected_state",
+            "final_fingerprint",
+            "fallback_policy",
+        )
+    }
+    if manifest.get("layout") != expected_layout:
+        rules.add("CROSS_LAYOUT_PROJECTION")
+
+    if manifest.get("status") == "built":
+        selected_state = trace_result.get("selected_state")
+        passes = trace.get("passes", [])
+        output = manifest.get("output")
+        if (
+            type(selected_state) is int
+            and 1 <= selected_state <= len(passes)
+            and isinstance(output, dict)
+            and output.get("page_count")
+            != len(passes[selected_state - 1].get("state", {}).get("pages", []))
+        ):
+            rules.add("CROSS_SELECTED_PAGE_COUNT")
+
+        if isinstance(output, dict) and output.get("sink") == "file":
+            # The sample suite supplies this HostPath externally; manifests never
+            # serialize or reconstruct a host output path.
+            output_path = artifact_directory / "output.pdf"
+            try:
+                contents = output_path.read_bytes()
+            except OSError:
+                rules.add("CROSS_OUTPUT_FACT")
+            else:
+                try:
+                    page_count, object_count = parse_classic_pdf_facts(contents)
+                except ValidationFailure:
+                    page_count, object_count = -1, -1
+                if (
+                    output.get("bytes") != len(contents)
+                    or output.get("sha256") != hashlib.sha256(contents).hexdigest()
+                    or output.get("pdf_object_count") != object_count
+                    or output.get("page_count") != page_count
+                ):
+                    rules.add("CROSS_OUTPUT_FACT")
+
+    document_projection = {
+        "algorithm": "typaxis.document-state.sha256/1",
+        **{
+            name: document.get(name)
+            for name in (
+                "contract", "coordinate_unit", "sources", "text_buffers", "resources", "document"
+            )
+        },
+    }
+    style_projection = {
+        "algorithm": "typaxis.style-state.sha256/1",
+        **{name: document.get(name) for name in ("page_masters", "style_sheet")},
+    }
+    declared_fonts_for_epoch = {
+        item.get("font_face_id"): item
+        for item in document.get("resources", {}).get("font_faces", [])
+        if isinstance(item, dict)
+    }
+    admitted_projection = {
+        "algorithm": "typaxis.admitted-resources.jcs-sha256/1",
+        "fonts": [
+            {
+                "font_face_id": record.get("font_face_id"),
+                "family": declared_fonts_for_epoch.get(record.get("font_face_id"), {}).get("family"),
+                "face_index": record.get("face_index"),
+                "sha256": record.get("sha256"),
+                "units_per_em": record.get("units_per_em"),
+                "glyph_count": record.get("glyph_count"),
+            }
+            for record in font_records if isinstance(record, dict)
+        ],
+        "images": [
+            {
+                name: record.get(name)
+                for name in (
+                    "image_id", "sha256", "pixel_width", "pixel_height", "decoded_bytes"
+                )
+            }
+            for record in image_records if isinstance(record, dict)
+        ],
+    }
+    expected_epoch = {
+        "document_sha256": hashlib.sha256(jcs_bytes(document_projection)).hexdigest(),
+        "style_page_master_sha256": hashlib.sha256(jcs_bytes(style_projection)).hexdigest(),
+        "admitted_resources_sha256": hashlib.sha256(jcs_bytes(admitted_projection)).hexdigest(),
+    }
+    if any(
+        not isinstance(state, dict)
+        or any(state.get("layout_epoch", {}).get(key) != digest for key, digest in expected_epoch.items())
+        for state in epoch_states
+    ):
+        rules.add("CROSS_LAYOUT_EPOCH")
+
+    def file_fact(uri: Any) -> tuple[int, str] | None:
+        if not isinstance(uri, str):
+            return None
+        try:
+            contents = (artifact_directory / uri).read_bytes()
+        except OSError:
+            return None
+        return len(contents), hashlib.sha256(contents).hexdigest()
+
+    source_facts = []
+    source_catalog_valid = True
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        fact = file_fact(source.get("uri"))
+        expected = (source.get("utf8_byte_length"), source.get("sha256"))
+        if fact is None or fact != expected:
+            source_catalog_valid = False
+        source_facts.append({"uri": source.get("uri"), "bytes": source.get("utf8_byte_length"), "sha256": source.get("sha256")})
+    input_records = manifest.get("inputs", [])
+    source_facts.sort(key=lambda record: utf8_sort_key(record["uri"]))
+    if manifest.get("status") == "built":
+        source_catalog_valid &= input_records == source_facts
+    else:
+        source_catalog_valid &= all(record in source_facts for record in input_records)
+    if not source_catalog_valid:
+        rules.add("CROSS_SOURCE_CATALOG")
+
+    font_declarations = {
+        declaration.get("font_face_id"): declaration
+        for declaration in resources.get("font_faces", [])
+        if isinstance(declaration, dict)
+    } if isinstance(resources, dict) else {}
+    image_declarations = {
+        declaration.get("image_id"): declaration
+        for declaration in resources.get("images", [])
+        if isinstance(declaration, dict)
+    } if isinstance(resources, dict) else {}
+    display_instances = display.get("font_instances", [])
+    used_font_instance_ids: set[int] = set()
+    used_image_ids: set[int] = set()
+    for page in display.get("pages", []):
+        if not isinstance(page, dict):
+            continue
+        for command in page.get("commands", []):
+            if not isinstance(command, dict):
+                continue
+            if command.get("op") == "draw_glyph_run" and type(command.get("font_instance_id")) is int:
+                used_font_instance_ids.add(command["font_instance_id"])
+            if command.get("op") == "draw_image" and type(command.get("image_id")) is int:
+                used_image_ids.add(command["image_id"])
+    used_face_ids = {
+        item.get("font_face_id")
+        for item in display_instances
+        if isinstance(item, dict) and item.get("font_instance_id") in used_font_instance_ids
+    }
+    manifest_fonts_by_id = {
+        record.get("font_face_id"): record for record in font_records if isinstance(record, dict)
+    }
+    declared_font_ids = set(font_declarations)
+    font_closure_valid = (
+        set(manifest_fonts_by_id) == declared_font_ids
+        if manifest.get("status") == "built"
+        else set(manifest_fonts_by_id) <= declared_font_ids
+    ) and used_face_ids <= set(manifest_fonts_by_id)
+    for face_id, manifest_record in manifest_fonts_by_id.items():
+        manifest_record = manifest_fonts_by_id.get(face_id)
+        declaration = font_declarations.get(face_id)
+        if not isinstance(manifest_record, dict) or not isinstance(declaration, dict):
+            font_closure_valid = False
+            continue
+        fact = file_fact(manifest_record.get("uri"))
+        expected_hash = declaration.get("expected_sha256")
+        if (
+            fact != (manifest_record.get("bytes"), manifest_record.get("sha256"))
+            or manifest_record.get("uri") != declaration.get("uri")
+            or manifest_record.get("face_index") != declaration.get("face_index")
+            or (expected_hash is not None and manifest_record.get("sha256") != expected_hash)
+        ):
+            font_closure_valid = False
+    canonical_used_faces = sorted(
+        used_face_ids,
+        key=lambda face_id: (
+            face_id,
+            bytes.fromhex(manifest_fonts_by_id[face_id]["sha256"]),
+        ),
+    ) if used_face_ids <= set(manifest_fonts_by_id) else []
+    display_face_order = [
+        item.get("font_face_id") for item in display_instances if isinstance(item, dict)
+    ]
+    if display_face_order != canonical_used_faces:
+        font_closure_valid = False
+    if not font_closure_valid:
+        rules.add("CROSS_FONT_USAGE")
+
+    manifest_images_by_id = {
+        record.get("image_id"): record for record in image_records if isinstance(record, dict)
+    }
+    declared_image_ids = set(image_declarations)
+    image_closure_valid = (
+        set(manifest_images_by_id) == declared_image_ids
+        if manifest.get("status") == "built"
+        else set(manifest_images_by_id) <= declared_image_ids
+    ) and used_image_ids <= set(manifest_images_by_id)
+    for image_id in manifest_images_by_id:
+        manifest_record = manifest_images_by_id.get(image_id)
+        declaration = image_declarations.get(image_id)
+        if not isinstance(manifest_record, dict) or not isinstance(declaration, dict):
+            image_closure_valid = False
+            continue
+        fact = file_fact(manifest_record.get("uri"))
+        expected_hash = declaration.get("expected_sha256")
+        if (
+            fact != (manifest_record.get("bytes"), manifest_record.get("sha256"))
+            or manifest_record.get("uri") != declaration.get("uri")
+            or (expected_hash is not None and manifest_record.get("sha256") != expected_hash)
+        ):
+            image_closure_valid = False
+    if not image_closure_valid:
+        rules.add("CROSS_IMAGE_USAGE")
+
+    nodes_by_id = {
+        node.get("node_id"): node
+        for node in typed_document_preorder(document.get("document", {}))
+    }
+    known_nodes = set(nodes_by_id)
+    node_paths = typed_document_paths(document.get("document", {}))
+    node_kinds = typed_document_node_kinds(document.get("document", {}))
+    known_footnotes = {
+        footnote.get("footnote_id")
+        for footnote in document.get("document", {}).get("footnotes", [])
+        if isinstance(footnote, dict)
+    }
+    known_masters = {
+        master.get("master_id"): master
+        for master in document.get("page_masters", {}).get("masters", [])
+        if isinstance(master, dict)
+    }
+    document_anchor_owners = {
+        node.get("anchor_id"): node.get("node_id")
+        for node in typed_document_preorder(document.get("document", {}))
+        if node.get("kind") == "anchor"
+        or (node.get("kind") == "heading" and node.get("anchor_id") is not None)
+    }
+    trace_node_valid = True
+    trace_flow_owner_valid = True
+    generated_key_valid = True
+    trace_frame_valid = True
+    trace_footnotes_valid = True
+    trace_master_valid = True
+    reference_target_valid = True
+    trace_anchor_valid = True
+    generated_sites = expected_generated_sites(document)
+    for epoch_state in epoch_states:
+        observed_site_keys: set[tuple[Any, ...]] = set()
+        for generated in canonical_generated_records_from_state(epoch_state):
+            key = generated.get("key", {}) if isinstance(generated, dict) else {}
+            if not isinstance(key, dict):
+                continue
+            key_tuple = generated_key_tuple(key)
+            if key_tuple is not None:
+                observed_site_keys.add(key_tuple)
+            if key.get("owner") not in nodes_by_id:
+                trace_node_valid = False
+            if key_tuple not in generated_sites:
+                generated_key_valid = False
+        if observed_site_keys != set(generated_sites):
+            generated_key_valid = False
+        state_positions = epoch_state.get("flow_positions", []) if isinstance(epoch_state, dict) else []
+        for position in state_positions:
+            if isinstance(position, dict) and (
+                position.get("owner") not in known_nodes
+                or tuple(position.get("block_child_path", []))
+                != node_paths.get(position.get("owner"))
+            ):
+                trace_node_valid = False
+        owner_boundaries: dict[Any, list[Any]] = {}
+        for position in state_positions[1:-1] if isinstance(state_positions, list) else []:
+            if not isinstance(position, dict):
+                trace_flow_owner_valid = False
+                continue
+            owner = position.get("owner")
+            kind = node_kinds.get(owner)
+            if kind not in {
+                "paragraph", "heading", "list_item", "table_row",
+                "figure", "page_break",
+            }:
+                trace_flow_owner_valid = False
+                continue
+            owner_boundaries.setdefault(owner, []).append(
+                position.get("owner_local_boundary")
+            )
+        for owner, boundaries in owner_boundaries.items():
+            kind = node_kinds.get(owner)
+            if kind in {"list_item", "table_row", "figure", "page_break"}:
+                if boundaries != [0]:
+                    trace_flow_owner_valid = False
+            elif boundaries != list(range(len(boundaries))):
+                trace_flow_owner_valid = False
+    for state in materialized_states:
+        if not isinstance(state, dict):
+            continue
+        overlay_records = canonical_generated_records_from_state(state)
+        overlay_identity = {
+            (
+                generated_key_tuple(record.get("key")),
+                record.get("start_byte"),
+                record.get("end_byte"),
+                record.get("utf8"),
+            )
+            for record in overlay_records if isinstance(record, dict)
+        }
+        state_footnotes: set[Any] = set()
+        observed_anchors: dict[Any, Any] = {}
+        placed_anchors = state.get("placed_anchors", [])
+        if not isinstance(placed_anchors, list):
+            trace_anchor_valid = False
+            placed_anchors = []
+        for anchor in placed_anchors:
+            if (
+                not isinstance(anchor, dict)
+                or anchor.get("anchor_id") in observed_anchors
+            ):
+                trace_anchor_valid = False
+                continue
+            observed_anchors[anchor.get("anchor_id")] = anchor.get("owner")
+        if observed_anchors != document_anchor_owners:
+            trace_anchor_valid = False
+        for page in state.get("pages", []):
+            if not isinstance(page, dict):
+                continue
+            if page.get("master_id") not in known_masters:
+                trace_master_valid = False
+                master = None
+            else:
+                master = known_masters[page.get("master_id")]
+            for frame in page.get("frames", []):
+                if not isinstance(frame, dict) or not isinstance(master, dict):
+                    continue
+                region = master.get(frame.get("kind"))
+                if not isinstance(region, dict) or not rect_contains(region, frame.get("bounds")):
+                    trace_frame_valid = False
+            state_footnotes.update(page.get("footnote_ids", []))
+            for fragment in page.get("fragments", []):
+                if isinstance(fragment, dict) and fragment.get("owner") not in known_nodes:
+                    trace_node_valid = False
+                if isinstance(fragment, dict):
+                    for position_name in ("start", "end"):
+                        position = fragment.get(position_name, {})
+                        if isinstance(position, dict) and position.get("owner") not in known_nodes:
+                            trace_node_valid = False
+            for decision in page.get("float_decisions", []):
+                if isinstance(decision, dict) and decision.get("owner") not in known_nodes:
+                    trace_node_valid = False
+            for decision in page.get("column_decisions", []):
+                if isinstance(decision, dict) and decision.get("container") not in known_nodes:
+                    trace_node_valid = False
+            for reference in page.get("resolved_references", []):
+                if not isinstance(reference, dict):
+                    continue
+                key = reference.get("buffer_key", {})
+                key_tuple = generated_key_tuple(key)
+                site = generated_sites.get(key_tuple) if key_tuple is not None else None
+                if isinstance(key, dict) and key.get("owner") not in known_nodes:
+                    trace_node_valid = False
+                elif (
+                    not isinstance(site, dict)
+                    or site.get("generation_kind") != "page_reference"
+                ):
+                    generated_key_valid = False
+                elif site.get("target") != reference.get("anchor_id"):
+                    reference_target_valid = False
+                if reference.get("anchor_id") not in {
+                    node.get("anchor_id")
+                    for node in typed_document_preorder(document.get("document", {}))
+                    if node.get("kind") == "anchor"
+                    or (node.get("kind") == "heading" and node.get("anchor_id") is not None)
+                }:
+                    trace_node_valid = False
+                if (
+                    generated_key_tuple(key), reference.get("start_byte"),
+                    reference.get("end_byte"), reference.get("utf8")
+                ) not in overlay_identity:
+                    generated_key_valid = False
+        referenced_footnotes = {
+            node.get("footnote_id")
+            for node in typed_document_preorder(document.get("document", {}))
+            if node.get("kind") == "footnote_reference"
+        }
+        if state_footnotes != referenced_footnotes:
+            trace_footnotes_valid = False
+    if not trace_node_valid:
+        rules.add("CROSS_TRACE_NODE")
+    if not trace_flow_owner_valid:
+        rules.add("CROSS_FLOW_OWNER")
+    if not trace_master_valid:
+        rules.add("CROSS_TRACE_MASTER")
+    if not trace_frame_valid:
+        rules.add("CROSS_TRACE_FRAME")
+    if not generated_key_valid:
+        rules.add("CROSS_GENERATED_KEY")
+    if not trace_footnotes_valid:
+        rules.add("CROSS_TRACE_FOOTNOTE")
+    if not reference_target_valid:
+        rules.add("CROSS_REFERENCE_TARGET")
+    if not trace_anchor_valid:
+        rules.add("CROSS_TRACE_ANCHOR")
+
+    document_anchors = set(document_anchor_owners)
+    display_anchors = {
+        destination.get("anchor_id")
+        for destination in display.get("destinations", []) if isinstance(destination, dict)
+    }
+    if display_anchors != document_anchors:
+        rules.add("CROSS_DISPLAY_ANCHOR")
+
+    selected_state = trace_result.get("selected_state")
+    passes = trace.get("passes", [])
+    if type(selected_state) is int and 1 <= selected_state <= len(passes):
+        selected_pass = passes[selected_state - 1]
+        selected_record = selected_pass.get("state", {}) if isinstance(selected_pass, dict) else {}
+        source_layout = display.get("source_layout", {})
+        if (
+            not isinstance(source_layout, dict)
+            or source_layout.get("state_fingerprint") != selected_pass.get("output_fingerprint")
+            or source_layout.get("layout_epoch") != selected_record.get("layout_epoch")
+        ):
+            rules.add("CROSS_DISPLAY_LAYOUT")
+        parsed_text = {
+            item.get("text_id"): item.get("utf8")
+            for item in document.get("text_buffers", []) if isinstance(item, dict)
+        }
+        generated_by_key: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+        for item in canonical_generated_records_from_state(
+            selected_record
+        ):
+            if not isinstance(item, dict):
+                continue
+            key = generated_key_tuple(item.get("key"))
+            if key is not None:
+                generated_by_key.setdefault(key, []).append(item)
+        generated_text: dict[tuple[Any, ...], str] = {}
+        for key, records in generated_by_key.items():
+            records.sort(key=lambda item: (item.get("start_byte"), item.get("end_byte")))
+            expected_start = 0
+            valid = True
+            pieces: list[str] = []
+            for item in records:
+                if item.get("start_byte") != expected_start or not isinstance(item.get("utf8"), str):
+                    valid = False
+                    break
+                expected_start = item.get("end_byte")
+                pieces.append(item["utf8"])
+            if valid:
+                generated_text[key] = "".join(pieces)
+        display_text_valid = True
+        for item in display.get("text_buffers", []):
+            if not isinstance(item, dict):
+                continue
+            origin = item.get("origin", {})
+            expected_text = None
+            if isinstance(origin, dict) and origin.get("kind") == "parsed":
+                expected_text = parsed_text.get(origin.get("text_buffer_id"))
+            elif isinstance(origin, dict) and origin.get("kind") == "generated":
+                key = generated_key_tuple(origin.get("key"))
+                expected_text = generated_text.get(key) if key is not None else None
+            if expected_text is None or item.get("utf8") != expected_text:
+                display_text_valid = False
+        if not display_text_valid and font_closure_valid:
+            rules.add("CROSS_DISPLAY_TEXT")
+
+        selected_pages = selected_record.get("pages", [])
+        display_pages = display.get("pages", [])
+        page_closure_valid = len(selected_pages) == len(display_pages)
+        for trace_page, display_page in zip(selected_pages, display_pages):
+            master = known_masters.get(trace_page.get("master_id")) if isinstance(trace_page, dict) else None
+            if (
+                not isinstance(master, dict)
+                or not isinstance(display_page, dict)
+                or trace_page.get("page_index") != display_page.get("page_index")
+                or display_page.get("width") != master.get("width")
+                or display_page.get("height") != master.get("height")
+            ):
+                page_closure_valid = False
+        if not page_closure_valid and trace_master_valid:
+            rules.add("CROSS_DISPLAY_PAGE")
+
+        frame_bounds_by_key: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
+        for page in selected_pages if isinstance(selected_pages, list) else []:
+            if not isinstance(page, dict):
+                continue
+            for frame in page.get("frames", []):
+                if isinstance(frame, dict):
+                    frame_bounds_by_key[(
+                        page.get("page_index"), frame.get("kind"), frame.get("column_index")
+                    )] = frame.get("bounds", {})
+        expected_destinations: list[dict[str, Any]] = []
+        selected_anchors = selected_record.get("placed_anchors", [])
+        destination_projection_valid = isinstance(selected_anchors, list)
+        for anchor in selected_anchors if isinstance(selected_anchors, list) else []:
+            if not isinstance(anchor, dict):
+                destination_projection_valid = False
+                continue
+            frame_bounds = frame_bounds_by_key.get((
+                anchor.get("page_index"), anchor.get("frame_kind"), anchor.get("column_index")
+            ))
+            local = anchor.get("position_in_frame")
+            if (
+                not isinstance(frame_bounds, dict)
+                or not isinstance(local, dict)
+                or not all(type(frame_bounds.get(axis)) is int for axis in ("x", "y"))
+                or not all(type(local.get(axis)) is int for axis in ("x", "y"))
+            ):
+                destination_projection_valid = False
+                continue
+            expected_destinations.append({
+                "anchor_id": anchor.get("anchor_id"),
+                "page_index": anchor.get("page_index"),
+                "view": {
+                    "kind": "xyz",
+                    "point": {
+                        "x": frame_bounds["x"] + local["x"],
+                        "y": frame_bounds["y"] + local["y"],
+                    },
+                },
+            })
+        if (
+            not destination_projection_valid
+            or display.get("destinations") != expected_destinations
+        ):
+            rules.add("CROSS_DISPLAY_ANCHOR")
+
+    if (
+        config.get("strict") is True
+        and trace_result.get("status") in {"cycle_fallback", "max_pass_fallback"}
+        and manifest.get("status") == "built"
+    ):
+        rules.add("CROSS_STRICT_FALLBACK_BUILD")
+    return rules
+
+
+def materialize_cross_fixture(
+    raw_fixture: Any,
+    config: dict[str, Any],
+    document: dict[str, Any],
+    display: dict[str, Any],
+    trace: dict[str, Any],
+    manifest: dict[str, Any],
+    label: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    if (
+        not isinstance(raw_fixture, dict)
+        or set(raw_fixture) != {"$fixture", "mutations"}
+        or raw_fixture.get("$fixture") != "cross_artifacts"
+    ):
+        raise ValidationFailure(
+            f"{label}: cross fixture must contain $fixture=cross_artifacts and mutations"
+        )
+    documents = {
+        "config": copy.deepcopy(config),
+        "document": copy.deepcopy(document),
+        "display": copy.deepcopy(display),
+        "trace": copy.deepcopy(trace),
+        "manifest": copy.deepcopy(manifest),
+    }
+    mutations = raw_fixture["mutations"]
+    if not isinstance(mutations, list) or not mutations:
+        raise ValidationFailure(f"{label}: mutations must be a non-empty array")
+    for mutation_index, mutation in enumerate(mutations):
+        mutation_label = f"{label}: mutation {mutation_index}"
+        if not isinstance(mutation, dict) or set(mutation) != {
+            "artifact",
+            "path",
+            "value",
+        }:
+            raise ValidationFailure(
+                f"{mutation_label}: mutation must contain artifact, path, and value"
+            )
+        artifact = mutation["artifact"]
+        if artifact not in CROSS_ARTIFACT_NAMES:
+            raise ValidationFailure(f"{mutation_label}: unknown artifact {artifact!r}")
+        documents[artifact] = apply_fixture_mutations(
+            documents[artifact],
+            [{"path": mutation["path"], "value": mutation["value"]}],
+            mutation_label,
+        )
+    return (
+        documents["config"], documents["document"], documents["display"],
+        documents["trace"], documents["manifest"],
+    )
+
+
+def conformance_rule_ids(
+    schema_name: str, instance: Any, effective_config: dict[str, Any] | None = None
+) -> set[str]:
+    if not isinstance(instance, dict):
+        return set()
+    if contains_non_scalar_string(instance):
+        return {"JSON_UNICODE_SCALAR"}
+    if schema_name == "package-config.schema.json":
+        return config_rule_ids(instance)
+    if schema_name == "diagnostics.schema.json":
+        return {
+            "DIAGNOSTIC_CODE"
+            for diagnostic in instance.get("diagnostics", [])
+            if not isinstance(diagnostic, dict)
+            or not isinstance(diagnostic.get("code"), str)
+            or DIAGNOSTIC_CODE.fullmatch(diagnostic["code"]) is None
+        }
+    if schema_name == "display-list.schema.json":
+        allowed_schemes = (
+            set(effective_config.get("allowed_uri_schemes", []))
+            if effective_config is not None
+            else None
+        )
+        max_uri_bytes = (
+            effective_config.get("limits", {}).get("max_uri_bytes")
+            if effective_config is not None
+            else None
+        )
+        return display_rule_ids(instance, allowed_schemes, max_uri_bytes)
+    if schema_name == "document-package.schema.json":
+        allowed_schemes = (
+            set(effective_config.get("allowed_uri_schemes", []))
+            if effective_config is not None
+            else None
+        )
+        document_max_uri_bytes = (
+            effective_config.get("limits", {}).get("max_uri_bytes")
+            if effective_config is not None
+            else None
+        )
+        document_max_ast_nesting_depth = (
+            effective_config.get("limits", {}).get("max_ast_nesting_depth")
+            if effective_config is not None
+            else None
+        )
+        return document_rule_ids(
+            instance,
+            allowed_schemes,
+            document_max_uri_bytes,
+            document_max_ast_nesting_depth,
+        )
+    if schema_name == "build-manifest.schema.json":
+        return manifest_rule_ids(instance)
+    if schema_name == "layout-trace.schema.json":
+        return trace_rule_ids(instance)
+    return set()
+
+
+def main() -> int:
+    failures: list[str] = []
+
+    try:
+        schemas = {
+            path.name: load_json(path)
+            for path in sorted(SCHEMA_DIR.glob("*.schema.json"))
+        }
+        if not schemas:
+            raise ValidationFailure("no schemas were found")
+
+        for filename, schema in schemas.items():
+            if "$id" not in schema:
+                raise ValidationFailure(f"{filename}: missing logical $id")
+            Draft202012Validator.check_schema(schema)
+
+        reference_count = validate_references(schemas)
+        registry = Registry().with_resources(
+            (schema["$id"], Resource.from_contents(schema))
+            for schema in schemas.values()
+        )
+        validators = {
+            filename: Draft202012Validator(schema, registry=registry)
+            for filename, schema in schemas.items()
+        }
+        effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
+        minimal_document = load_json(MINIMAL_DIR / "document-package.json")
+        minimal_display = load_json(MINIMAL_DIR / "display-list.json")
+        minimal_trace = load_json(MINIMAL_DIR / "layout-trace.json")
+        minimal_manifest = load_json(MINIMAL_DIR / "build-manifest.json")
+        jcs_golden_count = validate_jcs_golden(effective_config)
+
+        for path, schema_name in POSITIVE_FIXTURES.items():
+            instance = materialize_patch_fixture(load_instance(path), schema_name, str(path))
+            errors = schema_errors(validators[schema_name], instance)
+            if errors:
+                raise ValidationFailure(
+                    f"{path}: positive fixture rejected by {schema_name}: " + " | ".join(errors)
+                )
+            semantic_rules = conformance_rule_ids(schema_name, instance, effective_config)
+            if semantic_rules:
+                raise ValidationFailure(
+                    f"{path}: positive fixture violates conformance rules {sorted(semantic_rules)}"
+                )
+
+        base_cross_rules = cross_artifact_rule_ids(
+            effective_config, minimal_document, minimal_display,
+            minimal_trace, minimal_manifest, MINIMAL_DIR
+        )
+        if base_cross_rules:
+            raise ValidationFailure(
+                "minimal artifacts violate cross-artifact rules "
+                f"{sorted(base_cross_rules)}"
+            )
+
+        for path in POSITIVE_CROSS_FIXTURES:
+            positive_bundle = materialize_cross_fixture(
+                load_json(path), effective_config, minimal_document, minimal_display,
+                minimal_trace, minimal_manifest, str(path)
+            )
+            for schema_name, instance in zip(
+                (
+                    "package-config.schema.json", "document-package.schema.json",
+                    "display-list.schema.json", "layout-trace.schema.json",
+                    "build-manifest.schema.json",
+                ),
+                positive_bundle,
+            ):
+                errors = schema_errors(validators[schema_name], instance)
+                semantic_rules = conformance_rule_ids(
+                    schema_name, instance, positive_bundle[0]
+                )
+                if errors or semantic_rules:
+                    raise ValidationFailure(
+                        f"{path}: positive cross fixture violates {schema_name}: "
+                        f"schema={errors}, semantic={sorted(semantic_rules)}"
+                    )
+            positive_cross_rules = cross_artifact_rule_ids(
+                *positive_bundle, MINIMAL_DIR
+            )
+            if positive_cross_rules:
+                raise ValidationFailure(
+                    f"{path}: positive cross fixture violates "
+                    f"{sorted(positive_cross_rules)}"
+                )
+
+        expected_path = INVALID_DIR / "expected-errors.json"
+        expected = load_json(expected_path)
+        indexed_paths = {INVALID_DIR / name for name in expected}
+        discovered_paths = {
+            *INVALID_DIR.glob("*.json"),
+            *INVALID_DIR.glob("*.toml"),
+        } - {expected_path}
+        if indexed_paths != discovered_paths:
+            missing = sorted(str(path.name) for path in discovered_paths - indexed_paths)
+            stale = sorted(str(path.name) for path in indexed_paths - discovered_paths)
+            raise ValidationFailure(
+                f"invalid fixture index mismatch; missing={missing}, stale={stale}"
+            )
+
+        for name, expectation in expected.items():
+            path = INVALID_DIR / name
+            if set(expectation) != {"rule_id", "schema_rejects"}:
+                raise ValidationFailure(f"{name}: expectation must contain rule_id and schema_rejects")
+            rule_id = expectation["rule_id"]
+            schema_rejects = expectation["schema_rejects"]
+            if not isinstance(rule_id, str) or RULE_ID.fullmatch(rule_id) is None:
+                raise ValidationFailure(f"{name}: malformed conformance rule_id")
+            if type(schema_rejects) is not bool:
+                raise ValidationFailure(f"{name}: schema_rejects must be boolean")
+
+            if name.startswith("cross-"):
+                if schema_rejects:
+                    raise ValidationFailure(
+                        f"{name}: cross-artifact fixtures must set schema_rejects=false"
+                    )
+                (
+                    cross_config, cross_document, cross_display,
+                    cross_trace, cross_manifest,
+                ) = materialize_cross_fixture(
+                    load_json(path),
+                    effective_config,
+                    minimal_document,
+                    minimal_display,
+                    minimal_trace,
+                    minimal_manifest,
+                    str(path),
+                )
+                cross_instances = (
+                    ("package-config.schema.json", cross_config),
+                    ("document-package.schema.json", cross_document),
+                    ("display-list.schema.json", cross_display),
+                    ("layout-trace.schema.json", cross_trace),
+                    ("build-manifest.schema.json", cross_manifest),
+                )
+                for cross_schema, cross_instance in cross_instances:
+                    errors = schema_errors(validators[cross_schema], cross_instance)
+                    if errors:
+                        raise ValidationFailure(
+                            f"{name}: cross fixture is not independently valid under "
+                            f"{cross_schema}: " + " | ".join(errors)
+                        )
+                    standalone_rules = conformance_rule_ids(
+                        cross_schema, cross_instance, cross_config
+                    )
+                    depth_preflight_only = (
+                        rule_id == "CROSS_LIMIT_AST_NESTING_DEPTH"
+                        and cross_schema == "document-package.schema.json"
+                        and standalone_rules == {rule_id}
+                    )
+                    if standalone_rules and not depth_preflight_only:
+                        raise ValidationFailure(
+                            f"{name}: cross fixture also violates standalone rules "
+                            f"{sorted(standalone_rules)}"
+                        )
+                semantic_rules = cross_artifact_rule_ids(
+                    cross_config, cross_document, cross_display,
+                    cross_trace, cross_manifest, MINIMAL_DIR
+                )
+                if semantic_rules != {rule_id}:
+                    raise ValidationFailure(
+                        f"{name}: expected only conformance rule {rule_id}, "
+                        f"observed {sorted(semantic_rules)}"
+                    )
+                continue
+
+            schema_name = next(
+                (schema for prefix, schema in INVALID_SCHEMA_BY_PREFIX.items() if name.startswith(prefix)),
+                None,
+            )
+            if schema_name is None:
+                raise ValidationFailure(f"{name}: no schema mapping for invalid fixture")
+            instance = materialize_patch_fixture(
+                load_instance(path), schema_name, str(path)
+            )
+            errors = schema_errors(validators[schema_name], instance)
+            if bool(errors) != schema_rejects:
+                details = " | ".join(errors) if errors else "schema accepted fixture"
+                raise ValidationFailure(
+                    f"{name}: schema_rejects={schema_rejects} but observed {bool(errors)}: {details}"
+                )
+            semantic_rules = conformance_rule_ids(schema_name, instance, effective_config)
+            if semantic_rules != {rule_id}:
+                raise ValidationFailure(
+                    f"{name}: expected only conformance rule {rule_id}, "
+                    f"observed {sorted(semantic_rules)}"
+                )
+
+        config_digest = hashlib.sha256(jcs_bytes(effective_config)).hexdigest()
+        manifest_cases = [(MINIMAL_DIR / "build-manifest.json", minimal_manifest)]
+        for path in sorted(INVALID_DIR.glob("manifest-*.json")):
+            manifest_cases.append(
+                (
+                    path,
+                    materialize_patch_fixture(
+                        load_json(path), "build-manifest.schema.json", str(path)
+                    ),
+                )
+            )
+        for path, manifest in manifest_cases:
+            if manifest["config_sha256"] != config_digest:
+                raise ValidationFailure(f"{path}: config_sha256 is not the effective-config JCS hash")
+
+        for index, record in enumerate(minimal_manifest["inputs"]):
+            verify_file_record(MINIMAL_DIR, record, f"minimal manifest input {index}")
+        for index, record in enumerate(minimal_manifest["fonts"]):
+            verify_file_record(MINIMAL_DIR, record, f"minimal manifest font {index}")
+        for index, record in enumerate(minimal_manifest["images"]):
+            verify_file_record(MINIMAL_DIR, record, f"minimal manifest image {index}")
+
+        manifest_validator = validators["build-manifest.schema.json"]
+        layout_summary = copy.deepcopy(minimal_manifest["layout"])
+        output_record = copy.deepcopy(minimal_manifest["output"])
+        manifest_state_cases = (
+            ("built/full", "built", layout_summary, output_record, True),
+            ("built/null-layout", "built", None, output_record, False),
+            ("built/null-output", "built", layout_summary, None, False),
+            ("failed/null", "failed", None, None, True),
+            ("failed/layout", "failed", layout_summary, None, True),
+            ("failed/output", "failed", None, output_record, False),
+        )
+        for label, status, layout, output, should_accept in manifest_state_cases:
+            candidate = copy.deepcopy(minimal_manifest)
+            candidate["status"] = status
+            candidate["layout"] = copy.deepcopy(layout)
+            candidate["output"] = copy.deepcopy(output)
+            accepted = not schema_errors(manifest_validator, candidate)
+            if accepted != should_accept:
+                raise ValidationFailure(
+                    f"manifest status conditional {label} acceptance was {accepted}"
+                )
+
+        policy_cases = (
+            ("converged", "lowest_cost_then_earliest"),
+            ("cycle_fallback", None),
+            ("max_pass_fallback", None),
+        )
+        for status, fallback_policy in policy_cases:
+            candidate = copy.deepcopy(minimal_manifest)
+            candidate["layout"]["status"] = status
+            candidate["layout"]["fallback_policy"] = fallback_policy
+            if not schema_errors(manifest_validator, candidate):
+                raise ValidationFailure(
+                    f"manifest layout accepted invalid {status} fallback_policy"
+                )
+
+        stdout_manifest = copy.deepcopy(minimal_manifest)
+        stdout_manifest["output"]["sink"] = "stdout"
+        if schema_errors(manifest_validator, stdout_manifest):
+            raise ValidationFailure("manifest rejected the host-independent stdout sink")
+
+        for field in ("bytes", "page_count", "pdf_object_count"):
+            candidate = copy.deepcopy(minimal_manifest)
+            candidate["output"][field] = 0
+            if not schema_errors(manifest_validator, candidate):
+                raise ValidationFailure(f"built manifest accepted output.{field}=0")
+
+        zero_input_manifest = copy.deepcopy(minimal_manifest)
+        zero_input_manifest["inputs"].append(
+            {"uri": "zero.tsf", "bytes": 0, "sha256": "0" * 64}
+        )
+        if schema_errors(manifest_validator, zero_input_manifest):
+            raise ValidationFailure("manifest rejected a zero-byte input source record")
+
+        positive_resource_records = {
+            "fonts": {
+                "font_face_id": 0,
+                "uri": "font.bin",
+                "face_index": 0,
+                "bytes": 1,
+                "sha256": "0" * 64,
+                "units_per_em": 1000,
+                "glyph_count": 1,
+            },
+            "images": {
+                "image_id": 0,
+                "uri": "image.bin",
+                "bytes": 1,
+                "sha256": "0" * 64,
+                "pixel_width": 1,
+                "pixel_height": 1,
+                "decoded_bytes": 1,
+            },
+        }
+        for collection, record in positive_resource_records.items():
+            candidate = copy.deepcopy(minimal_manifest)
+            candidate[collection].append(copy.deepcopy(record))
+            if schema_errors(manifest_validator, candidate):
+                raise ValidationFailure(
+                    f"manifest rejected a positive-byte {collection} record"
+                )
+            candidate[collection][0]["bytes"] = 0
+            if not schema_errors(manifest_validator, candidate):
+                raise ValidationFailure(
+                    f"manifest accepted a zero-byte {collection} record"
+                )
+
+        order_manifest = load_json(INVALID_DIR / "manifest-noncanonical-order.json")
+        for index, record in enumerate(order_manifest["inputs"]):
+            verify_file_record(INVALID_DIR, record, f"order fixture input {index}")
+
+        print(
+            "validated "
+            f"{len(schemas)} schemas, {reference_count} refs, "
+            f"{len(POSITIVE_FIXTURES)} artifact and "
+            f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
+            f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "
+            f"and config JCS hash {config_digest}"
+        )
+        return 0
+    except Exception as error:  # one concise failure path for CI and local use
+        failures.append(str(error))
+
+    for failure in failures:
+        print(f"error: {failure}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

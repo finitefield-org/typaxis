@@ -1,0 +1,1 @@
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"manifest","path":["stream_compression"],"value":"none"}]}

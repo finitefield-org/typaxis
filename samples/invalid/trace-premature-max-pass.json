@@ -1,0 +1,10 @@
+{
+  "$fixture": "layout_trace",
+  "mutations": [
+    {"path": ["passes"], "value": [{"$copy": ["passes", 0]}]},
+    {"path": ["result", "status"], "value": "max_pass_fallback"},
+    {"path": ["result", "pass_count"], "value": 1},
+    {"path": ["result", "selected_state"], "value": 1},
+    {"path": ["result", "fallback_policy"], "value": "lowest_cost_then_earliest"}
+  ]
+}

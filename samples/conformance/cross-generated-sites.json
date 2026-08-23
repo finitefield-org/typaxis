@@ -1,0 +1,686 @@
+{
+  "$fixture": "cross_artifacts",
+  "mutations": [
+    {
+      "artifact": "document",
+      "path": [
+        "document",
+        "blocks"
+      ],
+      "value": [
+        {
+          "kind": "paragraph",
+          "node_id": 1,
+          "span": {
+            "source_id": 0,
+            "start_byte": 0,
+            "end_byte": 1
+          },
+          "classes": [],
+          "children": [
+            {
+              "kind": "anchor",
+              "node_id": 2,
+              "span": {
+                "source_id": 0,
+                "start_byte": 0,
+                "end_byte": 1
+              },
+              "anchor_id": "a"
+            },
+            {
+              "kind": "anchor",
+              "node_id": 3,
+              "span": {
+                "source_id": 0,
+                "start_byte": 0,
+                "end_byte": 1
+              },
+              "anchor_id": "b"
+            },
+            {
+              "kind": "reference",
+              "node_id": 4,
+              "span": {
+                "source_id": 0,
+                "start_byte": 0,
+                "end_byte": 1
+              },
+              "target": "a",
+              "format": "page"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "artifact": "document",
+      "path": [
+        "style_sheet",
+        "rules"
+      ],
+      "value": [
+        {
+          "style_id": "p",
+          "extends": null,
+          "selector": "paragraph",
+          "source_order": 0,
+          "declarations": [
+            {
+              "name": "font_family",
+              "value": {
+                "kind": "font_family_list",
+                "families": [
+                  "F"
+                ]
+              },
+              "important": false
+            },
+            {
+              "name": "font_size",
+              "value": {
+                "kind": "length",
+                "value": 1
+              },
+              "important": false
+            },
+            {
+              "name": "line_height",
+              "value": {
+                "kind": "length",
+                "value": 1
+              },
+              "important": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "artifact": "document",
+      "path": [
+        "resources",
+        "font_faces"
+      ],
+      "value": [
+        {
+          "font_face_id": 0,
+          "family": "F",
+          "uri": "empty.tsf",
+          "face_index": 0,
+          "expected_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        }
+      ]
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "fonts"
+      ],
+      "value": [
+        {
+          "font_face_id": 0,
+          "uri": "empty.tsf",
+          "face_index": 0,
+          "bytes": 1,
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+          "units_per_em": 1000,
+          "glyph_count": 1
+        }
+      ]
+    },
+    {
+      "artifact": "display",
+      "path": [
+        "destinations"
+      ],
+      "value": [
+        {
+          "anchor_id": "a",
+          "page_index": 0,
+          "view": {
+            "kind": "xyz",
+            "point": {
+              "x": 3715427,
+              "y": 3715427
+            }
+          }
+        },
+        {
+          "anchor_id": "b",
+          "page_index": 0,
+          "view": {
+            "kind": "xyz",
+            "point": {
+              "x": 3715428,
+              "y": 3715428
+            }
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "display",
+      "path": [
+        "source_layout"
+      ],
+      "value": {
+        "layout_epoch": {
+          "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+          "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+          "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+          "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+        },
+        "state_fingerprint": "7b7be2ee48c57f7930eef99fac0f2e066b6881ac9161d215bfb43dd4e84f0715"
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "initial_state",
+        "layout_epoch"
+      ],
+      "value": {
+        "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+        "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+        "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+        "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "initial_state",
+        "flow_positions"
+      ],
+      "value": [
+        {
+          "block_child_path": [],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 0,
+          "owner": 0,
+          "owner_local_boundary": 0
+        },
+        {
+          "block_child_path": [
+            0
+          ],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 1,
+          "owner": 1,
+          "owner_local_boundary": 0
+        },
+        {
+          "block_child_path": [],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 2,
+          "owner": 0,
+          "owner_local_boundary": 1
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "initial_state",
+        "resolved_generated_text"
+      ],
+      "value": [
+        {
+          "key": {
+            "generation_kind": "page_reference",
+            "owner": 4,
+            "owner_local_ordinal": 0
+          },
+          "start_byte": 0,
+          "end_byte": 1,
+          "utf8": "1"
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "initial_fingerprint"
+      ],
+      "value": "ac7f0424c5e42faa588c0e7a0db752499301eb048f5f653927e7d83c6ee480b6"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "layout_epoch"
+      ],
+      "value": {
+        "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+        "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+        "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+        "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "flow_positions"
+      ],
+      "value": [
+        {
+          "block_child_path": [],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 0,
+          "owner": 0,
+          "owner_local_boundary": 0
+        },
+        {
+          "block_child_path": [
+            0
+          ],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 1,
+          "owner": 1,
+          "owner_local_boundary": 0
+        },
+        {
+          "block_child_path": [],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 2,
+          "owner": 0,
+          "owner_local_boundary": 1
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "resolved_generated_text"
+      ],
+      "value": [
+        {
+          "key": {
+            "generation_kind": "page_reference",
+            "owner": 4,
+            "owner_local_ordinal": 0
+          },
+          "start_byte": 0,
+          "end_byte": 1,
+          "utf8": "1"
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "pages",
+        0,
+        "fragments"
+      ],
+      "value": [
+        {
+          "bounds": {
+            "x": 3715427,
+            "y": 3715427,
+            "width": 1,
+            "height": 1
+          },
+          "column_index": 0,
+          "end": {
+            "$copy": [
+              "passes",
+              0,
+              "state",
+              "flow_positions",
+              2
+            ]
+          },
+          "frame_kind": "body",
+          "owner": 1,
+          "owner_local_ordinal": 0,
+          "start": {
+            "$copy": [
+              "passes",
+              0,
+              "state",
+              "flow_positions",
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "pages",
+        0,
+        "resolved_references"
+      ],
+      "value": [
+        {
+          "anchor_id": "a",
+          "buffer_key": {
+            "generation_kind": "page_reference",
+            "owner": 4,
+            "owner_local_ordinal": 0
+          },
+          "start_byte": 0,
+          "end_byte": 1,
+          "utf8": "1"
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "state",
+        "placed_anchors"
+      ],
+      "value": [
+        {
+          "anchor_id": "a",
+          "column_index": 0,
+          "frame_kind": "body",
+          "owner": 2,
+          "page_index": 0,
+          "position_in_frame": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "anchor_id": "b",
+          "column_index": 0,
+          "frame_kind": "body",
+          "owner": 3,
+          "page_index": 0,
+          "position_in_frame": {
+            "x": 1,
+            "y": 1
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "output_fingerprint"
+      ],
+      "value": "7b7be2ee48c57f7930eef99fac0f2e066b6881ac9161d215bfb43dd4e84f0715"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "layout_epoch"
+      ],
+      "value": {
+        "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+        "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+        "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+        "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+      }
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "flow_positions"
+      ],
+      "value": [
+        {
+          "block_child_path": [],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 0,
+          "owner": 0,
+          "owner_local_boundary": 0
+        },
+        {
+          "block_child_path": [
+            0
+          ],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 1,
+          "owner": 1,
+          "owner_local_boundary": 0
+        },
+        {
+          "block_child_path": [],
+          "epoch": {
+            "document_sha256": "11105f3f59569e85b28768fb4667ae09f35c406c0867939087037bb41d4a2346",
+            "style_page_master_sha256": "06acd1d48f0c316929453988b0801bf66a36f63efb4a8c622fbd273ee4ac390b",
+            "admitted_resources_sha256": "f03c191483465c7a60ccee6e8ff54741443793156cfb9c8b161021cf72098a93",
+            "resolved_input_sha256": "1463b0b33af631e81f83b04fe43f0abc6689c52479ed25854805f32bc18d35fd"
+          },
+          "global_flow_ordinal": 2,
+          "owner": 0,
+          "owner_local_boundary": 1
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "resolved_generated_text"
+      ],
+      "value": [
+        {
+          "key": {
+            "generation_kind": "page_reference",
+            "owner": 4,
+            "owner_local_ordinal": 0
+          },
+          "start_byte": 0,
+          "end_byte": 1,
+          "utf8": "1"
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "pages",
+        0,
+        "fragments"
+      ],
+      "value": [
+        {
+          "bounds": {
+            "x": 3715427,
+            "y": 3715427,
+            "width": 1,
+            "height": 1
+          },
+          "column_index": 0,
+          "end": {
+            "$copy": [
+              "passes",
+              1,
+              "state",
+              "flow_positions",
+              2
+            ]
+          },
+          "frame_kind": "body",
+          "owner": 1,
+          "owner_local_ordinal": 0,
+          "start": {
+            "$copy": [
+              "passes",
+              1,
+              "state",
+              "flow_positions",
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "pages",
+        0,
+        "resolved_references"
+      ],
+      "value": [
+        {
+          "anchor_id": "a",
+          "buffer_key": {
+            "generation_kind": "page_reference",
+            "owner": 4,
+            "owner_local_ordinal": 0
+          },
+          "start_byte": 0,
+          "end_byte": 1,
+          "utf8": "1"
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "state",
+        "placed_anchors"
+      ],
+      "value": [
+        {
+          "anchor_id": "a",
+          "column_index": 0,
+          "frame_kind": "body",
+          "owner": 2,
+          "page_index": 0,
+          "position_in_frame": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "anchor_id": "b",
+          "column_index": 0,
+          "frame_kind": "body",
+          "owner": 3,
+          "page_index": 0,
+          "position_in_frame": {
+            "x": 1,
+            "y": 1
+          }
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "output_fingerprint"
+      ],
+      "value": "7b7be2ee48c57f7930eef99fac0f2e066b6881ac9161d215bfb43dd4e84f0715"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        0,
+        "input_fingerprint"
+      ],
+      "value": "ac7f0424c5e42faa588c0e7a0db752499301eb048f5f653927e7d83c6ee480b6"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes",
+        1,
+        "input_fingerprint"
+      ],
+      "value": "7b7be2ee48c57f7930eef99fac0f2e066b6881ac9161d215bfb43dd4e84f0715"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "result",
+        "final_fingerprint"
+      ],
+      "value": "7b7be2ee48c57f7930eef99fac0f2e066b6881ac9161d215bfb43dd4e84f0715"
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "layout",
+        "final_fingerprint"
+      ],
+      "value": "7b7be2ee48c57f7930eef99fac0f2e066b6881ac9161d215bfb43dd4e84f0715"
+    }
+  ]
+}

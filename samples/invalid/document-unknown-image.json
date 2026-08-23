@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["document","blocks",1],"value":{"kind":"figure","node_id":3,"span":{"source_id":0,"start_byte":153,"end_byte":202},"classes":[],"image_id":0,"alt":"","caption":[]}}]}

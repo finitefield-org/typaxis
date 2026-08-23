@@ -1,0 +1,1 @@
+{"$fixture":"package_config","mutations":[{"path":["limits","max_image_bytes"],"value":1073741825}]}

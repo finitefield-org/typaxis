@@ -1,0 +1,10 @@
+{
+  "$fixture": "display_list",
+  "mutations": [
+    {"path": ["pages", 0, "commands", 2, "bidi_level"], "value": 1},
+    {"path": ["pages", 0, "commands", 2, "clusters", 0, "glyph_start"], "value": 1},
+    {"path": ["pages", 0, "commands", 2, "clusters", 0, "glyph_end"], "value": 2},
+    {"path": ["pages", 0, "commands", 2, "clusters", 1, "glyph_start"], "value": 0},
+    {"path": ["pages", 0, "commands", 2, "clusters", 1, "glyph_end"], "value": 1}
+  ]
+}

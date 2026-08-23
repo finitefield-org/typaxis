@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["resources","images",0],"value":{"image_id":0,"uri":"images/a.png","expected_sha256":null}},{"path":["resources","images",1],"value":{"image_id":0,"uri":"images/b.png","expected_sha256":null}}]}

@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.0/layout-trace.schema.json",
+  "title": "Typaxis Layout Trace 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "coordinate_unit", "max_layout_passes", "initial_state", "initial_fingerprint", "passes", "result"],
+  "properties": {
+    "contract": {"$ref": "common.schema.json#/$defs/contract"},
+    "coordinate_unit": {"$ref": "common.schema.json#/$defs/coordinate_unit"},
+    "max_layout_passes": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "initial_state": {"$ref": "#/$defs/initial_pagination_state_record"},
+    "initial_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "passes": {"type": "array", "items": {"$ref": "#/$defs/pass"}},
+    "result": {"$ref": "#/$defs/result"}
+  },
+  "$defs": {
+    "layout_epoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_sha256", "style_page_master_sha256", "admitted_resources_sha256", "resolved_input_sha256"],
+      "properties": {
+        "document_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "style_page_master_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "admitted_resources_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "resolved_input_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "generated_buffer_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generation_kind", "owner", "owner_local_ordinal"],
+      "properties": {
+        "generation_kind": {"enum": ["page_reference", "counter", "list_marker", "footnote_marker", "discretionary"]},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "owner_local_ordinal": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "initial_generated_text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "start_byte", "end_byte", "utf8"],
+      "properties": {
+        "key": {"$ref": "#/$defs/generated_buffer_key"},
+        "start_byte": {"$ref": "common.schema.json#/$defs/id32"},
+        "end_byte": {"$ref": "common.schema.json#/$defs/id32"},
+        "utf8": {"type": "string"}
+      }
+    },
+    "initial_pagination_state_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "flow_positions", "layout_epoch", "resolved_generated_text"],
+      "properties": {
+        "algorithm": {"const": "typaxis.initial-pagination-state/1"},
+        "flow_positions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/flow_position"}},
+        "layout_epoch": {"$ref": "#/$defs/layout_epoch"},
+        "resolved_generated_text": {"type": "array", "items": {"$ref": "#/$defs/initial_generated_text"}}
+      }
+    },
+    "flow_position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["block_child_path", "epoch", "global_flow_ordinal", "owner", "owner_local_boundary"],
+      "properties": {
+        "block_child_path": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/id32"}},
+        "epoch": {"$ref": "#/$defs/layout_epoch"},
+        "global_flow_ordinal": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "owner_local_boundary": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounds", "column_index", "kind"],
+      "properties": {
+        "bounds": {"$ref": "common.schema.json#/$defs/rect"},
+        "column_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "kind": {"enum": ["body", "header", "footer", "footnote"]}
+      }
+    },
+    "fragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounds", "column_index", "end", "frame_kind", "owner", "owner_local_ordinal", "start"],
+      "properties": {
+        "bounds": {"$ref": "common.schema.json#/$defs/rect"},
+        "column_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "end": {"$ref": "#/$defs/flow_position"},
+        "frame_kind": {"enum": ["body", "header", "footer", "footnote"]},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "owner_local_ordinal": {"$ref": "common.schema.json#/$defs/id32"},
+        "start": {"$ref": "#/$defs/flow_position"}
+      }
+    },
+    "float_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounds", "column_index", "frame_kind", "owner", "owner_local_ordinal"],
+      "properties": {
+        "bounds": {"$ref": "common.schema.json#/$defs/rect"},
+        "column_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "frame_kind": {"enum": ["body", "header", "footer", "footnote"]},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "owner_local_ordinal": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "column_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounds", "column_index", "container"],
+      "properties": {
+        "bounds": {"$ref": "common.schema.json#/$defs/rect"},
+        "column_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "container": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "resolved_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "buffer_key", "end_byte", "start_byte", "utf8"],
+      "properties": {
+        "anchor_id": {"$ref": "common.schema.json#/$defs/anchor_id"},
+        "buffer_key": {"$ref": "#/$defs/generated_buffer_key"},
+        "end_byte": {"$ref": "common.schema.json#/$defs/id32"},
+        "start_byte": {"$ref": "common.schema.json#/$defs/id32"},
+        "utf8": {"type": "string"}
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["column_decisions", "float_decisions", "footnote_ids", "fragments", "frames", "master_id", "page_index", "resolved_references"],
+      "properties": {
+        "column_decisions": {"type": "array", "items": {"$ref": "#/$defs/column_decision"}},
+        "float_decisions": {"type": "array", "items": {"$ref": "#/$defs/float_decision"}},
+        "footnote_ids": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/footnote_id"}},
+        "fragments": {"type": "array", "items": {"$ref": "#/$defs/fragment"}},
+        "frames": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/frame"}},
+        "master_id": {"$ref": "common.schema.json#/$defs/master_id"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "resolved_references": {"type": "array", "items": {"$ref": "#/$defs/resolved_reference"}}
+      }
+    },
+    "placed_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "column_index", "frame_kind", "owner", "page_index", "position_in_frame"],
+      "properties": {
+        "anchor_id": {"$ref": "common.schema.json#/$defs/anchor_id"},
+        "column_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "frame_kind": {"enum": ["body", "header", "footer", "footnote"]},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "position_in_frame": {"$ref": "common.schema.json#/$defs/point"}
+      }
+    },
+    "pagination_fingerprint_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "flow_positions", "layout_epoch", "pages", "placed_anchors", "resolved_generated_text"],
+      "properties": {
+        "algorithm": {"const": "typaxis.pagination-fingerprint/1"},
+        "flow_positions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/flow_position"}},
+        "layout_epoch": {"$ref": "#/$defs/layout_epoch"},
+        "pages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/page"}},
+        "placed_anchors": {"type": "array", "items": {"$ref": "#/$defs/placed_anchor"}},
+        "resolved_generated_text": {"type": "array", "items": {"$ref": "#/$defs/initial_generated_text"}}
+      }
+    },
+    "pass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass_index", "input_fingerprint", "output_fingerprint", "state", "cost", "change_summary"],
+      "properties": {
+        "pass_index": {"$ref": "common.schema.json#/$defs/u16"},
+        "input_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "output_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "state": {"$ref": "#/$defs/pagination_fingerprint_record"},
+        "cost": {"$ref": "#/$defs/cost"},
+        "change_summary": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hard_violations", "keep", "widow_orphan", "heading_isolation", "table_split", "footnote_split", "unused_space", "overflow", "total"],
+      "properties": {
+        "hard_violations": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "keep": {"$ref": "common.schema.json#/$defs/safe_integer"},
+        "widow_orphan": {"$ref": "common.schema.json#/$defs/safe_integer"},
+        "heading_isolation": {"$ref": "common.schema.json#/$defs/safe_integer"},
+        "table_split": {"$ref": "common.schema.json#/$defs/safe_integer"},
+        "footnote_split": {"$ref": "common.schema.json#/$defs/safe_integer"},
+        "unused_space": {"$ref": "common.schema.json#/$defs/safe_integer"},
+        "overflow": {"$ref": "common.schema.json#/$defs/safe_integer"},
+        "total": {"$ref": "common.schema.json#/$defs/safe_integer"}
+      }
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "pass_count", "selected_state", "final_fingerprint", "fallback_policy"],
+          "properties": {
+            "status": {"const": "converged"},
+            "pass_count": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "selected_state": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "final_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+            "fallback_policy": {"type": "null"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "pass_count", "selected_state", "final_fingerprint", "cycle_start_state", "fallback_policy"],
+          "properties": {
+            "status": {"const": "cycle_fallback"},
+            "pass_count": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "selected_state": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "final_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+            "cycle_start_state": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "fallback_policy": {"const": "lowest_cost_then_earliest"}
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "pass_count", "selected_state", "final_fingerprint", "fallback_policy"],
+          "properties": {
+            "status": {"const": "max_pass_fallback"},
+            "pass_count": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "selected_state": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "final_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+            "fallback_policy": {"const": "lowest_cost_then_earliest"}
+          }
+        }
+      ]
+    }
+  }
+}

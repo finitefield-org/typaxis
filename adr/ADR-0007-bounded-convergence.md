@@ -6,7 +6,7 @@ Accepted in `typaxis.contract/1.0`.
 
 ## Decision
 
-stable、cycle、max-passを区別して必ず停止する。
+state 0を選択不能なseedとし、pass iがmaterialized state i+1を生成する。stable、cycle、max-passを区別して必ず停止する。cycle/max-passではstate 1..pass_countを`(hard_violation_count,total_cost,page_count,state_index)`で辞書式最小化する`lowest_cost_then_earliest` policyを使い、warningを必須、strict時はerror/no PDFとする。
 
 ## Consequences
 

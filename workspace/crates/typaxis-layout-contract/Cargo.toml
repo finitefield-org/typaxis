@@ -1,0 +1,15 @@
+[package]
+name = "typaxis-layout-contract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }
+typaxis-style = { path = "../typaxis-style" }
+typaxis-syntax = { path = "../typaxis-syntax" }

@@ -6,7 +6,7 @@ Accepted in `typaxis.contract/1.0`.
 
 ## Decision
 
-linear termsは16.16 unitless、translationはLengthとする。
+linear termsは16.16 unitless、translationはLengthとする。column vectorへ`x'=a*x+c*y+e, y'=b*x+d*y+f`を適用し、concatは`CTM := CTM * M`とする。page rootは高さHに対して`(1,0,0,-1,0,H)`とする。
 
 ## Consequences
 

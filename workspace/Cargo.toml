@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/typaxis-core",
+  "crates/typaxis-diagnostics",
+  "crates/typaxis-text",
+  "crates/typaxis-document",
+  "crates/typaxis-style",
+  "crates/typaxis-syntax",
+  "crates/typaxis-font",
+  "crates/typaxis-resource-admission",
+  "crates/typaxis-layout-contract",
+  "crates/typaxis-shaping",
+  "crates/typaxis-linebreak",
+  "crates/typaxis-layout",
+  "crates/typaxis-pagination",
+  "crates/typaxis-display-list",
+  "crates/typaxis-resources",
+  "crates/typaxis-manifest",
+  "crates/typaxis-pdf",
+  "crates/typaxis-testkit",
+  "crates/typaxis-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.75"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

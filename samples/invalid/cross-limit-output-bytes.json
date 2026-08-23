@@ -1,0 +1,1 @@
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"config","path":["limits","max_output_bytes"],"value":429},{"artifact":"manifest","path":["config_sha256"],"value":"f7b4f6888956b2e1966fb592836fddc1f88b86258d975ea5abd203a3deb15530"}]}

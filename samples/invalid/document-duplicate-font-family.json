@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["resources","font_faces",1],"value":{"font_face_id":1,"family":"Noto Serif JP","uri":"test-font.bin","face_index":0,"expected_sha256":"4c73d2e7a7fbe4b19f2e2e8215bce21ed810d1a117c71b3064a0798351a3bc55"}}]}

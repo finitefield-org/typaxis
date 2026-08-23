@@ -1,0 +1,1 @@
+{"$fixture":"layout_trace","mutations":[{"path":["passes",0,"state","pages",0,"resolved_references",0],"value":{"anchor_id":"a","buffer_key":{"generation_kind":"page_reference","owner":0,"owner_local_ordinal":0},"start_byte":0,"end_byte":2,"utf8":"a"}}]}

@@ -1,0 +1,1 @@
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"manifest","path":["output","bytes"],"value":431},{"artifact":"manifest","path":["output","sha256"],"value":"0000000000000000000000000000000000000000000000000000000000000000"}]}

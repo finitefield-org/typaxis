@@ -1,0 +1,123 @@
+{
+  "contract": "typaxis.contract/1.0",
+  "coordinate_unit": "pdf_point_1_65536",
+  "source_layout": {"layout_epoch":{"document_sha256":"0000000000000000000000000000000000000000000000000000000000000000","style_page_master_sha256":"0000000000000000000000000000000000000000000000000000000000000000","admitted_resources_sha256":"0000000000000000000000000000000000000000000000000000000000000000","resolved_input_sha256":"0000000000000000000000000000000000000000000000000000000000000000"},"state_fingerprint":"0000000000000000000000000000000000000000000000000000000000000000"},
+  "text_buffers": [
+    {
+      "text_id": 0,
+      "utf8": "日本語横書きの最小サンプルです。",
+      "origin": {
+        "kind": "parsed",
+        "text_buffer_id": 1
+      }
+    }
+  ],
+  "font_instances": [
+    {
+      "font_instance_id": 0,
+      "font_face_id": 0
+    }
+  ],
+  "destinations": [],
+  "pages": [
+    {
+      "page_index": 0,
+      "width": 39011981,
+      "height": 55174088,
+      "commands": [
+        {
+          "op": "save"
+        },
+        {
+          "op": "concat_transform",
+          "matrix": {
+            "a_16_16": 65536,
+            "b_16_16": 0,
+            "c_16_16": 0,
+            "d_16_16": 65536,
+            "e": 0,
+            "f": 0
+          }
+        },
+        {
+          "op": "draw_glyph_run",
+          "run_id": 0,
+          "font_instance_id": 0,
+          "text_span": {
+            "text_id": 0,
+            "start_byte": 0,
+            "end_byte": 6
+          },
+          "origin": {
+            "x": 3715427,
+            "y": 4829539
+          },
+          "font_size": 688128,
+          "bidi_level": 0,
+          "fill": {
+            "space": "gray",
+            "g": 0
+          },
+          "clusters": [
+            {
+              "extraction": "unicode",
+              "text_span": {
+                "text_id": 0,
+                "start_byte": 0,
+                "end_byte": 3
+              },
+              "logical_ordinal": 0,
+              "glyph_start": 0,
+              "glyph_end": 1
+            },
+            {
+              "extraction": "unicode",
+              "text_span": {
+                "text_id": 0,
+                "start_byte": 3,
+                "end_byte": 6
+              },
+              "logical_ordinal": 1,
+              "glyph_start": 1,
+              "glyph_end": 2
+            }
+          ],
+          "glyphs": [
+            {
+              "original_gid": 100,
+              "advance_x": 688128,
+              "advance_y": 0,
+              "offset_x": 0,
+              "offset_y": 0
+            },
+            {
+              "original_gid": 101,
+              "advance_x": 688128,
+              "advance_y": 0,
+              "offset_x": 0,
+              "offset_y": 0
+            }
+          ]
+        },
+        {
+          "op": "restore"
+        }
+      ],
+      "annotations": [
+        {
+          "kind": "link",
+          "target": {
+            "kind": "internal",
+            "anchor_id": "chapter-1"
+          },
+          "rect": {
+            "x": 3715427,
+            "y": 3715427,
+            "width": 5242880,
+            "height": 917504
+          }
+        }
+      ]
+    }
+  ]
+}

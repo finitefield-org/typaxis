@@ -1,0 +1,1 @@
+{"$fixture":"display_list","mutations":[{"path":["pages",0,"commands",2,"text_span","end_byte"],"value":9},{"path":["pages",0,"commands",2,"clusters",1,"text_span","start_byte"],"value":6},{"path":["pages",0,"commands",2,"clusters",1,"text_span","end_byte"],"value":9}]}

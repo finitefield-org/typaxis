@@ -1,0 +1,1 @@
+{"$fixture":"document_package","mutations":[{"path":["text_buffers",1,"text_id"],"value":0},{"path":["document","blocks",1,"children",0,"text_span","text_id"],"value":0}]}

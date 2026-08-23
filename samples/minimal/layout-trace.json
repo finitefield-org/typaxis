@@ -1,0 +1,171 @@
+{
+  "contract": "typaxis.contract/1.0",
+  "coordinate_unit": "pdf_point_1_65536",
+  "max_layout_passes": 8,
+  "initial_state": {
+    "algorithm": "typaxis.initial-pagination-state/1",
+    "flow_positions": [
+      {
+        "block_child_path": [],
+        "epoch": {
+          "document_sha256": "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619",
+          "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+          "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
+          "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
+        },
+        "global_flow_ordinal": 0,
+        "owner": 0,
+        "owner_local_boundary": 0
+      }
+    ],
+    "layout_epoch": {
+      "document_sha256": "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619",
+      "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+      "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
+      "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
+    },
+    "resolved_generated_text": []
+  },
+  "initial_fingerprint": "b6f5dff56f273c44f235ce91752777b6e427ab1bed97d1fe2d65ab5a5c14e2e2",
+  "passes": [
+    {
+      "pass_index": 0,
+      "input_fingerprint": "b6f5dff56f273c44f235ce91752777b6e427ab1bed97d1fe2d65ab5a5c14e2e2",
+      "output_fingerprint": "885759631f118f0ee315336517ca03ff9cea19d6ac946f01e8e4a7005c7d662d",
+      "state": {
+        "algorithm": "typaxis.pagination-fingerprint/1",
+        "flow_positions": [
+          {
+            "block_child_path": [],
+            "epoch": {
+              "document_sha256": "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619",
+              "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+              "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
+              "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
+            },
+            "global_flow_ordinal": 0,
+            "owner": 0,
+            "owner_local_boundary": 0
+          }
+        ],
+        "layout_epoch": {
+          "document_sha256": "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619",
+          "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+          "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
+          "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
+        },
+        "pages": [
+          {
+            "column_decisions": [],
+            "float_decisions": [],
+            "footnote_ids": [],
+            "fragments": [],
+            "frames": [
+              {
+                "bounds": {
+                  "x": 3715427,
+                  "y": 3715427,
+                  "width": 31581127,
+                  "height": 47743234
+                },
+                "column_index": 0,
+                "kind": "body"
+              }
+            ],
+            "master_id": "a4",
+            "page_index": 0,
+            "resolved_references": []
+          }
+        ],
+        "placed_anchors": [],
+        "resolved_generated_text": []
+      },
+      "cost": {
+        "hard_violations": 0,
+        "keep": 0,
+        "widow_orphan": 0,
+        "heading_isolation": 0,
+        "table_split": 0,
+        "footnote_split": 0,
+        "unused_space": 0,
+        "overflow": 0,
+        "total": 0
+      },
+      "change_summary": [
+        "materialized blank page"
+      ]
+    },
+    {
+      "pass_index": 1,
+      "input_fingerprint": "885759631f118f0ee315336517ca03ff9cea19d6ac946f01e8e4a7005c7d662d",
+      "output_fingerprint": "885759631f118f0ee315336517ca03ff9cea19d6ac946f01e8e4a7005c7d662d",
+      "state": {
+        "algorithm": "typaxis.pagination-fingerprint/1",
+        "flow_positions": [
+          {
+            "block_child_path": [],
+            "epoch": {
+              "document_sha256": "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619",
+              "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+              "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
+              "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
+            },
+            "global_flow_ordinal": 0,
+            "owner": 0,
+            "owner_local_boundary": 0
+          }
+        ],
+        "layout_epoch": {
+          "document_sha256": "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619",
+          "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+          "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
+          "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
+        },
+        "pages": [
+          {
+            "column_decisions": [],
+            "float_decisions": [],
+            "footnote_ids": [],
+            "fragments": [],
+            "frames": [
+              {
+                "bounds": {
+                  "x": 3715427,
+                  "y": 3715427,
+                  "width": 31581127,
+                  "height": 47743234
+                },
+                "column_index": 0,
+                "kind": "body"
+              }
+            ],
+            "master_id": "a4",
+            "page_index": 0,
+            "resolved_references": []
+          }
+        ],
+        "placed_anchors": [],
+        "resolved_generated_text": []
+      },
+      "cost": {
+        "hard_violations": 0,
+        "keep": 0,
+        "widow_orphan": 0,
+        "heading_isolation": 0,
+        "table_split": 0,
+        "footnote_split": 0,
+        "unused_space": 0,
+        "overflow": 0,
+        "total": 0
+      },
+      "change_summary": []
+    }
+  ],
+  "result": {
+    "status": "converged",
+    "pass_count": 2,
+    "selected_state": 2,
+    "final_fingerprint": "885759631f118f0ee315336517ca03ff9cea19d6ac946f01e8e4a7005c7d662d",
+    "fallback_policy": null
+  }
+}

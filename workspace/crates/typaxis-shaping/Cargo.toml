@@ -1,0 +1,16 @@
+[package]
+name = "typaxis-shaping"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-text = { path = "../typaxis-text" }
+typaxis-font = { path = "../typaxis-font" }
+typaxis-layout-contract = { path = "../typaxis-layout-contract" }
+typaxis-syntax = { path = "../typaxis-syntax" }

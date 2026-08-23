@@ -1,0 +1,25 @@
+{
+  "contract": "typaxis.contract/1.0",
+  "coordinate_unit": "pdf_point_1_65536",
+  "source_layout": {
+    "layout_epoch": {
+      "document_sha256": "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619",
+      "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+      "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
+      "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
+    },
+    "state_fingerprint": "885759631f118f0ee315336517ca03ff9cea19d6ac946f01e8e4a7005c7d662d"
+  },
+  "text_buffers": [],
+  "font_instances": [],
+  "destinations": [],
+  "pages": [
+    {
+      "page_index": 0,
+      "width": 39011981,
+      "height": 55174088,
+      "commands": [],
+      "annotations": []
+    }
+  ]
+}

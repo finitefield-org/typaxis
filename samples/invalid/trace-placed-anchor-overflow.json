@@ -1,0 +1,1 @@
+{"$fixture":"layout_trace","mutations":[{"path":["passes",0,"state","pages",0,"frames",0,"bounds","x"],"value":9007199254740991},{"path":["passes",0,"state","placed_anchors",0],"value":{"anchor_id":"a","column_index":0,"frame_kind":"body","owner":0,"page_index":0,"position_in_frame":{"x":1,"y":0}}}]}
