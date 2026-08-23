@@ -1,0 +1,36 @@
+I-001 Source ranges are half-open UTF-8 byte ranges tied to SourceId.
+I-002 Text ranges are half-open UTF-8 byte ranges tied to TextBufferId.
+I-003 Text-map ranges are local to their owning TextBuffer and carry no TextBufferId.
+I-004 Text-map segments are non-empty, ordered, non-overlapping, UTF-8 aligned, and cover each buffer exactly.
+I-005 Text/source lengths never silently saturate; overflow and configured limits are errors.
+I-006 Local source/resource paths are portable relative paths resolved beneath an allowed root.
+I-007 Layout lengths use signed integer units `pdf_point_1_65536`.
+I-008 Affine a/b/c/d are signed 16.16 unitless values; e/f are Length.
+I-009 Semantic AST contains no glyph, CID, PDF name, or object identifier.
+I-010 Break legality is one `BreakKind`; Box/Glue/Penalty/Discretionary data is explicit.
+I-011 Bidi embedding level survives itemization through Display List generation.
+I-012 Paginator can request re-fragmentation for every frame/reservation state.
+I-013 Page first/parity flags are derived rather than independently stored.
+I-014 Fragment continuation either exhausts the flow or advances to a different boundary.
+I-015 Pagination state 0 is initial; pass i produces state i+1.
+I-016 Stable state means a pass input fingerprint equals its output fingerprint.
+I-017 A cycle may repeat state 0 and records the first repeated state index.
+I-018 Fallback final fingerprint equals the explicitly selected state.
+I-019 Display List contains logical resource IDs only and every glyph run has explicit paint.
+I-020 Every internal link resolves to one unique named destination.
+I-021 Painted/clipped paths contain a valid state sequence and at least one drawable segment.
+I-022 Non-empty dash arrays are not all zero; dash phase is nonnegative.
+I-023 Glyph text ownership is cluster-level, not duplicated per glyph.
+I-024 CID 0 is reserved for .notdef; Unicode values are valid scalar values.
+I-025 CID, subset GID, original GID, Unicode sequence, and ActualText are distinct mappings.
+I-026 PDF resource names and object numbers are assigned only after stable sorting.
+I-027 PdfValue cannot contain a stream.
+I-028 Every stream is indirect; Length, Filter, and DecodeParms are serializer-owned.
+I-029 Duplicate object insertion leaves the first object unchanged.
+I-030 A frozen PDF graph has no unresolved references; Catalog points to a root Pages node without Parent, and the full Page tree is valid.
+I-031 Link annotations cannot carry raw PDF actions and remain within their page.
+I-032 Canonical JSON integers stay within signed 53-bit exact range unless narrowed further.
+I-033 Classic xref output is rejected before any byte offset reaches 10 decimal digits.
+I-034 Deterministic manifest arrays use canonical order and unique logical identities.
+I-035 Release archives contain stored regular-file entries with fixed metadata and a versioned top-level directory independent of checkout name.
+I-036 Public product identity is `typaxis`; the CLI binary, build-manifest engine, crate namespace, configuration name, and schema namespace are validated consistently.
