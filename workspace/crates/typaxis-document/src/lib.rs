@@ -504,7 +504,12 @@ impl DocumentNodeIndexBuilder {
                     self.anchor(anchor_id, *node_id)?;
                 }
                 Inline::HardBreak { node_id, .. } => {
-                    self.node(*node_id, DocumentNodeKind::HardBreak, path)?
+                    self.node(*node_id, DocumentNodeKind::HardBreak, path)?;
+                    self.site(
+                        *node_id,
+                        GenerationKind::Discretionary,
+                        GeneratedSiteTarget::None,
+                    )?;
                 }
                 Inline::Emphasis {
                     node_id, children, ..
@@ -568,7 +573,13 @@ fn child_path(
 ) -> Result<Vec<u32>, DocumentNodeIndexError> {
     let child_index =
         u32::try_from(child_index).map_err(|_| DocumentNodeIndexError::TooManyNodes)?;
-    let mut path = Vec::with_capacity(parent.len().saturating_add(2));
+    let capacity = parent
+        .len()
+        .checked_add(2)
+        .ok_or(DocumentNodeIndexError::TooManyNodes)?;
+    let mut path = Vec::new();
+    path.try_reserve_exact(capacity)
+        .map_err(|_| DocumentNodeIndexError::TooManyNodes)?;
     path.extend_from_slice(parent);
     path.push(field_tag);
     path.push(child_index);

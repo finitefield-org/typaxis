@@ -2,24 +2,28 @@
 
 use core::fmt;
 use core::num::NonZeroU16;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use typaxis_core::{
     initial_pagination_state_fingerprint_from_jcs,
     materialized_pagination_state_fingerprint_from_jcs, push_generated_buffer_key_jcs,
     push_jcs_string, AnchorId, FootnoteId, GeneratedBufferKey, GenerationKind,
-    LayoutStateFingerprint, MasterId, NodeId, Point, PositiveLength, Rect, ReferenceFingerprint,
-    Utf8ByteOffset, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
+    LayoutStateFingerprint, MasterId, NodeId, NonNegativeLength, Point, PositiveLength, Rect,
+    ReferenceFingerprint, Utf8ByteOffset, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
 };
 use typaxis_diagnostics::{AdvisoryDiagnostic, Diagnostic, DiagnosticCode, Severity};
 use typaxis_document::GeneratedSiteTarget;
 use typaxis_layout::{
     Continuation, DiscoveredAnchor, FlowCursor, FlowPosition, FlowTree, FragmentError,
-    FragmentRequest, FragmentWorkBudget, Fragmenter, LayoutEpoch, PageContext,
+    FragmentRequest, FragmentWorkBudget, Fragmenter, LayoutEpoch, PageContext, ReferenceFragmenter,
+    ResolvedPageSelection,
 };
 use typaxis_style::PageMasterSet;
 use typaxis_syntax::{PackagePaginationContext, ValidatedParsedPackage};
-use typaxis_text::{GeneratedProvenance, GeneratedTextStore, GeneratedTextStoreError};
+use typaxis_text::{
+    GeneratedBufferDraft, GeneratedProvenance, GeneratedTextStore, GeneratedTextStoreError,
+};
 
 pub const FALLBACK_POLICY_ID: &str = "lowest_cost_then_earliest";
 
@@ -970,16 +974,9 @@ impl InitialPaginationState {
         package: &ValidatedParsedPackage,
         limits: &ValidatedResourceLimits,
     ) -> Result<Self, PaginationError> {
-        if package.document_nodes().generated_sites().len() != 0 {
-            return Err(PaginationError::UnsupportedReferenceTransition);
-        }
-        let generated_text = GeneratedTextStore::new(
-            Vec::new(),
-            package.document_nodes(),
-            limits,
-            &package.package().text_store,
-        )
-        .map_err(|_| PaginationError::InvalidInitialReferenceSeed)?;
+        let generated_text = package
+            .materialize_initial_generated_text(limits)
+            .map_err(|_| PaginationError::InvalidInitialReferenceSeed)?;
         let layout_epoch = flow.epoch();
         if layout_epoch.document() != package.epoch_identity().document()
             || layout_epoch.style() != package.epoch_identity().style()
@@ -1028,17 +1025,16 @@ impl InitialPaginationState {
 }
 
 /// Sealed proof that the next pass overlay was derived from one exact
-/// materialized predecessor. The reference implementation can issue this only
-/// for documents with no generated sites; nonempty feedback remains
-/// fail-closed until the reference resolver owns the page-to-overlay
-/// transition.
+/// materialized predecessor. The owned form keeps a newly resolved overlay
+/// alive through pass work; the borrowed form avoids a copy when the overlay
+/// is unchanged.
 #[derive(Debug, Eq, PartialEq)]
 pub struct ReferenceTransitionReceipt<'a> {
     session: PaginationSessionId,
     previous_state: MaterializedStateIndex,
     previous_fingerprint: LayoutStateFingerprint,
     working_epoch: LayoutEpoch,
-    generated_text: &'a GeneratedTextStore,
+    generated_text: Cow<'a, GeneratedTextStore>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -1110,7 +1106,7 @@ pub struct LayoutPassInput<'a> {
     state_index: LayoutStateIndex,
     fingerprint: LayoutStateFingerprint,
     layout_epoch: LayoutEpoch,
-    generated_text: &'a GeneratedTextStore,
+    generated_text: Cow<'a, GeneratedTextStore>,
 }
 impl<'a> LayoutPassInput<'a> {
     pub fn initial(input: &'a PaginationInput<'_>) -> Self {
@@ -1119,7 +1115,7 @@ impl<'a> LayoutPassInput<'a> {
             state_index: LayoutStateIndex::INITIAL,
             fingerprint: input.initial_fingerprint(),
             layout_epoch: input.initial_state().layout_epoch(),
-            generated_text: input.initial_state().generated_text(),
+            generated_text: Cow::Borrowed(input.initial_state().generated_text()),
         }
     }
     pub fn transitioned(transition: ReferenceTransitionReceipt<'a>) -> Self {
@@ -1140,8 +1136,8 @@ impl<'a> LayoutPassInput<'a> {
     pub const fn layout_epoch(&self) -> LayoutEpoch {
         self.layout_epoch
     }
-    pub const fn generated_text(&self) -> &'a GeneratedTextStore {
-        self.generated_text
+    pub fn generated_text(&self) -> &GeneratedTextStore {
+        self.generated_text.as_ref()
     }
 }
 
@@ -1374,11 +1370,12 @@ impl PaginationFingerprintRecord {
         if layout_epoch.references() != generated_store.reference_fingerprint() {
             return Err(PaginationError::EpochMismatch);
         }
-        if generated_store
-            .buffers()
-            .iter()
-            .any(|buffer| !flow.contains_owner(buffer.key().owner()))
-        {
+        if generated_store.buffers().iter().any(|buffer| {
+            generated_store
+                .document_nodes()
+                .generated_site(buffer.key())
+                .is_none()
+        }) {
             return Err(PaginationError::UnknownFlowOwner);
         }
         if pages.is_empty() {
@@ -2103,6 +2100,7 @@ pub struct LayoutPass {
     fingerprint_record: PaginationFingerprintRecord,
     fallback_score: FallbackScore,
     materialization: PassMaterializationReceipt,
+    flow: FlowTree,
 }
 impl LayoutPass {
     pub fn new(
@@ -2154,6 +2152,7 @@ impl LayoutPass {
             fingerprint_record,
             fallback_score,
             materialization,
+            flow: flow.clone(),
         })
     }
     pub const fn pass_index(&self) -> u16 {
@@ -2183,6 +2182,9 @@ impl LayoutPass {
     pub const fn materialization(&self) -> &PassMaterializationReceipt {
         &self.materialization
     }
+    pub const fn flow(&self) -> &FlowTree {
+        &self.flow
+    }
     pub fn placed_anchors(&self) -> impl Iterator<Item = &PlacedAnchor> {
         self.materialization
             .summary
@@ -2192,20 +2194,25 @@ impl LayoutPass {
     }
 
     /// Derives the exact generated-text overlay used by the next pass from
-    /// this materialized state. Generated reference transitions are not yet
-    /// implemented by the reference backend, so only the canonical zero-site
-    /// case can issue a receipt; accepting a caller-provided replacement store
-    /// here would break the pagination fingerprint chain.
+    /// this materialized state. Page references are resolved from the sealed
+    /// placed-anchor set using checked physical page numbers. All other site
+    /// bytes remain the package-validated canonical predecessor values.
     pub fn transition_references<'a>(
         &'a self,
         package: &ValidatedParsedPackage,
         limits: &ValidatedResourceLimits,
     ) -> Result<ReferenceTransitionReceipt<'a>, PaginationError> {
-        if package.document_nodes().generated_sites().len() != 0 {
-            return Err(PaginationError::UnsupportedReferenceTransition);
-        }
-        let generated = package
+        package
             .bind_generated_text(self.generated_text(), limits)
+            .map_err(|_| PaginationError::PackageEpochMismatch)?;
+        let next_generated_text = resolve_next_generated_text(
+            package,
+            self.generated_text(),
+            self.placed_anchors(),
+            limits,
+        )?;
+        let generated = package
+            .bind_generated_text(&next_generated_text, limits)
             .map_err(|_| PaginationError::PackageEpochMismatch)?;
         let working_epoch = self
             .fingerprint_record
@@ -2217,9 +2224,70 @@ impl LayoutPass {
             previous_state: self.materialized_state,
             previous_fingerprint: self.output_fingerprint,
             working_epoch,
-            generated_text: self.generated_text(),
+            generated_text: Cow::Owned(next_generated_text),
         })
     }
+}
+
+fn resolve_next_generated_text<'a>(
+    package: &ValidatedParsedPackage,
+    previous: &GeneratedTextStore,
+    placed_anchors: impl IntoIterator<Item = &'a PlacedAnchor>,
+    limits: &ValidatedResourceLimits,
+) -> Result<GeneratedTextStore, PaginationError> {
+    let anchors: BTreeMap<_, _> = placed_anchors
+        .into_iter()
+        .map(|anchor| (anchor.anchor_id().clone(), anchor.page_index()))
+        .collect();
+    let mut drafts = Vec::new();
+    drafts
+        .try_reserve_exact(package.document_nodes().generated_sites().len())
+        .map_err(|_| PaginationError::ResourceLimit)?;
+    for site in package.document_nodes().generated_sites() {
+        let key = site.key();
+        if key.generation_kind() == GenerationKind::ListMarker {
+            drafts.push(
+                package
+                    .materialize_list_marker(key)
+                    .map_err(|_| PaginationError::PackageEpochMismatch)?,
+            );
+            continue;
+        }
+        let utf8 = if key.generation_kind() == GenerationKind::PageReference {
+            let GeneratedSiteTarget::Anchor(anchor_id) = site.target() else {
+                return Err(PaginationError::PackageEpochMismatch);
+            };
+            match anchors.get(anchor_id) {
+                Some(page_index) => page_index
+                    .checked_add(1)
+                    .ok_or(PaginationError::InvalidPageIndex)?
+                    .to_string(),
+                None => String::new(),
+            }
+        } else {
+            previous
+                .buffers()
+                .iter()
+                .find(|buffer| buffer.key() == key)
+                .map(|buffer| buffer.utf8().to_owned())
+                .ok_or(PaginationError::PackageEpochMismatch)?
+        };
+        drafts.push(
+            GeneratedBufferDraft::new(package.document_nodes(), key, utf8)
+                .map_err(|_| PaginationError::PackageEpochMismatch)?,
+        );
+    }
+    let next_generated_text = GeneratedTextStore::new(
+        drafts,
+        package.document_nodes(),
+        limits,
+        &package.package().text_store,
+    )
+    .map_err(|_| PaginationError::PackageEpochMismatch)?;
+    package
+        .bind_generated_text(&next_generated_text, limits)
+        .map_err(|_| PaginationError::PackageEpochMismatch)?;
+    Ok(next_generated_text)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2380,6 +2448,9 @@ impl PaginationResult {
     }
     pub fn selected_pages(&self) -> &[PagePlan] {
         self.selected_pass().pages()
+    }
+    pub fn selected_flow(&self) -> &FlowTree {
+        self.selected_pass().flow()
     }
     pub fn selected_anchors(&self) -> impl Iterator<Item = &PlacedAnchor> {
         self.selected_pass().placed_anchors()
@@ -2668,6 +2739,216 @@ pub trait Paginator {
     ) -> Result<PaginationOutcome, PaginationError>;
 }
 
+/// Deterministic pagination owner for the reference layout domain: blank
+/// documents and top-level empty paragraphs containing only direct anchors.
+///
+/// The paginator issues its own session and work budget, materializes every
+/// pass through [`PassMaterializationPermit`], and seals the result through
+/// [`PaginationOutcome`]. Callers provide only validated package/flow/limit
+/// inputs and cannot supply pass receipts, placed anchors, or fingerprints.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ReferencePaginator;
+
+impl ReferencePaginator {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    /// Runs pagination and convergence for the complete reference layout
+    /// domain. The returned outcome owns a validated [`PaginationResult`] and
+    /// any required fallback diagnostic.
+    pub fn paginate(
+        &self,
+        package: &ValidatedParsedPackage,
+        flow: &FlowTree,
+        limits: &ValidatedResourceLimits,
+        strict: bool,
+    ) -> Result<PaginationOutcome, PaginationError> {
+        self.paginate_with_reflow(package, flow, limits, strict, |_, epoch| {
+            if epoch == flow.epoch() {
+                Ok(flow.clone())
+            } else {
+                Err(PaginationError::UnsupportedReferenceTransition)
+            }
+        })
+    }
+
+    /// Runs the same sealed pagination state machine while rebuilding each
+    /// post-transition FlowTree from the exact owned generated overlay and
+    /// working epoch issued by the preceding pass.
+    pub fn paginate_with_reflow(
+        &self,
+        package: &ValidatedParsedPackage,
+        initial_flow: &FlowTree,
+        limits: &ValidatedResourceLimits,
+        strict: bool,
+        mut reflow: impl FnMut(&GeneratedTextStore, LayoutEpoch) -> Result<FlowTree, PaginationError>,
+    ) -> Result<PaginationOutcome, PaginationError> {
+        let initial_state = InitialPaginationState::new(initial_flow, package, limits)?;
+        let package_context = package.pagination_context();
+        let options = PaginationOptions::from_limits(limits, strict);
+        let mut input = PaginationInput::new(initial_state, &package_context, options)?;
+        let mut budget = input.take_work_budget()?;
+        let mut passes: Vec<LayoutPass> = Vec::new();
+
+        let status = loop {
+            let pass_index =
+                u16::try_from(passes.len()).map_err(|_| PaginationError::PassIndexOverflow)?;
+            let pass_input = if let Some(previous) = passes.last() {
+                LayoutPassInput::transitioned(previous.transition_references(package, limits)?)
+            } else {
+                LayoutPassInput::initial(&input)
+            };
+            let pass_flow = if pass_index == 0 {
+                initial_flow.clone()
+            } else {
+                reflow(pass_input.generated_text(), pass_input.layout_epoch())?
+            };
+            if pass_flow.epoch() != pass_input.layout_epoch() {
+                return Err(PaginationError::InvalidPreparedLayout);
+            }
+            let fragmenter = ReferenceFragmenter::for_paragraphs(package, &pass_flow)
+                .map_err(reference_fragment_error)?;
+            let input_fingerprint = pass_input.fingerprint();
+            let generated_text = pass_input.generated_text().clone();
+            let mut permit = budget.begin_pass(pass_index, pass_input)?;
+            let pages = Self::materialize_pass(
+                package,
+                &pass_flow,
+                &fragmenter,
+                &package_context,
+                &mut permit,
+            )?;
+            let materialization = permit.finish(&pass_flow, &pages)?;
+            passes.push(LayoutPass::new(
+                materialization,
+                input_fingerprint,
+                &pass_flow,
+                pages,
+                generated_text,
+            )?);
+
+            if let Some(termination) = observed_termination(&passes) {
+                break match termination {
+                    ObservedTermination::Stable => ConvergenceStatus::Converged,
+                    ObservedTermination::Cycle(cycle_start_state) => {
+                        ConvergenceStatus::CycleFallback { cycle_start_state }
+                    }
+                };
+            }
+            if passes.len() == usize::from(options.max_layout_passes) {
+                break ConvergenceStatus::MaxPassFallback;
+            }
+        };
+
+        PaginationOutcome::new(passes, status, &input, budget.finish())
+    }
+
+    fn materialize_pass(
+        package: &ValidatedParsedPackage,
+        flow: &FlowTree,
+        fragmenter: &ReferenceFragmenter<'_>,
+        package_context: &PackagePaginationContext,
+        permit: &mut PassMaterializationPermit<'_>,
+    ) -> Result<Vec<PagePlan>, PaginationError> {
+        let mut cursor = FlowCursor::document_start(flow);
+        let terminal_position = flow
+            .positions()
+            .last()
+            .ok_or(PaginationError::FatalLayout)?;
+        let mut pages = Vec::new();
+        let mut page_index = 0u32;
+        loop {
+            let page_start = cursor.clone();
+            let selection = ResolvedPageSelection::new(flow, &page_start, package)
+                .map_err(|_| PaginationError::FatalLayout)?;
+            let page = PageContext::select(page_index, &selection, package_context)
+                .map_err(|_| PaginationError::PageLimit)?;
+            let body_frame = PageFramePlan {
+                kind: PageFrameKind::Body,
+                column_index: 0,
+                bounds: page.selected_master().body,
+            };
+            permit.begin_page(&page, &page_start, std::slice::from_ref(&body_frame))?;
+            let mut plan = PagePlan {
+                page_index: page.page_index(),
+                master_id: page.master_id().clone(),
+                frames: vec![body_frame.clone()],
+                fragments: Vec::new(),
+                footnote_ids: Vec::new(),
+                float_decisions: Vec::new(),
+                column_decisions: Vec::new(),
+                resolved_references: Vec::new(),
+            };
+            let mut exhausted = flow.positions().len() == 1;
+            // A nonblank flow first consumes its zero-output DocumentStart
+            // bootstrap. The next fragment call fills the current page; a
+            // `More` continuation starts the next physical page.
+            let mut bootstrap = page_index == 0
+                && flow.positions().first() == Some(cursor.position())
+                && flow.positions().len() > 1;
+            loop {
+                if exhausted {
+                    break;
+                }
+                let request = FragmentRequest::new(
+                    flow,
+                    &cursor,
+                    body_frame.bounds,
+                    NonNegativeLength::ZERO,
+                    page.clone(),
+                )
+                .map_err(reference_fragment_error)?;
+                let receipt = permit
+                    .run_fragmenter(fragmenter, &request, PageFrameKind::Body, 0)
+                    .map_err(reference_fragment_error)?;
+                plan.fragments.extend_from_slice(receipt.placed_fragments());
+                plan.footnote_ids
+                    .extend_from_slice(receipt.discovered_footnotes());
+                match receipt.continuation().clone() {
+                    Continuation::More(next) if bootstrap => {
+                        cursor = *next;
+                        bootstrap = false;
+                    }
+                    Continuation::More(next) => {
+                        cursor = *next;
+                        break;
+                    }
+                    Continuation::Exhausted(terminal) => {
+                        if !terminal.is_end() || terminal.position() != terminal_position {
+                            return Err(PaginationError::FatalLayout);
+                        }
+                        cursor = *terminal;
+                        exhausted = true;
+                        break;
+                    }
+                }
+            }
+            plan.footnote_ids.sort();
+            if plan.footnote_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(PaginationError::FatalLayout);
+            }
+            permit.finish_page(&plan)?;
+            pages.push(plan);
+            if exhausted {
+                break;
+            }
+            page_index = page_index
+                .checked_add(1)
+                .ok_or(PaginationError::PageLimit)?;
+        }
+        Ok(pages)
+    }
+}
+
+fn reference_fragment_error(error: FragmentError) -> PaginationError {
+    match error {
+        FragmentError::ResourceLimit => PaginationError::ResourceLimit,
+        FragmentError::ArithmeticOverflow => PaginationError::ArithmeticOverflow,
+        _ => PaginationError::FatalLayout,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2675,7 +2956,7 @@ mod tests {
         Length, NodeId, NonNegativeLength, PortablePath, PositiveLength, ResourceLimits, SourceId,
         ValidatedResourceLimits,
     };
-    use typaxis_document::ValidatedDocumentNodeIndex;
+    use typaxis_document::{DocumentNodeKind, ValidatedDocumentNodeIndex};
     use typaxis_layout::{CanonicalFlowIrBuilder, FragmentDraft, FragmentResult, LayoutEpoch};
     use typaxis_linebreak::ValidatedParagraphItemRegistry;
     use typaxis_resource_admission::AdmittedResourceResolver;
@@ -2706,6 +2987,26 @@ mod tests {
     }
     fn validated_flow_package() -> ValidatedParsedPackage {
         parsed_reference_package("flow-input.tsf", "anchor:chapter\nparagraph")
+    }
+    fn reference_flow(package: &ValidatedParsedPackage) -> FlowTree {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let generated = GeneratedTextStore::new(
+            Vec::new(),
+            package.document_nodes(),
+            &limits,
+            &package.package().text_store,
+        )
+        .unwrap();
+        let package_epoch = epoch_for(package, &generated);
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package, package_epoch).unwrap();
+        let mut builder = CanonicalFlowIrBuilder::new(package, &paragraph_items).unwrap();
+        for (node, kind) in package.document_nodes().nodes() {
+            if kind == DocumentNodeKind::Paragraph {
+                builder.push_paragraph_item(node, 0).unwrap();
+            }
+        }
+        builder.finish(package_epoch).unwrap()
     }
     fn validated_package() -> ValidatedParsedPackage {
         validated_package_with_uri("input.tsf")
@@ -2753,17 +3054,19 @@ mod tests {
         .unwrap()
     }
     fn page(page_index: u32, marker: &str) -> PagePlan {
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let package = validated_package();
+        let body = package.package().page_masters.masters[0].body;
         let inset_raw = i64::from(marker.as_bytes().first().copied().unwrap_or(0) % 10);
         let inset = Length::from_raw(inset_raw).unwrap();
-        let width = PositiveLength::new(Length::from_raw(10 - inset_raw).unwrap()).unwrap();
+        let x = body.x().checked_add(inset).unwrap();
+        let width = PositiveLength::new(body.width().get().checked_sub(inset).unwrap()).unwrap();
         PagePlan {
             page_index,
             master_id: MasterId::new("default").unwrap(),
             frames: vec![PageFramePlan {
                 kind: PageFrameKind::Body,
                 column_index: 0,
-                bounds: Rect::new(inset, Length::ZERO, width, size),
+                bounds: Rect::new(x, body.y(), width, body.height()),
             }],
             fragments: vec![],
             footnote_ids: vec![],
@@ -2942,6 +3245,59 @@ mod tests {
             .layout_epoch()
             .same_stable_inputs(first.fingerprint_record().layout_epoch()));
         assert_eq!(next.generated_text(), first.generated_text());
+    }
+
+    #[test]
+    fn page_reference_transition_uses_checked_physical_anchor_page() {
+        let package =
+            parsed_reference_package("reference-input.tsf", "anchor:chapter\nreference:chapter");
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let initial = package.materialize_initial_generated_text(&limits).unwrap();
+        let frame = package.package().page_masters.masters[0].body;
+        let anchor = PlacedAnchor::new(
+            &DiscoveredAnchor {
+                anchor_id: AnchorId::new("chapter").unwrap(),
+                owner_node: NodeId::new(1),
+                position_in_frame: Point {
+                    x: typaxis_core::Length::ZERO,
+                    y: typaxis_core::Length::ZERO,
+                },
+            },
+            2,
+            PageFrameKind::Body,
+            0,
+            frame,
+        )
+        .unwrap();
+        let resolved = resolve_next_generated_text(
+            &package,
+            &initial,
+            core::slice::from_ref(&anchor),
+            &limits,
+        )
+        .unwrap();
+        let key = GeneratedBufferKey::new(NodeId::new(4), GenerationKind::PageReference, 0);
+        assert_eq!(
+            resolved
+                .buffers()
+                .iter()
+                .find(|buffer| buffer.key() == key)
+                .unwrap()
+                .utf8(),
+            "3"
+        );
+        assert_ne!(
+            initial.reference_fingerprint(),
+            resolved.reference_fingerprint()
+        );
+        let stable = resolve_next_generated_text(
+            &package,
+            &resolved,
+            core::slice::from_ref(&anchor),
+            &limits,
+        )
+        .unwrap();
+        assert_eq!(resolved, stable);
     }
 
     #[test]
@@ -3151,7 +3507,7 @@ mod tests {
             state_index: LayoutStateIndex::new(1),
             fingerprint: fingerprint(9),
             layout_epoch: first.fingerprint_record().layout_epoch(),
-            generated_text: first.generated_text(),
+            generated_text: Cow::Borrowed(first.generated_text()),
         };
         let second = pass(&mut budget, wrong_input, score(0, 0), &["b"]);
         assert_eq!(
@@ -3834,18 +4190,22 @@ mod tests {
             .begin_pass(0, LayoutPassInput::initial(&input))
             .unwrap();
 
-        let half = PositiveLength::new(Length::from_raw(5).unwrap()).unwrap();
-        let height = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let body = package.package().page_masters.masters[0].body;
+        let left_width =
+            PositiveLength::new(Length::from_raw(body.width().get().raw() / 2).unwrap()).unwrap();
+        let right_width =
+            PositiveLength::new(body.width().get().checked_sub(left_width.get()).unwrap()).unwrap();
+        let right_x = body.x().checked_add(left_width.get()).unwrap();
         let frames = vec![
             PageFramePlan {
                 kind: PageFrameKind::Body,
                 column_index: 0,
-                bounds: Rect::new(Length::ZERO, Length::ZERO, half, height),
+                bounds: Rect::new(body.x(), body.y(), left_width, body.height()),
             },
             PageFramePlan {
                 kind: PageFrameKind::Body,
                 column_index: 1,
-                bounds: Rect::new(Length::from_raw(5).unwrap(), Length::ZERO, half, height),
+                bounds: Rect::new(right_x, body.y(), right_width, body.height()),
             },
         ];
         let mut plan = page(0, "d");
@@ -3972,11 +4332,16 @@ mod tests {
             permit.begin_page(&other_page, &other_cursor, &valid.frames),
             Err(PaginationError::InvalidWorkPermit)
         );
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let one = PositiveLength::new(Length::from_raw(1).unwrap()).unwrap();
         let outside = [PageFramePlan {
             kind: PageFrameKind::Body,
             column_index: 0,
-            bounds: Rect::new(Length::from_raw(1).unwrap(), Length::ZERO, size, size),
+            bounds: Rect::new(
+                context.selected_master().width.get(),
+                Length::ZERO,
+                one,
+                one,
+            ),
         }];
         assert_eq!(
             permit.begin_page(&context, &cursor, &outside),
@@ -4095,5 +4460,182 @@ mod tests {
             ),
             Err(PaginationError::PassesContinueAfterTermination)
         );
+    }
+
+    #[test]
+    fn reference_paginator_materializes_nonblank_anchors_and_converges() {
+        let package =
+            parsed_reference_package("reference-pagination.tsf", "anchor:z\nparagraph\nanchor:a");
+        let flow = reference_flow(&package);
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let outcome = ReferencePaginator::new()
+            .paginate(&package, &flow, &limits, false)
+            .unwrap();
+        let result = outcome.result();
+
+        assert_eq!(result.status(), &ConvergenceStatus::Converged);
+        assert_eq!(result.passes().len(), 2);
+        assert_eq!(result.selected_state().get(), 2);
+        assert!(outcome.diagnostics().is_empty());
+        assert_eq!(result.selected_pages().len(), 1);
+        assert_eq!(result.selected_pages()[0].fragments.len(), 3);
+        assert_eq!(
+            result.passes()[0].output_fingerprint(),
+            result.passes()[1].output_fingerprint()
+        );
+        assert_eq!(
+            result.passes()[1].input_fingerprint(),
+            result.passes()[1].output_fingerprint()
+        );
+
+        let anchors = result.selected_anchors().collect::<Vec<_>>();
+        assert_eq!(anchors.len(), 2);
+        assert_eq!(anchors[0].anchor_id().as_str(), "a");
+        assert_eq!(anchors[1].anchor_id().as_str(), "z");
+        for anchor in anchors {
+            assert_eq!(
+                package.document_nodes().anchor_owner(anchor.anchor_id()),
+                Some(anchor.owner_node())
+            );
+            assert_eq!(anchor.page_index(), 0);
+            assert_eq!(anchor.frame_kind(), PageFrameKind::Body);
+            assert_eq!(anchor.column_index(), 0);
+            assert_eq!(
+                anchor.position_in_frame(),
+                Point {
+                    x: Length::ZERO,
+                    y: Length::ZERO,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn reference_paginator_is_deterministic_across_sessions() {
+        let package = parsed_reference_package(
+            "reference-repeat.tsf",
+            "paragraph\nanchor:repeat\nparagraph",
+        );
+        let flow = reference_flow(&package);
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let first = ReferencePaginator::new()
+            .paginate(&package, &flow, &limits, false)
+            .unwrap();
+        let repeated = ReferencePaginator::new()
+            .paginate(&package, &flow, &limits, false)
+            .unwrap();
+
+        assert_eq!(first.result().status(), repeated.result().status());
+        assert_eq!(
+            first.result().selected_pages(),
+            repeated.result().selected_pages()
+        );
+        assert_eq!(
+            first
+                .result()
+                .selected_anchors()
+                .cloned()
+                .collect::<Vec<_>>(),
+            repeated
+                .result()
+                .selected_anchors()
+                .cloned()
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            first.result().final_fingerprint(),
+            repeated.result().final_fingerprint()
+        );
+        assert_eq!(
+            first
+                .result()
+                .passes()
+                .iter()
+                .map(LayoutPass::output_fingerprint)
+                .collect::<Vec<_>>(),
+            repeated
+                .result()
+                .passes()
+                .iter()
+                .map(LayoutPass::output_fingerprint)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn reference_paginator_honors_exact_page_pass_and_fragment_limits() {
+        let package = parsed_reference_package("reference-limits.tsf", "anchor:limit\nparagraph");
+        let flow = reference_flow(&package);
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 1,
+            max_layout_passes: 2,
+            max_fragments: 2,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let result = ReferencePaginator::new()
+            .paginate(&package, &flow, &exact, false)
+            .unwrap();
+        assert_eq!(result.result().status(), &ConvergenceStatus::Converged);
+        assert!(result
+            .result()
+            .passes()
+            .iter()
+            .all(|pass| { pass.pages().len() == 1 && pass.pages()[0].fragments.len() == 2 }));
+
+        let too_few_fragments = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 1,
+            max_layout_passes: 2,
+            max_fragments: 1,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            ReferencePaginator::new().paginate(&package, &flow, &too_few_fragments, false),
+            Err(PaginationError::ResourceLimit)
+        );
+    }
+
+    #[test]
+    fn reference_paginator_routes_fallback_through_strict_policy() {
+        let package = parsed_reference_package("reference-strict.tsf", "paragraph");
+        let flow = reference_flow(&package);
+        let one_pass = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 1,
+            max_layout_passes: 1,
+            max_fragments: 1,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+
+        let fallback = ReferencePaginator::new()
+            .paginate(&package, &flow, &one_pass, false)
+            .unwrap();
+        assert_eq!(
+            fallback.result().status(),
+            &ConvergenceStatus::MaxPassFallback
+        );
+        assert_eq!(fallback.result().selected_state().get(), 1);
+        assert_eq!(fallback.diagnostics().len(), 1);
+        assert_eq!(
+            ReferencePaginator::new().paginate(&package, &flow, &one_pass, true),
+            Err(PaginationError::FallbackRejectedByStrict)
+        );
+    }
+
+    #[test]
+    fn reference_paginator_materializes_the_canonical_blank_page() {
+        let package = parsed_reference_package("reference-blank.tsf", "");
+        let flow = reference_flow(&package);
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let outcome = ReferencePaginator::new()
+            .paginate(&package, &flow, &limits, false)
+            .unwrap();
+        let result = outcome.result();
+        assert_eq!(result.status(), &ConvergenceStatus::Converged);
+        assert_eq!(result.passes().len(), 2);
+        assert_eq!(result.selected_pages().len(), 1);
+        assert!(result.selected_pages()[0].fragments.is_empty());
+        assert_eq!(result.selected_anchors().count(), 0);
     }
 }

@@ -11,3 +11,7 @@ golden: canonical AST、RFC 8785 JCS trace、Display List、resource/build manif
 schema suiteはhuman-readable model fixtureとbase64 canonical JCS byte goldenを分け、各invalid fixtureがSchema expectationに加えてexact singleton semantic `rule_id`だけを壊すことを検証する。config hash、各limit category、Document/style inheritance depthのexact-max/max+1とdeep-recursion precheck、initial/materialized fingerprint、FlowTree registry、cross-artifact ID/resource/page closure、Display source-layout receipt、classic-xref PDF factsを個別fixtureで覆う。table fixtureはrow×column matrixを割り当てず1次元remaining-rowspan検証で既存positive/negative集合を同じ結果にする。RTL positive fixtureはlogical cluster順とvisual glyph range順が逆でもexact partitionとして受理されることを確認する。
 
 `samples/invalid`の`expected rule_id`はconformance validatorの安定rule identifierであり、公開`DiagnosticCode`とは別namespaceとする。fixtureは必要に応じて両方を独立に検証する。
+
+deterministic release gateは`python3 tools/verify_reproducibility.py --repository . --revision HEAD`で実行する。選択したGit treeを異なる名前の二つの独立checkoutへmaterializeし、ambient `TYPAXIS_*`を除外して別々のCargo targetへCLIをbuildした後、blank document PDF bytesとstored release ZIP bytesをそれぞれexact比較する。release unit suiteは`python3 -m unittest discover -s tools -p 'test_*.py' -v`で実行する。
+
+renderer/extractor differential gateはMuPDFの`mutool`とPopplerの`pdftotext`/`pdfinfo`を独立実装として使う。`python3 tools/verify_pdf_differential.py --pdf first.pdf --pdf second.pdf --expected-pages 1 --expected-text 'expected'`は全PDFのpage count、page 1の72 dpi PNG bytes、normalized UTF-8 extractionを検証し、render/extraction digestがbuild間で一致しなければfailする。toolが無い環境ではskipせず明示failureにする。

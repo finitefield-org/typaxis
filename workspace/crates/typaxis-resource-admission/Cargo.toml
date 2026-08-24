@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
 typaxis-core = { path = "../typaxis-core" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-font = { path = "../typaxis-font" }

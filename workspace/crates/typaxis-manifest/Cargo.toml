@@ -17,6 +17,7 @@ typaxis-syntax = { path = "../typaxis-syntax" }
 typaxis-text = { path = "../typaxis-text" }
 
 [dev-dependencies]
+typaxis-display-list = { path = "../typaxis-display-list" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-layout = { path = "../typaxis-layout" }
 typaxis-style = { path = "../typaxis-style" }

@@ -3,17 +3,17 @@
 use core::cmp::Ordering;
 use core::num::NonZeroU32;
 use typaxis_core::{
-    AnchorId, DocumentFingerprint, FootnoteId, MasterId, NodeId, NonNegativeLength, PageName,
-    Point, Rect, StyleFingerprint,
+    AnchorId, DocumentFingerprint, FootnoteId, Length, MasterId, NodeId, NonNegativeLength,
+    PageName, Point, PositiveLength, Rect, StyleFingerprint,
 };
-use typaxis_document::DocumentNodeKind;
+use typaxis_document::{Block, DocumentNodeKind, Inline};
 pub use typaxis_layout_contract::{
     LayoutEpoch, LayoutEpochError, LayoutTextStyleError, ResolvedLayoutTextStyle,
     ShapeFontSelectionError, ShapeFontSelectionReceipt,
 };
 use typaxis_linebreak::ValidatedParagraphItemRegistry;
 use typaxis_style::{
-    PageMaster, PageMasterValidationError, PageSelectionContext, PageSelectionError,
+    PageMaster, PageMasterValidationError, PageSelectionContext, PageSelectionError, StyleValue,
 };
 use typaxis_syntax::{PackagePaginationContext, PackageStyleError, ValidatedParsedPackage};
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -192,6 +192,7 @@ pub struct FlowTree {
     positions: Vec<FlowPosition>,
     boundary_kinds: Vec<FlowBoundaryKind>,
     anchors: std::collections::BTreeMap<AnchorId, NodeId>,
+    paragraph_items: Option<ValidatedParagraphItemRegistry>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlowTreeError {
@@ -356,7 +357,13 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
             .anchors()
             .map(|(id, owner)| (id.clone(), owner))
             .collect();
-        FlowTree::from_boundaries(NodeId::new(0), epoch, self.boundaries, anchors)
+        FlowTree::from_boundaries(
+            NodeId::new(0),
+            epoch,
+            self.boundaries,
+            anchors,
+            Some(self.paragraph_items.clone()),
+        )
     }
 }
 
@@ -366,6 +373,7 @@ impl FlowTree {
         epoch: LayoutEpoch,
         mut boundaries: Vec<FlowBoundary>,
         anchors: std::collections::BTreeMap<AnchorId, NodeId>,
+        paragraph_items: Option<ValidatedParagraphItemRegistry>,
     ) -> Result<Self, FlowTreeError> {
         boundaries.sort_by(|left, right| {
             (
@@ -443,6 +451,7 @@ impl FlowTree {
             positions,
             boundary_kinds,
             anchors,
+            paragraph_items,
         })
     }
     pub fn empty(
@@ -467,6 +476,7 @@ impl FlowTree {
                 kind: FlowBoundaryKind::DocumentStart,
             }],
             std::collections::BTreeMap::new(),
+            None,
         )
     }
     pub const fn root_node(&self) -> NodeId {
@@ -477,6 +487,9 @@ impl FlowTree {
     }
     pub fn positions(&self) -> &[FlowPosition] {
         &self.positions
+    }
+    pub fn paragraph_items(&self) -> Option<&ValidatedParagraphItemRegistry> {
+        self.paragraph_items.as_ref()
     }
     pub fn contains_position(&self, position: &FlowPosition) -> bool {
         position.epoch() == self.epoch
@@ -951,6 +964,466 @@ pub trait Fragmenter {
     ) -> Result<FragmentResult, FragmentError>;
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReferenceAnchorPlacement {
+    flow_ordinal: u64,
+    anchor_id: AnchorId,
+    owner_node: NodeId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ReferenceLinePlacement {
+    start: usize,
+    end: usize,
+    height: PositiveLength,
+}
+
+fn reference_line_height(
+    package: &ValidatedParsedPackage,
+    owner: NodeId,
+) -> Result<PositiveLength, FragmentError> {
+    let computed = package
+        .cascade_style(owner)
+        .map_err(|_| FragmentError::InvalidFragmentKey)?;
+    match computed.computed().properties().get("line_height") {
+        Some(StyleValue::Length(value)) => {
+            PositiveLength::new(*value).ok_or(FragmentError::InvalidFragmentKey)
+        }
+        // Empty reference paragraphs intentionally have no text style. Their
+        // legacy fragment mode paints no glyphs and replaces this placeholder
+        // with the complete requested frame.
+        None => PositiveLength::new(Length::from_raw(1).ok_or(FragmentError::ArithmeticOverflow)?)
+            .ok_or(FragmentError::ArithmeticOverflow),
+        Some(_) => Err(FragmentError::InvalidFragmentKey),
+    }
+}
+
+/// Deterministic reference fragmenter for validated top-level paragraphs and
+/// headings. Line ranges come from the paragraph-break receipts retained by
+/// the canonical FlowTree; callers cannot substitute item counts or breaks.
+#[derive(Clone, Debug)]
+pub struct ReferenceFragmenter<'flow> {
+    flow: &'flow FlowTree,
+    anchors: Vec<ReferenceAnchorPlacement>,
+    lines: Vec<ReferenceLinePlacement>,
+    legacy_full_frame: bool,
+}
+
+impl<'flow> ReferenceFragmenter<'flow> {
+    pub fn for_empty_paragraphs(
+        package: &ValidatedParsedPackage,
+        flow: &'flow FlowTree,
+    ) -> Result<Self, FragmentError> {
+        if !package.package().document.footnotes.is_empty()
+            || !package.package().text_store.buffers().is_empty()
+            || package.document_nodes().generated_sites().len() != 0
+        {
+            return Err(FragmentError::UnsupportedFlowDomain);
+        }
+        let mut fragmenter = Self::for_paragraphs(package, flow)?;
+        fragmenter.legacy_full_frame = true;
+        Ok(fragmenter)
+    }
+
+    pub fn for_paragraphs(
+        package: &ValidatedParsedPackage,
+        flow: &'flow FlowTree,
+    ) -> Result<Self, FragmentError> {
+        if !package.package().document.footnotes.is_empty() {
+            return Err(FragmentError::UnsupportedFlowDomain);
+        }
+        if flow.epoch.document() != package.epoch_identity().document()
+            || flow.epoch.style() != package.epoch_identity().style()
+        {
+            return Err(FragmentError::InvalidCursorEpoch);
+        }
+        let Some(root_position) = flow.positions.first() else {
+            return Err(FragmentError::InvalidFragmentKey);
+        };
+        if flow.root_node != NodeId::new(0)
+            || package.document_nodes().node_kind(flow.root_node)
+                != Some(DocumentNodeKind::Document)
+            || root_position.owner() != flow.root_node
+            || !root_position.block_child_path().is_empty()
+            || root_position.owner_local_boundary() != 0
+            || flow.boundary_kinds.first() != Some(&FlowBoundaryKind::DocumentStart)
+        {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+
+        let blocks = &package.package().document.blocks;
+        if blocks
+            .iter()
+            .any(|block| !matches!(block, Block::Paragraph { .. } | Block::Heading { .. }))
+        {
+            return Err(FragmentError::UnsupportedFlowDomain);
+        }
+        let registry = flow.paragraph_items();
+        if !blocks.is_empty() && registry.is_none() {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+        let paragraph_item_count = blocks.iter().try_fold(0usize, |total, block| {
+            let node_id = match block {
+                Block::Paragraph { node_id, .. } | Block::Heading { node_id, .. } => *node_id,
+                _ => return Err(FragmentError::UnsupportedFlowDomain),
+            };
+            let count = registry
+                .and_then(|items| items.item_count(node_id))
+                .ok_or(FragmentError::InvalidFragmentKey)?;
+            total
+                .checked_add(usize::try_from(count).map_err(|_| FragmentError::ArithmeticOverflow)?)
+                .ok_or(FragmentError::ArithmeticOverflow)
+        })?;
+        let expected_position_count = if blocks.is_empty() {
+            1
+        } else {
+            paragraph_item_count
+                .checked_add(2)
+                .ok_or(FragmentError::ArithmeticOverflow)?
+        };
+        if flow.positions.len() != expected_position_count
+            || flow.boundary_kinds.len() != expected_position_count
+        {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+
+        let mut anchors = Vec::new();
+        let mut lines = Vec::new();
+        let mut position_index = 1usize;
+        for block in blocks {
+            let (node_id, children) = match block {
+                Block::Paragraph {
+                    node_id, children, ..
+                }
+                | Block::Heading {
+                    node_id, children, ..
+                } => (*node_id, children.as_slice()),
+                _ => return Err(FragmentError::UnsupportedFlowDomain),
+            };
+            let expected_path = package
+                .document_nodes()
+                .node_path(node_id)
+                .ok_or(FragmentError::InvalidFragmentKey)?;
+            let item_count = registry
+                .and_then(|items| items.item_count(node_id))
+                .ok_or(FragmentError::InvalidFragmentKey)?;
+            let line_height = reference_line_height(package, node_id)?;
+            for local in 0..item_count {
+                let position = flow
+                    .positions
+                    .get(position_index)
+                    .ok_or(FragmentError::InvalidFragmentKey)?;
+                if position.owner() != node_id
+                    || position.block_child_path() != expected_path
+                    || position.owner_local_boundary() != local
+                    || flow.boundary_kinds[position_index] != FlowBoundaryKind::ParagraphItem
+                {
+                    return Err(FragmentError::InvalidFragmentKey);
+                }
+                position_index = position_index
+                    .checked_add(1)
+                    .ok_or(FragmentError::ArithmeticOverflow)?;
+            }
+            let paragraph_start = position_index
+                .checked_sub(
+                    usize::try_from(item_count).map_err(|_| FragmentError::ArithmeticOverflow)?,
+                )
+                .ok_or(FragmentError::ArithmeticOverflow)?;
+            let mut previous_item = 0u32;
+            if let Some(result) = registry.and_then(|items| items.paragraph_break(node_id)) {
+                for line in &result.lines {
+                    if line.item_index <= previous_item || line.item_index > item_count {
+                        return Err(FragmentError::InvalidFragmentKey);
+                    }
+                    lines.push(ReferenceLinePlacement {
+                        start: paragraph_start
+                            .checked_add(
+                                usize::try_from(previous_item)
+                                    .map_err(|_| FragmentError::ArithmeticOverflow)?,
+                            )
+                            .ok_or(FragmentError::ArithmeticOverflow)?,
+                        end: paragraph_start
+                            .checked_add(
+                                usize::try_from(line.item_index)
+                                    .map_err(|_| FragmentError::ArithmeticOverflow)?,
+                            )
+                            .ok_or(FragmentError::ArithmeticOverflow)?,
+                        height: line_height,
+                    });
+                    previous_item = line.item_index;
+                }
+                if previous_item != item_count {
+                    return Err(FragmentError::InvalidFragmentKey);
+                }
+            } else {
+                lines.push(ReferenceLinePlacement {
+                    start: paragraph_start,
+                    end: position_index,
+                    height: line_height,
+                });
+            }
+            collect_reference_anchors(
+                children,
+                package,
+                flow,
+                u64::try_from(paragraph_start).map_err(|_| FragmentError::ArithmeticOverflow)?,
+                &mut anchors,
+            )?;
+        }
+
+        if !blocks.is_empty() {
+            let terminal_index = expected_position_count - 1;
+            let terminal = &flow.positions[terminal_index];
+            if terminal.owner() != flow.root_node
+                || !terminal.block_child_path().is_empty()
+                || terminal.owner_local_boundary() != 1
+                || flow.boundary_kinds[terminal_index] != FlowBoundaryKind::End
+            {
+                return Err(FragmentError::InvalidFragmentKey);
+            }
+        }
+
+        anchors.sort_by(|left, right| {
+            (left.flow_ordinal, &left.anchor_id).cmp(&(right.flow_ordinal, &right.anchor_id))
+        });
+        if anchors
+            .windows(2)
+            .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
+            || anchors.len() != flow.anchors.len()
+            || anchors
+                .iter()
+                .any(|anchor| flow.anchor_owner(&anchor.anchor_id) != Some(anchor.owner_node))
+        {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+        Ok(Self {
+            flow,
+            anchors,
+            lines,
+            legacy_full_frame: false,
+        })
+    }
+
+    fn cursor_at(&self, position_index: usize) -> Result<FlowCursor, FragmentError> {
+        let position = self
+            .flow
+            .positions
+            .get(position_index)
+            .ok_or(FragmentError::UnknownFlowPosition)?;
+        let terminal = self
+            .flow
+            .positions
+            .len()
+            .checked_sub(1)
+            .ok_or(FragmentError::UnknownFlowPosition)?;
+        let location = match self.flow.boundary_kinds.get(position_index) {
+            Some(_) if position_index == terminal => CursorPosition::End,
+            Some(FlowBoundaryKind::DocumentStart) => CursorPosition::DocumentStart,
+            Some(FlowBoundaryKind::ParagraphItem) => {
+                CursorPosition::ParagraphItem(position.owner_local_boundary())
+            }
+            Some(FlowBoundaryKind::End) => CursorPosition::End,
+            Some(
+                FlowBoundaryKind::TableRow
+                | FlowBoundaryKind::ListItem
+                | FlowBoundaryKind::BlockItem,
+            ) => return Err(FragmentError::UnsupportedFlowDomain),
+            None => return Err(FragmentError::UnknownFlowPosition),
+        };
+        FlowCursor::at(
+            self.flow,
+            u64::try_from(position_index).map_err(|_| FragmentError::ArithmeticOverflow)?,
+            location,
+        )
+    }
+}
+
+impl Fragmenter for ReferenceFragmenter<'_> {
+    fn fragment(
+        &self,
+        request: &FragmentRequest<'_>,
+        budget: &mut dyn FragmentWorkBudget,
+    ) -> Result<FragmentResult, FragmentError> {
+        request.validate()?;
+        if request.flow().epoch() != self.flow.epoch() {
+            return Err(FragmentError::InvalidCursorEpoch);
+        }
+        if request.flow() != self.flow {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+        let current = usize::try_from(request.cursor().position().global_flow_ordinal())
+            .map_err(|_| FragmentError::UnknownFlowPosition)?;
+        let terminal = self
+            .flow
+            .positions
+            .len()
+            .checked_sub(1)
+            .ok_or(FragmentError::UnknownFlowPosition)?;
+
+        match (
+            self.flow.boundary_kinds.get(current),
+            request.cursor().location(),
+        ) {
+            (Some(FlowBoundaryKind::DocumentStart), CursorPosition::DocumentStart)
+                if current == terminal =>
+            {
+                return Ok(FragmentResult {
+                    fragments: Vec::new(),
+                    continuation: Continuation::Exhausted(Box::new(self.cursor_at(terminal)?)),
+                    discovered_footnotes: Vec::new(),
+                    discovered_anchors: Vec::new(),
+                });
+            }
+            (Some(FlowBoundaryKind::DocumentStart), CursorPosition::DocumentStart) => {
+                return Ok(FragmentResult {
+                    fragments: Vec::new(),
+                    continuation: Continuation::More(Box::new(self.cursor_at(current + 1)?)),
+                    discovered_footnotes: Vec::new(),
+                    discovered_anchors: Vec::new(),
+                });
+            }
+            (Some(FlowBoundaryKind::ParagraphItem), CursorPosition::ParagraphItem(local))
+                if *local == request.cursor().position().owner_local_boundary() => {}
+            (Some(FlowBoundaryKind::End), CursorPosition::End) => {
+                return Err(FragmentError::InvalidCursorLocation);
+            }
+            (Some(_), _) => return Err(FragmentError::InvalidCursorLocation),
+            (None, _) => return Err(FragmentError::UnknownFlowPosition),
+        }
+
+        let first_line = self
+            .lines
+            .iter()
+            .position(|line| line.start == current)
+            .ok_or(FragmentError::InvalidCursorLocation)?;
+        let available = request
+            .frame()
+            .height()
+            .get()
+            .raw()
+            .checked_sub(request.reserved_footnote_height().get().raw())
+            .ok_or(FragmentError::ArithmeticOverflow)?;
+        let capacity = if self.legacy_full_frame {
+            self.lines.len()
+        } else {
+            let mut occupied = 0i64;
+            let mut count = 0usize;
+            for line in &self.lines[first_line..] {
+                let next = occupied
+                    .checked_add(line.height.get().raw())
+                    .ok_or(FragmentError::ArithmeticOverflow)?;
+                if next > available {
+                    break;
+                }
+                occupied = next;
+                count = count
+                    .checked_add(1)
+                    .ok_or(FragmentError::ArithmeticOverflow)?;
+            }
+            count
+        };
+        if capacity == 0 {
+            return Err(FragmentError::Unplaceable);
+        }
+        let fragment_count = (self.lines.len() - first_line).min(capacity);
+        budget.consume_fragments(
+            u64::try_from(fragment_count).map_err(|_| FragmentError::ArithmeticOverflow)?,
+        )?;
+        let mut fragments = Vec::with_capacity(fragment_count);
+        let mut y_delta = 0i64;
+        for line in &self.lines[first_line..first_line + fragment_count] {
+            let y = request
+                .frame()
+                .y()
+                .raw()
+                .checked_add(y_delta)
+                .and_then(Length::from_raw)
+                .ok_or(FragmentError::ArithmeticOverflow)?;
+            fragments.push(FragmentDraft::new(
+                self.flow.positions[line.start].clone(),
+                self.flow.positions[line.end].clone(),
+                if self.legacy_full_frame {
+                    request.frame()
+                } else {
+                    Rect::new(request.frame().x(), y, request.frame().width(), line.height)
+                },
+                0,
+            )?);
+            y_delta = y_delta
+                .checked_add(line.height.get().raw())
+                .ok_or(FragmentError::ArithmeticOverflow)?;
+        }
+        let current_ordinal =
+            u64::try_from(current).map_err(|_| FragmentError::ArithmeticOverflow)?;
+        let continuation_index = self.lines[first_line + fragment_count - 1].end;
+        let continuation_ordinal =
+            u64::try_from(continuation_index).map_err(|_| FragmentError::ArithmeticOverflow)?;
+        let discovered_anchors = self
+            .anchors
+            .iter()
+            .filter(|anchor| {
+                anchor.flow_ordinal >= current_ordinal && anchor.flow_ordinal < continuation_ordinal
+            })
+            .map(|anchor| DiscoveredAnchor {
+                anchor_id: anchor.anchor_id.clone(),
+                owner_node: anchor.owner_node,
+                position_in_frame: Point {
+                    x: Length::ZERO,
+                    y: Length::ZERO,
+                },
+            })
+            .collect();
+        Ok(FragmentResult {
+            fragments,
+            continuation: if continuation_index == terminal {
+                Continuation::Exhausted(Box::new(self.cursor_at(terminal)?))
+            } else {
+                Continuation::More(Box::new(self.cursor_at(continuation_index)?))
+            },
+            discovered_footnotes: Vec::new(),
+            discovered_anchors,
+        })
+    }
+}
+
+fn collect_reference_anchors(
+    inlines: &[Inline],
+    package: &ValidatedParsedPackage,
+    flow: &FlowTree,
+    flow_ordinal: u64,
+    output: &mut Vec<ReferenceAnchorPlacement>,
+) -> Result<(), FragmentError> {
+    for inline in inlines {
+        match inline {
+            Inline::Anchor {
+                node_id, anchor_id, ..
+            } => {
+                if package.document_nodes().anchor_owner(anchor_id) != Some(*node_id)
+                    || flow.anchor_owner(anchor_id) != Some(*node_id)
+                {
+                    return Err(FragmentError::InvalidFragmentKey);
+                }
+                output.push(ReferenceAnchorPlacement {
+                    flow_ordinal,
+                    anchor_id: anchor_id.clone(),
+                    owner_node: *node_id,
+                });
+            }
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => {
+                collect_reference_anchors(children, package, flow, flow_ordinal, output)?;
+            }
+            Inline::Text { .. }
+            | Inline::Reference { .. }
+            | Inline::FootnoteReference { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::HardBreak { .. } => {}
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1009,6 +1482,91 @@ mod tests {
             size,
             size,
         )
+    }
+    fn empty_paragraph_flow(package: &ValidatedParsedPackage) -> FlowTree {
+        let package_epoch = epoch(package);
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package, package_epoch).unwrap();
+        let mut builder = CanonicalFlowIrBuilder::new(package, &paragraph_items).unwrap();
+        for block in &package.package().document.blocks {
+            let Block::Paragraph { node_id, .. } = block else {
+                panic!("test package must contain only paragraphs");
+            };
+            builder.push_paragraph_item(*node_id, 0).unwrap();
+        }
+        builder.finish(package_epoch).unwrap()
+    }
+    fn page_context(
+        package: &ValidatedParsedPackage,
+        flow: &FlowTree,
+        cursor: &FlowCursor,
+    ) -> PageContext {
+        PageContext::select(
+            0,
+            &ResolvedPageSelection::new(flow, cursor, package).unwrap(),
+            &package.pagination_context(),
+        )
+        .unwrap()
+    }
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct CountingBudget {
+        remaining_fragments: u64,
+        consumed_fragments: u64,
+        fragment_calls: u64,
+    }
+    impl CountingBudget {
+        const fn new(remaining_fragments: u64) -> Self {
+            Self {
+                remaining_fragments,
+                consumed_fragments: 0,
+                fragment_calls: 0,
+            }
+        }
+    }
+    impl FragmentWorkBudget for CountingBudget {
+        fn consume_fragments(&mut self, count: u64) -> Result<(), FragmentError> {
+            self.fragment_calls = self
+                .fragment_calls
+                .checked_add(1)
+                .ok_or(FragmentError::ArithmeticOverflow)?;
+            let remaining = self
+                .remaining_fragments
+                .checked_sub(count)
+                .ok_or(FragmentError::ResourceLimit)?;
+            self.remaining_fragments = remaining;
+            self.consumed_fragments = self
+                .consumed_fragments
+                .checked_add(count)
+                .ok_or(FragmentError::ArithmeticOverflow)?;
+            Ok(())
+        }
+        fn consume_footnote_reflow(&mut self, _page_index: u32) -> Result<(), FragmentError> {
+            Err(FragmentError::UnsupportedFlowDomain)
+        }
+        fn consume_column_candidate(&mut self, _container: NodeId) -> Result<(), FragmentError> {
+            Err(FragmentError::UnsupportedFlowDomain)
+        }
+        fn enqueue_float(
+            &mut self,
+            _owner: NodeId,
+            _owner_local_ordinal: u32,
+        ) -> Result<(), FragmentError> {
+            Err(FragmentError::UnsupportedFlowDomain)
+        }
+        fn dequeue_float(
+            &mut self,
+            _owner: NodeId,
+            _owner_local_ordinal: u32,
+        ) -> Result<(), FragmentError> {
+            Err(FragmentError::UnsupportedFlowDomain)
+        }
+        fn consume_float_carry(
+            &mut self,
+            _owner: NodeId,
+            _owner_local_ordinal: u32,
+        ) -> Result<(), FragmentError> {
+            Err(FragmentError::UnsupportedFlowDomain)
+        }
     }
     #[test]
     fn page_flags_are_derived() {
@@ -1308,5 +1866,174 @@ mod tests {
             0,
         );
         assert_eq!(outside, Err(FragmentError::InvalidCursorEpoch));
+    }
+
+    #[test]
+    fn reference_fragmenter_is_reentrant_and_deterministic() {
+        let package = parsed_reference_package(17, "anchor:z\nparagraph\nanchor:a");
+        let flow = empty_paragraph_flow(&package);
+        let fragmenter = ReferenceFragmenter::for_empty_paragraphs(&package, &flow).unwrap();
+        let start = FlowCursor::document_start(&flow);
+        let request = FragmentRequest::new(
+            &flow,
+            &start,
+            frame(),
+            NonNegativeLength::ZERO,
+            page_context(&package, &flow, &start),
+        )
+        .unwrap();
+
+        let mut first_budget = CountingBudget::new(u64::MAX);
+        let first = fragmenter.fragment(&request, &mut first_budget).unwrap();
+        let mut repeated_budget = CountingBudget::new(u64::MAX);
+        let repeated = fragmenter.fragment(&request, &mut repeated_budget).unwrap();
+        assert_eq!(first, repeated);
+        assert_eq!(first_budget.consumed_fragments, 0);
+        assert_eq!(repeated_budget.consumed_fragments, 0);
+        assert!(first.validate_progress(&request).is_ok());
+        let next = match &first.continuation {
+            Continuation::More(next) => next.as_ref().clone(),
+            Continuation::Exhausted(_) => panic!("nonblank bootstrap must continue"),
+        };
+        assert_eq!(next.position(), &flow.positions()[1]);
+
+        let continuation_request = FragmentRequest::new(
+            &flow,
+            &next,
+            frame(),
+            NonNegativeLength::ZERO,
+            request.page().clone(),
+        )
+        .unwrap();
+        let mut continuation_budget = CountingBudget::new(u64::MAX);
+        let laid_out = fragmenter
+            .fragment(&continuation_request, &mut continuation_budget)
+            .unwrap();
+        let mut repeated_continuation_budget = CountingBudget::new(u64::MAX);
+        let repeated_laid_out = fragmenter
+            .fragment(&continuation_request, &mut repeated_continuation_budget)
+            .unwrap();
+        assert_eq!(laid_out, repeated_laid_out);
+        assert_eq!(continuation_budget.consumed_fragments, 3);
+        assert_eq!(repeated_continuation_budget.consumed_fragments, 3);
+        assert_eq!(laid_out.fragments.len(), 3);
+        assert!(laid_out.validate_progress(&continuation_request).is_ok());
+        for (index, fragment) in laid_out.fragments.iter().enumerate() {
+            assert_eq!(fragment.start(), &flow.positions()[index + 1]);
+            assert_eq!(fragment.end(), &flow.positions()[index + 2]);
+            assert_eq!(fragment.bounds(), frame());
+            assert_eq!(fragment.break_after_penalty(), 0);
+        }
+        assert_eq!(
+            laid_out
+                .discovered_anchors
+                .iter()
+                .map(|anchor| anchor.anchor_id.clone())
+                .collect::<Vec<_>>(),
+            vec![AnchorId::new("z").unwrap(), AnchorId::new("a").unwrap()]
+        );
+        for anchor in &laid_out.discovered_anchors {
+            assert_eq!(
+                package.document_nodes().anchor_owner(&anchor.anchor_id),
+                Some(anchor.owner_node)
+            );
+            assert_eq!(
+                flow.anchor_owner(&anchor.anchor_id),
+                Some(anchor.owner_node)
+            );
+            assert_eq!(
+                anchor.position_in_frame,
+                Point {
+                    x: Length::ZERO,
+                    y: Length::ZERO,
+                }
+            );
+        }
+        assert_eq!(
+            laid_out.continuation,
+            Continuation::Exhausted(Box::new(flow.terminal_cursor()))
+        );
+        assert!(laid_out.discovered_footnotes.is_empty());
+    }
+
+    #[test]
+    fn reference_fragmenter_honors_blank_and_terminal_semantics() {
+        let package = validated_package(18);
+        let flow = FlowTree::empty(&package, epoch(&package)).unwrap();
+        let fragmenter = ReferenceFragmenter::for_empty_paragraphs(&package, &flow).unwrap();
+        let start = FlowCursor::document_start(&flow);
+        let request = FragmentRequest::new(
+            &flow,
+            &start,
+            frame(),
+            NonNegativeLength::ZERO,
+            page_context(&package, &flow, &start),
+        )
+        .unwrap();
+        let mut budget = CountingBudget::new(0);
+        let result = fragmenter.fragment(&request, &mut budget).unwrap();
+        assert!(result.fragments.is_empty());
+        assert!(result.discovered_anchors.is_empty());
+        assert_eq!(budget.consumed_fragments, 0);
+        assert_eq!(
+            result.continuation,
+            Continuation::Exhausted(Box::new(flow.terminal_cursor()))
+        );
+        assert!(result.validate_progress(&request).is_ok());
+
+        let terminal = flow.terminal_cursor();
+        let terminal_request = FragmentRequest::new(
+            &flow,
+            &terminal,
+            frame(),
+            NonNegativeLength::ZERO,
+            request.page().clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            fragmenter.fragment(&terminal_request, &mut budget),
+            Err(FragmentError::InvalidCursorLocation)
+        );
+        assert_eq!(budget.fragment_calls, 0);
+    }
+
+    #[test]
+    fn reference_fragmenter_rejects_unsupported_content_and_budget_before_output() {
+        let supported = paragraph_package(19);
+        let flow = empty_paragraph_flow(&supported);
+        let unsupported = parsed_reference_package(20, "paragraph\ntext:actual");
+        assert!(matches!(
+            ReferenceFragmenter::for_empty_paragraphs(&unsupported, &flow),
+            Err(FragmentError::UnsupportedFlowDomain)
+        ));
+
+        let fragmenter = ReferenceFragmenter::for_empty_paragraphs(&supported, &flow).unwrap();
+        let start = FlowCursor::document_start(&flow);
+        let page = page_context(&supported, &flow, &start);
+        let bootstrap_request = FragmentRequest::new(
+            &flow,
+            &start,
+            frame(),
+            NonNegativeLength::ZERO,
+            page.clone(),
+        )
+        .unwrap();
+        let mut bootstrap_budget = CountingBudget::new(0);
+        let bootstrap = fragmenter
+            .fragment(&bootstrap_request, &mut bootstrap_budget)
+            .unwrap();
+        let next = match bootstrap.continuation {
+            Continuation::More(next) => *next,
+            Continuation::Exhausted(_) => panic!("nonblank bootstrap must continue"),
+        };
+        let request =
+            FragmentRequest::new(&flow, &next, frame(), NonNegativeLength::ZERO, page).unwrap();
+        let mut insufficient = CountingBudget::new(1);
+        assert_eq!(
+            fragmenter.fragment(&request, &mut insufficient),
+            Err(FragmentError::ResourceLimit)
+        );
+        assert_eq!(insufficient.fragment_calls, 1);
+        assert_eq!(insufficient.consumed_fragments, 0);
     }
 }

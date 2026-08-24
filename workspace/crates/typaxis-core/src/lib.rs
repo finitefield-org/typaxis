@@ -2,7 +2,7 @@
 
 use core::fmt;
 use std::ffi::OsStr;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 pub const PRODUCT_NAME: &str = "typaxis";
 pub const REGISTERED_UNICODE_VERSION: &str = "16.0.0";
@@ -386,6 +386,8 @@ pub struct TextOffset {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BidiLevel(u8);
 impl BidiLevel {
+    pub const LTR: Self = Self(0);
+    pub const RTL: Self = Self(1);
     pub const fn new(value: u8) -> Option<Self> {
         if value <= MAX_BIDI_LEVEL {
             Some(Self(value))
@@ -893,8 +895,11 @@ fn write_target_identity(path: &HostPath) -> Result<WriteTargetIdentity, BuildEx
             .map_err(|_| BuildExecutionError::CurrentDirectoryUnavailable)?
             .join(path.as_path())
     };
-    let normalized = normalize_host_path(&absolute);
-    let mut existing_ancestor = normalized.as_path();
+    // Preserve the path's component order while locating an existing prefix.
+    // Lexically collapsing `..` first is incorrect when a preceding component
+    // is a symlink: `a/link/../leaf` is resolved by the OS relative to the
+    // symlink target, not relative to `a`.
+    let mut existing_ancestor = absolute.as_path();
     while !existing_ancestor.exists() {
         existing_ancestor = existing_ancestor
             .parent()
@@ -902,26 +907,12 @@ fn write_target_identity(path: &HostPath) -> Result<WriteTargetIdentity, BuildEx
     }
     let canonical_ancestor = std::fs::canonicalize(existing_ancestor)
         .map_err(|_| BuildExecutionError::CurrentDirectoryUnavailable)?;
-    let suffix = normalized
+    let suffix = absolute
         .strip_prefix(existing_ancestor)
         .map_err(|_| BuildExecutionError::CurrentDirectoryUnavailable)?;
     Ok(WriteTargetIdentity::ResolvedPath(
         canonical_ancestor.join(suffix),
     ))
-}
-
-fn normalize_host_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1946,6 +1937,30 @@ mod tests {
         );
         std::fs::remove_file(hard_alias).unwrap();
         std::fs::remove_file(hard_target).unwrap();
+
+        let lexical_parent_root = directory.join("lexical-parent");
+        let symlink_target_root = directory.join("symlink-target");
+        std::fs::create_dir(&lexical_parent_root).unwrap();
+        std::fs::create_dir(&symlink_target_root).unwrap();
+        let symlink_target_child = symlink_target_root.join("child");
+        std::fs::create_dir(&symlink_target_child).unwrap();
+        let parent_sensitive_alias = lexical_parent_root.join("link");
+        symlink(&symlink_target_child, &parent_sensitive_alias).unwrap();
+        let through_symlink_parent = parent_sensitive_alias.join("../shared.json");
+        let direct_after_symlink_parent = symlink_target_root.join("shared.json");
+        assert_eq!(
+            BuildExecutionContext::from_cli_token(
+                through_symlink_parent.as_os_str(),
+                Some(HostPath::new(direct_after_symlink_parent).unwrap()),
+                None,
+                ReplacePolicy::NoReplace,
+            ),
+            Err(BuildExecutionError::AliasedWriteTarget)
+        );
+        std::fs::remove_file(parent_sensitive_alias).unwrap();
+        std::fs::remove_dir(symlink_target_child).unwrap();
+        std::fs::remove_dir(symlink_target_root).unwrap();
+        std::fs::remove_dir(lexical_parent_root).unwrap();
 
         let ancestor_alias = directory.join("ancestor-alias");
         symlink(&directory, &ancestor_alias).unwrap();

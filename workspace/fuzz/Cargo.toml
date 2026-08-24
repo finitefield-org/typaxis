@@ -1,0 +1,28 @@
+[package]
+name = "typaxis-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.10"
+typaxis-core = { path = "../crates/typaxis-core" }
+typaxis-linebreak = { path = "../crates/typaxis-linebreak" }
+typaxis-syntax = { path = "../crates/typaxis-syntax" }
+
+[[bin]]
+name = "unicode_linebreak"
+path = "fuzz_targets/unicode_linebreak.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "reference_parser"
+path = "fuzz_targets/reference_parser.rs"
+test = false
+doc = false
+bench = false

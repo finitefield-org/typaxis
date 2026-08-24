@@ -93,16 +93,21 @@ impl AdvisoryDiagnostic {
     }
 }
 
-/// Non-empty diagnostics for a failed phase. At least one member is an error or fatal.
+/// Non-empty diagnostics for a failed phase. At least one member is an error
+/// or fatal, and a fatal diagnostic is necessarily the final diagnostic: no
+/// work is permitted to append observations after an immediate abort.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseFailure(Vec<Diagnostic>);
 impl ParseFailure {
     pub fn new(diagnostics: Vec<Diagnostic>) -> Result<Self, Vec<Diagnostic>> {
-        if !diagnostics.is_empty()
-            && diagnostics
-                .iter()
-                .any(|diagnostic| matches!(diagnostic.severity, Severity::Error | Severity::Fatal))
-        {
+        let has_failure = diagnostics
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.severity, Severity::Error | Severity::Fatal));
+        let fatal_is_terminal = diagnostics
+            .iter()
+            .position(|diagnostic| diagnostic.severity == Severity::Fatal)
+            .map_or(true, |index| index + 1 == diagnostics.len());
+        if !diagnostics.is_empty() && has_failure && fatal_is_terminal {
             Ok(Self(diagnostics))
         } else {
             Err(diagnostics)
@@ -113,6 +118,72 @@ impl ParseFailure {
     }
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.0
+    }
+}
+
+/// Result of recording one diagnostic in a phase-owned collector.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use = "a fatal diagnostic requires the caller to abort immediately"]
+pub enum DiagnosticFlow {
+    Continue,
+    Abort(ParseFailure),
+    AlreadyAborted,
+}
+
+/// Diagnostic owner for a parser or validation phase.
+///
+/// Errors may be accumulated until the caller reaches a documented safe phase
+/// boundary. A fatal diagnostic seals the collector immediately and returns a
+/// complete failure in the same operation. `finish_boundary` can produce
+/// advisories only when no error or fatal was ever recorded.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PhaseDiagnostics {
+    diagnostics: Vec<Diagnostic>,
+    aborted: bool,
+}
+
+impl PhaseDiagnostics {
+    pub const fn new() -> Self {
+        Self {
+            diagnostics: Vec::new(),
+            aborted: false,
+        }
+    }
+
+    pub fn emit(&mut self, diagnostic: Diagnostic) -> DiagnosticFlow {
+        if self.aborted {
+            return DiagnosticFlow::AlreadyAborted;
+        }
+        let fatal = diagnostic.severity == Severity::Fatal;
+        self.diagnostics.push(diagnostic);
+        if fatal {
+            self.aborted = true;
+            DiagnosticFlow::Abort(
+                ParseFailure::new(self.diagnostics.clone())
+                    .expect("a terminal fatal diagnostic forms a parse failure"),
+            )
+        } else {
+            DiagnosticFlow::Continue
+        }
+    }
+
+    pub fn finish_boundary(self) -> Result<Vec<AdvisoryDiagnostic>, ParseFailure> {
+        if self
+            .diagnostics
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.severity, Severity::Error | Severity::Fatal))
+        {
+            return Err(ParseFailure::new(self.diagnostics)
+                .expect("a phase containing an error forms a parse failure"));
+        }
+        Ok(self
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| {
+                AdvisoryDiagnostic::new(diagnostic)
+                    .expect("a successful phase contains only advisory diagnostics")
+            })
+            .collect())
     }
 }
 
@@ -154,5 +225,39 @@ mod tests {
         assert!(ParseFailure::new(vec![warning.clone()]).is_err());
         let error = Diagnostic::new(code, Severity::Error, "failed").unwrap();
         assert!(ParseFailure::new(vec![warning, error]).is_ok());
+    }
+
+    #[test]
+    fn fatal_is_terminal_and_seals_the_phase_immediately() {
+        let code = DiagnosticCode::new("P1000").unwrap();
+        let warning = Diagnostic::new(code.clone(), Severity::Warning, "warning").unwrap();
+        let fatal = Diagnostic::new(code.clone(), Severity::Fatal, "fatal").unwrap();
+        let after = Diagnostic::new(code, Severity::Note, "too late").unwrap();
+        assert!(ParseFailure::new(vec![fatal.clone(), after.clone()]).is_err());
+
+        let mut phase = PhaseDiagnostics::new();
+        assert_eq!(phase.emit(warning), DiagnosticFlow::Continue);
+        let DiagnosticFlow::Abort(failure) = phase.emit(fatal) else {
+            panic!("fatal must request immediate abort");
+        };
+        assert_eq!(failure.diagnostics().len(), 2);
+        assert_eq!(phase.emit(after), DiagnosticFlow::AlreadyAborted);
+        assert!(phase.finish_boundary().is_err());
+    }
+
+    #[test]
+    fn error_fails_at_boundary_and_advisories_can_accompany_success() {
+        let code = DiagnosticCode::new("P1000").unwrap();
+        let warning = Diagnostic::new(code.clone(), Severity::Warning, "warning").unwrap();
+        let error = Diagnostic::new(code, Severity::Error, "error").unwrap();
+
+        let mut successful = PhaseDiagnostics::new();
+        assert_eq!(successful.emit(warning.clone()), DiagnosticFlow::Continue);
+        assert_eq!(successful.finish_boundary().unwrap().len(), 1);
+
+        let mut failed = PhaseDiagnostics::new();
+        assert_eq!(failed.emit(warning), DiagnosticFlow::Continue);
+        assert_eq!(failed.emit(error), DiagnosticFlow::Continue);
+        assert_eq!(failed.finish_boundary().unwrap_err().diagnostics().len(), 2);
     }
 }

@@ -5,19 +5,22 @@ use typaxis_core::{
     document_fingerprint_from_jcs, push_jcs_string, style_fingerprint_from_jcs, AnchorId,
     DocumentFingerprint, FontFaceId, FootnoteId, GeneratedBufferKey, GenerationKind,
     ImageResourceId, Length, MasterId, NodeId, PageName, PortablePath, PositiveLength, Rect,
-    ReferenceFingerprint, SafeUriError, SourceId, SourceSpan, StyleFingerprint, TextBufferId,
-    TextSpan, Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits, CONTRACT, COORDINATE_UNIT,
-    DEFAULT_ALLOWED_URI_SCHEMES,
+    ReferenceFingerprint, SafeUriError, SourceId, SourceSpan, StyleFingerprint, StyleId,
+    TextBufferId, TextSpan, Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits, CONTRACT,
+    COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
 };
-use typaxis_diagnostics::{AdvisoryDiagnostic, Diagnostic, DiagnosticCode, ParseFailure, Severity};
+use typaxis_diagnostics::{
+    AdvisoryDiagnostic, Diagnostic, DiagnosticCode, DiagnosticFlow, ParseFailure, PhaseDiagnostics,
+    Severity,
+};
 use typaxis_document::{
-    Block, ColumnSizing, Document, DocumentNodeKind, FootnoteDefinition, Inline, LinkTarget,
-    ListItem, ReferenceFormat, ResourceCatalog, TableCell, TableColumn, TableRow,
-    ValidatedDocumentNodeIndex,
+    Block, ColumnSizing, Document, DocumentNodeKind, FontFaceDeclaration, FootnoteDefinition,
+    GeneratedSiteTarget, Inline, LinkTarget, ListItem, ReferenceFormat, ResourceCatalog, TableCell,
+    TableColumn, TableRow, ValidatedDocumentNodeIndex,
 };
 use typaxis_style::{
-    is_style_identifier, ComputedStyle, PageMaster, PageMasterSet, PageMasterValidationError,
-    PageParity, StyleSheet, StyleValidationError, StyleValue,
+    is_style_identifier, ComputedStyle, Declaration, PageMaster, PageMasterSet,
+    PageMasterValidationError, PageParity, StyleRule, StyleSheet, StyleValidationError, StyleValue,
 };
 use typaxis_text::{
     GeneratedBufferDraft, GeneratedProvenance, GeneratedTextStore, SourceCatalog, SourceRecord,
@@ -331,6 +334,15 @@ pub enum PackageShapeTextSource {
     Generated(GeneratedProvenance),
 }
 
+/// Canonical logical text-site identity for one paragraph. The sequence is
+/// derived from the validated inline tree and is used by whole-paragraph
+/// itemization to prevent callers from reordering or omitting shaping sites.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PackageParagraphTextSite {
+    Parsed(TextSpan),
+    Generated(GeneratedBufferKey),
+}
+
 /// Package-issued proof that shaping text belongs to one exact parsed or
 /// selected-generated buffer and has a deterministic style context. Private
 /// fields prevent a caller from pairing arbitrary bytes with another owner or
@@ -343,6 +355,8 @@ pub struct PackageShapeTextReceipt<'a> {
     utf8: &'a str,
     document: DocumentFingerprint,
     reference: Option<ReferenceFingerprint>,
+    complete_site: bool,
+    standalone_logical_text: bool,
 }
 impl<'a> PackageShapeTextReceipt<'a> {
     pub const fn source(&self) -> PackageShapeTextSource {
@@ -362,6 +376,16 @@ impl<'a> PackageShapeTextReceipt<'a> {
     }
     pub const fn reference_fingerprint(&self) -> Option<ReferenceFingerprint> {
         self.reference
+    }
+    /// Returns whether this receipt covers the complete package-declared text
+    /// site rather than a caller-selected subspan of that site.
+    pub const fn covers_complete_site(&self) -> bool {
+        self.complete_site
+    }
+    /// Returns whether package structure proves that no adjacent inline text
+    /// site can contribute bidi or shaping context to this receipt.
+    pub const fn is_standalone_logical_text(&self) -> bool {
+        self.standalone_logical_text
     }
 }
 
@@ -414,6 +438,16 @@ impl<'a> PackageGeneratedTextBinding<'a> {
             utf8,
             document: self.package.epoch_identity.document(),
             reference: Some(self.generated_text.reference_fingerprint()),
+            complete_site: start == 0 && end == buffer.utf8().len(),
+            // List markers are separate layout text with spacing represented
+            // by Glue. Inline-generated text is standalone only when package
+            // structure proves it is the paragraph's sole logical site.
+            standalone_logical_text: key.generation_kind() == GenerationKind::ListMarker
+                || (key.generation_kind() != GenerationKind::Discretionary
+                    && generated_inline_site_is_standalone(
+                        &self.package.package.document,
+                        key.owner(),
+                    )),
         })
     }
 }
@@ -427,6 +461,7 @@ pub enum PackageGeneratedTextError {
     TextBufferLimit,
     TextTotalLimit,
     ArithmeticOverflow,
+    GeneratedStoreRejected,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1316,6 +1351,78 @@ impl ValidatedParsedPackage {
         GeneratedBufferDraft::new(&self.document_nodes, key, utf8)
             .map_err(|_| PackageGeneratedTextError::UnknownListMarkerSite)
     }
+    /// Builds the deterministic state-0 generated-text overlay solely from
+    /// validated package facts. State-dependent references begin empty;
+    /// list and footnote markers are canonical package-derived text, and
+    /// explicit soft/hard-break discretionary sites begin empty.
+    pub fn materialize_initial_generated_text(
+        &self,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<GeneratedTextStore, PackageGeneratedTextError> {
+        let footnote_numbers: BTreeMap<_, _> = self
+            .package
+            .document
+            .footnotes
+            .iter()
+            .enumerate()
+            .map(|(index, footnote)| {
+                let number = index
+                    .checked_add(1)
+                    .ok_or(PackageGeneratedTextError::ArithmeticOverflow)?;
+                Ok((footnote.footnote_id.clone(), number.to_string()))
+            })
+            .collect::<Result<_, PackageGeneratedTextError>>()?;
+        let mut drafts = Vec::new();
+        drafts
+            .try_reserve_exact(self.document_nodes.generated_sites().len())
+            .map_err(|_| PackageGeneratedTextError::GeneratedStoreRejected)?;
+        for site in self.document_nodes.generated_sites() {
+            let key = site.key();
+            let utf8 = match key.generation_kind() {
+                GenerationKind::ListMarker => {
+                    drafts.push(self.materialize_list_marker(key)?);
+                    continue;
+                }
+                GenerationKind::FootnoteMarker => match site.target() {
+                    GeneratedSiteTarget::Footnote(footnote_id) => footnote_numbers
+                        .get(footnote_id)
+                        .cloned()
+                        .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?,
+                    GeneratedSiteTarget::None => {
+                        let footnote_id = self
+                            .package
+                            .document
+                            .footnotes
+                            .iter()
+                            .find(|footnote| footnote.node_id == key.owner())
+                            .map(|footnote| &footnote.footnote_id)
+                            .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?;
+                        footnote_numbers
+                            .get(footnote_id)
+                            .cloned()
+                            .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?
+                    }
+                    GeneratedSiteTarget::Anchor(_) => {
+                        return Err(PackageGeneratedTextError::GeneratedStoreRejected)
+                    }
+                },
+                GenerationKind::PageReference
+                | GenerationKind::Counter
+                | GenerationKind::Discretionary => String::new(),
+            };
+            drafts.push(
+                GeneratedBufferDraft::new(&self.document_nodes, key, utf8)
+                    .map_err(|_| PackageGeneratedTextError::GeneratedStoreRejected)?,
+            );
+        }
+        GeneratedTextStore::new(
+            drafts,
+            &self.document_nodes,
+            limits,
+            &self.package.text_store,
+        )
+        .map_err(|_| PackageGeneratedTextError::GeneratedStoreRejected)
+    }
     pub fn bind_generated_text<'a>(
         &'a self,
         generated_text: &'a GeneratedTextStore,
@@ -1375,7 +1482,8 @@ impl ValidatedParsedPackage {
             .text()
             .get(start..end)
             .ok_or(PackageShapeTextError::InvalidSpanBoundary)?;
-        let (site_owner, style_owner) = parsed_shape_owners(&self.package.document, span)?;
+        let (site_owner, style_owner, declared_span, standalone_logical_text) =
+            parsed_shape_owners(&self.package.document, span)?;
         Ok(PackageShapeTextReceipt {
             source: PackageShapeTextSource::Parsed(span),
             site_owner,
@@ -1383,6 +1491,8 @@ impl ValidatedParsedPackage {
             utf8,
             document: self.epoch_identity.document(),
             reference: None,
+            complete_site: span == declared_span,
+            standalone_logical_text,
         })
     }
     pub fn cascade_style(&self, owner: NodeId) -> Result<PackageComputedStyle, PackageStyleError> {
@@ -1400,6 +1510,17 @@ impl ValidatedParsedPackage {
             document: self.epoch_identity.document(),
             style: self.epoch_identity.style(),
             computed,
+        })
+    }
+
+    pub fn paragraph_shape_text_sites(
+        &self,
+        paragraph_owner: NodeId,
+    ) -> Option<Vec<PackageParagraphTextSite>> {
+        paragraph_inline_children(&self.package.document, paragraph_owner).map(|children| {
+            let mut sites = Vec::new();
+            collect_shape_text_site_identities(children, &mut sites);
+            sites
         })
     }
     pub fn resolve_page_selection(
@@ -1513,6 +1634,11 @@ fn find_styleable_block(
             return Some((node_id, block_type, block.classes()));
         }
         match block {
+            Block::Paragraph { children, .. } | Block::Heading { children, .. }
+                if inline_tree_contains_owner(children, owner) =>
+            {
+                return Some((node_id, block_type, block.classes()));
+            }
             Block::List { items, .. } => {
                 if items.iter().any(|item| item.node_id == owner) {
                     return Some((node_id, block_type, block.classes()));
@@ -1544,10 +1670,40 @@ fn find_styleable_block(
     None
 }
 
+fn inline_tree_contains_owner(inlines: &[Inline], owner: NodeId) -> bool {
+    let mut pending: Vec<&Inline> = inlines.iter().rev().collect();
+    while let Some(inline) = pending.pop() {
+        let (node_id, children) = match inline {
+            Inline::Text { node_id, .. }
+            | Inline::Anchor { node_id, .. }
+            | Inline::Reference { node_id, .. }
+            | Inline::FootnoteReference { node_id, .. }
+            | Inline::SoftBreak { node_id, .. }
+            | Inline::HardBreak { node_id, .. } => (*node_id, None),
+            Inline::Emphasis {
+                node_id, children, ..
+            }
+            | Inline::Strong {
+                node_id, children, ..
+            }
+            | Inline::Link {
+                node_id, children, ..
+            } => (*node_id, Some(children.as_slice())),
+        };
+        if node_id == owner {
+            return true;
+        }
+        if let Some(children) = children {
+            pending.extend(children.iter().rev());
+        }
+    }
+    false
+}
+
 fn parsed_shape_owners(
     document: &Document,
     requested: TextSpan,
-) -> Result<(NodeId, NodeId), PackageShapeTextError> {
+) -> Result<(NodeId, NodeId, TextSpan, bool), PackageShapeTextError> {
     let mut matched = None;
     let mut pending: Vec<&Block> = document
         .footnotes
@@ -1579,7 +1735,12 @@ fn parsed_shape_owners(
                             if matched.is_some() {
                                 return Err(PackageShapeTextError::AmbiguousParsedSpan);
                             }
-                            matched = Some((*site_owner, *style_owner));
+                            matched = Some((
+                                *site_owner,
+                                *style_owner,
+                                *text_span,
+                                inline_logical_site_count(children) == 1,
+                            ));
                         }
                         Inline::Emphasis { children, .. }
                         | Inline::Strong { children, .. }
@@ -1612,6 +1773,135 @@ fn parsed_shape_owners(
         }
     }
     matched.ok_or(PackageShapeTextError::UnownedParsedSpan)
+}
+
+fn inline_logical_site_count(inlines: &[Inline]) -> usize {
+    let mut count = 0usize;
+    let mut pending: Vec<&Inline> = inlines.iter().rev().collect();
+    while let Some(inline) = pending.pop() {
+        match inline {
+            Inline::Text { .. }
+            | Inline::Reference { .. }
+            | Inline::FootnoteReference { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::HardBreak { .. } => {
+                if count == 1 {
+                    return 2;
+                }
+                count = 1;
+            }
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => pending.extend(children.iter().rev()),
+            Inline::Anchor { .. } => {}
+        }
+    }
+    count
+}
+
+fn paragraph_inline_children(document: &Document, owner: NodeId) -> Option<&[Inline]> {
+    let mut pending: Vec<&Block> = document
+        .footnotes
+        .iter()
+        .rev()
+        .flat_map(|footnote| footnote.blocks.iter().rev())
+        .chain(document.blocks.iter().rev())
+        .collect();
+    while let Some(block) = pending.pop() {
+        match block {
+            Block::Paragraph {
+                node_id, children, ..
+            }
+            | Block::Heading {
+                node_id, children, ..
+            } if *node_id == owner => return Some(children),
+            Block::Paragraph { .. } | Block::Heading { .. } => {}
+            Block::List { items, .. } => {
+                pending.extend(items.iter().rev().flat_map(|item| item.blocks.iter().rev()));
+            }
+            Block::Table { head, body, .. } => {
+                pending.extend(
+                    body.iter()
+                        .rev()
+                        .chain(head.iter().rev())
+                        .flat_map(|row| row.cells.iter().rev())
+                        .flat_map(|cell| cell.blocks.iter().rev()),
+                );
+            }
+            Block::Figure { caption, .. } => pending.extend(caption.iter().rev()),
+            Block::PageBreak { .. } => {}
+        }
+    }
+    None
+}
+
+fn collect_shape_text_site_identities(
+    inlines: &[Inline],
+    output: &mut Vec<PackageParagraphTextSite>,
+) {
+    for inline in inlines {
+        match inline {
+            Inline::Text { text_span, .. } => {
+                output.push(PackageParagraphTextSite::Parsed(*text_span));
+            }
+            Inline::Reference {
+                node_id, format, ..
+            } => {
+                let generation_kind = match format {
+                    ReferenceFormat::Page => GenerationKind::PageReference,
+                    ReferenceFormat::Text | ReferenceFormat::Number => GenerationKind::Counter,
+                };
+                output.push(PackageParagraphTextSite::Generated(
+                    GeneratedBufferKey::new(*node_id, generation_kind, 0),
+                ));
+            }
+            Inline::FootnoteReference { node_id, .. } => {
+                output.push(PackageParagraphTextSite::Generated(
+                    GeneratedBufferKey::new(*node_id, GenerationKind::FootnoteMarker, 0),
+                ));
+            }
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => {
+                collect_shape_text_site_identities(children, output);
+            }
+            Inline::Anchor { .. } | Inline::SoftBreak { .. } | Inline::HardBreak { .. } => {}
+        }
+    }
+}
+
+fn generated_inline_site_is_standalone(document: &Document, owner: NodeId) -> bool {
+    let mut pending: Vec<&Block> = document
+        .footnotes
+        .iter()
+        .rev()
+        .flat_map(|footnote| footnote.blocks.iter().rev())
+        .chain(document.blocks.iter().rev())
+        .collect();
+    while let Some(block) = pending.pop() {
+        match block {
+            Block::Paragraph { children, .. } | Block::Heading { children, .. } => {
+                if inline_tree_contains_owner(children, owner) {
+                    return inline_logical_site_count(children) == 1;
+                }
+            }
+            Block::List { items, .. } => {
+                pending.extend(items.iter().rev().flat_map(|item| item.blocks.iter().rev()));
+            }
+            Block::Table { head, body, .. } => {
+                pending.extend(
+                    body.iter()
+                        .rev()
+                        .chain(head.iter().rev())
+                        .flat_map(|row| row.cells.iter().rev())
+                        .flat_map(|cell| cell.blocks.iter().rev()),
+                );
+            }
+            Block::Figure { caption, .. } => pending.extend(caption.iter().rev()),
+            Block::PageBreak { .. } => {}
+        }
+    }
+    false
 }
 
 fn text_span_contains(container: TextSpan, requested: TextSpan) -> bool {
@@ -1679,7 +1969,9 @@ fn contains_include_directive(source: &str) -> bool {
             while keyword < bytes.len() && bytes[keyword].is_ascii_whitespace() {
                 keyword += 1;
             }
-            let end = keyword.saturating_add(b"include".len());
+            let Some(end) = keyword.checked_add(b"include".len()) else {
+                return false;
+            };
             let keyword_boundary = match bytes.get(end) {
                 Some(byte) => !byte.is_ascii_alphanumeric() && *byte != b'_',
                 None => true,
@@ -2443,9 +2735,12 @@ pub trait Parser: parser_seal::Sealed {
 
 /// Small source-driven parser used by the reference workspace to exercise
 /// downstream trust boundaries. It accepts only empty lines, `paragraph`,
-/// `anchor:<id>`, and `text:<utf8>` records. The resulting AST, node IDs,
-/// spans, text maps, empty style/resource tables, and default page master are
-/// all derived inside this crate; callers never supply a `ParsedPackage`.
+/// `font:<family>:<portable-path>`, `anchor:<id>`, `reference:<id>`,
+/// `soft_break`, `hard_break`, `text:<utf8>`, and
+/// `inlines:text=<utf8>|reference=<id>|anchor=<id>` records. The resulting
+/// AST, node IDs, spans, text maps, style/resource tables, and default page
+/// master are all derived inside this crate; callers never supply a
+/// `ParsedPackage`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ReferenceParser;
 impl ReferenceParser {
@@ -2486,6 +2781,7 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
         .map_err(|_| "entry source catalog is not canonical")?;
     let mut blocks = Vec::new();
     let mut text_buffers = Vec::new();
+    let mut font_faces = Vec::new();
     let mut next_node = 1u32;
     let mut start = 0usize;
     for raw_line in source.text.split_inclusive('\n') {
@@ -2495,6 +2791,27 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
             .checked_add(line.len())
             .ok_or("source span overflow")?;
         if !line.is_empty() {
+            if let Some(declaration) = line.strip_prefix("font:") {
+                let (family, uri) = declaration
+                    .split_once(':')
+                    .ok_or("font record must contain family and portable path")?;
+                if family.trim().is_empty() || family.chars().any(char::is_control) {
+                    return Err("font family is invalid");
+                }
+                font_faces.push(FontFaceDeclaration {
+                    font_face_id: FontFaceId::new(
+                        u32::try_from(font_faces.len()).map_err(|_| "font ID overflow")?,
+                    ),
+                    family: family.to_owned(),
+                    uri: PortablePath::new(uri).map_err(|_| "font path is invalid")?,
+                    face_index: 0,
+                    expected_sha256: None,
+                });
+                start = start
+                    .checked_add(raw_line.len())
+                    .ok_or("source span overflow")?;
+                continue;
+            }
             let start_byte = u32::try_from(start).map_err(|_| "source span overflow")?;
             let end_byte = u32::try_from(end).map_err(|_| "source span overflow")?;
             let span = SourceSpan::new(
@@ -2505,7 +2822,9 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
             .ok_or("source span is invalid")?;
             let paragraph_id = NodeId::new(next_node);
             next_node = next_node.checked_add(1).ok_or("node ID overflow")?;
-            let children = if let Some(anchor) = line.strip_prefix("anchor:") {
+            let children = if let Some(sequence) = line.strip_prefix("inlines:") {
+                parse_reference_inline_sequence(sequence, start, &mut next_node, &mut text_buffers)?
+            } else if let Some(anchor) = line.strip_prefix("anchor:") {
                 let anchor_id = AnchorId::new(anchor).map_err(|_| "anchor ID is invalid")?;
                 let anchor_node = NodeId::new(next_node);
                 next_node = next_node.checked_add(1).ok_or("node ID overflow")?;
@@ -2513,6 +2832,16 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
                     node_id: anchor_node,
                     span,
                     anchor_id,
+                }]
+            } else if let Some(target) = line.strip_prefix("reference:") {
+                let target = AnchorId::new(target).map_err(|_| "reference target is invalid")?;
+                let reference_node = NodeId::new(next_node);
+                next_node = next_node.checked_add(1).ok_or("node ID overflow")?;
+                vec![Inline::Reference {
+                    node_id: reference_node,
+                    span,
+                    target,
+                    format: ReferenceFormat::Page,
                 }]
             } else if let Some(text) = line.strip_prefix("text:") {
                 if text.is_empty() {
@@ -2566,6 +2895,20 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
                 }]
             } else if line == "paragraph" {
                 vec![]
+            } else if line == "soft_break" || line == "hard_break" {
+                let break_node = NodeId::new(next_node);
+                next_node = next_node.checked_add(1).ok_or("node ID overflow")?;
+                if line == "soft_break" {
+                    vec![Inline::SoftBreak {
+                        node_id: break_node,
+                        span,
+                    }]
+                } else {
+                    vec![Inline::HardBreak {
+                        node_id: break_node,
+                        span,
+                    }]
+                }
             } else {
                 return Err("unsupported reference source record");
             };
@@ -2580,8 +2923,42 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
             .checked_add(raw_line.len())
             .ok_or("source span overflow")?;
     }
-    let size = PositiveLength::new(Length::from_raw(10).ok_or("invalid page size")?)
-        .ok_or("invalid page size")?;
+    // The reference grammar has no page/style declarations of its own, so it
+    // supplies one deterministic, physically meaningful default: A4 with a
+    // 20 mm body margin, 10.5 pt text, and a 17 pt line height. Keep all unit
+    // conversion on the canonical rational-PDF-point path.
+    let page_width = PositiveLength::new(
+        Length::from_rational_pdf_points(210 * 720, 254)
+            .map_err(|_| "invalid default page width")?,
+    )
+    .ok_or("invalid default page width")?;
+    let page_height = PositiveLength::new(
+        Length::from_rational_pdf_points(297 * 720, 254)
+            .map_err(|_| "invalid default page height")?,
+    )
+    .ok_or("invalid default page height")?;
+    let body_margin = Length::from_rational_pdf_points(20 * 720, 254)
+        .map_err(|_| "invalid default page margin")?;
+    let body_width = PositiveLength::new(
+        page_width
+            .get()
+            .checked_sub(body_margin)
+            .and_then(|value| value.checked_sub(body_margin))
+            .ok_or("invalid default body width")?,
+    )
+    .ok_or("invalid default body width")?;
+    let body_height = PositiveLength::new(
+        page_height
+            .get()
+            .checked_sub(body_margin)
+            .and_then(|value| value.checked_sub(body_margin))
+            .ok_or("invalid default body height")?,
+    )
+    .ok_or("invalid default body height")?;
+    let default_font_size =
+        Length::from_rational_pdf_points(21, 2).map_err(|_| "invalid default font size")?;
+    let default_line_height =
+        Length::from_rational_pdf_points(17, 1).map_err(|_| "invalid default line height")?;
     Ok(ParsedPackage {
         sources,
         text_store: TextStore::new(text_buffers).map_err(|_| "text store was rejected")?,
@@ -2590,14 +2967,45 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
             blocks,
             footnotes: vec![],
         },
-        style_sheet: StyleSheet { rules: vec![] },
+        style_sheet: StyleSheet {
+            rules: if font_faces.is_empty() {
+                vec![]
+            } else {
+                vec![StyleRule {
+                    style_id: StyleId::new("reference_text")
+                        .map_err(|_| "default style ID is invalid")?,
+                    extends: None,
+                    selector: "paragraph".to_owned(),
+                    source_order: 0,
+                    declarations: vec![
+                        Declaration {
+                            name: "font_family".to_owned(),
+                            value: StyleValue::FontFamilyList(
+                                font_faces.iter().map(|font| font.family.clone()).collect(),
+                            ),
+                            important: false,
+                        },
+                        Declaration {
+                            name: "font_size".to_owned(),
+                            value: StyleValue::Length(default_font_size),
+                            important: false,
+                        },
+                        Declaration {
+                            name: "line_height".to_owned(),
+                            value: StyleValue::Length(default_line_height),
+                            important: false,
+                        },
+                    ],
+                }]
+            },
+        },
         page_masters: PageMasterSet {
             default_master_id: MasterId::new("default").map_err(|_| "invalid master ID")?,
             masters: vec![PageMaster {
                 master_id: MasterId::new("default").map_err(|_| "invalid master ID")?,
-                width: size,
-                height: size,
-                body: Rect::new(Length::ZERO, Length::ZERO, size, size),
+                width: page_width,
+                height: page_height,
+                body: Rect::new(body_margin, body_margin, body_width, body_height),
                 header: None,
                 footer: None,
                 footnote: None,
@@ -2605,10 +3013,131 @@ fn parse_reference_entry(source: &SourceFile) -> Result<ParsedPackage, &'static 
             selection_rules: vec![],
         },
         resources: ResourceCatalog {
-            font_faces: vec![],
+            font_faces,
             images: vec![],
         },
     })
+}
+
+fn parse_reference_inline_sequence(
+    sequence: &str,
+    line_start: usize,
+    next_node: &mut u32,
+    text_buffers: &mut Vec<TextBuffer>,
+) -> Result<Vec<Inline>, &'static str> {
+    if sequence.is_empty() || sequence.ends_with('|') {
+        return Err("inline sequence is empty or has an empty final component");
+    }
+    let prefix_len = "inlines:".len();
+    let mut local_start = 0usize;
+    let mut children = Vec::new();
+    for raw_component in sequence.split_inclusive('|') {
+        let component = raw_component.strip_suffix('|').unwrap_or(raw_component);
+        if component.is_empty() {
+            return Err("inline sequence has an empty component");
+        }
+        let component_source_start = line_start
+            .checked_add(prefix_len)
+            .and_then(|value| value.checked_add(local_start))
+            .ok_or("source span overflow")?;
+        let component_source_end = component_source_start
+            .checked_add(component.len())
+            .ok_or("source span overflow")?;
+        let component_span = SourceSpan::new(
+            SourceId::new(0),
+            Utf8ByteOffset::new(
+                u32::try_from(component_source_start).map_err(|_| "source span overflow")?,
+            ),
+            Utf8ByteOffset::new(
+                u32::try_from(component_source_end).map_err(|_| "source span overflow")?,
+            ),
+        )
+        .ok_or("inline component span is invalid")?;
+        let node_id = NodeId::new(*next_node);
+        *next_node = next_node.checked_add(1).ok_or("node ID overflow")?;
+        if let Some(text) = component.strip_prefix("text=") {
+            if text.is_empty() {
+                return Err("inline text component must not be empty");
+            }
+            let text_source_start = component_source_start
+                .checked_add("text=".len())
+                .ok_or("source span overflow")?;
+            let text_source_end = text_source_start
+                .checked_add(text.len())
+                .ok_or("source span overflow")?;
+            let text_len = u32::try_from(text.len()).map_err(|_| "text buffer overflow")?;
+            let text_id = TextBufferId::new(
+                u32::try_from(text_buffers.len()).map_err(|_| "text buffer ID overflow")?,
+            );
+            let source_span = SourceSpan::new(
+                SourceId::new(0),
+                Utf8ByteOffset::new(
+                    u32::try_from(text_source_start).map_err(|_| "source span overflow")?,
+                ),
+                Utf8ByteOffset::new(
+                    u32::try_from(text_source_end).map_err(|_| "source span overflow")?,
+                ),
+            )
+            .ok_or("inline text source span is invalid")?;
+            let text_range =
+                Utf8ByteRange::new(Utf8ByteOffset::new(0), Utf8ByteOffset::new(text_len))
+                    .ok_or("text range is invalid")?;
+            text_buffers.push(
+                TextBuffer::new(
+                    text_id,
+                    text.to_owned(),
+                    vec![TextMapSegment {
+                        text_range,
+                        kind: TextMapKind::Identity,
+                        source_span: Some(source_span),
+                    }],
+                    text_len,
+                )
+                .map_err(|_| "text buffer was rejected")?,
+            );
+            children.push(Inline::Text {
+                node_id,
+                span: source_span,
+                text_span: TextSpan::new(
+                    text_id,
+                    Utf8ByteOffset::new(0),
+                    Utf8ByteOffset::new(text_len),
+                )
+                .ok_or("text span is invalid")?,
+            });
+        } else if let Some(target) = component.strip_prefix("reference=") {
+            children.push(Inline::Reference {
+                node_id,
+                span: component_span,
+                target: AnchorId::new(target).map_err(|_| "reference target is invalid")?,
+                format: ReferenceFormat::Page,
+            });
+        } else if let Some(anchor) = component.strip_prefix("anchor=") {
+            children.push(Inline::Anchor {
+                node_id,
+                span: component_span,
+                anchor_id: AnchorId::new(anchor).map_err(|_| "anchor ID is invalid")?,
+            });
+        } else if component == "soft_break" || component == "hard_break" {
+            children.push(if component == "soft_break" {
+                Inline::SoftBreak {
+                    node_id,
+                    span: component_span,
+                }
+            } else {
+                Inline::HardBreak {
+                    node_id,
+                    span: component_span,
+                }
+            });
+        } else {
+            return Err("unsupported inline sequence component");
+        }
+        local_start = local_start
+            .checked_add(raw_component.len())
+            .ok_or("source span overflow")?;
+    }
+    Ok(children)
 }
 
 fn reference_parse_failure(message: &'static str) -> ParseOutcome {
@@ -2618,9 +3147,13 @@ fn reference_parse_failure(message: &'static str) -> ParseOutcome {
         message,
     )
     .expect("static diagnostic message is nonempty");
+    let mut phase = PhaseDiagnostics::new();
+    let flow = phase.emit(diagnostic);
+    debug_assert_eq!(flow, DiagnosticFlow::Continue);
     ParseOutcome::Failed {
-        failure: ParseFailure::new(vec![diagnostic])
-            .expect("the diagnostic list contains an error"),
+        failure: phase
+            .finish_boundary()
+            .expect_err("the safe phase boundary contains an error"),
     }
 }
 
@@ -2762,9 +3295,163 @@ mod tests {
         assert_eq!(receipt.style_owner(), NodeId::new(3));
         assert_eq!(receipt.utf8(), "ctu");
         assert_eq!(receipt.reference_fingerprint(), None);
+        assert!(!receipt.covers_complete_site());
+        assert!(receipt.is_standalone_logical_text());
         assert_eq!(
             receipt.document_fingerprint(),
             package.epoch_identity().document()
+        );
+
+        let complete = TextSpan::new(
+            TextBufferId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(6),
+        )
+        .unwrap();
+        assert!(package
+            .bind_parsed_shape_text(complete)
+            .unwrap()
+            .covers_complete_site());
+    }
+
+    #[test]
+    fn reference_parser_uses_physical_a4_text_defaults() {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let source = SourceFile {
+            source_id: SourceId::new(0),
+            uri: PortablePath::new("reference.tsf").unwrap(),
+            text: "font:Reference:Reference.ttf\ntext:actual".to_owned(),
+        };
+        let ParseOutcome::Parsed { package, .. } = ReferenceParser::new().parse(
+            &source,
+            &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+        ) else {
+            panic!("reference source must parse");
+        };
+        let master = &package.package().page_masters.masters[0];
+        assert_eq!(master.width.get().raw(), 39_011_981);
+        assert_eq!(master.height.get().raw(), 55_174_088);
+        assert_eq!(master.body.x().raw(), 3_715_427);
+        assert_eq!(master.body.y().raw(), 3_715_427);
+        assert_eq!(master.body.width().get().raw(), 31_581_127);
+        assert_eq!(master.body.height().get().raw(), 47_743_234);
+
+        let computed = package.cascade_style(NodeId::new(2)).unwrap();
+        assert_eq!(
+            computed.computed().properties().get("font_size"),
+            Some(&StyleValue::Length(Length::from_raw(688_128).unwrap()))
+        );
+        assert_eq!(
+            computed.computed().properties().get("line_height"),
+            Some(&StyleValue::Length(Length::from_raw(1_114_112).unwrap()))
+        );
+    }
+
+    #[test]
+    fn reference_parser_derives_canonical_adjacent_inline_sites() {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let source = SourceFile {
+            source_id: SourceId::new(0),
+            uri: PortablePath::new("reference.tsf").unwrap(),
+            text: "anchor:chapter\ninlines:text=See |reference=chapter|text= now".to_owned(),
+        };
+        let outcome = ReferenceParser::new().parse(
+            &source,
+            &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+        );
+        let ParseOutcome::Parsed { package, .. } = outcome else {
+            panic!("reference source must parse");
+        };
+        let Block::Paragraph {
+            node_id: paragraph, ..
+        } = package.package().document.blocks[1]
+        else {
+            panic!("inline record must derive a paragraph")
+        };
+        let sites = package.paragraph_shape_text_sites(paragraph).unwrap();
+        assert_eq!(sites.len(), 3);
+        assert!(matches!(sites[0], PackageParagraphTextSite::Parsed(_)));
+        assert!(matches!(
+            sites[1],
+            PackageParagraphTextSite::Generated(key)
+                if key.generation_kind() == GenerationKind::PageReference
+        ));
+        assert!(matches!(sites[2], PackageParagraphTextSite::Parsed(_)));
+    }
+
+    #[test]
+    fn parsed_shape_receipt_marks_adjacent_inline_text_as_non_standalone() {
+        let source_span = SourceSpan::new(
+            SourceId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(0),
+        )
+        .unwrap();
+        let text_range =
+            Utf8ByteRange::new(Utf8ByteOffset::new(0), Utf8ByteOffset::new(2)).unwrap();
+        let text_store = TextStore::new(vec![TextBuffer::new(
+            TextBufferId::new(0),
+            "ab".to_owned(),
+            vec![TextMapSegment {
+                text_range,
+                kind: TextMapKind::Inserted,
+                source_span: None,
+            }],
+            2,
+        )
+        .unwrap()])
+        .unwrap();
+        let mut parsed = empty_package(
+            SourceCatalog::new(vec![SourceRecord::new(
+                SourceId::new(0),
+                PortablePath::new("input.tsf").unwrap(),
+                String::new(),
+            )
+            .unwrap()])
+            .unwrap(),
+            text_store,
+        );
+        let first = TextSpan::new(
+            TextBufferId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(1),
+        )
+        .unwrap();
+        let second = TextSpan::new(
+            TextBufferId::new(0),
+            Utf8ByteOffset::new(1),
+            Utf8ByteOffset::new(2),
+        )
+        .unwrap();
+        parsed.document.blocks.push(Block::Paragraph {
+            node_id: NodeId::new(1),
+            span: source_span,
+            classes: vec![],
+            children: vec![
+                Inline::Text {
+                    node_id: NodeId::new(2),
+                    span: source_span,
+                    text_span: first,
+                },
+                Inline::Text {
+                    node_id: NodeId::new(3),
+                    span: source_span,
+                    text_span: second,
+                },
+            ],
+        });
+        let package = validate(parsed).unwrap();
+        let receipt = package.bind_parsed_shape_text(first).unwrap();
+        assert!(receipt.covers_complete_site());
+        assert!(!receipt.is_standalone_logical_text());
+        assert_eq!(
+            package.paragraph_shape_text_sites(NodeId::new(1)).unwrap(),
+            [
+                PackageParagraphTextSite::Parsed(first),
+                PackageParagraphTextSite::Parsed(second)
+            ]
         );
     }
 
@@ -2886,10 +3573,47 @@ mod tests {
         assert_eq!(receipt.site_owner(), NodeId::new(2));
         assert_eq!(receipt.style_owner(), NodeId::new(1));
         assert_eq!(receipt.utf8(), "xy");
+        assert!(receipt.covers_complete_site());
+        assert!(!receipt.is_standalone_logical_text());
         assert_eq!(
             receipt.reference_fingerprint(),
             Some(generated.reference_fingerprint())
         );
+    }
+
+    #[test]
+    fn initial_generated_overlay_materializes_explicit_break_sites() {
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(0),
+        )
+        .unwrap();
+        let mut package = empty_package_with_source();
+        package.document.blocks.push(Block::Paragraph {
+            node_id: NodeId::new(1),
+            span,
+            classes: vec![],
+            children: vec![
+                Inline::SoftBreak {
+                    node_id: NodeId::new(2),
+                    span,
+                },
+                Inline::HardBreak {
+                    node_id: NodeId::new(3),
+                    span,
+                },
+            ],
+        });
+        let package = validate(package).unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let generated = package.materialize_initial_generated_text(&limits).unwrap();
+        assert_eq!(generated.buffers().len(), 2);
+        assert!(generated.buffers().iter().all(|buffer| {
+            buffer.key().generation_kind() == GenerationKind::Discretionary
+                && buffer.utf8().is_empty()
+        }));
+        package.bind_generated_text(&generated, &limits).unwrap();
     }
 
     #[test]
@@ -3466,7 +4190,13 @@ mod tests {
             .map(|buffer| buffer.utf8())
             .collect();
         assert_eq!(bytes, ["9.", "10.", "\u{2022}"]);
-        assert!(package.bind_generated_text(&generated, &limits).is_ok());
+        let binding = package.bind_generated_text(&generated, &limits).unwrap();
+        let marker = generated
+            .provenance(key(2), Utf8ByteOffset::new(0), Utf8ByteOffset::new(2))
+            .unwrap();
+        let receipt = binding.bind_generated_shape_text(marker).unwrap();
+        assert!(receipt.covers_complete_site());
+        assert!(receipt.is_standalone_logical_text());
 
         let wrong = GeneratedTextStore::new(
             vec![

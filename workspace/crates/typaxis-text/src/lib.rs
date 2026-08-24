@@ -276,6 +276,23 @@ impl GeneratedProvenance {
     pub const fn text_span(self) -> GeneratedTextSpan {
         self.text_span
     }
+
+    /// Narrows store-issued provenance without changing its allocation-
+    /// independent key or generated-buffer namespace.
+    pub fn subspan(
+        self,
+        start: Utf8ByteOffset,
+        end: Utf8ByteOffset,
+    ) -> Option<GeneratedProvenance> {
+        let range = self.text_span.range();
+        if start.get() < range.start_byte().get() || end.get() > range.end_byte().get() {
+            return None;
+        }
+        GeneratedTextSpan::new(self.text_span.text_id(), start, end).map(|text_span| Self {
+            buffer_key: self.buffer_key,
+            text_span,
+        })
+    }
 }
 impl GeneratedTextBuffer {
     pub const fn text_id(&self) -> GeneratedTextBufferId {
@@ -566,7 +583,7 @@ mod tests {
         let second = GeneratedBufferDraft::new(
             &index,
             GeneratedBufferKey::new(NodeId::new(2), GenerationKind::PageReference, 0),
-            "1".to_owned(),
+            "12".to_owned(),
         )
         .unwrap();
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
@@ -587,6 +604,27 @@ mod tests {
         );
         assert_eq!(forward.buffers()[0].text_id().get(), 0);
         assert_eq!(forward.buffers()[0].key().owner().get(), 2);
+
+        let provenance = forward
+            .provenance(
+                forward.buffers()[0].key(),
+                Utf8ByteOffset::new(0),
+                Utf8ByteOffset::new(2),
+            )
+            .unwrap();
+        let narrowed = provenance
+            .subspan(Utf8ByteOffset::new(1), Utf8ByteOffset::new(2))
+            .unwrap();
+        assert_eq!(narrowed.buffer_key(), provenance.buffer_key());
+        assert_eq!(
+            narrowed.text_span().text_id(),
+            provenance.text_span().text_id()
+        );
+        assert!(forward.validates_provenance(narrowed));
+        assert_eq!(
+            provenance.subspan(Utf8ByteOffset::new(0), Utf8ByteOffset::new(3)),
+            None
+        );
 
         assert_eq!(
             GeneratedBufferDraft::new(

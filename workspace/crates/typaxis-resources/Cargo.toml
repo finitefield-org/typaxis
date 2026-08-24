@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+png = "=0.18.1"
 typaxis-core = { path = "../typaxis-core" }
 typaxis-font = { path = "../typaxis-font" }
 typaxis-display-list = { path = "../typaxis-display-list" }
@@ -16,6 +17,7 @@ typaxis-document = { path = "../typaxis-document" }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 
 [dev-dependencies]
+read-fonts = "=0.31.3"
 typaxis-layout = { path = "../typaxis-layout" }
 typaxis-pagination = { path = "../typaxis-pagination" }
 typaxis-style = { path = "../typaxis-style" }

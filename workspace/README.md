@@ -1,6 +1,6 @@
 # Rust reference workspace
 
-This no-external-dependency workspace makes type boundaries compile-checkable and checks forbidden dependency edges in `typaxis-testkit`. It is not a completed Typaxis implementation. From the repository root, use Rust 1.75 or later and run:
+This reference workspace makes type boundaries compile-checkable and checks forbidden dependency edges in `typaxis-testkit`. It is not a completed Typaxis typesetting engine; its CLI exercises the deliberately bounded reference parser and layout domain. Its small set of host-I/O and shaping dependencies is exact-pinned in `Cargo.lock` for reproducibility. From the repository root, use Rust 1.75 or later and run:
 
 ```text
 cargo check --manifest-path workspace/Cargo.toml --workspace --all-targets --locked

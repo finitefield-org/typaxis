@@ -1,17 +1,20 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
+use std::io::{self, Write};
 use typaxis_core::{
-    sha256, AnchorId, EffectiveConfigFingerprint, FontInstanceId, ImageResourceId,
+    AnchorId, EffectiveConfig, EffectiveConfigFingerprint, FontInstanceId, ImageResourceId,
     LayoutStateFingerprint, Length, MasterId, PdfStreamCompression, Point, PositiveLength, Rect,
     ValidatedResourceLimits,
 };
 use typaxis_display_list::{
-    DestinationView, DisplayPage, LinkAnnotation, LinkTarget, NamedDestination,
+    ClusterExtraction, DestinationView, DisplayCommand, DisplayGlyph, DisplayPage, FillRule,
+    LineCap, LineJoin, LinkAnnotation, LinkTarget, NamedDestination, Paint, Path, PathVerb,
     ValidatedDisplayDocument,
 };
 use typaxis_resources::{
-    FrozenPdfFontPlan, FrozenPdfImagePlan, FrozenPdfResourcePlans, PdfFontIndirectObjectRole,
+    ClusterExtractionPlan, FrozenPdfAlphaMask, FrozenPdfFontPlan, FrozenPdfImagePlan,
+    FrozenPdfResourcePlans, ImageColorSpace, ImageEncoding, PdfFontIndirectObjectRole,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -164,6 +167,7 @@ pub enum IndirectObjectBody {
         plan: FrozenPdfImagePlan,
         alpha_mask_object: Option<ObjectId>,
     },
+    FrozenImageAlphaMask(FrozenPdfAlphaMask),
     DisplayPageContent(DisplayPage),
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -191,6 +195,7 @@ pub enum PdfError {
     InvalidAnnotationClosure,
     DirectValueDepth,
     PageTreeDepth,
+    ContentStream,
 }
 /// Low-level object graph assembly API. The resulting value is explicitly
 /// untrusted and cannot be converted into the publication `FrozenPdfGraph`.
@@ -391,6 +396,44 @@ pub struct VerifiedPdfBytesReceipt {
     stream_compression: PdfStreamCompression,
     config_fingerprint: EffectiveConfigFingerprint,
 }
+
+/// Facts observed while replaying one complete serializer receipt to a byte
+/// sink. The byte length and digest are aggregated from the successful writes;
+/// the remaining facts stay bound to the graph that produced the receipt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PdfStreamWriteFacts {
+    byte_length: u64,
+    sha256: [u8; 32],
+    selected_layout_fingerprint: LayoutStateFingerprint,
+    page_count: u32,
+    object_count: u32,
+    stream_compression: PdfStreamCompression,
+    config_fingerprint: EffectiveConfigFingerprint,
+}
+impl PdfStreamWriteFacts {
+    pub const fn byte_length(self) -> u64 {
+        self.byte_length
+    }
+    pub const fn content_hash(self) -> [u8; 32] {
+        self.sha256
+    }
+    pub const fn selected_layout_fingerprint(self) -> LayoutStateFingerprint {
+        self.selected_layout_fingerprint
+    }
+    pub const fn page_count(self) -> u32 {
+        self.page_count
+    }
+    pub const fn object_count(self) -> u32 {
+        self.object_count
+    }
+    pub const fn stream_compression(self) -> PdfStreamCompression {
+        self.stream_compression
+    }
+    pub const fn config_fingerprint(self) -> EffectiveConfigFingerprint {
+        self.config_fingerprint
+    }
+}
+
 impl VerifiedPdfBytesReceipt {
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
@@ -416,6 +459,73 @@ impl VerifiedPdfBytesReceipt {
     pub const fn config_fingerprint(&self) -> EffectiveConfigFingerprint {
         self.config_fingerprint
     }
+
+    /// Replays the sealed PDF in bounded chunks and aggregates the exact bytes
+    /// accepted by the sink. Short writes and interruptions are handled
+    /// explicitly. A successful return proves that the streamed byte count and
+    /// SHA-256 match this receipt; flushing and publication remain the output
+    /// owner's responsibility.
+    pub fn write_streaming<W: Write>(&self, sink: &mut W) -> io::Result<PdfStreamWriteFacts> {
+        const WRITE_CHUNK_BYTES: usize = 64 * 1024;
+
+        let mut byte_length = 0u64;
+        let mut sha256 = PdfSha256::new();
+        for chunk in self.bytes.chunks(WRITE_CHUNK_BYTES) {
+            let mut remaining = chunk;
+            while !remaining.is_empty() {
+                match sink.write(remaining) {
+                    Ok(0) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::WriteZero,
+                            "failed to stream the complete PDF receipt",
+                        ))
+                    }
+                    Ok(written) if written <= remaining.len() => {
+                        let accepted = &remaining[..written];
+                        byte_length = byte_length
+                            .checked_add(u64::try_from(written).map_err(|_| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "streamed PDF byte count overflowed",
+                                )
+                            })?)
+                            .ok_or_else(|| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "streamed PDF byte count overflowed",
+                                )
+                            })?;
+                        sha256.update(accepted);
+                        remaining = &remaining[written..];
+                    }
+                    Ok(_) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "PDF sink reported an impossible write length",
+                        ))
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        let digest = sha256.finish();
+        if byte_length != self.byte_length() || digest != self.content_hash() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "streamed PDF facts do not match the serializer receipt",
+            ));
+        }
+        Ok(PdfStreamWriteFacts {
+            byte_length,
+            sha256: digest,
+            selected_layout_fingerprint: self.selected_layout_fingerprint,
+            page_count: self.page_count,
+            object_count: self.object_count,
+            stream_compression: self.stream_compression,
+            config_fingerprint: self.config_fingerprint,
+        })
+    }
 }
 
 /// Capability reserved for the in-crate serializer. External callers can pass
@@ -425,7 +535,6 @@ pub struct VerifiedPdfSerializerReceiptOwner {
     _private: (),
 }
 impl VerifiedPdfSerializerReceiptOwner {
-    #[allow(dead_code)] // reserved for the in-crate classic-xref serializer
     fn new() -> Self {
         Self { _private: () }
     }
@@ -437,11 +546,48 @@ impl VerifiedPdfSerializerReceiptOwner {
         config_fingerprint: EffectiveConfigFingerprint,
         limits: &ValidatedResourceLimits,
     ) -> Result<VerifiedPdfBytesReceipt, PdfError> {
+        let digest = pdf_sha256(&bytes);
+        self.issue_with_digest(
+            graph,
+            bytes,
+            digest,
+            stream_compression,
+            config_fingerprint,
+            limits,
+        )
+    }
+
+    fn issue_serialized(
+        &self,
+        graph: &FrozenPdfGraph,
+        serialized: SerializedPdfBytes,
+        stream_compression: PdfStreamCompression,
+        config_fingerprint: EffectiveConfigFingerprint,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<VerifiedPdfBytesReceipt, PdfError> {
+        self.issue_with_digest(
+            graph,
+            serialized.bytes,
+            serialized.sha256,
+            stream_compression,
+            config_fingerprint,
+            limits,
+        )
+    }
+
+    fn issue_with_digest(
+        &self,
+        graph: &FrozenPdfGraph,
+        bytes: Vec<u8>,
+        digest: [u8; 32],
+        stream_compression: PdfStreamCompression,
+        config_fingerprint: EffectiveConfigFingerprint,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<VerifiedPdfBytesReceipt, PdfError> {
         let byte_length = u64::try_from(bytes.len()).map_err(|_| PdfError::OutputTooLarge)?;
         if bytes.is_empty() || byte_length > limits.get().max_output_bytes {
             return Err(PdfError::OutputTooLarge);
         }
-        let digest = sha256(&bytes);
         Ok(VerifiedPdfBytesReceipt {
             bytes,
             sha256: digest,
@@ -510,6 +656,25 @@ struct PageObjectIds {
     page: ObjectId,
     content: ObjectId,
     annotations: Vec<ObjectId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ImageObjectIds {
+    image: ObjectId,
+    alpha_mask: Option<ObjectId>,
+}
+impl ImageObjectIds {
+    fn allocate(
+        plan: &FrozenPdfImagePlan,
+        allocator: &mut DenseObjectAllocator,
+    ) -> Result<Self, PdfError> {
+        let image = allocator.allocate()?;
+        let alpha_mask = plan
+            .alpha_mask()
+            .map(|_| allocator.allocate())
+            .transpose()?;
+        Ok(Self { image, alpha_mask })
+    }
 }
 
 fn required_object_count(
@@ -599,7 +764,7 @@ impl PdfBackend {
         let image_object_ids: Vec<_> = resource_plans
             .images()
             .iter()
-            .map(|_| allocator.allocate())
+            .map(|plan| ImageObjectIds::allocate(plan, &mut allocator))
             .collect::<Result<_, _>>()?;
         let page_object_ids: Vec<_> = display
             .document()
@@ -647,11 +812,11 @@ impl PdfBackend {
             .enumerate()
         {
             let name = PdfName::from_bytes(format!("Im{index}").into_bytes())?;
-            image_resources.insert(name.clone(), PdfValue::Reference(*object_id));
+            image_resources.insert(name.clone(), PdfValue::Reference(object_id.image));
             image_bindings.push(PdfResourceBinding {
                 logical_id: plan.image_id(),
                 name,
-                object_id: *object_id,
+                object_id: object_id.image,
             });
         }
 
@@ -692,12 +857,6 @@ impl PdfBackend {
         );
         pages.insert(pdf_name(b"Resources")?, PdfValue::Dictionary(resources));
 
-        let image_ids_by_logical: BTreeMap<_, _> = resource_plans
-            .images()
-            .iter()
-            .zip(&image_object_ids)
-            .map(|(plan, id)| (plan.image_id(), *id))
-            .collect();
         let (font_plans, image_plans) = resource_plans.into_plans();
         let (display_document, selected_geometry_receipt) = display.into_parts();
         debug_assert_eq!(selected_geometry_receipt.len(), page_geometry.len());
@@ -719,23 +878,21 @@ impl PdfBackend {
             debug_assert_eq!(object_ids.type0, binding.object_id);
             insert_font_objects(&mut builder, plan, object_ids)?;
         }
-        for (plan, object_id) in image_plans.into_iter().zip(image_object_ids) {
-            let alpha_mask_object = plan
-                .alpha_mask()
-                .map(|mask| {
-                    image_ids_by_logical
-                        .get(&mask)
-                        .copied()
-                        .ok_or(PdfError::ResourcePlanMismatch)
-                })
-                .transpose()?;
+        for (plan, object_ids) in image_plans.into_iter().zip(image_object_ids) {
+            let alpha_mask = plan.alpha_mask().cloned();
+            if alpha_mask.is_some() != object_ids.alpha_mask.is_some() {
+                return Err(PdfError::ResourcePlanMismatch);
+            }
             builder.insert(
-                object_id,
+                object_ids.image,
                 IndirectObjectBody::FrozenImageResource {
                     plan,
-                    alpha_mask_object,
+                    alpha_mask_object: object_ids.alpha_mask,
                 },
             )?;
+            if let (Some(mask), Some(mask_object)) = (alpha_mask, object_ids.alpha_mask) {
+                builder.insert(mask_object, IndirectObjectBody::FrozenImageAlphaMask(mask))?;
+            }
         }
         for ((geometry, object_ids), display_page) in page_geometry
             .iter()
@@ -803,6 +960,28 @@ impl PdfBackend {
             font_bindings,
             image_bindings,
         })
+    }
+
+    /// Serializes a publication-trusted graph as a deterministic PDF 1.7
+    /// file with a classic cross-reference table.
+    ///
+    /// The output budget is enforced before output-buffer growth and the
+    /// principal variable-size encoded-payload allocations. Stream lengths
+    /// are derived from the bytes after the selected filter has been applied,
+    /// and the returned receipt is bound to this exact graph and effective
+    /// configuration.
+    pub fn serialize(
+        graph: FrozenPdfGraph,
+        config: &EffectiveConfig,
+    ) -> Result<VerifiedPdfBytesReceipt, PdfError> {
+        let serialized = serialize_classic_xref(&graph, config)?;
+        VerifiedPdfSerializerReceiptOwner::new().issue_serialized(
+            &graph,
+            serialized,
+            config.stream_compression(),
+            config.fingerprint(),
+            config.limits(),
+        )
     }
 }
 
@@ -1149,6 +1328,1455 @@ fn pdf_length(length: Length) -> Result<PdfValue, PdfError> {
         }
     }
     Err(PdfError::PageMasterMismatch)
+}
+
+const CLASSIC_XREF_MAX_OFFSET: u64 = 9_999_999_999;
+
+struct LimitedPdfBuffer {
+    bytes: Vec<u8>,
+    max_len: u64,
+    sha256: PdfSha256,
+}
+
+impl LimitedPdfBuffer {
+    fn new(max_len: u64) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_len,
+            sha256: PdfSha256::new(),
+        }
+    }
+
+    fn len_u64(&self) -> Result<u64, PdfError> {
+        u64::try_from(self.bytes.len()).map_err(|_| PdfError::OutputTooLarge)
+    }
+
+    fn remaining(&self) -> Result<u64, PdfError> {
+        self.max_len
+            .checked_sub(self.len_u64()?)
+            .ok_or(PdfError::OutputTooLarge)
+    }
+
+    fn extend(&mut self, bytes: &[u8]) -> Result<(), PdfError> {
+        let additional = u64::try_from(bytes.len()).map_err(|_| PdfError::OutputTooLarge)?;
+        if additional > self.remaining()? {
+            return Err(PdfError::OutputTooLarge);
+        }
+        self.bytes
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| PdfError::OutputTooLarge)?;
+        self.bytes.extend_from_slice(bytes);
+        self.sha256.update(bytes);
+        Ok(())
+    }
+
+    fn push(&mut self, byte: u8) -> Result<(), PdfError> {
+        self.extend(&[byte])
+    }
+
+    fn integer(&mut self, value: i64) -> Result<(), PdfError> {
+        let mut digits = [0u8; 20];
+        let mut start = digits.len();
+        let mut magnitude = value.unsigned_abs();
+        loop {
+            start -= 1;
+            digits[start] = b'0' + u8::try_from(magnitude % 10).unwrap_or(0);
+            magnitude /= 10;
+            if magnitude == 0 {
+                break;
+            }
+        }
+        if value.is_negative() {
+            start -= 1;
+            digits[start] = b'-';
+        }
+        self.extend(&digits[start..])
+    }
+
+    fn unsigned(&mut self, value: u64) -> Result<(), PdfError> {
+        let (digits, start) = decimal_digits(value);
+        self.extend(&digits[start..])
+    }
+
+    fn zero_padded_unsigned(&mut self, value: u64, width: usize) -> Result<(), PdfError> {
+        const ZEROES: &[u8; 20] = b"00000000000000000000";
+        let (digits, start) = decimal_digits(value);
+        let digit_count = digits.len() - start;
+        let padding = width
+            .checked_sub(digit_count)
+            .ok_or(PdfError::OutputTooLarge)?;
+        if padding > ZEROES.len() {
+            return Err(PdfError::OutputTooLarge);
+        }
+        let required = u64::try_from(width).map_err(|_| PdfError::OutputTooLarge)?;
+        if required > self.remaining()? {
+            return Err(PdfError::OutputTooLarge);
+        }
+        self.extend(&ZEROES[..padding])?;
+        self.extend(&digits[start..])
+    }
+
+    fn into_serialized(self) -> SerializedPdfBytes {
+        SerializedPdfBytes {
+            bytes: self.bytes,
+            sha256: self.sha256.finish(),
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+struct SerializedPdfBytes {
+    bytes: Vec<u8>,
+    sha256: [u8; 32],
+}
+
+fn decimal_digits(mut value: u64) -> ([u8; 20], usize) {
+    let mut digits = [0u8; 20];
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + u8::try_from(value % 10).unwrap_or(0);
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    (digits, start)
+}
+
+struct PdfSerializationContext<'a> {
+    graph: &'a FrozenPdfGraph,
+    font_names: Vec<(FontInstanceId, &'a PdfName)>,
+    image_names: Vec<(ImageResourceId, &'a PdfName)>,
+    font_plans: Vec<(FontInstanceId, &'a FrozenPdfFontPlan)>,
+}
+
+impl<'a> PdfSerializationContext<'a> {
+    fn new(graph: &'a FrozenPdfGraph) -> Result<Self, PdfError> {
+        let mut font_names = Vec::new();
+        font_names
+            .try_reserve_exact(graph.font_bindings.len())
+            .map_err(|_| PdfError::OutputTooLarge)?;
+        font_names.extend(
+            graph
+                .font_bindings
+                .iter()
+                .map(|binding| (binding.logical_id, &binding.name)),
+        );
+        font_names.sort_unstable_by_key(|(id, _)| *id);
+        if font_names.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(PdfError::ResourcePlanMismatch);
+        }
+
+        let mut image_names = Vec::new();
+        image_names
+            .try_reserve_exact(graph.image_bindings.len())
+            .map_err(|_| PdfError::OutputTooLarge)?;
+        image_names.extend(
+            graph
+                .image_bindings
+                .iter()
+                .map(|binding| (binding.logical_id, &binding.name)),
+        );
+        image_names.sort_unstable_by_key(|(id, _)| *id);
+        if image_names.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(PdfError::ResourcePlanMismatch);
+        }
+
+        let mut font_plans = Vec::new();
+        font_plans
+            .try_reserve_exact(graph.font_bindings.len())
+            .map_err(|_| PdfError::OutputTooLarge)?;
+        let mut image_plans = Vec::new();
+        image_plans
+            .try_reserve_exact(graph.image_bindings.len())
+            .map_err(|_| PdfError::OutputTooLarge)?;
+        for body in graph.graph.objects.values() {
+            match body {
+                IndirectObjectBody::FrozenFontProgram(plan) => {
+                    if font_plans.len() == graph.font_bindings.len() {
+                        return Err(PdfError::ResourcePlanMismatch);
+                    }
+                    font_plans.push((plan.font_instance_id(), plan));
+                }
+                IndirectObjectBody::FrozenImageResource { plan, .. } => {
+                    if image_plans.len() == graph.image_bindings.len() {
+                        return Err(PdfError::ResourcePlanMismatch);
+                    }
+                    image_plans.push(plan.image_id());
+                }
+                _ => {}
+            }
+        }
+        font_plans.sort_unstable_by_key(|(id, _)| *id);
+        image_plans.sort_unstable();
+        if font_names
+            .iter()
+            .map(|(id, _)| *id)
+            .ne(font_plans.iter().map(|(id, _)| *id))
+            || image_names
+                .iter()
+                .map(|(id, _)| *id)
+                .ne(image_plans.iter().copied())
+        {
+            return Err(PdfError::ResourcePlanMismatch);
+        }
+        Ok(Self {
+            graph,
+            font_names,
+            image_names,
+            font_plans,
+        })
+    }
+
+    fn font_name(&self, id: FontInstanceId) -> Option<&'a PdfName> {
+        self.font_names
+            .binary_search_by_key(&id, |(found, _)| *found)
+            .ok()
+            .map(|index| self.font_names[index].1)
+    }
+
+    fn image_name(&self, id: ImageResourceId) -> Option<&'a PdfName> {
+        self.image_names
+            .binary_search_by_key(&id, |(found, _)| *found)
+            .ok()
+            .map(|index| self.image_names[index].1)
+    }
+
+    fn font_plan(&self, id: FontInstanceId) -> Option<&'a FrozenPdfFontPlan> {
+        self.font_plans
+            .binary_search_by_key(&id, |(found, _)| *found)
+            .ok()
+            .map(|index| self.font_plans[index].1)
+    }
+
+    fn font_program(&self, id: ObjectId) -> Result<&'a FrozenPdfFontPlan, PdfError> {
+        match self.graph.graph.objects.get(&id) {
+            Some(IndirectObjectBody::FrozenFontProgram(plan)) => Ok(plan),
+            _ => Err(PdfError::ResourcePlanMismatch),
+        }
+    }
+}
+
+fn serialize_classic_xref(
+    graph: &FrozenPdfGraph,
+    config: &EffectiveConfig,
+) -> Result<SerializedPdfBytes, PdfError> {
+    if graph.object_count > config.limits().get().max_pdf_objects {
+        return Err(PdfError::ObjectLimit);
+    }
+    if graph.page_count == 0
+        || graph.page_count > config.limits().get().max_pages
+        || usize::try_from(graph.page_count).ok() != Some(graph.pages.len())
+    {
+        return Err(PdfError::SelectedPageClosure);
+    }
+    let object_count =
+        usize::try_from(graph.object_count).map_err(|_| PdfError::ObjectCountOverflow)?;
+    if object_count != graph.graph.objects.len()
+        || !graph.graph.objects.contains_key(&graph.graph.root)
+    {
+        return Err(PdfError::ObjectCountOverflow);
+    }
+    let offset_count = object_count
+        .checked_add(1)
+        .ok_or(PdfError::ObjectCountOverflow)?;
+    let max_len = config
+        .limits()
+        .get()
+        .max_output_bytes
+        .min(CLASSIC_XREF_MAX_OFFSET);
+    // Every object needs one fixed-width xref record, as does free object
+    // zero. Reject an impossible output before allocating the offset table or
+    // the resource lookup context.
+    let minimum_structural_bytes = u64::try_from(offset_count)
+        .ok()
+        .and_then(|count| count.checked_mul(20))
+        .and_then(|bytes| {
+            u64::try_from(object_count)
+                .ok()
+                .and_then(|count| count.checked_mul(17))
+                .and_then(|object_bytes| bytes.checked_add(object_bytes))
+        })
+        .and_then(|bytes| bytes.checked_add(15)) // PDF header and binary marker
+        .ok_or(PdfError::OutputTooLarge)?;
+    let bookkeeping_bytes = u64::try_from(offset_count)
+        .ok()
+        .and_then(|count| count.checked_mul(std::mem::size_of::<u64>() as u64))
+        .and_then(|bytes| {
+            u64::try_from(graph.font_bindings.len())
+                .ok()
+                .and_then(|count| {
+                    count.checked_mul(
+                        (std::mem::size_of::<(FontInstanceId, &PdfName)>()
+                            + std::mem::size_of::<(FontInstanceId, &FrozenPdfFontPlan)>())
+                            as u64,
+                    )
+                })
+                .and_then(|font_bytes| bytes.checked_add(font_bytes))
+        })
+        .and_then(|bytes| {
+            u64::try_from(graph.image_bindings.len())
+                .ok()
+                .and_then(|count| {
+                    count.checked_mul(
+                        (std::mem::size_of::<(ImageResourceId, &PdfName)>()
+                            + std::mem::size_of::<ImageResourceId>())
+                            as u64,
+                    )
+                })
+                .and_then(|image_bytes| bytes.checked_add(image_bytes))
+        })
+        .ok_or(PdfError::OutputTooLarge)?;
+    if minimum_structural_bytes > max_len || bookkeeping_bytes > max_len {
+        return Err(PdfError::OutputTooLarge);
+    }
+    let context = PdfSerializationContext::new(graph)?;
+    let mut output = LimitedPdfBuffer::new(max_len);
+    output.extend(b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n")?;
+
+    let mut offsets = Vec::new();
+    offsets
+        .try_reserve_exact(offset_count)
+        .map_err(|_| PdfError::ObjectCountOverflow)?;
+    offsets.push(0u64); // object zero is the head of the free list
+
+    for (index, (id, body)) in graph.graph.objects.iter().enumerate() {
+        let expected = u64::try_from(index)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PdfError::ObjectCountOverflow)?;
+        if u64::from(id.get()) != expected {
+            return Err(PdfError::SparseObjectId);
+        }
+        let offset = output.len_u64()?;
+        if offset > CLASSIC_XREF_MAX_OFFSET {
+            return Err(PdfError::OutputTooLarge);
+        }
+        offsets.push(offset);
+        output.unsigned(u64::from(id.get()))?;
+        output.extend(b" 0 obj\n")?;
+        write_indirect_body(&mut output, body, &context, config)?;
+        output.extend(b"\nendobj\n")?;
+    }
+
+    let xref_offset = output.len_u64()?;
+    if xref_offset > CLASSIC_XREF_MAX_OFFSET {
+        return Err(PdfError::OutputTooLarge);
+    }
+    let xref_size = u64::try_from(object_count)
+        .ok()
+        .and_then(|value| value.checked_add(1))
+        .ok_or(PdfError::ObjectCountOverflow)?;
+    output.extend(b"xref\n0 ")?;
+    output.unsigned(xref_size)?;
+    output.push(b'\n')?;
+    output.extend(b"0000000000 65535 f \n")?;
+    for offset in offsets.into_iter().skip(1) {
+        write_xref_entry(&mut output, offset)?;
+    }
+    output.extend(b"trailer\n<< /Size ")?;
+    output.unsigned(xref_size)?;
+    output.extend(b" /Root ")?;
+    output.unsigned(u64::from(graph.graph.root.get()))?;
+    output.extend(b" 0 R >>\nstartxref\n")?;
+    output.unsigned(xref_offset)?;
+    output.extend(b"\n%%EOF\n")?;
+    Ok(output.into_serialized())
+}
+
+fn write_xref_entry(output: &mut LimitedPdfBuffer, offset: u64) -> Result<(), PdfError> {
+    if offset > CLASSIC_XREF_MAX_OFFSET {
+        return Err(PdfError::OutputTooLarge);
+    }
+    output.zero_padded_unsigned(offset, 10)?;
+    output.extend(b" 00000 n \n")
+}
+
+fn write_indirect_body(
+    output: &mut LimitedPdfBuffer,
+    body: &IndirectObjectBody,
+    context: &PdfSerializationContext<'_>,
+    config: &EffectiveConfig,
+) -> Result<(), PdfError> {
+    match body {
+        IndirectObjectBody::Value(value) => write_pdf_value(output, value),
+        IndirectObjectBody::Stream(stream) => match stream.encoding {
+            StreamEncoding::None => {
+                write_stream(output, &stream.dictionary, stream.raw_data.as_slice(), None)
+            }
+            StreamEncoding::Flate => {
+                let data = zlib_stored(stream.raw_data.as_slice(), output.remaining()?)?;
+                write_stream(output, &stream.dictionary, &data, Some(b"FlateDecode"))
+            }
+            StreamEncoding::EncodedFlate => write_stream(
+                output,
+                &stream.dictionary,
+                stream.raw_data.as_slice(),
+                Some(b"FlateDecode"),
+            ),
+            StreamEncoding::Dct => write_stream(
+                output,
+                &stream.dictionary,
+                stream.raw_data.as_slice(),
+                Some(b"DCTDecode"),
+            ),
+        },
+        IndirectObjectBody::FrozenFontProgram(plan) => {
+            let mut dictionary = PdfDictionary::new();
+            dictionary.insert(
+                pdf_name(b"Length1")?,
+                PdfValue::Integer(
+                    i64::try_from(plan.subset_bytes().len())
+                        .map_err(|_| PdfError::OutputTooLarge)?,
+                ),
+            );
+            write_generated_stream(output, &dictionary, plan.subset_bytes(), config)
+        }
+        IndirectObjectBody::FrozenToUnicodeCMap {
+            font_program_object,
+        } => {
+            let plan = context.font_program(*font_program_object)?;
+            let data = to_unicode_cmap(plan, output.remaining()?)?;
+            write_generated_stream(output, &PdfDictionary::new(), &data, config)
+        }
+        IndirectObjectBody::FrozenCidToGidMap {
+            font_program_object,
+        } => {
+            let plan = context.font_program(*font_program_object)?;
+            let data = cid_to_gid_map(plan, output.remaining()?)?;
+            write_generated_stream(output, &PdfDictionary::new(), &data, config)
+        }
+        IndirectObjectBody::FrozenImageResource {
+            plan,
+            alpha_mask_object,
+        } => write_image_stream(output, plan, *alpha_mask_object, config),
+        IndirectObjectBody::FrozenImageAlphaMask(mask) => {
+            write_alpha_mask_stream(output, mask, config)
+        }
+        IndirectObjectBody::DisplayPageContent(page) => {
+            let data = page_content_stream(page, context, output.remaining()?)?;
+            write_generated_stream(output, &PdfDictionary::new(), &data, config)
+        }
+    }
+}
+
+fn write_pdf_value(output: &mut LimitedPdfBuffer, value: &PdfValue) -> Result<(), PdfError> {
+    match value {
+        PdfValue::Null => output.extend(b"null"),
+        PdfValue::Bool(true) => output.extend(b"true"),
+        PdfValue::Bool(false) => output.extend(b"false"),
+        PdfValue::Integer(value) => output.integer(*value),
+        PdfValue::Decimal(value) => write_pdf_decimal(output, *value),
+        PdfValue::Name(name) => write_pdf_name(output, name),
+        PdfValue::ByteString(bytes) => write_hex_string(output, bytes),
+        PdfValue::Array(values) => {
+            output.push(b'[')?;
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(b' ')?;
+                }
+                write_pdf_value(output, value)?;
+            }
+            output.push(b']')
+        }
+        PdfValue::Dictionary(dictionary) => write_dictionary(output, dictionary),
+        PdfValue::Reference(id) => {
+            output.unsigned(u64::from(id.get()))?;
+            output.extend(b" 0 R")
+        }
+    }
+}
+
+fn write_pdf_name(output: &mut LimitedPdfBuffer, name: &PdfName) -> Result<(), PdfError> {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let encoded_len = name.0.iter().try_fold(1u64, |length, byte| {
+        let regular = (33..=126).contains(byte) && !b"()<>[]{}/%#".contains(byte);
+        length.checked_add(if regular { 1 } else { 3 })
+    });
+    if encoded_len.ok_or(PdfError::OutputTooLarge)? > output.remaining()? {
+        return Err(PdfError::OutputTooLarge);
+    }
+    output.push(b'/')?;
+    for byte in &name.0 {
+        let regular = (33..=126).contains(byte) && !b"()<>[]{}/%#".contains(byte);
+        if regular {
+            output.push(*byte)?;
+        } else {
+            output.push(b'#')?;
+            output.push(HEX[usize::from(byte >> 4)])?;
+            output.push(HEX[usize::from(byte & 0x0f)])?;
+        }
+    }
+    Ok(())
+}
+
+fn write_pdf_decimal(output: &mut LimitedPdfBuffer, decimal: PdfDecimal) -> Result<(), PdfError> {
+    if decimal.coefficient == 0 {
+        return output.push(b'0');
+    }
+    let (digits, start) = decimal_digits(decimal.coefficient.unsigned_abs());
+    let digits = &digits[start..];
+    let scale = usize::from(decimal.scale);
+    let mut token = [0u8; 24];
+    let mut length = 0usize;
+    if decimal.coefficient.is_negative() {
+        token[length] = b'-';
+        length += 1;
+    }
+    if scale == 0 {
+        token[length..length + digits.len()].copy_from_slice(digits);
+        length += digits.len();
+    } else if digits.len() <= scale {
+        token[length] = b'0';
+        token[length + 1] = b'.';
+        length += 2;
+        let zeroes = scale - digits.len();
+        token[length..length + zeroes].fill(b'0');
+        length += zeroes;
+        token[length..length + digits.len()].copy_from_slice(digits);
+        length += digits.len();
+    } else {
+        let split = digits.len() - scale;
+        token[length..length + split].copy_from_slice(&digits[..split]);
+        length += split;
+        token[length] = b'.';
+        length += 1;
+        token[length..length + scale].copy_from_slice(&digits[split..]);
+        length += scale;
+    }
+    if scale > 0 {
+        while token.get(length.wrapping_sub(1)) == Some(&b'0') {
+            length -= 1;
+        }
+        if token.get(length.wrapping_sub(1)) == Some(&b'.') {
+            length -= 1;
+        }
+    }
+    output.extend(&token[..length])
+}
+
+fn write_dictionary(
+    output: &mut LimitedPdfBuffer,
+    dictionary: &PdfDictionary,
+) -> Result<(), PdfError> {
+    output.extend(b"<<")?;
+    for (key, value) in dictionary {
+        output.push(b' ')?;
+        write_pdf_name(output, key)?;
+        output.push(b' ')?;
+        write_pdf_value(output, value)?;
+    }
+    if !dictionary.is_empty() {
+        output.push(b' ')?;
+    }
+    output.extend(b">>")
+}
+
+fn write_hex_string(output: &mut LimitedPdfBuffer, bytes: &[u8]) -> Result<(), PdfError> {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let encoded_len = u64::try_from(bytes.len())
+        .ok()
+        .and_then(|len| len.checked_mul(2))
+        .and_then(|len| len.checked_add(2))
+        .ok_or(PdfError::OutputTooLarge)?;
+    if encoded_len > output.remaining()? {
+        return Err(PdfError::OutputTooLarge);
+    }
+    output.push(b'<')?;
+    for byte in bytes {
+        output.push(HEX[usize::from(byte >> 4)])?;
+        output.push(HEX[usize::from(byte & 0x0f)])?;
+    }
+    output.push(b'>')
+}
+
+fn write_stream(
+    output: &mut LimitedPdfBuffer,
+    dictionary: &PdfDictionary,
+    data: &[u8],
+    filter: Option<&[u8]>,
+) -> Result<(), PdfError> {
+    if dictionary
+        .keys()
+        .any(|key| key.is(b"Length") || key.is(b"Filter") || key.is(b"DecodeParms"))
+    {
+        return Err(PdfError::ReservedStreamKey);
+    }
+    let data_len = i64::try_from(data.len()).map_err(|_| PdfError::OutputTooLarge)?;
+    output.extend(b"<<")?;
+    let mut filter_pending = filter;
+    let mut length_pending = true;
+    for (key, value) in dictionary {
+        if filter_pending.is_some() && b"Filter".as_slice() < key.0.as_slice() {
+            let filter = filter_pending
+                .take()
+                .ok_or(PdfError::ResourcePlanMismatch)?;
+            write_filter_entry(output, filter)?;
+        }
+        if length_pending && b"Length".as_slice() < key.0.as_slice() {
+            write_length_entry(output, data_len)?;
+            length_pending = false;
+        }
+        output.push(b' ')?;
+        write_pdf_name(output, key)?;
+        output.push(b' ')?;
+        write_pdf_value(output, value)?;
+    }
+    if let Some(filter) = filter_pending {
+        write_filter_entry(output, filter)?;
+    }
+    if length_pending {
+        write_length_entry(output, data_len)?;
+    }
+    output.push(b' ')?;
+    output.extend(b">>")?;
+    output.extend(b"\nstream\n")?;
+    output.extend(data)?;
+    if data.is_empty() {
+        output.extend(b"endstream")
+    } else {
+        output.extend(b"\nendstream")
+    }
+}
+
+fn write_filter_entry(output: &mut LimitedPdfBuffer, filter: &[u8]) -> Result<(), PdfError> {
+    debug_assert!(filter.iter().all(|byte| byte.is_ascii_alphanumeric()));
+    output.extend(b" /Filter /")?;
+    output.extend(filter)
+}
+
+fn write_length_entry(output: &mut LimitedPdfBuffer, length: i64) -> Result<(), PdfError> {
+    output.extend(b" /Length ")?;
+    output.integer(length)
+}
+
+fn write_generated_stream(
+    output: &mut LimitedPdfBuffer,
+    dictionary: &PdfDictionary,
+    raw_data: &[u8],
+    config: &EffectiveConfig,
+) -> Result<(), PdfError> {
+    match config.stream_compression() {
+        PdfStreamCompression::None => write_stream(output, dictionary, raw_data, None),
+        PdfStreamCompression::Flate => {
+            let encoded = zlib_stored(raw_data, output.remaining()?)?;
+            write_stream(output, dictionary, &encoded, Some(b"FlateDecode"))
+        }
+    }
+}
+
+/// Deterministic zlib stream containing only stored DEFLATE blocks. This is a
+/// valid `/FlateDecode` payload and avoids a platform-dependent compressor.
+fn zlib_stored(input: &[u8], max_len: u64) -> Result<Vec<u8>, PdfError> {
+    const BLOCK: usize = u16::MAX as usize;
+    let blocks = if input.is_empty() {
+        1usize
+    } else {
+        input
+            .len()
+            .checked_add(BLOCK - 1)
+            .ok_or(PdfError::OutputTooLarge)?
+            / BLOCK
+    };
+    let encoded_len = input
+        .len()
+        .checked_add(blocks.checked_mul(5).ok_or(PdfError::OutputTooLarge)?)
+        .and_then(|len| len.checked_add(6))
+        .ok_or(PdfError::OutputTooLarge)?;
+    if u64::try_from(encoded_len).map_err(|_| PdfError::OutputTooLarge)? > max_len {
+        return Err(PdfError::OutputTooLarge);
+    }
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(encoded_len)
+        .map_err(|_| PdfError::OutputTooLarge)?;
+    // CMF/FLG for DEFLATE, 32 KiB window, fastest/no-compression level.
+    output.extend_from_slice(&[0x78, 0x01]);
+    if input.is_empty() {
+        output.extend_from_slice(&[0x01, 0x00, 0x00, 0xff, 0xff]);
+    } else {
+        let total_blocks = blocks;
+        for (index, chunk) in input.chunks(BLOCK).enumerate() {
+            output.push(if index + 1 == total_blocks {
+                0x01
+            } else {
+                0x00
+            });
+            let len = u16::try_from(chunk.len()).map_err(|_| PdfError::OutputTooLarge)?;
+            output.extend_from_slice(&len.to_le_bytes());
+            output.extend_from_slice(&(!len).to_le_bytes());
+            output.extend_from_slice(chunk);
+        }
+    }
+    output.extend_from_slice(&adler32(input).to_be_bytes());
+    debug_assert_eq!(output.len(), encoded_len);
+    Ok(output)
+}
+
+fn adler32(bytes: &[u8]) -> u32 {
+    const MODULUS: u64 = 65_521;
+    let mut a = 1u64;
+    let mut b = 0u64;
+    // 5,552 bytes is the conventional bound that keeps both accumulators
+    // comfortably within an integer word before reduction.
+    for chunk in bytes.chunks(5_552) {
+        for byte in chunk {
+            a += u64::from(*byte);
+            b += a;
+        }
+        a %= MODULUS;
+        b %= MODULUS;
+    }
+    ((b as u32) << 16) | a as u32
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PdfSha256 {
+    state: [u32; 8],
+    pending: [u8; 64],
+    pending_len: usize,
+    byte_length: u64,
+}
+
+impl PdfSha256 {
+    const fn new() -> Self {
+        Self {
+            state: [
+                0x6a09e667u32,
+                0xbb67ae85,
+                0x3c6ef372,
+                0xa54ff53a,
+                0x510e527f,
+                0x9b05688c,
+                0x1f83d9ab,
+                0x5be0cd19,
+            ],
+            pending: [0; 64],
+            pending_len: 0,
+            byte_length: 0,
+        }
+    }
+
+    fn update(&mut self, mut bytes: &[u8]) {
+        self.byte_length = self.byte_length.wrapping_add(bytes.len() as u64);
+        if self.pending_len != 0 {
+            let copied = (64 - self.pending_len).min(bytes.len());
+            let end = self.pending_len + copied;
+            self.pending[self.pending_len..end].copy_from_slice(&bytes[..copied]);
+            self.pending_len = end;
+            bytes = &bytes[copied..];
+            if self.pending_len == 64 {
+                sha256_compress(&mut self.state, &self.pending);
+                self.pending_len = 0;
+            } else {
+                return;
+            }
+        }
+
+        let mut blocks = bytes.chunks_exact(64);
+        for block in &mut blocks {
+            sha256_compress(&mut self.state, block);
+        }
+        let remainder = blocks.remainder();
+        self.pending[..remainder.len()].copy_from_slice(remainder);
+        self.pending_len = remainder.len();
+    }
+
+    fn finish(mut self) -> [u8; 32] {
+        let bit_length = self.byte_length.wrapping_mul(8);
+        self.pending[self.pending_len] = 0x80;
+        if self.pending_len >= 56 {
+            self.pending[self.pending_len + 1..].fill(0);
+            sha256_compress(&mut self.state, &self.pending);
+            self.pending.fill(0);
+        } else {
+            self.pending[self.pending_len + 1..56].fill(0);
+        }
+        self.pending[56..].copy_from_slice(&bit_length.to_be_bytes());
+        sha256_compress(&mut self.state, &self.pending);
+
+        let mut digest = [0u8; 32];
+        for (chunk, word) in digest.chunks_exact_mut(4).zip(self.state) {
+            chunk.copy_from_slice(&word.to_be_bytes());
+        }
+        digest
+    }
+}
+
+/// SHA-256 without constructing a second, padded copy of the complete PDF.
+fn pdf_sha256(bytes: &[u8]) -> [u8; 32] {
+    let mut sha256 = PdfSha256::new();
+    sha256.update(bytes);
+    sha256.finish()
+}
+
+fn sha256_compress(state: &mut [u32; 8], chunk: &[u8]) {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    debug_assert_eq!(chunk.len(), 64);
+    let mut words = [0u32; 64];
+    for (index, word) in words[..16].iter_mut().enumerate() {
+        let start = index * 4;
+        *word = u32::from_be_bytes([
+            chunk[start],
+            chunk[start + 1],
+            chunk[start + 2],
+            chunk[start + 3],
+        ]);
+    }
+    for index in 16..64 {
+        let s0 = words[index - 15].rotate_right(7)
+            ^ words[index - 15].rotate_right(18)
+            ^ (words[index - 15] >> 3);
+        let s1 = words[index - 2].rotate_right(17)
+            ^ words[index - 2].rotate_right(19)
+            ^ (words[index - 2] >> 10);
+        words[index] = words[index - 16]
+            .wrapping_add(s0)
+            .wrapping_add(words[index - 7])
+            .wrapping_add(s1);
+    }
+    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
+    for index in 0..64 {
+        let sum1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+        let choice = (e & f) ^ ((!e) & g);
+        let first = h
+            .wrapping_add(sum1)
+            .wrapping_add(choice)
+            .wrapping_add(K[index])
+            .wrapping_add(words[index]);
+        let sum0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+        let majority = (a & b) ^ (a & c) ^ (b & c);
+        let second = sum0.wrapping_add(majority);
+        h = g;
+        g = f;
+        f = e;
+        e = d.wrapping_add(first);
+        d = c;
+        c = b;
+        b = a;
+        a = first.wrapping_add(second);
+    }
+    for (slot, value) in state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
+        *slot = slot.wrapping_add(value);
+    }
+}
+
+fn to_unicode_cmap(plan: &FrozenPdfFontPlan, max_len: u64) -> Result<Vec<u8>, PdfError> {
+    let mut output = LimitedPdfBuffer::new(max_len);
+    output.extend(
+        b"/CIDInit /ProcSet findresource begin\n\
+12 dict begin\n\
+begincmap\n\
+/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def\n\
+/CMapName /Typaxis-Identity-UCS def\n\
+/CMapType 2 def\n\
+1 begincodespacerange\n\
+<0000> <FFFF>\n\
+endcodespacerange\n",
+    )?;
+    let mapping_count = plan
+        .subset_plan()
+        .cids
+        .iter()
+        .filter(|binding| !binding.unicode.is_empty())
+        .count();
+    // A bfchar entry has at least a four-hex-digit source and destination.
+    let minimum_mapping_bytes = u64::try_from(mapping_count)
+        .ok()
+        .and_then(|count| count.checked_mul(14))
+        .ok_or(PdfError::OutputTooLarge)?;
+    if minimum_mapping_bytes > output.remaining()? {
+        return Err(PdfError::OutputTooLarge);
+    }
+    let mut mappings = Vec::new();
+    mappings
+        .try_reserve_exact(mapping_count)
+        .map_err(|_| PdfError::OutputTooLarge)?;
+    mappings.extend(
+        plan.subset_plan()
+            .cids
+            .iter()
+            .filter(|binding| !binding.unicode.is_empty()),
+    );
+    for chunk in mappings.chunks(100) {
+        output.unsigned(u64::try_from(chunk.len()).map_err(|_| PdfError::OutputTooLarge)?)?;
+        output.extend(b" beginbfchar\n")?;
+        for binding in chunk {
+            write_hex_string(&mut output, &binding.cid.get().to_be_bytes())?;
+            output.push(b' ')?;
+            write_utf16be_hex(
+                &mut output,
+                binding.unicode.iter().map(|scalar| scalar.get()),
+                false,
+            )?;
+            output.push(b'\n')?;
+        }
+        output.extend(b"endbfchar\n")?;
+    }
+    output.extend(
+        b"endcmap\n\
+CMapName currentdict /CMap defineresource pop\n\
+end\n\
+end\n",
+    )?;
+    Ok(output.into_bytes())
+}
+
+fn write_utf16be_hex(
+    output: &mut LimitedPdfBuffer,
+    scalars: impl IntoIterator<Item = char>,
+    bom: bool,
+) -> Result<(), PdfError> {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    output.push(b'<')?;
+    if bom {
+        output.extend(b"FEFF")?;
+    }
+    for scalar in scalars {
+        let mut units = [0u16; 2];
+        for unit in scalar.encode_utf16(&mut units) {
+            for byte in unit.to_be_bytes() {
+                output.push(HEX[usize::from(byte >> 4)])?;
+                output.push(HEX[usize::from(byte & 0x0f)])?;
+            }
+        }
+    }
+    output.push(b'>')
+}
+
+fn cid_to_gid_map(plan: &FrozenPdfFontPlan, max_len: u64) -> Result<Vec<u8>, PdfError> {
+    let byte_len = plan
+        .subset_plan()
+        .cids
+        .len()
+        .checked_add(1)
+        .and_then(|count| count.checked_mul(2))
+        .ok_or(PdfError::OutputTooLarge)?;
+    if u64::try_from(byte_len).map_err(|_| PdfError::OutputTooLarge)? > max_len {
+        return Err(PdfError::OutputTooLarge);
+    }
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(byte_len)
+        .map_err(|_| PdfError::OutputTooLarge)?;
+    output.extend_from_slice(&0u16.to_be_bytes());
+    for (index, binding) in plan.subset_plan().cids.iter().enumerate() {
+        if usize::from(binding.cid.get()) != index + 1 {
+            return Err(PdfError::ResourcePlanMismatch);
+        }
+        output.extend_from_slice(&binding.subset_gid.get().to_be_bytes());
+    }
+    Ok(output)
+}
+
+fn write_image_stream(
+    output: &mut LimitedPdfBuffer,
+    plan: &FrozenPdfImagePlan,
+    alpha_mask_object: Option<ObjectId>,
+    config: &EffectiveConfig,
+) -> Result<(), PdfError> {
+    let mut dictionary = PdfDictionary::new();
+    dictionary.insert(pdf_name(b"Type")?, PdfValue::Name(pdf_name(b"XObject")?));
+    dictionary.insert(pdf_name(b"Subtype")?, PdfValue::Name(pdf_name(b"Image")?));
+    dictionary.insert(
+        pdf_name(b"Width")?,
+        PdfValue::Integer(i64::from(plan.width().get())),
+    );
+    dictionary.insert(
+        pdf_name(b"Height")?,
+        PdfValue::Integer(i64::from(plan.height().get())),
+    );
+    dictionary.insert(
+        pdf_name(b"ColorSpace")?,
+        PdfValue::Name(pdf_name(match plan.color_space() {
+            ImageColorSpace::Gray => b"DeviceGray",
+            ImageColorSpace::Rgb => b"DeviceRGB",
+            ImageColorSpace::Cmyk => b"DeviceCMYK",
+        })?),
+    );
+    dictionary.insert(
+        pdf_name(b"BitsPerComponent")?,
+        PdfValue::Integer(i64::from(plan.bits_per_component())),
+    );
+    if let Some(mask) = alpha_mask_object {
+        dictionary.insert(pdf_name(b"SMask")?, PdfValue::Reference(mask));
+    }
+    match plan.encoding() {
+        ImageEncoding::Raw => {
+            write_generated_stream(output, &dictionary, plan.encoded_bytes(), config)
+        }
+        ImageEncoding::Flate => write_stream(
+            output,
+            &dictionary,
+            plan.encoded_bytes(),
+            Some(b"FlateDecode"),
+        ),
+        ImageEncoding::Jpeg => write_stream(
+            output,
+            &dictionary,
+            plan.encoded_bytes(),
+            Some(b"DCTDecode"),
+        ),
+    }
+}
+
+fn write_alpha_mask_stream(
+    output: &mut LimitedPdfBuffer,
+    mask: &FrozenPdfAlphaMask,
+    config: &EffectiveConfig,
+) -> Result<(), PdfError> {
+    let mut dictionary = PdfDictionary::new();
+    dictionary.insert(pdf_name(b"Type")?, PdfValue::Name(pdf_name(b"XObject")?));
+    dictionary.insert(pdf_name(b"Subtype")?, PdfValue::Name(pdf_name(b"Image")?));
+    dictionary.insert(
+        pdf_name(b"Width")?,
+        PdfValue::Integer(i64::from(mask.width().get())),
+    );
+    dictionary.insert(
+        pdf_name(b"Height")?,
+        PdfValue::Integer(i64::from(mask.height().get())),
+    );
+    dictionary.insert(
+        pdf_name(b"ColorSpace")?,
+        PdfValue::Name(pdf_name(b"DeviceGray")?),
+    );
+    dictionary.insert(
+        pdf_name(b"BitsPerComponent")?,
+        PdfValue::Integer(i64::from(mask.bits_per_component())),
+    );
+    match mask.encoding() {
+        ImageEncoding::Raw => {
+            write_generated_stream(output, &dictionary, mask.encoded_bytes(), config)
+        }
+        ImageEncoding::Flate => write_stream(
+            output,
+            &dictionary,
+            mask.encoded_bytes(),
+            Some(b"FlateDecode"),
+        ),
+        ImageEncoding::Jpeg => Err(PdfError::ResourcePlanMismatch),
+    }
+}
+
+fn page_content_stream(
+    page: &DisplayPage,
+    context: &PdfSerializationContext<'_>,
+    max_len: u64,
+) -> Result<Vec<u8>, PdfError> {
+    let mut output = LimitedPdfBuffer::new(max_len);
+    output.extend(b"q\n1 0 0 -1 0 ")?;
+    write_length_token(&mut output, page.height.get())?;
+    output.extend(b" cm\n")?;
+    for command in &page.commands {
+        write_display_command(&mut output, command, context)?;
+    }
+    output.extend(b"Q\n")?;
+    Ok(output.into_bytes())
+}
+
+fn write_display_command(
+    output: &mut LimitedPdfBuffer,
+    command: &DisplayCommand,
+    context: &PdfSerializationContext<'_>,
+) -> Result<(), PdfError> {
+    match command {
+        DisplayCommand::Save => output.extend(b"q\n"),
+        DisplayCommand::Restore => output.extend(b"Q\n"),
+        DisplayCommand::ConcatTransform { matrix } => {
+            write_fixed_token(output, i128::from(matrix.a.raw()), 65_536)?;
+            output.push(b' ')?;
+            write_fixed_token(output, i128::from(matrix.b.raw()), 65_536)?;
+            output.push(b' ')?;
+            write_fixed_token(output, i128::from(matrix.c.raw()), 65_536)?;
+            output.push(b' ')?;
+            write_fixed_token(output, i128::from(matrix.d.raw()), 65_536)?;
+            output.push(b' ')?;
+            write_length_token(output, matrix.e)?;
+            output.push(b' ')?;
+            write_length_token(output, matrix.f)?;
+            output.extend(b" cm\n")
+        }
+        DisplayCommand::ClipPath { path, rule } => {
+            write_path(output, path)?;
+            output.extend(match rule {
+                FillRule::NonZero => b"W n\n",
+                FillRule::EvenOdd => b"W* n\n",
+            })
+        }
+        DisplayCommand::FillPath { path, paint, rule } => {
+            write_paint(output, *paint, false)?;
+            write_path(output, path)?;
+            output.extend(match rule {
+                FillRule::NonZero => b"f\n",
+                FillRule::EvenOdd => b"f*\n",
+            })
+        }
+        DisplayCommand::StrokePath {
+            path,
+            paint,
+            stroke,
+        } => {
+            write_paint(output, *paint, true)?;
+            write_length_token(output, stroke.width.get())?;
+            output.extend(b" w\n")?;
+            output.integer(match stroke.line_cap {
+                LineCap::Butt => 0,
+                LineCap::Round => 1,
+                LineCap::Square => 2,
+            })?;
+            output.extend(b" J\n")?;
+            output.integer(match stroke.line_join {
+                LineJoin::Miter => 0,
+                LineJoin::Round => 1,
+                LineJoin::Bevel => 2,
+            })?;
+            output.extend(b" j\n")?;
+            write_fixed_token(output, i128::from(stroke.miter_limit.get().raw()), 65_536)?;
+            output.extend(b" M\n[")?;
+            for (index, dash) in stroke.dash.array().iter().enumerate() {
+                if index > 0 {
+                    output.push(b' ')?;
+                }
+                write_length_token(output, dash.get())?;
+            }
+            output.extend(b"] ")?;
+            write_length_token(output, stroke.dash.phase().get())?;
+            output.extend(b" d\n")?;
+            write_path(output, path)?;
+            output.extend(b"S\n")
+        }
+        DisplayCommand::DrawImage { image_id, rect } => {
+            let name = context
+                .image_name(*image_id)
+                .ok_or(PdfError::ResourcePlanMismatch)?;
+            write_image_placement(output, name, *rect)
+        }
+        DisplayCommand::DrawGlyphRun {
+            font_instance_id,
+            origin,
+            font_size,
+            fill,
+            glyphs,
+            clusters,
+            ..
+        } => write_glyph_run(
+            output,
+            *font_instance_id,
+            *origin,
+            *font_size,
+            *fill,
+            glyphs,
+            clusters,
+            context,
+        ),
+    }
+}
+
+fn write_image_placement(
+    output: &mut LimitedPdfBuffer,
+    name: &PdfName,
+    rect: Rect,
+) -> Result<(), PdfError> {
+    // The page CTM reflects the internal Y-down coordinate system. PDF image
+    // samples already run from the top row downward, so counter-reflect the
+    // unit image here (as text does in its text matrix) to keep it upright.
+    let negative_height =
+        Length::from_raw(-rect.height().get().raw()).ok_or(PdfError::ContentStream)?;
+    let bottom = rect
+        .y()
+        .checked_add(rect.height().get())
+        .ok_or(PdfError::ContentStream)?;
+    output.extend(b"q\n")?;
+    write_length_token(output, rect.width().get())?;
+    output.extend(b" 0 0 ")?;
+    write_length_token(output, negative_height)?;
+    output.push(b' ')?;
+    write_length_token(output, rect.x())?;
+    output.push(b' ')?;
+    write_length_token(output, bottom)?;
+    output.extend(b" cm\n")?;
+    write_pdf_name(output, name)?;
+    output.extend(b" Do\nQ\n")
+}
+
+fn write_path(output: &mut LimitedPdfBuffer, path: &Path) -> Result<(), PdfError> {
+    for verb in path.verbs() {
+        match verb {
+            PathVerb::MoveTo(point) => write_point_operator(output, *point, b"m\n")?,
+            PathVerb::LineTo(point) => write_point_operator(output, *point, b"l\n")?,
+            PathVerb::CurveTo(first, second, third) => {
+                for point in [first, second, third] {
+                    write_length_token(output, point.x)?;
+                    output.push(b' ')?;
+                    write_length_token(output, point.y)?;
+                    output.push(b' ')?;
+                }
+                output.extend(b"c\n")?;
+            }
+            PathVerb::Close => output.extend(b"h\n")?,
+        }
+    }
+    Ok(())
+}
+
+fn write_point_operator(
+    output: &mut LimitedPdfBuffer,
+    point: Point,
+    operator: &[u8],
+) -> Result<(), PdfError> {
+    write_length_token(output, point.x)?;
+    output.push(b' ')?;
+    write_length_token(output, point.y)?;
+    output.push(b' ')?;
+    output.extend(operator)
+}
+
+fn write_paint(output: &mut LimitedPdfBuffer, paint: Paint, stroke: bool) -> Result<(), PdfError> {
+    let operator = match (paint, stroke) {
+        (Paint::Gray(gray), false) => {
+            write_fixed_token(output, i128::from(gray), 65_535)?;
+            b" g\n".as_slice()
+        }
+        (Paint::Gray(gray), true) => {
+            write_fixed_token(output, i128::from(gray), 65_535)?;
+            b" G\n".as_slice()
+        }
+        (Paint::Rgb { r, g, b }, false) => {
+            write_color_components(output, &[r, g, b])?;
+            b" rg\n".as_slice()
+        }
+        (Paint::Rgb { r, g, b }, true) => {
+            write_color_components(output, &[r, g, b])?;
+            b" RG\n".as_slice()
+        }
+        (Paint::Cmyk { c, m, y, k }, false) => {
+            write_color_components(output, &[c, m, y, k])?;
+            b" k\n".as_slice()
+        }
+        (Paint::Cmyk { c, m, y, k }, true) => {
+            write_color_components(output, &[c, m, y, k])?;
+            b" K\n".as_slice()
+        }
+    };
+    output.extend(operator)
+}
+
+fn write_color_components(
+    output: &mut LimitedPdfBuffer,
+    components: &[u16],
+) -> Result<(), PdfError> {
+    for (index, component) in components.iter().enumerate() {
+        if index > 0 {
+            output.push(b' ')?;
+        }
+        write_fixed_token(output, i128::from(*component), 65_535)?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_glyph_run(
+    output: &mut LimitedPdfBuffer,
+    font_instance_id: FontInstanceId,
+    origin: Point,
+    font_size: PositiveLength,
+    fill: Paint,
+    glyphs: &[DisplayGlyph],
+    clusters: &[typaxis_display_list::DisplayCluster],
+    context: &PdfSerializationContext<'_>,
+) -> Result<(), PdfError> {
+    let font_name = context
+        .font_name(font_instance_id)
+        .ok_or(PdfError::ResourcePlanMismatch)?;
+    let font_plan = context
+        .font_plan(font_instance_id)
+        .ok_or(PdfError::ResourcePlanMismatch)?;
+
+    // Each glyph necessarily emits a text matrix, a two-byte CID hex string,
+    // and a show operator. This conservative lower bound keeps the transient
+    // position table smaller than the remaining possible output.
+    let minimum_glyph_bytes = u64::try_from(glyphs.len())
+        .ok()
+        .and_then(|count| count.checked_mul(20))
+        .ok_or(PdfError::OutputTooLarge)?;
+    if minimum_glyph_bytes > output.remaining()? {
+        return Err(PdfError::OutputTooLarge);
+    }
+    let mut positions = Vec::new();
+    positions
+        .try_reserve_exact(glyphs.len())
+        .map_err(|_| PdfError::OutputTooLarge)?;
+    let mut pen_x = Length::ZERO;
+    let mut pen_y = Length::ZERO;
+    for glyph in glyphs {
+        let x = origin
+            .x
+            .checked_add(pen_x)
+            .and_then(|value| value.checked_add(glyph.offset_x))
+            .ok_or(PdfError::ContentStream)?;
+        let y = origin
+            .y
+            .checked_add(pen_y)
+            .and_then(|value| value.checked_add(glyph.offset_y))
+            .ok_or(PdfError::ContentStream)?;
+        positions.push(Point { x, y });
+        pen_x = pen_x
+            .checked_add(glyph.advance_x)
+            .ok_or(PdfError::ContentStream)?;
+        pen_y = pen_y
+            .checked_add(glyph.advance_y)
+            .ok_or(PdfError::ContentStream)?;
+    }
+
+    write_paint(output, fill, false)?;
+    output.extend(b"BT\n")?;
+    write_pdf_name(output, font_name)?;
+    output.push(b' ')?;
+    write_length_token(output, font_size.get())?;
+    output.extend(b" Tf\n")?;
+    // Display clusters are deliberately stored in logical order even when
+    // their glyph ranges are in reverse visual order for RTL runs. Absolute
+    // text matrices preserve every glyph's visual position while logical
+    // emission order preserves ToUnicode/ActualText extraction order.
+    for cluster in clusters {
+        let start = usize::try_from(cluster.glyph_start).map_err(|_| PdfError::ContentStream)?;
+        let end = usize::try_from(cluster.glyph_end).map_err(|_| PdfError::ContentStream)?;
+        let cluster_glyphs = glyphs.get(start..end).ok_or(PdfError::ContentStream)?;
+        let extraction = cluster_plan_for(font_plan, &cluster.extraction, cluster_glyphs)
+            .ok_or(PdfError::ResourcePlanMismatch)?;
+        match extraction {
+            ClusterExtractionPlan::ActualText { unicode, .. } => {
+                output.extend(b"/Span << /ActualText ")?;
+                write_utf16be_hex(output, unicode.iter().map(|scalar| scalar.get()), true)?;
+                output.extend(b" >> BDC\n")?;
+            }
+            ClusterExtractionPlan::Artifact { .. } => output.extend(b"/Artifact BMC\n")?,
+            ClusterExtractionPlan::PerCid { .. } => {}
+        }
+        let cid_count = cluster_plan_cid_count(extraction);
+        if cid_count != cluster_glyphs.len() {
+            return Err(PdfError::ResourcePlanMismatch);
+        }
+        for local_index in 0..cid_count {
+            let cid =
+                cluster_plan_cid(extraction, local_index).ok_or(PdfError::ResourcePlanMismatch)?;
+            let position = positions
+                .get(start + local_index)
+                .ok_or(PdfError::ContentStream)?;
+            output.extend(b"1 0 0 -1 ")?;
+            write_length_token(output, position.x)?;
+            output.push(b' ')?;
+            write_length_token(output, position.y)?;
+            output.extend(b" Tm ")?;
+            write_hex_string(output, &cid.to_be_bytes())?;
+            output.extend(b" Tj\n")?;
+        }
+        if matches!(
+            extraction,
+            ClusterExtractionPlan::ActualText { .. } | ClusterExtractionPlan::Artifact { .. }
+        ) {
+            output.extend(b"EMC\n")?;
+        }
+    }
+    output.extend(b"ET\n")
+}
+
+fn cluster_plan_cid_count(plan: &ClusterExtractionPlan) -> usize {
+    match plan {
+        ClusterExtractionPlan::PerCid { cids, .. }
+        | ClusterExtractionPlan::ActualText { cids, .. }
+        | ClusterExtractionPlan::Artifact { cids } => cids.len(),
+    }
+}
+
+fn cluster_plan_cid(plan: &ClusterExtractionPlan, index: usize) -> Option<u16> {
+    match plan {
+        ClusterExtractionPlan::PerCid { cids, .. }
+        | ClusterExtractionPlan::ActualText { cids, .. }
+        | ClusterExtractionPlan::Artifact { cids } => cids.get(index).map(|cid| cid.get()),
+    }
+}
+
+fn cluster_plan_for<'a>(
+    font: &'a FrozenPdfFontPlan,
+    extraction: &ClusterExtraction,
+    glyphs: &[DisplayGlyph],
+) -> Option<&'a ClusterExtractionPlan> {
+    font.cluster_plans().iter().find(|plan| {
+        let extraction_matches = match (extraction, plan) {
+            (
+                ClusterExtraction::Unicode { text_span },
+                ClusterExtractionPlan::PerCid {
+                    text_span: planned, ..
+                }
+                | ClusterExtractionPlan::ActualText {
+                    text_span: planned, ..
+                },
+            ) => text_span == planned,
+            (ClusterExtraction::Artifact, ClusterExtractionPlan::Artifact { .. }) => true,
+            _ => false,
+        };
+        if !extraction_matches {
+            return false;
+        }
+        if cluster_plan_cid_count(plan) != glyphs.len() {
+            return false;
+        }
+        glyphs.iter().enumerate().all(|(index, glyph)| {
+            let Some(cid) = cluster_plan_cid(plan, index) else {
+                return false;
+            };
+            let subset = font
+                .subset_plan()
+                .glyphs
+                .iter()
+                .find(|binding| binding.original_gid == glyph.original_gid)
+                .map(|binding| binding.subset_gid);
+            let cid_subset = font
+                .subset_plan()
+                .cids
+                .get(usize::from(cid) - 1)
+                .filter(|binding| binding.cid.get() == cid)
+                .map(|binding| binding.subset_gid);
+            subset.is_some() && subset == cid_subset
+        })
+    })
+}
+
+fn write_length_token(output: &mut LimitedPdfBuffer, length: Length) -> Result<(), PdfError> {
+    write_fixed_token(output, i128::from(length.raw()), 65_536)
+}
+
+fn write_fixed_token(
+    output: &mut LimitedPdfBuffer,
+    numerator: i128,
+    denominator: i128,
+) -> Result<(), PdfError> {
+    if numerator == 0 {
+        return output.push(b'0');
+    }
+    let scaled = numerator
+        .checked_mul(1_000_000)
+        .ok_or(PdfError::ContentStream)?;
+    let coefficient = round_ratio_ties_even(scaled, denominator)
+        .and_then(|value| i64::try_from(value).ok())
+        .ok_or(PdfError::ContentStream)?;
+    write_pdf_decimal(output, PdfDecimal::new(coefficient, 6)?)
 }
 
 fn round_ratio_ties_even(numerator: i128, denominator: i128) -> Option<i128> {
@@ -1548,6 +3176,7 @@ fn collect_references(
             output.insert(*font_program_object);
         }
         IndirectObjectBody::FrozenFontProgram(_)
+        | IndirectObjectBody::FrozenImageAlphaMask(_)
         | IndirectObjectBody::FrozenImageResource {
             alpha_mask_object: None,
             ..
@@ -1599,9 +3228,71 @@ fn collect_value_references(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typaxis_core::{ResourceLimits, ValidatedResourceLimits};
+    use typaxis_core::{EffectiveDataVersions, ResourceLimits, ValidatedResourceLimits};
     fn name(value: &[u8]) -> PdfName {
         PdfName::from_bytes(value.to_vec()).unwrap()
+    }
+    fn effective_config(
+        compression: PdfStreamCompression,
+        limits: ResourceLimits,
+    ) -> EffectiveConfig {
+        EffectiveConfig::new(
+            false,
+            compression,
+            vec![],
+            vec![],
+            EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap(),
+            limits,
+        )
+        .unwrap()
+    }
+    fn positive_points(points: i64) -> PositiveLength {
+        PositiveLength::new(Length::from_raw(points * 65_536).unwrap()).unwrap()
+    }
+    fn freeze_for_serialization(
+        builder: UntrustedPdfObjectGraphBuilder,
+        root: ObjectId,
+    ) -> FrozenPdfGraph {
+        let graph = builder.validate_untrusted(root).unwrap();
+        let object_count = u32::try_from(graph.objects.len()).unwrap();
+        FrozenPdfGraph {
+            graph,
+            selected_layout_fingerprint: LayoutStateFingerprint::from_untrusted_bytes([3; 32]),
+            pages: vec![FrozenPageGeometry {
+                page_index: 0,
+                master_id: MasterId::new("default").unwrap(),
+                width: positive_points(100),
+                height: positive_points(100),
+            }],
+            page_count: 1,
+            object_count,
+            font_bindings: vec![],
+            image_bindings: vec![],
+        }
+    }
+    fn blank_content_graph() -> FrozenPdfGraph {
+        let (mut builder, root) = valid_graph();
+        let content_id = ObjectId::new(4).unwrap();
+        let page_id = ObjectId::new(3).unwrap();
+        let Some(IndirectObjectBody::Value(PdfValue::Dictionary(page))) =
+            builder.objects.get_mut(&page_id)
+        else {
+            panic!("fixture page must be a dictionary");
+        };
+        page.insert(name(b"Contents"), PdfValue::Reference(content_id));
+        builder
+            .insert(
+                content_id,
+                IndirectObjectBody::DisplayPageContent(DisplayPage {
+                    page_index: 0,
+                    width: positive_points(100),
+                    height: positive_points(100),
+                    commands: vec![],
+                    annotations: vec![],
+                }),
+            )
+            .unwrap();
+        freeze_for_serialization(builder, root)
     }
     fn valid_graph() -> (UntrustedPdfObjectGraphBuilder, ObjectId) {
         let catalog_id = ObjectId::new(1).unwrap();
@@ -1748,6 +3439,296 @@ mod tests {
     fn decimal_is_canonical() {
         assert_eq!(PdfDecimal::new(12_300, 3).unwrap().canonical(), "12.3");
         assert_eq!(PdfDecimal::new(-5, 2).unwrap().canonical(), "-0.05");
+    }
+    #[test]
+    fn allocation_free_numeric_tokens_match_the_public_canonical_form() {
+        let mut output = LimitedPdfBuffer::new(1_024);
+        output.integer(i64::MIN).unwrap();
+        output.push(b' ').unwrap();
+        output.unsigned(u64::MAX).unwrap();
+        output.push(b' ').unwrap();
+        output.zero_padded_unsigned(42, 10).unwrap();
+        assert_eq!(
+            output.bytes,
+            b"-9223372036854775808 18446744073709551615 0000000042"
+        );
+
+        for decimal in [
+            PdfDecimal::new(1_200, 0).unwrap(),
+            PdfDecimal::new(12_300, 3).unwrap(),
+            PdfDecimal::new(-5, 2).unwrap(),
+            PdfDecimal::new(i64::MIN, 12).unwrap(),
+        ] {
+            let mut encoded = LimitedPdfBuffer::new(64);
+            write_pdf_decimal(&mut encoded, decimal).unwrap();
+            assert_eq!(encoded.bytes, decimal.canonical().as_bytes());
+        }
+    }
+    #[test]
+    fn serializer_emits_deterministic_classic_xref_and_all_direct_values() {
+        let (mut builder, root) = valid_graph();
+        let values_id = ObjectId::new(4).unwrap();
+        let Some(IndirectObjectBody::Value(PdfValue::Dictionary(catalog))) =
+            builder.objects.get_mut(&root)
+        else {
+            panic!("fixture root must be a catalog dictionary");
+        };
+        catalog.insert(name(b"Extras"), PdfValue::Reference(values_id));
+        let mut nested = PdfDictionary::new();
+        nested.insert(name(b"K"), PdfValue::ByteString(b"V".to_vec()));
+        builder
+            .insert(
+                values_id,
+                IndirectObjectBody::Value(PdfValue::Array(vec![
+                    PdfValue::Null,
+                    PdfValue::Bool(true),
+                    PdfValue::Bool(false),
+                    PdfValue::Integer(-7),
+                    PdfValue::Decimal(PdfDecimal::new(12_300, 3).unwrap()),
+                    PdfValue::Name(name(b"A B")),
+                    PdfValue::ByteString(vec![0, b'(', b')', 0xff]),
+                    PdfValue::Array(vec![PdfValue::Reference(root)]),
+                    PdfValue::Dictionary(nested),
+                ])),
+            )
+            .unwrap();
+        let graph = freeze_for_serialization(builder, root);
+        let config = effective_config(PdfStreamCompression::None, ResourceLimits::default());
+        let first = PdfBackend::serialize(graph.clone(), &config).unwrap();
+        let second = PdfBackend::serialize(graph, &config).unwrap();
+        assert_eq!(first.bytes(), second.bytes());
+        assert_eq!(first.content_hash(), typaxis_core::sha256(first.bytes()));
+        assert_eq!(first.config_fingerprint(), config.fingerprint());
+        assert_eq!(first.object_count(), 4);
+        assert!(first.bytes().starts_with(b"%PDF-1.7\n"));
+        let direct_values = b"[null true false -7 12.3 /A#20B <002829FF> [1 0 R] << /K <56> >>]";
+        assert!(first
+            .bytes()
+            .windows(direct_values.len())
+            .any(|window| window == direct_values));
+
+        let bytes = first.bytes();
+        let xref = bytes
+            .windows(b"xref\n".len())
+            .position(|window| window == b"xref\n")
+            .unwrap();
+        let xref_text = std::str::from_utf8(&bytes[xref..]).unwrap();
+        let lines: Vec<_> = xref_text.lines().collect();
+        assert_eq!(lines[0], "xref");
+        assert_eq!(lines[1], "0 5");
+        assert_eq!(lines[2], "0000000000 65535 f ");
+        for object in 1..=4u32 {
+            let entry = lines[usize::try_from(object).unwrap() + 2];
+            assert_eq!(entry.len(), 19);
+            assert_eq!(&entry[11..16], "00000");
+            assert_eq!(&entry[17..], "n ");
+            let offset: usize = entry[..10].parse().unwrap();
+            assert!(bytes[offset..].starts_with(format!("{object} 0 obj\n").as_bytes()));
+        }
+        let startxref = xref_text
+            .split("startxref\n")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        assert_eq!(startxref, xref);
+        assert!(xref_text.ends_with("%%EOF\n"));
+    }
+
+    #[test]
+    fn blank_page_content_has_one_top_left_root_transform() {
+        let graph = blank_content_graph();
+        let config = effective_config(PdfStreamCompression::None, ResourceLimits::default());
+        let receipt = PdfBackend::serialize(graph, &config).unwrap();
+        let expected = b"stream\nq\n1 0 0 -1 0 100 cm\nQ\n\nendstream";
+        assert!(receipt
+            .bytes()
+            .windows(expected.len())
+            .any(|window| window == expected));
+        assert_eq!(receipt.stream_compression(), PdfStreamCompression::None);
+    }
+
+    #[test]
+    fn image_placement_counter_reflects_the_page_root_transform() {
+        let mut output = LimitedPdfBuffer::new(1_024);
+        write_image_placement(
+            &mut output,
+            &name(b"Im0"),
+            Rect::new(
+                Length::from_raw(10 * 65_536).unwrap(),
+                Length::from_raw(20 * 65_536).unwrap(),
+                positive_points(30),
+                positive_points(40),
+            ),
+        )
+        .unwrap();
+        assert_eq!(output.bytes, b"q\n30 0 0 -40 10 60 cm\n/Im0 Do\nQ\n");
+    }
+
+    #[test]
+    fn flate_mode_uses_deterministic_valid_stored_zlib_blocks() {
+        assert_eq!(
+            zlib_stored(b"hello", 16).unwrap(),
+            [
+                &[0x78, 0x01, 0x01, 0x05, 0x00, 0xfa, 0xff][..],
+                &b"hello"[..],
+                &[0x06, 0x2c, 0x02, 0x15][..],
+            ]
+            .concat()
+        );
+        let graph = blank_content_graph();
+        let config = effective_config(PdfStreamCompression::Flate, ResourceLimits::default());
+        let receipt = PdfBackend::serialize(graph, &config).unwrap();
+        assert!(receipt
+            .bytes()
+            .windows(b"/Filter /FlateDecode".len())
+            .any(|window| window == b"/Filter /FlateDecode"));
+        assert_eq!(receipt.stream_compression(), PdfStreamCompression::Flate);
+    }
+
+    #[test]
+    fn stream_owned_entries_merge_without_temporary_dictionaries() {
+        let mut dictionary = PdfDictionary::new();
+        dictionary.insert(name(b"A"), PdfValue::Integer(1));
+        dictionary.insert(name(b"Z"), PdfValue::Integer(2));
+        let mut output = LimitedPdfBuffer::new(1_024);
+        write_stream(&mut output, &dictionary, b"abc", Some(b"FlateDecode")).unwrap();
+        assert_eq!(
+            output.bytes,
+            b"<< /A 1 /Filter /FlateDecode /Length 3 /Z 2 >>\nstream\nabc\nendstream"
+        );
+    }
+
+    #[test]
+    fn receipt_hashing_matches_sha256_without_copying_the_pdf() {
+        for length in [0usize, 1, 55, 56, 63, 64, 65, 1_000] {
+            let bytes: Vec<_> = (0..length)
+                .map(|index| u8::try_from(index % 251).unwrap())
+                .collect();
+            assert_eq!(pdf_sha256(&bytes), typaxis_core::sha256(&bytes));
+            for chunk_size in [1usize, 7, 64, 127] {
+                let mut streaming = PdfSha256::new();
+                for chunk in bytes.chunks(chunk_size) {
+                    streaming.update(chunk);
+                }
+                assert_eq!(streaming.finish(), typaxis_core::sha256(&bytes));
+            }
+        }
+    }
+
+    #[test]
+    fn receipt_streaming_aggregates_short_writes_and_rejects_partial_output() {
+        #[derive(Default)]
+        struct ShortWriter {
+            bytes: Vec<u8>,
+            max_write: usize,
+            write_calls: usize,
+        }
+        impl Write for ShortWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.write_calls += 1;
+                let written = bytes.len().min(self.max_write);
+                self.bytes.extend_from_slice(&bytes[..written]);
+                Ok(written)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        struct FailingWriter {
+            bytes: Vec<u8>,
+            accepted_limit: usize,
+        }
+        impl Write for FailingWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if self.bytes.len() == self.accepted_limit {
+                    return Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"));
+                }
+                let remaining = self.accepted_limit - self.bytes.len();
+                let written = bytes.len().min(remaining);
+                self.bytes.extend_from_slice(&bytes[..written]);
+                Ok(written)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let config = effective_config(PdfStreamCompression::None, ResourceLimits::default());
+        let receipt = PdfBackend::serialize(blank_content_graph(), &config).unwrap();
+        let mut short = ShortWriter {
+            max_write: 7,
+            ..ShortWriter::default()
+        };
+        let facts = receipt.write_streaming(&mut short).unwrap();
+        assert!(short.write_calls > 1);
+        assert_eq!(short.bytes, receipt.bytes());
+        assert_eq!(facts.byte_length(), receipt.byte_length());
+        assert_eq!(facts.content_hash(), receipt.content_hash());
+        assert_eq!(
+            facts.selected_layout_fingerprint(),
+            receipt.selected_layout_fingerprint()
+        );
+        assert_eq!(facts.page_count(), receipt.page_count());
+        assert_eq!(facts.object_count(), receipt.object_count());
+        assert_eq!(facts.stream_compression(), receipt.stream_compression());
+        assert_eq!(facts.config_fingerprint(), receipt.config_fingerprint());
+
+        let accepted_limit = receipt.bytes().len() / 2;
+        let mut failing = FailingWriter {
+            bytes: Vec::new(),
+            accepted_limit,
+        };
+        let error = receipt.write_streaming(&mut failing).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(failing.bytes, receipt.bytes()[..accepted_limit]);
+
+        let mut mismatched = PdfBackend::serialize(blank_content_graph(), &config).unwrap();
+        mismatched.sha256[0] ^= 0xff;
+        let mut sink = Vec::new();
+        let error = mismatched.write_streaming(&mut sink).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(sink, mismatched.bytes());
+    }
+
+    #[test]
+    fn serializer_enforces_output_and_classic_xref_limits_before_writes() {
+        let limits = ResourceLimits {
+            max_output_bytes: 64,
+            ..ResourceLimits::default()
+        };
+        let config = effective_config(PdfStreamCompression::None, limits);
+        assert_eq!(
+            PdfBackend::serialize(blank_content_graph(), &config),
+            Err(PdfError::OutputTooLarge)
+        );
+        let object_limited = effective_config(
+            PdfStreamCompression::None,
+            ResourceLimits {
+                max_pdf_objects: 3,
+                ..ResourceLimits::default()
+            },
+        );
+        assert_eq!(
+            PdfBackend::serialize(blank_content_graph(), &object_limited),
+            Err(PdfError::ObjectLimit)
+        );
+
+        let mut entry = LimitedPdfBuffer::new(32);
+        assert_eq!(
+            write_xref_entry(&mut entry, CLASSIC_XREF_MAX_OFFSET),
+            Ok(())
+        );
+        let before = entry.bytes.clone();
+        assert_eq!(
+            write_xref_entry(&mut entry, CLASSIC_XREF_MAX_OFFSET + 1),
+            Err(PdfError::OutputTooLarge)
+        );
+        assert_eq!(entry.bytes, before);
     }
     #[test]
     fn valid_page_tree_freezes() {

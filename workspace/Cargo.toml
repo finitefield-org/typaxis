@@ -21,6 +21,7 @@ members = [
   "crates/typaxis-testkit",
   "crates/typaxis-cli",
 ]
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"

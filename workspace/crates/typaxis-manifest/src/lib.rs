@@ -19,7 +19,7 @@ use typaxis_core::{
 };
 pub use typaxis_core::{OutputSink, PdfStreamCompression};
 use typaxis_pagination::{ConvergenceStatus, PaginationResult};
-use typaxis_pdf::VerifiedPdfBytesReceipt;
+use typaxis_pdf::{PdfStreamWriteFacts, VerifiedPdfBytesReceipt};
 use typaxis_resources::AdmittedResourceLedgerToken;
 use typaxis_syntax::{PackageEpochIdentity, ValidatedParsedPackage};
 use typaxis_text::SourceRecord;
@@ -423,7 +423,7 @@ impl BuildOutputCommitContext {
         }
         let facts = validate_standalone_pdf_output_facts(&self, &pdf)
             .map_err(PdfSinkCommitError::InvalidFacts)?;
-        let durability = commit_pdf_bytes(&self.execution, pdf.bytes())?;
+        let durability = commit_verified_pdf(&self.execution, &pdf)?;
         let receipt = self.issue_receipt(facts);
         match durability {
             SinkCommitDurability::Durable => Ok(receipt),
@@ -439,6 +439,9 @@ impl BuildOutputCommitContext {
     /// Commits a manifest-bound publication that has already passed every
     /// fallible built-manifest check. The manifest and sink receipt are
     /// released together only after the configured sink accepts all bytes.
+    /// If the PDF sink rejects the bytes, this consumes the failed-manifest
+    /// counterpart sealed by the same preflight and attempts its atomic
+    /// publication before returning the original sink error.
     ///
     /// ```compile_fail
     /// # use typaxis_manifest::{BuildOutputCommitContext, PreparedBuiltPublication};
@@ -462,8 +465,24 @@ impl BuildOutputCommitContext {
                 PdfSinkCommitError::ManifestPreflightRequired,
             ))?
             .clone();
-        let pdf_durability = commit_pdf_bytes(&self.execution, prepared.pdf.bytes())
-            .map_err(BuiltPublicationCommitError::Pdf)?;
+        let pdf_durability = match commit_verified_pdf(&self.execution, &prepared.pdf) {
+            Ok(durability) => durability,
+            Err(source) => {
+                let failed = PreparedFailedPublication {
+                    binding: prepared.binding,
+                    manifest: prepared.failed_manifest,
+                    manifest_bytes: prepared.failed_manifest_bytes,
+                };
+                let failed_manifest = match self.commit_prepared_failed(failed) {
+                    Ok(publication) => FailedManifestPublication::Committed(Box::new(publication)),
+                    Err(error) => FailedManifestPublication::CommitError(Box::new(error)),
+                };
+                return Err(BuiltPublicationCommitError::PdfSinkFailed {
+                    source,
+                    failed_manifest,
+                });
+            }
+        };
         let receipt = self.issue_receipt(prepared.output);
         if let SinkCommitDurability::PublishedButDurabilityUncertain(source) = pdf_durability {
             return Err(BuiltPublicationCommitError::PdfDurability {
@@ -719,10 +738,18 @@ impl ManifestPublicationContext {
         let output = validate_pdf_output_facts(&self, pagination, &pdf)?;
         let manifest = prepare_built_manifest(&self, package, admitted, pagination, output)?;
         let manifest_bytes = manifest.manifest().to_canonical_json_bytes();
+        let mut failure_ledger = self.begin_admission_ledger();
+        failure_ledger.admit_validated_package_sources(package)?;
+        failure_ledger.admit_resources(admitted)?;
+        let failed_manifest =
+            ValidatedBuildManifest::failed(&self, &failure_ledger, Some(pagination))?;
+        let failed_manifest_bytes = failed_manifest.manifest().to_canonical_json_bytes();
         Ok(PreparedBuiltPublication {
             binding: self.binding(),
             manifest,
             manifest_bytes,
+            failed_manifest,
+            failed_manifest_bytes,
             pdf,
             output,
         })
@@ -926,13 +953,17 @@ impl ManifestAdmissionLedger {
 }
 
 /// One-shot capability proving that all built-publication invariants were
-/// checked before output I/O. Its manifest and PDF bytes are intentionally
-/// inaccessible until `BuildOutputCommitContext::commit_prepared_built`
-/// consumes the token through the exact output session captured here.
+/// checked before output I/O. Both terminal manifest shapes are sealed here:
+/// the built record remains inaccessible until PDF commit, while its
+/// output-null failed counterpart can only be released if that sink commit
+/// fails. `BuildOutputCommitContext::commit_prepared_built` consumes the token
+/// through the exact output session captured here.
 pub struct PreparedBuiltPublication {
     binding: PublicationBinding,
     manifest: ValidatedBuildManifest,
     manifest_bytes: Vec<u8>,
+    failed_manifest: ValidatedBuildManifest,
+    failed_manifest_bytes: Vec<u8>,
     pdf: VerifiedPdfBytesReceipt,
     output: PreparedPdfOutputFacts,
 }
@@ -1066,6 +1097,14 @@ pub enum PdfSinkCommitError {
 pub enum BuiltPublicationCommitError {
     /// The PDF was not committed.
     Pdf(PdfSinkCommitError),
+    /// The PDF sink rejected the bytes before issuing a receipt. A terminal
+    /// output-null manifest publication was attempted from the failed record
+    /// sealed during built preflight. `CommitError` can itself own a visible
+    /// publication when only its directory synchronization failed.
+    PdfSinkFailed {
+        source: PdfSinkCommitError,
+        failed_manifest: FailedManifestPublication,
+    },
     /// The PDF target became visible, but its containing directory could not
     /// be synchronized. No manifest write was attempted.
     PdfDurability {
@@ -1098,6 +1137,14 @@ pub enum BuiltPublicationCommitError {
     },
 }
 
+/// Outcome of publishing the terminal failed manifest after the PDF sink
+/// rejected a fully preflighted built publication.
+#[derive(Debug)]
+pub enum FailedManifestPublication {
+    Committed(Box<CommittedFailedPublication>),
+    CommitError(Box<ManifestSinkCommitError>),
+}
+
 #[derive(Debug)]
 pub enum ManifestSinkCommitError {
     InvalidFacts(BuildManifestError),
@@ -1117,9 +1164,9 @@ enum SinkCommitDurability {
     PublishedButDurabilityUncertain(io::Error),
 }
 
-fn commit_pdf_bytes(
+fn commit_verified_pdf(
     execution: &BuildExecutionContext,
-    bytes: &[u8],
+    pdf: &VerifiedPdfBytesReceipt,
 ) -> Result<SinkCommitDurability, PdfSinkCommitError> {
     match execution.output_sink() {
         OutputSink::Stdout => {
@@ -1128,20 +1175,51 @@ fn commit_pdf_bytes(
                 .map_err(PdfSinkCommitError::Execution)?;
             let stdout = io::stdout();
             let mut sink = stdout.lock();
-            sink.write_all(bytes).map_err(PdfSinkCommitError::Io)?;
+            let streamed = pdf
+                .write_streaming(&mut sink)
+                .map_err(PdfSinkCommitError::Io)?;
+            validate_streamed_pdf_facts(pdf, streamed).map_err(PdfSinkCommitError::InvalidFacts)?;
             sink.flush().map_err(PdfSinkCommitError::Io)?;
             Ok(SinkCommitDurability::Durable)
         }
-        OutputSink::File => {
-            let target = execution.output_path().ok_or_else(|| {
-                PdfSinkCommitError::Io(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "file output has no target",
-                ))
-            })?;
-            commit_file_bytes(execution, target.as_path(), bytes)
-        }
+        OutputSink::File => commit_file_pdf_bytes(execution, pdf.bytes()),
     }
+}
+
+fn validate_streamed_pdf_facts(
+    pdf: &VerifiedPdfBytesReceipt,
+    streamed: PdfStreamWriteFacts,
+) -> Result<(), BuildManifestError> {
+    if streamed.byte_length() != pdf.byte_length() || streamed.content_hash() != pdf.content_hash()
+    {
+        return Err(BuildManifestError::OutputReceiptBindingMismatch);
+    }
+    if streamed.selected_layout_fingerprint() != pdf.selected_layout_fingerprint()
+        || streamed.page_count() != pdf.page_count()
+        || streamed.object_count() != pdf.object_count()
+    {
+        return Err(BuildManifestError::PdfGraphReceiptMismatch);
+    }
+    if streamed.stream_compression() != pdf.stream_compression() {
+        return Err(BuildManifestError::StreamCompressionMismatch);
+    }
+    if streamed.config_fingerprint() != pdf.config_fingerprint() {
+        return Err(BuildManifestError::ConfigFingerprintMismatch);
+    }
+    Ok(())
+}
+
+fn commit_file_pdf_bytes(
+    execution: &BuildExecutionContext,
+    bytes: &[u8],
+) -> Result<SinkCommitDurability, PdfSinkCommitError> {
+    let target = execution.output_path().ok_or_else(|| {
+        PdfSinkCommitError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "file output has no target",
+        ))
+    })?;
+    commit_file_bytes(execution, target.as_path(), bytes)
 }
 
 fn commit_file_bytes(
@@ -1760,7 +1838,11 @@ fn validate_admission_limits(
     binding: &PublicationBinding,
 ) -> Result<(), BuildManifestError> {
     let limits = binding.limits.get();
-    if sources.len().saturating_sub(1) > limits.max_include_files as usize {
+    let include_count = sources
+        .len()
+        .checked_sub(1)
+        .ok_or(BuildManifestError::MissingEntryInput)?;
+    if include_count > limits.max_include_files as usize {
         return Err(BuildManifestError::IncludeFileLimit);
     }
     if sources
@@ -2084,12 +2166,16 @@ mod tests {
         BuildExecutionContext, ConfigResourceRoot, EffectiveConfig, EffectiveDataVersions,
         HostPath, ReplacePolicy, ResourceLimits,
     };
+    use typaxis_display_list::ValidatedDisplayDocument;
     use typaxis_layout::{FlowCursor, FlowTree, LayoutEpoch, PageContext, ResolvedPageSelection};
     use typaxis_pagination::{
         InitialPaginationState, LayoutPass, LayoutPassInput, PageFrameKind, PageFramePlan,
         PagePlan, PaginationInput, PaginationOptions, PaginationOutcome,
     };
-    use typaxis_resources::AdmittedResourceResolver;
+    use typaxis_pdf::PdfBackend;
+    use typaxis_resources::{
+        AdmittedResourceLedger, AdmittedResourceResolver, FrozenPdfResourcePlans,
+    };
     use typaxis_syntax::{
         PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser, SourceFile,
         ValidatedParsedPackage,
@@ -2281,6 +2367,42 @@ mod tests {
         .into_result()
     }
 
+    fn serialized_pdf_for(
+        package: &ValidatedParsedPackage,
+        admitted: &AdmittedResourceLedger,
+        pagination: &PaginationResult,
+        config: &EffectiveConfig,
+    ) -> VerifiedPdfBytesReceipt {
+        let display =
+            ValidatedDisplayDocument::paint_blank_selected(package, pagination, config).unwrap();
+        let resources = FrozenPdfResourcePlans::from_verified_receipts(
+            &display,
+            admitted,
+            config.limits(),
+            vec![],
+        )
+        .unwrap();
+        let graph = PdfBackend::build(display, resources, config.limits()).unwrap();
+        PdfBackend::serialize(graph, config).unwrap()
+    }
+
+    #[test]
+    fn streamed_pdf_facts_close_over_the_serializer_receipt() {
+        let config = effective_config();
+        let package = validated_package("");
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, config.limits())
+            .unwrap()
+            .finish()
+            .unwrap();
+        let pagination = pagination_for(&package, &admitted);
+        let pdf = serialized_pdf_for(&package, &admitted, &pagination, &config);
+        let mut sink = Vec::new();
+        let streamed = pdf.write_streaming(&mut sink).unwrap();
+
+        assert_eq!(sink, pdf.bytes());
+        assert_eq!(validate_streamed_pdf_facts(&pdf, streamed), Ok(()));
+    }
+
     #[test]
     fn failed_factory_owns_only_publication_bound_admission_facts() {
         let publication = publication();
@@ -2348,9 +2470,9 @@ mod tests {
             ReplacePolicy::NoReplace,
         )
         .unwrap();
-        commit_pdf_bytes(&no_replace, b"first complete pdf").unwrap();
+        commit_file_pdf_bytes(&no_replace, b"first complete pdf").unwrap();
         assert_eq!(fs::read(&output).unwrap(), b"first complete pdf");
-        let second = commit_pdf_bytes(&no_replace, b"must not replace").unwrap_err();
+        let second = commit_file_pdf_bytes(&no_replace, b"must not replace").unwrap_err();
         assert!(matches!(
             second,
             PdfSinkCommitError::Io(error) if error.kind() == io::ErrorKind::AlreadyExists
@@ -2364,7 +2486,7 @@ mod tests {
             ReplacePolicy::Replace,
         )
         .unwrap();
-        commit_pdf_bytes(&replace, b"replacement pdf").unwrap();
+        commit_file_pdf_bytes(&replace, b"replacement pdf").unwrap();
         assert_eq!(fs::read(&output).unwrap(), b"replacement pdf");
         fs::remove_file(output).unwrap();
     }
@@ -2404,7 +2526,7 @@ mod tests {
         fs::remove_file(&manifest_path).unwrap();
         fs::hard_link(&output, &manifest_path).unwrap();
         assert!(matches!(
-            commit_pdf_bytes(&execution, b"new pdf"),
+            commit_file_pdf_bytes(&execution, b"new pdf"),
             Err(PdfSinkCommitError::Execution(
                 BuildExecutionError::AliasedWriteTarget
             ))
@@ -2510,6 +2632,144 @@ mod tests {
         assert!(!output_path.exists());
 
         fs::remove_file(manifest_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepared_build_pdf_sink_failure_publishes_failed_manifest() {
+        let output_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("target");
+        fs::create_dir_all(&output_root).unwrap();
+        let ordinal = OUTPUT_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let stem = format!(
+            "manifest-built-sink-failure-{}-{ordinal}",
+            std::process::id()
+        );
+        let output_path = output_root.join(format!("{stem}.pdf"));
+        let manifest_path = output_root.join(format!("{stem}.json"));
+        fs::write(&output_path, b"existing pdf must be preserved").unwrap();
+
+        let config = effective_config();
+        let package = validated_package("");
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, config.limits())
+            .unwrap()
+            .finish()
+            .unwrap();
+        let pagination = pagination_for(&package, &admitted);
+        let pdf = serialized_pdf_for(&package, &admitted, &pagination, &config);
+        let execution = BuildExecutionContext::from_cli_token(
+            output_path.as_os_str(),
+            None,
+            Some(HostPath::new(manifest_path.clone()).unwrap()),
+            ReplacePolicy::NoReplace,
+        )
+        .unwrap();
+        let output = BuildOutputCommitContext::new(&config, &execution).unwrap();
+        let publication =
+            ManifestPublicationContext::new(&config, &output, shaper_identity(), &tables())
+                .unwrap();
+        let prepared = publication
+            .prepare_built(&package, admitted.token(), &pagination, pdf)
+            .unwrap();
+
+        let error = output.commit_prepared_built(prepared).unwrap_err();
+        let BuiltPublicationCommitError::PdfSinkFailed {
+            source,
+            failed_manifest,
+        } = error
+        else {
+            panic!("PDF no-replace failure must publish the sealed failed manifest");
+        };
+        assert!(matches!(
+            source,
+            PdfSinkCommitError::Io(error) if error.kind() == io::ErrorKind::AlreadyExists
+        ));
+        let FailedManifestPublication::Committed(committed) = failed_manifest else {
+            panic!("failed manifest must commit when its target is available");
+        };
+        assert_eq!(
+            committed.manifest().manifest().status(),
+            BuildStatus::Failed
+        );
+        assert!(committed.manifest().manifest().layout().is_some());
+        assert!(committed.manifest().manifest().output().is_none());
+
+        let manifest_bytes = fs::read(&manifest_path).unwrap();
+        assert!(manifest_bytes
+            .windows(17)
+            .any(|bytes| bytes == b"\"status\":\"failed\""));
+        assert!(manifest_bytes
+            .windows(13)
+            .any(|bytes| bytes == b"\"output\":null"));
+        assert_eq!(committed.receipt().bytes(), manifest_bytes.len() as u64);
+        assert_eq!(
+            fs::read(&output_path).unwrap(),
+            b"existing pdf must be preserved"
+        );
+
+        fs::remove_file(manifest_path).unwrap();
+        fs::remove_file(output_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn successful_pdf_commit_still_preserves_manifest_failure_receipt() {
+        let output_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("target");
+        fs::create_dir_all(&output_root).unwrap();
+        let ordinal = OUTPUT_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let stem = format!("manifest-post-pdf-failure-{}-{ordinal}", std::process::id());
+        let output_path = output_root.join(format!("{stem}.pdf"));
+        let manifest_path = output_root.join(format!("{stem}.json"));
+        fs::write(&manifest_path, b"existing manifest must be preserved").unwrap();
+
+        let config = effective_config();
+        let package = validated_package("");
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, config.limits())
+            .unwrap()
+            .finish()
+            .unwrap();
+        let pagination = pagination_for(&package, &admitted);
+        let pdf = serialized_pdf_for(&package, &admitted, &pagination, &config);
+        let expected_pdf_bytes = pdf.byte_length();
+        let execution = BuildExecutionContext::from_cli_token(
+            output_path.as_os_str(),
+            None,
+            Some(HostPath::new(manifest_path.clone()).unwrap()),
+            ReplacePolicy::NoReplace,
+        )
+        .unwrap();
+        let output = BuildOutputCommitContext::new(&config, &execution).unwrap();
+        let publication =
+            ManifestPublicationContext::new(&config, &output, shaper_identity(), &tables())
+                .unwrap();
+        let prepared = publication
+            .prepare_built(&package, admitted.token(), &pagination, pdf)
+            .unwrap();
+
+        let error = output.commit_prepared_built(prepared).unwrap_err();
+        let BuiltPublicationCommitError::ManifestIo {
+            pdf_receipt,
+            source,
+        } = error
+        else {
+            panic!("a post-PDF no-replace failure must retain the PDF receipt");
+        };
+        assert_eq!(source.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(pdf_receipt.bytes(), expected_pdf_bytes);
+        assert_eq!(
+            fs::metadata(&output_path).unwrap().len(),
+            expected_pdf_bytes
+        );
+        assert_eq!(
+            fs::read(&manifest_path).unwrap(),
+            b"existing manifest must be preserved"
+        );
+
+        fs::remove_file(manifest_path).unwrap();
+        fs::remove_file(output_path).unwrap();
     }
 
     #[test]

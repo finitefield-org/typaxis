@@ -6,7 +6,10 @@ use typaxis_core::{DisplayTextSpan, FontInstanceId, ImageResourceId, ValidatedRe
 use typaxis_display_list::{
     ClusterExtraction, DisplayCommand, DisplayDocument, ValidatedDisplayDocument,
 };
-use typaxis_font::{Cid, FontSubsetPlan, OriginalGlyphId, UnicodeScalar};
+use typaxis_font::{
+    Cid, CidBinding, FontSubsetPlan, GlyphSubsetBinding, OriginalGlyphId, SubsetGlyphId,
+    UnicodeScalar,
+};
 
 pub use typaxis_resource_admission::*;
 
@@ -167,9 +170,40 @@ pub enum ImageEncoding {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PdfImageIndirectObjectRole {
     ImageXObject,
+    SoftMaskImageXObject,
 }
 pub const PDF_IMAGE_OBJECT_BLUEPRINT: [PdfImageIndirectObjectRole; 1] =
     [PdfImageIndirectObjectRole::ImageXObject];
+pub const PDF_IMAGE_WITH_ALPHA_OBJECT_BLUEPRINT: [PdfImageIndirectObjectRole; 2] = [
+    PdfImageIndirectObjectRole::ImageXObject,
+    PdfImageIndirectObjectRole::SoftMaskImageXObject,
+];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FrozenPdfAlphaMask {
+    encoded_bytes: Vec<u8>,
+    width: NonZeroU32,
+    height: NonZeroU32,
+    bits_per_component: u8,
+    encoding: ImageEncoding,
+}
+impl FrozenPdfAlphaMask {
+    pub fn encoded_bytes(&self) -> &[u8] {
+        &self.encoded_bytes
+    }
+    pub const fn width(&self) -> NonZeroU32 {
+        self.width
+    }
+    pub const fn height(&self) -> NonZeroU32 {
+        self.height
+    }
+    pub const fn bits_per_component(&self) -> u8 {
+        self.bits_per_component
+    }
+    pub const fn encoding(&self) -> ImageEncoding {
+        self.encoding
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FrozenPdfImagePlan {
@@ -181,7 +215,7 @@ pub struct FrozenPdfImagePlan {
     color_space: ImageColorSpace,
     bits_per_component: u8,
     encoding: ImageEncoding,
-    alpha_mask: Option<ImageResourceId>,
+    alpha_mask: Option<FrozenPdfAlphaMask>,
 }
 impl FrozenPdfImagePlan {
     pub const fn image_id(&self) -> ImageResourceId {
@@ -208,14 +242,22 @@ impl FrozenPdfImagePlan {
     pub const fn encoding(&self) -> ImageEncoding {
         self.encoding
     }
-    pub const fn alpha_mask(&self) -> Option<ImageResourceId> {
-        self.alpha_mask
+    pub const fn alpha_mask(&self) -> Option<&FrozenPdfAlphaMask> {
+        self.alpha_mask.as_ref()
     }
-    pub const fn indirect_object_blueprint(&self) -> &[PdfImageIndirectObjectRole; 1] {
-        &PDF_IMAGE_OBJECT_BLUEPRINT
+    pub fn indirect_object_blueprint(&self) -> &[PdfImageIndirectObjectRole] {
+        if self.alpha_mask.is_some() {
+            &PDF_IMAGE_WITH_ALPHA_OBJECT_BLUEPRINT
+        } else {
+            &PDF_IMAGE_OBJECT_BLUEPRINT
+        }
     }
     pub const fn indirect_object_count(&self) -> u32 {
-        PDF_IMAGE_OBJECT_BLUEPRINT.len() as u32
+        if self.alpha_mask.is_some() {
+            2
+        } else {
+            1
+        }
     }
 }
 
@@ -257,7 +299,16 @@ pub struct ImageEncoderOutput {
     pub color_space: ImageColorSpace,
     pub bits_per_component: u8,
     pub encoding: ImageEncoding,
-    pub alpha_mask: Option<ImageResourceId>,
+    pub alpha_mask: Option<AlphaMaskEncoderOutput>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AlphaMaskEncoderOutput {
+    pub encoded_bytes: Vec<u8>,
+    pub width: NonZeroU32,
+    pub height: NonZeroU32,
+    pub bits_per_component: u8,
+    pub encoding: ImageEncoding,
 }
 impl VerifiedEncoderReceiptOwner {
     #[allow(dead_code)] // reserved for the in-crate PDF resource encoders
@@ -268,13 +319,15 @@ impl VerifiedEncoderReceiptOwner {
         &self,
         output: FontEncoderOutput,
     ) -> Result<VerifiedEncoderReceipt, ResourceError> {
+        let subset_bytes =
+            rewrite_subset_postscript_name(&output.subset_bytes, output.font_instance_id)?;
         let embedded_postscript_name =
-            extract_subset_postscript_name(&output.subset_bytes, output.font_instance_id)?;
+            extract_subset_postscript_name(&subset_bytes, output.font_instance_id)?;
         Ok(VerifiedEncoderReceipt(VerifiedEncoderOutput::Font(
             FrozenPdfFontPlan {
                 font_instance_id: output.font_instance_id,
                 admitted_sha256: output.admitted_sha256,
-                subset_bytes: output.subset_bytes,
+                subset_bytes,
                 embedded_postscript_name,
                 subset_plan: output.subset_plan,
                 metrics: output.metrics,
@@ -292,7 +345,13 @@ impl VerifiedEncoderReceiptOwner {
             color_space: output.color_space,
             bits_per_component: output.bits_per_component,
             encoding: output.encoding,
-            alpha_mask: output.alpha_mask,
+            alpha_mask: output.alpha_mask.map(|mask| FrozenPdfAlphaMask {
+                encoded_bytes: mask.encoded_bytes,
+                width: mask.width,
+                height: mask.height,
+                bits_per_component: mask.bits_per_component,
+                encoding: mask.encoding,
+            }),
         }))
     }
 }
@@ -429,7 +488,7 @@ impl FrozenPdfResourcePlans {
                 .collect();
             let mut required_glyphs = usage.glyphs.clone();
             required_glyphs.insert(OriginalGlyphId::new(0));
-            if planned_glyphs != required_glyphs {
+            if !required_glyphs.is_subset(&planned_glyphs) {
                 return Err(ResourceError::IncompleteUsagePlan);
             }
             let cid_bindings: BTreeMap<_, _> = plan
@@ -533,13 +592,26 @@ impl FrozenPdfResourcePlans {
                 || image.width() != plan.width
                 || image.height() != plan.height
                 || !matches!(plan.bits_per_component, 1 | 2 | 4 | 8 | 16)
-                || plan.alpha_mask == Some(plan.image_id)
             {
                 return Err(ResourceError::InvalidImagePlan);
             }
             aggregate_plan_bytes = aggregate_plan_bytes
                 .checked_add(encoded_bytes)
                 .ok_or(ResourceError::ResourceLimit)?;
+            if let Some(mask) = &plan.alpha_mask {
+                let mask_bytes = u64::try_from(mask.encoded_bytes.len())
+                    .map_err(|_| ResourceError::ResourceLimit)?;
+                if mask_bytes == 0
+                    || mask.width != plan.width
+                    || mask.height != plan.height
+                    || !matches!(mask.bits_per_component, 1 | 2 | 4 | 8 | 16)
+                {
+                    return Err(ResourceError::InvalidImagePlan);
+                }
+                aggregate_plan_bytes = aggregate_plan_bytes
+                    .checked_add(mask_bytes)
+                    .ok_or(ResourceError::ResourceLimit)?;
+            }
             if image_map.insert(plan.image_id, plan).is_some() {
                 return Err(ResourceError::DuplicatePlanKey);
             }
@@ -550,29 +622,7 @@ impl FrozenPdfResourcePlans {
         if aggregate_plan_bytes > limits.max_spool_bytes {
             return Err(ResourceError::ResourceLimit);
         }
-        let mut required_images = usage_binding.images.clone();
-        let mut pending: Vec<_> = required_images.iter().copied().collect();
-        while let Some(image_id) = pending.pop() {
-            let plan = image_map
-                .get(&image_id)
-                .ok_or(ResourceError::MissingLogicalResource)?;
-            if let Some(mask_id) = plan.alpha_mask {
-                let mask = image_map
-                    .get(&mask_id)
-                    .ok_or(ResourceError::MissingLogicalResource)?;
-                if mask.alpha_mask.is_some()
-                    || mask.color_space != ImageColorSpace::Gray
-                    || mask.width != plan.width
-                    || mask.height != plan.height
-                {
-                    return Err(ResourceError::InvalidImagePlan);
-                }
-                if required_images.insert(mask_id) {
-                    pending.push(mask_id);
-                }
-            }
-        }
-        if image_map.keys().copied().collect::<BTreeSet<_>>() != required_images {
+        if image_map.keys().copied().collect::<BTreeSet<_>>() != usage_binding.images {
             return Err(ResourceError::UnexpectedLogicalResource);
         }
         let mut fonts: Vec<_> = font_map.into_values().collect();
@@ -651,6 +701,217 @@ fn expected_subset_postscript_name(
     name.extend(tag.into_iter().map(char::from));
     name.push_str("+Typaxis");
     Ok(name)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SfntRewriteTable {
+    tag: [u8; 4],
+    bytes: Vec<u8>,
+}
+
+/// Rebuilds the bounded standalone TrueType table directory and replaces the
+/// complete `name` table with one canonical Windows Unicode BMP/English-US
+/// PostScript-name record. The rebuilt bytes are subsequently reparsed by the
+/// receipt owner; no caller-supplied name string crosses the trust boundary.
+fn rewrite_subset_postscript_name(
+    source: &[u8],
+    font_instance_id: FontInstanceId,
+) -> Result<Vec<u8>, ResourceError> {
+    if source.get(..4) != Some(&0x0001_0000u32.to_be_bytes()) {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let table_count = usize::from(read_subset_u16(source, 4)?);
+    let directory_len = 12usize
+        .checked_add(
+            table_count
+                .checked_mul(16)
+                .ok_or(ResourceError::InvalidFontPlan)?,
+        )
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    if directory_len > source.len() {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let mut tables = Vec::new();
+    tables
+        .try_reserve_exact(
+            table_count
+                .checked_add(1)
+                .ok_or(ResourceError::InvalidFontPlan)?,
+        )
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    let mut tags = BTreeSet::new();
+    for index in 0..table_count {
+        let record = 12usize
+            .checked_add(
+                index
+                    .checked_mul(16)
+                    .ok_or(ResourceError::InvalidFontPlan)?,
+            )
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let tag_end = record
+            .checked_add(4)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let tag: [u8; 4] = source
+            .get(record..tag_end)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .try_into()
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        if !tags.insert(tag) {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        let offset = usize::try_from(read_subset_u32(source, record + 8)?)
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        let length = usize::try_from(read_subset_u32(source, record + 12)?)
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        let end = offset
+            .checked_add(length)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        if offset < directory_len || end > source.len() {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        if &tag == b"name" {
+            continue;
+        }
+        let mut bytes = source[offset..end].to_vec();
+        if &tag == b"head" {
+            let adjustment = bytes.get_mut(8..12).ok_or(ResourceError::InvalidFontPlan)?;
+            adjustment.fill(0);
+        }
+        tables.push(SfntRewriteTable { tag, bytes });
+    }
+    tables.push(SfntRewriteTable {
+        tag: *b"name",
+        bytes: canonical_subset_name_table(font_instance_id)?,
+    });
+    tables.sort_by_key(|table| table.tag);
+
+    let table_count = u16::try_from(tables.len()).map_err(|_| ResourceError::InvalidFontPlan)?;
+    let directory_len = 12usize
+        .checked_add(
+            tables
+                .len()
+                .checked_mul(16)
+                .ok_or(ResourceError::InvalidFontPlan)?,
+        )
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let payload_len = tables.iter().try_fold(0usize, |total, table| {
+        let padded = table
+            .bytes
+            .len()
+            .checked_add(3)
+            .map(|length| length & !3)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        total
+            .checked_add(padded)
+            .ok_or(ResourceError::InvalidFontPlan)
+    })?;
+    let output_len = directory_len
+        .checked_add(payload_len)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let mut output = vec![0; output_len];
+    output[..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    output[4..6].copy_from_slice(&table_count.to_be_bytes());
+    let entry_selector = if table_count == 0 {
+        0
+    } else {
+        u16::try_from(u16::BITS - 1 - table_count.leading_zeros())
+            .map_err(|_| ResourceError::InvalidFontPlan)?
+    };
+    let search_range = 16u16
+        .checked_mul(
+            1u16.checked_shl(u32::from(entry_selector))
+                .ok_or(ResourceError::InvalidFontPlan)?,
+        )
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let range_shift = table_count
+        .checked_mul(16)
+        .and_then(|total| total.checked_sub(search_range))
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    output[6..8].copy_from_slice(&search_range.to_be_bytes());
+    output[8..10].copy_from_slice(&entry_selector.to_be_bytes());
+    output[10..12].copy_from_slice(&range_shift.to_be_bytes());
+
+    let mut payload_offset = directory_len;
+    let mut head_adjustment_offset = None;
+    for (index, table) in tables.iter().enumerate() {
+        let record = 12usize
+            .checked_add(
+                index
+                    .checked_mul(16)
+                    .ok_or(ResourceError::InvalidFontPlan)?,
+            )
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        output[record..record + 4].copy_from_slice(&table.tag);
+        output[record + 4..record + 8].copy_from_slice(&sfnt_checksum(&table.bytes).to_be_bytes());
+        output[record + 8..record + 12].copy_from_slice(
+            &u32::try_from(payload_offset)
+                .map_err(|_| ResourceError::InvalidFontPlan)?
+                .to_be_bytes(),
+        );
+        output[record + 12..record + 16].copy_from_slice(
+            &u32::try_from(table.bytes.len())
+                .map_err(|_| ResourceError::InvalidFontPlan)?
+                .to_be_bytes(),
+        );
+        let end = payload_offset
+            .checked_add(table.bytes.len())
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        output[payload_offset..end].copy_from_slice(&table.bytes);
+        if &table.tag == b"head" {
+            head_adjustment_offset = Some(
+                payload_offset
+                    .checked_add(8)
+                    .ok_or(ResourceError::InvalidFontPlan)?,
+            );
+        }
+        payload_offset = end
+            .checked_add(3)
+            .map(|offset| offset & !3)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+    }
+    if let Some(offset) = head_adjustment_offset {
+        let adjustment = 0xB1B0_AFBAu32.wrapping_sub(sfnt_checksum(&output));
+        output[offset..offset + 4].copy_from_slice(&adjustment.to_be_bytes());
+    }
+    Ok(output)
+}
+
+fn canonical_subset_name_table(font_instance_id: FontInstanceId) -> Result<Vec<u8>, ResourceError> {
+    let name = expected_subset_postscript_name(font_instance_id)?;
+    let encoded_len = name
+        .len()
+        .checked_mul(2)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let table_len = 18usize
+        .checked_add(encoded_len)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let mut table = vec![0; table_len];
+    table[2..4].copy_from_slice(&1u16.to_be_bytes());
+    table[4..6].copy_from_slice(&18u16.to_be_bytes());
+    table[6..8].copy_from_slice(&3u16.to_be_bytes());
+    table[8..10].copy_from_slice(&1u16.to_be_bytes());
+    table[10..12].copy_from_slice(&0x0409u16.to_be_bytes());
+    table[12..14].copy_from_slice(&6u16.to_be_bytes());
+    table[14..16].copy_from_slice(
+        &u16::try_from(encoded_len)
+            .map_err(|_| ResourceError::InvalidFontPlan)?
+            .to_be_bytes(),
+    );
+    for (index, byte) in name.bytes().enumerate() {
+        let offset = 18usize
+            .checked_add(index.checked_mul(2).ok_or(ResourceError::InvalidFontPlan)?)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        table[offset + 1] = byte;
+    }
+    Ok(table)
+}
+
+fn sfnt_checksum(bytes: &[u8]) -> u32 {
+    bytes.chunks(4).fold(0u32, |checksum, chunk| {
+        let mut word = [0; 4];
+        word[..chunk.len()].copy_from_slice(chunk);
+        checksum.wrapping_add(u32::from_be_bytes(word))
+    })
 }
 
 fn extract_subset_postscript_name(
@@ -836,9 +1097,923 @@ pub trait ResourceFinalizer {
     ) -> Result<FrozenPdfResourcePlans, ResourceError>;
 }
 
+/// Deterministic in-process finalizer for the linked PDF backend. TrueType
+/// programs are reduced to the exact Display glyph union plus recursive
+/// composite components; all glyph-indexed tables consumed by PDF rendering
+/// are rebuilt with a dense canonical subset namespace.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ReferenceResourceFinalizer;
+
+impl ReferenceResourceFinalizer {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl ResourceFinalizer for ReferenceResourceFinalizer {
+    fn finalize(
+        &self,
+        input: ResourceFinalizationInput<'_>,
+    ) -> Result<FrozenPdfResourcePlans, ResourceError> {
+        let usage = DisplayResourceUsage::from_display(input.display);
+        let instances = FontInstanceTable::from_display(input.display, input.admitted)?;
+        let owner = VerifiedEncoderReceiptOwner::new();
+        let mut receipts = Vec::new();
+        receipts
+            .try_reserve_exact(usage.fonts.len() + usage.images.len())
+            .map_err(|_| ResourceError::ResourceLimit)?;
+        for (font_instance_id, font_usage) in &usage.fonts {
+            let instance = instances
+                .get(*font_instance_id)
+                .ok_or(ResourceError::MissingLogicalResource)?;
+            let admitted = input
+                .admitted
+                .font(instance.font_face_id())
+                .ok_or(ResourceError::MissingLogicalResource)?;
+            let subset =
+                subset_truetype(admitted.bytes(), admitted.face_index(), &font_usage.glyphs)?;
+            let (cids, cluster_plans) = build_cid_plans(
+                input.display,
+                font_usage,
+                &subset.original_to_subset,
+                &subset.original_widths,
+                admitted.metadata().units_per_em,
+                input.limits,
+            )?;
+            let glyphs = subset
+                .original_to_subset
+                .iter()
+                .map(|(original_gid, subset_gid)| GlyphSubsetBinding {
+                    original_gid: *original_gid,
+                    subset_gid: *subset_gid,
+                })
+                .collect();
+            receipts.push(owner.issue_font(FontEncoderOutput {
+                font_instance_id: *font_instance_id,
+                admitted_sha256: admitted.content_hash(),
+                subset_bytes: subset.bytes,
+                subset_plan: FontSubsetPlan { glyphs, cids },
+                metrics: subset.metrics,
+                cluster_plans,
+            })?);
+        }
+        for image_id in &usage.images {
+            let admitted = input
+                .admitted
+                .image(*image_id)
+                .ok_or(ResourceError::MissingLogicalResource)?;
+            receipts.push(owner.issue_image(decode_png_for_pdf(admitted)?));
+        }
+        FrozenPdfResourcePlans::from_verified_receipts(
+            input.display,
+            input.admitted,
+            input.limits,
+            receipts,
+        )
+    }
+}
+
+fn decode_png_for_pdf(admitted: &AdmittedImage) -> Result<ImageEncoderOutput, ResourceError> {
+    decode_png_bytes_for_pdf(
+        admitted.image_id(),
+        admitted.content_hash(),
+        admitted.bytes(),
+        admitted.width(),
+        admitted.height(),
+        admitted.decoded_bytes(),
+    )
+}
+
+fn decode_png_bytes_for_pdf(
+    image_id: ImageResourceId,
+    admitted_sha256: [u8; 32],
+    source: &[u8],
+    width: NonZeroU32,
+    height: NonZeroU32,
+    decoded_byte_budget: u64,
+) -> Result<ImageEncoderOutput, ResourceError> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(source));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder
+        .read_info()
+        .map_err(|_| ResourceError::InvalidImagePlan)?;
+    let output_len = reader
+        .output_buffer_size()
+        .ok_or(ResourceError::ResourceLimit)?;
+    let admitted_budget =
+        usize::try_from(decoded_byte_budget).map_err(|_| ResourceError::ResourceLimit)?;
+    if output_len == 0 || output_len > admitted_budget {
+        return Err(ResourceError::ResourceLimit);
+    }
+    let mut decoded = vec![0; output_len];
+    let frame = reader
+        .next_frame(&mut decoded)
+        .map_err(|_| ResourceError::InvalidImagePlan)?;
+    if frame.width != width.get()
+        || frame.height != height.get()
+        || frame.bit_depth != png::BitDepth::Eight
+    {
+        return Err(ResourceError::InvalidImagePlan);
+    }
+    let used = frame.buffer_size();
+    if used == 0 || used > decoded.len() {
+        return Err(ResourceError::InvalidImagePlan);
+    }
+    decoded.truncate(used);
+
+    let pixels = match frame.color_type {
+        png::ColorType::Grayscale => DecodedPdfPixels {
+            color_space: ImageColorSpace::Gray,
+            color: decoded,
+            alpha: None,
+        },
+        png::ColorType::Rgb => DecodedPdfPixels {
+            color_space: ImageColorSpace::Rgb,
+            color: decoded,
+            alpha: None,
+        },
+        png::ColorType::GrayscaleAlpha => split_color_and_alpha(decoded, 1, width, height)?,
+        png::ColorType::Rgba => split_color_and_alpha(decoded, 3, width, height)?,
+        png::ColorType::Indexed => return Err(ResourceError::InvalidImagePlan),
+    };
+    let alpha_mask = pixels
+        .alpha
+        .filter(|alpha| alpha.iter().any(|sample| *sample != u8::MAX))
+        .map(|encoded_bytes| AlphaMaskEncoderOutput {
+            encoded_bytes,
+            width,
+            height,
+            bits_per_component: 8,
+            encoding: ImageEncoding::Raw,
+        });
+    Ok(ImageEncoderOutput {
+        image_id,
+        admitted_sha256,
+        encoded_bytes: pixels.color,
+        width,
+        height,
+        color_space: pixels.color_space,
+        bits_per_component: 8,
+        encoding: ImageEncoding::Raw,
+        alpha_mask,
+    })
+}
+
+struct DecodedPdfPixels {
+    color_space: ImageColorSpace,
+    color: Vec<u8>,
+    alpha: Option<Vec<u8>>,
+}
+
+fn split_color_and_alpha(
+    decoded: Vec<u8>,
+    color_components: usize,
+    width: NonZeroU32,
+    height: NonZeroU32,
+) -> Result<DecodedPdfPixels, ResourceError> {
+    let pixel_count = usize::try_from(
+        u64::from(width.get())
+            .checked_mul(u64::from(height.get()))
+            .ok_or(ResourceError::ResourceLimit)?,
+    )
+    .map_err(|_| ResourceError::ResourceLimit)?;
+    let components = color_components
+        .checked_add(1)
+        .ok_or(ResourceError::ResourceLimit)?;
+    if decoded.len()
+        != pixel_count
+            .checked_mul(components)
+            .ok_or(ResourceError::ResourceLimit)?
+    {
+        return Err(ResourceError::InvalidImagePlan);
+    }
+    let color_len = pixel_count
+        .checked_mul(color_components)
+        .ok_or(ResourceError::ResourceLimit)?;
+    let mut color = Vec::new();
+    color
+        .try_reserve_exact(color_len)
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    let mut alpha = Vec::new();
+    alpha
+        .try_reserve_exact(pixel_count)
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for pixel in decoded.chunks_exact(components) {
+        color.extend_from_slice(&pixel[..color_components]);
+        alpha.push(pixel[color_components]);
+    }
+    Ok(DecodedPdfPixels {
+        color_space: if color_components == 1 {
+            ImageColorSpace::Gray
+        } else {
+            ImageColorSpace::Rgb
+        },
+        color,
+        alpha: Some(alpha),
+    })
+}
+
+#[derive(Clone, Debug)]
+struct TrueTypeSubset {
+    bytes: Vec<u8>,
+    original_to_subset: BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+    original_widths: BTreeMap<OriginalGlyphId, u16>,
+    metrics: PdfFontMetrics,
+}
+
+#[derive(Clone, Copy)]
+struct SfntTableRef<'a> {
+    bytes: &'a [u8],
+}
+
+fn subset_truetype(
+    source: &[u8],
+    face_index: u32,
+    requested: &BTreeSet<OriginalGlyphId>,
+) -> Result<TrueTypeSubset, ResourceError> {
+    let tables = parse_sfnt_table_map(source, face_index)?;
+    let head = table_bytes(&tables, *b"head")?;
+    let hhea = table_bytes(&tables, *b"hhea")?;
+    let maxp = table_bytes(&tables, *b"maxp")?;
+    let hmtx = table_bytes(&tables, *b"hmtx")?;
+    let loca = table_bytes(&tables, *b"loca")?;
+    let glyf = table_bytes(&tables, *b"glyf")?;
+    if head.len() < 54 || hhea.len() < 36 || maxp.len() < 6 {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let glyph_count = usize::from(read_subset_u16(maxp, 4)?);
+    if glyph_count == 0 {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let loca_format = read_subset_i16(head, 50)?;
+    let locations = parse_loca(loca, glyph_count, loca_format, glyf.len())?;
+    let mut closure: BTreeSet<u16> = requested.iter().map(|glyph| glyph.get()).collect();
+    closure.insert(0);
+    if closure
+        .iter()
+        .any(|glyph| usize::from(*glyph) >= glyph_count)
+    {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let mut pending: Vec<u16> = closure.iter().copied().collect();
+    while let Some(glyph) = pending.pop() {
+        for component in composite_components(glyph_bytes(glyf, &locations, glyph)?)? {
+            if usize::from(component) >= glyph_count {
+                return Err(ResourceError::InvalidFontPlan);
+            }
+            if closure.insert(component) {
+                pending.push(component);
+            }
+        }
+    }
+    if closure.len() > usize::from(u16::MAX) {
+        return Err(ResourceError::ResourceLimit);
+    }
+    let original_to_subset: BTreeMap<_, _> = closure
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, original)| {
+            Ok((
+                OriginalGlyphId::new(original),
+                SubsetGlyphId::new(u16::try_from(index).map_err(|_| ResourceError::ResourceLimit)?),
+            ))
+        })
+        .collect::<Result<_, ResourceError>>()?;
+    let number_of_h_metrics = usize::from(read_subset_u16(hhea, 34)?);
+    if number_of_h_metrics == 0 || number_of_h_metrics > glyph_count {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let mut new_glyf = Vec::new();
+    let mut new_loca = Vec::new();
+    let mut new_hmtx = Vec::new();
+    let mut original_widths = BTreeMap::new();
+    for original in &closure {
+        new_loca.extend_from_slice(
+            &u32::try_from(new_glyf.len())
+                .map_err(|_| ResourceError::ResourceLimit)?
+                .to_be_bytes(),
+        );
+        let mut glyph = glyph_bytes(glyf, &locations, *original)?.to_vec();
+        remap_composite_components(&mut glyph, &original_to_subset)?;
+        new_glyf.extend_from_slice(&glyph);
+        while new_glyf.len() % 4 != 0 {
+            new_glyf.push(0);
+        }
+        let (advance, side_bearing) = horizontal_metric(
+            hmtx,
+            glyph_count,
+            number_of_h_metrics,
+            usize::from(*original),
+        )?;
+        original_widths.insert(OriginalGlyphId::new(*original), advance);
+        new_hmtx.extend_from_slice(&advance.to_be_bytes());
+        new_hmtx.extend_from_slice(&side_bearing.to_be_bytes());
+    }
+    new_loca.extend_from_slice(
+        &u32::try_from(new_glyf.len())
+            .map_err(|_| ResourceError::ResourceLimit)?
+            .to_be_bytes(),
+    );
+    let subset_count = u16::try_from(closure.len()).map_err(|_| ResourceError::ResourceLimit)?;
+    let mut new_head = head.to_vec();
+    new_head[8..12].fill(0);
+    new_head[50..52].copy_from_slice(&1i16.to_be_bytes());
+    let mut new_hhea = hhea.to_vec();
+    new_hhea[34..36].copy_from_slice(&subset_count.to_be_bytes());
+    let mut new_maxp = maxp.to_vec();
+    new_maxp[4..6].copy_from_slice(&subset_count.to_be_bytes());
+    let mut post = vec![0; 32];
+    post[..4].copy_from_slice(&0x0003_0000u32.to_be_bytes());
+    if let Some(source_post) = tables.get(b"post") {
+        if source_post.bytes.len() >= 16 {
+            post[4..16].copy_from_slice(&source_post.bytes[4..16]);
+        }
+    }
+    let mut output_tables = vec![
+        SfntRewriteTable {
+            tag: *b"glyf",
+            bytes: new_glyf,
+        },
+        SfntRewriteTable {
+            tag: *b"head",
+            bytes: new_head,
+        },
+        SfntRewriteTable {
+            tag: *b"hhea",
+            bytes: new_hhea,
+        },
+        SfntRewriteTable {
+            tag: *b"hmtx",
+            bytes: new_hmtx,
+        },
+        SfntRewriteTable {
+            tag: *b"loca",
+            bytes: new_loca,
+        },
+        SfntRewriteTable {
+            tag: *b"maxp",
+            bytes: new_maxp,
+        },
+        SfntRewriteTable {
+            tag: *b"post",
+            bytes: post,
+        },
+    ];
+    if let Some(os2) = tables.get(b"OS/2") {
+        output_tables.push(SfntRewriteTable {
+            tag: *b"OS/2",
+            bytes: os2.bytes.to_vec(),
+        });
+    }
+    // `issue_font` replaces this placeholder with its canonical name table.
+    output_tables.push(SfntRewriteTable {
+        tag: *b"name",
+        bytes: canonical_subset_name_table(FontInstanceId::new(0))?,
+    });
+    let metrics = pdf_metrics(
+        head,
+        hhea,
+        tables.get(b"OS/2").map(|table| table.bytes),
+        tables.get(b"post").map(|table| table.bytes),
+    )?;
+    Ok(TrueTypeSubset {
+        bytes: rebuild_sfnt(output_tables)?,
+        original_to_subset,
+        original_widths,
+        metrics,
+    })
+}
+
+fn parse_sfnt_table_map(
+    source: &[u8],
+    face_index: u32,
+) -> Result<BTreeMap<[u8; 4], SfntTableRef<'_>>, ResourceError> {
+    let face_offset = if source.get(..4) == Some(b"ttcf") {
+        let count = read_subset_u32(source, 8)?;
+        if face_index >= count {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        usize::try_from(read_subset_u32(
+            source,
+            12usize
+                .checked_add(
+                    usize::try_from(face_index)
+                        .map_err(|_| ResourceError::InvalidFontPlan)?
+                        .checked_mul(4)
+                        .ok_or(ResourceError::InvalidFontPlan)?,
+                )
+                .ok_or(ResourceError::InvalidFontPlan)?,
+        )?)
+        .map_err(|_| ResourceError::InvalidFontPlan)?
+    } else if face_index == 0 {
+        0
+    } else {
+        return Err(ResourceError::InvalidFontPlan);
+    };
+    let signature_end = face_offset
+        .checked_add(4)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    if source.get(face_offset..signature_end) != Some(&0x0001_0000u32.to_be_bytes()) {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let count_offset = face_offset
+        .checked_add(4)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let count = usize::from(read_subset_u16(source, count_offset)?);
+    let directory_end = face_offset
+        .checked_add(12)
+        .and_then(|offset| offset.checked_add(count.checked_mul(16)?))
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    if directory_end > source.len() {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let mut tables = BTreeMap::new();
+    for index in 0..count {
+        let record = face_offset
+            .checked_add(12)
+            .and_then(|value| value.checked_add(index.checked_mul(16)?))
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let tag_end = record
+            .checked_add(4)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let tag: [u8; 4] = source
+            .get(record..tag_end)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .try_into()
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        let offset_field = record
+            .checked_add(8)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let length_field = record
+            .checked_add(12)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let offset = usize::try_from(read_subset_u32(source, offset_field)?)
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        let length = usize::try_from(read_subset_u32(source, length_field)?)
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        let end = offset
+            .checked_add(length)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let bytes = source
+            .get(offset..end)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        if tables.insert(tag, SfntTableRef { bytes }).is_some() {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+    }
+    Ok(tables)
+}
+
+fn table_bytes<'a>(
+    tables: &'a BTreeMap<[u8; 4], SfntTableRef<'a>>,
+    tag: [u8; 4],
+) -> Result<&'a [u8], ResourceError> {
+    tables
+        .get(&tag)
+        .map(|table| table.bytes)
+        .ok_or(ResourceError::InvalidFontPlan)
+}
+
+fn parse_loca(
+    loca: &[u8],
+    glyph_count: usize,
+    format: i16,
+    glyf_len: usize,
+) -> Result<Vec<usize>, ResourceError> {
+    let count = glyph_count
+        .checked_add(1)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let mut offsets = Vec::new();
+    offsets
+        .try_reserve_exact(count)
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for index in 0..count {
+        let offset = match format {
+            0 => usize::from(read_subset_u16(
+                loca,
+                index.checked_mul(2).ok_or(ResourceError::InvalidFontPlan)?,
+            )?)
+            .checked_mul(2)
+            .ok_or(ResourceError::InvalidFontPlan)?,
+            1 => usize::try_from(read_subset_u32(
+                loca,
+                index.checked_mul(4).ok_or(ResourceError::InvalidFontPlan)?,
+            )?)
+            .map_err(|_| ResourceError::InvalidFontPlan)?,
+            _ => return Err(ResourceError::InvalidFontPlan),
+        };
+        if offset > glyf_len || offsets.last().is_some_and(|previous| *previous > offset) {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        offsets.push(offset);
+    }
+    Ok(offsets)
+}
+
+fn glyph_bytes<'a>(
+    glyf: &'a [u8],
+    locations: &[usize],
+    glyph: u16,
+) -> Result<&'a [u8], ResourceError> {
+    let index = usize::from(glyph);
+    let start = *locations.get(index).ok_or(ResourceError::InvalidFontPlan)?;
+    let end = *locations
+        .get(index + 1)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    glyf.get(start..end).ok_or(ResourceError::InvalidFontPlan)
+}
+
+fn composite_components(glyph: &[u8]) -> Result<Vec<u16>, ResourceError> {
+    if glyph.is_empty() {
+        return Ok(Vec::new());
+    }
+    if glyph.len() < 10 {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    if read_subset_i16(glyph, 0)? >= 0 {
+        return Ok(Vec::new());
+    }
+    let mut components = Vec::new();
+    walk_composite_components(glyph, |_, component| {
+        components.push(component);
+        Ok(())
+    })?;
+    Ok(components)
+}
+
+fn remap_composite_components(
+    glyph: &mut [u8],
+    mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+) -> Result<(), ResourceError> {
+    if glyph.is_empty() {
+        return Ok(());
+    }
+    if glyph.len() < 10 {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    if read_subset_i16(glyph, 0)? >= 0 {
+        return Ok(());
+    }
+    let mut replacements = Vec::new();
+    walk_composite_components(glyph, |offset, component| {
+        let subset = mapping
+            .get(&OriginalGlyphId::new(component))
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        replacements.push((offset, subset.get()));
+        Ok(())
+    })?;
+    for (offset, subset) in replacements {
+        let end = offset
+            .checked_add(2)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        glyph
+            .get_mut(offset..end)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .copy_from_slice(&subset.to_be_bytes());
+    }
+    Ok(())
+}
+
+fn walk_composite_components(
+    glyph: &[u8],
+    mut visit: impl FnMut(usize, u16) -> Result<(), ResourceError>,
+) -> Result<(), ResourceError> {
+    const ARG_WORDS: u16 = 0x0001;
+    const MORE_COMPONENTS: u16 = 0x0020;
+    const WE_HAVE_A_SCALE: u16 = 0x0008;
+    const WE_HAVE_XY_SCALE: u16 = 0x0040;
+    const WE_HAVE_2X2: u16 = 0x0080;
+    const WE_HAVE_INSTRUCTIONS: u16 = 0x0100;
+    let mut cursor = 10usize;
+    let final_flags = loop {
+        let flags = read_subset_u16(glyph, cursor)?;
+        let glyph_offset = cursor
+            .checked_add(2)
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        let component = read_subset_u16(glyph, glyph_offset)?;
+        visit(glyph_offset, component)?;
+        cursor = cursor
+            .checked_add(4)
+            .and_then(|value| value.checked_add(if flags & ARG_WORDS != 0 { 4 } else { 2 }))
+            .and_then(|value| {
+                value.checked_add(if flags & WE_HAVE_A_SCALE != 0 {
+                    2
+                } else if flags & WE_HAVE_XY_SCALE != 0 {
+                    4
+                } else if flags & WE_HAVE_2X2 != 0 {
+                    8
+                } else {
+                    0
+                })
+            })
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        if cursor > glyph.len() {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        if flags & MORE_COMPONENTS == 0 {
+            break flags;
+        }
+    };
+    if final_flags & WE_HAVE_INSTRUCTIONS != 0 {
+        let instruction_len = usize::from(read_subset_u16(glyph, cursor)?);
+        cursor = cursor
+            .checked_add(2)
+            .and_then(|value| value.checked_add(instruction_len))
+            .ok_or(ResourceError::InvalidFontPlan)?;
+        if cursor > glyph.len() {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+    }
+    Ok(())
+}
+
+fn horizontal_metric(
+    hmtx: &[u8],
+    glyph_count: usize,
+    number_of_h_metrics: usize,
+    glyph: usize,
+) -> Result<(u16, i16), ResourceError> {
+    if glyph >= glyph_count || number_of_h_metrics == 0 || number_of_h_metrics > glyph_count {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let metric_index = glyph.min(
+        number_of_h_metrics
+            .checked_sub(1)
+            .ok_or(ResourceError::InvalidFontPlan)?,
+    );
+    let advance_offset = metric_index
+        .checked_mul(4)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let advance = read_subset_u16(hmtx, advance_offset)?;
+    let bearing_offset = if glyph < number_of_h_metrics {
+        glyph
+            .checked_mul(4)
+            .and_then(|value| value.checked_add(2))
+            .ok_or(ResourceError::InvalidFontPlan)?
+    } else {
+        number_of_h_metrics
+            .checked_mul(4)
+            .and_then(|value| {
+                glyph
+                    .checked_sub(number_of_h_metrics)?
+                    .checked_mul(2)
+                    .and_then(|tail| value.checked_add(tail))
+            })
+            .ok_or(ResourceError::InvalidFontPlan)?
+    };
+    Ok((advance, read_subset_i16(hmtx, bearing_offset)?))
+}
+
+fn pdf_metrics(
+    head: &[u8],
+    hhea: &[u8],
+    os2: Option<&[u8]>,
+    post: Option<&[u8]>,
+) -> Result<PdfFontMetrics, ResourceError> {
+    let units = i64::from(read_subset_u16(head, 18)?);
+    if units <= 0 {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let scale = |value: i16| -> Result<i32, ResourceError> {
+        i32::try_from(i64::from(value) * 1000 / units).map_err(|_| ResourceError::InvalidFontPlan)
+    };
+    let mut bbox = [
+        scale(read_subset_i16(head, 36)?)?,
+        scale(read_subset_i16(head, 38)?)?,
+        scale(read_subset_i16(head, 40)?)?,
+        scale(read_subset_i16(head, 42)?)?,
+    ];
+    if bbox[0] >= bbox[2] || bbox[1] >= bbox[3] {
+        bbox = [0, -200, 1000, 800];
+    }
+    let ascent = scale(read_subset_i16(hhea, 4)?)?;
+    let descent = scale(read_subset_i16(hhea, 6)?)?;
+    let cap_height = os2
+        .filter(|table| table.len() >= 90 && read_subset_u16(table, 0).is_ok_and(|v| v >= 2))
+        .and_then(|table| read_subset_i16(table, 88).ok())
+        .map(scale)
+        .transpose()?
+        .unwrap_or(ascent);
+    let italic_angle_milli_degrees = post
+        .filter(|table| table.len() >= 8)
+        .and_then(|table| read_subset_i32(table, 4).ok())
+        .and_then(|fixed| i32::try_from(i64::from(fixed) * 1000 / 65_536).ok())
+        .unwrap_or(0);
+    Ok(PdfFontMetrics {
+        ascent_1000: ascent,
+        descent_1000: descent,
+        cap_height_1000: cap_height,
+        stem_v_1000: 80,
+        italic_angle_milli_degrees,
+        flags: 0x20,
+        bbox_1000: bbox,
+    })
+}
+
+fn build_cid_plans(
+    display: &ValidatedDisplayDocument,
+    usage: &DisplayFontUsage,
+    mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+    widths: &BTreeMap<OriginalGlyphId, u16>,
+    units_per_em: u16,
+    limits: &ValidatedResourceLimits,
+) -> Result<(Vec<CidBinding>, Vec<ClusterExtractionPlan>), ResourceError> {
+    let mut bindings = Vec::new();
+    let mut plans = Vec::new();
+    for (extraction, glyphs) in &usage.clusters {
+        let scalars = match extraction {
+            ClusterExtraction::Unicode { text_span } => display_scalars(display, *text_span)?,
+            ClusterExtraction::Artifact => Vec::new(),
+        };
+        let per_cid = matches!(extraction, ClusterExtraction::Unicode { .. })
+            && scalars.len() == glyphs.len();
+        let mut cids = Vec::new();
+        for (index, glyph) in glyphs.iter().enumerate() {
+            let next = bindings
+                .len()
+                .checked_add(1)
+                .ok_or(ResourceError::ResourceLimit)?;
+            if next > usize::from(limits.get().max_cids_per_font) {
+                return Err(ResourceError::ResourceLimit);
+            }
+            let cid = Cid::new(u16::try_from(next).map_err(|_| ResourceError::ResourceLimit)?)
+                .ok_or(ResourceError::ResourceLimit)?;
+            let subset_gid = *mapping.get(glyph).ok_or(ResourceError::InvalidFontPlan)?;
+            let advance = *widths.get(glyph).ok_or(ResourceError::InvalidFontPlan)?;
+            let width_1000 = u32::try_from(
+                (u64::from(advance) * 1000 + u64::from(units_per_em) / 2) / u64::from(units_per_em),
+            )
+            .map_err(|_| ResourceError::InvalidFontPlan)?;
+            bindings.push(CidBinding {
+                cid,
+                subset_gid,
+                unicode: if per_cid {
+                    vec![scalars[index]]
+                } else {
+                    vec![]
+                },
+                width_1000,
+            });
+            cids.push(cid);
+        }
+        plans.push(match extraction {
+            ClusterExtraction::Unicode { text_span } if per_cid => ClusterExtractionPlan::PerCid {
+                text_span: *text_span,
+                cids,
+            },
+            ClusterExtraction::Unicode { text_span } => ClusterExtractionPlan::ActualText {
+                text_span: *text_span,
+                cids,
+                unicode: scalars,
+            },
+            ClusterExtraction::Artifact => ClusterExtractionPlan::Artifact { cids },
+        });
+    }
+    Ok((bindings, plans))
+}
+
+fn rebuild_sfnt(mut tables: Vec<SfntRewriteTable>) -> Result<Vec<u8>, ResourceError> {
+    tables.sort_by_key(|table| table.tag);
+    if tables.windows(2).any(|pair| pair[0].tag == pair[1].tag) {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let count = u16::try_from(tables.len()).map_err(|_| ResourceError::ResourceLimit)?;
+    let directory_len = 12usize
+        .checked_add(
+            tables
+                .len()
+                .checked_mul(16)
+                .ok_or(ResourceError::ResourceLimit)?,
+        )
+        .ok_or(ResourceError::ResourceLimit)?;
+    let payload_len = tables.iter().try_fold(0usize, |total, table| {
+        let padded = table
+            .bytes
+            .len()
+            .checked_add(3)
+            .map(|length| length & !3)
+            .ok_or(ResourceError::ResourceLimit)?;
+        total
+            .checked_add(padded)
+            .ok_or(ResourceError::ResourceLimit)
+    })?;
+    let mut output = vec![
+        0;
+        directory_len
+            .checked_add(payload_len)
+            .ok_or(ResourceError::ResourceLimit)?
+    ];
+    output[..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    output[4..6].copy_from_slice(&count.to_be_bytes());
+    let selector = if count == 0 {
+        0
+    } else {
+        u16::try_from(u16::BITS - 1 - count.leading_zeros())
+            .map_err(|_| ResourceError::InvalidFontPlan)?
+    };
+    let search = 16u16
+        .checked_mul(
+            1u16.checked_shl(u32::from(selector))
+                .ok_or(ResourceError::InvalidFontPlan)?,
+        )
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    output[6..8].copy_from_slice(&search.to_be_bytes());
+    output[8..10].copy_from_slice(&selector.to_be_bytes());
+    output[10..12].copy_from_slice(
+        &count
+            .checked_mul(16)
+            .and_then(|value| value.checked_sub(search))
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .to_be_bytes(),
+    );
+    let mut offset = directory_len;
+    let mut head_adjustment = None;
+    for (index, table) in tables.iter().enumerate() {
+        let record = 12usize
+            .checked_add(index.checked_mul(16).ok_or(ResourceError::ResourceLimit)?)
+            .ok_or(ResourceError::ResourceLimit)?;
+        let checksum = record.checked_add(4).ok_or(ResourceError::ResourceLimit)?;
+        let table_offset = record.checked_add(8).ok_or(ResourceError::ResourceLimit)?;
+        let table_length = record.checked_add(12).ok_or(ResourceError::ResourceLimit)?;
+        let record_end = record.checked_add(16).ok_or(ResourceError::ResourceLimit)?;
+        output
+            .get_mut(record..checksum)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .copy_from_slice(&table.tag);
+        output
+            .get_mut(checksum..table_offset)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .copy_from_slice(&sfnt_checksum(&table.bytes).to_be_bytes());
+        output
+            .get_mut(table_offset..table_length)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .copy_from_slice(
+                &u32::try_from(offset)
+                    .map_err(|_| ResourceError::ResourceLimit)?
+                    .to_be_bytes(),
+            );
+        output
+            .get_mut(table_length..record_end)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .copy_from_slice(
+                &u32::try_from(table.bytes.len())
+                    .map_err(|_| ResourceError::ResourceLimit)?
+                    .to_be_bytes(),
+            );
+        let end = offset
+            .checked_add(table.bytes.len())
+            .ok_or(ResourceError::ResourceLimit)?;
+        output[offset..end].copy_from_slice(&table.bytes);
+        if table.tag == *b"head" {
+            head_adjustment = Some(offset.checked_add(8).ok_or(ResourceError::ResourceLimit)?);
+        }
+        offset = end
+            .checked_add(3)
+            .map(|value| value & !3)
+            .ok_or(ResourceError::ResourceLimit)?;
+    }
+    if let Some(offset) = head_adjustment {
+        let adjustment = 0xB1B0_AFBAu32.wrapping_sub(sfnt_checksum(&output));
+        let end = offset.checked_add(4).ok_or(ResourceError::ResourceLimit)?;
+        output
+            .get_mut(offset..end)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .copy_from_slice(&adjustment.to_be_bytes());
+    }
+    Ok(output)
+}
+
+fn read_subset_i16(bytes: &[u8], offset: usize) -> Result<i16, ResourceError> {
+    let end = offset
+        .checked_add(2)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    Ok(i16::from_be_bytes(
+        bytes
+            .get(offset..end)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .try_into()
+            .map_err(|_| ResourceError::InvalidFontPlan)?,
+    ))
+}
+
+fn read_subset_i32(bytes: &[u8], offset: usize) -> Result<i32, ResourceError> {
+    let end = offset
+        .checked_add(4)
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    Ok(i32::from_be_bytes(
+        bytes
+            .get(offset..end)
+            .ok_or(ResourceError::InvalidFontPlan)?
+            .try_into()
+            .map_err(|_| ResourceError::InvalidFontPlan)?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use read_fonts::TableProvider;
     use typaxis_core::{
         BidiLevel, DisplayGlyphRunId, DisplayTextBufferId, DisplayTextSpan, FontFaceId,
         FontInstanceId, Length, Point, PortablePath, PositiveLength, ResourceLimits, SourceId,
@@ -861,6 +2036,157 @@ mod tests {
         PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser, SourceFile,
     };
     use typaxis_text::GeneratedTextStore;
+
+    #[test]
+    fn png_finalizer_expands_palette_transparency_into_a_soft_mask() {
+        const PNG: &[u8] = &[
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1,
+            1, 3, 0, 0, 0, 206, 236, 237, 201, 0, 0, 0, 6, 80, 76, 84, 69, 255, 0, 0, 0, 255, 0,
+            210, 135, 239, 113, 0, 0, 0, 2, 116, 82, 78, 83, 255, 0, 229, 183, 48, 74, 0, 0, 0, 10,
+            73, 68, 65, 84, 120, 156, 99, 112, 0, 0, 0, 66, 0, 65, 41, 55, 244, 239, 0, 0, 0, 0,
+            73, 69, 78, 68, 174, 66, 96, 130,
+        ];
+        let output = decode_png_bytes_for_pdf(
+            ImageResourceId::new(0),
+            [9; 32],
+            PNG,
+            NonZeroU32::new(2).unwrap(),
+            NonZeroU32::new(1).unwrap(),
+            8,
+        )
+        .unwrap();
+        assert_eq!(output.color_space, ImageColorSpace::Rgb);
+        assert_eq!(output.encoded_bytes, [255, 0, 0, 0, 255, 0]);
+        let mask = output.alpha_mask.as_ref().unwrap();
+        assert_eq!(mask.encoded_bytes, [255, 0]);
+        assert_eq!(mask.bits_per_component, 8);
+        let receipt = VerifiedEncoderReceiptOwner::new().issue_image(output);
+        let VerifiedEncoderOutput::Image(plan) = receipt.0 else {
+            panic!("PNG encoder must issue an image plan")
+        };
+        assert_eq!(plan.indirect_object_count(), 2);
+        assert_eq!(
+            plan.indirect_object_blueprint(),
+            &PDF_IMAGE_WITH_ALPHA_OBJECT_BLUEPRINT
+        );
+    }
+
+    #[test]
+    fn png_finalizer_decodes_adam7_rgba_and_enforces_admission_budget() {
+        const PNG: &[u8] = &[
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+            8, 6, 0, 0, 1, 104, 18, 244, 31, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 224, 18,
+            145, 211, 0, 0, 0, 205, 0, 101, 106, 153, 132, 66, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
+            96, 130,
+        ];
+        let decode = |budget| {
+            decode_png_bytes_for_pdf(
+                ImageResourceId::new(0),
+                [0; 32],
+                PNG,
+                NonZeroU32::new(1).unwrap(),
+                NonZeroU32::new(1).unwrap(),
+                budget,
+            )
+        };
+        let output = decode(4).unwrap();
+        assert_eq!(output.encoded_bytes, [10, 20, 30]);
+        assert_eq!(output.alpha_mask.unwrap().encoded_bytes, [40]);
+        assert_eq!(decode(3), Err(ResourceError::ResourceLimit));
+    }
+
+    #[test]
+    fn truetype_subset_closes_and_remaps_composites_and_round_trips() {
+        let mut head = vec![0; 54];
+        head[..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        head[12..16].copy_from_slice(&0x5F0F_3CF5u32.to_be_bytes());
+        head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        head[38..40].copy_from_slice(&(-200i16).to_be_bytes());
+        head[40..42].copy_from_slice(&1000i16.to_be_bytes());
+        head[42..44].copy_from_slice(&800i16.to_be_bytes());
+        head[50..52].copy_from_slice(&1i16.to_be_bytes());
+        let mut hhea = vec![0; 36];
+        hhea[..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        hhea[4..6].copy_from_slice(&800i16.to_be_bytes());
+        hhea[6..8].copy_from_slice(&(-200i16).to_be_bytes());
+        hhea[34..36].copy_from_slice(&4u16.to_be_bytes());
+        let mut maxp = vec![0; 32];
+        maxp[..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        maxp[4..6].copy_from_slice(&4u16.to_be_bytes());
+        let mut hmtx = Vec::new();
+        for advance in [500u16, 510, 520, 530] {
+            hmtx.extend_from_slice(&advance.to_be_bytes());
+            hmtx.extend_from_slice(&0i16.to_be_bytes());
+        }
+        let mut glyf = vec![0; 10]; // Original glyph 2 is a minimal simple glyph.
+        let mut composite = vec![0; 16];
+        composite[..2].copy_from_slice(&(-1i16).to_be_bytes());
+        composite[12..14].copy_from_slice(&2u16.to_be_bytes());
+        glyf.extend_from_slice(&composite); // Original glyph 3 references glyph 2.
+        let loca: Vec<_> = [0u32, 0, 0, 10, 26]
+            .into_iter()
+            .flat_map(u32::to_be_bytes)
+            .collect();
+        let source = rebuild_sfnt(vec![
+            SfntRewriteTable {
+                tag: *b"glyf",
+                bytes: glyf,
+            },
+            SfntRewriteTable {
+                tag: *b"head",
+                bytes: head,
+            },
+            SfntRewriteTable {
+                tag: *b"hhea",
+                bytes: hhea,
+            },
+            SfntRewriteTable {
+                tag: *b"hmtx",
+                bytes: hmtx,
+            },
+            SfntRewriteTable {
+                tag: *b"loca",
+                bytes: loca,
+            },
+            SfntRewriteTable {
+                tag: *b"maxp",
+                bytes: maxp,
+            },
+        ])
+        .unwrap();
+        let subset =
+            subset_truetype(&source, 0, &[OriginalGlyphId::new(3)].into_iter().collect()).unwrap();
+        assert_eq!(
+            subset
+                .original_to_subset
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [
+                OriginalGlyphId::new(0),
+                OriginalGlyphId::new(2),
+                OriginalGlyphId::new(3)
+            ]
+        );
+        let tables = parse_sfnt_table_map(&subset.bytes, 0).unwrap();
+        let locations = parse_loca(
+            table_bytes(&tables, *b"loca").unwrap(),
+            3,
+            1,
+            table_bytes(&tables, *b"glyf").unwrap().len(),
+        )
+        .unwrap();
+        let remapped = glyph_bytes(table_bytes(&tables, *b"glyf").unwrap(), &locations, 2).unwrap();
+        assert_eq!(composite_components(remapped).unwrap(), [1]);
+
+        let independent = read_fonts::FontRef::new(&subset.bytes).unwrap();
+        assert_eq!(independent.maxp().unwrap().num_glyphs(), 3);
+        assert_eq!(independent.hhea().unwrap().number_of_h_metrics(), 3);
+        independent.head().unwrap();
+        independent.hmtx().unwrap();
+        independent.loca(None).unwrap();
+        independent.glyf().unwrap();
+    }
 
     fn subset_sfnt_with_postscript_name(name: &str) -> Vec<u8> {
         let encoded_name: Vec<_> = name.bytes().flat_map(|byte| [0, byte]).collect();
@@ -1140,13 +2466,28 @@ mod tests {
     }
 
     #[test]
-    fn encoder_receipt_reextracts_the_postscript_name_from_subset_bytes() {
+    fn encoder_owner_rewrites_and_reextracts_the_postscript_name() {
         let owner = VerifiedEncoderReceiptOwner::new();
-        assert!(owner
-            .issue_font(font_encoder_output(1, "AAAAAB+Typaxis"))
-            .is_ok());
+        let receipt = owner
+            .issue_font(font_encoder_output(1, "legacy-name"))
+            .unwrap();
+        let VerifiedEncoderOutput::Font(plan) = receipt.0 else {
+            panic!("font encoder emitted an image receipt")
+        };
+        assert_eq!(plan.embedded_postscript_name(), "AAAAAB+Typaxis");
         assert_eq!(
-            owner.issue_font(font_encoder_output(1, "AAAAAA+Typaxis")),
+            extract_subset_postscript_name(plan.subset_bytes(), FontInstanceId::new(1)).unwrap(),
+            "AAAAAB+Typaxis"
+        );
+        assert_ne!(
+            plan.subset_bytes(),
+            subset_sfnt_with_postscript_name("legacy-name")
+        );
+        assert_eq!(
+            owner.issue_font(FontEncoderOutput {
+                subset_bytes: vec![0; 12],
+                ..font_encoder_output(1, "legacy-name")
+            }),
             Err(ResourceError::InvalidFontPlan)
         );
     }

@@ -2,11 +2,16 @@
 
 use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use std::fs::File;
 use std::io::Read;
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use typaxis_core::{
     admitted_resource_fingerprint_from_jcs, push_jcs_string, AdmittedResourceFingerprint,
-    FontFaceId, ImageResourceId, PortablePath, ValidatedResourceLimits,
+    ConfigResourceRoot, EffectiveConfig, FontFaceId, HostAdmissionContext, ImageResourceId,
+    PortablePath, ValidatedResourceLimits,
 };
 use typaxis_document::ResourceCatalog;
 use typaxis_font::{FontFamilyError, FontFamilyTable};
@@ -143,6 +148,15 @@ pub enum ResourceAdmissionError {
     ReceiptSessionMismatch,
     MissingAdmittedRootSet,
     RootSetMismatch,
+    RootUnavailable,
+    RootNotDirectory,
+    AliasedRoot,
+    UnsupportedContainedOpen,
+    MissingResourceCandidate,
+    AmbiguousResourceCandidate,
+    UnsafeResourceCandidate,
+    ResourceNotRegularFile,
+    ResourceLockUnavailable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -246,6 +260,349 @@ impl<'roots> VerifiedResourceSourceOwner<'roots> {
             reader,
         }
     }
+}
+
+/// Host-side owner for one sealed root set and the directory handles used to
+/// resolve its declared resources. Construction consumes only the canonical
+/// config roots and explicit roots from the matching `HostAdmissionContext`;
+/// callers never receive raw root handles or a way to bind an arbitrary path
+/// to a logical resource ID.
+#[derive(Debug)]
+pub struct HostResourceAdmissionSession {
+    roots: AdmittedRootSet,
+    declarations: ResourceCatalog,
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    host_roots: Vec<AdmittedHostRoot>,
+}
+
+impl HostResourceAdmissionSession {
+    /// Resolve, securely open, and de-alias the effective resource-root set.
+    ///
+    /// Linux and Android use `openat2` with no-symlink resolution. Other
+    /// platforms fail closed until they have an equivalent contained opener.
+    pub fn new(
+        context: &HostAdmissionContext,
+        config: &EffectiveConfig,
+        declarations: &ResourceCatalog,
+    ) -> Result<Self, ResourceAdmissionError> {
+        validate_declaration_order(declarations)?;
+        #[cfg(any(target_os = "android", target_os = "linux"))]
+        {
+            let host_roots = admit_host_roots(context, config)?;
+            Ok(Self {
+                roots: AdmittedRootSetOwner::new().issue(),
+                declarations: declarations.clone(),
+                host_roots,
+            })
+        }
+        #[cfg(not(any(target_os = "android", target_os = "linux")))]
+        {
+            let _ = (context, config, declarations);
+            Err(ResourceAdmissionError::UnsupportedContainedOpen)
+        }
+    }
+
+    pub const fn roots(&self) -> AdmittedRootSetToken<'_> {
+        self.roots.token()
+    }
+
+    pub fn open_font(
+        &self,
+        font_face_id: FontFaceId,
+    ) -> Result<VerifiedResourceSource<'_, HostResourceFile>, ResourceAdmissionError> {
+        let declaration = self
+            .declarations
+            .font_faces
+            .get(font_face_id.get() as usize)
+            .filter(|candidate| candidate.font_face_id == font_face_id)
+            .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        let reader = self.open_declared_resource(&declaration.uri)?;
+        let exact_length = reader.exact_length();
+        Ok(VerifiedResourceSourceOwner::new(self.roots()).issue_font(
+            font_face_id,
+            exact_length,
+            reader,
+        ))
+    }
+
+    pub fn open_image(
+        &self,
+        image_id: ImageResourceId,
+    ) -> Result<VerifiedResourceSource<'_, HostResourceFile>, ResourceAdmissionError> {
+        let declaration = self
+            .declarations
+            .images
+            .get(image_id.get() as usize)
+            .filter(|candidate| candidate.image_id == image_id)
+            .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        let reader = self.open_declared_resource(&declaration.uri)?;
+        let exact_length = reader.exact_length();
+        Ok(VerifiedResourceSourceOwner::new(self.roots()).issue_image(
+            image_id,
+            exact_length,
+            reader,
+        ))
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    fn open_declared_resource(
+        &self,
+        uri: &PortablePath,
+    ) -> Result<HostResourceFile, ResourceAdmissionError> {
+        let mut candidate = None;
+        for root in &self.host_roots {
+            let Some(opened) = root.open_candidate(uri)? else {
+                continue;
+            };
+            if candidate.is_some() {
+                return Err(ResourceAdmissionError::AmbiguousResourceCandidate);
+            }
+            candidate = Some(opened);
+        }
+        candidate
+            .ok_or(ResourceAdmissionError::MissingResourceCandidate)?
+            .lock()
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    fn open_declared_resource(
+        &self,
+        _uri: &PortablePath,
+    ) -> Result<HostResourceFile, ResourceAdmissionError> {
+        Err(ResourceAdmissionError::UnsupportedContainedOpen)
+    }
+}
+
+/// Same-handle reader retained under a nonblocking shared lock for the whole
+/// bounded read. The identity, extent, and write timestamps observed after
+/// locking are rechecked when admission consumes the final byte.
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[derive(Debug)]
+pub struct HostResourceFile {
+    file: File,
+    snapshot: OpenedFileSnapshot,
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+impl HostResourceFile {
+    const fn exact_length(&self) -> u64 {
+        self.snapshot.length
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+impl Read for HostResourceFile {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(buffer)
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+impl ResourceExtentReader for HostResourceFile {
+    fn current_length(&self) -> Result<u64, ResourceAdmissionError> {
+        let current = OpenedFileSnapshot::from_file(&self.file)?;
+        if current != self.snapshot {
+            return Err(ResourceAdmissionError::ResourceLengthMismatch);
+        }
+        Ok(current.length)
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+#[derive(Debug)]
+pub struct HostResourceFile {
+    _private: (),
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+impl Read for HostResourceFile {
+    fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "contained resource open is unsupported on this platform",
+        ))
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+impl ResourceExtentReader for HostResourceFile {
+    fn current_length(&self) -> Result<u64, ResourceAdmissionError> {
+        Err(ResourceAdmissionError::UnsupportedContainedOpen)
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[derive(Debug)]
+struct AdmittedHostRoot {
+    directory: File,
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+impl AdmittedHostRoot {
+    fn open_candidate(
+        &self,
+        uri: &PortablePath,
+    ) -> Result<Option<OpenedResourceCandidate>, ResourceAdmissionError> {
+        use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
+
+        let descriptor = match openat2(
+            &self.directory,
+            uri.as_str(),
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_MAGICLINKS | ResolveFlags::NO_SYMLINKS,
+        ) {
+            Ok(descriptor) => descriptor,
+            Err(error)
+                if error == rustix::io::Errno::NOENT || error == rustix::io::Errno::NOTDIR =>
+            {
+                return Ok(None)
+            }
+            Err(error) if error == rustix::io::Errno::NOSYS => {
+                return Err(ResourceAdmissionError::UnsupportedContainedOpen)
+            }
+            Err(_) => return Err(ResourceAdmissionError::UnsafeResourceCandidate),
+        };
+        let file: File = descriptor.into();
+        let before_lock = OpenedFileSnapshot::from_file(&file)?;
+        if before_lock.kind != OpenedFileKind::Regular {
+            return Err(ResourceAdmissionError::ResourceNotRegularFile);
+        }
+        Ok(Some(OpenedResourceCandidate { file, before_lock }))
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[derive(Debug)]
+struct OpenedResourceCandidate {
+    file: File,
+    before_lock: OpenedFileSnapshot,
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+impl OpenedResourceCandidate {
+    fn lock(self) -> Result<HostResourceFile, ResourceAdmissionError> {
+        rustix::fs::flock(
+            &self.file,
+            rustix::fs::FlockOperation::NonBlockingLockShared,
+        )
+        .map_err(|_| ResourceAdmissionError::ResourceLockUnavailable)?;
+        let snapshot = OpenedFileSnapshot::from_file(&self.file)?;
+        if snapshot != self.before_lock {
+            return Err(ResourceAdmissionError::ResourceLengthMismatch);
+        }
+        Ok(HostResourceFile {
+            file: self.file,
+            snapshot,
+        })
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OpenedFileKind {
+    Directory,
+    Regular,
+    Other,
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OpenedFileSnapshot {
+    device: u128,
+    inode: u128,
+    length: u64,
+    modified_seconds: i128,
+    modified_nanoseconds: u128,
+    changed_seconds: i128,
+    changed_nanoseconds: u128,
+    kind: OpenedFileKind,
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+impl OpenedFileSnapshot {
+    fn from_file(file: &File) -> Result<Self, ResourceAdmissionError> {
+        let stat = rustix::fs::fstat(file).map_err(|_| ResourceAdmissionError::ResourceRead)?;
+        let length = u64::try_from(stat.st_size)
+            .map_err(|_| ResourceAdmissionError::ResourceLengthMismatch)?;
+        let kind = match rustix::fs::FileType::from_raw_mode(stat.st_mode) {
+            rustix::fs::FileType::Directory => OpenedFileKind::Directory,
+            rustix::fs::FileType::RegularFile => OpenedFileKind::Regular,
+            _ => OpenedFileKind::Other,
+        };
+        Ok(Self {
+            device: u128::from(stat.st_dev),
+            inode: u128::from(stat.st_ino),
+            length,
+            modified_seconds: i128::from(stat.st_mtime),
+            modified_nanoseconds: u128::from(stat.st_mtime_nsec),
+            changed_seconds: i128::from(stat.st_ctime),
+            changed_nanoseconds: u128::from(stat.st_ctime_nsec),
+            kind,
+        })
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+fn admit_host_roots(
+    context: &HostAdmissionContext,
+    config: &EffectiveConfig,
+) -> Result<Vec<AdmittedHostRoot>, ResourceAdmissionError> {
+    let project_root = context.project_root().as_path();
+    let configured = config.resource_roots().iter().map(|root| match root {
+        ConfigResourceRoot::ProjectRoot => project_root.to_path_buf(),
+        ConfigResourceRoot::Relative(path) => project_root.join(portable_to_host_path(path)),
+    });
+    let explicit = context
+        .cli_resource_roots()
+        .iter()
+        .map(|root| root.as_path().to_path_buf());
+    let mut identities = BTreeSet::new();
+    let mut roots = Vec::new();
+    for path in configured.chain(explicit) {
+        let root = open_host_root(&path)?;
+        let snapshot = OpenedFileSnapshot::from_file(&root.directory)?;
+        if snapshot.kind != OpenedFileKind::Directory {
+            return Err(ResourceAdmissionError::RootNotDirectory);
+        }
+        if !identities.insert((snapshot.device, snapshot.inode)) {
+            return Err(ResourceAdmissionError::AliasedRoot);
+        }
+        roots.push(root);
+    }
+    Ok(roots)
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+fn portable_to_host_path(path: &PortablePath) -> PathBuf {
+    path.as_str().split('/').collect()
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+fn open_host_root(path: &Path) -> Result<AdmittedHostRoot, ResourceAdmissionError> {
+    use rustix::fs::{openat2, Mode, OFlags, ResolveFlags, CWD};
+
+    let canonical =
+        std::fs::canonicalize(path).map_err(|_| ResourceAdmissionError::RootUnavailable)?;
+    let descriptor = openat2(
+        CWD,
+        canonical,
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::NOFOLLOW,
+        Mode::empty(),
+        ResolveFlags::NO_MAGICLINKS | ResolveFlags::NO_SYMLINKS,
+    )
+    .map_err(|error| {
+        if error == rustix::io::Errno::NOSYS {
+            ResourceAdmissionError::UnsupportedContainedOpen
+        } else if error == rustix::io::Errno::NOTDIR {
+            ResourceAdmissionError::RootNotDirectory
+        } else {
+            ResourceAdmissionError::RootUnavailable
+        }
+    })?;
+    Ok(AdmittedHostRoot {
+        directory: descriptor.into(),
+    })
 }
 
 /// Bytes read under an admission permit. Only `AdmittedResourceResolver`
@@ -1332,8 +1689,15 @@ fn push_hash_hex(output: &mut String, bytes: [u8; 32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::Cursor;
-    use typaxis_core::{sha256, ResourceLimits};
+    use std::path::Path;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use typaxis_core::{
+        sha256, EffectiveDataVersions, HostPath, PdfStreamCompression, ResourceLimits,
+        DEFAULT_ALLOWED_URI_SCHEMES, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
+        REGISTERED_UNICODE_VERSION,
+    };
     use typaxis_document::{FontFaceDeclaration, ImageDeclaration};
 
     impl ResourceExtentReader for Cursor<Vec<u8>> {
@@ -1344,6 +1708,64 @@ mod tests {
 
     fn limits(overrides: ResourceLimits) -> ValidatedResourceLimits {
         ValidatedResourceLimits::new(overrides).unwrap()
+    }
+
+    struct TempTree {
+        path: PathBuf,
+    }
+
+    impl TempTree {
+        fn new(label: &str) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "typaxis-resource-admission-{}-{label}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn effective_config(resource_roots: Vec<ConfigResourceRoot>) -> EffectiveConfig {
+        EffectiveConfig::new(
+            false,
+            PdfStreamCompression::Flate,
+            resource_roots,
+            DEFAULT_ALLOWED_URI_SCHEMES
+                .iter()
+                .map(|scheme| (*scheme).to_owned())
+                .collect(),
+            EffectiveDataVersions::new(
+                REGISTERED_UNICODE_VERSION,
+                REGISTERED_JAPANESE_LINE_BREAK_VERSION,
+            )
+            .unwrap(),
+            ResourceLimits::default(),
+        )
+        .unwrap()
+    }
+
+    fn host_context(project_root: &Path, cli_roots: &[&Path]) -> HostAdmissionContext {
+        HostAdmissionContext::new(
+            HostPath::new(project_root.join("input.typ")).unwrap(),
+            HostPath::new(project_root.to_path_buf()).unwrap(),
+            None,
+            cli_roots
+                .iter()
+                .map(|path| HostPath::new((*path).to_path_buf()).unwrap())
+                .collect(),
+        )
     }
 
     fn font_catalog(count: u32) -> ResourceCatalog {
@@ -1398,6 +1820,99 @@ mod tests {
 
     fn sfnt() -> Vec<u8> {
         sfnt_with_units_per_em(1000)
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[test]
+    fn host_session_opens_declared_file_and_binds_same_root_set() {
+        let tree = TempTree::new("read");
+        fs::create_dir(tree.path().join("fonts")).unwrap();
+        fs::write(tree.path().join("fonts/body.ttf"), sfnt()).unwrap();
+        let catalog = ResourceCatalog {
+            font_faces: vec![FontFaceDeclaration {
+                font_face_id: FontFaceId::new(0),
+                family: "Body".to_owned(),
+                uri: PortablePath::new("fonts/body.ttf").unwrap(),
+                face_index: 0,
+                expected_sha256: Some(sha256(&sfnt())),
+            }],
+            images: vec![],
+        };
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let context = host_context(tree.path(), &[]);
+        let session = HostResourceAdmissionSession::new(&context, &config, &catalog).unwrap();
+        let mut resolver =
+            AdmittedResourceResolver::new_with_roots(&catalog, config.limits(), session.roots())
+                .unwrap();
+        let pending = resolver
+            .read_font(session.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_sfnt(pending).unwrap();
+        let ledger = resolver.finish().unwrap();
+        assert_eq!(ledger.font(FontFaceId::new(0)).unwrap().bytes(), sfnt());
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[test]
+    fn root_alias_and_multi_root_candidates_are_rejected() {
+        let first = TempTree::new("first");
+        let second = TempTree::new("second");
+        fs::write(first.path().join("font-0.ttf"), sfnt()).unwrap();
+        fs::write(second.path().join("font-0.ttf"), sfnt()).unwrap();
+        let catalog = font_catalog(1);
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+
+        let aliased = host_context(first.path(), &[first.path()]);
+        assert_eq!(
+            HostResourceAdmissionSession::new(&aliased, &config, &catalog).unwrap_err(),
+            ResourceAdmissionError::AliasedRoot
+        );
+
+        let ambiguous = host_context(first.path(), &[second.path()]);
+        let session = HostResourceAdmissionSession::new(&ambiguous, &config, &catalog).unwrap();
+        assert!(matches!(
+            session.open_font(FontFaceId::new(0)),
+            Err(ResourceAdmissionError::AmbiguousResourceCandidate)
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[test]
+    fn contained_open_rejects_symlinks_and_unlocked_writers() {
+        use std::os::unix::fs::symlink;
+
+        let tree = TempTree::new("contained");
+        fs::write(tree.path().join("actual.ttf"), sfnt()).unwrap();
+        symlink("actual.ttf", tree.path().join("font-0.ttf")).unwrap();
+        let catalog = font_catalog(1);
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let context = host_context(tree.path(), &[]);
+        let session = HostResourceAdmissionSession::new(&context, &config, &catalog).unwrap();
+        assert!(matches!(
+            session.open_font(FontFaceId::new(0)),
+            Err(ResourceAdmissionError::UnsafeResourceCandidate)
+        ));
+
+        fs::remove_file(tree.path().join("font-0.ttf")).unwrap();
+        fs::rename(
+            tree.path().join("actual.ttf"),
+            tree.path().join("font-0.ttf"),
+        )
+        .unwrap();
+        let writer = File::options()
+            .read(true)
+            .write(true)
+            .open(tree.path().join("font-0.ttf"))
+            .unwrap();
+        rustix::fs::flock(
+            &writer,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive,
+        )
+        .unwrap();
+        assert!(matches!(
+            session.open_font(FontFaceId::new(0)),
+            Err(ResourceAdmissionError::ResourceLockUnavailable)
+        ));
     }
 
     #[test]

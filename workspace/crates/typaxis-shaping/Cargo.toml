@@ -9,6 +9,15 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+# The linked shaper preflight mirrors harfrust 0.1.1's private MAX_LEN_FACTOR
+# and MAX_LEN_MIN. Updating this exact pin requires reviewing those constants.
+harfrust = "=0.1.1"
+read-fonts = "=0.31.3"
+# These exact releases all carry Unicode 16.0.0 tables and compile at the
+# workspace Rust 1.75 floor. Updating any pin requires a table-version audit.
+unicode-bidi = "=0.3.18"
+unicode-script = "=0.5.7"
+unicode-segmentation = "=1.12.0"
 typaxis-core = { path = "../typaxis-core" }
 typaxis-text = { path = "../typaxis-text" }
 typaxis-font = { path = "../typaxis-font" }

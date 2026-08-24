@@ -14,10 +14,11 @@ typaxis-font = { path = "../typaxis-font" }
 typaxis-text = { path = "../typaxis-text" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-layout = { path = "../typaxis-layout" }
+typaxis-linebreak = { path = "../typaxis-linebreak" }
 typaxis-pagination = { path = "../typaxis-pagination" }
+typaxis-shaping = { path = "../typaxis-shaping" }
+typaxis-style = { path = "../typaxis-style" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 
 [dev-dependencies]
-typaxis-linebreak = { path = "../typaxis-linebreak" }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }
-typaxis-style = { path = "../typaxis-style" }

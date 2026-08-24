@@ -51,3 +51,26 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 ## 実装
 
 参照用 Rust workspace の構成と実行方法は [workspace/README.md](workspace/README.md) を参照してください。
+
+## Release と再現性検証
+
+Release ZIP は指定した Git tree だけから生成し、checkout 名、working tree、Cargo の
+`target` 出力を含めません。生成と canonical metadata/payload の再検証は次で行います。
+
+```console
+python3 tools/release.py --repository . --revision HEAD --verify dist/typaxis-0.1.0.zip
+```
+
+異なる名前の二つの独立 checkout で blank PDF と release ZIP をそれぞれ生成し、bytes を
+exact 比較する検証（ambient `TYPAXIS_*` config は除外）は次です。
+
+```console
+python3 tools/verify_reproducibility.py --repository . --revision HEAD
+python3 -m unittest discover -s tools -p 'test_*.py' -v
+```
+
+MuPDFとPopplerを使う独立renderer/extractor gateは、比較する二つのPDFに対して次のように実行します。
+
+```console
+python3 tools/verify_pdf_differential.py --pdf first.pdf --pdf second.pdf --expected-pages 1 --expected-text 'expected'
+```

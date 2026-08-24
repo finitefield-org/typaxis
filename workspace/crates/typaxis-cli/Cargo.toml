@@ -13,9 +13,15 @@ name = "typaxis"
 path = "src/main.rs"
 
 [dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
+toml = { version = "=0.8.23", default-features = false, features = ["parse"] }
 typaxis-core = { path = "../typaxis-core" }
 typaxis-diagnostics = { path = "../typaxis-diagnostics" }
+typaxis-document = { path = "../typaxis-document" }
 typaxis-syntax = { path = "../typaxis-syntax" }
+typaxis-text = { path = "../typaxis-text" }
+typaxis-shaping = { path = "../typaxis-shaping" }
+typaxis-linebreak = { path = "../typaxis-linebreak" }
 typaxis-layout = { path = "../typaxis-layout" }
 typaxis-pagination = { path = "../typaxis-pagination" }
 typaxis-display-list = { path = "../typaxis-display-list" }

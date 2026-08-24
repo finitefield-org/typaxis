@@ -7,9 +7,16 @@ use typaxis_core::{
     NonNegativeLength, Point, PositiveLength, PositiveUnitless16_16, Rect, ReferenceFingerprint,
     SafeUri, TextBufferId, TextSpan, JSON_SAFE_INTEGER_MAX,
 };
+use typaxis_document::{Block, Inline};
 use typaxis_font::OriginalGlyphId;
-use typaxis_layout::LayoutEpoch;
+use typaxis_layout::{FlowTree, LayoutEpoch};
+use typaxis_linebreak::{
+    reorder_line_l2, reset_line_bidi_levels, LineBidiClass, LineLevelsAfterL1, ParagraphItem,
+    ShapedSlice, ValidatedParagraphItemRegistry,
+};
 use typaxis_pagination::PaginationResult;
+use typaxis_shaping::{ShapeSourceSpan, ValidatedGlyphRun};
+use typaxis_style::StyleValue;
 use typaxis_syntax::ValidatedParsedPackage;
 use typaxis_text::{GeneratedTextStore, TextStore};
 
@@ -335,6 +342,7 @@ pub enum DisplayValidationError {
     PackageLayoutMismatch,
     SelectedTextMapMismatch,
     NonBlankSelectedLayout,
+    UnsupportedReferencePaintDomain,
     InvalidDashPattern,
     SelectedDestinationMismatch,
 }
@@ -608,6 +616,171 @@ pub struct ValidatedDisplayDocument {
     structural: StructurallyValidatedDisplayDocument,
 }
 impl ValidatedDisplayDocument {
+    /// Paints selected paragraph fragments from the exact paragraph-item
+    /// registry retained by the canonical flow. Each drawing command covers
+    /// one validated shaping cluster, so source extraction and bidi level
+    /// remain inseparable from the glyph slice which produced them.
+    pub fn paint_reference_paragraphs(
+        package: &ValidatedParsedPackage,
+        selected: &PaginationResult,
+        flow: &FlowTree,
+        config: &EffectiveConfig,
+    ) -> Result<Self, DisplayValidationError> {
+        let selected_epoch = selected.selected_pass().fingerprint_record().layout_epoch();
+        if flow.epoch() != selected_epoch
+            || selected_epoch.document() != package.epoch_identity().document()
+            || selected_epoch.style() != package.epoch_identity().style()
+            || !package.package().document.footnotes.is_empty()
+        {
+            return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+        }
+        let registry = flow
+            .paragraph_items()
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        if registry.epoch() != selected_epoch {
+            return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+        }
+        let mut parsed_spans = Vec::new();
+        let mut generated_spans = Vec::new();
+        for page in selected.selected_pages() {
+            for fragment in &page.fragments {
+                for slice in fragment_shaped_slices(registry, fragment)? {
+                    match slice.shaped.source() {
+                        ShapeSourceSpan::Parsed(span) => parsed_spans.push(span),
+                        ShapeSourceSpan::Generated(provenance) => {
+                            generated_spans.push(provenance.text_span());
+                        }
+                    }
+                }
+            }
+        }
+        let text_map =
+            DisplayTextMap::from_selected_spans(package, selected, &parsed_spans, &generated_spans)
+                .map_err(|_| DisplayValidationError::SelectedTextMapMismatch)?;
+
+        let mut used_fonts = std::collections::BTreeMap::new();
+        let mut pages = Vec::new();
+        let mut next_run_id = 0u32;
+        for (page_plan, geometry) in selected
+            .selected_pages()
+            .iter()
+            .zip(selected.selected_page_geometry())
+        {
+            let mut commands = Vec::new();
+            for fragment in &page_plan.fragments {
+                let logical = fragment_shaped_slices(registry, fragment)?;
+                if logical.is_empty() {
+                    continue;
+                }
+                let levels: Vec<_> = logical
+                    .iter()
+                    .map(|slice| slice.shaped.bidi_level())
+                    .collect();
+                let classes: Vec<_> = logical.iter().map(|slice| slice.class).collect();
+                let paragraph_level = registry
+                    .paragraph_level(fragment.owner)
+                    .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                // UAX #9 L1 must precede the final line reshape. The reshape
+                // rebinds every selected cluster to the exact validated run;
+                // justification then adjusts logical advances, and only then
+                // may L2 derive visual order.
+                let after_l1 = reset_line_bidi_levels(paragraph_level, &levels, &classes)
+                    .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                let mut logical =
+                    reference_final_line_reshape(registry, fragment.owner, logical, &after_l1)?;
+                justify_reference_line(registry, fragment, &mut logical)?;
+                let order = reorder_line_l2(&after_l1)
+                    .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                let mut x = fragment.bounds.x();
+                for logical_index in order.visual_to_logical() {
+                    let line_slice = logical
+                        .get(*logical_index as usize)
+                        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                    let shaped = line_slice.shaped;
+                    let runs = registry
+                        .runs(fragment.owner)
+                        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                    let run = runs
+                        .get(shaped.paragraph_run_index().get() as usize)
+                        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                    let command = paint_shaped_slice(
+                        package,
+                        &text_map,
+                        run,
+                        shaped,
+                        after_l1.logical_levels()[*logical_index as usize],
+                        DisplayGlyphRunId::new(next_run_id),
+                        Point {
+                            x,
+                            y: fragment.bounds.y(),
+                        },
+                    )?;
+                    next_run_id = next_run_id
+                        .checked_add(1)
+                        .ok_or(DisplayValidationError::NonDenseGlyphRunId)?;
+                    let instance = command_font(&command)?;
+                    let face = run.font_face_id();
+                    if package
+                        .package()
+                        .resources
+                        .font_faces
+                        .iter()
+                        .all(|declaration| declaration.font_face_id != face)
+                        || used_fonts
+                            .insert(instance, face)
+                            .is_some_and(|previous| previous != face)
+                    {
+                        return Err(DisplayValidationError::UnknownFontInstance);
+                    }
+                    x = x
+                        .checked_add(line_slice.advance)
+                        .ok_or(DisplayValidationError::NumericOutOfRange)?;
+                    commands.push(command);
+                }
+            }
+            pages.push(DisplayPage {
+                page_index: geometry.page_index(),
+                width: geometry.width(),
+                height: geometry.height(),
+                commands,
+                annotations: vec![],
+            });
+        }
+        let mut font_instances = Vec::new();
+        for (expected, (instance, face)) in used_fonts.into_iter().enumerate() {
+            if instance.get()
+                != u32::try_from(expected)
+                    .map_err(|_| DisplayValidationError::NonDenseFontInstanceId)?
+            {
+                return Err(DisplayValidationError::NonDenseFontInstanceId);
+            }
+            font_instances.push(DisplayFontInstance {
+                font_instance_id: instance,
+                font_face_id: face,
+            });
+        }
+        DisplayListBuilderOwner::new().issue(selected, text_map, font_instances, pages, config)
+    }
+
+    /// Safe reference painter for the complete domain owned by
+    /// `ReferencePaginator`: blank documents and top-level empty paragraphs
+    /// containing only direct anchors.
+    ///
+    /// Pages are derived exclusively from the selected pagination geometry.
+    /// Empty paragraph fragments produce no commands, and named destinations
+    /// are derived by the private paint owner from the selected placed-anchor
+    /// closure.
+    pub fn paint_reference_selected(
+        package: &ValidatedParsedPackage,
+        selected: &PaginationResult,
+        config: &EffectiveConfig,
+    ) -> Result<Self, DisplayValidationError> {
+        if !reference_paint_domain_is_supported(package, selected) {
+            return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+        }
+        Self::paint_empty_selected_pages(package, selected, config)
+    }
+
     /// Safe minimal reference painter for a genuinely empty selected layout.
     /// Every emitted page and dimension is derived from the selected geometry;
     /// callers cannot supply commands, destinations, or text payloads.
@@ -634,6 +807,14 @@ impl ValidatedDisplayDocument {
         {
             return Err(DisplayValidationError::NonBlankSelectedLayout);
         }
+        Self::paint_empty_selected_pages(package, selected, config)
+    }
+
+    fn paint_empty_selected_pages(
+        package: &ValidatedParsedPackage,
+        selected: &PaginationResult,
+        config: &EffectiveConfig,
+    ) -> Result<Self, DisplayValidationError> {
         let text_map = DisplayTextMap::from_selected_spans(package, selected, &[], &[])
             .map_err(|_| DisplayValidationError::SelectedTextMapMismatch)?;
         let pages = selected
@@ -662,6 +843,348 @@ impl ValidatedDisplayDocument {
     pub fn into_parts(self) -> (DisplayDocument, Vec<ValidatedDisplayPageGeometry>) {
         self.structural.into_parts()
     }
+}
+
+fn fragment_shaped_slices(
+    registry: &ValidatedParagraphItemRegistry,
+    fragment: &typaxis_pagination::PlacedFragment,
+) -> Result<Vec<LinePaintSlice>, DisplayValidationError> {
+    let owner = fragment.owner;
+    if fragment.start.owner() != owner {
+        return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+    }
+    let item_count = registry
+        .item_count(owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let start = fragment.start.owner_local_boundary();
+    let end = if fragment.end.owner() == owner {
+        fragment.end.owner_local_boundary()
+    } else {
+        item_count
+    };
+    if start >= end || end > item_count {
+        return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+    }
+    let items = registry
+        .items(owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    if items.is_empty() && item_count == 1 && start == 0 && end == 1 {
+        return Ok(Vec::new());
+    }
+    let items = items
+        .get(start as usize..end as usize)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let mut output = Vec::new();
+    for item in items {
+        match item {
+            ParagraphItem::Box { width, shaped, .. } => {
+                output.push(LinePaintSlice {
+                    class: LineBidiClass::Other,
+                    shaped: *shaped,
+                    advance: width.get(),
+                    stretch: Length::ZERO,
+                    shrink: Length::ZERO,
+                    priority: 0,
+                });
+            }
+            ParagraphItem::Glue {
+                natural,
+                stretch,
+                shrink,
+                priority,
+                shaped,
+                ..
+            } => {
+                output.push(LinePaintSlice {
+                    class: LineBidiClass::Whitespace,
+                    shaped: *shaped,
+                    advance: natural.get(),
+                    stretch: stretch.get(),
+                    shrink: shrink.get(),
+                    priority: *priority,
+                });
+            }
+            ParagraphItem::Discretionary { pre_break, .. }
+                if pre_break.shaped.is_some() && item_is_line_terminal(item, items) =>
+            {
+                let shaped = pre_break
+                    .shaped
+                    .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                output.push(LinePaintSlice {
+                    class: LineBidiClass::Other,
+                    shaped,
+                    advance: shaped.derived_width().get(),
+                    stretch: Length::ZERO,
+                    shrink: Length::ZERO,
+                    priority: 0,
+                });
+            }
+            ParagraphItem::Penalty { .. }
+            | ParagraphItem::Discretionary { .. }
+            | ParagraphItem::InlineObject { .. } => {}
+        }
+    }
+    Ok(output)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LinePaintSlice {
+    class: LineBidiClass,
+    shaped: ShapedSlice,
+    advance: Length,
+    stretch: Length,
+    shrink: Length,
+    priority: u8,
+}
+
+fn reference_final_line_reshape(
+    registry: &ValidatedParagraphItemRegistry,
+    owner: typaxis_core::NodeId,
+    logical: Vec<LinePaintSlice>,
+    after_l1: &LineLevelsAfterL1,
+) -> Result<Vec<LinePaintSlice>, DisplayValidationError> {
+    if logical.len() != after_l1.logical_levels().len() {
+        return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+    }
+    let runs = registry
+        .runs(owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    for (slice, level) in logical.iter().zip(after_l1.logical_levels()) {
+        let run = runs
+            .get(slice.shaped.paragraph_run_index().get() as usize)
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        if run.epoch() != slice.shaped.epoch()
+            || run.site_owner() != slice.shaped.site_owner()
+            || run.style_owner() != slice.shaped.style_owner()
+            || slice.shaped.bidi_level().get() < level.get()
+        {
+            return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+        }
+        let glyph_start = usize::try_from(slice.shaped.glyph_start())
+            .map_err(|_| DisplayValidationError::InvalidClusterGlyphRange)?;
+        let glyph_end = usize::try_from(slice.shaped.glyph_end())
+            .map_err(|_| DisplayValidationError::InvalidClusterGlyphRange)?;
+        if glyph_start >= glyph_end || run.glyphs().get(glyph_start..glyph_end).is_none() {
+            return Err(DisplayValidationError::InvalidClusterGlyphRange);
+        }
+    }
+    Ok(logical)
+}
+
+fn justify_reference_line(
+    registry: &ValidatedParagraphItemRegistry,
+    fragment: &typaxis_pagination::PlacedFragment,
+    logical: &mut [LinePaintSlice],
+) -> Result<(), DisplayValidationError> {
+    let item_count = registry
+        .item_count(fragment.owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let end = if fragment.end.owner() == fragment.owner {
+        fragment.end.owner_local_boundary()
+    } else {
+        item_count
+    };
+    // The terminal paragraph line runs through the justification stage with
+    // an explicit no-adjust policy. Other lines consume available Glue by
+    // ascending priority and retain deterministic logical-order rounding.
+    if end == item_count {
+        return Ok(());
+    }
+    let natural = logical
+        .iter()
+        .try_fold(Length::ZERO, |total, slice| {
+            total.checked_add(slice.advance)
+        })
+        .ok_or(DisplayValidationError::NumericOutOfRange)?;
+    let delta = fragment
+        .bounds
+        .width()
+        .get()
+        .checked_sub(natural)
+        .ok_or(DisplayValidationError::NumericOutOfRange)?;
+    distribute_justification(logical, delta)
+}
+
+fn distribute_justification(
+    logical: &mut [LinePaintSlice],
+    delta: Length,
+) -> Result<(), DisplayValidationError> {
+    if delta == Length::ZERO {
+        return Ok(());
+    }
+    let expanding = delta.raw() > 0;
+    let mut remaining = i128::from(delta.raw()).abs();
+    let priorities: std::collections::BTreeSet<_> = logical
+        .iter()
+        .filter(|slice| {
+            if expanding {
+                slice.stretch != Length::ZERO
+            } else {
+                slice.shrink != Length::ZERO
+            }
+        })
+        .map(|slice| slice.priority)
+        .collect();
+    for priority in priorities {
+        if remaining == 0 {
+            break;
+        }
+        let mut capacity = logical
+            .iter()
+            .filter(|slice| slice.priority == priority)
+            .try_fold(0i128, |total, slice| {
+                total.checked_add(i128::from(if expanding {
+                    slice.stretch.raw()
+                } else {
+                    slice.shrink.raw()
+                }))
+            })
+            .ok_or(DisplayValidationError::NumericOutOfRange)?;
+        let mut allocation = remaining.min(capacity);
+        remaining -= allocation;
+        for slice in logical
+            .iter_mut()
+            .filter(|slice| slice.priority == priority)
+        {
+            let slice_capacity = i128::from(if expanding {
+                slice.stretch.raw()
+            } else {
+                slice.shrink.raw()
+            });
+            if slice_capacity == 0 {
+                continue;
+            }
+            let share = allocation
+                .checked_mul(slice_capacity)
+                .and_then(|value| value.checked_div(capacity))
+                .ok_or(DisplayValidationError::NumericOutOfRange)?;
+            let share =
+                i64::try_from(share).map_err(|_| DisplayValidationError::NumericOutOfRange)?;
+            let signed = Length::from_raw(if expanding { share } else { -share })
+                .ok_or(DisplayValidationError::NumericOutOfRange)?;
+            slice.advance = slice
+                .advance
+                .checked_add(signed)
+                .filter(|advance| advance.raw() >= 0)
+                .ok_or(DisplayValidationError::NumericOutOfRange)?;
+            allocation -= i128::from(share);
+            capacity -= slice_capacity;
+        }
+        if allocation != 0 {
+            return Err(DisplayValidationError::NumericOutOfRange);
+        }
+    }
+    Ok(())
+}
+
+fn item_is_line_terminal(item: &ParagraphItem, line_items: &[ParagraphItem]) -> bool {
+    core::ptr::eq(item, line_items.last().unwrap_or(item))
+}
+
+fn paint_shaped_slice(
+    package: &ValidatedParsedPackage,
+    text_map: &DisplayTextMap,
+    run: &ValidatedGlyphRun,
+    shaped: ShapedSlice,
+    bidi_level: BidiLevel,
+    run_id: DisplayGlyphRunId,
+    origin: Point,
+) -> Result<DisplayCommand, DisplayValidationError> {
+    if shaped.run_id() != run.run_id()
+        || shaped.epoch() != run.epoch()
+        || shaped.site_owner() != run.site_owner()
+        || shaped.style_owner() != run.style_owner()
+    {
+        return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+    }
+    let start = shaped.glyph_start() as usize;
+    let end = shaped.glyph_end() as usize;
+    let glyphs = run
+        .glyphs()
+        .get(start..end)
+        .ok_or(DisplayValidationError::InvalidClusterGlyphRange)?;
+    if glyphs.is_empty() {
+        return Err(DisplayValidationError::EmptyCluster);
+    }
+    let text_span = match shaped.source() {
+        ShapeSourceSpan::Parsed(span) => text_map.map_parsed(span),
+        ShapeSourceSpan::Generated(provenance) => text_map.map_generated(provenance.text_span()),
+    }
+    .map_err(|_| DisplayValidationError::SelectedTextMapMismatch)?;
+    let font_size = match package
+        .cascade_style(shaped.site_owner())
+        .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?
+        .computed()
+        .properties()
+        .get("font_size")
+    {
+        Some(StyleValue::Length(length)) => PositiveLength::new(*length)
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?,
+        _ => return Err(DisplayValidationError::UnsupportedReferencePaintDomain),
+    };
+    Ok(DisplayCommand::DrawGlyphRun {
+        run_id,
+        font_instance_id: run.font(),
+        text_span,
+        origin,
+        font_size,
+        bidi_level,
+        fill: Paint::Gray(0),
+        glyphs: glyphs
+            .iter()
+            .map(|glyph| DisplayGlyph {
+                original_gid: glyph.original_gid,
+                advance_x: glyph.advance_x,
+                advance_y: glyph.advance_y,
+                offset_x: glyph.offset_x,
+                offset_y: glyph.offset_y,
+            })
+            .collect(),
+        clusters: vec![DisplayCluster {
+            logical_ordinal: 0,
+            glyph_start: 0,
+            glyph_end: u32::try_from(glyphs.len())
+                .map_err(|_| DisplayValidationError::InvalidClusterGlyphRange)?,
+            extraction: ClusterExtraction::Unicode { text_span },
+        }],
+    })
+}
+
+fn command_font(command: &DisplayCommand) -> Result<FontInstanceId, DisplayValidationError> {
+    match command {
+        DisplayCommand::DrawGlyphRun {
+            font_instance_id, ..
+        } => Ok(*font_instance_id),
+        _ => Err(DisplayValidationError::UnsupportedReferencePaintDomain),
+    }
+}
+
+fn reference_paint_domain_is_supported(
+    package: &ValidatedParsedPackage,
+    selected: &PaginationResult,
+) -> bool {
+    let parsed = package.package();
+    parsed.document.footnotes.is_empty()
+        && parsed.text_store.buffers().is_empty()
+        && package.document_nodes().generated_sites().len() == 0
+        && parsed.document.blocks.iter().all(|block| {
+            matches!(
+                block,
+                Block::Paragraph { children, .. }
+                    if children.iter().all(|inline| matches!(inline, Inline::Anchor { .. }))
+            )
+        })
+        && selected
+            .selected_pass()
+            .generated_text()
+            .buffers()
+            .is_empty()
+        && selected.selected_pages().iter().all(|page| {
+            page.footnote_ids.is_empty()
+                && page.float_decisions.is_empty()
+                && page.column_decisions.is_empty()
+                && page.resolved_references.is_empty()
+        })
 }
 
 /// Capability reserved for the in-crate layout-to-paint implementation.
@@ -1190,7 +1713,9 @@ mod tests {
         GenerationKind, MasterId, NodeId, PdfStreamCompression, PortablePath, ResourceLimits,
         SourceId, SourceSpan, TextBufferId, Utf8ByteOffset, ValidatedResourceLimits,
     };
-    use typaxis_document::{Block, Document, Inline, ReferenceFormat, ValidatedDocumentNodeIndex};
+    use typaxis_document::{
+        Block, Document, DocumentNodeKind, Inline, ReferenceFormat, ValidatedDocumentNodeIndex,
+    };
     use typaxis_layout::{
         CanonicalFlowIrBuilder, Continuation, CursorPosition, DiscoveredAnchor, FlowCursor,
         FlowTree, FragmentDraft, FragmentError, FragmentRequest, FragmentResult,
@@ -1198,9 +1723,9 @@ mod tests {
     };
     use typaxis_linebreak::ValidatedParagraphItemRegistry;
     use typaxis_pagination::{
-        ConvergenceStatus, InitialPaginationState, LayoutPass, LayoutPassInput, PageFrameKind,
-        PageFramePlan, PagePlan, PaginationInput, PaginationOptions, PaginationOutcome,
-        PaginationWorkBudget,
+        ColumnDecision, ConvergenceStatus, InitialPaginationState, LayoutPass, LayoutPassInput,
+        PageFrameKind, PageFramePlan, PagePlan, PaginationInput, PaginationOptions,
+        PaginationOutcome, PaginationWorkBudget, ReferencePaginator,
     };
     use typaxis_resource_admission::AdmittedResourceResolver;
     use typaxis_syntax::{
@@ -1224,10 +1749,12 @@ mod tests {
         .unwrap()
     }
 
+    fn reference_body(package: &ValidatedParsedPackage) -> Rect {
+        package.package().page_masters.masters[0].body
+    }
+
     fn pagination_fixture(seed: u8) -> (ValidatedParsedPackage, PaginationResult) {
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
-        let bounds = Rect::new(Length::ZERO, Length::ZERO, size, size);
         let source = SourceFile {
             source_id: SourceId::new(0),
             uri: PortablePath::new(format!("input-{seed}.tsf")).unwrap(),
@@ -1242,6 +1769,7 @@ mod tests {
             panic!("reference package must parse");
         };
         let package = *package;
+        let bounds = reference_body(&package);
         let store = GeneratedTextStore::new(
             vec![],
             package.document_nodes(),
@@ -1326,6 +1854,52 @@ mod tests {
         (package, result)
     }
 
+    fn reference_paginator_fixture(
+        source_text: &str,
+    ) -> (ValidatedParsedPackage, PaginationResult) {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let source = SourceFile {
+            source_id: SourceId::new(0),
+            uri: PortablePath::new("reference-paint.tsf").unwrap(),
+            text: source_text.to_owned(),
+        };
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let ParseOutcome::Parsed { package, .. } = ReferenceParser::new().parse(
+            &source,
+            &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+        ) else {
+            panic!("reference package must parse");
+        };
+        let package = *package;
+        let generated = GeneratedTextStore::new(
+            vec![],
+            package.document_nodes(),
+            &limits,
+            &package.package().text_store,
+        )
+        .unwrap();
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, &limits)
+            .unwrap()
+            .finish()
+            .unwrap();
+        let bound = package.bind_generated_text(&generated, &limits).unwrap();
+        let epoch = LayoutEpoch::from_validated_inputs(bound, admitted.token()).unwrap();
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(&package, epoch).unwrap();
+        let mut flow_builder = CanonicalFlowIrBuilder::new(&package, &paragraph_items).unwrap();
+        for (node, kind) in package.document_nodes().nodes() {
+            if kind == DocumentNodeKind::Paragraph {
+                flow_builder.push_paragraph_item(node, 0).unwrap();
+            }
+        }
+        let flow = flow_builder.finish(epoch).unwrap();
+        let result = ReferencePaginator::new()
+            .paginate(&package, &flow, &limits, false)
+            .unwrap()
+            .into_result();
+        (package, result)
+    }
+
     struct FinalFragmenter {
         fragment: FragmentDraft,
         terminal: FlowCursor,
@@ -1365,6 +1939,11 @@ mod tests {
         }
     }
 
+    struct ReferencePassRecords {
+        anchors: Vec<DiscoveredAnchor>,
+        include_column_decision: bool,
+    }
+
     fn materialized_flow_pass(
         budget: &mut PaginationWorkBudget,
         input: LayoutPassInput<'_>,
@@ -1372,7 +1951,7 @@ mod tests {
         flow: &FlowTree,
         generated: &GeneratedTextStore,
         frame: Rect,
-        anchors: Vec<DiscoveredAnchor>,
+        records: ReferencePassRecords,
     ) -> LayoutPass {
         let input_fingerprint = input.fingerprint();
         let mut permit = budget.begin_pass(input.state_index().get(), input).unwrap();
@@ -1423,7 +2002,7 @@ mod tests {
             )
             .unwrap(),
             terminal: flow.terminal_cursor(),
-            anchors,
+            anchors: records.anchors,
         };
         let request =
             FragmentRequest::new(flow, &next, frame, NonNegativeLength::ZERO, page_context)
@@ -1433,6 +2012,18 @@ mod tests {
             .unwrap();
         page.fragments
             .extend_from_slice(materialized.placed_fragments());
+        if records.include_column_decision {
+            let decision = ColumnDecision {
+                container: NodeId::new(0),
+                column_index: 0,
+                bounds: frame,
+            };
+            permit.consume_column_candidate(NodeId::new(0)).unwrap();
+            permit
+                .record_column_decisions(NodeId::new(0), vec![decision.clone()])
+                .unwrap();
+            page.column_decisions.push(decision);
+        }
         permit.finish_page(&page).unwrap();
         let pages = vec![page];
         let receipt = permit.finish(flow, &pages).unwrap();
@@ -1440,9 +2031,13 @@ mod tests {
     }
 
     fn pagination_fixture_with_anchor() -> (ValidatedParsedPackage, PaginationResult) {
+        pagination_fixture_with_anchor_records(false)
+    }
+
+    fn pagination_fixture_with_anchor_records(
+        include_column_decision: bool,
+    ) -> (ValidatedParsedPackage, PaginationResult) {
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
-        let frame = Rect::new(Length::ZERO, Length::ZERO, size, size);
         let source = SourceFile {
             source_id: SourceId::new(0),
             uri: PortablePath::new("anchor-input.tsf").unwrap(),
@@ -1457,6 +2052,7 @@ mod tests {
             panic!("anchor reference package must parse");
         };
         let package = *package;
+        let frame = reference_body(&package);
         let generated = GeneratedTextStore::new(
             vec![],
             package.document_nodes(),
@@ -1492,14 +2088,17 @@ mod tests {
             &flow,
             &generated,
             frame,
-            vec![DiscoveredAnchor {
-                anchor_id: AnchorId::new("chapter").unwrap(),
-                owner_node: NodeId::new(2),
-                position_in_frame: Point {
-                    x: Length::from_raw(1).unwrap(),
-                    y: Length::from_raw(2).unwrap(),
-                },
-            }],
+            ReferencePassRecords {
+                anchors: vec![DiscoveredAnchor {
+                    anchor_id: AnchorId::new("chapter").unwrap(),
+                    owner_node: NodeId::new(2),
+                    position_in_frame: Point {
+                        x: Length::from_raw(1).unwrap(),
+                        y: Length::from_raw(2).unwrap(),
+                    },
+                }],
+                include_column_decision,
+            },
         );
         let transition = first.transition_references(&package, &limits).unwrap();
         let second = materialized_flow_pass(
@@ -1509,14 +2108,17 @@ mod tests {
             &flow,
             &generated,
             frame,
-            vec![DiscoveredAnchor {
-                anchor_id: AnchorId::new("chapter").unwrap(),
-                owner_node: NodeId::new(2),
-                position_in_frame: Point {
-                    x: Length::from_raw(1).unwrap(),
-                    y: Length::from_raw(2).unwrap(),
-                },
-            }],
+            ReferencePassRecords {
+                anchors: vec![DiscoveredAnchor {
+                    anchor_id: AnchorId::new("chapter").unwrap(),
+                    owner_node: NodeId::new(2),
+                    position_in_frame: Point {
+                        x: Length::from_raw(1).unwrap(),
+                        y: Length::from_raw(2).unwrap(),
+                    },
+                }],
+                include_column_decision,
+            },
         );
         let result = PaginationOutcome::new(
             vec![first, second],
@@ -1587,7 +2189,7 @@ mod tests {
     #[test]
     fn structural_validation_rejects_forged_all_zero_dash() {
         let (package, selected) = pagination_fixture(1);
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let geometry = &selected.selected_page_geometry()[0];
         let one = Length::from_raw(1).unwrap();
         let path = Path::new(vec![
             PathVerb::MoveTo(Point {
@@ -1611,8 +2213,8 @@ mod tests {
             vec![],
             vec![DisplayPage {
                 page_index: 0,
-                width: size,
-                height: size,
+                width: geometry.width(),
+                height: geometry.height(),
                 commands: vec![DisplayCommand::StrokePath {
                     path,
                     paint: Paint::Gray(0),
@@ -1773,7 +2375,7 @@ mod tests {
     #[test]
     fn font_instances_require_unique_canonical_face_order() {
         let (package, selected) = pagination_fixture(1);
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let geometry = &selected.selected_page_geometry()[0];
         let document = DisplayDocument::from_untrusted_parts_for_selected_pagination(
             &selected,
             vec![],
@@ -1790,8 +2392,8 @@ mod tests {
             vec![],
             vec![DisplayPage {
                 page_index: 0,
-                width: size,
-                height: size,
+                width: geometry.width(),
+                height: geometry.height(),
                 commands: vec![],
                 annotations: vec![],
             }],
@@ -1805,7 +2407,8 @@ mod tests {
     #[test]
     fn annotations_recheck_the_effective_uri_policy() {
         let (package, selected) = pagination_fixture(1);
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let geometry = &selected.selected_page_geometry()[0];
+        let body = reference_body(&package);
         let document = DisplayDocument::from_untrusted_parts_for_selected_pagination(
             &selected,
             vec![],
@@ -1813,12 +2416,12 @@ mod tests {
             vec![],
             vec![DisplayPage {
                 page_index: 0,
-                width: size,
-                height: size,
+                width: geometry.width(),
+                height: geometry.height(),
                 commands: vec![],
                 annotations: vec![LinkAnnotation {
                     target: LinkTarget::Uri(SafeUri::new("tel:+123").unwrap()),
-                    rect: Rect::new(Length::ZERO, Length::ZERO, size, size),
+                    rect: body,
                 }],
             }],
         );
@@ -1831,7 +2434,12 @@ mod tests {
     #[test]
     fn display_document_validates_destination_bounds_and_cluster_coverage() {
         let (package, selected) = pagination_fixture(1);
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let geometry = &selected.selected_page_geometry()[0];
+        let outside_x = geometry
+            .width()
+            .get()
+            .checked_add(Length::from_raw(1).unwrap())
+            .unwrap();
         let mut document = DisplayDocument::from_untrusted_parts_for_selected_pagination(
             &selected,
             vec![],
@@ -1841,15 +2449,15 @@ mod tests {
                 page_index: 0,
                 view: DestinationView::Xyz {
                     point: Point {
-                        x: Length::from_raw(11).unwrap(),
+                        x: outside_x,
                         y: Length::ZERO,
                     },
                 },
             }],
             vec![DisplayPage {
                 page_index: 0,
-                width: size,
-                height: size,
+                width: geometry.width(),
+                height: geometry.height(),
                 commands: vec![],
                 annotations: vec![],
             }],
@@ -1919,13 +2527,14 @@ mod tests {
     #[test]
     fn destinations_are_the_exact_selected_anchor_closure() {
         let (package, selected) = pagination_fixture_with_anchor();
+        let body = reference_body(&package);
         let expected = NamedDestination {
             anchor_id: AnchorId::new("chapter").unwrap(),
             page_index: 0,
             view: DestinationView::Xyz {
                 point: Point {
-                    x: Length::from_raw(1).unwrap(),
-                    y: Length::from_raw(2).unwrap(),
+                    x: body.x().checked_add(Length::from_raw(1).unwrap()).unwrap(),
+                    y: body.y().checked_add(Length::from_raw(2).unwrap()).unwrap(),
                 },
             },
         };
@@ -1957,8 +2566,8 @@ mod tests {
         let mut wrong_point = expected.clone();
         wrong_point.view = DestinationView::Xyz {
             point: Point {
-                x: Length::from_raw(4).unwrap(),
-                y: Length::from_raw(5).unwrap(),
+                x: body.x().checked_add(Length::from_raw(2).unwrap()).unwrap(),
+                y: body.y().checked_add(Length::from_raw(2).unwrap()).unwrap(),
             },
         };
         assert_eq!(
@@ -2048,13 +2657,136 @@ mod tests {
             trusted.document().source_layout().state_fingerprint(),
             selected.final_fingerprint()
         );
+        assert_eq!(
+            ValidatedDisplayDocument::paint_reference_selected(&package, &selected, &config())
+                .unwrap(),
+            trusted
+        );
+    }
+
+    #[test]
+    fn reference_painter_is_deterministic_and_emits_only_selected_geometry_and_anchors() {
+        let (package, selected) = reference_paginator_fixture("anchor:z\nparagraph\nanchor:a");
+        let body = reference_body(&package);
+        assert_eq!(selected.selected_pages()[0].fragments.len(), 3);
+
+        let first =
+            ValidatedDisplayDocument::paint_reference_selected(&package, &selected, &config())
+                .unwrap();
+        let repeated =
+            ValidatedDisplayDocument::paint_reference_selected(&package, &selected, &config())
+                .unwrap();
+        assert_eq!(first, repeated);
+
+        let document = first.document();
+        assert!(document.text_buffers.is_empty());
+        assert!(document.font_instances.is_empty());
+        assert_eq!(
+            document.pages.len(),
+            selected.selected_page_geometry().len()
+        );
+        for (page, geometry) in document.pages.iter().zip(selected.selected_page_geometry()) {
+            assert_eq!(page.page_index, geometry.page_index());
+            assert_eq!(page.width, geometry.width());
+            assert_eq!(page.height, geometry.height());
+            assert!(page.commands.is_empty());
+            assert!(page.annotations.is_empty());
+        }
+        assert_eq!(
+            document.destinations,
+            vec![
+                NamedDestination {
+                    anchor_id: AnchorId::new("a").unwrap(),
+                    page_index: 0,
+                    view: DestinationView::Xyz {
+                        point: Point {
+                            x: body.x(),
+                            y: body.y(),
+                        },
+                    },
+                },
+                NamedDestination {
+                    anchor_id: AnchorId::new("z").unwrap(),
+                    page_index: 0,
+                    view: DestinationView::Xyz {
+                        point: Point {
+                            x: body.x(),
+                            y: body.y(),
+                        },
+                    },
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn reference_painter_uses_exact_selected_anchor_frame_coordinates() {
+        let (package, selected) = pagination_fixture_with_anchor();
+        let body = reference_body(&package);
+        let trusted =
+            ValidatedDisplayDocument::paint_reference_selected(&package, &selected, &config())
+                .unwrap();
+        assert_eq!(
+            trusted.document().destinations,
+            vec![NamedDestination {
+                anchor_id: AnchorId::new("chapter").unwrap(),
+                page_index: 0,
+                view: DestinationView::Xyz {
+                    point: Point {
+                        x: body.x().checked_add(Length::from_raw(1).unwrap()).unwrap(),
+                        y: body.y().checked_add(Length::from_raw(2).unwrap()).unwrap(),
+                    },
+                },
+            }]
+        );
+        assert!(trusted
+            .document()
+            .pages
+            .iter()
+            .all(|page| page.commands.is_empty()));
+    }
+
+    #[test]
+    fn reference_painter_rejects_text_and_non_reference_page_records() {
+        let (_, selected) = pagination_fixture(1);
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let source = SourceFile {
+            source_id: SourceId::new(0),
+            uri: PortablePath::new("unsupported-reference-paint.tsf").unwrap(),
+            text: "text:not-empty".to_owned(),
+        };
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let ParseOutcome::Parsed {
+            package: text_package,
+            ..
+        } = ReferenceParser::new().parse(
+            &source,
+            &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+        )
+        else {
+            panic!("text package must parse");
+        };
+        assert_eq!(
+            ValidatedDisplayDocument::paint_reference_selected(&text_package, &selected, &config(),),
+            Err(DisplayValidationError::UnsupportedReferencePaintDomain)
+        );
+
+        let (package, selected_with_column) = pagination_fixture_with_anchor_records(true);
+        assert_eq!(
+            ValidatedDisplayDocument::paint_reference_selected(
+                &package,
+                &selected_with_column,
+                &config(),
+            ),
+            Err(DisplayValidationError::UnsupportedReferencePaintDomain)
+        );
     }
 
     #[test]
     fn display_receipt_is_bound_to_the_selected_pagination_result() {
         let (_, selected) = pagination_fixture(1);
         let (other_package, other) = pagination_fixture(9);
-        let size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
+        let geometry = &selected.selected_page_geometry()[0];
         let document = DisplayDocument::from_untrusted_parts_for_selected_pagination(
             &selected,
             vec![],
@@ -2062,8 +2794,8 @@ mod tests {
             vec![],
             vec![DisplayPage {
                 page_index: 0,
-                width: size,
-                height: size,
+                width: geometry.width(),
+                height: geometry.height(),
                 commands: vec![],
                 annotations: vec![],
             }],
@@ -2077,8 +2809,15 @@ mod tests {
     #[test]
     fn display_receipt_requires_selected_page_geometry() {
         let (package, selected) = pagination_fixture(1);
-        let selected_size = PositiveLength::new(Length::from_raw(10).unwrap()).unwrap();
-        let wrong_width = PositiveLength::new(Length::from_raw(11).unwrap()).unwrap();
+        let geometry = &selected.selected_page_geometry()[0];
+        let wrong_width = PositiveLength::new(
+            geometry
+                .width()
+                .get()
+                .checked_add(Length::from_raw(1).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
         let document = DisplayDocument::from_untrusted_parts_for_selected_pagination(
             &selected,
             vec![],
@@ -2087,7 +2826,7 @@ mod tests {
             vec![DisplayPage {
                 page_index: 0,
                 width: wrong_width,
-                height: selected_size,
+                height: geometry.height(),
                 commands: vec![],
                 annotations: vec![],
             }],
