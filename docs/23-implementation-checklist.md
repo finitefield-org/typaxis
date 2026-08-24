@@ -1,5 +1,7 @@
 # Implementation checklist
 
+このchecklistの`[x]`は、Profile 1.0のcontract invariantにRust type、Schema、validator、またはreference testの対応証拠があることを表す。公開CLIからその機能を入力し、layout、Display、PDFまでend-to-endで利用できるというcompletion statusではない。reference CLIの実到達範囲、machine inputの未実装、rich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
+
 ## Source and text
 
 - [x] source, text, and local map ranges use distinct types
@@ -122,7 +124,7 @@
 - [x] exact max succeeds and max+1 fails before work; initial footnote fragment/float page are not reflow/carry and final allowed reshape failure is reported after that pass
 - [x] table cells use deterministic leftmost-free placement with full row coverage and no head/body-crossing rowspan
 - [x] every bounded line/lookback/footnote/column/float algorithm has exact-limit tests
-- [x] cargo check/test
+- [ ] cargo check/test on documented host targets（調査対象commitはmacOSで失敗。docs/25 TMI-013参照）
 - [x] Unicode conformance data
 - [x] subset round-trip
 - [x] renderer/extractor differential

@@ -11,6 +11,7 @@
 | URI admission | `SafeUri` | typed URI fields | docs/03,15,18 | scheme/control/whitespace/length |
 | length and transform | `Length` / `AffineTransform` | common defs | docs/24 | numeric/type checks |
 | parser package | `ParsedPackage` | document root | docs/03,04 | Rust token + Schema |
+| machine package ingestion | 未実装。sealed DocumentPackage decoder/source admissionなし | DocumentPackageはportable contract/export artifactで、CLI inputではない | docs/19,25 | offline Schema/semantic validatorのみ。trusted CLI ingestionなし |
 | canonical lists | document list type | ordered/start relation | docs/04 | ordered positive start + unordered null |
 | block selectors/style cascade | style selector/cascade/`ResolvedTextStyle` types | block classes + closed typed style rules | docs/04 | grammar/class order/property registry/required text style/extends/winner |
 | page selection | `PageName` / `PageSelectionContext` / `PageContext` | page property + master rules | docs/04 | typed page value + derived flags + master winner |

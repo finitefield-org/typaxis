@@ -1,6 +1,10 @@
 # CLI
 
+> **現行input status:** `build`、`check`、`dump-ast`、`dump-layout`の`INPUT`は、下記のbounded reference TSFである。`dump-ast --format json`が出力するDocumentPackage JSONはexport/contract artifactであり、現行`build`へ再入力できない。`build-package`等のmachine input commandは未実装である。必要な契約と不足機能は[docs/25](25-machine-input-pdf-improvements.md)を参照する。
+
 ```text
+typaxis help [COMMAND]
+typaxis --version
 typaxis build INPUT -o OUTPUT [--trace TRACE.json] [--emit-build-manifest MANIFEST.json]
 typaxis check INPUT
 typaxis dump-ast INPUT --format json

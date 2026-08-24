@@ -1,5 +1,12 @@
 # Schema validation
 
+The offline validator proves portable Schema and semantic conformance only. It
+does not issue `typaxis_syntax::ValidatedParsedPackage`, and the current
+`typaxis build` command does not accept `document-package.schema.json`
+instances as input. The missing trusted source admission, machine-package
+decoder, CLI command, and downstream PDF capability work are tracked in
+[docs/25](../docs/25-machine-input-pdf-improvements.md).
+
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/` are logical,
 offline identifiers. They are not fetch URLs. A validator must register every
 `*.schema.json` file by its `$id` before resolving relative `$ref` values.

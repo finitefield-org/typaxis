@@ -1,6 +1,6 @@
 # typaxis
 
-Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書は現行仕様のみを記述します。
+Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はProfile 1.0の現行契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。参照workspaceは意図的に限定されており、machine inputを含む現在の到達性は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
 
 ## 設計文書
 
@@ -40,6 +40,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 - [Implementation roadmap](docs/21-roadmap.md)
 - [Cross-layer contract matrix](docs/22-contract-matrix.md)
 - [Implementation checklist](docs/23-implementation-checklist.md)
+- [Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)
 
 ## 規範資料
 
