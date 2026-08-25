@@ -67,6 +67,7 @@ M2〜M5はM1のtrust boundaryとprofile immutabilityを維持する。設計書�
 - M1公開単位のgenerated artifactは`MI1-14`以降1.1だけを出す。M2以降のcurrent contract切替は対応decision gateとintegration milestoneだけが行い、raw旧contractの扱いをmigration tableで固定する。
 - profile IDはclosed immutable contractである。feature追加、既定policy変更、以前拒否したdomainの受理は新profile IDを要求する。
 - `paragraph-1`の意味はM2以降も拡張しない。
+- M2の`AdmittedImageMediaKind::Png`はdecoder-issued internal attestationであり、wire declarationではない。M2 manifestはattested PNG kindだけをprojectする。M4 new contractはuntrusted closed `ImageMediaType`/`FontMediaType`をresource declarationへ追加し、resource decoderだけが`AdmittedImageMediaKind`/`AdmittedFontMediaKind`を発行する。M4 manifestではdeclared/attestedを別field/typeとして照合し、URI suffixからどちらも推測しない。
 
 ### 2.4 Publication and side effects
 
@@ -144,7 +145,7 @@ MI1-01 -> MI1-05 -> MI1-06
 MI1-04 + MI1-06 -> MI1-07 -> MI1-08
 MI1-04 + MI1-07 -> MI1-09
 MI1-06 + MI1-08 + MI1-09 -> MI1-10 -> MI1-11
-MI1-07 + MI1-08 -> MI1-12
+MI1-10 -> MI1-12
 MI1-06 + MI1-09 + MI1-12 -> MI1-13
 MI0-02 + MI1-02 + MI1-04 + MI1-09 + MI1-10 + MI1-12 + MI1-13 -> MI1-14
 MI1-11 + MI1-13 + MI1-14 -> MI1-15 -> MI1-16 -> MI1-17
@@ -624,9 +625,10 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 ### MI1-12 Manifest machine identityとsealed progress ledgerを実装する
 
 - Status: Pending
-- Depends on: MI1-07、MI1-08
+- Depends on: MI1-10
 - Design inputs: docs/25 §6.8、§12.2、§12.8
 - Primary files:
+  - `workspace/crates/typaxis-manifest/Cargo.toml`
   - `workspace/crates/typaxis-manifest/src/lib.rs`
   - `workspace/crates/typaxis-resource-admission/src/lib.rs`
 - Deliverables:
@@ -639,13 +641,14 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   4. later tokenがledger既存のsession/profile/package/source factsとexact一致するか検査する。
   5. resource resolverは各successful resourceでprogress tokenを更新し、failure outcomeへ最後のtokenを返す。
   6. complete resource ledgerは同じprogressを完成/置換し、manifestへduplicate recordを作らない。
-  7. built preflightはmachine provenance、profile receipt、resource、pagination、PDF receiptを同時照合する。
+  7. `typaxis-manifest -> typaxis-machine-profile`の採択済みdependency edgeを追加し、built preflightはMI1-10の`MachinePdfPreflightReceipt`、machine provenance、resource、pagination、PDF receiptを同時照合する。profile ID/fingerprintを文字列やcaller-authored recordから再構築しない。
   8. failed preflightは到達済みfactsだけをprojectし、decode前/後のnullabilityを守る。
 - Acceptance criteria:
   - callerがrecord field値を引数で渡してtrusted manifestを作れない。
   - reference modeはpackage input null、machine builtはfull non-null、machine failedはprogress相応になる。
   - package JSONをcompanion `inputs`へ重複記録しない。
   - profile/package/resource/session swapのnegative testがある。
+  - MI1-10より前の仮profile値やduplicate descriptorをmanifest crateへ持ち込まない。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-manifest --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resource-admission --locked`
@@ -881,7 +884,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ## 6. M2: general flowとbasic document semantics
 
-M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ機能を一つずつvertical sliceで追加する。各sliceはwire/domain、preflight、layout、Display、PDF、manifest、capability、fixtureを同じchange setで閉じ、部分実装を新profileへadvertiseしない。new contractの実装は非公開stagingとし、current contract/Schema/profileの切替はMI2-08だけが行う。
+M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ機能を一つずつvertical sliceで追加する。各sliceはwire/domain、preflight、layout、Display、PDF、manifest、capability、fixtureを同じchange setで閉じ、部分実装を新profileへadvertiseしない。new contractの実装は非公開stagingとし、current contract/Schema/profileの切替はMI2-08だけが行う。MI2-03〜MI2-07のpositive `typaxis-cli` testは`cli::pipeline`の`pub(crate)` staging runnerをcrate unit testから直接呼び、出力artifactをversioned non-current staging Schemaで検証する。`workspace/crates/typaxis-cli/tests/`はpublic commandがstaging IDを拒否することだけを確認する。public parser/help/current aliasへhidden optionやstaging IDを追加しない。
 
 ### MI2-01 Basic document profile ADRとclosed contractを採択する
 
@@ -959,30 +962,40 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
 - Primary files:
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-document/src/`
+  - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-style/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-layout/src/`
+  - `workspace/crates/typaxis-display-list/src/`
+  - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
+  - `workspace/crates/typaxis-cli/tests/`
   - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - spacing、indent、alignment、width、keepのtyped property definitionとcomputed value。
   - propertyごとのcapability/fixture/consumer coverage table。
 - Tasks:
-  1. MI2-01で固定したwire tagged valueをnew contractのWire DTO、非公開staging Schema、domainへ同時追加し、current Schema aliasは切り替えない。
-  2. initial/inherit/cascadeをproperty registryへ登録し、unknown nameやwrong tagged valueをpreflightで拒否する。
+  1. MI2-01で固定したwire tagged valueをnew contractのWire DTO、非公開staging Schema、domain、syntax loweringへ同時追加し、current Schema aliasは切り替えない。
+  2. initial/inherit/cascadeをproperty registryとnon-public staging profile descriptorへ登録し、unknown nameやwrong tagged valueをpreflightで拒否する。旧profile/public capabilitiesの受理集合は変えない。
   3. fixed-point rangeとchecked arithmeticをstyle validationで確定し、layout側にraw number/stringを渡さない。
   4. computed style receiptをNodeId、package fingerprint、style registry versionへbindする。
   5. 各propertyを消費するlayout APIをtyped fieldにし、layout code内のproperty名文字列比較を禁止するtestを追加する。
-  6. exact/min/max/max+1、inherit、override、unknown、unused-advertised-property fixtureを追加する。
+  6. spacing/indent/alignment/width/keepのselected geometry/fragment/paint observationをDisplay/PDFとmanifest selected-state factへbindし、propertyがlayout後に消失または再解釈されないことを検査する。
+  7. exact/min/max/max+1、inherit、override、unknown、unused-advertised-property、page split、PDF observationのfixtureを追加する。
 - Acceptance criteria:
-  - advertised propertyはwireからlayout observationまでpositive testを持つ。
+  - staging descriptorに列挙したpropertyはwireからlayout、Display、PDF、manifest observationまでpositive testを持つ。
   - unknown/unsupported propertyはlayout開始前にprimary diagnosticを一件発行する。
   - paragraph-1で新propertyを受理しないregression testが通る。
   - MI2-08前のpublic current contract/Schema/capabilities bytesが変わらない。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-style machine_properties --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax machine_properties --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile basic_document_styles --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout typed_style_consumers --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf machine_block_styles --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_block_styles --locked`
   - `python3 schemas/validate.py`
 - Non-goals:
   - table border collapse、cell vertical alignment
@@ -998,26 +1011,30 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - ordered/unordered/nested listのvalidated layout、fragment、Display、PDF closure。
 - Tasks:
-  1. `ordered/start/item_index`からmarkerをchecked生成し、caller-provided markerを受理しない。
+  1. non-public staging profile descriptorへ採択list kind/policyをclosed登録し、`ordered/start/item_index`からmarkerをchecked生成してcaller-provided markerを受理しない。旧profile/public capabilitiesはlistを拒否し続ける。
   2. marker bytesを`GeneratedBufferKey`とresource/usage ledgerへ登録し、overflowとlimit max+1をpreflightで拒否する。
   3. 各item child blocksを独立subflowへ登録し、nested listを再帰呼出しではなくbounded flow stackで処理する。
   4. markerとitem最初のpainted lineを同一fragment receiptへbindし、marker orphanをselected-state validatorで拒否する。
   5. empty painted itemとpage末splitにMI2-01のpolicyを適用し、同一candidateを`More`で返す無進捗を検出する。
-  6. marker/indent/alignmentをexact placementへ変換し、Display/PDFのmissing/extra/wrong-itemを閉じる。
+  6. marker/indent/alignmentをexact placementへ変換し、selected list/item FlowIdとmarker usageをmanifestへbindしてversioned staging Schemaで検証し、Display/PDFのmissing/extra/wrong-itemを閉じる。current manifest Schema aliasは変えない。
   7. single、nested、page split、empty、marker overflow、exact limit、tamper E2Eを追加する。
 - Acceptance criteria:
   - list itemとnested subflowがtrace/manifest/PDFで同じFlowId/fragmentへbindされる。
   - markerだけがpage末に残らない。
-  - advertised list fixtureが二重buildで全artifact byte一致する。
+  - staging descriptorに列挙したlist fixtureがinternal runnerの二重buildで全artifact byte一致する。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout list --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination list --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_list --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - arbitrary caller marker text
   - table/footnote内listのrelease claim
@@ -1032,15 +1049,20 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-display-list/src/`
+  - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - zero-size contentと区別されたtyped forced-boundaryとconsume receipt。
 - Tasks:
-  1. PageBreakを独立`ValidatedFlowContent` variantとし、NodeId/FlowId/LayoutEpochへbindする。
+  1. non-public staging profile descriptorへ採択forced-break policyをclosed登録し、PageBreakを独立`ValidatedFlowContent` variantとしてNodeId/FlowId/LayoutEpochへbindする。旧profile/public capabilitiesはPageBreakを拒否し続ける。
   2. empty frame先頭でも一度だけconsumeし、next cursorがstrictly advanceしたことをreceiptで証明する。
   3. 連続breakとdocument末尾breakへMI2-01で採択したblank-page policyを適用する。
-  4. traceへbreak source、before/after cursor、produced page ordinalを記録し、selected state/PDF page countへbindする。
+  4. traceへbreak source、before/after cursor、produced page ordinalを記録し、selected state、manifest、PDF page countへbindしてversioned staging Schemaで検証する。Displayにはpaint opを発行せず、break由来のextra paintをclosure errorにし、current manifest Schema aliasは変えない。
   5. start、middle、consecutive、trailing、max/max+1、cursor tamper fixtureを追加する。
 - Acceptance criteria:
   - 同じcursorで`More`を返す経路がない。
@@ -1048,7 +1070,9 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - paragraph-1はPageBreakを引き続きpreflightで拒否する。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination forced_page_break --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list forced_page_break --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_page_break --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - named page/master切替
   - recto/verso break
@@ -1064,20 +1088,23 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - admitted PNG、caption subflow、alt text、exact placementをbindする`ValidatedFigureLayout`。
   - PDF image XObjectまでのresource closure。
 - Tasks:
-  1. admitted PNGのpixel width/height、media type、hash、ResourceIdをstable-read ledgerへbindする。
+  1. PNG decoderだけが発行できるclosed internal `AdmittedImageMediaKind::Png`を追加し、pixel width/height、encoded bytes hash、`ImageResourceId`とともにstable-read ledgerへbindする。non-public staging profile descriptorへPNG figure/captionだけをclosed登録する。M2 contractには宣言media fieldを後付けせず、URI suffixやcaller文字列をmedia attestationに使わず、旧profile/public capabilitiesはfigure/imageを拒否し続ける。
   2. computed widthを必須にし、heightをpixel aspect ratioからfixed-point checked roundingで導出する。暗黙DPIを導入しない。
   3. figure owner、ImageResourceId、caption FlowId、alt text、keep/oversize policyを一つのvalidated receiptへbindする。
   4. non-floating block placementだけを実装し、float/unsupported fit policyをpreflightで拒否する。
   5. captionが同一pageに収まらない場合にMI2-01のtyped keep policyを適用し、無進捗oversizeを一度だけterminalへ遷移する。
-  6. Displayへexact placementから`DrawImage`を一件発行し、usage collector、admitted ledger、late finalizer、PDF XObjectのmissing/extra/wrong-IDを閉じる。
-  7. valid、caption split/keep、bad hash/media/dimensions、pixel limit、wrong resource、publication failure E2Eを追加する。
+  6. Displayへexact placementから`DrawImage`を一件発行し、figure/placement/`attested_media_kind = png`/hash factをmanifestへbindしてversioned staging Schemaで検証し、usage collector、admitted ledger、late finalizer、PDF XObjectのmissing/extra/wrong-IDを閉じる。current manifest Schema aliasはMI2-08まで変えず、M4より前のmanifestへcaller-declared media fieldを作らない。
+  7. valid、caption split/keep、bad hash、non-PNG bytes、invalid dimensions、pixel limit、wrong `ImageResourceId`、publication failure E2Eを追加する。
 - Acceptance criteria:
   - figureのsource resourceからPDF XObjectまでhash/ID/placementがreceipt chainで追跡できる。
   - missing/extra/wrong-IDはfinalized PDF bytesの最初のpublish前に拒否する。
@@ -1087,6 +1114,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout figure --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf image_xobject --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_figure --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - inline image、float、SVG、JPEG
 
@@ -1100,18 +1128,21 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `workspace/crates/typaxis-linebreak/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - logical cluster rangeからpage-local annotation rectangleまでのlink receipt。
   - internal named destinationとvalidated external `SafeUri`。
 - Tasks:
-  1. link child rangeをparagraph itemization時にlogical cluster rangeへbindし、empty childrenをpreflightで拒否する。
+  1. non-public staging profile descriptorへ採択internal/external link policyをclosed登録し、link child rangeをparagraph itemization時にlogical cluster rangeへbindしてempty childrenをpreflightで拒否する。旧profile/public capabilitiesはlink annotationを拒否し続ける。
   2. internal targetをpackage anchor registryのselected named destinationへ解決し、missing/duplicate/wrong-package anchorを拒否する。
   3. external URIをMI2-01のscheme/normalization policyで`SafeUri`へ変換し、raw stringをPDF writerへ渡さない。
   4. selected lineごとにpainted visual cluster rectangleのcanonical unionを作り、page bounds、non-empty、rect count limitを検査する。
-  5. Display/PDF closureでlinkごとにannotationを一件以上要求し、missing、extra、wrong page、wrong targetを拒否する。
+  5. link target/cluster/page/rectangleをmanifest selected-state factへbindしてversioned staging Schemaで検証し、Display/PDF closureでlinkごとにannotationを一件以上要求してmissing、extra、wrong page、wrong targetを拒否する。current manifest Schema aliasは変えない。
   6. wrapped link、internal/external、empty/unpainted、bad URI、bad target、rect tamper、exact limit E2Eを追加する。
 - Acceptance criteria:
   - annotation rectangleがselected glyph clusterと同じpage/line receiptへbindされる。
@@ -1121,6 +1152,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-linebreak link_clusters --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf annotations --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_link --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - JavaScript/action annotation
   - arbitrary PDF destination syntax
@@ -1135,6 +1167,8 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/src/artifacts.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
@@ -1154,7 +1188,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   2. list、forced break、PNG figure/caption、internal/external link、全advertised styleを一つのpackageで使用するcombined E2Eを追加する。
   3. descriptorのfeature/style/resource/limit集合をfixture coverageと双方向照合し、advertised-but-untestedとtested-but-unadvertisedを失敗させる。
   4. preflight後かつlayout前のcapability receiptをmanifestへbindし、resolved profile requestとの不一致をtamper testにする。
-  5. previous current Schemaをversion directoryへfreezeし、new contract constant/Schema registry/Wire serializer/decoder/`dump-ast`/capability/manifest/fixturesを同じchange setで追加する。
+  5. previous current Schemaをversion directoryへfreezeし、new contract constant/Schema registry/Wire serializer/decoder/`dump-ast`/capability/manifest/fixturesを同じchange setで追加する。同じcommitでcrate-private staging runnerの専用入口を外し、通常pipelineがnew current contract/profileを選択できるようにする。hidden selectorは残さない。
   6. paragraph-1を含む旧profileのcapability bytes、contract受理/拒否集合、default statusをMI2-01のmigration tableどおりgolden testで固定する。
   7. combined packageを二重build・異名checkout・documented hostsで実行し、PDF/trace/manifest/diagnosticsを比較する。
   8. actual profile IDとcombined fixtureを`samples/machine-package/matrices/m2-basic.json`へ登録する。
@@ -1173,7 +1207,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
 
 ## 7. M3: table、footnote、advanced pagination
 
-M3も既存profileを変更せず、table、footnote、advanced paginationをそれぞれADRで閉じたprofileとして扱う。採用しないpolicyはdefault動作へ丸めず、該当profileのpreflightで拒否する。table/footnote profileはMI2 current contractに既にあるwire shapeだけを使い、new wire/style fieldを追加しない。advanced pagination用new contractは非公開stagingとし、current contract/Schemaの切替はMI3-12だけが行う。table/footnote ADRがnew wire fieldを必要と判断した場合はMI3-02/MI3-06開始前に本task graphへ別contract migrationを追加し、暗黙にcurrent IDを拡張しない。
+M3も既存profileを変更せず、table、footnote、advanced paginationをそれぞれADRで閉じたprofileとして扱う。採用しないpolicyはdefault動作へ丸めず、該当profileのpreflightで拒否する。table/footnote profileはMI2 current contractに既にあるwire shapeだけを使い、new wire/style fieldを追加しない。advanced pagination用new contractは非公開stagingとし、current contract/Schemaの切替はMI3-12だけが行う。MI3-09〜MI3-11のpositive CLI testsも同じcrate-private staging runnerを使い、integration testsはpublic parser/help/capabilitiesが新contract/profileを拒否することを確認する。table/footnote ADRがnew wire fieldを必要と判断した場合はMI3-02/MI3-06開始前に本task graphへ別contract migrationを追加し、暗黙にcurrent IDを拡張しない。
 
 ### MI3-01 Table profile ADRとgrid policyを採択する
 
@@ -1241,6 +1275,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-layout-contract/src/`
+  - `workspace/crates/typaxis-manifest/src/`
 - Deliverables:
   - common break candidate選択、row continuation state、header repetition receipt。
 - Tasks:
@@ -1269,6 +1304,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 - Primary files:
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
@@ -1366,6 +1402,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
@@ -1445,7 +1482,9 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
   - `schemas/`
@@ -1457,7 +1496,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   3. header/footerをowner masterにboundした独立FlowId/frameへ登録する。
   4. selected page size、trim、marginsからMediaBox/TrimBoxとheader/body/footer frameをchecked導出し、non-overlap/page boundsを検査する。
   5. repeated contentをsource subflow、selected page、repetition indexへbindする。
-  6. page master receiptとPDF page boxesをclosureし、missing/extra/wrong-master/wrong-page/wrong-repetition/wrong-boxを拒否する。
+  6. page master receipt、selected header/footer repetition、page boxesをmanifestへbindしてPDF page boxesとclosureし、missing/extra/wrong-master/wrong-page/wrong-repetition/wrong-boxを拒否する。
   7. custom trim、first/left/right、multi-page、empty、oversize、paragraph/list/figure併用fixtureを追加する。
 - Acceptance criteria:
   - master selectionとpage boxesがtrace、manifest、Display、PDFで一致する。
@@ -1482,6 +1521,10 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-layout-contract/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-display-list/src/`
+  - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
   - `schemas/`
@@ -1494,13 +1537,17 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   4. sequential fillでcursorを単調に進め、column transitionをtraceへ記録する。
   5. ADRで採択した最終frame balanceをbounded candidate searchで実装し、selected target heightとinput fingerprintをreceiptへbindする。
   6. balance max+1前停止、oscillation、empty column、oversize、wrong target receiptをnegative testにする。
-  7. paragraph/list/figure跨ぎのsplitとsame-toolchain reproducibility fixtureを追加する。
+  7. selected column frame/FlowId/break/balance targetをmanifestへbindし、Display/PDFのpaintを同じpage/frame receiptへclosureしてmissing、extra、wrong-column、wrong-pageを拒否する。
+  8. paragraph/list/figure跨ぎのsplit、closure tamper、same-toolchain reproducibility fixtureを追加する。
 - Acceptance criteria:
   - column widthの和とgapがcontent frameへexactに一致する。
   - balance iterationは上限内でconvergeまたはtyped terminal errorになる。
   - worker順によりcolumn breakが変わらない。
+  - selected column frameとbreakがtrace、Display、manifest、PDFで一致する。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination columns --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list columns --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf columns --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_columns --locked`
 - Non-goals:
   - unbounded optimal balancing
@@ -1519,7 +1566,10 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-display-list/src/`
+  - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
   - `schemas/`
@@ -1532,7 +1582,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   4. available frameに対するplacementをchecked決定し、float rect、anchor、source FlowId、page/frameをreceiptへbindする。
   5. deferred floatをbody cursorと分離したcarryへ移し、max deferral到達時にoversize/terminal policyへ一度だけ遷移する。
   6. text wrapを採択した場合はexclusion geometryをline layout input fingerprintへbindし、採択しない場合はnon-wrapping placementだけを許す。
-  7. duplicate/missing/wrong anchor/wrong page/queue reorder/carry replayをclosure testにする。
+  7. selected float placement/carryをmanifestとPDF object usageへbindし、duplicate/missing/wrong anchor/wrong page/queue reorder/carry replayをDisplay/PDF closure testにする。
   8. single/multiple/deferred/oversize/column/page-boundary、exact/max+1 fixtureを追加する。
 - Acceptance criteria:
   - float queueとcarryが各pagination stepでstrictly advanceまたはterminalになる。
@@ -1555,8 +1605,10 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-display-list/src/`
+  - `workspace/crates/typaxis-pdf/src/`
   - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/src/artifacts.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
@@ -1575,7 +1627,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   2. Display/PDF usageをselected fragments、repetitions、carry、resource ledgerと双方向照合する。
   3. table/footnote/advanced paginationのexact-limitとprogress matrixをpublic CLI E2Eで実行する。
   4. 各profile descriptorとfixture coverageを双方向照合し、feature組合せが許可されないprofileではpreflight rejectする。
-  5. previous current Schemaをversion directoryへfreezeし、MI3-08のnew contract constant/Schema registry/Wire serializer/decoder/`dump-ast`/capability/manifestをatomic change setで追加する。
+  5. previous current Schemaをversion directoryへfreezeし、MI3-08のnew contract constant/Schema registry/Wire serializer/decoder/`dump-ast`/capability/manifestをatomic change setで追加する。同じcommitでcrate-private staging runnerの専用入口を外し、通常pipelineがnew current contract/profileを選択できるようにする。hidden selectorは残さない。
   6. M1/M2と先行table/footnote profileのdescriptor bytes、default、contract受理/拒否集合をmigration tableどおり凍結fixtureで検査する。
   7. combined fixtureを二重build、異名checkout、documented hosts、PDF differentialへ通す。
   8. M3の全公開profile/combined fixtureを`samples/machine-package/matrices/m3-all.json`へ登録する。
@@ -1596,7 +1648,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ## 8. M4: math/vector/book publication
 
-M4のsemantic container、math、vector、tagged PDFは既存node、PNG、ActualTextへlossy loweringして追加しない。wire shapeまたは公開diagnostic/locationの意味が変わる場合は新contract IDを発行し、旧contract/profileを凍結したままatomic migrationする。MI4-02〜MI4-12の実装は採択済みnew contractを非公開stagingとして扱い、current contract/Schema/profileの切替はMI4-13だけが行う。
+M4のsemantic container、math、vector、tagged PDFは既存node、PNG、ActualTextへlossy loweringして追加しない。wire shapeまたは公開diagnostic/locationの意味が変わる場合は新contract IDを発行し、旧contract/profileを凍結したままatomic migrationする。MI4-02〜MI4-12の実装は採択済みnew contractを非公開stagingとして扱い、current contract/Schema/profileの切替はMI4-13だけが行う。各positive `machine_*`/staging exporter testは同じcrate-private runnerを直接使い、integration testsはpublic command grammar、help、current constants、Schema alias、capability bytesがstaging selectorを露出しないことを確認する。
 
 ### MI4-01 M4 contract versioningとsemantic container ADRを採択する
 
@@ -1613,24 +1665,29 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 - Deliverables:
   - M4 wire changeに対する新contract ID/versioning判断。
   - generic semantic containerのkind、ownership、source mapping、fallback policy。
+  - M4 resource declarationで必須にするclosed image/font media discriminatorのfield ownerとversioning boundary。
 - Tasks:
   1. result/proof/exercise等を表すcontainer kindをclosed enum、extension mechanism、または両者の組合せとして固定する。
   2. containerのchild ownership、block/inline nesting、NodeId/source span、style scope、outline/tag mappingを固定する。
   3. container childが独立FlowIdを持つ条件と、typed grouping boundaryだけを持つ条件をpage split/selected-state規則とともに固定する。
   4. unknown kind、empty container、invalid nesting、unsupported renderingをrejectするphase/error codeを固定する。
-  5. semantic container、math/vector binding、metadata/language/outline、tagged structureを含むM4全体のplanned DocumentPackage wire shapeのcompatibilityを判定し、current IDを再利用せず次の未使用contract IDとSchema IDを採番する。
-  6. old/new contractごとのprofile、default、serializer/decoder、manifest identity、diagnostic schema対応をmigration tableにする。
-  7. old IDへnew node setを追加しないことと、atomic publication順をADR acceptanceへ含める。
+  5. semantic container、math/vector binding、metadata/language/outline、tagged structureに加え、M4 contractで必須にする`resources.images[*].media_type`と`resources.font_faces[*].media_type`を含むplanned DocumentPackage wire shapeのcompatibilityを判定する。current IDを再利用せず次の未使用contract IDとSchema IDを採番する。untrusted `ImageMediaType`/`FontMediaType`はdocument-package/domain、declared mediaの許可判定とpolicy receiptはmachine-profile、decoder attestationと宣言とのexact照合はresource-admissionのownerとする。MI4-02以降が有効なstaging fixtureを作れるよう、既存PNG/TrueType sfnt/TTCのcanonical enum値とsource-mode/`dump-ast` population ruleはこのADRで固定し、MI4-03へvector値、MI4-10へJPEG/OTF-CFF値の追加だけを割り当てる。
+  6. domain compatibilityは`ImageMediaDeclaration::{LegacyUnspecified, Declared(ImageMediaType)}`と`FontMediaDeclaration::{LegacyUnspecified, Declared(FontMediaType)}`のclosed enumで表し、nullable/raw stringにしない。syntax loweringだけがfrozen old contractとprovenanceへboundした`LegacyUnspecified`を発行でき、new M4 contractのmissing fieldはdecode error、M4 profileでのlegacy variantはpre-resource rejectionにする。old profileは旧contractと従来media subsetの組だけを受理し、legacy variantからnew declared mediaを合成しない。
+  7. old/new contractごとのprofile、default、serializer/decoder、manifest identity、diagnostic schema対応をmigration tableにする。new M4 manifest Schemaのresource recordだけが`media_declaration`を持ち、`kind = legacy_unspecified`なら`media_type` memberを禁止し、`kind = declared`ならtyped `media_type` memberを必須にするtagged unionとする。decoder-issued値は別の`attested_media_kind` fieldとし、そのnullabilityはresource admission前のfailed progressだけに許可する。旧profileのsuccess/failure manifestは従来Schema/bytesを維持して新fieldを得ない。`legacy_unspecified`をnew manifestへ出せるのは、old contractをM4 profileへ渡してpre-resource拒否したfailed progressのようにnew Schemaで互換性failureを記録する場合だけとする。
+  8. old IDへnew node setを追加しないことと、atomic publication順をADR acceptanceへ含める。
 - Acceptance criteria:
   - semantic containerを文字列付きparagraphへ平文化する経路がない。
   - contract/profile/Schema IDの対応と旧版互換性が一意である。
   - migrationがdecoderだけ先行公開されない順序を持つ。
+  - M4 image/font declarationはmedia discriminatorなしでは表現できず、旧contractのdeclaration shapeは凍結される。
+  - old-contract legacy declaration、new-contract declared media、missing/unknown fieldがdomain/preflight上で混同されない。
+  - old profileのmanifest bytesを変えず、new M4 manifestのsuccessではdeclared/attested mediaが必ず非nullで一致する。
 - Verification:
-  - `rg -n "semantic|ownership|source span|contract|schema|profile|migration" adr docs/22-contract-matrix.md schemas/README.md`
+  - `rg -n "semantic|ownership|source span|contract|schema|profile|migration|media_type|PNG|TrueType|TTC" adr docs/22-contract-matrix.md schemas/README.md`
 - Non-goals:
-  - math/vector/tagged PDFの具体wire
+  - planned field owner/versioning判断を超えるmath node、vector payload、tagged PDFの具体wire
 
-### MI4-02 Semantic containerをwireからPDF observationまで実装する
+### MI4-02 M4 contract scaffoldとSemantic containerをPDF observationまで実装する
 
 - Status: Pending
 - Depends on: MI4-01
@@ -1639,33 +1696,52 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-document/src/`
   - `workspace/crates/typaxis-syntax/src/`
+  - `workspace/crates/typaxis-resource-admission/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-layout/src/`
+  - `workspace/crates/typaxis-display-list/src/`
+  - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/main.rs`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
+  - `workspace/crates/typaxis-cli/src/artifacts.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
+  - MI4-01で固定したnew contract staging scaffoldとPNG/TrueType base declared-media/attestation mapping。
   - semantic container Wire DTO/domain/validator/flow/layout receipt。
-  - kind/source/styleを保持するnon-lossy fixture。
+  - kind/source/styleを保持するselected-state/Display/PDF observationとnon-lossy fixture。
 - Tasks:
-  1. MI4-01のnew contract stagingへcontainer typeをWire DTO、versioned Schema、domainとしてexhaustiveに追加し、canonical JCS serializerを更新する。public current Schema alias/contract constantは変えない。
+  1. MI4-01のnew contract staging scaffoldを作り、required `ImageMediaType`/`FontMediaType` field、base PNG/TrueType sfnt/TTC enum値、version-bound `ImageMediaDeclaration`/`FontMediaDeclaration` compatibility enum、container typeをWire DTO、versioned Schema、domainへexhaustiveに追加してcanonical JCS serializerを更新する。public current Schema alias/contract constantは変えない。
   2. child ownership、nesting、NodeId/source span、style scopeをsyntax validatorで検査する。
-  3. container child blocksをMI4-01が選択したflow表現でcanonical registryへ登録し、実装側で方式を再選択しない。
-  4. kind-specific visual styleをgeneric container styleからtyped computed styleへ解決し、raw kind stringをlayoutで比較しない。
-  5. layout/Display/PDF observationと将来のstructure tree inputへcontainer receiptを引き渡す。
-  6. result/proof/exercise、nested、page split、empty/unknown/wrong owner、round-trip/tamper fixtureを追加する。
-  7. 旧contract/profileがcontainerを拒否する凍結testを追加する。
+  3. M2の`AdmittedImageMediaKind::Png`と新しい`AdmittedFontMediaKind`のTrueType sfnt/TTC variantをdecoder-issued attestationとしてbase declarationへexact照合し、URI suffix、caller value、wrong container/outlineをresource decode/admissionで拒否する。MI4-13で`dump-ast`へ接続するshared staging exporterはMI4-01のpopulation ruleどおり同じstable resource admission/attestationからwire declarationを作り、resource未admit時にsuffix推測で出力を続けない。MI4-13前はinternal test entryだけから呼び、public current outputへ接続しない。
+  4. non-public staging profile descriptor/preflightへ採択container kind/style/nestingとbase media mappingをclosed登録し、旧profile/public capabilitiesはcontainerとM4 declaration shapeを拒否し続ける。
+  5. container child blocksをMI4-01が選択したflow表現でcanonical registryへ登録し、実装側で方式を再選択しない。
+  6. kind-specific visual styleをgeneric container styleからtyped computed styleへ解決し、raw kind stringをlayoutで比較しない。
+  7. selected container fragmentとkind-specific computed styleをDisplay ownerへ渡し、child paint、container fingerprint、manifest selected-state fact、PDF/raster observationを同じreceiptへbindする。PDF writerがraw container kindを再解釈しない形で将来のstructure tree inputも保持する。
+  8. result/proof/exercise、nested、page split、empty/unknown/wrong owner、base media round-trip/mismatch、round-trip/tamper fixtureを追加する。
+  9. 旧contract/profileがcontainerとM4 resource declarationを拒否する凍結testを追加する。
 - Acceptance criteria:
   - kind、children、source span、style、selected fragmentsがreceipt chainで結ばれる。
-  - `dump-ast -> build-package`のtyped canonical round-tripでcontainer factsが失われない。
+  - machine Wire decode -> trusted domain -> Wire re-encodeのtyped canonical round-tripでcontainer factsが失われない。containerはM4ではmachine-onlyとし、reference TSFへ新syntaxを暗黙追加しない。
   - unknown kind/nestingをlayout開始前に拒否する。
+  - container fixtureのselected fragments/manifest fingerprintとPDF raster observationが一致する。
+  - base PNG/TrueType declaration、decoder attestation、profile policyが一致する。missing/unknown/disallowed declarationはresource open前、declared/actual mismatchはstable read後かつdecoded allocation・font outline evaluation・PDF開始前に失敗する。
+  - MI4-13前のpublic `dump-ast`/contract/Schema/capabilities bytesは変わらない。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package semantic_container --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax semantic_container --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resource-admission declared_media_base --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile semantic_container --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list semantic_container --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf semantic_container --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_semantic_container --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli dump_ast_m4_base_media --locked`
   - `python3 schemas/validate.py`
 - Non-goals:
   - tagged PDF role assignmentの公開
+  - semantic container用reference TSF grammar
 
 ### MI4-03 Math/vector/accessibility binding ADRを採択する
 
@@ -1683,7 +1759,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   1. math source language/version、inline/display distinction、normalization、parser/formatter identityを固定する。
   2. visual layout input、vector output、speech/text alternative、source spanを一つのvalidated math receiptへbindする。
   3. speech/ActualText生成をproducer supplied、engine generated、両者照合のどれにするかとfailure policyを固定する。
-  4. safe vector IRまたはsafe SVG subsetを選び、external reference、script、animation、foreign object、network fetch、unbounded recursion/filter等の禁止規則を列挙する。
+  4. safe vector IRまたはsafe SVG subsetを選び、MI4-01で予約した`resources.images[*].media_type`のcanonical `ImageMediaType` enum値と`AdmittedImageMediaKind::SafeVector` attestationを固定する。external reference、script、animation、foreign object、network fetch、unbounded recursion/filter等の禁止規則を列挙する。
   5. coordinate/unit/fixed-point rounding、view box、clip、stroke/fill、font/text primitiveの採用subsetを固定する。
   6. vector complexity/bytes/nodes/path segments/nesting/math layoutのlimitとerror codeを固定する。
   7. math/vector receiptからDisplay/PDF object、ActualText、tagged structureへ至るclosure条件を固定する。
@@ -1700,36 +1776,52 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 ### MI4-04 Safe vector/SVG resource admissionとPDF paintを実装する
 
 - Status: Pending
-- Depends on: MI4-03
+- Depends on: MI4-02, MI4-03
 - Design inputs: docs/25 §7 SVG assets、§13.4 safe vector
 - Primary files:
   - `workspace/Cargo.toml`
   - `workspace/Cargo.lock`
+  - `workspace/crates/typaxis-document-package/src/`
+  - `workspace/crates/typaxis-document/src/`
+  - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-resource-admission/src/`
   - `workspace/crates/typaxis-resources/src/`
+  - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
   - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-testkit/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
+  - `workspace/crates/typaxis-cli/tests/`
+  - `schemas/`
+  - `samples/machine-package/`
 - Deliverables:
-  - bounded safe vector decoder/validator、canonical vector IR、Display/PDF paint closure。
+  - closed declared vector media type、bounded safe vector decoder/validator、canonical vector IR、Display/PDF paint closure。
 - Tasks:
-  1. stable-read済みresource bytesをcontent hash/media type/profileへbindしてbounded decoderへ渡す。
-  2. recursive general-purpose DOMを避け、MI4-03のsubsetだけをiterative parser/typed IRへ変換する。採択dependencyをexact pinし、testkitのdependency/supply-chain auditへ登録する。
-  3. namespace/name/attribute duplicate/unknown、external URI、script、unsupported featureをresource admissionで拒否する。
-  4. node/path/segment/nesting/coordinate/decoded bytesのlimitをallocation前・evaluation前に適用する。
-  5. vector IRをcanonical order/fixed-point exact placementでDisplay opsへ変換する。
-  6. existing image catalogの`ImageResourceId`、admitted hash、media kind `SafeVector`、IR fingerprint、usage ledger、PDF objectを双方向closureする。別のcaller-assigned `VectorResourceId`は追加しない。
-  7. allowed primitives、forbidden feature、entity/reference bomb、deep nesting、huge coordinate、tamper、exact/max+1 fixtureを追加する。
+  1. MI4-03が固定したvector media enum値をMI4 new-contract stagingのimage declaration Wire DTO/versioned Schema/domain/syntax loweringへ追加する。public current Schema alias/contract constantは変えない。
+  2. stable-read済みresource bytesをdeclared `ImageMediaType`、content hash、profileへbindしてbounded decoderへ渡し、decoderだけが`AdmittedImageMediaKind::SafeVector`を発行する。宣言値とbytesの不一致をIR allocation前に拒否し、MI4-02のshared staging exporterは同じattestationからだけvector declarationを生成する。
+  3. recursive general-purpose DOMを避け、MI4-03のsubsetだけをiterative parser/typed IRへ変換する。採択dependencyをexact pinし、testkitのdependency/supply-chain auditへ登録する。
+  4. namespace/name/attribute duplicate/unknown、external URI、script、unsupported featureをresource admissionで拒否する。
+  5. node/path/segment/nesting/coordinate/decoded bytesのlimitをallocation前・evaluation前に適用する。
+  6. staging profile preflightで採択media typeだけを許可し、vector intrinsic size/aspect ratioをMI2 figureのtyped placementへ渡してcanonical order/fixed-point exact placementのDisplay opsへ変換する。
+  7. existing image catalogの`ImageResourceId`、declared/attested media type、admitted hash、IR fingerprint、usage ledger、manifest resource fact、PDF objectを双方向closureする。別のcaller-assigned `VectorResourceId`は追加しない。
+  8. allowed primitives、forbidden feature、media mismatch、entity/reference bomb、deep nesting、huge coordinate、tamper、exact/max+1、old-profile rejection fixtureを追加する。
 - Acceptance criteria:
   - vector resource admission中にpackage root外readまたはnetwork accessが発生しない。
   - forbidden/unknown SVG featureを無視せずtyped diagnosticで拒否する。
   - same bytes/profileから同じIR fingerprintとPDF bytesを得る。
+  - missing/unknown/disallowed declared mediaとnon-advertised profileはresource open前、declared/actual mismatchはstable read後かつvector IR allocation前に拒否される。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resource-admission vector --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package vector_media --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax vector_media --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile vector_media --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list vector --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf vector --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_vector --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - external resource参照
   - unrestricted SVG filter/text/CSS
@@ -1745,34 +1837,45 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `workspace/crates/typaxis-math/`
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-document/src/`
+  - `workspace/crates/typaxis-syntax/src/`
+  - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-linebreak/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-testkit/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - inline/display math domain、validated math receipt、line/block layout、vector paint、alternative mapping。
 - Tasks:
   1. `typaxis-math` crateを追加し、MI4-03で採択したdependencyだけをexact pinしてtestkitのallowed/denied edge auditへ登録する。
-  2. math Wire DTO/domainをMI4-01のnew contract stagingへ追加し、source language/version、source text/span、alternativeをcanonical JCSへ含める。public current Schema alias/contract constantは変えない。
-  3. parser/formatter identityとlimits下でmath sourceをbounded validated layout inputへ変換し、parser failureをstable code/locationへmapする。
-  4. inline mathをcluster/itemizationへ、display mathを独立block/subflowへtyped登録する。
-  5. computed dimensions/baselineとvector IR fingerprintをvalidated math receiptへbindする。
-  6. source、speech/ActualText、source span、vector paint、selected page/fragmentをsame receipt keyでclosureする。
-  7. missing/extra/wrong-source/wrong-alternative/wrong-vector/wrong-page tamperを拒否する。
-  8. inline/display、wrap、page split/keep、limit、unsupported source version、round-trip、PDF extraction fixtureを追加する。
+  2. math Wire DTO/versioned Schema/domain/syntax loweringをMI4-01のnew contract stagingへ追加し、source language/version、source text/span、alternativeをcanonical JCSへ含める。public current Schema alias/contract constantは変えない。
+  3. staging profile descriptor/preflightへinline/display、source version、alternative、required vector mediaのclosed受理集合を追加し、旧profileとpublic current capabilitiesは拒否状態を維持する。
+  4. parser/formatter identityとlimits下でmath sourceをbounded validated layout inputへ変換し、parser failureをstable code/locationへmapする。
+  5. inline mathをcluster/itemizationへ、display mathを独立block/subflowへtyped登録する。
+  6. computed dimensions/baselineとvector IR fingerprintをvalidated math receiptへbindする。
+  7. source、speech/ActualText、source span、vector paint、selected page/fragment、manifest factをsame receipt keyでclosureする。
+  8. missing/extra/wrong-source/wrong-alternative/wrong-vector/wrong-page tamperを拒否する。
+  9. inline/display、wrap、page split/keep、limit、unsupported source version、round-trip、PDF extraction、old-profile rejection fixtureを追加する。
 - Acceptance criteria:
   - visualだけ、alternativeだけ、source spanだけが入れ替わったtamperを個別に検出する。
   - math sourceをplain textやPNGへsilent loweringしない。
   - renderer/extractorでvisual contentとActualTextの双方が観測できる。
+  - MI4-13より前のpublic contract/Schema/profile bytesは変わらず、旧profileはmathをpreflightで拒否する。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-math --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package math_wire --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax math --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile math --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout math --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf math_actual_text --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_math --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - MI4-03で採択していないmath dialect
 
@@ -1811,33 +1914,41 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 - Primary files:
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-document/src/`
+  - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
   - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `tools/verify_pdf_structure.py`
   - `tools/test_pdf_structure.py`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - validated metadata/language/outline registryとPDF catalog/outline emission。
 - Tasks:
-  1. MI4-01のnew contract staging Wire DTO/versioned Schema/domainへ採択fieldsを追加し、canonical serialization/round-tripを更新する。public current Schema alias/contract constantは変えない。
-  2. BCP 47 validation/inheritanceをtyped computed language receiptへ変換する。
-  3. outline hierarchyをsource owner preorderでcanonicalizeし、selected named destinationへ解決する。
-  4. metadata/language/outline fingerprintsをmanifestとselected-state closureへ含める。
-  5. PDF catalog、Info/XMPの採択先、document/marked-content language、outline treeをdeterministic object orderで発行する。
-  6. duplicate/missing/wrong target、bad language、host/clock leakage、limit/tamper fixtureを追加する。
-  7. `verify_pdf_structure.py`とunit testを追加し、独立PDF validatorでmetadata、document language、outline hierarchy/target、link destinationを検査する。
+  1. MI4-01のnew contract staging Wire DTO/versioned Schema/domain/syntax loweringへ採択fieldsを追加し、canonical serialization/round-tripを更新する。public current Schema alias/contract constantは変えない。
+  2. non-public staging profile descriptor/preflightへ採択metadata/language/outline fieldとpolicyをclosed登録し、旧profile/public capabilitiesはこれらを拒否し続ける。
+  3. BCP 47 validation/inheritanceをtyped computed language receiptへ変換する。
+  4. outline hierarchyをsource owner preorderでcanonicalizeし、selected named destinationへ解決する。
+  5. metadata/language/outline fingerprintsをmanifestとselected-state closureへ含める。
+  6. PDF catalog、Info/XMPの採択先、document/marked-content language、outline treeをdeterministic object orderで発行する。
+  7. duplicate/missing/wrong target、bad language、host/clock leakage、limit/tamper、old-profile rejection fixtureを追加する。
+  8. `verify_pdf_structure.py`とunit testを追加し、独立PDF validatorでmetadata、document language、outline hierarchy/target、link destinationを検査する。
 - Acceptance criteria:
   - source facts、manifest、PDF validator observationが一致する。
   - 二重build/異名checkoutでmetadataを含むPDF bytesが一致する。
   - invalid hierarchy/languageはPDF開始前に拒否される。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf metadata_outline --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package book_navigation_wire --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax book_navigation --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile book_navigation --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_book_navigation --locked`
   - `python3 -m unittest tools/test_pdf_structure.py -v`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_book_navigation_external --locked -- --ignored`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - tagged structure tree
 
@@ -1877,12 +1988,15 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 - Design inputs: docs/25 §7 accessibility、§13.4
 - Primary files:
   - `workspace/crates/typaxis-layout-contract/src/`
+  - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
   - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `tools/verify_pdf_structure.py`
   - `tools/test_pdf_structure.py`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - validated structure registry、marked-content receipts、tagged PDF emission/closure。
@@ -1890,125 +2004,162 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   1. validated semantic registryをsource owner preorderで構築し、parent/child/role/language/alternativeをbindする。
   2. selected visual fragmentsからpage-local marked-content sequenceとdeterministic MCIDを割り当てる。
   3. split/repeated visual fragmentsを同一logical structure nodeへbindし、header cloneやdecorative paintをADR policyでartifact化する。
-  4. structure tree、parent tree、marked content、annotation/link、outline/math alternativeをPDF object closureへ含める。
+  4. structure tree、parent tree、marked content、annotation/link、outline/math alternativeをmanifestのversioned staging SchemaとPDF object closureへ含め、current Schema aliasは変えない。
   5. missing/extra/wrong owner/order/page/MCID/alternative/language tamperを個別に拒否する。
-  6. paragraph/list/table/figure/math/link/footnote/containerを併用するaccessibility fixtureを追加する。
-  7. independent validatorとtext/accessibility extractorでrole、reading order、language、alt/ActualTextを検査する。
+  6. staging profile descriptor/preflightへtagged structure、role、alternative、validator requirementのclosed受理集合を追加し、旧profile/public current capabilitiesはtagged PDFを拒否し続ける。
+  7. paragraph/list/table/figure/math/link/footnote/containerを併用するaccessibility fixtureとold-profile rejection fixtureを追加する。
+  8. independent validatorとtext/accessibility extractorでrole、reading order、language、alt/ActualTextを検査する。
 - Acceptance criteria:
   - document language、outline、link、tagged structureが独立validatorで成功する。
   - visual contentとstructure nodeのmissing/extraが双方0件である。
   - same inputでMCID/object order/PDF bytesが決定的である。
+  - MI4-13より前に旧profileまたはpublic capabilitiesがtagged PDFを受理・advertiseしない。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list tagged_structure --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf tagged_pdf --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile tagged_pdf --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_accessibility --locked`
   - `python3 -m unittest tools/test_pdf_structure.py -v`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_accessibility_external --locked -- --ignored`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - validator未対応roleのproduction claim
 
 ### MI4-10 JPEG、OTF/CFF media/font profile ADRを採択する
 
 - Status: Pending
-- Depends on: MI3-12
+- Depends on: MI4-01, MI4-03
 - Design inputs: docs/25 §7 asset/font、§13.4
 - Primary files:
   - `adr/`
+  - `contracts/phase-ownership.md`
+  - `contracts/contract-version.md`
   - `contracts/machine-pdf-capabilities.md`
   - `docs/22-contract-matrix.md`
+  - `schemas/README.md`
 - Deliverables:
-  - JPEGとOTF/CFFを独立にadvertiseするresource profile/embedding plan。
+  - MI4-01のPNG/TrueType base media mappingを維持し、JPEG/OTF-CFFを独立に追加・advertiseするclosed declared-media contractとresource profile/embedding plan。
 - Tasks:
-  1. JPEGの許可color space、bit depth、orientation/metadata、progressive、ICC、decode limit、PDF embedding/transcode policyを固定する。
-  2. OTF/CFFのcontainer/table subset、glyph closure、variation/color font、hinting、subsetting、embedding permission policyを固定する。
-  3. font parser/decoder identity、resource hash、face index、selected glyph set、subset fingerprint、PDF objectのbindingを定義する。
-  4. malformed/unsupported/licensing restricted resourceのdiagnostic、location、publication policyを固定する。
-  5. PNG/既存font profileと分離したimmutable resource profile IDsと組合せprofileを決める。
-  6. bytes/pixels/tables/glyphs/outlines/subset size limitsのinclusive境界を固定する。
-  7. decoder/parserをin-tree実装にするかexternal crateにするかを固定し、externalの場合はexact version/features、Rust 1.75 compatibility、dependency edge、supply-chain auditを定義する。
+  1. MI4-01が固定したPNG/TrueType sfnt/TTCの`ImageMediaType`/`FontMediaType` mappingを変更せず、JPEG、OpenType/CFF、採択するbare CFF/containerのcanonical wire enum値と対応する`AdmittedImageMediaKind`/`AdmittedFontMediaKind`、magic/container照合、URI suffix非依存、mismatch diagnosticを追加する。reference sourceからnew contractをexportする`dump-ast`が新形式の宣言値を得るownerと、attestation不能時のfailureも固定する。
+  2. JPEGの許可color space、bit depth、orientation/metadata、progressive、ICC、decode limit、PDF embedding/transcode policyを固定する。
+  3. OTF/CFFのcontainer/table subset、glyph closure、variation/color font、hinting、subsetting、embedding permission policyを固定する。
+  4. font parser/decoder identity、declared/attested media type、resource hash、face index、selected glyph set、subset fingerprint、PDF objectのbindingを定義する。
+  5. malformed/unsupported/media-mismatch/licensing restricted resourceのdiagnostic、location、publication policyを固定する。
+  6. MI4-03で固定済みのSafeVector media contractを入力に、PNG/SafeVector/既存font profileと分離したimmutable resource profile IDsと組合せprofileを決める。
+  7. bytes/pixels/tables/glyphs/outlines/subset size limitsのinclusive境界を固定する。
+  8. decoder/parserをin-tree実装にするかexternal crateにするかを固定し、externalの場合はexact version/features、Rust 1.75 compatibility、dependency edge、supply-chain auditを定義する。
 - Acceptance criteria:
   - JPEG、OTF/CFFを一括の曖昧な「image/font対応」としてadvertiseしない。
   - transcode、metadata stripping、font subsettingのdeterminismが定義される。
   - embedding permission違反をPDF publication前に拒否する。
+  - declared media type、decoder-attested format、PDF embedding planの取り違えを各resource ID単位で検出できる。
 - Verification:
-  - `rg -n "JPEG|color space|OTF|CFF|glyph|subset|embedding|license|profile|limit" adr contracts/machine-pdf-capabilities.md`
+  - `rg -n "media_type|JPEG|color space|OTF|CFF|glyph|subset|embedding|license|profile|limit" adr contracts/phase-ownership.md contracts/machine-pdf-capabilities.md docs/22-contract-matrix.md schemas/README.md`
 - Non-goals:
   - variation/color fontをADRが採択しない場合のsupport
 
 ### MI4-11 JPEG admission、figure layout、PDF embeddingを実装する
 
 - Status: Pending
-- Depends on: MI4-10
+- Depends on: MI4-02, MI4-10
 - Design inputs: docs/25 §7 JPEG、§13.4 media plan
 - Primary files:
   - `workspace/Cargo.toml`
   - `workspace/Cargo.lock`
+  - `workspace/crates/typaxis-document-package/src/`
+  - `workspace/crates/typaxis-document/src/`
+  - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-resource-admission/src/`
   - `workspace/crates/typaxis-resources/src/`
   - `workspace/crates/typaxis-layout/src/`
+  - `workspace/crates/typaxis-display-list/src/`
   - `workspace/crates/typaxis-pdf/src/`
+  - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `workspace/crates/typaxis-testkit/src/`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - bounded JPEG admission receiptとfigure/PDF vertical slice。
 - Tasks:
-  1. MI4-10で採択したparser dependencyをexact pin/auditするかin-tree marker/segment parserをboundedに実装し、dimensions/color/decode factsをresource hash/profileへbindする。
-  2. unsupported color/metadata/progressive/ICC状態をMI4-10 policyどおりrejectまたはcanonical transformする。
-  3. PNGと共通のtyped image dimensions/placementへ変換し、media-specific factを消失させない。
-  4. usage ledger、late finalizer、PDF image objectをresource/decoded fingerprintへclosureする。
-  5. valid variants、truncated/bomb/huge dimensions/bad metadata/wrong media/hash/tamper、exact/max+1 fixtureを追加する。
-  6. renderer differentialでplacement/color/page countを検査し、reproducibility testを追加する。
+  1. MI4-10のJPEG enum値をM4 new-contract stagingのimage declaration Wire DTO/versioned Schema/domain/syntax loweringへ追加し、public current Schema alias/contract constantは変えない。
+  2. non-public staging profile descriptor/preflightへJPEG media/profile policyをclosed登録し、旧profile/public capabilitiesはJPEGをresource open前に拒否し続ける。
+  3. MI4-10で採択したparser dependencyをexact pin/auditするかin-tree marker/segment parserをboundedに実装し、declared media typeをbytesからattestしたJPEG format、dimensions/color/decode facts、resource hash/profileへbindする。mismatchはdecode allocation前に拒否し、MI4-02のshared staging exporterは同じattestationからだけJPEG declarationを生成する。
+  4. unsupported color/metadata/progressive/ICC状態をMI4-10 policyどおりrejectまたはcanonical transformする。
+  5. PNGと共通のtyped image dimensions/placementと`DrawImage` usageへ変換し、media-specific factを消失させない。
+  6. usage ledger、late finalizer、PDF image objectを`ImageResourceId`、declared/attested media type、resource/decoded fingerprintへclosureする。
+  7. admitted/decoded media、dimensions、hash、transform/embedding planをmanifest resource factへbindし、PNG/JPEGを同じformatとして記録しない。
+  8. valid variants、truncated/bomb/huge dimensions/bad metadata/media mismatch/hash/tamper、old-profile rejection、exact/max+1 fixtureを追加する。
+  9. renderer differentialでplacement/color/page countを検査し、reproducibility testを追加する。
 - Acceptance criteria:
   - decoder allocation前にdimension/bytes limitsを適用する。
   - admitted JPEGとPDF image objectのmissing/extra/wrong-IDが0件である。
   - non-advertised JPEG profileではpreflight rejectする。
+  - declared JPEG、decoder attestation、manifest、PDF embedding planが同じ`ImageResourceId`へbindされる。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resource-admission jpeg --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package jpeg_media --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax jpeg_media --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile jpeg_media --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf jpeg --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_jpeg --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - MI4-10で採択していないJPEG variant
 
 ### MI4-12 OTF/CFF admission、glyph closure、PDF subsetを実装する
 
 - Status: Pending
-- Depends on: MI4-10
+- Depends on: MI4-02, MI4-10
 - Design inputs: docs/25 §7 font、§13.4 font embedding plan
 - Primary files:
   - `workspace/Cargo.toml`
   - `workspace/Cargo.lock`
+  - `workspace/crates/typaxis-document-package/src/`
+  - `workspace/crates/typaxis-document/src/`
+  - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-resource-admission/src/`
   - `workspace/crates/typaxis-font/src/`
   - `workspace/crates/typaxis-shaping/src/`
   - `workspace/crates/typaxis-pdf/src/`
   - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `workspace/crates/typaxis-testkit/src/`
+  - `schemas/`
   - `samples/machine-package/`
 - Deliverables:
   - bounded OTF/CFF admission、selected glyph ledger、deterministic PDF subset/embed closure。
 - Tasks:
-  1. MI4-10で採択したparser dependencyをexact pin/auditするかin-tree font container/table directoryをchecked parseし、offset/length overlap、checksum、face index、required tablesを検査する。
-  2. CFF charstrings/subroutines等をbounded iterative evaluationし、recursion/operation/outline limitsをmax+1前に適用する。
-  3. embedding permissionとlicense factをresource receipt/manifestへbindし、restricted fontをpublication前に拒否する。
-  4. shapingのselected glyph IDsをcanonical glyph closureへ集約し、resource/face/features/input text fingerprintへbindする。
-  5. deterministic subset tag/object/table orderを生成し、selected glyph ledgerとPDF embedded fontを双方向closureする。
-  6. malformed/truncated/recursive/restricted/wrong face/glyph tamper/exact limitsとrepresentative positive font fixtureを追加する。
-  7. raster/text extraction differential、two-build、異名checkoutでsubset/PDF bytesを検査する。
+  1. MI4-10のfont media enum値をM4 new-contract stagingのfont-face declaration Wire DTO/versioned Schema/domain/syntax loweringへ追加し、public current Schema alias/contract constantは変えない。
+  2. non-public staging profile descriptor/preflightへ採択OTF/CFF media/font policyをclosed登録し、旧profile/public capabilitiesはOTF/CFFをresource open前に拒否し続ける。
+  3. MI4-10で採択したparser dependencyをexact pin/auditするかin-tree font container/table directoryをchecked parseし、declared media typeをactual container/outline kindへattestしてoffset/length overlap、checksum、face index、required tablesを検査する。mismatchをoutline evaluation前に拒否し、MI4-02のshared staging exporterは同じattestationからだけOTF/CFF declarationを生成する。
+  4. CFF charstrings/subroutines等をbounded iterative evaluationし、recursion/operation/outline limitsをmax+1前に適用する。
+  5. embedding permissionとlicense factをresource receipt/manifestへbindし、restricted fontをpublication前に拒否する。
+  6. shapingのselected glyph IDsをcanonical glyph closureへ集約し、resource/face/features/input text fingerprintへbindする。
+  7. deterministic subset tag/object/table orderを生成し、selected glyph ledgerとPDF embedded fontを双方向closureする。
+  8. declared/attested media、face、glyph closure、license、subset fingerprint、PDF embedding planをmanifestへ同じ`FontFaceId`で記録する。
+  9. malformed/truncated/recursive/restricted/media mismatch/wrong face/glyph tamper/old-profile rejection/exact limitsとrepresentative positive font fixtureを追加する。
+  10. raster/text extraction differential、two-build、異名checkoutでsubset/PDF bytesを検査する。
 - Acceptance criteria:
   - unselected glyph、missing selected glyph、wrong font/faceのPDF embeddingを検出する。
   - parser/evaluatorがpanic、stack overflow、unbounded allocationを起こさない。
   - resource license/embedding factsがrelease evidenceに残る。
+  - declared font media、decoder attestation、manifest、PDF FontFile subtypeが同じ`FontFaceId`へbindされる。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resource-admission otf_cff --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package font_media --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax font_media --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile font_media --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-font cff --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf font_subset --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_otf_cff --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
+  - `python3 schemas/validate.py`
 - Non-goals:
   - MI4-10で採択していないfont technology
 
@@ -2024,6 +2175,8 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-diagnostics/src/`
   - `workspace/crates/typaxis-manifest/src/`
+  - `workspace/crates/typaxis-cli/src/main.rs`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/src/artifacts.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `schemas/`
@@ -2042,11 +2195,11 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - MI4 ADR群が採択した新contract/Schema/profileのatomic migration。
   - VMB相当production-book combined fixtureとindependent validation evidence。
 - Tasks:
-  1. previous current Schema一式をversion directoryへfreezeし、MI4 stagingのnew Schema registryが旧registryと混ざらないことをvalidatorで確認する。
+  1. previous current Schema一式をversion directoryへfreezeし、MI4 stagingのnew Schema registryが旧registryと混ざらないこと、およびnew resource declarationだけがrequired closed `resources.images[*].media_type`/`resources.font_faces[*].media_type`を持つことをvalidatorで確認する。
   2. new contract constant/current Schema alias、Wire serializer/decoder/`dump-ast`、diagnostics、capability、manifest、fixturesを一つのchange setでstagingから有効化し、partial shapeへnew IDを付けない。
-  3. 旧contract/profileのgolden bytes、default profile、受理/拒否集合を維持し、旧IDへM4 featureを追加しない。
-  4. chapter/section heading、semantic containers、inline/display math、list、table、footnote、figure/caption、link、metadata/language、outline、tagged structureと採択media/fontを一つのproduction fixtureで使う。
-  5. source factsからwire、trusted package、all-flow selected state、Display、PDF、manifestまで全receipt closureを検査する。
+  3. 旧contract/profileのWire・capability・manifest golden bytes、default profile、`LegacyUnspecified` lowering、受理/拒否集合を維持し、旧ID/旧manifest Schemaへdeclared media fieldやM4 featureを追加しない。new M4 profileがlegacy declarationをpre-resourceで拒否し、new failed-manifest Schemaだけがその`legacy_unspecified` stateを記録するfixtureも固定する。
+  4. chapter/section heading、semantic containers、inline/display math、list、table、footnote、figure/caption、link、metadata/language、outline、tagged structureと、PNG/SafeVector/JPEG/TrueType/OTF-CFFのうちproduction profileが採択した全media/fontを一つのproduction fixtureで使う。
+  5. source factsからwire、trusted package、declared/decoder-attested media、all-flow selected state、Display、PDF、manifestまで全receipt closureを検査する。
   6. lossy producer preprocessingを検出するため、node kind/count、math source/span、resource IDs、outline、reading orderのexpected ledgerをfixtureへ同梱する。
   7. independent renderer、text extractor、structure/accessibility validatorでpage/raster/text/language/outline/link/tags/alternativesを検査する。
   8. two-build、異名checkout、documented hostsで全artifactを比較し、tool identitiesをevidenceへ記録する。
@@ -2057,6 +2210,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - math source、vector paint、alternative、source spanがtamper不能なreceiptで結ばれる。
   - language、outline、link、tagged structureが独立validatorで成功する。
   - 旧contract/profileのobservable behaviorが凍結fixtureと一致する。
+  - 各resourceのdeclared media type、decoder attestation、manifest fact、PDF embedding planがlogical ID単位で一致する。
 - Verification:
   - `cargo fmt --manifest-path workspace/Cargo.toml --all -- --check`
   - `cargo test --manifest-path workspace/Cargo.toml --workspace --all-targets --locked`
@@ -2125,7 +2279,7 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   - receipt edge inventoryとgenerated tamper matrix。
 - Tasks:
   1. raw/decoded/source/profile/style/resource/layout/selected state/Display/PDF/output/diagnostic/manifestのreceipt nodeとedgeを`contracts/receipt-edges.json`へmachine-readable inventoryとして記録し、Schema validatorを追加する。
-  2. 各edgeへwrong session、package、epoch、profile、NodeId/FlowId/ResourceId、hash、ordinal、count、terminal、targetを一要素ずつ変えるmutantを生成する。
+  2. 各edgeへwrong session、package、epoch、profile、NodeId/FlowId/FontFaceId/ImageResourceId、hash、ordinal、count、terminal、targetを一要素ずつ変えるmutantを生成する。
   3. missing、extra、duplicate、reorder、cross-run replay、same-bytes-different-bindingを各集合receiptへ適用する。
   4. mutantごとにexpected rejecting phase/code、side effects、visible artifactsを宣言し、最初のunexpected acceptを失敗させる。
   5. descriptor、manifest、trace、diagnostics Schema fixtureのfield coverageとtamper coverageを双方向照合する。
@@ -2229,7 +2383,7 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   1. repository同梱font/image/vector/math fixtureごとにsource URLまたは生成手順、license/SPDX、redistribution/embedding条件、content hashを`contracts/resource-governance.json`へ記録し、Schemaを追加する。
   2. release profileで許容するmedia/font embedding permissionとrestricted resource failureをpolicy化する。
   3. fixture bytesとledger hash、declared media/profile、expected admission factsをCIで照合する。
-  4. font subset/outputへlicense/provenance factをmanifest/evidenceとして伝播する。
+  4. MI4-12がmanifestへbindしたlicense/embedding factsとMI4-13 production evidenceをgovernance ledgerに照合し、M5で新しいmanifest fieldや旧contractの意味を追加せずrelease evidenceへ参照する。
   5. unknown license、hash drift、missing provenance、prohibited embedding、undeclared binary fixtureをrelease blockerにする。
   6. resource parser/decoder/toolのversionとsecurity update手順、profile停止時のfail-closed手順を文書化する。
   7. capabilityからsecurity停止featureを削除しても旧profile IDを別意味へ再利用しないtestを追加する。
@@ -2298,12 +2452,12 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
 | TMI-002 trusted machine ingestion | MI1-05, MI1-06, MI1-07, MI1-08 | sealed receipt以外のpromotionがcompile-fail |
 | TMI-003 source proof/receipt | MI1-07, MI1-08 | single-source actual bytes/hash/identity map closure。multi-sourceはM1で明示拒否 |
 | TMI-004 JSON security/limits | MI1-03, MI1-04, MI1-09, MI5-01 | exact/max+1、duplicate escaped key、deep/arbitrary bytes、long fuzz |
-| TMI-005 manifest machine identity | MI1-12, MI1-14, MI2-02, MI2-08, MI3-12 | raw/canonical/source/profile/all-flow/output factsのSchema-backed manifest |
+| TMI-005 manifest machine identity | MI1-12, MI1-14, MI2-02, MI2-08, MI3-12, MI4-13 | raw/canonical/source/profile/all-flow/resource-media/output factsのSchema-backed manifest |
 | TMI-006 capability gate | MI1-10, MI1-15, MI1-17, MI2-08, MI3-12, MI4-13, MI5-06 | descriptor/fixture双方向coverageとpre-layout rejection |
 | TMI-007 general flow/fragmentation | MI2-02, MI2-04, MI2-05, MI2-06, MI3-02, MI3-03 | list/page break/figure/tableのmulti-flow progress E2E |
 | TMI-008 link/figure/image paint | MI2-06, MI2-07, MI4-04, MI4-11 | PDF XObject/annotation/destination closure |
 | TMI-009 production book model/style/resource | MI2-03, MI3-01, MI3-05, MI3-08, MI4-01, MI4-03, MI4-06, MI4-08, MI4-13 | production fixtureのlossless end-to-end生成 |
-| TMI-010 resource profile | MI2-06, MI4-04, MI4-10, MI4-11, MI4-12, MI5-05 | PNG/SVG/JPEG/OTF-CFFをprofile別にadmit/embed/audit |
+| TMI-010 resource profile | MI2-06, MI4-01, MI4-02, MI4-03, MI4-04, MI4-10, MI4-11, MI4-12, MI4-13, MI5-05 | closed declared mediaとdecoder attestationをbindし、PNG/SafeVector（SVG subsetまたはvector IR）/JPEG/OTF-CFFをprofile別にadmit/embed/audit |
 | TMI-011 structured diagnostics | MI1-09, MI1-13, MI1-14, MI1-17, MI5-02 | canonical success/failure sidecar、stable code/location/order |
 | TMI-012 publication semantics | MI1-13, MI1-17, MI2-07, MI4-07, MI4-09, MI5-03 | 個別atomic publication、typed partial outcome、navigation/tagged PDF validator |
 | TMI-013 macOS clean build | MI0-01, MI1-17, MI5-04 | current-source locked macOS build/check/test/clippy/E2E evidence |
@@ -2393,4 +2547,7 @@ verification未実行、required tool missing、success skip、known failure残�
 - Pass 1: capability contract path、M0/M1 dependency、unproduced PDF verification path、negative assertion、M2/M3 dependency leakを検出し、canonical path、ordered dependency、fixture-driven verifier、named testsへ修正した。
 - Pass 2: RFC 8785 member orderingをUTF-8順としていた誤り、M2/M3のstaging contractとcurrent alias切替の混在、既存`ResourceLimits`と重複するlimit名を検出し、UTF-16 code-unit順、integration milestoneでのatomic migration、existing limit mappingへ修正した。
 - Pass 3: M1 contract切替前のlimit正本、command-wide diagnostic budget、host matrix evidence、M3 table styleとcontractの衝突、M4 staging activation、M5 evidence Schema ownershipの不足を検出し、owner・publication gate・fixed table subset・Schema/index pathを明記した。
-- Final pass: milestone field/dependency/task-number/traceability/table/heading検査、placeholder/stale-name検索、Schema validation、Git whitespace検査を再実行し、未解決findingなし。
+- Initial decomposition final pass: milestone field/dependency/task-number/traceability/table/heading検査、placeholder/stale-name検索、Schema validation、Git whitespace検査を実行し、その時点のfindingを解消した。
+- Document review pass 4: `MachinePdfPreflightReceipt`より早いmanifest依存、曖昧なresource ID型、M2/M3 vertical sliceのconsumer/manifest owner不足、M4 resource declarationのmedia discriminator/version owner不足を検出し、dependency、typed ID、Display/PDF/manifest closure、declared/decoder-attested media contractへ修正した。
+- Document review pass 5: crate-private staging runnerとversioned staging Schemaのowner不足、multi-column artifact closure不足、old/new manifest media representationの混在、JPEG/OTF ADRから未確定SafeVector contractへの依存を検出し、integration switch、slice-local Schema validation、旧manifest凍結、ADR dependencyへ修正した。
+- Document review final pass: design source commit、関連contract/Schema/crate boundary、58 milestoneの必須field/task/dependency DAG、staging/public isolation、requirements traceability、stale term、Schema validator、Git whitespaceを再検査し、未解決findingなし。
