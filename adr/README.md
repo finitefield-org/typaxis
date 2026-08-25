@@ -1,6 +1,6 @@
 # ADR catalog
 
-この一覧は `typaxis.contract/1.0` に適用する現行の設計判断を、責務ごとに整理したものです。
+この一覧は現行`typaxis.contract/1.0`に適用する判断と、明示的にfuture targetとして採択した判断を責務ごとに整理したものです。各ADRの`Status`とimplementation statusを確認し、Accepted targetを現行CLI/Schema/releaseで利用可能という意味に読み替えません。
 
 ## Core model と portability
 
@@ -39,3 +39,7 @@
 
 - [ADR-0016: 再現性入力をbuild manifestへ記録する](ADR-0016-build-manifest.md)
 - [ADR-0024: Stored reproducible release archive](ADR-0024-stored-release-archive.md)
+
+## Machine input target
+
+- [ADR-0027: Machine DocumentPackage ingestion and immutable PDF profile](ADR-0027-machine-document-package-ingestion.md) — M1 targetとしてAccepted。現行machine command、contract 1.1、CLI E2E、release supportは未実装。

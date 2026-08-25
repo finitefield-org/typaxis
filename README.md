@@ -2,6 +2,20 @@
 
 Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はProfile 1.0の現行契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。参照workspaceは意図的に限定されており、machine inputを含む現在の到達性は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
 
+## 現行inputとmachine delivery status
+
+現行`typaxis build INPUT`、`check`、`dump-ast`、`dump-layout`のINPUTはbounded **reference TSF**である。DocumentPackage JSONはportable contract/Schema artifactであり、現行`build`のINPUTではない。`dump-ast --format json`は一方向exportで、現時点では`dump-ast -> build-package` round tripを提供しない。`build-package`、`check-package`、`capabilities`は[ADR-0027](adr/ADR-0027-machine-document-package-ingestion.md)でtarget contractとして採択済みだが未実装・未登録である。
+
+| Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
+| --- | --- | --- | --- | --- |
+| bounded reference TSF build | Yes, current 1.0 | Yes, reference subset | Yes, reference subset | No |
+| portable DocumentPackage validation/export | Yes, current 1.0 | Partial: Schema/validator/export | No trusted ingestion | No |
+| sealed DocumentPackage ingestion | Yes, ADR-0027 M1 target | No | No | No |
+| `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | No descriptor/preflight yet | No | No |
+| contract 1.1 generated artifacts | Yes, migration plan | No; current output remains 1.0 | No | No |
+
+`Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。machine input対応済みと表明できる最初のgateはMI1-17であり、それ以前のpartial implementationは上表の後三軸を自動的に変更しない。
+
 ## 設計文書
 
 ### 概要とデータモデル

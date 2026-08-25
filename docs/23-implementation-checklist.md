@@ -2,6 +2,25 @@
 
 このchecklistの`[x]`は、Profile 1.0のcontract invariantにRust type、Schema、validator、またはreference testの対応証拠があることを表す。公開CLIからその機能を入力し、layout、Display、PDFまでend-to-endで利用できるというcompletion statusではない。reference CLIの実到達範囲、machine inputの未実装、rich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
 
+## Machine input delivery gates
+
+| Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
+| --- | --- | --- | --- | --- |
+| reference TSF pipeline | Yes, current 1.0 | Yes, bounded subset | Yes | No |
+| DocumentPackage portable Schema/export | Yes, current 1.0 | Partial: offline validation/export | No trusted ingestion | No |
+| sealed machine ingestion | Yes, ADR-0027 | No | No | No |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | No | No | No |
+| contract 1.1 output | Yes, atomic migration specified | No; current output is 1.0 | No | No |
+
+- [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
+- [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
+- [x] `paragraph-1` explicitly distinguishes visual heading layout from outline/tagged heading semantics
+- [ ] target host/document-package/machine-input/machine-profile owners and session-bound receipts are implemented
+- [ ] public `build-package`, `check-package`, and `capabilities --format json` have CLI E2E fixtures
+- [ ] documented-host, reproducibility, producer-guide, and release evidence closes MI1-17
+
+The first three checked items are contract decisions, not implementation claims. The last three unchecked delivery gates must not be inferred from portable Schema success or partial internal code.
+
 ## Source and text
 
 - [x] source, text, and local map ranges use distinct types
@@ -124,7 +143,7 @@
 - [x] exact max succeeds and max+1 fails before work; initial footnote fragment/float page are not reflow/carry and final allowed reshape failure is reported after that pass
 - [x] table cells use deterministic leftmost-free placement with full row coverage and no head/body-crossing rowspan
 - [x] every bounded line/lookback/footnote/column/float algorithm has exact-limit tests
-- [ ] cargo check/test on documented host targets（調査対象commitはmacOSで失敗。docs/25 TMI-013参照）
+- [ ] cargo check/test on every documented host target（MI0-01はmacOS 26.5.2 arm64のlocked build/check/all-targets test/clippy、atomic reference publication、blank smokeを完了。Linux runtime、macOS contained PACKAGE/resource success、machine CLI E2EはMI1-17で閉じる）
 - [x] Unicode conformance data
 - [x] subset round-trip
 - [x] renderer/extractor differential

@@ -13,6 +13,51 @@ typaxis inspect-font FONT
 typaxis list-fonts --font-dir DIR
 ```
 
+## Delivery status axes
+
+| Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
+| --- | --- | --- | --- | --- |
+| current `build` reference TSF | Yes, current 1.0 | Yes, bounded reference subset | Yes | No |
+| DocumentPackage Schema / `dump-ast` export | Yes, current 1.0 | Partial: portable validation/export | No package ingestion | No |
+| sealed machine package commands | Yes, ADR-0027 target | No | No | No |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed target profile | No descriptor/preflight yet | No | No |
+
+`Contract-defined`やoffline Schema validationはcommand registrationを意味しない。現行helpにないmachine commandを利用可能と記載せず、public CLI E2Eとrelease statusを更新できるのはMI1-17だけとする。
+
+## Accepted machine command contract (not implemented)
+
+[ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md)は次のfuture grammarを採択した。これは現在実行できるhelpではなく、MI1-17までtop-level parser/dispatchへ登録しない。
+
+```text
+typaxis build-package PACKAGE.json -o OUTPUT.pdf \
+  [--package-root DIR] \
+  [--profile typaxis.machine-pdf/paragraph-1] \
+  [--config CONFIG] [--resource-root DIR ...] \
+  [--strict] [--no-compress] [--max-<limit> N ...] \
+  [--trace TRACE.json] [--trace-text] \
+  [--emit-build-manifest MANIFEST.json] \
+  [--emit-diagnostics DIAGNOSTICS.json] [--force]
+
+typaxis check-package PACKAGE.json \
+  [--package-root DIR] \
+  [--profile typaxis.machine-pdf/paragraph-1] \
+  [--config CONFIG] [--resource-root DIR ...] [--max-<limit> N ...] \
+  [--emit-diagnostics DIAGNOSTICS.json]
+
+typaxis capabilities --format json
+```
+
+- `build`はreference TSF、`build-package`はDocumentPackageであり、extension/content sniffingでmodeを切り替えない。
+- `--package-root`省略時はPACKAGEのlexical parentを使い、明示時はPACKAGE自体のcontainmentをopen前に検査する。canonical artifactへabsolute HostPathを保存しない。
+- companion sourceはpackage rootだけから解決する。package rootをfont/image resource rootへ暗黙追加せず、必要なら`--resource-root`またはconfigで明示する。
+- M1はexactly one source、entry-only closureだけを受理し、multi-sourceや架空のinclude edgeを受理しない。
+- `check-package` successはstable package/source admission、strict decode、semantic package、profile、resource metadata、computed style/font-familyまでを保証する。pagination、full glyph shaping、PDF serialization成功は保証しない。
+- `check-package`は`--strict`、`--no-compress`、`--trace`、`--force`、manifest/output optionを受理して無視せずusage errorにする。
+- unknown profileはusage exit 2、contained PACKAGE/resource open unavailableはPACKAGE read前`I9110`/exit 3とする。atomic publisher unavailableはpublication context構築時にtargetを変更せずexit 3とする。unsupported inputをreference TSF、別backend、rasterへfallbackしない。
+- `build-package`は現行のexact `-` stdout、strict、compression、limit、alias、個別atomic publication規則を共有し、`--trace-text`は`--trace`を要求する。
+- `capabilities`は`--format json`を必須とし、missing/unknown formatはusage exit 2にする。config/filesystem/ambient localeを読まず、compiled descriptorからcanonical JSONを出す。
+- MI1-17以降のround tripは、supported reference TSF -> `dump-ast --format json` -> `build-package`でtyped canonical JCS/DocumentFingerprintが一致することを保証し、raw JSON bytes一致を要求しない。
+
 CLI tokenが正確に`OUTPUT=-`ならPDF bytesをstdoutへ出す。build manifestはhost pathを持たず、stdoutなら`output.sink = "stdout"`、その他のHostPathなら`output.sink = "file"`を記録する。したがって`./-`は通常fileとして扱える。traceとbuild manifestは常に明示されたsidecar HostPathへ出し、stdout/stderrへ混在させない。`--trace PATH`と`--emit-build-manifest PATH`はpath argument必須で、PDF stdout時にもhost file pathを指定すれば併用できる。
 
 `dump-layout --page N`の`N`はCLI利用者向けの1-based physical page numberで、`N >= 1`を要求する。内部・canonical JSONの0-based `page_index`へはchecked `N - 1`で変換する。

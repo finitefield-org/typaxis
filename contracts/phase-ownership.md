@@ -1,5 +1,43 @@
 # Phase ownership
 
+## Accepted M1 machine-input ownership
+
+The following rows are the target ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md). They are contract-defined but not yet implemented, public CLI E2E, or release-supported. Until their implementation milestones complete, the current 1.0 owner table in the next section remains the implementation inventory.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| compiled contained-package/contained-resource/atomic-publish availability tokens | machine-input, resource-admission, and atomic-publisher owners respectively; composed by `typaxis-machine-profile` | drive `profiles[].available`; contained-open tokens drive PACKAGE-before-read `I9110`, while missing atomic publication fails during context construction; CLI does not duplicate booleans |
+| fixed `MAX_RESOURCE_ROOTS` and `MAX_HOST_READ_CANDIDATES` | `typaxis-host-admission` | preflight before root identity/open and candidate open; capability JSON projects the same constants |
+| package/resource root handles, contained component walk, same-handle snapshot, bounded stable bytes, and host read/write identity ledger | `typaxis-host-admission` | issue generic session-bound host receipts only; never infer logical IDs or canonical records |
+| PACKAGE HostPath/default or explicit package-root resolution and root-relative package URI | `typaxis-machine-input` using host-admission receipts | bind one machine admission session; serialize only `PortablePath`, never absolute root/path |
+| strict JSON lexical preflight, caller-constructible `WireDocumentPackage`, decoder-issued `DecodedDocumentPackage`, JSON location index, and package JCS hash | `typaxis-document-package` | portable decode/export only; never issue host or trusted syntax authority |
+| raw PACKAGE receipt, decoded binding, exact single companion-source set, read budgets, and monotonic machine-input progress | `typaxis-machine-input` | issue `AdmittedMachinePackage`; reject cross-session raw/decoded/source receipt substitution |
+| DTO lowering, actual source/TextMap/AST/style/master/resource validation, entry-only closure, and trusted package issuance | sealed `typaxis-syntax::DocumentPackageParser` | issue `ValidatedMachinePackage { ValidatedParsedPackage, provenance }`; no public DTO promotion path |
+| immutable `typaxis.machine-pdf/paragraph-1` descriptor, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
+| all safe declared resource candidates before capability preflight | `typaxis-host-admission::HostReadIdentityLedger`, populated by machine orchestration | prevent requested diagnostics/manifest/PDF targets from aliasing existing or missing input candidates without opening resource bytes |
+| logical font/image binding, bytes-derived metadata, partial progress, and complete resource ledger | `typaxis-resource-admission` using generic host receipts | capability-success path only; layout/finalization receives complete ledger, failed manifest may receive sealed progress |
+| typed phase diagnostic code/category/subject and command-wide 256-record budget | originating phase plus `typaxis-diagnostics` materializer | map subjects through package JSON/source indexes; stderr and canonical sidecar read the same typed diagnostic, never parse `Debug` strings |
+| raw/canonical package facts, source/resource progress, profile receipt, layout/PDF facts, and canonical manifest projection | `typaxis-manifest` owned-facts factory | accept only monotonic sealed progress/complete receipts; caller cannot author record fields as trusted facts |
+| option/config/target validation and the fixed phase sequence | `typaxis-cli` orchestration | call owners single-directionally; source loader and package loader remain distinct |
+| diagnostics -> failed manifest and trace -> PDF -> diagnostics -> built manifest visible order | self-consuming terminal publication owner | each file is individually atomic; retain exact partial visibility and never claim a multi-file transaction/rollback |
+
+Machine progress is monotonic and owner-issued:
+
+```text
+NoInput
+  -> RawPackageAdmitted
+  -> PackageDecoded
+  -> SourcesAdmitted
+  -> PackageValidated
+  -> CapabilityValidated
+  -> ResourcesAdmitted
+  -> LayoutSelected
+```
+
+`typaxis-machine-input -> typaxis-syntax` is forbidden. `WireDocumentPackage` is explicitly untrusted; decoder-issued `DecodedDocumentPackage`, session-bound package/source receipts, `ValidatedMachinePackage`, capability receipts, and publication receipts have private fields, no public raw-parts constructor, and no `Clone`. A downstream owner may project only the last issued token and must not recreate upstream facts from a DTO, error message, path, or canonical artifact.
+
+## Current 1.0 ownership
+
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
 | host entry/project/config/resource-root paths and explicit inspection order | HostAdmissionContext builder | admission only; never serialize host paths or use order as first-match precedence |
@@ -38,7 +76,7 @@
 | defaults/file/environment/CLI resolution and canonical set-array normalization | config loader/CLI | pass immutable effective config |
 | optional post-config manifest target/config eligibility, publication session, and resolved-config JCS hash | non-cloneable ManifestPublicationContext | exist only when requested; issue same-output-session admission/preflight capabilities without inventing missing config facts |
 | source/resource/layout/PDF facts, terminal manifest record, and canonical manifest bytes | manifest owned-facts factory | project only from validated package/admission/pagination/serializer artifacts; never accept caller-authored trusted records or expose a trusted manifest before atomic publication |
-| PDF-then-manifest terminal transaction and actual sink receipts | self-consuming BuildOutputCommitContext terminal committer | atomically publish built or failed result; retain the already-visible PDF receipt in a later manifest pre-publication error and retain the complete publication in any post-publish directory-sync error |
+| PDF-then-manifest terminal publication sequence and actual sink receipts | self-consuming BuildOutputCommitContext terminal committer | publish each requested file individually in fixed order; never claim a multi-file transaction, retain the already-visible PDF receipt in a later manifest pre-publication error, and retain the complete publication in any post-publish directory-sync error |
 
 A downstream phase must not reconstruct an upstream decision from presentation data. In particular, PDF must not infer paragraphs from coordinates, pagination must not shape text, late finalization must not reopen an arbitrary filesystem path, and no phase may unwrap an error/fatal result as a success value.
 

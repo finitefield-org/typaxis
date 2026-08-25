@@ -1,9 +1,21 @@
 # Cross-layer contract matrix
 
+The evidence matrix below does not by itself report delivery completion. Machine input uses four independent status axes:
+
+| Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
+| --- | --- | --- | --- | --- |
+| reference TSF build | Yes, current 1.0 | Yes, bounded reference subset | Yes | No |
+| DocumentPackage portable validation/export | Yes, current 1.0 | Partial: Schema/validator/`dump-ast` | No trusted ingestion | No |
+| sealed package/source ingestion | Yes, ADR-0027 target | No | No | No |
+| `typaxis.machine-pdf/paragraph-1` | Yes, immutable capability contract | No descriptor/preflight yet | No | No |
+| generated contract 1.1 artifacts | Yes, MI1-14 migration plan | No; current wire remains 1.0 | No | No |
+
+`Contract-defined` does not imply that a Rust owner exists, the current `build` accepts DocumentPackage JSON, public CLI E2E passes, or a release supports the feature.
+
 | Contract | Rust | JSON | Docs | Validator |
 |---|---|---|---|---|
 | product/CLI identity | `typaxis_core::PRODUCT_NAME` / Cargo `[[bin]]` | manifest `engine.name` | docs/19 | exact name/bin/Schema checks |
-| wire ID | `typaxis_core::CONTRACT` | root `contract` | contract-version | exact scan |
+| wire ID | current `typaxis_core::CONTRACT` is 1.0; MI1-14 target is atomic 1.1 switch | current roots use 1.0; 1.0 freeze/1.1 registry are not implemented | contract-version, ADR-0027 | current exact scan; dual registry pending MI1-14 |
 | source/text/local map range | `SourceSpan` / `TextSpan` / `Utf8ByteRange` | common + document package | docs/03 | bounds/boundary/coverage |
 | generated/Display text ownership | `GeneratedBufferKey` / `GeneratedTextStore` / `DisplayTextMap` / `DisplayDocument.text_buffers` | display text buffers/spans | docs/05,09,11 | canonical key allocation + disjoint internal IDs + selected-bound stable dense remap + artifact-owned text table |
 | validated parser output | sealed `Parser` / `ValidatedParsedPackage` / `ParseOutcome` / `AdvisoryDiagnostic` | N/A (in-process) | docs/01,03 | source-driven owner + no feature promotion + compile-fail boundary + error-or-fatal/value exclusion |
@@ -11,7 +23,8 @@
 | URI admission | `SafeUri` | typed URI fields | docs/03,15,18 | scheme/control/whitespace/length |
 | length and transform | `Length` / `AffineTransform` | common defs | docs/24 | numeric/type checks |
 | parser package | `ParsedPackage` | document root | docs/03,04 | Rust token + Schema |
-| machine package ingestion | 未実装。sealed DocumentPackage decoder/source admissionなし | DocumentPackageはportable contract/export artifactで、CLI inputではない | docs/19,25 | offline Schema/semantic validatorのみ。trusted CLI ingestionなし |
+| machine package ingestion | target owners/receipts are contract-defined but unimplemented; `WireDocumentPackage` is untrusted and `DecodedDocumentPackage` is decoder-issued | DocumentPackage is a portable contract/export artifact, not current `build` input | ADR-0027, docs/02,19,25, contracts/phase-ownership | offline Schema/semantic validator only; no trusted CLI ingestion receipt |
+| machine PDF capability | target `MachineProfileDescriptor::PARAGRAPH_1` / preflight receipt are unimplemented | target capability JSON is contract 1.1 and not currently emitted | contracts/machine-pdf-capabilities, ADR-0027 | descriptor/Schema/combined CLI E2E pending MI1-10/MI1-14/MI1-17 |
 | canonical lists | document list type | ordered/start relation | docs/04 | ordered positive start + unordered null |
 | block selectors/style cascade | style selector/cascade/`ResolvedTextStyle` types | block classes + closed typed style rules | docs/04 | grammar/class order/property registry/required text style/extends/winner |
 | page selection | `PageName` / `PageSelectionContext` / `PageContext` | page property + master rules | docs/04 | typed page value + derived flags + master winner |

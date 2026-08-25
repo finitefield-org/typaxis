@@ -209,7 +209,14 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI0-02 Machine input ADRとphase ownershipを採択する
 
-- Status: Pending
+- Status: Completed
+- Completion evidence (2026-08-25):
+  - `ADR-0027`をAccepted targetとしてcatalogへ登録し、現行1.0実装とM1 targetを分離したowner/dependency/forbidden-edge、single-source/root、receipt、profile、1.1 migration、publication contractを固定した。
+  - `typaxis.machine-pdf/paragraph-1`のclosed accepted/rejected domain、host availability、fixed limits、compatible/incompatible change規則を単一contractへ記録した。
+  - milestone記載の3本の`rg` verification、`python3 schemas/validate.py`、`cargo fmt --manifest-path workspace/Cargo.toml --all -- --check`はすべてexit 0だった。
+  - MI0-01 actual-host evidenceをcompile、atomic reference publication、contained PACKAGE/source、contained resourceの独立statusへ反映した。
+- Contract/capability/Schema impact: target契約の採択だけを行い、current `typaxis.contract/1.0` wire、Schema bytes、Rust実装、public CLI/helpは変更していない。current 1.1 switchはMI1-14、public CLI E2E/release claimはMI1-17に留保した。
+- Scope adjustment: なし。milestoneのPrimary filesと本completion recordだけを変更した。
 - Depends on: MI0-01
 - Design inputs: docs/25 §6、§10〜§12、§13.5
 - Primary files:

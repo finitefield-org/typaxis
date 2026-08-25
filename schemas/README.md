@@ -1,11 +1,40 @@
 # Schema validation
 
+## Delivery status and trust boundary
+
+| Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
+| --- | --- | --- | --- | --- |
+| DocumentPackage portable shape | Yes, current 1.0 | Yes: Schema/offline semantic validator | No trusted ingestion | No |
+| `dump-ast` DocumentPackage export | Yes, current 1.0 | Yes, one-way export | No round trip | No |
+| sealed package/source admission | Yes, ADR-0027 target | No | No | No |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed target contract | No profile descriptor/preflight | No | No |
+| contract 1.1 Schema registry | Yes, MI1-14 migration plan | No; current registry remains 1.0 | No | No |
+
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue `typaxis_syntax::ValidatedParsedPackage`, and the current
 `typaxis build` command does not accept `document-package.schema.json`
 instances as input. The missing trusted source admission, machine-package
 decoder, CLI command, and downstream PDF capability work are tracked in
 [docs/25](../docs/25-machine-input-pdf-improvements.md).
+
+`WireDocumentPackage` is intentionally caller-constructible and untrusted.
+Portable validation cannot manufacture the target decoder-issued
+`DecodedDocumentPackage`, bind raw and canonical package hashes to one host
+session, admit the exact companion source bytes, or issue a
+`ValidatedMachinePackage`/capability receipt. The future trusted path calls the
+strict decoder only on stable bytes owned by machine admission and lets sealed
+`typaxis-syntax` perform source/TextMap/domain validation. A validator success,
+`dump-ast` JSON, or matching hashes therefore never substitutes for an
+in-process receipt.
+
+[ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) adopts the
+1.1 migration but does not perform it. Until MI1-14, every current generated
+artifact and Schema `$id` remains 1.0; no current machine-capabilities Schema or
+future registry layout is implied. MI1-14 freezes the existing 1.0 registry and
+switches all current generated artifacts, fixtures, and validator registries to
+the 1.1 arrangement atomically. Public `build-package`,
+`check-package`, capability CLI E2E, and release support remain gated on
+MI1-17.
 
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/` are logical,
 offline identifiers. They are not fetch URLs. A validator must register every
