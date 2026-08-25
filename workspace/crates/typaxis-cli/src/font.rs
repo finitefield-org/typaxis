@@ -1099,6 +1099,7 @@ fn checked_slice(bytes: &[u8], offset: usize, length: usize) -> Result<&[u8], Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     use std::ffi::OsString;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1453,7 +1454,7 @@ mod tests {
         assert!(matches!(error, FontCommandError::InvalidInput { .. }));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     #[test]
     fn non_utf8_host_paths_do_not_panic() {
         use std::os::unix::ffi::OsStringExt;

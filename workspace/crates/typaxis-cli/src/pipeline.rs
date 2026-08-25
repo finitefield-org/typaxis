@@ -54,6 +54,13 @@ impl FailureKind {
 pub struct Failure {
     pub kind: FailureKind,
     pub message: String,
+    failed_manifest_policy: FailedManifestPolicy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FailedManifestPolicy {
+    Publish,
+    LeaveTargetsUntouched,
 }
 
 impl Failure {
@@ -61,31 +68,48 @@ impl Failure {
         Self {
             kind: FailureKind::Input,
             message: with_default_diagnostic_code(message.into(), "P1000"),
+            failed_manifest_policy: FailedManifestPolicy::Publish,
         }
     }
     pub fn usage(message: impl Into<String>) -> Self {
         Self {
             kind: FailureKind::Usage,
             message: message.into(),
+            failed_manifest_policy: FailedManifestPolicy::Publish,
         }
     }
     pub fn io(message: impl Into<String>) -> Self {
         Self {
             kind: FailureKind::Io,
             message: message.into(),
+            failed_manifest_policy: FailedManifestPolicy::Publish,
         }
     }
     pub fn internal(message: impl Into<String>) -> Self {
         Self {
             kind: FailureKind::Internal,
             message: with_default_diagnostic_code(message.into(), "I9001"),
+            failed_manifest_policy: FailedManifestPolicy::Publish,
         }
     }
     pub fn limit(message: impl Into<String>) -> Self {
         Self {
             kind: FailureKind::Limit,
             message: with_default_diagnostic_code(message.into(), "I9000"),
+            failed_manifest_policy: FailedManifestPolicy::Publish,
         }
+    }
+
+    fn unsupported_contained_open() -> Self {
+        Self {
+            kind: FailureKind::Io,
+            message: "resource admission I/O failed: UnsupportedContainedOpen".to_owned(),
+            failed_manifest_policy: FailedManifestPolicy::LeaveTargetsUntouched,
+        }
+    }
+
+    pub const fn should_publish_failed_manifest(&self) -> bool {
+        matches!(self.failed_manifest_policy, FailedManifestPolicy::Publish)
     }
 }
 
@@ -920,9 +944,9 @@ fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Fail
         | Error::ResourceNotRegularFile => {
             Failure::input(format!("resource admission rejected the input: {error:?}"))
         }
+        Error::UnsupportedContainedOpen => Failure::unsupported_contained_open(),
         Error::RootUnavailable
         | Error::RootNotDirectory
-        | Error::UnsupportedContainedOpen
         | Error::ResourceRead
         | Error::ResourceLengthMismatch
         | Error::ResourceLockUnavailable => {
@@ -956,6 +980,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     use typaxis_core::{
         ConfigResourceRoot, EffectiveDataVersions, PdfStreamCompression, ResourceLimits,
@@ -996,12 +1021,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unsupported_contained_open_leaves_requested_artifact_targets_untouched() {
+        let failure = map_admission_error(
+            typaxis_resources::ResourceAdmissionError::UnsupportedContainedOpen,
+        );
+        assert_eq!(failure.kind, FailureKind::Io);
+        assert_eq!(
+            failure.message,
+            "resource admission I/O failed: UnsupportedContainedOpen"
+        );
+        assert!(!failure.should_publish_failed_manifest());
+        assert!(Failure::io("ordinary I/O failure").should_publish_failed_manifest());
+    }
+
+    static NEXT_TEMP_SOURCE: AtomicU64 = AtomicU64::new(0);
+
     fn temp_source(contents: &str) -> std::path::PathBuf {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("typaxis-cli-{unique}.tsf"));
+        let sequence = NEXT_TEMP_SOURCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "typaxis-cli-{}-{unique}-{sequence}.tsf",
+            std::process::id()
+        ));
         let mut file = fs::File::create(&path).unwrap();
         file.write_all(contents.as_bytes()).unwrap();
         path

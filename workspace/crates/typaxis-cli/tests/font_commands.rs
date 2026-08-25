@@ -1,6 +1,8 @@
 #![cfg(unix)]
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -192,6 +194,7 @@ fn font_commands_preserve_input_and_io_exit_classes() {
     assert!(missing.stdout.is_empty());
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 #[test]
 fn font_positional_path_is_platform_native() {
     use std::os::unix::ffi::OsStringExt;

@@ -163,8 +163,11 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Design inputs: docs/25 §4.7、TMI-013、§12.3、Slice 0
 - Primary files:
   - `workspace/crates/typaxis-resource-admission/src/lib.rs`
+  - `workspace/crates/typaxis-cli/src/main.rs`
   - `workspace/crates/typaxis-cli/src/pipeline.rs`
+  - `workspace/crates/typaxis-cli/src/font.rs`
   - `workspace/crates/typaxis-cli/tests/cli_end_to_end.rs`
+  - `workspace/crates/typaxis-cli/tests/font_commands.rs`
   - `workspace/README.md`
 - Deliverables:
   - 全targetで存在するfallible `HostResourceFile::exact_length() -> Result<u64, ResourceAdmissionError>`。
@@ -174,9 +177,9 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Tasks:
   1. `CARGO_TARGET_DIR`を新しい一時directoryへ向け、既存binaryを使わずmacOS compile errorを再現する。
   2. `exact_length` call siteをすべてfallibleにし、length取得失敗をI/O/resource errorへ保ったまま伝播する。
-  3. Linux/Android実装とunsupported fallbackが同じtrait/API surfaceを持つよう`cfg`を整理する。
+  3. Linux/Android実装とunsupported fallbackが同じtrait/API surfaceを持つよう`cfg`を整理し、Linux/Androidでだけ作成できる非UTF-8 host-path testsをmacOS test targetから除外する。
   4. unsupported fallbackのunit testでopen/read/metadata receiptが発行されないことを確認する。
-  5. macOSでresourceを要求するCLI fixtureを実行し、stable `UnsupportedContainedOpen`となってPDF/manifestを残さないintegration testを追加する。
+  5. macOSでresourceを要求するCLI fixtureを実行し、stable `UnsupportedContainedOpen`となってrequested PDF/manifest targetを作成・置換しないintegration testを追加する。pipelineのtyped failure policyを`run_build`が参照し、このpre-resource platform failureではfailed manifest publicationを開始しない。
   6. blank reference buildをcurrent sourceから作ったbinaryで実行する。
 - Acceptance criteria:
   - macOSでlocked build/check/test/clippyがcompile gateを通る。

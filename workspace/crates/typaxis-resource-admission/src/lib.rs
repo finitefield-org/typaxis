@@ -8,10 +8,12 @@ use std::io::Read;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(any(target_os = "android", target_os = "linux"))]
+use typaxis_core::ConfigResourceRoot;
 use typaxis_core::{
     admitted_resource_fingerprint_from_jcs, push_jcs_string, AdmittedResourceFingerprint,
-    ConfigResourceRoot, EffectiveConfig, FontFaceId, HostAdmissionContext, ImageResourceId,
-    PortablePath, ValidatedResourceLimits,
+    EffectiveConfig, FontFaceId, HostAdmissionContext, ImageResourceId, PortablePath,
+    ValidatedResourceLimits,
 };
 use typaxis_document::ResourceCatalog;
 use typaxis_font::{FontFamilyError, FontFamilyTable};
@@ -317,7 +319,7 @@ impl HostResourceAdmissionSession {
             .filter(|candidate| candidate.font_face_id == font_face_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
         let reader = self.open_declared_resource(&declaration.uri)?;
-        let exact_length = reader.exact_length();
+        let exact_length = reader.exact_length()?;
         Ok(VerifiedResourceSourceOwner::new(self.roots()).issue_font(
             font_face_id,
             exact_length,
@@ -336,7 +338,7 @@ impl HostResourceAdmissionSession {
             .filter(|candidate| candidate.image_id == image_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
         let reader = self.open_declared_resource(&declaration.uri)?;
-        let exact_length = reader.exact_length();
+        let exact_length = reader.exact_length()?;
         Ok(VerifiedResourceSourceOwner::new(self.roots()).issue_image(
             image_id,
             exact_length,
@@ -385,8 +387,8 @@ pub struct HostResourceFile {
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 impl HostResourceFile {
-    const fn exact_length(&self) -> u64 {
-        self.snapshot.length
+    fn exact_length(&self) -> Result<u64, ResourceAdmissionError> {
+        Ok(self.snapshot.length)
     }
 }
 
@@ -412,6 +414,13 @@ impl ResourceExtentReader for HostResourceFile {
 #[derive(Debug)]
 pub struct HostResourceFile {
     _private: (),
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
+impl HostResourceFile {
+    fn exact_length(&self) -> Result<u64, ResourceAdmissionError> {
+        Err(ResourceAdmissionError::UnsupportedContainedOpen)
+    }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "linux")))]
@@ -1691,11 +1700,11 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Cursor;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
     use typaxis_core::{
-        sha256, EffectiveDataVersions, HostPath, PdfStreamCompression, ResourceLimits,
-        DEFAULT_ALLOWED_URI_SCHEMES, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
+        sha256, ConfigResourceRoot, EffectiveDataVersions, HostPath, PdfStreamCompression,
+        ResourceLimits, DEFAULT_ALLOWED_URI_SCHEMES, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
         REGISTERED_UNICODE_VERSION,
     };
     use typaxis_document::{FontFaceDeclaration, ImageDeclaration};
@@ -1820,6 +1829,35 @@ mod tests {
 
     fn sfnt() -> Vec<u8> {
         sfnt_with_units_per_em(1000)
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    #[test]
+    fn unsupported_platform_fails_without_issuing_root_file_or_metadata_receipts() {
+        let tree = TempTree::new("unsupported");
+        let catalog = font_catalog(1);
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let context = host_context(tree.path(), &[]);
+
+        assert!(matches!(
+            HostResourceAdmissionSession::new(&context, &config, &catalog),
+            Err(ResourceAdmissionError::UnsupportedContainedOpen)
+        ));
+
+        let mut reader = HostResourceFile { _private: () };
+        assert_eq!(
+            reader.exact_length(),
+            Err(ResourceAdmissionError::UnsupportedContainedOpen)
+        );
+        let mut byte = [0_u8; 1];
+        assert_eq!(
+            reader.read(&mut byte).unwrap_err().kind(),
+            std::io::ErrorKind::Unsupported
+        );
+        assert_eq!(
+            reader.current_length(),
+            Err(ResourceAdmissionError::UnsupportedContainedOpen)
+        );
     }
 
     #[cfg(any(target_os = "android", target_os = "linux"))]

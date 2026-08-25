@@ -115,6 +115,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 fn synthetic_ascii_ttf() -> Vec<u8> {
     const GLYPHS: u16 = 96;
     let mut head = vec![0; 54];
@@ -189,6 +190,7 @@ fn synthetic_ascii_ttf() -> Vec<u8> {
     ])
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 fn build_test_sfnt(mut tables: Vec<([u8; 4], Vec<u8>)>) -> Vec<u8> {
     tables.sort_by_key(|(tag, _)| *tag);
     let count = tables.len() as u16;
@@ -223,6 +225,7 @@ fn build_test_sfnt(mut tables: Vec<([u8; 4], Vec<u8>)>) -> Vec<u8> {
     output
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 fn test_sfnt_checksum(bytes: &[u8]) -> u32 {
     bytes.chunks(4).fold(0u32, |checksum, chunk| {
         let mut word = [0; 4];
@@ -688,7 +691,7 @@ fn strict_fallback_publishes_trace_then_failed_manifest_without_pdf() {
     assert!(manifest.contains("\"output\":null"));
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "android", target_os = "linux"))]
 #[test]
 fn non_utf8_host_paths_build_without_entering_the_manifest() {
     use std::os::unix::ffi::OsStringExt;
@@ -815,6 +818,71 @@ fn reference_paragraphs_and_anchors_build_with_selected_destinations() {
     assert!(trace.contains("\"fragments\":[{"));
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn resource_is_stable_unsupported_on_macos() {
+    let directory = TestDirectory::new();
+    fs::write(directory.path().join("Synthetic.ttf"), b"must not be read").unwrap();
+    fs::write(
+        directory.path().join("text.tsf"),
+        b"font:Synthetic:Synthetic.ttf\ntext:Hello world\n",
+    )
+    .unwrap();
+
+    let absent = run(
+        directory.path(),
+        &strings(&[
+            "build",
+            "text.tsf",
+            "-o",
+            "output.pdf",
+            "--emit-build-manifest",
+            "manifest.json",
+        ]),
+    );
+    assert_eq!(absent.status.code(), Some(3));
+    assert!(absent.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(absent.stderr).unwrap(),
+        "error: resource admission I/O failed: UnsupportedContainedOpen\n"
+    );
+    assert!(!directory.path().join("output.pdf").exists());
+    assert!(!directory.path().join("manifest.json").exists());
+
+    fs::write(directory.path().join("existing.pdf"), b"existing pdf").unwrap();
+    fs::write(
+        directory.path().join("existing-manifest.json"),
+        b"existing manifest",
+    )
+    .unwrap();
+    let existing = run(
+        directory.path(),
+        &strings(&[
+            "build",
+            "text.tsf",
+            "-o",
+            "existing.pdf",
+            "--emit-build-manifest",
+            "existing-manifest.json",
+            "--force",
+        ]),
+    );
+    assert_eq!(existing.status.code(), Some(3));
+    assert_eq!(
+        String::from_utf8(existing.stderr).unwrap(),
+        "error: resource admission I/O failed: UnsupportedContainedOpen\n"
+    );
+    assert_eq!(
+        fs::read(directory.path().join("existing.pdf")).unwrap(),
+        b"existing pdf"
+    );
+    assert_eq!(
+        fs::read(directory.path().join("existing-manifest.json")).unwrap(),
+        b"existing manifest"
+    );
+}
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
 #[test]
 fn shaped_text_builds_with_a_deterministic_embedded_subset() {
     let directory = TestDirectory::new();
@@ -852,6 +920,7 @@ fn shaped_text_builds_with_a_deterministic_embedded_subset() {
     assert!(pdf.windows(b"<0048>".len()).any(|bytes| bytes == b"<0048>"));
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 #[test]
 fn generated_page_reference_reflows_and_paints_the_selected_state() {
     let directory = TestDirectory::new();
@@ -884,6 +953,7 @@ fn generated_page_reference_reflows_and_paints_the_selected_state() {
     assert!(pdf.windows(b"<0031>".len()).any(|bytes| bytes == b"<0031>"));
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 #[test]
 fn adjacent_parsed_and_generated_sites_use_whole_paragraph_itemization() {
     let directory = TestDirectory::new();
@@ -917,6 +987,7 @@ fn adjacent_parsed_and_generated_sites_use_whole_paragraph_itemization() {
     assert!(pdf.windows(b"<0050>".len()).any(|bytes| bytes == b"<0050>"));
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 #[test]
 fn paragraph_lines_continue_on_a_new_physical_page() {
     let directory = TestDirectory::new();

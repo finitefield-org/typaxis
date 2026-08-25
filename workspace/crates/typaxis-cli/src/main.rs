@@ -197,7 +197,9 @@ fn run_build(options: BuildOptions) -> Result<(), Failure> {
     let layout = match pipeline::layout_reference(&package, &config, &admission) {
         Ok(layout) => layout,
         Err(error) => {
-            publish_failed(output, publication, Some(&package), None, None)?;
+            if error.should_publish_failed_manifest() {
+                publish_failed(output, publication, Some(&package), None, None)?;
+            }
             return Err(error);
         }
     };
