@@ -158,7 +158,15 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI0-01 macOS build baselineを復旧する
 
-- Status: Pending
+- Status: Completed
+- Implementation commit: `edd8ec9f57a2a58de6f6c23af94b1982fb4da9d1`
+- Completion evidence (2026-08-25, macOS 26.5.2 arm64, rustc/cargo 1.97.1):
+  - 空の`CARGO_TARGET_DIR`からlocked `typaxis-cli` buildが成功し、同じbinaryは`typaxis 0.1.0`、SHA-256 `6c2364768483afc97ed8fd2502a54ca47ea61d0efb640872ad576f2d2a3a9ade`だった。
+  - 同じbinaryによる`samples/minimal/empty.tsf` buildは512-byte、PDF 1.7、1 page、SHA-256 `01bdd2e1b730cab33456b08582ec237ef155ad90f33ca5d1731a9132adb48e8e`を生成した。
+  - locked workspace all-targets check/test、targeted macOS resource regression、all-targets clippy `-D warnings`、fmt checkはすべてexit 0だった。
+  - macOS resource regressionはstable `UnsupportedContainedOpen`、exit 3、stdoutなしで、requested PDF/manifestの新規作成と`--force`時の既存target置換がないことを確認した。
+- Contract/capability/Schema impact: なし。reference TSF CLIと`typaxis.contract/1.0`のwire surfaceは変更していない。
+- Scope adjustment: pre-resource failureのside-effect policyをCLI entrypointまで伝播するため`main.rs`を、macOSで作成不能な非UTF-8 host-path testsを実装domainへ合わせるため`font.rs`/`font_commands.rs`をPrimary filesへ実装前に追加した。並列testのtimestamp衝突を避ける一意sequenceも`pipeline.rs` test helperへ追加した。
 - Depends on: None
 - Design inputs: docs/25 §4.7、TMI-013、§12.3、Slice 0
 - Primary files:
