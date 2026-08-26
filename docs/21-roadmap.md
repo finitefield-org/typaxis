@@ -15,15 +15,15 @@
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| bounded reference TSF pipeline | Yes, current 1.0 | Yes, reference subset | Yes | No |
-| DocumentPackage portable Schema and `dump-ast` export | Yes, current 1.0 | Partial: offline validator/export | No trusted ingestion | No |
+| bounded reference TSF pipeline | Yes, current 1.1 | Yes, reference subset | Yes | No |
+| DocumentPackage portable Schema and `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual validator/export | Yes, package round trip | No |
 | MI0-01 macOS baseline | Yes | Completed | blank reference smoke only | Not a machine release gate |
-| MI0-02 machine ingestion architecture | Yes, ADR-0027 | Documentation only; target crates absent | No | No |
-| M1 `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | No complete vertical slice | No | No |
-| contract 1.1 generated artifacts | Yes, MI1-14 migration plan | No; current output is 1.0 | No | No |
+| MI0-02 machine ingestion architecture | Yes, ADR-0027 | Yes: owner graph and sealed receipts | Yes, through M1 commands | No |
+| M1 `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, Linux combined fixture | No: two-host aggregate pending |
+| contract 1.1 generated artifacts | Yes | Yes, current output | Yes | No: two-host aggregate pending |
 | M2-M5 rich machine profiles | No: decision-gate ADR pending | No | No | No |
 
-現行`build` INPUTはreference TSFで、DocumentPackage JSONではない。`dump-ast --format json`は一方向exportである。M1内部crateやrunnerが部分実装されても、`build-package`/`check-package`/`capabilities`のCLI E2Eとrelease列はMI1-17まで`No`のままとする。
+現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2EはLinuxで成功済みであり、producer guideと再現性・external PDF・host evidence gateも実装済みである。release列は同一revision/source/artifactのmacOS/Linux actual evidenceがCIで集約されるまで`No`のままとする。
 
 ## Machine-input rollout order
 
@@ -33,7 +33,7 @@
 4. MI1-10〜MI1-13: profile/preflight、layout boundary、manifest progress、terminal publication。
 5. MI1-14: contract 1.0 registryをfreezeし、generated artifactsを1.1へatomic switch。
 6. MI1-15〜MI1-16: non-public orchestrationとinternal E2E fixture closure。
-7. MI1-17: public command registration、producer docs、documented-host/reproducibility gate、release status。
+7. MI1-17: public command registration、producer docs、documented-host/reproducibility gate、actual two-host evidence aggregation。
 
 M2以降のprofile ID、page-break blank-page policy、table split policy、math/vector/book publicationは各decision-gate ADRがAcceptedになるまでcontract-definedへ昇格しない。M1の`paragraph-1`を拡張して代用しない。
 

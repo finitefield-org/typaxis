@@ -2,21 +2,48 @@
 
 use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use std::fs::File;
-use std::io::Read;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use typaxis_core::ConfigResourceRoot;
 use typaxis_core::{
     admitted_resource_fingerprint_from_jcs, push_jcs_string, AdmittedResourceFingerprint,
     EffectiveConfig, FontFaceId, HostAdmissionContext, ImageResourceId, PortablePath,
     ValidatedResourceLimits,
 };
+use typaxis_diagnostics::{DiagnosticSubject, PublicMachineError, ResourceErrorSubject};
 use typaxis_document::ResourceCatalog;
 use typaxis_font::{FontFamilyError, FontFamilyTable};
+use typaxis_host_admission::{
+    HostAdmissionError, HostAdmissionSession, HostReadIdentityLedger, HostReadIdentityLedgerToken,
+    HostRootSetToken, OpenedContainedFile, RegisteredHostReadCandidate,
+};
+
+/// Resource-admission owner's sealed compile-time capability. The generic
+/// host owner defines its representation; this crate exposes and enforces it
+/// at the logical resource boundary.
+pub use typaxis_host_admission::HostResourceCapabilityToken as ResourceAdmissionCapabilityToken;
+
+#[derive(Clone)]
+struct ResourceAdmissionSessionIdentity(Arc<()>);
+
+impl ResourceAdmissionSessionIdentity {
+    fn fresh() -> Self {
+        Self(Arc::new(()))
+    }
+}
+
+impl std::fmt::Debug for ResourceAdmissionSessionIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ResourceAdmissionSessionIdentity(..)")
+    }
+}
+
+impl PartialEq for ResourceAdmissionSessionIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ResourceAdmissionSessionIdentity {}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedFontMetadata {
     pub units_per_em: u16,
@@ -161,457 +188,306 @@ pub enum ResourceAdmissionError {
     ResourceLockUnavailable,
 }
 
+impl ResourceAdmissionError {
+    /// Stable canonical text for projection into diagnostics. Host error text
+    /// is deliberately discarded by the typed host-to-resource mapper.
+    pub const fn canonical_message(self) -> &'static str {
+        match self {
+            Self::MissingLogicalResource => "logical resource is missing",
+            Self::ConflictingLogicalResource => "logical resource was admitted more than once",
+            Self::ResourceLimit => "resource admission limit was exceeded",
+            Self::ExpectedHashMismatch => "resource hash does not match the declaration",
+            Self::InvalidMetadata => "resource format or metadata is unsupported",
+            Self::InvalidFontFamily => "font family declaration is invalid",
+            Self::NonCanonicalResourceId => "resource ID is not canonical",
+            Self::ResourceRead => "resource could not be read",
+            Self::ResourceLengthMismatch => "resource length changed during admission",
+            Self::ReceiptKindMismatch => "resource receipt kind does not match",
+            Self::ReceiptIdentityMismatch => "resource receipt identity does not match",
+            Self::ReceiptSessionMismatch => "resource receipt session does not match",
+            Self::MissingAdmittedRootSet => "admitted resource root set is missing",
+            Self::RootSetMismatch => "resource root set does not match",
+            Self::RootUnavailable => "resource root is unavailable",
+            Self::RootNotDirectory => "resource root is not a directory",
+            Self::AliasedRoot => "resource roots resolve to the same identity",
+            Self::UnsupportedContainedOpen => "contained resource open is unavailable",
+            Self::MissingResourceCandidate => "resource candidate is missing",
+            Self::AmbiguousResourceCandidate => "resource candidate is ambiguous",
+            Self::UnsafeResourceCandidate => "resource candidate is not contained",
+            Self::ResourceNotRegularFile => "resource candidate is not a regular file",
+            Self::ResourceLockUnavailable => "resource read lock is unavailable",
+        }
+    }
+}
+
+/// A resource admission error paired with the logical font/image/URI that
+/// caused it. The machine diagnostic mapper consumes this typed subject and
+/// never parses `Debug` output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourceAdmissionFailure {
+    error: ResourceAdmissionError,
+    subject: ResourceErrorSubject,
+}
+
+/// A typed resource failure paired with the last successfully verified
+/// resource-set snapshot from the same resolver session.
+///
+/// The progress receipt is owner-issued and cannot be reconstructed from the
+/// public error subject or resource record fields.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourceAdmissionFailureOutcome {
+    failure: ResourceAdmissionFailure,
+    progress: ResourceAdmissionProgressToken,
+}
+
+impl ResourceAdmissionFailureOutcome {
+    pub const fn failure(&self) -> &ResourceAdmissionFailure {
+        &self.failure
+    }
+
+    pub const fn progress(&self) -> &ResourceAdmissionProgressToken {
+        &self.progress
+    }
+
+    pub fn into_parts(self) -> (ResourceAdmissionFailure, ResourceAdmissionProgressToken) {
+        (self.failure, self.progress)
+    }
+}
+
+impl ResourceAdmissionFailure {
+    fn new(error: ResourceAdmissionError, subject: ResourceErrorSubject) -> Self {
+        Self { error, subject }
+    }
+
+    pub const fn error(&self) -> ResourceAdmissionError {
+        self.error
+    }
+
+    pub const fn subject(&self) -> &ResourceErrorSubject {
+        &self.subject
+    }
+
+    pub fn diagnostic_subject(&self) -> DiagnosticSubject {
+        DiagnosticSubject::Resource(self.subject.clone())
+    }
+
+    pub const fn canonical_message(&self) -> &'static str {
+        self.error.canonical_message()
+    }
+
+    /// Only errors with a code fixed by the current machine diagnostic table
+    /// are mapped here. Other operational resource failures remain typed until
+    /// their public code is assigned by a later integration milestone.
+    pub fn public_error(&self) -> Option<PublicMachineError> {
+        match self.error {
+            ResourceAdmissionError::InvalidMetadata => Some(
+                PublicMachineError::UnsupportedResource(self.subject.clone()),
+            ),
+            ResourceAdmissionError::UnsupportedContainedOpen => {
+                Some(PublicMachineError::CompiledHostUnavailable)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn into_parts(self) -> (ResourceAdmissionError, ResourceErrorSubject) {
+        (self.error, self.subject)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PendingResourceId {
     Font(FontFaceId),
     Image(ImageResourceId),
 }
 
-/// An opened, contained regular-file handle bound to the length observed by
-/// the crate-owned opener. Callers can transport this value but cannot wrap an
-/// arbitrary `Read` or choose the trusted extent themselves.
-pub struct VerifiedResourceSource<'roots, R> {
-    roots: &'roots AdmittedRootSet,
+/// Logical resource binding around one generic host-owned contained open.
+/// Only this crate can attach a font/image ID to the host read identity.
+///
+/// ```compile_fail
+/// use typaxis_resource_admission::VerifiedResourceSource;
+/// let _forged: VerifiedResourceSource<'static> = VerifiedResourceSource {};
+/// ```
+pub struct VerifiedResourceSource<'roots> {
     id: PendingResourceId,
-    exact_length: u64,
-    reader: R,
+    opened: OpenedContainedFile<'roots>,
 }
 
-/// Read handle whose owner can re-check that the same immutable snapshot still
-/// has the admitted extent after the final chunk. Implementing this trait does
-/// not grant the capability to construct `VerifiedResourceSource`.
-pub trait ResourceExtentReader: Read {
-    fn current_length(&self) -> Result<u64, ResourceAdmissionError>;
-}
-
-/// Opaque root-set capability issued from one configured host-admission
-/// session. There is deliberately no constructor from raw host paths.
-#[derive(Debug, Eq, PartialEq)]
-pub struct AdmittedRootSet {
-    _identity: Box<u8>,
-}
-impl AdmittedRootSet {
-    pub const fn token(&self) -> AdmittedRootSetToken<'_> {
-        AdmittedRootSetToken { roots: self }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct AdmittedRootSetToken<'roots> {
-    roots: &'roots AdmittedRootSet,
-}
-
-/// Capability reserved for the platform contained-open implementation. It
-/// must resolve the EffectiveConfig/CLI roots, reject aliased roots, and make
-/// every subsequent open relative to the issued root handles.
-#[derive(Debug)]
-pub struct AdmittedRootSetOwner {
-    _private: (),
-}
-impl AdmittedRootSetOwner {
-    #[allow(dead_code)] // reserved for the platform host-admission owner
-    fn new() -> Self {
-        Self { _private: () }
-    }
-    #[allow(dead_code)] // issued only after canonical root admission succeeds
-    fn issue(&self) -> AdmittedRootSet {
-        AdmittedRootSet {
-            _identity: Box::new(0),
-        }
-    }
-}
-
-/// Capability reserved for the contained resource opener/stat owner. A future
-/// filesystem implementation creates this owner only from one admitted root
-/// set and only after no-follow containment and regular-file checks have
-/// succeeded on the same open handle.
-#[derive(Debug)]
-pub struct VerifiedResourceSourceOwner<'roots> {
-    roots: &'roots AdmittedRootSet,
-}
-impl<'roots> VerifiedResourceSourceOwner<'roots> {
-    #[allow(dead_code)] // reserved for the in-crate contained file opener
-    fn new(roots: AdmittedRootSetToken<'roots>) -> Self {
-        Self { roots: roots.roots }
-    }
-    #[allow(dead_code)] // called by the platform contained-open owner
-    fn issue_font<R: ResourceExtentReader>(
-        &self,
-        font_face_id: FontFaceId,
-        exact_length: u64,
-        reader: R,
-    ) -> VerifiedResourceSource<'roots, R> {
-        VerifiedResourceSource {
-            roots: self.roots,
-            id: PendingResourceId::Font(font_face_id),
-            exact_length,
-            reader,
-        }
-    }
-    #[allow(dead_code)] // called by the platform contained-open owner
-    fn issue_image<R: ResourceExtentReader>(
-        &self,
-        image_id: ImageResourceId,
-        exact_length: u64,
-        reader: R,
-    ) -> VerifiedResourceSource<'roots, R> {
-        VerifiedResourceSource {
-            roots: self.roots,
-            id: PendingResourceId::Image(image_id),
-            exact_length,
-            reader,
-        }
-    }
-}
-
-/// Host-side owner for one sealed root set and the directory handles used to
-/// resolve its declared resources. Construction consumes only the canonical
-/// config roots and explicit roots from the matching `HostAdmissionContext`;
-/// callers never receive raw root handles or a way to bind an arbitrary path
-/// to a logical resource ID.
+/// Resource adapter over the generic host owner. It alone resolves logical
+/// font/image IDs to declarations and binds them to host open identities.
 #[derive(Debug)]
 pub struct HostResourceAdmissionSession {
-    roots: AdmittedRootSet,
+    host: HostAdmissionSession,
     declarations: ResourceCatalog,
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    host_roots: Vec<AdmittedHostRoot>,
+    font_candidates: Vec<RegisteredHostReadCandidate>,
+    image_candidates: Vec<RegisteredHostReadCandidate>,
 }
 
 impl HostResourceAdmissionSession {
     /// Resolve, securely open, and de-alias the effective resource-root set.
     ///
-    /// Linux and Android use `openat2` with no-symlink resolution. Other
-    /// platforms fail closed until they have an equivalent contained opener.
+    /// The complete declaration-by-root candidate product is reserved and its
+    /// parent+leaf identities are registered before any resource file is open.
     pub fn new(
         context: &HostAdmissionContext,
         config: &EffectiveConfig,
         declarations: &ResourceCatalog,
     ) -> Result<Self, ResourceAdmissionError> {
-        validate_declaration_order(declarations)?;
-        #[cfg(any(target_os = "android", target_os = "linux"))]
-        {
-            let host_roots = admit_host_roots(context, config)?;
-            Ok(Self {
-                roots: AdmittedRootSetOwner::new().issue(),
-                declarations: declarations.clone(),
-                host_roots,
-            })
-        }
-        #[cfg(not(any(target_os = "android", target_os = "linux")))]
-        {
-            let _ = (context, config, declarations);
-            Err(ResourceAdmissionError::UnsupportedContainedOpen)
-        }
+        Self::new_inner(context, config, declarations, None)
     }
 
-    pub const fn roots(&self) -> AdmittedRootSetToken<'_> {
-        self.roots.token()
+    /// Register resource candidates into the command-wide ledger already used
+    /// for package, config, and source candidates.
+    pub fn new_with_read_ledger(
+        context: &HostAdmissionContext,
+        config: &EffectiveConfig,
+        declarations: &ResourceCatalog,
+        ledger: &HostReadIdentityLedger,
+    ) -> Result<Self, ResourceAdmissionError> {
+        Self::new_inner(context, config, declarations, Some(ledger))
+    }
+
+    fn new_inner(
+        context: &HostAdmissionContext,
+        config: &EffectiveConfig,
+        declarations: &ResourceCatalog,
+        ledger: Option<&HostReadIdentityLedger>,
+    ) -> Result<Self, ResourceAdmissionError> {
+        if !ResourceAdmissionCapabilityToken::compiled().contained_resource_open() {
+            return Err(ResourceAdmissionError::UnsupportedContainedOpen);
+        }
+        validate_declaration_order(declarations)?;
+        let host = match ledger {
+            Some(ledger) => HostAdmissionSession::new_with_read_ledger(context, config, ledger),
+            None => HostAdmissionSession::new(context, config),
+        }
+        .map_err(map_host_error)?;
+        let font_count = declarations.font_faces.len();
+        let declaration_count = font_count
+            .checked_add(declarations.images.len())
+            .ok_or(ResourceAdmissionError::ResourceLimit)?;
+        let paths = (0..declaration_count).map(|index| {
+            if index < font_count {
+                &declarations.font_faces[index].uri
+            } else {
+                &declarations.images[index - font_count].uri
+            }
+        });
+        let mut font_candidates = host
+            .roots()
+            .register_candidates(paths)
+            .map_err(map_host_error)?;
+        let image_candidates = font_candidates.split_off(font_count);
+        Ok(Self {
+            host,
+            declarations: declarations.clone(),
+            font_candidates,
+            image_candidates,
+        })
+    }
+
+    pub const fn roots(&self) -> HostRootSetToken<'_> {
+        self.host.roots()
+    }
+
+    /// Seal the command-wide PACKAGE/config/source/resource read set after the
+    /// latest candidate registration or open. Publication owners consume this
+    /// token; resource facts themselves never expose host paths or identities.
+    pub fn read_ledger_token(&self) -> Result<HostReadIdentityLedgerToken, ResourceAdmissionError> {
+        self.host.read_ledger().token().map_err(map_host_error)
     }
 
     pub fn open_font(
         &self,
         font_face_id: FontFaceId,
-    ) -> Result<VerifiedResourceSource<'_, HostResourceFile>, ResourceAdmissionError> {
-        let declaration = self
+    ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionError> {
+        let _declaration = self
             .declarations
             .font_faces
             .get(font_face_id.get() as usize)
             .filter(|candidate| candidate.font_face_id == font_face_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
-        let reader = self.open_declared_resource(&declaration.uri)?;
-        let exact_length = reader.exact_length()?;
-        Ok(VerifiedResourceSourceOwner::new(self.roots()).issue_font(
-            font_face_id,
-            exact_length,
-            reader,
-        ))
+        let opened = self
+            .roots()
+            .open_registered(
+                self.font_candidates
+                    .get(font_face_id.get() as usize)
+                    .ok_or(ResourceAdmissionError::MissingLogicalResource)?,
+            )
+            .map_err(map_host_error)?;
+        Ok(VerifiedResourceSource {
+            id: PendingResourceId::Font(font_face_id),
+            opened,
+        })
     }
 
     pub fn open_image(
         &self,
         image_id: ImageResourceId,
-    ) -> Result<VerifiedResourceSource<'_, HostResourceFile>, ResourceAdmissionError> {
-        let declaration = self
+    ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionError> {
+        let _declaration = self
             .declarations
             .images
             .get(image_id.get() as usize)
             .filter(|candidate| candidate.image_id == image_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
-        let reader = self.open_declared_resource(&declaration.uri)?;
-        let exact_length = reader.exact_length()?;
-        Ok(VerifiedResourceSourceOwner::new(self.roots()).issue_image(
-            image_id,
-            exact_length,
-            reader,
-        ))
+        let opened = self
+            .roots()
+            .open_registered(
+                self.image_candidates
+                    .get(image_id.get() as usize)
+                    .ok_or(ResourceAdmissionError::MissingLogicalResource)?,
+            )
+            .map_err(map_host_error)?;
+        Ok(VerifiedResourceSource {
+            id: PendingResourceId::Image(image_id),
+            opened,
+        })
     }
 
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    fn open_declared_resource(
+    pub fn open_font_with_subject(
         &self,
-        uri: &PortablePath,
-    ) -> Result<HostResourceFile, ResourceAdmissionError> {
-        let mut candidate = None;
-        for root in &self.host_roots {
-            let Some(opened) = root.open_candidate(uri)? else {
-                continue;
-            };
-            if candidate.is_some() {
-                return Err(ResourceAdmissionError::AmbiguousResourceCandidate);
-            }
-            candidate = Some(opened);
-        }
-        candidate
-            .ok_or(ResourceAdmissionError::MissingResourceCandidate)?
-            .lock()
+        font_face_id: FontFaceId,
+    ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionFailure> {
+        self.open_font(font_face_id).map_err(|error| {
+            ResourceAdmissionFailure::new(error, ResourceErrorSubject::FontFace(font_face_id))
+        })
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
-    fn open_declared_resource(
+    pub fn open_image_with_subject(
         &self,
-        _uri: &PortablePath,
-    ) -> Result<HostResourceFile, ResourceAdmissionError> {
-        Err(ResourceAdmissionError::UnsupportedContainedOpen)
-    }
-}
-
-/// Same-handle reader retained under a nonblocking shared lock for the whole
-/// bounded read. The identity, extent, and write timestamps observed after
-/// locking are rechecked when admission consumes the final byte.
-#[cfg(any(target_os = "android", target_os = "linux"))]
-#[derive(Debug)]
-pub struct HostResourceFile {
-    file: File,
-    snapshot: OpenedFileSnapshot,
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-impl HostResourceFile {
-    fn exact_length(&self) -> Result<u64, ResourceAdmissionError> {
-        Ok(self.snapshot.length)
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-impl Read for HostResourceFile {
-    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        self.file.read(buffer)
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-impl ResourceExtentReader for HostResourceFile {
-    fn current_length(&self) -> Result<u64, ResourceAdmissionError> {
-        let current = OpenedFileSnapshot::from_file(&self.file)?;
-        if current != self.snapshot {
-            return Err(ResourceAdmissionError::ResourceLengthMismatch);
-        }
-        Ok(current.length)
-    }
-}
-
-#[cfg(not(any(target_os = "android", target_os = "linux")))]
-#[derive(Debug)]
-pub struct HostResourceFile {
-    _private: (),
-}
-
-#[cfg(not(any(target_os = "android", target_os = "linux")))]
-impl HostResourceFile {
-    fn exact_length(&self) -> Result<u64, ResourceAdmissionError> {
-        Err(ResourceAdmissionError::UnsupportedContainedOpen)
-    }
-}
-
-#[cfg(not(any(target_os = "android", target_os = "linux")))]
-impl Read for HostResourceFile {
-    fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "contained resource open is unsupported on this platform",
-        ))
-    }
-}
-
-#[cfg(not(any(target_os = "android", target_os = "linux")))]
-impl ResourceExtentReader for HostResourceFile {
-    fn current_length(&self) -> Result<u64, ResourceAdmissionError> {
-        Err(ResourceAdmissionError::UnsupportedContainedOpen)
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-#[derive(Debug)]
-struct AdmittedHostRoot {
-    directory: File,
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-impl AdmittedHostRoot {
-    fn open_candidate(
-        &self,
-        uri: &PortablePath,
-    ) -> Result<Option<OpenedResourceCandidate>, ResourceAdmissionError> {
-        use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
-
-        let descriptor = match openat2(
-            &self.directory,
-            uri.as_str(),
-            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-            Mode::empty(),
-            ResolveFlags::BENEATH | ResolveFlags::NO_MAGICLINKS | ResolveFlags::NO_SYMLINKS,
-        ) {
-            Ok(descriptor) => descriptor,
-            Err(error)
-                if error == rustix::io::Errno::NOENT || error == rustix::io::Errno::NOTDIR =>
-            {
-                return Ok(None)
-            }
-            Err(error) if error == rustix::io::Errno::NOSYS => {
-                return Err(ResourceAdmissionError::UnsupportedContainedOpen)
-            }
-            Err(_) => return Err(ResourceAdmissionError::UnsafeResourceCandidate),
-        };
-        let file: File = descriptor.into();
-        let before_lock = OpenedFileSnapshot::from_file(&file)?;
-        if before_lock.kind != OpenedFileKind::Regular {
-            return Err(ResourceAdmissionError::ResourceNotRegularFile);
-        }
-        Ok(Some(OpenedResourceCandidate { file, before_lock }))
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-#[derive(Debug)]
-struct OpenedResourceCandidate {
-    file: File,
-    before_lock: OpenedFileSnapshot,
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-impl OpenedResourceCandidate {
-    fn lock(self) -> Result<HostResourceFile, ResourceAdmissionError> {
-        rustix::fs::flock(
-            &self.file,
-            rustix::fs::FlockOperation::NonBlockingLockShared,
-        )
-        .map_err(|_| ResourceAdmissionError::ResourceLockUnavailable)?;
-        let snapshot = OpenedFileSnapshot::from_file(&self.file)?;
-        if snapshot != self.before_lock {
-            return Err(ResourceAdmissionError::ResourceLengthMismatch);
-        }
-        Ok(HostResourceFile {
-            file: self.file,
-            snapshot,
+        image_id: ImageResourceId,
+    ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionFailure> {
+        self.open_image(image_id).map_err(|error| {
+            ResourceAdmissionFailure::new(error, ResourceErrorSubject::Image(image_id))
         })
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OpenedFileKind {
-    Directory,
-    Regular,
-    Other,
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct OpenedFileSnapshot {
-    device: u128,
-    inode: u128,
-    length: u64,
-    modified_seconds: i128,
-    modified_nanoseconds: u128,
-    changed_seconds: i128,
-    changed_nanoseconds: u128,
-    kind: OpenedFileKind,
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-impl OpenedFileSnapshot {
-    fn from_file(file: &File) -> Result<Self, ResourceAdmissionError> {
-        let stat = rustix::fs::fstat(file).map_err(|_| ResourceAdmissionError::ResourceRead)?;
-        let length = u64::try_from(stat.st_size)
-            .map_err(|_| ResourceAdmissionError::ResourceLengthMismatch)?;
-        let kind = match rustix::fs::FileType::from_raw_mode(stat.st_mode) {
-            rustix::fs::FileType::Directory => OpenedFileKind::Directory,
-            rustix::fs::FileType::RegularFile => OpenedFileKind::Regular,
-            _ => OpenedFileKind::Other,
-        };
-        Ok(Self {
-            device: u128::from(stat.st_dev),
-            inode: u128::from(stat.st_ino),
-            length,
-            modified_seconds: i128::from(stat.st_mtime),
-            modified_nanoseconds: u128::from(stat.st_mtime_nsec),
-            changed_seconds: i128::from(stat.st_ctime),
-            changed_nanoseconds: u128::from(stat.st_ctime_nsec),
-            kind,
-        })
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-fn admit_host_roots(
-    context: &HostAdmissionContext,
-    config: &EffectiveConfig,
-) -> Result<Vec<AdmittedHostRoot>, ResourceAdmissionError> {
-    let project_root = context.project_root().as_path();
-    let configured = config.resource_roots().iter().map(|root| match root {
-        ConfigResourceRoot::ProjectRoot => project_root.to_path_buf(),
-        ConfigResourceRoot::Relative(path) => project_root.join(portable_to_host_path(path)),
-    });
-    let explicit = context
-        .cli_resource_roots()
-        .iter()
-        .map(|root| root.as_path().to_path_buf());
-    let mut identities = BTreeSet::new();
-    let mut roots = Vec::new();
-    for path in configured.chain(explicit) {
-        let root = open_host_root(&path)?;
-        let snapshot = OpenedFileSnapshot::from_file(&root.directory)?;
-        if snapshot.kind != OpenedFileKind::Directory {
-            return Err(ResourceAdmissionError::RootNotDirectory);
+fn map_host_error(error: HostAdmissionError) -> ResourceAdmissionError {
+    match error {
+        HostAdmissionError::HostLimit => ResourceAdmissionError::ResourceLimit,
+        HostAdmissionError::ReadCapacity => ResourceAdmissionError::ResourceLimit,
+        HostAdmissionError::Read => ResourceAdmissionError::ResourceRead,
+        HostAdmissionError::LengthMismatch => ResourceAdmissionError::ResourceLengthMismatch,
+        HostAdmissionError::SessionMismatch | HostAdmissionError::RootSetMismatch => {
+            ResourceAdmissionError::RootSetMismatch
         }
-        if !identities.insert((snapshot.device, snapshot.inode)) {
-            return Err(ResourceAdmissionError::AliasedRoot);
-        }
-        roots.push(root);
-    }
-    Ok(roots)
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-fn portable_to_host_path(path: &PortablePath) -> PathBuf {
-    path.as_str().split('/').collect()
-}
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-fn open_host_root(path: &Path) -> Result<AdmittedHostRoot, ResourceAdmissionError> {
-    use rustix::fs::{openat2, Mode, OFlags, ResolveFlags, CWD};
-
-    let canonical =
-        std::fs::canonicalize(path).map_err(|_| ResourceAdmissionError::RootUnavailable)?;
-    let descriptor = openat2(
-        CWD,
-        canonical,
-        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::NOFOLLOW,
-        Mode::empty(),
-        ResolveFlags::NO_MAGICLINKS | ResolveFlags::NO_SYMLINKS,
-    )
-    .map_err(|error| {
-        if error == rustix::io::Errno::NOSYS {
+        HostAdmissionError::ReadIdentityMismatch => ResourceAdmissionError::ReceiptIdentityMismatch,
+        HostAdmissionError::RootUnavailable => ResourceAdmissionError::RootUnavailable,
+        HostAdmissionError::RootNotDirectory => ResourceAdmissionError::RootNotDirectory,
+        HostAdmissionError::AliasedRoot => ResourceAdmissionError::AliasedRoot,
+        HostAdmissionError::UnsupportedContainedOpen => {
             ResourceAdmissionError::UnsupportedContainedOpen
-        } else if error == rustix::io::Errno::NOTDIR {
-            ResourceAdmissionError::RootNotDirectory
-        } else {
-            ResourceAdmissionError::RootUnavailable
         }
-    })?;
-    Ok(AdmittedHostRoot {
-        directory: descriptor.into(),
-    })
+        HostAdmissionError::MissingCandidate => ResourceAdmissionError::MissingResourceCandidate,
+        HostAdmissionError::AmbiguousCandidate => {
+            ResourceAdmissionError::AmbiguousResourceCandidate
+        }
+        HostAdmissionError::UnsafeCandidate => ResourceAdmissionError::UnsafeResourceCandidate,
+        HostAdmissionError::NotRegularFile => ResourceAdmissionError::ResourceNotRegularFile,
+        HostAdmissionError::LockUnavailable => ResourceAdmissionError::ResourceLockUnavailable,
+    }
 }
 
 /// Bytes read under an admission permit. Only `AdmittedResourceResolver`
@@ -619,7 +495,7 @@ fn open_host_root(path: &Path) -> Result<AdmittedHostRoot, ResourceAdmissionErro
 /// replace its logical identity, exact length, or streaming digest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingResourceBytes {
-    session: Arc<()>,
+    session: ResourceAdmissionSessionIdentity,
     id: PendingResourceId,
     uri: PortablePath,
     face_index: Option<u32>,
@@ -653,6 +529,13 @@ impl PendingResourceBytes {
     }
     pub const fn content_hash(&self) -> [u8; 32] {
         self.sha256
+    }
+
+    pub fn error_subject(&self) -> ResourceErrorSubject {
+        match self.id {
+            PendingResourceId::Font(id) => ResourceErrorSubject::FontFace(id),
+            PendingResourceId::Image(id) => ResourceErrorSubject::Image(id),
+        }
     }
 }
 
@@ -773,179 +656,13 @@ impl ResourceAdmissionBudget {
     }
 }
 
-/// Exact-length reader issued only after count, per-resource, and aggregate
-/// budgets have been consumed. It hashes every chunk as it is read, rejects an
-/// early EOF, and never performs a max+1 probe beyond the verified extent.
-pub struct BoundedResourceReader<R> {
-    inner: R,
-    exact_length: u64,
-}
-impl<R: ResourceExtentReader> BoundedResourceReader<R> {
-    fn new(inner: R, exact_length: u64) -> Self {
-        Self {
-            inner,
-            exact_length,
-        }
-    }
-    fn read_verified(mut self) -> Result<(Vec<u8>, [u8; 32]), ResourceAdmissionError> {
-        let capacity = usize::try_from(self.exact_length)
-            .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(capacity)
-            .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
-        let mut hasher = StreamingSha256::new();
-        let mut remaining = self.exact_length;
-        let mut chunk = [0u8; 8192];
-        while remaining > 0 {
-            let allowed = usize::try_from(remaining.min(chunk.len() as u64))
-                .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
-            let read = self
-                .inner
-                .read(&mut chunk[..allowed])
-                .map_err(|_| ResourceAdmissionError::ResourceRead)?;
-            if read == 0 {
-                return Err(ResourceAdmissionError::ResourceLengthMismatch);
-            }
-            hasher.update(&chunk[..read]);
-            bytes.extend_from_slice(&chunk[..read]);
-            remaining -= read as u64;
-        }
-        if self.inner.current_length()? != self.exact_length {
-            return Err(ResourceAdmissionError::ResourceLengthMismatch);
-        }
-        Ok((bytes, hasher.finalize()))
-    }
-}
-
-#[derive(Clone, Debug)]
-struct StreamingSha256 {
-    state: [u32; 8],
-    buffer: [u8; 64],
-    buffered: usize,
-    byte_length: u64,
-}
-impl StreamingSha256 {
-    const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2,
-    ];
-    fn new() -> Self {
-        Self {
-            state: [
-                0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-                0x5be0cd19,
-            ],
-            buffer: [0; 64],
-            buffered: 0,
-            byte_length: 0,
-        }
-    }
-    fn update(&mut self, mut input: &[u8]) {
-        self.byte_length = self.byte_length.wrapping_add(input.len() as u64);
-        if self.buffered != 0 {
-            let copied = (64 - self.buffered).min(input.len());
-            self.buffer[self.buffered..self.buffered + copied].copy_from_slice(&input[..copied]);
-            self.buffered += copied;
-            input = &input[copied..];
-            if self.buffered == 64 {
-                let block = self.buffer;
-                self.compress(&block);
-                self.buffered = 0;
-            }
-        }
-        while input.len() >= 64 {
-            let mut block = [0u8; 64];
-            block.copy_from_slice(&input[..64]);
-            self.compress(&block);
-            input = &input[64..];
-        }
-        self.buffer[..input.len()].copy_from_slice(input);
-        self.buffered = input.len();
-    }
-    fn finalize(mut self) -> [u8; 32] {
-        let bit_length = self.byte_length.wrapping_mul(8);
-        let mut final_blocks = [0u8; 128];
-        final_blocks[..self.buffered].copy_from_slice(&self.buffer[..self.buffered]);
-        final_blocks[self.buffered] = 0x80;
-        let used = if self.buffered < 56 { 64 } else { 128 };
-        final_blocks[used - 8..used].copy_from_slice(&bit_length.to_be_bytes());
-        for block in final_blocks[..used].chunks_exact(64) {
-            let mut owned = [0u8; 64];
-            owned.copy_from_slice(block);
-            self.compress(&owned);
-        }
-        let mut output = [0u8; 32];
-        for (chunk, word) in output.chunks_exact_mut(4).zip(self.state) {
-            chunk.copy_from_slice(&word.to_be_bytes());
-        }
-        output
-    }
-    fn compress(&mut self, block: &[u8; 64]) {
-        let mut words = [0u32; 64];
-        for (index, word) in words[..16].iter_mut().enumerate() {
-            let start = index * 4;
-            *word = u32::from_be_bytes([
-                block[start],
-                block[start + 1],
-                block[start + 2],
-                block[start + 3],
-            ]);
-        }
-        for index in 16..64 {
-            let s0 = words[index - 15].rotate_right(7)
-                ^ words[index - 15].rotate_right(18)
-                ^ (words[index - 15] >> 3);
-            let s1 = words[index - 2].rotate_right(17)
-                ^ words[index - 2].rotate_right(19)
-                ^ (words[index - 2] >> 10);
-            words[index] = words[index - 16]
-                .wrapping_add(s0)
-                .wrapping_add(words[index - 7])
-                .wrapping_add(s1);
-        }
-        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = self.state;
-        for (index, constant) in Self::K.iter().enumerate() {
-            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-            let choice = (e & f) ^ ((!e) & g);
-            let t1 = h
-                .wrapping_add(s1)
-                .wrapping_add(choice)
-                .wrapping_add(*constant)
-                .wrapping_add(words[index]);
-            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-            let majority = (a & b) ^ (a & c) ^ (b & c);
-            let t2 = s0.wrapping_add(majority);
-            h = g;
-            g = f;
-            f = e;
-            e = d.wrapping_add(t1);
-            d = c;
-            c = b;
-            b = a;
-            a = t1.wrapping_add(t2);
-        }
-        for (slot, value) in self.state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
-            *slot = slot.wrapping_add(value);
-        }
-    }
-}
-
 /// Stateful owner of all resource admission work. It reserves every resource
 /// before reading, and issues the immutable ledger only after every declaration
 /// has one matching metadata receipt.
 #[derive(Debug)]
 pub struct AdmittedResourceResolver<'roots> {
-    session: Arc<()>,
-    roots: Option<&'roots AdmittedRootSet>,
+    session: ResourceAdmissionSessionIdentity,
+    roots: Option<HostRootSetToken<'roots>>,
     declarations: ResourceCatalog,
     budget: ResourceAdmissionBudget,
     attempted_fonts: BTreeSet<FontFaceId>,
@@ -985,20 +702,20 @@ impl<'roots> AdmittedResourceResolver<'roots> {
     pub fn new_with_roots(
         declarations: &ResourceCatalog,
         limits: &ValidatedResourceLimits,
-        roots: AdmittedRootSetToken<'roots>,
+        roots: HostRootSetToken<'roots>,
     ) -> Result<Self, ResourceAdmissionError> {
-        Self::new_inner(declarations, limits, Some(roots.roots))
+        Self::new_inner(declarations, limits, Some(roots))
     }
 
     fn new_inner(
         declarations: &ResourceCatalog,
         limits: &ValidatedResourceLimits,
-        roots: Option<&'roots AdmittedRootSet>,
+        roots: Option<HostRootSetToken<'roots>>,
     ) -> Result<Self, ResourceAdmissionError> {
         let budget = ResourceAdmissionBudget::new(declarations, limits)?;
         validate_declaration_order(declarations)?;
         Ok(Self {
-            session: Arc::new(()),
+            session: ResourceAdmissionSessionIdentity::fresh(),
             roots,
             declarations: declarations.clone(),
             budget,
@@ -1008,16 +725,14 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             images: BTreeMap::new(),
         })
     }
-    pub fn read_font<R: ResourceExtentReader>(
+    pub fn read_font(
         &mut self,
-        source: VerifiedResourceSource<'roots, R>,
+        source: VerifiedResourceSource<'roots>,
     ) -> Result<PendingResourceBytes, ResourceAdmissionError> {
-        if !self
-            .roots
-            .is_some_and(|expected| std::ptr::eq(expected, source.roots))
-        {
-            return Err(ResourceAdmissionError::RootSetMismatch);
-        }
+        let roots = self.roots.ok_or(ResourceAdmissionError::RootSetMismatch)?;
+        roots
+            .validate_opened(&source.opened)
+            .map_err(map_host_error)?;
         let PendingResourceId::Font(font_face_id) = source.id else {
             return Err(ResourceAdmissionError::ReceiptKindMismatch);
         };
@@ -1030,13 +745,20 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         if self.attempted_fonts.contains(&font_face_id) {
             return Err(ResourceAdmissionError::ConflictingLogicalResource);
         }
-        self.budget
-            .reserve(ResourceReadKind::Font, source.exact_length)?;
+        let exact_length = source.opened.observed_exact_length();
+        self.budget.reserve(ResourceReadKind::Font, exact_length)?;
         self.attempted_fonts.insert(font_face_id);
-        let (bytes, sha256) =
-            BoundedResourceReader::new(source.reader, source.exact_length).read_verified()?;
+        let expected_read = source.opened.read_identity().clone();
+        let permit = roots
+            .issue_bounded_read_permit(source.opened)
+            .map_err(map_host_error)?;
+        let receipt = roots.read_bounded(permit).map_err(map_host_error)?;
+        let stable = roots
+            .accept_receipt(&expected_read, receipt)
+            .map_err(map_host_error)?;
+        let (bytes, sha256) = stable.into_bytes_and_sha256();
         Ok(PendingResourceBytes {
-            session: Arc::clone(&self.session),
+            session: self.session.clone(),
             id: PendingResourceId::Font(font_face_id),
             uri: declaration.uri.clone(),
             face_index: Some(declaration.face_index),
@@ -1044,16 +766,14 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             sha256,
         })
     }
-    pub fn read_image<R: ResourceExtentReader>(
+    pub fn read_image(
         &mut self,
-        source: VerifiedResourceSource<'roots, R>,
+        source: VerifiedResourceSource<'roots>,
     ) -> Result<PendingResourceBytes, ResourceAdmissionError> {
-        if !self
-            .roots
-            .is_some_and(|expected| std::ptr::eq(expected, source.roots))
-        {
-            return Err(ResourceAdmissionError::RootSetMismatch);
-        }
+        let roots = self.roots.ok_or(ResourceAdmissionError::RootSetMismatch)?;
+        roots
+            .validate_opened(&source.opened)
+            .map_err(map_host_error)?;
         let PendingResourceId::Image(image_id) = source.id else {
             return Err(ResourceAdmissionError::ReceiptKindMismatch);
         };
@@ -1066,13 +786,20 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         if self.attempted_images.contains(&image_id) {
             return Err(ResourceAdmissionError::ConflictingLogicalResource);
         }
-        self.budget
-            .reserve(ResourceReadKind::Image, source.exact_length)?;
+        let exact_length = source.opened.observed_exact_length();
+        self.budget.reserve(ResourceReadKind::Image, exact_length)?;
         self.attempted_images.insert(image_id);
-        let (bytes, sha256) =
-            BoundedResourceReader::new(source.reader, source.exact_length).read_verified()?;
+        let expected_read = source.opened.read_identity().clone();
+        let permit = roots
+            .issue_bounded_read_permit(source.opened)
+            .map_err(map_host_error)?;
+        let receipt = roots.read_bounded(permit).map_err(map_host_error)?;
+        let stable = roots
+            .accept_receipt(&expected_read, receipt)
+            .map_err(map_host_error)?;
+        let (bytes, sha256) = stable.into_bytes_and_sha256();
         Ok(PendingResourceBytes {
-            session: Arc::clone(&self.session),
+            session: self.session.clone(),
             id: PendingResourceId::Image(image_id),
             uri: declaration.uri.clone(),
             face_index: None,
@@ -1080,6 +807,31 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             sha256,
         })
     }
+
+    pub fn read_font_with_subject(
+        &mut self,
+        source: VerifiedResourceSource<'roots>,
+    ) -> Result<PendingResourceBytes, ResourceAdmissionFailureOutcome> {
+        let subject = match source.id {
+            PendingResourceId::Font(id) => ResourceErrorSubject::FontFace(id),
+            PendingResourceId::Image(id) => ResourceErrorSubject::Image(id),
+        };
+        self.read_font(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
+    pub fn read_image_with_subject(
+        &mut self,
+        source: VerifiedResourceSource<'roots>,
+    ) -> Result<PendingResourceBytes, ResourceAdmissionFailureOutcome> {
+        let subject = match source.id {
+            PendingResourceId::Font(id) => ResourceErrorSubject::FontFace(id),
+            PendingResourceId::Image(id) => ResourceErrorSubject::Image(id),
+        };
+        self.read_image(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
     pub fn parse_and_bind_sfnt(
         &mut self,
         source: PendingResourceBytes,
@@ -1111,6 +863,25 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let receipt = owner.issue_image(source, width, height, decoded_bytes)?;
         self.bind_verified_metadata(receipt)
     }
+
+    pub fn parse_and_bind_sfnt_with_subject(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = source.error_subject();
+        self.parse_and_bind_sfnt(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
+    pub fn parse_and_bind_png_with_subject(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = source.error_subject();
+        self.parse_and_bind_png(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
     pub fn bind_verified_metadata(
         &mut self,
         receipt: VerifiedMetadataReceipt,
@@ -1138,6 +909,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 {
                     return Err(ResourceAdmissionError::ExpectedHashMismatch);
                 }
+                if self.fonts.contains_key(&id) {
+                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
+                }
                 let font = AdmittedFont::from_verified(
                     id,
                     source.uri,
@@ -1147,9 +921,8 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     source.sha256,
                     metadata,
                 );
-                if self.fonts.insert(id, font).is_some() {
-                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
-                }
+                let replaced = self.fonts.insert(id, font);
+                debug_assert!(replaced.is_none());
             }
             VerifiedMetadata::Image {
                 source,
@@ -1184,6 +957,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 {
                     return Err(ResourceAdmissionError::ResourceLimit);
                 }
+                if self.images.contains_key(&id) {
+                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
+                }
                 let image = AdmittedImage::from_verified(
                     id,
                     source.uri,
@@ -1193,15 +969,48 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     height,
                     decoded_bytes,
                 );
-                if self.images.insert(id, image).is_some() {
-                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
-                }
+                let replaced = self.images.insert(id, image);
+                debug_assert!(replaced.is_none());
             }
         }
         Ok(())
     }
+
+    pub fn bind_verified_metadata_with_subject(
+        &mut self,
+        receipt: VerifiedMetadataReceipt,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = match &receipt.0 {
+            VerifiedMetadata::Font { source, .. } | VerifiedMetadata::Image { source, .. } => {
+                source.error_subject()
+            }
+        };
+        self.bind_verified_metadata(receipt)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
+    /// Snapshot the last set of resources whose bytes, hash, and metadata all
+    /// completed successfully in this exact resolver session.
+    pub fn progress_token(&self) -> ResourceAdmissionProgressToken {
+        ResourceAdmissionProgressToken {
+            session: self.session.clone(),
+            fonts: self.fonts.values().cloned().collect(),
+            images: self.images.values().cloned().collect(),
+        }
+    }
+
+    fn failure_outcome(
+        &self,
+        failure: ResourceAdmissionFailure,
+    ) -> ResourceAdmissionFailureOutcome {
+        ResourceAdmissionFailureOutcome {
+            failure,
+            progress: self.progress_token(),
+        }
+    }
+
     fn ensure_session(&self, source: &PendingResourceBytes) -> Result<(), ResourceAdmissionError> {
-        if Arc::ptr_eq(&self.session, &source.session) {
+        if self.session == source.session {
             Ok(())
         } else {
             Err(ResourceAdmissionError::ReceiptSessionMismatch)
@@ -1222,6 +1031,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         )
         .map_err(map_font_family_error)?;
         Ok(AdmittedResourceLedger {
+            session: self.session,
             fonts: self.fonts.into_values().collect(),
             images: self.images.into_values().collect(),
             font_families,
@@ -1446,6 +1256,7 @@ fn map_font_family_error(_error: FontFamilyError) -> ResourceAdmissionError {
 /// Immutable complete-set proof emitted by `AdmittedResourceResolver`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedResourceLedger {
+    session: ResourceAdmissionSessionIdentity,
     fonts: Vec<AdmittedFont>,
     images: Vec<AdmittedImage>,
     font_families: FontFamilyTable,
@@ -1468,6 +1279,14 @@ impl AdmittedResourceLedger {
     }
     pub const fn token(&self) -> AdmittedResourceLedgerToken<'_> {
         AdmittedResourceLedgerToken { ledger: self }
+    }
+
+    pub fn progress_token(&self) -> ResourceAdmissionProgressToken {
+        ResourceAdmissionProgressToken {
+            session: self.session.clone(),
+            fonts: self.fonts.clone(),
+            images: self.images.clone(),
+        }
     }
     pub fn matches_declarations(&self, declarations: &ResourceCatalog) -> bool {
         self.fonts.len() == declarations.font_faces.len()
@@ -1541,6 +1360,49 @@ impl AdmittedResourceLedger {
     }
 }
 
+/// Sealed, session-bound snapshot of successfully verified resources.
+///
+/// ```compile_fail
+/// use typaxis_resource_admission::ResourceAdmissionProgressToken;
+/// let _forged = ResourceAdmissionProgressToken {};
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourceAdmissionProgressToken {
+    session: ResourceAdmissionSessionIdentity,
+    fonts: Vec<AdmittedFont>,
+    images: Vec<AdmittedImage>,
+}
+
+impl ResourceAdmissionProgressToken {
+    pub fn fonts(&self) -> &[AdmittedFont] {
+        &self.fonts
+    }
+
+    pub fn images(&self) -> &[AdmittedImage] {
+        &self.images
+    }
+
+    /// Proves monotonic continuation without revealing the opaque resolver
+    /// session identity.
+    pub fn continues(&self, previous: &Self) -> bool {
+        self.session == previous.session
+            && previous
+                .fonts
+                .iter()
+                .all(|established| self.fonts.iter().any(|incoming| incoming == established))
+            && previous
+                .images
+                .iter()
+                .all(|established| self.images.iter().any(|incoming| incoming == established))
+            && (self.fonts.len() > previous.fonts.len()
+                || self.images.len() > previous.images.len())
+    }
+
+    pub fn same_session(&self, other: &Self) -> bool {
+        self.session == other.session
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct AdmittedResourceLedgerToken<'a> {
     ledger: &'a AdmittedResourceLedger,
@@ -1557,6 +1419,32 @@ impl<'a> AdmittedResourceLedgerToken<'a> {
     }
     pub fn fingerprint(self) -> AdmittedResourceFingerprint {
         self.ledger.fingerprint()
+    }
+
+    pub fn matches_progress(self, progress: &ResourceAdmissionProgressToken) -> bool {
+        self.ledger.session == progress.session
+            && self.ledger.fonts == progress.fonts
+            && self.ledger.images == progress.images
+    }
+
+    pub fn same_session_as(self, progress: &ResourceAdmissionProgressToken) -> bool {
+        self.ledger.session == progress.session
+    }
+
+    pub fn continues_progress(self, progress: &ResourceAdmissionProgressToken) -> bool {
+        self.same_session_as(progress)
+            && progress.fonts.iter().all(|established| {
+                self.ledger
+                    .fonts
+                    .iter()
+                    .any(|complete| complete == established)
+            })
+            && progress.images.iter().all(|established| {
+                self.ledger
+                    .images
+                    .iter()
+                    .any(|complete| complete == established)
+            })
     }
 }
 
@@ -1699,7 +1587,6 @@ fn push_hash_hex(output: &mut String, bytes: [u8; 32]) {
 mod tests {
     use super::*;
     use std::fs;
-    use std::io::Cursor;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
     use typaxis_core::{
@@ -1709,14 +1596,28 @@ mod tests {
     };
     use typaxis_document::{FontFaceDeclaration, ImageDeclaration};
 
-    impl ResourceExtentReader for Cursor<Vec<u8>> {
-        fn current_length(&self) -> Result<u64, ResourceAdmissionError> {
-            Ok(self.get_ref().len() as u64)
-        }
-    }
-
     fn limits(overrides: ResourceLimits) -> ValidatedResourceLimits {
         ValidatedResourceLimits::new(overrides).unwrap()
+    }
+
+    #[test]
+    fn typed_resource_error_subject_mapping_is_canonical() {
+        let subject = ResourceErrorSubject::FontFace(FontFaceId::new(4));
+        let failure =
+            ResourceAdmissionFailure::new(ResourceAdmissionError::InvalidMetadata, subject.clone());
+        assert_eq!(failure.error(), ResourceAdmissionError::InvalidMetadata);
+        assert_eq!(failure.subject(), &subject);
+        assert_eq!(
+            failure.diagnostic_subject(),
+            DiagnosticSubject::Resource(subject.clone())
+        );
+        assert_eq!(
+            failure.canonical_message(),
+            "resource format or metadata is unsupported"
+        );
+        let public = failure.public_error().unwrap();
+        assert_eq!(public.code(), typaxis_diagnostics::R7100);
+        assert_eq!(public.subject(), Some(DiagnosticSubject::Resource(subject)));
     }
 
     struct TempTree {
@@ -1831,7 +1732,81 @@ mod tests {
         sfnt_with_units_per_em(1000)
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    #[test]
+    fn generic_host_failures_keep_the_resource_error_contract() {
+        let cases = [
+            (
+                HostAdmissionError::HostLimit,
+                ResourceAdmissionError::ResourceLimit,
+            ),
+            (
+                HostAdmissionError::ReadCapacity,
+                ResourceAdmissionError::ResourceLimit,
+            ),
+            (
+                HostAdmissionError::Read,
+                ResourceAdmissionError::ResourceRead,
+            ),
+            (
+                HostAdmissionError::LengthMismatch,
+                ResourceAdmissionError::ResourceLengthMismatch,
+            ),
+            (
+                HostAdmissionError::SessionMismatch,
+                ResourceAdmissionError::RootSetMismatch,
+            ),
+            (
+                HostAdmissionError::RootSetMismatch,
+                ResourceAdmissionError::RootSetMismatch,
+            ),
+            (
+                HostAdmissionError::ReadIdentityMismatch,
+                ResourceAdmissionError::ReceiptIdentityMismatch,
+            ),
+            (
+                HostAdmissionError::RootUnavailable,
+                ResourceAdmissionError::RootUnavailable,
+            ),
+            (
+                HostAdmissionError::RootNotDirectory,
+                ResourceAdmissionError::RootNotDirectory,
+            ),
+            (
+                HostAdmissionError::AliasedRoot,
+                ResourceAdmissionError::AliasedRoot,
+            ),
+            (
+                HostAdmissionError::UnsupportedContainedOpen,
+                ResourceAdmissionError::UnsupportedContainedOpen,
+            ),
+            (
+                HostAdmissionError::MissingCandidate,
+                ResourceAdmissionError::MissingResourceCandidate,
+            ),
+            (
+                HostAdmissionError::AmbiguousCandidate,
+                ResourceAdmissionError::AmbiguousResourceCandidate,
+            ),
+            (
+                HostAdmissionError::UnsafeCandidate,
+                ResourceAdmissionError::UnsafeResourceCandidate,
+            ),
+            (
+                HostAdmissionError::NotRegularFile,
+                ResourceAdmissionError::ResourceNotRegularFile,
+            ),
+            (
+                HostAdmissionError::LockUnavailable,
+                ResourceAdmissionError::ResourceLockUnavailable,
+            ),
+        ];
+
+        for (host, resource) in cases {
+            assert_eq!(map_host_error(host), resource);
+        }
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "linux", target_os = "macos")))]
     #[test]
     fn unsupported_platform_fails_without_issuing_root_file_or_metadata_receipts() {
         let tree = TempTree::new("unsupported");
@@ -1843,24 +1818,9 @@ mod tests {
             HostResourceAdmissionSession::new(&context, &config, &catalog),
             Err(ResourceAdmissionError::UnsupportedContainedOpen)
         ));
-
-        let mut reader = HostResourceFile { _private: () };
-        assert_eq!(
-            reader.exact_length(),
-            Err(ResourceAdmissionError::UnsupportedContainedOpen)
-        );
-        let mut byte = [0_u8; 1];
-        assert_eq!(
-            reader.read(&mut byte).unwrap_err().kind(),
-            std::io::ErrorKind::Unsupported
-        );
-        assert_eq!(
-            reader.current_length(),
-            Err(ResourceAdmissionError::UnsupportedContainedOpen)
-        );
     }
 
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn host_session_opens_declared_file_and_binds_same_root_set() {
         let tree = TempTree::new("read");
@@ -1890,7 +1850,87 @@ mod tests {
         assert_eq!(ledger.font(FontFaceId::new(0)).unwrap().bytes(), sfnt());
     }
 
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn progress_advances_only_after_metadata_success_and_failure_returns_last_token() {
+        let tree = TempTree::new("progress-outcome");
+        fs::write(tree.path().join("font-0.ttf"), sfnt()).unwrap();
+        fs::write(tree.path().join("font-1.ttf"), sfnt()).unwrap();
+        let catalog = font_catalog(2);
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver =
+            AdmittedResourceResolver::new_with_roots(&catalog, config.limits(), host.roots())
+                .unwrap();
+
+        let initial = resolver.progress_token();
+        assert!(initial.fonts().is_empty());
+        let first = resolver
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        assert!(resolver.progress_token().fonts().is_empty());
+        resolver.parse_and_bind_sfnt(first).unwrap();
+        let admitted_first = resolver.progress_token();
+        assert!(admitted_first.continues(&initial));
+        assert_eq!(admitted_first.fonts().len(), 1);
+
+        let mut foreign =
+            AdmittedResourceResolver::new_with_roots(&catalog, config.limits(), host.roots())
+                .unwrap();
+        let foreign_pending = foreign
+            .read_font(host.open_font(FontFaceId::new(1)).unwrap())
+            .unwrap();
+        let outcome = resolver
+            .parse_and_bind_sfnt_with_subject(foreign_pending)
+            .unwrap_err();
+        assert_eq!(
+            outcome.failure().error(),
+            ResourceAdmissionError::ReceiptSessionMismatch
+        );
+        assert_eq!(outcome.progress(), &admitted_first);
+        assert_eq!(resolver.progress_token(), admitted_first);
+
+        let second = resolver
+            .read_font(host.open_font(FontFaceId::new(1)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_sfnt(second).unwrap();
+        let complete_progress = resolver.progress_token();
+        assert!(complete_progress.continues(&admitted_first));
+        let ledger = resolver.finish().unwrap();
+        assert!(ledger.token().matches_progress(&complete_progress));
+        assert!(ledger.token().continues_progress(&admitted_first));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn resource_candidates_join_the_existing_command_read_ledger() {
+        let tree = TempTree::new("shared-ledger");
+        fs::write(tree.path().join("font-0.ttf"), sfnt()).unwrap();
+        let package = HostAdmissionSession::new_contained_root(
+            &HostPath::new(tree.path().to_path_buf()).unwrap(),
+        )
+        .unwrap();
+        package
+            .roots()
+            .register_candidates(std::iter::once(&PortablePath::new("package.json").unwrap()))
+            .unwrap();
+        let catalog = font_catalog(1);
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let resources = HostResourceAdmissionSession::new_with_read_ledger(
+            &host_context(tree.path(), &[]),
+            &config,
+            &catalog,
+            package.read_ledger(),
+        )
+        .unwrap();
+        let token = resources.roots().read_ledger_token().unwrap();
+        assert_eq!(token.candidate_attempt_count(), 2);
+        assert_eq!(token.stored_candidate_identity_count(), 2);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn root_alias_and_multi_root_candidates_are_rejected() {
         let first = TempTree::new("first");
@@ -1914,9 +1954,56 @@ mod tests {
         ));
     }
 
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
-    fn contained_open_rejects_symlinks_and_unlocked_writers() {
+    fn resource_session_reserves_the_complete_candidate_product_before_any_file_open() {
+        use typaxis_host_admission::{MAX_HOST_READ_CANDIDATES, MAX_RESOURCE_ROOTS};
+
+        let tree = TempTree::new("candidate-product");
+        let mut extra_paths = Vec::new();
+        for index in 0..(MAX_RESOURCE_ROOTS - 1) {
+            let path = tree.path().join(format!("root-{index}"));
+            fs::create_dir(&path).unwrap();
+            extra_paths.push(path);
+        }
+        let extra_refs: Vec<&Path> = extra_paths.iter().map(PathBuf::as_path).collect();
+        let context = host_context(tree.path(), &extra_refs);
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let declarations_at_max = MAX_HOST_READ_CANDIDATES / MAX_RESOURCE_ROOTS;
+        let catalog = ResourceCatalog {
+            font_faces: (0..declarations_at_max)
+                .map(|index| FontFaceDeclaration {
+                    font_face_id: FontFaceId::new(u32::try_from(index).unwrap()),
+                    family: format!("family-{index}"),
+                    uri: PortablePath::new("missing.ttf").unwrap(),
+                    face_index: 0,
+                    expected_sha256: None,
+                })
+                .collect(),
+            images: vec![],
+        };
+        let session = HostResourceAdmissionSession::new(&context, &config, &catalog).unwrap();
+        let token = session.roots().read_ledger_token().unwrap();
+        assert_eq!(token.candidate_attempt_count(), MAX_HOST_READ_CANDIDATES);
+        assert_eq!(token.stored_candidate_identity_count(), MAX_RESOURCE_ROOTS);
+
+        let mut over_limit = catalog;
+        over_limit.font_faces.push(FontFaceDeclaration {
+            font_face_id: FontFaceId::new(u32::try_from(declarations_at_max).unwrap()),
+            family: "family-over-limit".to_owned(),
+            uri: PortablePath::new("unsafe-parent/missing.ttf").unwrap(),
+            face_index: 0,
+            expected_sha256: None,
+        });
+        assert_eq!(
+            HostResourceAdmissionSession::new(&context, &config, &over_limit).unwrap_err(),
+            ResourceAdmissionError::ResourceLimit
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn contained_open_rejects_symlinks() {
         use std::os::unix::fs::symlink;
 
         let tree = TempTree::new("contained");
@@ -1930,31 +2017,14 @@ mod tests {
             session.open_font(FontFaceId::new(0)),
             Err(ResourceAdmissionError::UnsafeResourceCandidate)
         ));
-
-        fs::remove_file(tree.path().join("font-0.ttf")).unwrap();
-        fs::rename(
-            tree.path().join("actual.ttf"),
-            tree.path().join("font-0.ttf"),
-        )
-        .unwrap();
-        let writer = File::options()
-            .read(true)
-            .write(true)
-            .open(tree.path().join("font-0.ttf"))
-            .unwrap();
-        rustix::fs::flock(
-            &writer,
-            rustix::fs::FlockOperation::NonBlockingLockExclusive,
-        )
-        .unwrap();
-        assert!(matches!(
-            session.open_font(FontFaceId::new(0)),
-            Err(ResourceAdmissionError::ResourceLockUnavailable)
-        ));
     }
 
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn admission_reserves_aggregate_before_second_read() {
+        let tree = TempTree::new("aggregate");
+        fs::write(tree.path().join("font-0.ttf"), b"abc").unwrap();
+        fs::write(tree.path().join("font-1.ttf"), b"def").unwrap();
         let limits = limits(ResourceLimits {
             max_font_bytes: 4,
             max_image_bytes: 4,
@@ -1962,23 +2032,21 @@ mod tests {
             ..ResourceLimits::default()
         });
         let catalog = font_catalog(2);
-        let roots = AdmittedRootSetOwner::new().issue();
-        let owner = VerifiedResourceSourceOwner::new(roots.token());
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let context = host_context(tree.path(), &[]);
+        let session = HostResourceAdmissionSession::new(&context, &config, &catalog).unwrap();
         let mut resolver =
-            AdmittedResourceResolver::new_with_roots(&catalog, &limits, roots.token()).unwrap();
+            AdmittedResourceResolver::new_with_roots(&catalog, &limits, session.roots()).unwrap();
         resolver
-            .read_font(owner.issue_font(FontFaceId::new(0), 3, Cursor::new(b"abc".to_vec())))
+            .read_font(session.open_font(FontFaceId::new(0)).unwrap())
             .unwrap();
         assert_eq!(
-            resolver.read_font(owner.issue_font(
-                FontFaceId::new(1),
-                3,
-                Cursor::new(b"def".to_vec()),
-            )),
+            resolver.read_font(session.open_font(FontFaceId::new(1)).unwrap()),
             Err(ResourceAdmissionError::ResourceLimit)
         );
     }
 
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn nonempty_admission_requires_the_same_sealed_root_set() {
         let limits = limits(ResourceLimits::default());
@@ -1988,41 +2056,60 @@ mod tests {
             ResourceAdmissionError::MissingAdmittedRootSet
         );
 
-        let expected_roots = AdmittedRootSetOwner::new().issue();
-        let other_roots = AdmittedRootSetOwner::new().issue();
-        let source_owner = VerifiedResourceSourceOwner::new(other_roots.token());
+        let expected_tree = TempTree::new("expected-roots");
+        let other_tree = TempTree::new("other-roots");
+        fs::write(expected_tree.path().join("font-0.ttf"), b"abc").unwrap();
+        fs::write(other_tree.path().join("font-0.ttf"), b"abc").unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let expected_session = HostResourceAdmissionSession::new(
+            &host_context(expected_tree.path(), &[]),
+            &config,
+            &catalog,
+        )
+        .unwrap();
+        let other_session = HostResourceAdmissionSession::new(
+            &host_context(other_tree.path(), &[]),
+            &config,
+            &catalog,
+        )
+        .unwrap();
         let mut resolver =
-            AdmittedResourceResolver::new_with_roots(&catalog, &limits, expected_roots.token())
+            AdmittedResourceResolver::new_with_roots(&catalog, &limits, expected_session.roots())
                 .unwrap();
         assert_eq!(
-            resolver.read_font(source_owner.issue_font(
-                FontFaceId::new(0),
-                3,
-                Cursor::new(b"abc".to_vec()),
-            )),
+            resolver.read_font(other_session.open_font(FontFaceId::new(0)).unwrap()),
             Err(ResourceAdmissionError::RootSetMismatch)
         );
     }
 
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
-    fn bounded_reader_hashes_stream_and_rechecks_extent() {
-        let bytes = vec![0x5a; 20_000];
-        let (read, digest) =
-            BoundedResourceReader::new(Cursor::new(bytes.clone()), bytes.len() as u64)
-                .read_verified()
+    fn resource_budget_accepts_exact_extent_and_rejects_max_plus_one() {
+        let tree = TempTree::new("exact-max-plus-one");
+        fs::write(tree.path().join("font-0.ttf"), b"abc").unwrap();
+        fs::write(tree.path().join("font-1.ttf"), b"abcd").unwrap();
+        let catalog = font_catalog(2);
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let session =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
                 .unwrap();
-        assert_eq!(digest, sha256(&read));
-        assert_eq!(read, bytes);
+        let limits = limits(ResourceLimits {
+            max_font_bytes: 3,
+            ..ResourceLimits::default()
+        });
+        let mut resolver =
+            AdmittedResourceResolver::new_with_roots(&catalog, &limits, session.roots()).unwrap();
+        let exact = resolver
+            .read_font(session.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(exact.bytes(), b"abc");
         assert_eq!(
-            BoundedResourceReader::new(Cursor::new(b"ab".to_vec()), 3).read_verified(),
-            Err(ResourceAdmissionError::ResourceLengthMismatch)
-        );
-        assert_eq!(
-            BoundedResourceReader::new(Cursor::new(b"abc".to_vec()), 2).read_verified(),
-            Err(ResourceAdmissionError::ResourceLengthMismatch)
+            resolver.read_font(session.open_font(FontFaceId::new(1)).unwrap()),
+            Err(ResourceAdmissionError::ResourceLimit)
         );
     }
 
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn png_metadata_is_derived_from_admitted_bytes() {
         let bytes = png(2, 3);
@@ -2035,16 +2122,16 @@ mod tests {
             }],
         };
         let limits = limits(ResourceLimits::default());
-        let roots = AdmittedRootSetOwner::new().issue();
-        let owner = VerifiedResourceSourceOwner::new(roots.token());
+        let tree = TempTree::new("png-metadata");
+        fs::write(tree.path().join("image.png"), &bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let session =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
         let mut resolver =
-            AdmittedResourceResolver::new_with_roots(&catalog, &limits, roots.token()).unwrap();
+            AdmittedResourceResolver::new_with_roots(&catalog, &limits, session.roots()).unwrap();
         let pending = resolver
-            .read_image(owner.issue_image(
-                ImageResourceId::new(0),
-                bytes.len() as u64,
-                Cursor::new(bytes),
-            ))
+            .read_image(session.open_image(ImageResourceId::new(0)).unwrap())
             .unwrap();
         resolver.parse_and_bind_png(pending).unwrap();
         let ledger = resolver.finish().unwrap();
@@ -2054,6 +2141,7 @@ mod tests {
         assert!(ledger.matches_declarations(&catalog));
     }
 
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn png_decoded_budget_uses_canonical_expanded_pixels() {
         assert_eq!(
@@ -2102,6 +2190,12 @@ mod tests {
                 expected_sha256: Some(sha256(&bytes)),
             }],
         };
+        let tree = TempTree::new("png-decoded-budget");
+        fs::write(tree.path().join("image.png"), &bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let session =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
         for (max_decoded_image_bytes, expected) in [
             (24, Ok(())),
             (23, Err(ResourceAdmissionError::ResourceLimit)),
@@ -2110,16 +2204,11 @@ mod tests {
                 max_decoded_image_bytes,
                 ..ResourceLimits::default()
             });
-            let roots = AdmittedRootSetOwner::new().issue();
-            let owner = VerifiedResourceSourceOwner::new(roots.token());
             let mut resolver =
-                AdmittedResourceResolver::new_with_roots(&catalog, &limits, roots.token()).unwrap();
+                AdmittedResourceResolver::new_with_roots(&catalog, &limits, session.roots())
+                    .unwrap();
             let pending = resolver
-                .read_image(owner.issue_image(
-                    ImageResourceId::new(0),
-                    bytes.len() as u64,
-                    Cursor::new(bytes.clone()),
-                ))
+                .read_image(session.open_image(ImageResourceId::new(0)).unwrap())
                 .unwrap();
             assert_eq!(resolver.parse_and_bind_png(pending), expected);
         }
@@ -2177,7 +2266,7 @@ mod tests {
         let source = |units_per_em| {
             owner.issue_font(
                 PendingResourceBytes {
-                    session: Arc::new(()),
+                    session: ResourceAdmissionSessionIdentity::fresh(),
                     id: PendingResourceId::Font(FontFaceId::new(0)),
                     uri: PortablePath::new("font.ttf").unwrap(),
                     face_index: Some(0),
@@ -2196,22 +2285,23 @@ mod tests {
         assert_eq!(source(16_385), Err(ResourceAdmissionError::InvalidMetadata));
     }
 
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn pending_bytes_cannot_bypass_another_resolvers_budget_session() {
         let bytes = sfnt();
         let catalog = font_catalog(1);
-        let roots = AdmittedRootSetOwner::new().issue();
-        let source_owner = VerifiedResourceSourceOwner::new(roots.token());
+        let tree = TempTree::new("resolver-session");
+        fs::write(tree.path().join("font-0.ttf"), &bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
         let permissive_limits = limits(ResourceLimits::default());
         let mut issuing =
-            AdmittedResourceResolver::new_with_roots(&catalog, &permissive_limits, roots.token())
+            AdmittedResourceResolver::new_with_roots(&catalog, &permissive_limits, host.roots())
                 .unwrap();
         let pending = issuing
-            .read_font(source_owner.issue_font(
-                FontFaceId::new(0),
-                bytes.len() as u64,
-                Cursor::new(bytes),
-            ))
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
             .unwrap();
 
         let strict_limits = limits(ResourceLimits {
@@ -2219,7 +2309,7 @@ mod tests {
             ..ResourceLimits::default()
         });
         let mut foreign =
-            AdmittedResourceResolver::new_with_roots(&catalog, &strict_limits, roots.token())
+            AdmittedResourceResolver::new_with_roots(&catalog, &strict_limits, host.roots())
                 .unwrap();
         assert_eq!(
             foreign.parse_and_bind_sfnt(pending),
@@ -2231,22 +2321,23 @@ mod tests {
         );
     }
 
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
     fn font_instance_identity_is_ledger_issued_and_dense() {
         let bytes = sfnt();
         let mut catalog = font_catalog(1);
         catalog.font_faces[0].expected_sha256 = Some(sha256(&bytes));
         let limits = limits(ResourceLimits::default());
-        let roots = AdmittedRootSetOwner::new().issue();
-        let owner = VerifiedResourceSourceOwner::new(roots.token());
+        let tree = TempTree::new("font-instance");
+        fs::write(tree.path().join("font-0.ttf"), &bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
         let mut resolver =
-            AdmittedResourceResolver::new_with_roots(&catalog, &limits, roots.token()).unwrap();
+            AdmittedResourceResolver::new_with_roots(&catalog, &limits, host.roots()).unwrap();
         let pending = resolver
-            .read_font(owner.issue_font(
-                FontFaceId::new(0),
-                bytes.len() as u64,
-                Cursor::new(bytes.clone()),
-            ))
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
             .unwrap();
         resolver.parse_and_bind_sfnt(pending).unwrap();
         let ledger = resolver.finish().unwrap();

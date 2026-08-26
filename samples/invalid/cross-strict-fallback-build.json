@@ -1,18 +1,113 @@
 {
   "$fixture": "cross_artifacts",
   "mutations": [
-    {"artifact": "config", "path": ["limits", "max_layout_passes"], "value": 1},
-    {"artifact": "manifest", "path": ["config_sha256"], "value": "2f8bdb2c7de37038483c5589c786d28c400ee9d0b92c3cffa8fe946669c21095"},
-    {"artifact": "trace", "path": ["max_layout_passes"], "value": 1},
-    {"artifact": "trace", "path": ["passes"], "value": [{"$copy": ["passes", 0]}]},
-    {"artifact": "trace", "path": ["result", "status"], "value": "max_pass_fallback"},
-    {"artifact": "trace", "path": ["result", "fallback_policy"], "value": "lowest_cost_then_earliest"},
-    {"artifact": "trace", "path": ["result", "pass_count"], "value": 1},
-    {"artifact": "trace", "path": ["result", "selected_state"], "value": 1},
-    {"artifact": "trace", "path": ["result", "final_fingerprint"], "value": "885759631f118f0ee315336517ca03ff9cea19d6ac946f01e8e4a7005c7d662d"},
-    {"artifact": "manifest", "path": ["layout", "status"], "value": "max_pass_fallback"},
-    {"artifact": "manifest", "path": ["layout", "pass_count"], "value": 1},
-    {"artifact": "manifest", "path": ["layout", "selected_state"], "value": 1},
-    {"artifact": "manifest", "path": ["layout", "fallback_policy"], "value": "lowest_cost_then_earliest"}
+    {
+      "artifact": "config",
+      "path": [
+        "limits",
+        "max_layout_passes"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "config_sha256"
+      ],
+      "value": "926ccd23360de54c48cfe392a37313e94668601c075f3c57e77bb09474933b1c"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "max_layout_passes"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "passes"
+      ],
+      "value": [
+        {
+          "$copy": [
+            "passes",
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "result",
+        "status"
+      ],
+      "value": "max_pass_fallback"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "result",
+        "fallback_policy"
+      ],
+      "value": "lowest_cost_then_earliest"
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "result",
+        "pass_count"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "result",
+        "selected_state"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "trace",
+      "path": [
+        "result",
+        "final_fingerprint"
+      ],
+      "value": "3e7c748d0ea787ec633a92274daad30f7a8f6ef251843eb3c905d761a500f130"
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "layout",
+        "status"
+      ],
+      "value": "max_pass_fallback"
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "layout",
+        "pass_count"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "layout",
+        "selected_state"
+      ],
+      "value": 1
+    },
+    {
+      "artifact": "manifest",
+      "path": [
+        "layout",
+        "fallback_policy"
+      ],
+      "value": "lowest_cost_then_earliest"
+    }
   ]
 }

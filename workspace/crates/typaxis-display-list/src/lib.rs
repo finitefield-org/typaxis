@@ -1106,11 +1106,23 @@ fn paint_shaped_slice(
     if glyphs.is_empty() {
         return Err(DisplayValidationError::EmptyCluster);
     }
-    let text_span = match shaped.source() {
-        ShapeSourceSpan::Parsed(span) => text_map.map_parsed(span),
-        ShapeSourceSpan::Generated(provenance) => text_map.map_generated(provenance.text_span()),
-    }
-    .map_err(|_| DisplayValidationError::SelectedTextMapMismatch)?;
+    let (text_span, extraction) = match shaped.source() {
+        ShapeSourceSpan::Parsed(span) => {
+            let text_span = text_map
+                .map_parsed(span)
+                .map_err(|_| DisplayValidationError::SelectedTextMapMismatch)?;
+            (text_span, ClusterExtraction::Unicode { text_span })
+        }
+        ShapeSourceSpan::Generated(provenance) => {
+            let generated = text_map
+                .map_generated(provenance.text_span())
+                .map_err(|_| DisplayValidationError::SelectedTextMapMismatch)?;
+            let start = generated.range().start_byte();
+            let artifact_span = DisplayTextSpan::new(generated.text_id(), start, start)
+                .ok_or(DisplayValidationError::SelectedTextMapMismatch)?;
+            (artifact_span, ClusterExtraction::Artifact)
+        }
+    };
     let font_size = match package
         .cascade_style(shaped.site_owner())
         .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?
@@ -1145,7 +1157,7 @@ fn paint_shaped_slice(
             glyph_start: 0,
             glyph_end: u32::try_from(glyphs.len())
                 .map_err(|_| DisplayValidationError::InvalidClusterGlyphRange)?,
-            extraction: ClusterExtraction::Unicode { text_span },
+            extraction,
         }],
     })
 }

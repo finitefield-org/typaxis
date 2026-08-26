@@ -18,6 +18,9 @@ toml = { version = "=0.8.23", default-features = false, features = ["parse"] }
 typaxis-core = { path = "../typaxis-core" }
 typaxis-diagnostics = { path = "../typaxis-diagnostics" }
 typaxis-document = { path = "../typaxis-document" }
+typaxis-document-package = { path = "../typaxis-document-package" }
+typaxis-machine-input = { path = "../typaxis-machine-input" }
+typaxis-machine-profile = { path = "../typaxis-machine-profile" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 typaxis-text = { path = "../typaxis-text" }
 typaxis-shaping = { path = "../typaxis-shaping" }

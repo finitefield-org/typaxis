@@ -418,6 +418,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `workspace/crates/typaxis-host-admission/src/`
   - `workspace/crates/typaxis-resource-admission/src/lib.rs`
   - `workspace/crates/typaxis-resource-admission/Cargo.toml`
+  - `workspace/crates/typaxis-testkit/src/lib.rs`（dependency/API boundary test）
 - Deliverables:
   - `OpenedContainedFile`、bounded read permit、`StableFileBytesReceipt`、root/session/read identity primitives。
   - existing resource admissionが新host ownerを使うadapter。
@@ -447,6 +448,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Depends on: MI1-05
 - Design inputs: docs/25 §12.3、§12.6 host availability、`I9102`、`I9110`〜`I9113`
 - Primary files:
+  - `workspace/crates/typaxis-host-admission/src/lib.rs`
   - `workspace/crates/typaxis-host-admission/src/platform/`
   - `workspace/crates/typaxis-host-admission/src/read_ledger.rs`
   - `workspace/crates/typaxis-resource-admission/src/lib.rs`
@@ -513,7 +515,12 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Depends on: MI1-07
 - Design inputs: docs/25 §4.3、§4.4、§12.5
 - Primary files:
+  - `workspace/Cargo.lock`
+  - `workspace/crates/typaxis-syntax/Cargo.toml`
   - `workspace/crates/typaxis-syntax/src/lib.rs`
+  - `workspace/crates/typaxis-machine-input/src/lib.rs`
+  - `workspace/crates/typaxis-machine-input/src/tests.rs`
+  - `workspace/crates/typaxis-document-package/src/decode.rs`
 - Deliverables:
   - `DocumentPackageParser`、`MachineParseOutcome`、`ValidatedMachinePackage`、`ValidatedMachineProvenance`。
   - entry-only source closureとJSON Pointer付きsemantic error mapping。
@@ -549,6 +556,9 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `workspace/crates/typaxis-diagnostics/src/lib.rs`
   - `workspace/crates/typaxis-syntax/src/lib.rs`
   - `workspace/crates/typaxis-resource-admission/src/lib.rs`
+  - `workspace/crates/typaxis-resource-admission/Cargo.toml`
+  - `workspace/crates/typaxis-pagination/src/lib.rs`
+  - `workspace/Cargo.lock`
 - Deliverables:
   - `DiagnosticLocation::{PackageJson, Source}`、nullable global location、validated notes。
   - `MachineDiagnosticBudget`とtyped code/error-subject mapping。
@@ -582,6 +592,12 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Primary files:
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-machine-profile/Cargo.toml`
+  - `workspace/Cargo.lock`
+  - `workspace/crates/typaxis-host-admission/src/lib.rs`
+  - `workspace/crates/typaxis-machine-input/src/lib.rs`
+  - `workspace/crates/typaxis-resource-admission/src/lib.rs`
+  - `workspace/crates/typaxis-diagnostics/src/lib.rs`
+  - `workspace/crates/typaxis-syntax/src/lib.rs`
 - Deliverables:
   - single-source `MachineProfileDescriptor::PARAGRAPH_1`。
   - deterministic `MachinePdfPreflight`/receipt。
@@ -615,8 +631,10 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Design inputs: docs/25 §12.6、§12.7、existing `layout_reference`
 - Primary files:
   - `workspace/crates/typaxis-cli/src/pipeline.rs`
+  - `workspace/crates/typaxis-cli/Cargo.toml`
   - `workspace/crates/typaxis-layout/src/lib.rs`
   - `workspace/crates/typaxis-layout-contract/src/lib.rs`
+  - `workspace/Cargo.lock`
 - Deliverables:
   - `ValidatedMachinePackage + MachinePdfPreflightReceipt`必須のmachine paragraph layout entry。
   - raw packageからstyle/font coverageまでを共有するpreparation boundary。
@@ -649,6 +667,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `workspace/crates/typaxis-manifest/Cargo.toml`
   - `workspace/crates/typaxis-manifest/src/lib.rs`
   - `workspace/crates/typaxis-resource-admission/src/lib.rs`
+  - `workspace/Cargo.lock`
 - Deliverables:
   - `BuildInputProfile`、`PackageInputRecord`、machine progress admission APIs。
   - `ResourceAdmissionProgressToken`付きfailure outcome。
@@ -680,8 +699,17 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Depends on: MI1-06、MI1-09、MI1-12
 - Design inputs: docs/25 §6.6、§12.7、§12.9
 - Primary files:
+  - `workspace/Cargo.lock`
   - `workspace/crates/typaxis-core/src/lib.rs`
+  - `workspace/crates/typaxis-host-admission/src/lib.rs`
+  - `workspace/crates/typaxis-host-admission/src/read_ledger.rs`
+  - `workspace/crates/typaxis-machine-input/src/lib.rs`
+  - `workspace/crates/typaxis-diagnostics/src/lib.rs`
+  - `workspace/crates/typaxis-resource-admission/src/lib.rs`
+  - `workspace/crates/typaxis-manifest/Cargo.toml`
   - `workspace/crates/typaxis-manifest/src/lib.rs`
+  - `workspace/crates/typaxis-cli/Cargo.toml`
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/src/sidecar.rs`
   - `workspace/crates/typaxis-cli/src/main.rs`
 - Deliverables:
@@ -707,6 +735,14 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-manifest --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli sidecar --locked`
   - `rg -n "AliasedWriteTarget|partial|durability|diagnostics" workspace/crates/typaxis-manifest/src/lib.rs workspace/crates/typaxis-cli/src`
+- Implementation notes (2026-08-25, Linux 7.0.0-28-generic x86_64, rustc/cargo 1.96.1):
+  - diagnostics target付きbuild context、PDF-less diagnostics context、command-wide read-ledger seal、全write/input alias再検査、pre-gate resource candidate登録を実装した。
+  - terminal planはcanonical trace/PDF/manifest bytesを最初のpublish前にstageし、successをtrace→PDF→diagnostics slot→built manifest、processing failureをdiagnostics→failed manifestへ分離した。stdout partial、file durability uncertain、already-visible集合は別typed outcomeで、各fileだけが個別atomicでありmulti-file transaction/rollbackは約束しない。
+  - write target全pairと、output/trace/manifest/diagnostics × PACKAGE/source/config/resourceのlexical/symlink/hard-link/publish-race matrix、missing candidate、read mutation、diagnostics failure、reference file/stdout/no-manifest regressionをtestで固定した。
+  - 上記3本のmilestone verification、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、`python3 schemas/validate.py`はすべてexit 0だった。test evidenceは`typaxis-core`、`typaxis-machine-input`、`typaxis-manifest`、`typaxis-cli::sidecar`および`typaxis-cli/tests/cli_end_to_end.rs`にある。
+  - contract/Schema/public command surfaceは変更していない。CLIからgeneric host ownerへの禁止dependencyを追加せず、opaque publication read tokenはmanifest owner経由で渡す。
+  - dependency milestone MI1-06/MI1-09/MI1-12が本task文書上Pendingのため、§12.1/§12.2に従いStatusはPendingのままにする。implementation commit/evidence linkはdependency closure後に記録する。
+  - Scope adjustment: strict lint closureのためpreceding diagnostics APIのbehavior-preserving lint annotation/test lifetime cleanupをPrimary filesへ追加した。
 - Non-goals:
   - machine CLI command exposure
   - multi-file transaction
@@ -721,16 +757,22 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `workspace/crates/typaxis-cli/src/config.rs`
   - `workspace/crates/typaxis-cli/src/cli.rs`
   - `workspace/crates/typaxis-cli/src/artifacts.rs`
+  - `workspace/crates/typaxis-cli/src/main.rs`
+  - `workspace/crates/typaxis-cli/tests/cli_end_to_end.rs`
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-diagnostics/src/lib.rs`
+  - `workspace/crates/typaxis-machine-input/src/`
   - `workspace/crates/typaxis-manifest/src/lib.rs`
   - `workspace/crates/typaxis-machine-profile/src/`
+  - `workspace/crates/typaxis-syntax/src/lib.rs`（current contract epoch golden）
   - `schemas/`
   - `schemas/README.md`
   - `samples/minimal/`
   - `samples/conformance/`
+  - `samples/compatibility/`
   - `samples/invalid/`
   - `contracts/contract-version.md`
+  - `contracts/machine-pdf-capabilities.md`
   - `docs/22-contract-matrix.md`
 - Deliverables:
   - frozen 1.0 Schema registry、current 1.1 Schema registry、dual-version validator。
@@ -760,6 +802,15 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `cargo test --manifest-path workspace/Cargo.toml --workspace --all-targets --locked`
   - `cargo run --manifest-path workspace/Cargo.toml --package typaxis-cli -- dump-ast samples/minimal/empty.tsf --format json`
   - `rg -n "typaxis.contract/1.0" workspace schemas docs contracts samples/minimal`
+- Implementation notes (2026-08-25, Linux 7.0.0-28-generic x86_64, rustc/cargo 1.96.1, Python 3.14.4):
+  - 旧current七Schemaを`schemas/1.0/`へbyte-for-byteで凍結し、固定SHA-256でdriftを検出する1.0 registryと、1.1 current registryを独立構築した。validatorは1.0 compatibility packageの受理/JCS hash保持、current側での拒否、1.0を名乗る1.1 config/diagnostics/manifest shapeの拒否を検査する。
+  - current outputをtyped `typaxis.contract/1.1`へatomic switchし、DocumentPackage/raw config inputは1.0/1.1をtyped parseする。raw 1.0には新limit defaultを補い、同値のraw 1.1と同じ1.1 EffectiveConfig JCS/hashへ正規化する。
+  - `MachineInputLimitBounds`を唯一のdefault/hard-maximum ownerとしてpackage bytes/depth limitをTOML、environment、CLI、JCS、Schema、decoder/preflight、manifestへ接続した。exact max/max+1とpublic `I9100`/`I9101` mappingをtestで固定した。
+  - diagnostics tagged location union、manifestの`input_profile`/`package_input` conditional、internal capabilities Schema/fixturesを1.1 encoderと同時に切り替えた。`dump-ast`はshared converter/encoderを使い、count/hash preflight後の二回目だけstdoutへstreamする。
+  - minimal/conformance/invalid/cross fixtures、JCS golden、expected errors、contract matrixを1.1へ再生成し、1.0 canonical compatibility fixtureを別directoryへ保持した。validatorはfrozen 7/current 8 Schema、全731 `$ref`、全208 invalid fixture、全6 JCS goldenを検証する。
+  - milestone verification三本、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、`python3 schemas/validate.py`はすべてexit 0だった。`dump-ast`のstdoutは1.1 compact JSONで、package byte limit failureはexit 5かつstdout 0 bytesである。
+  - dependency milestone MI1-02/MI1-04/MI1-09/MI1-10/MI1-12/MI1-13が本task文書上Pendingのため、§12.1/§12.2に従いStatusはPendingのままにする。implementation commit/evidence linkはdependency closure後に記録する。
+  - Scope adjustment: public `dump-ast`/limit failure E2Eとcurrent epoch goldenのためCLI main/E2E、machine-input、syntax、compatibility/capabilities documentationをPrimary filesへ追加した。
 - Notes:
   - このmilestoneは部分commitへ分割してcurrent 1.1 IDを途中のshapeへ付けない。準備commitを使う場合も最終switch前はpublic current contractを1.0のまま保つ。
 - Non-goals:
@@ -775,6 +826,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `workspace/crates/typaxis-cli/src/cli.rs`
   - `workspace/crates/typaxis-cli/src/main.rs`
   - `workspace/crates/typaxis-cli/src/pipeline.rs`
+  - `workspace/crates/typaxis-manifest/src/lib.rs`（1.1 machine terminal-plan commit gate）
 - Deliverables:
   - `BuildPackageOptions`、`CheckPackageOptions`のdedicated parser helper。
   - shared internal `prepare_machine_package`とbuild/check/capabilities runner。
@@ -798,6 +850,13 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine --locked`
   - `rg -n "BuildPackageOptions|CheckPackageOptions|prepare_machine_package" workspace/crates/typaxis-cli/src`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_commands_remain_unregistered --locked`
+- Implementation notes (2026-08-25, Linux 7.0.0-28-generic x86_64, rustc/cargo 1.96.1):
+  - source commandとは別のtyped `BuildPackageOptions`/`CheckPackageOptions`とprivate parserを追加し、build側の全target/limit flag、check側のclosed受理集合、default/unknown profile、必須JSON formatをcrate内testで固定した。`build-package`/`check-package`/`capabilities`は`COMMANDS`、dispatch、helpへ登録していない。
+  - 一つの`MachineDiagnosticBudget`を所有するshared preparationを、host preflight、PACKAGE stable admission、bounded decode、source admission、trusted syntax、unopened resource candidate登録とread/write alias gate、capability、resource/styleの順にsingle-threadedで接続した。resource/style failureはowner-issued partial/complete progressをmanifest admission ledgerへ渡す。
+  - check runnerはcomputed family preparationで終了し、layout/trace/PDF/manifestを作らない。build runnerはreceipt-gated machine layout/PDFを呼び、failure時`diagnostics -> failed manifest`、success時`trace -> PDF -> diagnostics -> built manifest`の個別atomic publicationと最終read-ledger再検証を行う。
+  - 1.1 machine output bindingをterminal planでも受理するようmanifest commit gateのobsolete reference-only rejectionを除去し、machine built planの実commit testとprivate runnerのblank/paragraph success、unsupported-inline pre-resource failureを追加した。
+  - milestone verification三本、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、`python3 schemas/validate.py`はすべてexit 0だった。
+  - dependency milestone MI1-11/MI1-13/MI1-14が本task文書上Pendingのため、§12.1/§12.2に従いStatusはPendingのままにする。Scope adjustmentとして1.1 machine terminal-plan commit gateを実装する`workspace/crates/typaxis-manifest/src/lib.rs`をPrimary filesへimplementation前に追加した。
 - Non-goals:
   - public command/help exposure
   - release status update
@@ -811,9 +870,14 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `samples/machine-package/`
   - `schemas/machine-fixture-expectation.schema.json`
   - `schemas/machine-fixture-matrix.schema.json`
+  - `schemas/validate.py`（fixture/matrix discovery、cross-file整合性、canonical JCS）
+  - `workspace/crates/typaxis-cli/src/main.rs`（private test module registration、explicit-root pre-context usage gate）
+  - `workspace/crates/typaxis-cli/src/pipeline.rs`（typed capability primary code projection）
   - `workspace/crates/typaxis-cli/src/machine_tests.rs`
   - `workspace/crates/typaxis-document-package/tests/document_package_properties.rs`
   - `workspace/crates/typaxis-manifest/src/lib.rs`
+  - `workspace/crates/typaxis-machine-profile/src/preflight.rs`（aggregated violationのtyped primary code）
+  - `workspace/crates/typaxis-machine-profile/src/tests.rs`（failure receipt shape）
 - Deliverables:
   - runnable package/source/font bundle。
   - positive、negative、tamper、limit、publication、round-trip internal E2E suite。
@@ -839,6 +903,14 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package --locked`
   - `python3 schemas/validate.py`
   - `rg -n "P1100|P1101|P1102|P1103|P1110|P1111|P1112|L5100|L5101|R7100|I9100|I9101|I9102|I9110|I9111|I9112|I9113|I9190" workspace/crates/typaxis-cli samples/machine-package`
+- Implementation notes (2026-08-26, Linux 7.0.0-28-generic x86_64, rustc/cargo 1.96.1, Python 3.14.4):
+  - deterministic generatorからblank 1.0/1.1、all-advertised combined、decoder/admission negative、limit、tamper、publication、round-tripの38 expectationと二つのmatrixを生成した。expectation/matrixはclosed Schemaとcanonical JCSで、validatorがcapability snapshot、resource bytes/hash、全expectationの一回だけのmatrix登録、§15.1のexact 21 row/test/fixture対応、実在するcrate内test名を双方向に検査する。
+  - private runner suiteはpositiveをcheck/buildの両方へ通し、failureのexit/primary code/exact typed location/visible artifact、manifest package/source/resource progress、input contract、page countを`expected.json`と照合する。compiled-host unavailableはPACKAGEを削除したfixtureでもtest injectionが先に`I9110`を発行してfailed sidecarをpublishし、PACKAGE未readをobservableに固定した。top-level command登録は行っていない。
+  - combinedはparagraph/heading、text/anchor/page reference/soft+hard break、default master/auto page、全style property、別styleで実際に選択するTrueType sfnt/TTCを一つのactual packageへ持ち、descriptorの全advertised itemとのexact集合照合後にresource admission、layout、PDF graph/serializationまで成功する。normalized extracted text expectationは`Typaxis machine input`、page countは1で固定した。
+  - BOM/NUL/trailing、JSON/typed/contract、bytes/depth exactとmax+1、source closure/path/identity、contained-open/stable-read、unsupported content/style/image、diagnostic max+1、session receipt swap、全target pair/input alias、partial publication、canonical/semantic/dump-build round tripをclosure testへ接続した。DocumentPackageには0〜1024 arbitrary bytes totality、escaped Unicode duplicate key、hard depth 256/max+1、raw/canonical hash property testを追加した。
+  - fixtureで見つかったorchestration差分として、explicit root外PACKAGEをcontext作成前usage gateへ移し、typed decode diagnosticをhost pathを含まないcanonical messageへ射影し、aggregated capability failureへfirst typed `L5100`/`L5101`/`R7100` primary codeを保持した。fixture readerはworkspaceのJSON dependency ownershipを守るtest-local decoderとし、新しいdependency edgeは追加していない。
+  - milestone verification四本、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、machine-profile regression、`git diff --check`はすべてexit 0だった。
+  - dependency milestone MI1-15が本task文書上Pendingのため、§2.5に従いStatusはPendingのままにする。Scope adjustmentとしてvalidator、CLI module registration/orchestration fixes、machine-profile typed failure filesをPrimary filesへimplementation前に追加した。
 - Non-goals:
   - public help/status claim
   - long-running fuzz gate
@@ -851,7 +923,11 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 - Primary files:
   - `workspace/crates/typaxis-cli/src/cli.rs`
   - `workspace/crates/typaxis-cli/src/main.rs`
+  - `workspace/crates/typaxis-cli/src/artifacts.rs`（generated-reference trace projection）
+  - `workspace/crates/typaxis-cli/src/machine_tests.rs`（public capability snapshotとM2-negative assertion）
   - `workspace/crates/typaxis-cli/tests/cli_end_to_end.rs`
+  - `workspace/crates/typaxis-display-list/src/lib.rs`（generated reference extraction class）
+  - `workspace/crates/typaxis-pdf/src/lib.rs`（artifact extractor fallback suppression）
   - `docs/26-machine-input-cli.md`
   - `samples/machine-package/README.md`
   - `README.md`
@@ -863,6 +939,9 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `schemas/machine-profile-evidence.schema.json`
   - `workspace/README.md`
   - `tools/verify_machine_profile.py`
+  - `tools/test_machine_profile.py`
+  - `tools/verify_pdf_differential.py`
+  - `tools/test_pdf_differential.py`
   - `tools/verify_reproducibility.py`
   - `.github/workflows/machine-input.yml`
 - Deliverables:
@@ -896,6 +975,15 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `python3 tools/verify_machine_profile.py --repository . --fixture samples/machine-package/profiles/paragraph-1/combined/expected.json --runs 2 --require-external-tools`
   - `python3 tools/verify_reproducibility.py --repository . --revision HEAD --machine-fixture samples/machine-package/profiles/paragraph-1/combined/expected.json`
   - `python3 tools/verify_machine_profile.py --require-host-evidence target/machine-e2e/host-evidence --required-host macos --required-host linux`
+- Implementation notes (2026-08-26, Linux 7.0.0-28-generic x86_64, rustc/cargo 1.96.1, Python 3.14.4, MuPDF 1.27.0, Poppler 26.01.0):
+  - `build-package`、`check-package`、`capabilities`を一つのchange setでtop-level command list/parser/dispatch/helpへ登録した。large public command payloadは`Invocation` boundaryでbox化し、source commandとmachine commandのtyped grammar/loader分離を維持した。public binary E2Eはfont付きcombinedのcheck/build、PDF/trace/manifest/diagnostics facts、BOM negativeのexit 1/`P1100`/failed progress、hostile config/`TYPAXIS_*`/locale下のexact capability bytesを検査する。
+  - current eleven-schema registryへclosed `typaxis.machine-profile-evidence/1`を追加した。唯一のper-host writer `verify_machine_profile.py`はcurrent worktreeからclean binaryをbuildし、positive expectedまたはmatrixをpublic commandで二回実行し、five artifactのSchema/bytes/hash、M1-only capability、manifest/PDF binding、MuPDF raster、Poppler page/text、異名source snapshot再現性を検査して、exact 14 check/six tool/five artifactをcanonical atomic evidenceへ記録する。aggregation modeはmissing/failed/noncanonical/duplicate/incomplete/stale revision、source/fixture/artifact mismatchをfail closedにする。
+  - `verify_reproducibility.py --machine-fixture`はtracked+untracked non-ignored current worktreeを異なる二名へmaterializeし、fixed source remapを使う二つのclean buildについてbinary bytes/versionとfive artifact bytesをexact比較する。binary hash、Git revision、source snapshot、Cargo.lock、tool/fixture/resource/artifact hashはhost evidenceへbindする。
+  - `.github/workflows/machine-input.yml`はLinux/macOSでlocked fmt/check/test/clippy、Schema/Python suite、required MuPDF/Poppler public gateを実行し、host artifactをdownloadしたaggregation jobが両OS evidenceを必須にする。local Linux writerは`target/machine-e2e/host-evidence/x86_64-unknown-linux-gnu.json`を生成したが、current-source macOS artifactはlocal環境では生成できないためrelease-supportedは`No`のままにした。
+  - combined fixtureのexternal gateで見つかったintegration差分として、generated-referenceをtraceへcanonical projectionしcomplete traceに`--trace-text`を要求した。generated labelはDisplayでArtifact extractionへ分類し、PDFでempty `ActualText` marked contentを付けてvisual glyphを保持しつつnormalized textから除外した。Popplerが返すunmapped artifact CIDのnonstructural C0 scalarだけをnormalizerで除去し、期待text `Typaxis machine input`を固定した。
+  - producer guide、runnable sample README、README/CLI/roadmap/matrix/checklist/Schema/workspace statusをpublic Linux E2Eまで更新し、M2以降をadvertiseしないexact/negative assertionsをRustとPythonの両方へ追加した。
+  - locked fmt/check/workspace all-targets test/clippy `-D warnings`、current/frozen Schema validator、19 Python tests、public machine profile gate、machine reproducibility gateはexit 0だった。required-host aggregation commandはactual macOS evidence欠落を成功skipせずrejectする。
+  - dependency milestone MI1-16が本task文書上Pendingであり、actual current-source macOS/Linux evidence aggregateも未成立なので、§12.1/§12.2と本milestone acceptance criteriaに従いStatusはPendingのままにする。Scope adjustmentとしてcombined fixtureから発見したtrace/extraction ownerとverifier unit testsをPrimary filesへ追加した。
 - Non-goals:
   - full-book/release profile
   - M2 feature acceptance

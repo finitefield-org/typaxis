@@ -12,7 +12,10 @@ use typaxis_core::{
     LayoutStateFingerprint, MasterId, NodeId, NonNegativeLength, Point, PositiveLength, Rect,
     ReferenceFingerprint, Utf8ByteOffset, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
 };
-use typaxis_diagnostics::{AdvisoryDiagnostic, Diagnostic, DiagnosticCode, Severity};
+use typaxis_diagnostics::{
+    AdvisoryDiagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLocation, DiagnosticSubject,
+    LayoutErrorSubject, Severity, SourceDiagnosticLocation,
+};
 use typaxis_document::GeneratedSiteTarget;
 use typaxis_layout::{
     Continuation, DiscoveredAnchor, FlowCursor, FlowPosition, FlowTree, FragmentError,
@@ -2566,12 +2569,21 @@ impl PaginationOutcome {
         let diagnostics = if fallback {
             let code =
                 DiagnosticCode::new("G6001").ok_or(PaginationError::InvalidFallbackDiagnostic)?;
-            let diagnostic = Diagnostic::new(
+            let owner = input.package_context.document_node_id();
+            let diagnostic = DiagnosticBuilder::located(
                 code,
                 Severity::Warning,
                 "pagination selected a materialized fallback state",
+                DiagnosticLocation::source(
+                    SourceDiagnosticLocation::new(None, None, Some(owner))
+                        .expect("the document owner forms a source location"),
+                ),
             )
-            .ok_or(PaginationError::InvalidFallbackDiagnostic)?;
+            .map_err(|_| PaginationError::InvalidFallbackDiagnostic)?
+            .subject(DiagnosticSubject::Layout(LayoutErrorSubject::new(
+                owner, None,
+            )))
+            .build();
             vec![AdvisoryDiagnostic::new(diagnostic)
                 .map_err(|_| PaginationError::InvalidFallbackDiagnostic)?]
         } else {

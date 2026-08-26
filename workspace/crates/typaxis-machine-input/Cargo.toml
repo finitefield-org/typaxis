@@ -1,0 +1,14 @@
+[package]
+name = "typaxis-machine-input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+typaxis-core = { path = "../typaxis-core" }
+typaxis-document-package = { path = "../typaxis-document-package" }
+typaxis-host-admission = { path = "../typaxis-host-admission" }

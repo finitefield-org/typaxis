@@ -7,11 +7,11 @@ This document is the normative closed capability contract adopted by [ADR-0027](
 | Axis | Current status |
 | --- | --- |
 | contract-defined | Yes: `typaxis.machine-pdf/paragraph-1` is fixed below |
-| implemented | No: `typaxis-machine-profile` and its receipt are pending MI1-10 |
+| implemented | Yes internally: one descriptor drives capability encoding and typed preflight |
 | public CLI E2E | No: `build-package`, `check-package`, and `capabilities` remain unregistered until MI1-17 |
 | release-supported | No: only MI1-17 may change this status |
 
-Portable DocumentPackage 1.0 Schema validation and current `dump-ast` export do not change these three negative delivery axes. A profile becomes available only when one implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
+Portable DocumentPackage 1.0/1.1 validation, current 1.1 `dump-ast` export, and the internal descriptor do not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
 ## Identity and default
 
@@ -133,4 +133,4 @@ The following changes are incompatible and require a new profile ID or an explic
 
 ## Contract and release gating
 
-The target capability artifact uses `typaxis.contract/1.1`, but the repository remains on current generated contract 1.0 until MI1-14 performs the atomic migration. MI1-10 may implement an internal encoder; it does not expose a public command or current Schema. MI1-17 is the only milestone that may simultaneously register `capabilities`, publish the profile evidence, mark public CLI E2E complete, and claim release support.
+The capability artifact and its current Schema use `typaxis.contract/1.1`. Its encoder, positive fixture, invalid fixture, and offline validation are internal implementation evidence; no public command is registered by this migration. MI1-17 is the only milestone that may simultaneously register `capabilities`, publish the profile evidence, mark public CLI E2E complete, and claim release support.

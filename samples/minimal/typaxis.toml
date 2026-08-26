@@ -1,4 +1,4 @@
-contract = "typaxis.contract/1.0"
+contract = "typaxis.contract/1.1"
 deterministic = true
 strict = true
 pdf_stream_compression = "flate"
@@ -27,6 +27,8 @@ max_images = 1024
 max_resource_bytes = 1073741824
 max_image_pixels = 100000000
 max_decoded_image_bytes = 536870912
+max_document_package_bytes = 134217728
+max_json_nesting_depth = 256
 max_pages = 10000
 max_layout_passes = 8
 max_uri_bytes = 8192

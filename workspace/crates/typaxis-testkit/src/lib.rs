@@ -206,8 +206,7 @@ mod tests {
             .to_path_buf()
     }
 
-    fn workspace_dependencies(manifest: &Path) -> Vec<String> {
-        let contents = fs::read_to_string(manifest).expect("workspace manifest must be readable");
+    fn dependency_declarations(contents: &str) -> Vec<(String, String)> {
         let mut in_dependencies = false;
         let mut dependencies = Vec::new();
         for line in contents.lines() {
@@ -225,21 +224,97 @@ mod tests {
             if !in_dependencies || line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            let Some((name, _)) = line.split_once('=') else {
+            let Some((name, declaration)) = line.split_once('=') else {
                 continue;
             };
             let name = name.trim();
-            if name.starts_with("typaxis-") {
-                dependencies.push(name.to_owned());
-            }
+            dependencies.push((name.to_owned(), declaration.trim().to_owned()));
         }
         dependencies
     }
 
+    fn workspace_dependency_declarations(manifest: &Path) -> Vec<(String, String)> {
+        let contents = fs::read_to_string(manifest).expect("workspace manifest must be readable");
+        dependency_declarations(&contents)
+    }
+
+    fn declared_package_name(name: String, declaration: &str) -> String {
+        let compact: String = declaration
+            .chars()
+            .filter(|character| !character.is_ascii_whitespace())
+            .collect();
+        let Some(start) = compact.find("package=\"") else {
+            return name;
+        };
+        let package = &compact[start + "package=\"".len()..];
+        package
+            .split_once('"')
+            .map_or(name, |(package, _)| package.to_owned())
+    }
+
+    fn workspace_dependencies(manifest: &Path) -> Vec<String> {
+        workspace_dependency_declarations(manifest)
+            .into_iter()
+            .map(|(name, declaration)| declared_package_name(name, &declaration))
+            .filter(|name| name.starts_with("typaxis-"))
+            .collect()
+    }
+
     fn is_denied(from: &str, to: &str) -> bool {
-        if matches!(from, "typaxis-cli" | "typaxis-testkit") {
+        if from == "typaxis-testkit" {
             return false;
         }
+
+        match from {
+            "typaxis-host-admission" => return to != "typaxis-core",
+            "typaxis-document-package" => return to != "typaxis-core",
+            "typaxis-machine-input" => {
+                return !matches!(
+                    to,
+                    "typaxis-core" | "typaxis-host-admission" | "typaxis-document-package"
+                )
+            }
+            "typaxis-machine-profile" => {
+                return !matches!(
+                    to,
+                    "typaxis-core" | "typaxis-syntax" | "typaxis-diagnostics"
+                )
+            }
+            _ => {}
+        }
+
+        if matches!(
+            to,
+            "typaxis-host-admission"
+                | "typaxis-document-package"
+                | "typaxis-machine-input"
+                | "typaxis-machine-profile"
+        ) {
+            return !matches!(
+                (from, to),
+                (
+                    "typaxis-syntax",
+                    "typaxis-document-package" | "typaxis-machine-input"
+                ) | ("typaxis-resource-admission", "typaxis-host-admission")
+                    | (
+                        "typaxis-manifest",
+                        "typaxis-host-admission"
+                            | "typaxis-machine-input"
+                            | "typaxis-machine-profile"
+                    )
+                    | (
+                        "typaxis-cli",
+                        "typaxis-document-package"
+                            | "typaxis-machine-input"
+                            | "typaxis-machine-profile"
+                    )
+            );
+        }
+
+        if from == "typaxis-cli" {
+            return false;
+        }
+
         matches!(
             (from, to),
             ("typaxis-core", _)
@@ -279,6 +354,17 @@ mod tests {
         )
     }
 
+    fn forbidden_edges(crate_name: &str, manifest: &str) -> Vec<String> {
+        dependency_declarations(manifest)
+            .into_iter()
+            .map(|(name, declaration)| declared_package_name(name, &declaration))
+            .filter_map(|dependency| {
+                (dependency.starts_with("typaxis-") && is_denied(crate_name, &dependency))
+                    .then(|| format!("{crate_name} -> {dependency}"))
+            })
+            .collect()
+    }
+
     #[test]
     fn trusted_pdf_backend_signature_requires_sealed_display_and_resource_plans() {
         let build: fn(
@@ -290,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_dependency_deny_edges_are_absent() {
+    fn forbidden_dependency_edges_are_absent() {
         let crates = workspace_root().join("crates");
         let mut violations = Vec::new();
         for entry in fs::read_dir(crates).expect("workspace crates directory must be readable") {
@@ -314,5 +400,163 @@ mod tests {
             violations.is_empty(),
             "forbidden workspace dependencies: {violations:?}"
         );
+    }
+
+    #[test]
+    fn forbidden_dependency_edges_detect_mutant_manifests() {
+        let mutants = [
+            (
+                "typaxis-machine-input",
+                "[dependencies]\ntypaxis-syntax = { path = \"../typaxis-syntax\" }\n",
+                "typaxis-machine-input -> typaxis-syntax",
+            ),
+            (
+                "typaxis-host-admission",
+                "[dependencies]\ntypaxis-document = { path = \"../typaxis-document\" }\n",
+                "typaxis-host-admission -> typaxis-document",
+            ),
+            (
+                "typaxis-document-package",
+                "[dependencies]\ntypaxis-host-admission = { path = \"../typaxis-host-admission\" }\n",
+                "typaxis-document-package -> typaxis-host-admission",
+            ),
+            (
+                "typaxis-syntax",
+                "[dependencies]\ntypaxis-host-admission = { path = \"../typaxis-host-admission\" }\n",
+                "typaxis-syntax -> typaxis-host-admission",
+            ),
+            (
+                "typaxis-machine-input",
+                "[dependencies]\nsyntax_alias = { package = \"typaxis-syntax\", path = \"../typaxis-syntax\" }\n",
+                "typaxis-machine-input -> typaxis-syntax",
+            ),
+        ];
+
+        for (crate_name, manifest, expected) in mutants {
+            assert_eq!(forbidden_edges(crate_name, manifest), [expected]);
+        }
+    }
+
+    #[test]
+    fn host_admission_api_has_only_generic_host_trust_vocabulary() {
+        let source = fs::read_to_string(
+            workspace_root()
+                .join("crates")
+                .join("typaxis-host-admission")
+                .join("src")
+                .join("lib.rs"),
+        )
+        .expect("host admission source must be readable");
+
+        for required in [
+            "OpenedContainedFile",
+            "BoundedReadPermit",
+            "StableFileBytesReceipt",
+            "HostSessionIdentity",
+            "HostRootIdentity",
+            "HostReadIdentity",
+        ] {
+            assert!(
+                source.contains(required),
+                "host admission must expose {required}"
+            );
+        }
+
+        for forbidden in [
+            "FontFaceId",
+            "ImageResourceId",
+            "ResourceCatalog",
+            "ManifestRecord",
+            "DiagnosticRecord",
+            "CanonicalRecord",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "generic host admission leaked domain API vocabulary: {forbidden}"
+            );
+        }
+
+        let public_declarations = source
+            .lines()
+            .map(str::trim_start)
+            .filter(|line| line.starts_with("pub "))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .to_ascii_lowercase();
+        for forbidden in ["manifest", "diagnostic", "canonical"] {
+            assert!(
+                !public_declarations.contains(forbidden),
+                "generic host admission exposed a {forbidden} API"
+            );
+        }
+    }
+
+    #[test]
+    fn document_package_exclusively_owns_exact_pinned_json_dependencies() {
+        const JSON_DEPENDENCIES: [&str; 4] = [
+            "serde",
+            "serde_json",
+            "serde_path_to_error",
+            "serde_stacker",
+        ];
+
+        let crates = workspace_root().join("crates");
+        let mut found = Vec::new();
+        for entry in fs::read_dir(crates).expect("workspace crates directory must be readable") {
+            let entry = entry.expect("crate directory entry must be readable");
+            if !entry
+                .file_type()
+                .expect("file type must be readable")
+                .is_dir()
+            {
+                continue;
+            }
+            let crate_name = entry.file_name().to_string_lossy().into_owned();
+            let manifest = entry.path().join("Cargo.toml");
+            for (name, declaration) in workspace_dependency_declarations(&manifest) {
+                let dependency = declared_package_name(name, &declaration);
+                if !JSON_DEPENDENCIES.contains(&dependency.as_str()) {
+                    continue;
+                }
+                assert_eq!(
+                    crate_name, "typaxis-document-package",
+                    "{dependency} must only be a direct dependency of typaxis-document-package"
+                );
+                assert!(
+                    declaration.contains("\"="),
+                    "{dependency} must use an exact version pin: {declaration}"
+                );
+                found.push(dependency);
+            }
+        }
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                "serde",
+                "serde_json",
+                "serde_path_to_error",
+                "serde_stacker"
+            ]
+        );
+
+        let manifest = fs::read_to_string(
+            workspace_root()
+                .join("crates")
+                .join("typaxis-document-package")
+                .join("Cargo.toml"),
+        )
+        .expect("DocumentPackage manifest must be readable");
+        let declarations = dependency_declarations(&manifest);
+        let serde = declarations
+            .iter()
+            .find(|(name, _)| name == "serde")
+            .expect("serde dependency must exist");
+        assert!(serde.1.contains("\"derive\""));
+        let serde_json = declarations
+            .iter()
+            .find(|(name, _)| name == "serde_json")
+            .expect("serde_json dependency must exist");
+        assert!(serde_json.1.contains("\"unbounded_depth\""));
     }
 }

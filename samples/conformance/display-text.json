@@ -1,5 +1,5 @@
 {
-  "contract": "typaxis.contract/1.0",
+  "contract": "typaxis.contract/1.1",
   "coordinate_unit": "pdf_point_1_65536",
   "source_layout": {
     "layout_epoch": {

@@ -1,0 +1,16 @@
+[package]
+name = "typaxis-document-package"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["unbounded_depth"] }
+serde_path_to_error = "=0.1.20"
+serde_stacker = "=0.1.14"
+typaxis-core = { path = "../typaxis-core" }

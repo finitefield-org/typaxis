@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.typaxis.invalid/1.0/diagnostics.schema.json",
-  "title": "Typaxis Diagnostics 1.0",
+  "$id": "https://schemas.typaxis.invalid/1.1/diagnostics.schema.json",
+  "title": "Typaxis Diagnostics 1.1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,9 +27,7 @@
         "code",
         "severity",
         "message",
-        "source_span",
-        "text_span",
-        "node_id",
+        "location",
         "notes"
       ],
       "properties": {
@@ -51,6 +49,113 @@
           "type": "string",
           "minLength": 1
         },
+        "location": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/location"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          }
+        }
+      }
+    },
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "location",
+        "message"
+      ],
+      "properties": {
+        "location": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/location"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "location": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/package_json_location"
+        },
+        {
+          "$ref": "#/$defs/source_location"
+        }
+      ]
+    },
+    "package_json_location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "byte_offset",
+        "json_pointer",
+        "kind",
+        "uri"
+      ],
+      "properties": {
+        "byte_offset": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/nonnegative_safe_integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json_pointer": {
+          "type": "string",
+          "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+        },
+        "kind": {
+          "const": "package_json"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        }
+      }
+    },
+    "source_location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "node_id",
+        "source_span",
+        "text_span"
+      ],
+      "properties": {
+        "kind": {
+          "const": "source"
+        },
+        "node_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "source_span": {
           "oneOf": [
             {
@@ -70,24 +175,31 @@
               "type": "null"
             }
           ]
-        },
-        "node_id": {
-          "oneOf": [
-            {
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "node_id": {
               "$ref": "common.schema.json#/$defs/id32"
-            },
-            {
-              "type": "null"
             }
-          ]
+          }
         },
-        "notes": {
-          "type": "array",
-          "items": {
-            "type": "string"
+        {
+          "properties": {
+            "source_span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            }
+          }
+        },
+        {
+          "properties": {
+            "text_span": {
+              "$ref": "common.schema.json#/$defs/text_span"
+            }
           }
         }
-      }
+      ]
     }
   }
 }

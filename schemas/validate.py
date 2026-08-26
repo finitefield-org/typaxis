@@ -24,14 +24,28 @@ except ImportError as error:  # pragma: no cover - dependency guidance
 
 
 SCHEMA_DIR = Path(__file__).resolve().parent
+FROZEN_SCHEMA_DIR = SCHEMA_DIR / "1.0"
 REPOSITORY_ROOT = SCHEMA_DIR.parent
 MINIMAL_DIR = REPOSITORY_ROOT / "samples" / "minimal"
 CONFORMANCE_DIR = REPOSITORY_ROOT / "samples" / "conformance"
+COMPATIBILITY_DIR = REPOSITORY_ROOT / "samples" / "compatibility"
 INVALID_DIR = REPOSITORY_ROOT / "samples" / "invalid"
+MACHINE_FIXTURE_DIR = REPOSITORY_ROOT / "samples" / "machine-package"
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
+MAX_DOCUMENT_PACKAGE_BYTES = JSON_SAFE_INTEGER_MAX
+MAX_JSON_NESTING_DEPTH = 256
 JCS_GOLDEN_PATH = MINIMAL_DIR / "jcs-golden.json"
+FROZEN_SCHEMA_SHA256 = {
+    "build-manifest.schema.json": "138c72e08e47957f76bb530cd0956097a8ba354818aa27fbc7070012e984ca5e",
+    "common.schema.json": "94a2631d90c028f977241fef91b51a3b361fd6d023d3ea02556a5f4dd2dbd695",
+    "diagnostics.schema.json": "2730062972c35194acd51bb057d16bb1cb8962682f670b9e7c0732b11fc55aa9",
+    "display-list.schema.json": "8125198467006ec79b484d21b6a945478946986b01d1b4bfeac28f46c58798bc",
+    "document-package.schema.json": "2976bba8247b5cc2db5220356c942d9b14b36a5b4a201d60296b1c46c9dc17d4",
+    "layout-trace.schema.json": "00ad4bb4e9fc427db7219d4fef1492e432b735dad909764125a952ddd195b1b2",
+    "package-config.schema.json": "8b9450a52c050e893b76e548fb219f95f6492939c50856d8536a298ded6fc145",
+}
 
 POSITIVE_FIXTURES = {
     MINIMAL_DIR / "typaxis.toml": "package-config.schema.json",
@@ -46,10 +60,12 @@ POSITIVE_FIXTURES = {
     CONFORMANCE_DIR / "config-font-count-boundary.json": "package-config.schema.json",
     CONFORMANCE_DIR / "display-rtl.json": "display-list.schema.json",
     CONFORMANCE_DIR / "document-style-fallback.json": "document-package.schema.json",
+    CONFORMANCE_DIR / "machine-capabilities.json": "machine-capabilities.schema.json",
 }
 POSITIVE_CROSS_FIXTURES = (CONFORMANCE_DIR / "cross-generated-sites.json",)
 
 INVALID_SCHEMA_BY_PREFIX = {
+    "capabilities-": "machine-capabilities.schema.json",
     "config-": "package-config.schema.json",
     "diagnostics-": "diagnostics.schema.json",
     "display-": "display-list.schema.json",
@@ -85,6 +101,10 @@ PATH_KEYS = {
 }
 
 PATCH_FIXTURE_BASES = {
+    "machine_capabilities": (
+        CONFORMANCE_DIR / "machine-capabilities.json",
+        "machine-capabilities.schema.json",
+    ),
     "package_config": (MINIMAL_DIR / "typaxis.toml", "package-config.schema.json"),
     "document_package": (
         CONFORMANCE_DIR / "document-rich.json",
@@ -334,7 +354,8 @@ def validate_references(schemas: dict[str, Any]) -> int:
 def schema_errors(validator: Draft202012Validator, instance: Any) -> list[str]:
     schema_id = validator.schema.get("$id")
     if (
-        schema_id == "https://schemas.typaxis.invalid/1.0/document-package.schema.json"
+        isinstance(schema_id, str)
+        and schema_id.endswith("/document-package.schema.json")
         and canonical_ast_nesting_depth(instance) > MAX_AST_NESTING_DEPTH
     ):
         # The semantic depth rule is authoritative. Do not enter jsonschema's
@@ -2003,6 +2024,23 @@ def manifest_rule_ids(instance: dict[str, Any]) -> set[str]:
         rules.add("MANIFEST_STATUS")
     if instance.get("engine", {}).get("name") != "typaxis":
         rules.add("MANIFEST_ENGINE")
+    input_profile = instance.get("input_profile")
+    package_input = instance.get("package_input")
+    status = instance.get("status")
+    if input_profile == "typaxis.reference-source/1" and package_input is not None:
+        rules.add("MANIFEST_INPUT_PROFILE")
+    elif input_profile == "typaxis.machine-pdf/paragraph-1":
+        if status == "built" and (
+            not isinstance(package_input, dict)
+            or package_input.get("contract") is None
+            or package_input.get("canonical_sha256") is None
+        ):
+            rules.add("MANIFEST_INPUT_PROFILE")
+        elif isinstance(package_input, dict) and (
+            (package_input.get("contract") is None)
+            != (package_input.get("canonical_sha256") is None)
+        ):
+            rules.add("MANIFEST_INPUT_PROFILE")
     collections = (
         (instance.get("inputs", []), lambda record: record.get("uri")),
         (instance.get("fonts", []), lambda record: record.get("font_face_id")),
@@ -2066,6 +2104,18 @@ def config_rule_ids(instance: dict[str, Any]) -> set[str]:
 
     limits = instance.get("limits", {})
     if isinstance(limits, dict):
+        max_document_package_bytes = limits.get("max_document_package_bytes")
+        if (
+            type(max_document_package_bytes) is int
+            and max_document_package_bytes > MAX_DOCUMENT_PACKAGE_BYTES
+        ):
+            rules.add("CONFIG_DOCUMENT_PACKAGE_BYTES")
+        max_json_nesting_depth = limits.get("max_json_nesting_depth")
+        if (
+            type(max_json_nesting_depth) is int
+            and max_json_nesting_depth > MAX_JSON_NESTING_DEPTH
+        ):
+            rules.add("CONFIG_JSON_NESTING_DEPTH")
         max_ast_nesting_depth = limits.get("max_ast_nesting_depth")
         if (
             type(max_ast_nesting_depth) is int
@@ -2117,6 +2167,22 @@ def config_rule_ids(instance: dict[str, Any]) -> set[str]:
         ):
             rules.add("CONFIG_IMAGE_RESOURCE_LIMIT")
     return rules
+
+
+def capabilities_rule_ids(instance: dict[str, Any]) -> set[str]:
+    limits = instance.get("machine_input", {}).get("limits", {})
+    if limits != {
+        "max_document_package_bytes": {
+            "default": 134_217_728,
+            "maximum": MAX_DOCUMENT_PACKAGE_BYTES,
+        },
+        "max_json_nesting_depth": {
+            "default": 256,
+            "maximum": MAX_JSON_NESTING_DEPTH,
+        },
+    }:
+        return {"CAPABILITY_LIMIT_DESCRIPTOR"}
+    return set()
 
 
 def flow_position_key(position: Any) -> tuple[Any, ...] | None:
@@ -3394,6 +3460,8 @@ def conformance_rule_ids(
         return set()
     if contains_non_scalar_string(instance):
         return {"JSON_UNICODE_SCALAR"}
+    if schema_name == "machine-capabilities.schema.json":
+        return capabilities_rule_ids(instance)
     if schema_name == "package-config.schema.json":
         return config_rule_ids(instance)
     if schema_name == "diagnostics.schema.json":
@@ -3445,37 +3513,420 @@ def conformance_rule_ids(
     return set()
 
 
+def load_schema_registry(
+    directory: Path, version: str
+) -> tuple[dict[str, Any], dict[str, Draft202012Validator], int]:
+    schemas = {
+        path.name: load_json(path)
+        for path in sorted(directory.glob("*.schema.json"))
+    }
+    if not schemas:
+        raise ValidationFailure(f"{directory}: no schemas were found")
+    prefix = f"https://schemas.typaxis.invalid/{version}/"
+    for filename, schema in schemas.items():
+        schema_id = schema.get("$id")
+        if not isinstance(schema_id, str) or not schema_id.startswith(prefix):
+            raise ValidationFailure(
+                f"{directory / filename}: $id is outside the {version} registry"
+            )
+        Draft202012Validator.check_schema(schema)
+    reference_count = validate_references(schemas)
+    registry = Registry().with_resources(
+        (schema["$id"], Resource.from_contents(schema))
+        for schema in schemas.values()
+    )
+    validators = {
+        filename: Draft202012Validator(schema, registry=registry)
+        for filename, schema in schemas.items()
+    }
+    return schemas, validators, reference_count
+
+
+def machine_advertised_items(capabilities: dict[str, Any]) -> list[str]:
+    profiles = capabilities["machine_input"]["profiles"]
+    if len(profiles) != 1:
+        raise ValidationFailure("machine capabilities must contain exactly one M1 profile")
+    profile = profiles[0]
+    items = {
+        "source_closure:entry_only",
+        "page_master:default",
+    }
+    items.update(f"block:{item}" for item in profile["blocks"])
+    items.update(f"font_format:{item}" for item in profile["font_formats"])
+    items.update(f"inline:{item}" for item in profile["inlines"]["kinds"])
+    items.update(
+        f"reference_format:{item}" for item in profile["inlines"]["reference_formats"]
+    )
+    items.update(f"page_value:{item}" for item in profile["page_values"])
+    items.update(f"pdf_feature:{item}" for item in profile["pdf_features"])
+    items.update(f"style_block_type:{item}" for item in profile["style_block_types"])
+    items.update(f"style_property:{item}" for item in profile["style_properties"])
+    items.update(f"style_selector:{item}" for item in profile["style_selectors"])
+    return sorted(items, key=utf8_sort_key)
+
+
+def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[str]:
+    items = {"source_closure:entry_only", "page_master:default"}
+    saw_anchor = False
+    saw_text = False
+    stack = list(reversed(package["document"]["blocks"]))
+    while stack:
+        node = stack.pop()
+        kind = node.get("kind")
+        if kind in {"heading", "paragraph"}:
+            items.add(f"block:{kind}")
+        if kind in {"anchor", "hard_break", "reference", "soft_break", "text"}:
+            items.add(f"inline:{kind}")
+        if kind == "anchor":
+            saw_anchor = True
+        if kind == "text":
+            saw_text = True
+        if kind == "reference":
+            items.add(f"reference_format:{node['format']}")
+        children = node.get("children")
+        if isinstance(children, list):
+            stack.extend(reversed(children))
+    if saw_anchor:
+        items.add("pdf_feature:named-destinations")
+    if saw_text:
+        items.add("pdf_feature:text-extraction")
+
+    for rule in package["style_sheet"]["rules"]:
+        selector = rule["selector"].split(".", 1)[0]
+        items.add(f"style_block_type:{selector}")
+        items.add(f"style_selector:{selector}")
+        for declaration in rule["declarations"]:
+            name = declaration["name"]
+            items.add(f"style_property:{name}")
+            if name == "page" and declaration["value"] == {
+                "kind": "keyword",
+                "value": "auto",
+            }:
+                items.add("page_value:auto")
+    for face in package["resources"]["font_faces"]:
+        payload = (fixture_root / face["uri"]).read_bytes()
+        if payload.startswith(b"ttcf"):
+            items.add("font_format:ttc-truetype-glyf")
+        elif payload.startswith(b"\x00\x01\x00\x00"):
+            items.add("font_format:sfnt-truetype-glyf")
+        else:
+            raise ValidationFailure(f"combined fixture font has an unknown container: {face['uri']}")
+    return sorted(items, key=utf8_sort_key)
+
+
+def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator]) -> tuple[int, int]:
+    expectation_validator = validators["machine-fixture-expectation.schema.json"]
+    matrix_validator = validators["machine-fixture-matrix.schema.json"]
+    capabilities_validator = validators["machine-capabilities.schema.json"]
+
+    capabilities_path = MACHINE_FIXTURE_DIR / "capabilities.json"
+    capabilities = load_json(capabilities_path)
+    errors = schema_errors(capabilities_validator, capabilities)
+    if errors:
+        raise ValidationFailure(
+            f"{capabilities_path}: capabilities snapshot rejected: " + " | ".join(errors)
+        )
+    if capabilities_path.read_bytes() != jcs_bytes(capabilities):
+        raise ValidationFailure(f"{capabilities_path}: capabilities snapshot is not canonical JCS")
+    conformance_capabilities = load_json(CONFORMANCE_DIR / "machine-capabilities.json")
+    if capabilities != conformance_capabilities:
+        raise ValidationFailure("machine fixture capability snapshot differs from conformance")
+
+    expectations: dict[str, tuple[Path, dict[str, Any]]] = {}
+    expected_paths = sorted(MACHINE_FIXTURE_DIR.glob("**/expected.json"))
+    if not expected_paths:
+        raise ValidationFailure("machine fixture bundle contains no expected.json files")
+    for path in expected_paths:
+        instance = load_json(path)
+        errors = schema_errors(expectation_validator, instance)
+        if errors:
+            raise ValidationFailure(f"{path}: expectation rejected: " + " | ".join(errors))
+        if path.read_bytes() != jcs_bytes(instance):
+            raise ValidationFailure(f"{path}: expectation is not canonical JCS")
+        fixture_id = instance["fixture_id"]
+        if fixture_id in expectations:
+            raise ValidationFailure(f"machine fixture ID is duplicated: {fixture_id}")
+        expectations[fixture_id] = (path, instance)
+        coverage = instance["advertised_item_coverage"]
+        if coverage != sorted(coverage, key=utf8_sort_key):
+            raise ValidationFailure(f"{path}: advertised coverage is not canonical")
+        package = path.parent / instance["package"]
+        if not package.is_file():
+            raise ValidationFailure(f"{path}: PACKAGE does not exist: {package}")
+        outcome = instance["expected"]
+        visible = set(outcome["visible_artifacts"])
+        if outcome["exit_code"] == 0:
+            if (
+                outcome["primary_code"] is not None
+                or outcome["location"] is not None
+                or outcome["page_count"] is None
+                or "pdf" not in visible
+            ):
+                raise ValidationFailure(f"{path}: success outcome fields are inconsistent")
+        elif (
+            outcome["page_count"] is not None
+            or outcome["normalized_extracted_text"] is not None
+            or "pdf" in visible
+        ):
+            raise ValidationFailure(f"{path}: failure outcome claims a PDF result")
+        if outcome["exit_code"] == 2 and visible:
+            raise ValidationFailure(f"{path}: usage failure claims visible artifacts")
+        for index, record in enumerate(instance["resource_hashes"]):
+            verify_file_record(path.parent / "job", record, f"{path} resource {index}")
+
+        try:
+            package_value = load_json(package)
+        except ValidationFailure:
+            package_value = None
+        if isinstance(package_value, dict) and "contract" in package_value:
+            if package_value["contract"] != instance["contract"]:
+                raise ValidationFailure(f"{path}: expected contract differs from PACKAGE")
+
+    advertised = machine_advertised_items(capabilities)
+    combined_path, combined = expectations["paragraph-1.combined"]
+    if combined["advertised_item_coverage"] != advertised:
+        raise ValidationFailure("combined fixture does not cover the exact advertised descriptor")
+    combined_package = load_json(combined_path.parent / combined["package"])
+    observed_items = combined_fixture_items(combined_package, combined_path.parent / "job")
+    if observed_items != advertised:
+        raise ValidationFailure(
+            "combined PACKAGE coverage differs from capabilities: "
+            f"missing={sorted(set(advertised) - set(observed_items))}, "
+            f"extra={sorted(set(observed_items) - set(advertised))}"
+        )
+    if combined["expected"]["normalized_extracted_text"] != "Typaxis machine input":
+        raise ValidationFailure("combined normalized extracted text is not fixed")
+
+    machine_test_source = (
+        REPOSITORY_ROOT / "workspace/crates/typaxis-cli/src/machine_tests.rs"
+    ).read_text("utf-8")
+    machine_test_names = set(
+        re.findall(r"^\s*fn\s+([a-z0-9_]+)\s*\(\s*\)", machine_test_source, re.MULTILINE)
+    )
+    verification_commands = [
+        "cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine --locked",
+        "cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package --locked",
+        "python3 schemas/validate.py",
+    ]
+    required_decoder_rows = {
+        "m1-decoder-01": ("machine_tests::matrix_01_blank_1_1", ("paragraph-1.blank-1.1",)),
+        "m1-decoder-02": ("machine_tests::matrix_02_blank_1_0", ("paragraph-1.blank-1.0",)),
+        "m1-decoder-03": ("machine_tests::matrix_03_combined", ("paragraph-1.combined",)),
+        "m1-decoder-04": (
+            "machine_tests::matrix_04_package_envelope",
+            ("p1100.bom", "p1100.nul", "p1100.trailing.token"),
+        ),
+        "m1-decoder-05": (
+            "machine_tests::matrix_05_json_grammar",
+            ("p1101.malformed.json", "p1101.duplicate.escaped.key"),
+        ),
+        "m1-decoder-06": (
+            "machine_tests::matrix_06_typed_members",
+            (
+                "p1102.unknown.field",
+                "p1102.missing.field",
+                "p1102.float.integer",
+                "p1102.range",
+            ),
+        ),
+        "m1-decoder-07": (
+            "machine_tests::matrix_07_unknown_contract",
+            ("p1103.unknown-contract",),
+        ),
+        "m1-decoder-08": (
+            "machine_tests::matrix_08_package_bytes",
+            ("i9100.package-bytes-exact", "i9100.package-bytes-max-plus-one"),
+        ),
+        "m1-decoder-09": (
+            "machine_tests::matrix_09_json_depth",
+            ("i9101.depth-exact", "i9101.depth-max-plus-one"),
+        ),
+        "m1-decoder-10": (
+            "machine_tests::matrix_10_source_profile",
+            ("p1110.multiple-sources", "p1110.nonzero-entry"),
+        ),
+        "m1-decoder-11": (
+            "machine_tests::matrix_11_source_path",
+            ("p1111.unsafe-source", "i9112.source-symlink"),
+        ),
+        "m1-decoder-12": (
+            "machine_tests::matrix_12_package_root",
+            ("usage.package-outside-root",),
+        ),
+        "m1-decoder-13": (
+            "machine_tests::matrix_13_package_open",
+            ("i9111.package-symlink",),
+        ),
+        "m1-decoder-14": (
+            "machine_tests::matrix_14_source_identity",
+            ("p1112.source-length", "p1112.source-hash"),
+        ),
+        "m1-decoder-15": (
+            "machine_tests::matrix_15_stable_read",
+            ("i9113.package-mutation", "i9113.source-mutation"),
+        ),
+        "m1-decoder-16": (
+            "machine_tests::matrix_16_identity_map",
+            ("p1112.identity-map",),
+        ),
+        "m1-decoder-17": (
+            "machine_tests::matrix_17_unsupported_content",
+            ("l5100.unsupported.content",),
+        ),
+        "m1-decoder-18": (
+            "machine_tests::matrix_18_unsupported_style",
+            ("l5101.unsupported.style.master",),
+        ),
+        "m1-decoder-19": (
+            "machine_tests::matrix_19_unsupported_image",
+            ("r7100.unsupported.image",),
+        ),
+        "m1-decoder-20": (
+            "machine_tests::matrix_20_host_unavailable",
+            ("i9110.host-unavailable",),
+        ),
+        "m1-decoder-21": (
+            "machine_tests::matrix_21_unknown_profile",
+            ("usage.unknown-profile",),
+        ),
+    }
+
+    listed_paths: set[Path] = set()
+    listed_tests: set[str] = set()
+    matrix_paths = sorted((MACHINE_FIXTURE_DIR / "matrices").glob("*.json"))
+    observed_decoder_rows: dict[str, tuple[str, tuple[str, ...]]] = {}
+    for path in matrix_paths:
+        matrix = load_json(path)
+        errors = schema_errors(matrix_validator, matrix)
+        if errors:
+            raise ValidationFailure(f"{path}: matrix rejected: " + " | ".join(errors))
+        if path.read_bytes() != jcs_bytes(matrix):
+            raise ValidationFailure(f"{path}: matrix is not canonical JCS")
+        if matrix["verification_commands"] != verification_commands:
+            raise ValidationFailure(f"{path}: verification commands differ from the MI1-16 gate")
+        fixture_entries = matrix["fixtures"]
+        fixture_ids = [entry["fixture_id"] for entry in fixture_entries]
+        if len(fixture_ids) != len(set(fixture_ids)):
+            raise ValidationFailure(f"{path}: fixture ID is listed more than once")
+        if fixture_ids != sorted(fixture_ids, key=utf8_sort_key):
+            raise ValidationFailure(f"{path}: fixture entries are not in canonical ID order")
+        entry_ids = set(fixture_ids)
+        row_ids = [row["id"] for row in matrix["rows"]]
+        tests = [row["test"] for row in matrix["rows"]]
+        if len(row_ids) != len(set(row_ids)) or len(tests) != len(set(tests)):
+            raise ValidationFailure(f"{path}: row IDs and test names must be unique")
+        for test in tests:
+            if test in listed_tests:
+                raise ValidationFailure(f"{path}: test is duplicated across matrices: {test}")
+            listed_tests.add(test)
+            prefix, separator, test_name = test.partition("::")
+            if separator != "::" or prefix != "machine_tests" or test_name not in machine_test_names:
+                raise ValidationFailure(f"{path}: matrix test does not exist: {test}")
+        row_fixture_ids = [item for row in matrix["rows"] for item in row["fixture_ids"]]
+        if len(row_fixture_ids) != len(set(row_fixture_ids)) or set(row_fixture_ids) != entry_ids:
+            raise ValidationFailure(f"{path}: each listed fixture must map to exactly one row")
+        for row in matrix["rows"]:
+            if row["id"].startswith("m1-decoder-"):
+                observed_decoder_rows[row["id"]] = (
+                    row["test"],
+                    tuple(row["fixture_ids"]),
+                )
+        for entry in fixture_entries:
+            fixture_id = entry["fixture_id"]
+            expected_path = MACHINE_FIXTURE_DIR / entry["expected"]
+            expected = expectations.get(fixture_id)
+            if expected is None or expected[0] != expected_path:
+                raise ValidationFailure(f"{path}: fixture path/ID mismatch for {fixture_id}")
+            if expected[1]["profile"] != matrix["profile"]:
+                raise ValidationFailure(f"{path}: profile mismatch for {fixture_id}")
+            if expected_path in listed_paths:
+                raise ValidationFailure(f"{path}: expectation is duplicated across matrices")
+            listed_paths.add(expected_path)
+    if observed_decoder_rows != required_decoder_rows:
+        raise ValidationFailure(
+            "M1 decoder matrix rows differ from docs/25 §15.1: "
+            f"expected={required_decoder_rows}, observed={observed_decoder_rows}"
+        )
+    if listed_paths != set(expected_paths):
+        raise ValidationFailure(
+            "machine matrices do not cover every expectation exactly once: "
+            f"missing={sorted(str(path) for path in set(expected_paths) - listed_paths)}"
+        )
+    return len(expected_paths), len(matrix_paths)
+
+
 def main() -> int:
     failures: list[str] = []
 
     try:
-        schemas = {
-            path.name: load_json(path)
-            for path in sorted(SCHEMA_DIR.glob("*.schema.json"))
-        }
-        if not schemas:
-            raise ValidationFailure("no schemas were found")
-
-        for filename, schema in schemas.items():
-            if "$id" not in schema:
-                raise ValidationFailure(f"{filename}: missing logical $id")
-            Draft202012Validator.check_schema(schema)
-
-        reference_count = validate_references(schemas)
-        registry = Registry().with_resources(
-            (schema["$id"], Resource.from_contents(schema))
-            for schema in schemas.values()
+        frozen_schemas, frozen_validators, frozen_reference_count = load_schema_registry(
+            FROZEN_SCHEMA_DIR, "1.0"
         )
-        validators = {
-            filename: Draft202012Validator(schema, registry=registry)
-            for filename, schema in schemas.items()
-        }
+        schemas, validators, reference_count = load_schema_registry(SCHEMA_DIR, "1.1")
+        if set(frozen_schemas) != set(FROZEN_SCHEMA_SHA256):
+            raise ValidationFailure("the frozen 1.0 registry has a missing or extra schema")
+        for filename, expected_digest in FROZEN_SCHEMA_SHA256.items():
+            observed_digest = hashlib.sha256(
+                (FROZEN_SCHEMA_DIR / filename).read_bytes()
+            ).hexdigest()
+            if observed_digest != expected_digest:
+                raise ValidationFailure(
+                    f"the frozen 1.0 schema bytes changed: {filename}"
+                )
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         minimal_document = load_json(MINIMAL_DIR / "document-package.json")
         minimal_display = load_json(MINIMAL_DIR / "display-list.json")
         minimal_trace = load_json(MINIMAL_DIR / "layout-trace.json")
         minimal_manifest = load_json(MINIMAL_DIR / "build-manifest.json")
         jcs_golden_count = validate_jcs_golden(effective_config)
+        machine_expectation_count, machine_matrix_count = validate_machine_fixture_bundle(
+            validators
+        )
+
+        compatibility_metadata = load_json(
+            COMPATIBILITY_DIR / "document-package-1.0-canonical.json"
+        )
+        compatibility_document = load_json(
+            COMPATIBILITY_DIR / compatibility_metadata["fixture"]
+        )
+        frozen_errors = schema_errors(
+            frozen_validators["document-package.schema.json"], compatibility_document
+        )
+        if frozen_errors:
+            raise ValidationFailure(
+                "the frozen 1.0 DocumentPackage fixture was rejected: "
+                + " | ".join(frozen_errors)
+            )
+        if not schema_errors(
+            validators["document-package.schema.json"], compatibility_document
+        ):
+            raise ValidationFailure("the 1.0 DocumentPackage was registered as current 1.1")
+        compatibility_jcs = jcs_bytes(compatibility_document)
+        if (
+            compatibility_document.get("contract") != "typaxis.contract/1.0"
+            or compatibility_metadata != {
+                "algorithm": "rfc8785-jcs-sha256/1",
+                "canonical_sha256": hashlib.sha256(compatibility_jcs).hexdigest(),
+                "contract": "typaxis.contract/1.0",
+                "fixture": "document-package-1.0.json",
+            }
+        ):
+            raise ValidationFailure(
+                "the 1.0 DocumentPackage canonical hash does not retain its contract field"
+            )
+
+        additive_current_shapes = {
+            "build-manifest.schema.json": minimal_manifest,
+            "diagnostics.schema.json": load_json(MINIMAL_DIR / "diagnostics.json"),
+            "package-config.schema.json": effective_config,
+        }
+        for schema_name, current_shape in additive_current_shapes.items():
+            disguised_current = copy.deepcopy(current_shape)
+            disguised_current["contract"] = "typaxis.contract/1.0"
+            if not schema_errors(frozen_validators[schema_name], disguised_current):
+                raise ValidationFailure(
+                    f"the frozen 1.0 {schema_name} consumer accepted its additive 1.1 shape"
+                )
 
         for path, schema_name in POSITIVE_FIXTURES.items():
             instance = materialize_patch_fixture(load_instance(path), schema_name, str(path))
@@ -3677,6 +4128,95 @@ def main() -> int:
                     f"manifest status conditional {label} acceptance was {accepted}"
                 )
 
+        raw_package_input = {
+            "bytes": 1,
+            "canonical_sha256": None,
+            "contract": None,
+            "sha256": "0" * 64,
+            "uri": "document-package.json",
+        }
+        decoded_package_input = {
+            **raw_package_input,
+            "canonical_sha256": "1" * 64,
+            "contract": "typaxis.contract/1.0",
+        }
+        half_decoded_package_input = {
+            **raw_package_input,
+            "contract": "typaxis.contract/1.1",
+        }
+        manifest_input_cases = (
+            ("reference/null", "typaxis.reference-source/1", "built", None, True),
+            (
+                "reference/package",
+                "typaxis.reference-source/1",
+                "built",
+                decoded_package_input,
+                False,
+            ),
+            (
+                "machine/built-decoded",
+                "typaxis.machine-pdf/paragraph-1",
+                "built",
+                decoded_package_input,
+                True,
+            ),
+            (
+                "machine/built-raw",
+                "typaxis.machine-pdf/paragraph-1",
+                "built",
+                raw_package_input,
+                False,
+            ),
+            (
+                "machine/built-null",
+                "typaxis.machine-pdf/paragraph-1",
+                "built",
+                None,
+                False,
+            ),
+            (
+                "machine/failed-null",
+                "typaxis.machine-pdf/paragraph-1",
+                "failed",
+                None,
+                True,
+            ),
+            (
+                "machine/failed-raw",
+                "typaxis.machine-pdf/paragraph-1",
+                "failed",
+                raw_package_input,
+                True,
+            ),
+            (
+                "machine/failed-decoded",
+                "typaxis.machine-pdf/paragraph-1",
+                "failed",
+                decoded_package_input,
+                True,
+            ),
+            (
+                "machine/failed-half-decoded",
+                "typaxis.machine-pdf/paragraph-1",
+                "failed",
+                half_decoded_package_input,
+                False,
+            ),
+        )
+        for label, profile, status, package_input, should_accept in manifest_input_cases:
+            candidate = copy.deepcopy(minimal_manifest)
+            candidate["input_profile"] = profile
+            candidate["package_input"] = copy.deepcopy(package_input)
+            candidate["status"] = status
+            if status == "failed":
+                candidate["layout"] = None
+                candidate["output"] = None
+            accepted = not schema_errors(manifest_validator, candidate)
+            if accepted != should_accept:
+                raise ValidationFailure(
+                    f"manifest input conditional {label} acceptance was {accepted}"
+                )
+
         policy_cases = (
             ("converged", "lowest_cost_then_earliest"),
             ("cycle_fallback", None),
@@ -3748,10 +4288,12 @@ def main() -> int:
 
         print(
             "validated "
-            f"{len(schemas)} schemas, {reference_count} refs, "
+            f"{len(frozen_schemas)} frozen 1.0 and {len(schemas)} current 1.1 schemas, "
+            f"{frozen_reference_count + reference_count} refs, "
             f"{len(POSITIVE_FIXTURES)} artifact and "
             f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
             f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "
+            f"{machine_expectation_count} machine expectations in {machine_matrix_count} matrices, "
             f"and config JCS hash {config_digest}"
         )
         return 0

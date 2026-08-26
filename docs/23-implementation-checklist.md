@@ -1,25 +1,25 @@
 # Implementation checklist
 
-このchecklistの`[x]`は、Profile 1.0のcontract invariantにRust type、Schema、validator、またはreference testの対応証拠があることを表す。公開CLIからその機能を入力し、layout、Display、PDFまでend-to-endで利用できるというcompletion statusではない。reference CLIの実到達範囲、machine inputの未実装、rich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
+このchecklistの`[x]`は、Profile 1.1のcontract invariantまたは明記したdelivery gateにRust type、Schema、validator、public E2Eの対応証拠があることを表す。公開範囲は[producer guide](26-machine-input-cli.md)、milestone completionとrich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
 
 ## Machine input delivery gates
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| reference TSF pipeline | Yes, current 1.0 | Yes, bounded subset | Yes | No |
-| DocumentPackage portable Schema/export | Yes, current 1.0 | Partial: offline validation/export | No trusted ingestion | No |
-| sealed machine ingestion | Yes, ADR-0027 | No | No | No |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | No | No | No |
-| contract 1.1 output | Yes, atomic migration specified | No; current output is 1.0 | No | No |
+| reference TSF pipeline | Yes, current 1.1 | Yes, bounded subset | Yes | No |
+| DocumentPackage portable Schema/export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | No |
+| sealed machine ingestion | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
+| contract 1.1 output | Yes | Yes, current output | Yes | No: two-host aggregate pending |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
 - [x] `paragraph-1` explicitly distinguishes visual heading layout from outline/tagged heading semantics
-- [ ] target host/document-package/machine-input/machine-profile owners and session-bound receipts are implemented
-- [ ] public `build-package`, `check-package`, and `capabilities --format json` have CLI E2E fixtures
-- [ ] documented-host, reproducibility, producer-guide, and release evidence closes MI1-17
+- [x] target host/document-package/machine-input/machine-profile owners and session-bound receipts are implemented
+- [x] public `build-package`, `check-package`, and `capabilities --format json` have positive/negative CLI E2E fixtures
+- [ ] producer guide, Linux actual-host evidence, and reproducibility gates exist; matching current-source macOS/Linux evidence must still aggregate before MI1-17 release completion
 
-The first three checked items are contract decisions, not implementation claims. The last three unchecked delivery gates must not be inferred from portable Schema success or partial internal code.
+The first three checked items are contract decisions. The next two are implementation/public-E2E claims. The final unchecked item is deliberately a release claim and cannot be inferred from Linux-only evidence or a synthetic aggregation test.
 
 ## Source and text
 
@@ -143,7 +143,7 @@ The first three checked items are contract decisions, not implementation claims.
 - [x] exact max succeeds and max+1 fails before work; initial footnote fragment/float page are not reflow/carry and final allowed reshape failure is reported after that pass
 - [x] table cells use deterministic leftmost-free placement with full row coverage and no head/body-crossing rowspan
 - [x] every bounded line/lookback/footnote/column/float algorithm has exact-limit tests
-- [ ] cargo check/test on every documented host target（MI0-01はmacOS 26.5.2 arm64のlocked build/check/all-targets test/clippy、atomic reference publication、blank smokeを完了。Linux runtime、macOS contained PACKAGE/resource success、machine CLI E2EはMI1-17で閉じる）
+- [ ] cargo check/test and public machine profile gate on every documented host target（MI0-01のmacOS reference baselineと、MI1-17 worktreeのLinux locked/static/workspace/public machine E2Eは成功済み。current-source macOS machine evidenceとLinux/macOS aggregateはCI gateで未確認）
 - [x] Unicode conformance data
 - [x] subset round-trip
 - [x] renderer/extractor differential

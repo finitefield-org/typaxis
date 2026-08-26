@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.0/diagnostics.schema.json",
+  "title": "Typaxis Diagnostics 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "diagnostics"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "message",
+        "source_span",
+        "text_span",
+        "node_id",
+        "notes"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^(?:P1|T2|S3|F4|L5|G6|R7|D8|I9)[0-9]{3}$"
+        },
+        "severity": {
+          "enum": [
+            "note",
+            "warning",
+            "error",
+            "fatal"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_span": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text_span": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/text_span"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "node_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

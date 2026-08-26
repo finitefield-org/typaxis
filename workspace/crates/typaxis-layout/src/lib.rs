@@ -8,14 +8,18 @@ use typaxis_core::{
 };
 use typaxis_document::{Block, DocumentNodeKind, Inline};
 pub use typaxis_layout_contract::{
-    LayoutEpoch, LayoutEpochError, LayoutTextStyleError, ResolvedLayoutTextStyle,
-    ShapeFontSelectionError, ShapeFontSelectionReceipt,
+    LayoutEpoch, LayoutEpochError, LayoutTextStyleError, MachineGlyphCoverage,
+    MachineStyleFontPreparationError, MachineTextSiteSource, PreparedMachineStyleFonts,
+    PreparedMachineTextSite, ResolvedLayoutTextStyle, ShapeFontSelectionError,
+    ShapeFontSelectionReceipt,
 };
 use typaxis_linebreak::ValidatedParagraphItemRegistry;
 use typaxis_style::{
     PageMaster, PageMasterValidationError, PageSelectionContext, PageSelectionError, StyleValue,
 };
-use typaxis_syntax::{PackagePaginationContext, PackageStyleError, ValidatedParsedPackage};
+use typaxis_syntax::{
+    PackagePaginationContext, PackageStyleError, ValidatedMachinePackage, ValidatedParsedPackage,
+};
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FlowPosition {
     epoch: LayoutEpoch,
@@ -364,6 +368,49 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
             anchors,
             Some(self.paragraph_items.clone()),
         )
+    }
+}
+
+/// Paragraph-only flow builder reachable only after machine style/font
+/// preparation has bound the same package and stable layout epoch.
+pub struct MachineParagraphFlowBuilder<'a> {
+    inner: CanonicalFlowIrBuilder<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MachineParagraphFlowError {
+    PreparationMismatch,
+    Flow(FlowTreeError),
+}
+
+impl<'a> MachineParagraphFlowBuilder<'a> {
+    pub fn new(
+        package: &'a ValidatedMachinePackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+        preparation: &PreparedMachineStyleFonts,
+    ) -> Result<Self, MachineParagraphFlowError> {
+        if !preparation.matches_package_epoch(package, paragraph_items.epoch()) {
+            return Err(MachineParagraphFlowError::PreparationMismatch);
+        }
+        let inner = CanonicalFlowIrBuilder::new(package.package(), paragraph_items)
+            .map_err(MachineParagraphFlowError::Flow)?;
+        Ok(Self { inner })
+    }
+
+    pub fn push_paragraph_item(
+        &mut self,
+        owner: NodeId,
+        item_index: u32,
+    ) -> Result<(), MachineParagraphFlowError> {
+        self.inner
+            .push_paragraph_item(owner, item_index)
+            .map_err(MachineParagraphFlowError::Flow)
+    }
+
+    pub fn finish(self, epoch: LayoutEpoch) -> Result<FlowTree, MachineParagraphFlowError> {
+        self.inner
+            .finish(epoch)
+            .map_err(MachineParagraphFlowError::Flow)
     }
 }
 
@@ -1091,13 +1138,16 @@ impl<'flow> ReferenceFragmenter<'flow> {
         let mut lines = Vec::new();
         let mut position_index = 1usize;
         for block in blocks {
-            let (node_id, children) = match block {
+            let (node_id, heading_anchor, children) = match block {
                 Block::Paragraph {
                     node_id, children, ..
-                }
-                | Block::Heading {
-                    node_id, children, ..
-                } => (*node_id, children.as_slice()),
+                } => (*node_id, None, children.as_slice()),
+                Block::Heading {
+                    node_id,
+                    anchor_id,
+                    children,
+                    ..
+                } => (*node_id, anchor_id.as_ref(), children.as_slice()),
                 _ => return Err(FragmentError::UnsupportedFlowDomain),
             };
             let expected_path = package
@@ -1160,6 +1210,19 @@ impl<'flow> ReferenceFragmenter<'flow> {
                     start: paragraph_start,
                     end: position_index,
                     height: line_height,
+                });
+            }
+            if let Some(anchor_id) = heading_anchor {
+                if package.document_nodes().anchor_owner(anchor_id) != Some(node_id)
+                    || flow.anchor_owner(anchor_id) != Some(node_id)
+                {
+                    return Err(FragmentError::InvalidFragmentKey);
+                }
+                anchors.push(ReferenceAnchorPlacement {
+                    flow_ordinal: u64::try_from(paragraph_start)
+                        .map_err(|_| FragmentError::ArithmeticOverflow)?,
+                    anchor_id: anchor_id.clone(),
+                    owner_node: node_id,
                 });
             }
             collect_reference_anchors(

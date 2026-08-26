@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 
 use toml::Value as TomlValue;
 use typaxis_core::{
-    ConfigResourceRoot, EffectiveConfig, EffectiveConfigError, EffectiveDataVersions,
-    PdfStreamCompression, ResourceLimits, CONTRACT, DEFAULT_ALLOWED_URI_SCHEMES,
-    REGISTERED_JAPANESE_LINE_BREAK_VERSION, REGISTERED_UNICODE_VERSION,
+    ConfigResourceRoot, DocumentPackageContractId, EffectiveConfig, EffectiveConfigError,
+    EffectiveDataVersions, PdfStreamCompression, ResourceLimits, CONTRACT,
+    DEFAULT_ALLOWED_URI_SCHEMES, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
+    REGISTERED_UNICODE_VERSION,
 };
 
 const MAX_RAW_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
@@ -195,13 +196,12 @@ impl fmt::Display for ConfigError {
             }
             Self::MissingContract { path } => write!(
                 formatter,
-                "raw config `{}` must contain `contract = {:?}`",
-                path.display(),
-                CONTRACT
+                "raw config `{}` must contain a known 1.0 or 1.1 `contract`",
+                path.display()
             ),
             Self::ContractMismatch { origin, found } => write!(
                 formatter,
-                "configuration contract in {origin} is `{found}`, expected `{CONTRACT}`"
+                "configuration contract in {origin} is `{found}`, expected `typaxis.contract/1.0` or `{CONTRACT}`"
             ),
             Self::InvalidValue {
                 origin,
@@ -266,7 +266,7 @@ impl MergedConfig {
         match key {
             "contract" => {
                 let found = expect_string(value, key, origin)?;
-                if found == CONTRACT {
+                if found.parse::<DocumentPackageContractId>().is_ok() {
                     Ok(())
                 } else {
                     Err(ConfigError::ContractMismatch {
@@ -283,7 +283,7 @@ impl MergedConfig {
                     Err(ConfigError::InvalidValue {
                         origin: origin.to_owned(),
                         key: key.to_owned(),
-                        detail: "Profile 1.0 requires `true`".to_owned(),
+                        detail: "the deterministic contract requires `true`".to_owned(),
                     })
                 }
             }
@@ -1066,6 +1066,8 @@ const LIMIT_NAMES: &[&str] = &[
     "max_resource_bytes",
     "max_image_pixels",
     "max_decoded_image_bytes",
+    "max_document_package_bytes",
+    "max_json_nesting_depth",
     "max_pages",
     "max_layout_passes",
     "max_uri_bytes",
@@ -1093,7 +1095,8 @@ fn normalize_limit_name(name: &str) -> String {
 
 fn ensure_limit_storage_range(name: &str, value: u64, origin: &str) -> Result<(), ConfigError> {
     let maximum = match name {
-        "max_layout_passes"
+        "max_json_nesting_depth"
+        | "max_layout_passes"
         | "max_line_reshape_passes"
         | "max_page_break_lookback"
         | "max_footnote_reflows_per_page"
@@ -1144,6 +1147,8 @@ fn set_limit(limits: &mut ResourceLimits, name: &str, value: u64) {
         "max_resource_bytes" => limits.max_resource_bytes = value,
         "max_image_pixels" => limits.max_image_pixels = value,
         "max_decoded_image_bytes" => limits.max_decoded_image_bytes = value,
+        "max_document_package_bytes" => limits.max_document_package_bytes = value,
+        "max_json_nesting_depth" => limits.max_json_nesting_depth = value as u16,
         "max_pages" => limits.max_pages = value as u32,
         "max_layout_passes" => limits.max_layout_passes = value as u16,
         "max_uri_bytes" => limits.max_uri_bytes = value as u32,
@@ -1213,7 +1218,7 @@ mod tests {
     fn precedence_is_defaults_file_environment_then_cli() {
         let file = TempConfig::new(
             br#"
-contract = "typaxis.contract/1.0"
+contract = "typaxis.contract/1.1"
 strict = true
 pdf_stream_compression = "flate"
 resource_roots = ["resources", "."]
@@ -1276,7 +1281,7 @@ max_pages = 20
             Err(ConfigError::ContractMismatch { .. })
         ));
 
-        let unknown = TempConfig::new(b"contract = \"typaxis.contract/1.0\"\nunknown = true\n");
+        let unknown = TempConfig::new(b"contract = \"typaxis.contract/1.1\"\nunknown = true\n");
         assert!(matches!(
             load(
                 Some(&unknown.0),
@@ -1287,7 +1292,7 @@ max_pages = 20
         ));
 
         let wrong_type =
-            TempConfig::new(b"contract = \"typaxis.contract/1.0\"\nstrict = \"true\"\n");
+            TempConfig::new(b"contract = \"typaxis.contract/1.1\"\nstrict = \"true\"\n");
         assert!(matches!(
             load(
                 Some(&wrong_type.0),
@@ -1334,7 +1339,7 @@ max_pages = 20
 
     #[test]
     fn raw_config_snapshot_detects_same_length_timestamp_change() {
-        let config = TempConfig::new(b"contract = \"typaxis.contract/1.0\"\n");
+        let config = TempConfig::new(b"contract = \"typaxis.contract/1.1\"\n");
         let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -1372,7 +1377,7 @@ max_pages = 20
     ))]
     #[test]
     fn raw_config_rejects_a_concurrent_exclusive_writer() {
-        let file = TempConfig::new(b"contract = \"typaxis.contract/1.0\"\n");
+        let file = TempConfig::new(b"contract = \"typaxis.contract/1.1\"\n");
         let writer = fs::OpenOptions::new().write(true).open(&file.0).unwrap();
         rustix::fs::flock(
             &writer,
@@ -1446,6 +1451,14 @@ max_pages = 20
             ("max_resource_bytes", defaults.max_resource_bytes),
             ("max_image_pixels", defaults.max_image_pixels),
             ("max_decoded_image_bytes", defaults.max_decoded_image_bytes),
+            (
+                "max_document_package_bytes",
+                defaults.max_document_package_bytes,
+            ),
+            (
+                "max_json_nesting_depth",
+                u64::from(defaults.max_json_nesting_depth),
+            ),
             ("max_pages", u64::from(defaults.max_pages)),
             ("max_layout_passes", u64::from(defaults.max_layout_passes)),
             ("max_uri_bytes", u64::from(defaults.max_uri_bytes)),
@@ -1572,9 +1585,30 @@ max_pages = 20
     }
 
     #[test]
+    fn raw_1_0_and_1_1_configs_normalize_to_the_same_1_1_jcs() {
+        let legacy =
+            TempConfig::new(b"contract = \"typaxis.contract/1.0\"\n[limits]\nmax_pages = 321\n");
+        let current = TempConfig::new(
+            format!(
+                "contract = \"typaxis.contract/1.1\"\n[limits]\nmax_document_package_bytes = {}\nmax_json_nesting_depth = {}\nmax_pages = 321\n",
+                typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
+                typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_JSON_NESTING_DEPTH,
+            )
+            .as_bytes(),
+        );
+        let environment = [("TYPAXIS_LIMITS__MAX_PAGES", "654")];
+        let legacy = load(Some(&legacy.0), environment, &ConfigOverrides::default()).unwrap();
+        let current = load(Some(&current.0), environment, &ConfigOverrides::default()).unwrap();
+        assert_eq!(legacy, current);
+        assert!(legacy
+            .canonical_jcs()
+            .contains("\"contract\":\"typaxis.contract/1.1\""));
+    }
+
+    #[test]
     fn comments_multiline_arrays_and_integer_spellings_are_supported() {
         let file = TempConfig::new(
-            br#"contract = "typaxis.contract/1.0" # required
+            br#"contract = "typaxis.contract/1.1" # required
 resource_roots = [
   'assets', # an inline comment
   ".",
@@ -1603,7 +1637,7 @@ max_pages = 0x2_710
     #[test]
     fn inline_tables_and_quoted_dotted_known_keys_are_supported() {
         let inline = TempConfig::new(
-            br#"contract = "typaxis.contract/1.0"
+            br#"contract = "typaxis.contract/1.1"
 data_versions = { unicode = "16.0.0", japanese_line_break = "typaxis-jlreq-horizontal/1.0.0" }
 limits = { max_pages = 321 }
 "#,
@@ -1617,7 +1651,7 @@ limits = { max_pages = 321 }
         assert_eq!(config.limits().get().max_pages, 321);
 
         let dotted = TempConfig::new(
-            br#""contract" = "typaxis.contract/1.0"
+            br#""contract" = "typaxis.contract/1.1"
 "strict" = true
 "data_versions"."unicode" = "16.0.0"
 'data_versions'.'japanese_line_break' = "typaxis-jlreq-horizontal/1.0.0"
@@ -1634,7 +1668,7 @@ limits = { max_pages = 321 }
         assert_eq!(config.limits().get().max_pages, 654);
 
         let literal_dotted = TempConfig::new(
-            br#"contract = "typaxis.contract/1.0"
+            br#"contract = "typaxis.contract/1.1"
 "limits.max_pages" = 1
 "#,
         );
@@ -1665,7 +1699,7 @@ limits = { max_pages = 321 }
     #[test]
     fn toml_rejects_nbsp_as_whitespace() {
         let file =
-            TempConfig::new("contract = \"typaxis.contract/1.0\"\nstrict =\u{a0}true\n".as_bytes());
+            TempConfig::new("contract = \"typaxis.contract/1.1\"\nstrict =\u{a0}true\n".as_bytes());
         assert!(matches!(
             load(
                 Some(&file.0),
@@ -1716,7 +1750,7 @@ limits = { max_pages = 321 }
     #[test]
     fn raw_toml_rejects_unknown_and_duplicate_keys() {
         let unknown_nested = TempConfig::new(
-            br#"contract = "typaxis.contract/1.0"
+            br#"contract = "typaxis.contract/1.1"
 limits = { max_pages = 10, surprise = 1 }
 "#,
         );
@@ -1730,7 +1764,7 @@ limits = { max_pages = 10, surprise = 1 }
         ));
 
         let duplicate = TempConfig::new(
-            br#"contract = "typaxis.contract/1.0"
+            br#"contract = "typaxis.contract/1.1"
 strict = true
 "strict" = false
 "#,
@@ -1745,7 +1779,7 @@ strict = true
         ));
 
         let duplicate_nested = TempConfig::new(
-            br#"contract = "typaxis.contract/1.0"
+            br#"contract = "typaxis.contract/1.1"
 limits.max_pages = 10
 [limits]
 "max_pages" = 11

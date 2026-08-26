@@ -27,24 +27,33 @@ MI0-01のactual-host gateはimplementation commit `edd8ec9f57a2a58de6f6c23af94b1
 | workspace compile/test/lint | Available | locked build/check/all-targets test/clippyがexit 0 |
 | resourceなしreference TSFからblank PDF | Available | `typaxis 0.1.0`が1-page PDFを生成 |
 | atomic PDF/sidecar publication | Available for current reference CLI | Unix committerとlocked E2Eが個別atomic/no-replace/replace/partial-publication規則を検証 |
-| contained machine PACKAGE/source open | Not implemented | machine host admission sessionと`build-package`が存在せず、package receiptを発行しない |
+| contained machine PACKAGE/source open | Not part of the MI0 baseline | current machine host admission and `build-package` are verified by the separate MI1 gate below |
 | declared font/imageのcontained resource open | Unsupported in MI0 | exit 3、stable `UnsupportedContainedOpen`、requested PDF/manifestは作成・置換しない |
 
-Linux/Androidのcontained resource pathは実装domainに残るが、MI0-01ではruntimeを再検証していない。documented Linux gateはMI1-17で閉じる。macOS resource admissionを成功扱いせず、MI0では上表のfail-closed contractだけを保証する。
+上表はMI0-01時点のhistorical baselineである。current worktreeのLinux contained package/source/font pathはMI1 public gateで検証済みであり、current-source macOS machine evidenceはCI aggregationで閉じる。AndroidはM1 release-supported hostではない。
 
 ## Machine input status
 
-現行binaryの`build` INPUTはreference TSFであり、DocumentPackage JSONを受理しない。`dump-ast --format json`はportable JSONの一方向exportで、trusted source admissionやCLI round tripの証拠ではない。ADR-0027のtarget commandとcrate boundaryは実装開始条件を固定するが、public help/dispatchへ登録できるのはMI1-17だけである。
+現行binaryの`build` INPUTはreference TSFであり、DocumentPackage JSONをsniffしない。DocumentPackage 1.0/1.1は公開`build-package`/`check-package`へ入力し、`capabilities --format json`はcompiled descriptorをcanonical JSONで返す。supported reference TSFでは`dump-ast --format json -> build-package` round tripが成立する。詳細は[producer guide](../docs/26-machine-input-cli.md)と[runnable fixture README](../samples/machine-package/README.md)を参照する。
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| reference TSF pipeline | Yes, current 1.0 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage portable Schema/export | Yes, current 1.0 | Partial: offline validator and export | No ingestion | No |
-| sealed package/source admission | Yes, ADR-0027 | No target crates/session receipts yet | No | No |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | No descriptor/preflight yet | No | No |
-| contract 1.1 migration | Yes, MI1-14 atomic plan | No; generated artifacts remain 1.0 | No | No |
+| reference TSF pipeline | Yes, current 1.1 | Yes, bounded reference subset | Yes | No |
+| DocumentPackage portable Schema/export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | No |
+| sealed package/source admission | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
+| contract 1.1 generated artifacts | Yes | Yes, current output | Yes | No: two-host aggregate pending |
 
-Portable validation、partial Rust types、internal runner、public CLI E2E、release supportは別のstatus軸である。いずれか一つの完成をmachine input対応済みという表明へ読み替えない。
+Portable validation、Rust owners、public CLI E2E、release supportは別のstatus軸である。public commandは利用可能だが、release supportは同一revision/source/artifactのcurrent Linux/macOS evidenceを実際に集約するまで主張しない。
+
+repository rootからpublic Linux host gateを実行するにはMuPDFとPopplerを用意し、次を使う。
+
+```text
+python3 tools/verify_machine_profile.py \
+  --repository . \
+  --fixture samples/machine-package/profiles/paragraph-1/combined/expected.json \
+  --runs 2 --require-external-tools
+```
 
 Resource trust is split deliberately: `typaxis-resource-admission` owns sealed root/source receipts, bounded bytes/hash/metadata, the immutable ledger, and canonical font-instance identity. `typaxis-layout-contract` owns `LayoutEpoch`, admitted style resolution, and the package/style/ledger/instance-bound font-selection receipt shared by layout and shaping. `typaxis-resources` begins only at selected Display usage union and PDF-profile subset/image finalization. `typaxis-pdf` alone preflights all typed indirect-object roles and issues the publication `FrozenPdfGraph`; its public low-level builder remains explicitly untrusted.
 

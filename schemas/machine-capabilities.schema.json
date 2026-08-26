@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.1/machine-capabilities.schema.json",
+  "title": "Typaxis Machine Capabilities 1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "engine",
+    "machine_input"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "typaxis"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "machine_input": {
+      "$ref": "#/$defs/machine_input"
+    }
+  },
+  "$defs": {
+    "machine_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_units",
+        "default_profile",
+        "document_package_contracts",
+        "host_features",
+        "host_limits",
+        "limits",
+        "max_diagnostics",
+        "profiles"
+      ],
+      "properties": {
+        "coordinate_units": {
+          "const": [
+            "pdf_point_1_65536"
+          ]
+        },
+        "default_profile": {
+          "const": "typaxis.machine-pdf/paragraph-1"
+        },
+        "document_package_contracts": {
+          "const": [
+            "typaxis.contract/1.0",
+            "typaxis.contract/1.1"
+          ]
+        },
+        "host_features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "atomic_file_publish",
+            "contained_package_open",
+            "contained_resource_open"
+          ],
+          "properties": {
+            "atomic_file_publish": {
+              "type": "boolean"
+            },
+            "contained_package_open": {
+              "type": "boolean"
+            },
+            "contained_resource_open": {
+              "type": "boolean"
+            }
+          }
+        },
+        "host_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_read_candidates",
+            "max_resource_roots"
+          ],
+          "properties": {
+            "max_read_candidates": {
+              "const": 131072
+            },
+            "max_resource_roots": {
+              "const": 64
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_document_package_bytes",
+            "max_json_nesting_depth"
+          ],
+          "properties": {
+            "max_document_package_bytes": {
+              "$ref": "#/$defs/document_package_limit"
+            },
+            "max_json_nesting_depth": {
+              "$ref": "#/$defs/json_depth_limit"
+            }
+          }
+        },
+        "max_diagnostics": {
+          "const": 256
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/paragraph_profile"
+          }
+        }
+      }
+    },
+    "document_package_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default",
+        "maximum"
+      ],
+      "properties": {
+        "default": {
+          "const": 134217728
+        },
+        "maximum": {
+          "const": 9007199254740991
+        }
+      }
+    },
+    "json_depth_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default",
+        "maximum"
+      ],
+      "properties": {
+        "default": {
+          "const": 256
+        },
+        "maximum": {
+          "const": 256
+        }
+      }
+    },
+    "paragraph_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "blocks",
+        "font_formats",
+        "footnotes",
+        "id",
+        "image_formats",
+        "inlines",
+        "page_master",
+        "page_values",
+        "pdf_features",
+        "source_closure",
+        "source_count",
+        "style_block_types",
+        "style_properties",
+        "style_selectors",
+        "unsupported_pdf_features"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "blocks": {
+          "const": [
+            "heading",
+            "paragraph"
+          ]
+        },
+        "font_formats": {
+          "const": [
+            "sfnt-truetype-glyf",
+            "ttc-truetype-glyf"
+          ]
+        },
+        "footnotes": {
+          "const": false
+        },
+        "id": {
+          "const": "typaxis.machine-pdf/paragraph-1"
+        },
+        "image_formats": {
+          "const": []
+        },
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kinds",
+            "reference_formats"
+          ],
+          "properties": {
+            "kinds": {
+              "const": [
+                "anchor",
+                "hard_break",
+                "reference",
+                "soft_break",
+                "text"
+              ]
+            },
+            "reference_formats": {
+              "const": [
+                "page"
+              ]
+            }
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "count",
+            "optional_frames",
+            "selection_rules"
+          ],
+          "properties": {
+            "count": {
+              "const": 1
+            },
+            "optional_frames": {
+              "const": []
+            },
+            "selection_rules": {
+              "const": false
+            }
+          }
+        },
+        "page_values": {
+          "const": [
+            "auto"
+          ]
+        },
+        "pdf_features": {
+          "const": [
+            "named-destinations",
+            "text-extraction"
+          ]
+        },
+        "source_closure": {
+          "const": "entry_only"
+        },
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum",
+            "minimum"
+          ],
+          "properties": {
+            "maximum": {
+              "const": 1
+            },
+            "minimum": {
+              "const": 1
+            }
+          }
+        },
+        "style_block_types": {
+          "const": [
+            "heading",
+            "paragraph"
+          ]
+        },
+        "style_properties": {
+          "const": [
+            "font_family",
+            "font_size",
+            "line_height",
+            "page"
+          ]
+        },
+        "style_selectors": {
+          "const": [
+            "heading",
+            "paragraph"
+          ]
+        },
+        "unsupported_pdf_features": {
+          "const": [
+            "heading-semantics",
+            "link-annotations",
+            "outlines",
+            "tagged-pdf"
+          ]
+        }
+      }
+    }
+  }
+}

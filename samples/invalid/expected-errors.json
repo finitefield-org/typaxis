@@ -1,6 +1,14 @@
 {
+  "capabilities-limit-default.json": {
+    "rule_id": "CAPABILITY_LIMIT_DESCRIPTOR",
+    "schema_rejects": true
+  },
   "config-ast-nesting-depth.json": {
     "rule_id": "CONFIG_AST_NESTING_DEPTH",
+    "schema_rejects": true
+  },
+  "config-document-package-bytes.json": {
+    "rule_id": "CONFIG_DOCUMENT_PACKAGE_BYTES",
     "schema_rejects": true
   },
   "config-font-resource-limit.json": {
@@ -14,6 +22,10 @@
   "config-image-resource-limit.json": {
     "rule_id": "CONFIG_IMAGE_RESOURCE_LIMIT",
     "schema_rejects": false
+  },
+  "config-json-nesting-depth.json": {
+    "rule_id": "CONFIG_JSON_NESTING_DEPTH",
+    "schema_rejects": true
   },
   "config-nondeterministic.toml": {
     "rule_id": "CONFIG_DETERMINISTIC",

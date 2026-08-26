@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.typaxis.invalid/1.0/document-package.schema.json",
-  "title": "Typaxis Canonical Document Package 1.0",
+  "$id": "https://schemas.typaxis.invalid/1.1/document-package.schema.json",
+  "title": "Typaxis Canonical Document Package 1.1",
   "type": "object",
   "additionalProperties": false,
   "required": [

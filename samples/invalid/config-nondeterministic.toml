@@ -1,4 +1,4 @@
-contract = "typaxis.contract/1.0"
+contract = "typaxis.contract/1.1"
 deterministic = false
 strict = true
 pdf_stream_compression = "flate"

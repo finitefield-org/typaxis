@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.typaxis.invalid/1.0/build-manifest.schema.json",
-  "title": "Typaxis Build Manifest 1.0",
+  "$id": "https://schemas.typaxis.invalid/1.1/build-manifest.schema.json",
+  "title": "Typaxis Build Manifest 1.1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,6 +11,8 @@
     "engine",
     "data_versions",
     "config_sha256",
+    "input_profile",
+    "package_input",
     "inputs",
     "fonts",
     "images",
@@ -87,6 +89,22 @@
     },
     "config_sha256": {
       "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "input_profile": {
+      "enum": [
+        "typaxis.machine-pdf/paragraph-1",
+        "typaxis.reference-source/1"
+      ]
+    },
+    "package_input": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/package_input_record"
+        }
+      ]
     },
     "inputs": {
       "type": "array",
@@ -243,6 +261,76 @@
         }
       }
     },
+    "package_input_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "canonical_sha256",
+        "contract",
+        "sha256",
+        "uri"
+      ],
+      "properties": {
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        },
+        "canonical_sha256": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "contract": {
+          "oneOf": [
+            {
+              "enum": [
+                "typaxis.contract/1.0",
+                "typaxis.contract/1.1"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "canonical_sha256": {
+              "type": "null"
+            },
+            "contract": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "canonical_sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "contract": {
+              "enum": [
+                "typaxis.contract/1.0",
+                "typaxis.contract/1.1"
+              ]
+            }
+          }
+        }
+      ]
+    },
     "output_record": {
       "type": "object",
       "additionalProperties": false,
@@ -359,7 +447,65 @@
       }
     }
   },
-  "oneOf": [
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
+            "const": "typaxis.reference-source/1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "package_input": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
+            "const": "typaxis.machine-pdf/paragraph-1"
+          },
+          "status": {
+            "const": "built"
+          }
+        },
+        "required": [
+          "input_profile",
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "package_input": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/package_input_record"
+              },
+              {
+                "properties": {
+                  "canonical_sha256": {
+                    "$ref": "common.schema.json#/$defs/sha256"
+                  },
+                  "contract": {
+                    "enum": [
+                      "typaxis.contract/1.0",
+                      "typaxis.contract/1.1"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "oneOf": [
     {
       "properties": {
         "status": {
@@ -392,6 +538,8 @@
           "type": "null"
         }
       }
+    }
+      ]
     }
   ]
 }

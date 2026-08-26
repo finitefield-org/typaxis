@@ -1,0 +1,6 @@
+{
+  "algorithm": "rfc8785-jcs-sha256/1",
+  "canonical_sha256": "341b8f6213fe34651314a33c258db967b6c2e3ef0a547d415f15ba9790cf82be",
+  "contract": "typaxis.contract/1.0",
+  "fixture": "document-package-1.0.json"
+}

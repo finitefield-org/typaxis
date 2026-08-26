@@ -57,6 +57,13 @@ fn strings<'a>(values: &'a [&'a str]) -> Vec<&'a OsStr> {
     values.iter().map(OsStr::new).collect()
 }
 
+fn repository_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .expect("repository root must be available to integration tests")
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ManifestOutputFacts {
     sink: String,
@@ -276,6 +283,15 @@ fn byte_offset(bytes: &[u8], marker: &[u8]) -> usize {
         .unwrap_or_else(|| panic!("PDF must contain marker {:?}", marker))
 }
 
+fn assert_artifact_glyph_is_painted(pdf: &[u8]) {
+    let marked = bytes_after(pdf, b"/Artifact << /ActualText <> >> BDC\n");
+    let body = &marked[..byte_offset(marked, b"EMC\n")];
+    assert!(body.windows(b" Tj\n".len()).any(|bytes| bytes == b" Tj\n"));
+    assert!(!body
+        .windows(b"<0000> Tj".len())
+        .any(|bytes| bytes == b"<0000> Tj"));
+}
+
 #[test]
 fn global_actions_and_exit_code_classes_are_observable() {
     let directory = TestDirectory::new();
@@ -441,6 +457,139 @@ fn global_actions_and_exit_code_classes_are_observable() {
     }
 }
 
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn public_machine_commands_execute_fixtures_and_capabilities_ignore_ambient_inputs() {
+    let repository = repository_root();
+    let combined = repository.join("samples/machine-package/profiles/paragraph-1/combined");
+    let output = TestDirectory::new();
+    let pdf = output.path().join("output.pdf");
+    let trace = output.path().join("trace.json");
+    let manifest = output.path().join("manifest.json");
+    let diagnostics = output.path().join("diagnostics.json");
+    let build_arguments = vec![
+        OsStr::new("build-package"),
+        OsStr::new("job/document-package.json"),
+        OsStr::new("-o"),
+        pdf.as_os_str(),
+        OsStr::new("--package-root"),
+        OsStr::new("job"),
+        OsStr::new("--profile"),
+        OsStr::new("typaxis.machine-pdf/paragraph-1"),
+        OsStr::new("--resource-root"),
+        OsStr::new("job"),
+        OsStr::new("--trace"),
+        trace.as_os_str(),
+        OsStr::new("--trace-text"),
+        OsStr::new("--emit-build-manifest"),
+        manifest.as_os_str(),
+        OsStr::new("--emit-diagnostics"),
+        diagnostics.as_os_str(),
+        OsStr::new("--no-compress"),
+    ];
+    let built = run(&combined, &build_arguments);
+    assert!(
+        built.status.success(),
+        "build-package stderr: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    assert!(built.stdout.is_empty());
+    assert!(built.stderr.is_empty());
+    let pdf_bytes = fs::read(&pdf).unwrap();
+    assert!(pdf_bytes.starts_with(b"%PDF-1.7\n"));
+    assert_eq!(pdf_page_count(&pdf_bytes), 1);
+    let trace_text = fs::read_to_string(&trace).unwrap();
+    assert!(trace_text.contains("\"resolved_generated_text\":[{"));
+    assert!(trace_text.contains("\"utf8\":\"1\""));
+    let manifest_text = fs::read_to_string(&manifest).unwrap();
+    assert!(manifest_text.contains("\"status\":\"built\""));
+    assert!(manifest_text.contains("\"input_profile\":\"typaxis.machine-pdf/paragraph-1\""));
+    assert_eq!(
+        fs::read_to_string(&diagnostics).unwrap(),
+        "{\"contract\":\"typaxis.contract/1.1\",\"diagnostics\":[]}"
+    );
+
+    let check_diagnostics = output.path().join("check-diagnostics.json");
+    let checked = run(
+        &combined,
+        &[
+            OsStr::new("check-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/paragraph-1"),
+            OsStr::new("--resource-root"),
+            OsStr::new("job"),
+            OsStr::new("--emit-diagnostics"),
+            check_diagnostics.as_os_str(),
+        ],
+    );
+    assert!(
+        checked.status.success(),
+        "check-package stderr: {}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert_eq!(
+        fs::read(&check_diagnostics).unwrap(),
+        fs::read(&diagnostics).unwrap()
+    );
+
+    let invalid = repository.join("samples/machine-package/invalid/p1100-bom");
+    let invalid_output = TestDirectory::new();
+    let invalid_pdf = invalid_output.path().join("output.pdf");
+    let invalid_manifest = invalid_output.path().join("manifest.json");
+    let invalid_diagnostics = invalid_output.path().join("diagnostics.json");
+    let rejected = run(
+        &invalid,
+        &[
+            OsStr::new("build-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("-o"),
+            invalid_pdf.as_os_str(),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--resource-root"),
+            OsStr::new("job"),
+            OsStr::new("--emit-build-manifest"),
+            invalid_manifest.as_os_str(),
+            OsStr::new("--emit-diagnostics"),
+            invalid_diagnostics.as_os_str(),
+        ],
+    );
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(!invalid_pdf.exists());
+    assert!(fs::read_to_string(invalid_diagnostics)
+        .unwrap()
+        .contains("\"code\":\"P1100\""));
+    let failed_manifest = fs::read_to_string(invalid_manifest).unwrap();
+    assert!(failed_manifest.contains("\"status\":\"failed\""));
+    assert!(failed_manifest.contains("\"canonical_sha256\":null"));
+    assert!(failed_manifest.contains("\"contract\":null"));
+    assert!(failed_manifest.contains("\"inputs\":[]"));
+
+    fs::write(output.path().join("typaxis.toml"), b"not valid TOML\0").unwrap();
+    let capabilities = cli_command(
+        output.path(),
+        &strings(&["capabilities", "--format", "json"]),
+    )
+    .env("TYPAXIS_UNKNOWN", "must-not-be-read")
+    .env("TYPAXIS_LIMITS__MAX_PAGES", "not-an-integer")
+    .env("LC_ALL", "typaxis-invalid-locale")
+    .output()
+    .expect("capabilities process must start");
+    assert!(
+        capabilities.status.success(),
+        "capabilities stderr: {}",
+        String::from_utf8_lossy(&capabilities.stderr)
+    );
+    assert!(capabilities.stderr.is_empty());
+    assert_eq!(
+        capabilities.stdout,
+        fs::read(repository.join("samples/machine-package/capabilities.json")).unwrap()
+    );
+}
+
 #[test]
 fn exact_profile_limit_maxima_are_accepted() {
     let directory = TestDirectory::new();
@@ -530,7 +679,7 @@ fn empty_build_publishes_pdf_trace_and_manifest_atomically() {
     let first_manifest = fs::read(&manifest).unwrap();
     assert!(first_pdf.starts_with(b"%PDF-1.7\n"));
     assert!(first_pdf.ends_with(b"%%EOF\n"));
-    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.0\""));
+    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.1\""));
     assert!(first_manifest
         .windows(16)
         .any(|window| window == b"\"status\":\"built\""));
@@ -706,7 +855,7 @@ fn non_utf8_host_paths_build_without_entering_the_manifest() {
     fs::write(directory.path().join(&input), b"\n").unwrap();
     fs::write(
         directory.path().join(&config),
-        b"contract = \"typaxis.contract/1.0\"\n",
+        b"contract = \"typaxis.contract/1.1\"\n",
     )
     .unwrap();
     fs::create_dir(directory.path().join(&resource_root)).unwrap();
@@ -758,9 +907,23 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(ast.status.success());
     let ast = String::from_utf8(ast.stdout).unwrap();
-    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.0\""));
+    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.1\""));
     assert!(ast.contains("\"anchor_id\":\"target\""));
     assert!(!ast.ends_with('\n'));
+
+    let limited_ast = run(
+        directory.path(),
+        &strings(&[
+            "dump-ast",
+            "reference.tsf",
+            "--format",
+            "json",
+            "--max-document-package-bytes",
+            "1",
+        ]),
+    );
+    assert_eq!(limited_ast.status.code(), Some(5));
+    assert!(limited_ast.stdout.is_empty());
 
     let layout = run(
         directory.path(),
@@ -768,7 +931,7 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(layout.status.success());
     let layout = String::from_utf8(layout.stdout).unwrap();
-    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.0\""));
+    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.1\""));
     assert!(layout.contains("\"fragments\":[{"));
     assert!(!layout.ends_with('\n'));
 
@@ -950,7 +1113,7 @@ fn generated_page_reference_reflows_and_paints_the_selected_state() {
         String::from_utf8_lossy(&build.stderr)
     );
     let pdf = fs::read(directory.path().join("reference.pdf")).unwrap();
-    assert!(pdf.windows(b"<0031>".len()).any(|bytes| bytes == b"<0031>"));
+    assert_artifact_glyph_is_painted(&pdf);
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -983,7 +1146,7 @@ fn adjacent_parsed_and_generated_sites_use_whole_paragraph_itemization() {
         String::from_utf8_lossy(&build.stderr)
     );
     let pdf = fs::read(directory.path().join("inline-reference.pdf")).unwrap();
-    assert!(pdf.windows(b"<0031>".len()).any(|bytes| bytes == b"<0031>"));
+    assert_artifact_glyph_is_painted(&pdf);
     assert!(pdf.windows(b"<0050>".len()).any(|bytes| bytes == b"<0050>"));
 }
 

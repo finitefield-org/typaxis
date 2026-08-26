@@ -4,41 +4,44 @@
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| DocumentPackage portable shape | Yes, current 1.0 | Yes: Schema/offline semantic validator | No trusted ingestion | No |
-| `dump-ast` DocumentPackage export | Yes, current 1.0 | Yes, one-way export | No round trip | No |
-| sealed package/source admission | Yes, ADR-0027 target | No | No | No |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed target contract | No profile descriptor/preflight | No | No |
-| contract 1.1 Schema registry | Yes, MI1-14 migration plan | No; current registry remains 1.0 | No | No |
+| DocumentPackage portable shape | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/offline semantic validation | Yes, package commands | No |
+| `dump-ast` DocumentPackage export | Yes, current 1.1 | Yes, shared converter/encoder | Yes, supported package round trip | No |
+| sealed package/source admission | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
+| contract 1.1 Schema registry | Yes | Yes: eleven-schema current registry plus frozen seven-schema 1.0 registry | Yes | No: two-host aggregate pending |
 
 The offline validator proves portable Schema and semantic conformance only. It
-does not issue `typaxis_syntax::ValidatedParsedPackage`, and the current
-`typaxis build` command does not accept `document-package.schema.json`
-instances as input. The missing trusted source admission, machine-package
-decoder, CLI command, and downstream PDF capability work are tracked in
+does not issue in-process admission or validation receipts. The `typaxis build`
+command intentionally does not accept `document-package.schema.json` instances;
+the separate public `build-package` and `check-package` commands perform sealed
+in-process admission. Their normative contract is [docs/26](../docs/26-machine-input-cli.md),
+and remaining release evidence is tracked in
 [docs/25](../docs/25-machine-input-pdf-improvements.md).
 
 `WireDocumentPackage` is intentionally caller-constructible and untrusted.
-Portable validation cannot manufacture the target decoder-issued
+Portable validation cannot manufacture the decoder-issued
 `DecodedDocumentPackage`, bind raw and canonical package hashes to one host
 session, admit the exact companion source bytes, or issue a
-`ValidatedMachinePackage`/capability receipt. The future trusted path calls the
+`ValidatedMachinePackage`/capability receipt. The internal trusted path calls the
 strict decoder only on stable bytes owned by machine admission and lets sealed
 `typaxis-syntax` perform source/TextMap/domain validation. A validator success,
 `dump-ast` JSON, or matching hashes therefore never substitutes for an
 in-process receipt.
 
-[ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) adopts the
-1.1 migration but does not perform it. Until MI1-14, every current generated
-artifact and Schema `$id` remains 1.0; no current machine-capabilities Schema or
-future registry layout is implied. MI1-14 freezes the existing 1.0 registry and
-switches all current generated artifacts, fixtures, and validator registries to
-the 1.1 arrangement atomically. Public `build-package`,
-`check-package`, capability CLI E2E, and release support remain gated on
-MI1-17.
+[ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) defines the
+migration now implemented by the current registry. `schemas/1.0/` contains the
+frozen seven-schema compatibility registry; top-level `schemas/*.schema.json`
+contains the separate current eleven-schema 1.1 registry, including capability,
+fixture/matrix, and machine host-evidence Schemas. Current generators emit 1.1
+only, while the typed DocumentPackage parser recognizes 1.0 and 1.1. Public
+`build-package`, `check-package`, and capability CLI E2E are available. Release
+support remains gated on matching current-source Linux/macOS evidence aggregation.
 
-Schema `$id` values under `https://schemas.typaxis.invalid/1.0/` are logical,
-offline identifiers. They are not fetch URLs. A validator must register every
-`*.schema.json` file by its `$id` before resolving relative `$ref` values.
+Schema `$id` values under `https://schemas.typaxis.invalid/1.0/` and
+`https://schemas.typaxis.invalid/1.1/` are logical, offline identifiers. They
+are not fetch URLs. A validator must build independent registries for the two
+versions and register every `*.schema.json` file by its `$id` before resolving
+relative `$ref` values.
 
 Run the bundled offline validator from the repository root:
 
@@ -48,7 +51,12 @@ python3 schemas/validate.py
 
 It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 
-- meta-validates every Draft 2020-12 schema and resolves every registered `$ref`;
+- meta-validates both independent Draft 2020-12 registries and resolves every
+  registered `$ref` without cross-registering versions;
+- proves that the canonical 1.0 compatibility fixture is accepted by the
+  frozen DocumentPackage Schema but not the current registry, retains its 1.0
+  contract member in its JCS hash, and that a 1.0 consumer rejects the additive
+  1.1 config, diagnostics, and manifest shapes;
 - validates all minimal JSON and TOML fixtures;
 - checks every invalid fixture against its authoritative `schema_rejects` value
   and requires its semantic conformance check to emit exactly the indexed
@@ -68,17 +76,21 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;
 - exercises every built/failed build-manifest conditional branch;
+- validates the canonical machine capability snapshot, all generated machine
+  expectations/matrices, and exact host-evidence shape;
 - verifies config/trace/manifest compression, data-version, pass-limit, layout,
   selected-page-count, strict-fallback, and output-file relationships; and
 - verifies file facts used by the minimal manifest and manifest-order fixture.
 
-`package-config.schema.json` describes the fully merged `EffectiveConfig` data
+`package-config.schema.json` describes the fully merged 1.1 `EffectiveConfig` data
 model that is hashed and passed to later phases. A user-authored `typaxis.toml`
 is a partial input and is not validated directly against this schema. The
 implementation first resolves defaults, the partial TOML file, environment
 overrides, and CLI overrides; it then validates and serializes the resulting
 complete `EffectiveConfig`. Its `allowed_uri_schemes` and `resource_roots`
-arrays are unique and sorted by UTF-8 bytes. Canonical document packages also
+arrays are unique and sorted by UTF-8 bytes. Raw 1.0 input receives the two
+machine-input limit defaults before overrides and normalizes to the same 1.1
+JCS bytes/hash as semantically equal raw 1.1 input. Canonical document packages also
 write an explicit ordered-list `start`; an omitted source value resolves to
 `1`, while unordered lists write `null`.
 

@@ -35,6 +35,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc"
+version = "1.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273"
+dependencies = [
+ "find-msvc-tools",
+ "shlex",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -84,6 +94,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "find-msvc-tools"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -130,6 +146,12 @@ dependencies = [
  "equivalent",
  "hashbrown",
 ]
+
+[[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "libc"
@@ -188,6 +210,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "psm"
+version = "0.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5787f7cda34e3033a72192c018bc5883100330f362ef279a8cbccfce8bb4e874"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -227,6 +258,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -250,6 +282,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_json"
+version = "1.0.151"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -257,6 +313,23 @@ checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "serde_stacker"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4936375d50c4be7eff22293a9344f8e46f323ed2b3c243e52f89138d9bb0f4a"
+dependencies = [
+ "serde",
+ "serde_core",
+ "stacker",
+]
+
+[[package]]
+name = "shlex"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "simd-adler32"
@@ -269,6 +342,19 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+
+[[package]]
+name = "stacker"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "707f49d46706bacf8a2b00d51dace3f9de527c13eec3778f570c411f89e69967"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "psm",
+ "windows-sys",
+]
 
 [[package]]
 name = "syn"
@@ -325,8 +411,11 @@ dependencies = [
  "typaxis-diagnostics",
  "typaxis-display-list",
  "typaxis-document",
+ "typaxis-document-package",
  "typaxis-layout",
  "typaxis-linebreak",
+ "typaxis-machine-input",
+ "typaxis-machine-profile",
  "typaxis-manifest",
  "typaxis-pagination",
  "typaxis-pdf",
@@ -372,9 +461,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "typaxis-document-package"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_stacker",
+ "typaxis-core",
+]
+
+[[package]]
 name = "typaxis-font"
 version = "0.1.0"
 dependencies = [
+ "typaxis-core",
+]
+
+[[package]]
+name = "typaxis-host-admission"
+version = "0.1.0"
+dependencies = [
+ "rustix",
  "typaxis-core",
 ]
 
@@ -416,13 +524,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "typaxis-machine-input"
+version = "0.1.0"
+dependencies = [
+ "typaxis-core",
+ "typaxis-document-package",
+ "typaxis-host-admission",
+]
+
+[[package]]
+name = "typaxis-machine-profile"
+version = "0.1.0"
+dependencies = [
+ "typaxis-core",
+ "typaxis-diagnostics",
+ "typaxis-syntax",
+]
+
+[[package]]
 name = "typaxis-manifest"
 version = "0.1.0"
 dependencies = [
  "typaxis-core",
+ "typaxis-diagnostics",
  "typaxis-display-list",
  "typaxis-document",
+ "typaxis-host-admission",
  "typaxis-layout",
+ "typaxis-machine-input",
+ "typaxis-machine-profile",
  "typaxis-pagination",
  "typaxis-pdf",
  "typaxis-resources",
@@ -459,10 +589,11 @@ dependencies = [
 name = "typaxis-resource-admission"
 version = "0.1.0"
 dependencies = [
- "rustix",
  "typaxis-core",
+ "typaxis-diagnostics",
  "typaxis-document",
  "typaxis-font",
+ "typaxis-host-admission",
 ]
 
 [[package]]
@@ -514,6 +645,8 @@ dependencies = [
  "typaxis-core",
  "typaxis-diagnostics",
  "typaxis-document",
+ "typaxis-document-package",
+ "typaxis-machine-input",
  "typaxis-style",
  "typaxis-text",
 ]
@@ -589,3 +722,9 @@ checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"

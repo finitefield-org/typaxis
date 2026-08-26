@@ -1,0 +1,45 @@
+{
+  "contract": "typaxis.contract/1.1",
+  "coordinate_unit": "pdf_point_1_65536",
+  "sources": [
+    {
+      "source_id": 0,
+      "uri": "sources/blank.json",
+      "utf8_byte_length": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "text_buffers": [],
+  "document": {
+    "node_id": 0,
+    "blocks": [],
+    "footnotes": []
+  },
+  "style_sheet": {
+    "rules": []
+  },
+  "page_masters": {
+    "default_master_id": "round-trip",
+    "masters": [
+      {
+        "master_id": "round-trip",
+        "width": 10000000,
+        "height": 10000000,
+        "body": {
+          "x": 655360,
+          "y": 655360,
+          "width": 8689280,
+          "height": 8689280
+        },
+        "header": null,
+        "footer": null,
+        "footnote": null
+      }
+    ],
+    "selection_rules": []
+  },
+  "resources": {
+    "font_faces": [],
+    "images": []
+  }
+}

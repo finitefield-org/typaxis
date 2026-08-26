@@ -1,12 +1,18 @@
 # CLI
 
-> **現行input status:** `build`、`check`、`dump-ast`、`dump-layout`の`INPUT`は、下記のbounded reference TSFである。`dump-ast --format json`が出力するDocumentPackage JSONはexport/contract artifactであり、現行`build`へ再入力できない。`build-package`等のmachine input commandは未実装である。必要な契約と不足機能は[docs/25](25-machine-input-pdf-improvements.md)を参照する。
+> **現行input status:** `build`、`check`、`dump-ast`、`dump-layout`の`INPUT`は、下記のbounded reference TSFである。DocumentPackage JSONは別の公開`build-package`/`check-package` commandへ入力し、`build`はJSONをsniffしない。supported reference TSFでは`dump-ast --format json -> build-package` round tripが成立する。normativeなproducer contractは[docs/26](26-machine-input-cli.md)を参照する。
 
 ```text
 typaxis help [COMMAND]
 typaxis --version
 typaxis build INPUT -o OUTPUT [--trace TRACE.json] [--emit-build-manifest MANIFEST.json]
+typaxis build-package PACKAGE -o OUTPUT [--package-root DIR] [--profile PROFILE]
+  [--resource-root DIR ...] [--trace TRACE.json] [--trace-text]
+  [--emit-build-manifest MANIFEST.json] [--emit-diagnostics DIAGNOSTICS.json]
 typaxis check INPUT
+typaxis check-package PACKAGE [--package-root DIR] [--profile PROFILE]
+  [--resource-root DIR ...] [--emit-diagnostics DIAGNOSTICS.json]
+typaxis capabilities --format json
 typaxis dump-ast INPUT --format json
 typaxis dump-layout INPUT --page N
 typaxis inspect-font FONT
@@ -17,16 +23,16 @@ typaxis list-fonts --font-dir DIR
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| current `build` reference TSF | Yes, current 1.0 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage Schema / `dump-ast` export | Yes, current 1.0 | Partial: portable validation/export | No package ingestion | No |
-| sealed machine package commands | Yes, ADR-0027 target | No | No | No |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed target profile | No descriptor/preflight yet | No | No |
+| current `build` reference TSF | Yes, current 1.1 | Yes, bounded reference subset | Yes | No |
+| DocumentPackage Schema / `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | No |
+| sealed machine package commands | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed profile | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
 
-`Contract-defined`やoffline Schema validationはcommand registrationを意味しない。現行helpにないmachine commandを利用可能と記載せず、public CLI E2Eとrelease statusを更新できるのはMI1-17だけとする。
+`Contract-defined`やoffline Schema validationはcommand registrationを意味しない。上表のpublic E2Eはclean-built binaryのpositive/negative fixtureで確認済みである。release statusは同一source/artifactに対するLinux/macOS actual-host evidenceの集約が成功するまで`No`とする。
 
-## Accepted machine command contract (not implemented)
+## Public machine command contract
 
-[ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md)は次のfuture grammarを採択した。これは現在実行できるhelpではなく、MI1-17までtop-level parser/dispatchへ登録しない。
+[ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md)に従い、次のgrammarをtop-level parser、dispatch、helpへ登録している。各optionの完全な一覧は`typaxis help build-package`、`typaxis help check-package`、`typaxis help capabilities`で確認できる。
 
 ```text
 typaxis build-package PACKAGE.json -o OUTPUT.pdf \
@@ -56,13 +62,13 @@ typaxis capabilities --format json
 - unknown profileはusage exit 2、contained PACKAGE/resource open unavailableはPACKAGE read前`I9110`/exit 3とする。atomic publisher unavailableはpublication context構築時にtargetを変更せずexit 3とする。unsupported inputをreference TSF、別backend、rasterへfallbackしない。
 - `build-package`は現行のexact `-` stdout、strict、compression、limit、alias、個別atomic publication規則を共有し、`--trace-text`は`--trace`を要求する。
 - `capabilities`は`--format json`を必須とし、missing/unknown formatはusage exit 2にする。config/filesystem/ambient localeを読まず、compiled descriptorからcanonical JSONを出す。
-- MI1-17以降のround tripは、supported reference TSF -> `dump-ast --format json` -> `build-package`でtyped canonical JCS/DocumentFingerprintが一致することを保証し、raw JSON bytes一致を要求しない。
+- supported reference TSF -> `dump-ast --format json` -> `build-package`のround tripはtyped canonical JCS/DocumentFingerprintが一致することを保証し、raw JSON bytes一致を要求しない。
 
 CLI tokenが正確に`OUTPUT=-`ならPDF bytesをstdoutへ出す。build manifestはhost pathを持たず、stdoutなら`output.sink = "stdout"`、その他のHostPathなら`output.sink = "file"`を記録する。したがって`./-`は通常fileとして扱える。traceとbuild manifestは常に明示されたsidecar HostPathへ出し、stdout/stderrへ混在させない。`--trace PATH`と`--emit-build-manifest PATH`はpath argument必須で、PDF stdout時にもhost file pathを指定すれば併用できる。
 
 `dump-layout --page N`の`N`はCLI利用者向けの1-based physical page numberで、`N >= 1`を要求する。内部・canonical JSONの0-based `page_index`へはchecked `N - 1`で変換する。
 
-build option: config、repeatable resource-root、strict、trace PATH、trace-text、emit-build-manifest PATH、max-<limit> override、no-compress、force。`--trace-text`は`--trace PATH`指定時だけ有効。profile 1.0は常にdeterministicであり、determinismを無効化するoptionを持たない。
+build option: config、repeatable resource-root、strict、trace PATH、trace-text、emit-build-manifest PATH、max-<limit> override、no-compress、force。`--trace-text`は`--trace PATH`指定時だけ有効。generated page-reference textを含むpackageでtraceを要求するときはcomplete traceのため`--trace-text`も指定する。profile 1.1は常にdeterministicであり、determinismを無効化するoptionを持たない。
 
 `--config HOST_PATH`はpartial raw config fileを選び、`--resource-root HOST_DIR`は順序付き`HostAdmissionContext`へ追加する。どちらもcanonical EffectiveConfig fieldではない。config file内の`resource_roots`は`ProjectRoot`（wire `"."`）または`Relative(PortablePath)`からなる`ConfigResourceRoot` setで、EffectiveConfig/hash対象のunique UTF-8-byte-sorted arrayである。admitted rootsは各variantをproject rootから解決したdirectoryとexplicit CLI rootsをcanonicalize/handle化した集合である。host root順は検査/diagnostic順であり、同じdeclaration `PortablePath`が複数rootに存在すればambiguous-path errorとしてfirst existing fileを選ばない。`allowed_uri_schemes`も同じcanonical set規則を使う。canonical optionのprecedenceはbuilt-in defaults、config file、`TYPAXIS_` environment、CLIの順に後勝ち。CLIでcanonical fieldを上書きするのは`--strict`、`--no-compress`、`--max-<limit>`だけで、output/trace/force等はbuild execution optionとして分離する。
 

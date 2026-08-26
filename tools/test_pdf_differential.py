@@ -29,6 +29,12 @@ def executable(path: Path, source: str) -> str:
 
 
 class PdfDifferentialTests(unittest.TestCase):
+    def test_normalization_drops_unmapped_artifact_control_scalars(self) -> None:
+        self.assertEqual(
+            differential._normalized_text(b"Typaxis machine input\n\x01\n\f"),
+            "Typaxis machine input",
+        )
+
     def test_independent_results_must_match_across_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             temporary = Path(raw)

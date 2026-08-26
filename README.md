@@ -1,20 +1,20 @@
 # typaxis
 
-Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はProfile 1.0の現行契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。参照workspaceは意図的に限定されており、machine inputを含む現在の到達性は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
+Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はProfile 1.1の現行契約と、凍結した1.0 input互換契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。machine inputの公開範囲は[producer guide](docs/26-machine-input-cli.md)、残るrelease gateは[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
 
 ## 現行inputとmachine delivery status
 
-現行`typaxis build INPUT`、`check`、`dump-ast`、`dump-layout`のINPUTはbounded **reference TSF**である。DocumentPackage JSONはportable contract/Schema artifactであり、現行`build`のINPUTではない。`dump-ast --format json`は一方向exportで、現時点では`dump-ast -> build-package` round tripを提供しない。`build-package`、`check-package`、`capabilities`は[ADR-0027](adr/ADR-0027-machine-document-package-ingestion.md)でtarget contractとして採択済みだが未実装・未登録である。
+`typaxis build INPUT`、`check`、`dump-ast`、`dump-layout`のINPUTはbounded **reference TSF**のままであり、content sniffingはしない。公開`build-package`と`check-package`は1.0/1.1 DocumentPackage JSONをsealed ingestionへ通し、`capabilities --format json`はcompiled M1 descriptorを出力する。supported reference TSFについては`dump-ast --format json -> build-package` round tripを提供する。
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| bounded reference TSF build | Yes, current 1.0 | Yes, reference subset | Yes, reference subset | No |
-| portable DocumentPackage validation/export | Yes, current 1.0 | Partial: Schema/validator/export | No trusted ingestion | No |
-| sealed DocumentPackage ingestion | Yes, ADR-0027 M1 target | No | No | No |
-| `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | No descriptor/preflight yet | No | No |
-| contract 1.1 generated artifacts | Yes, migration plan | No; current output remains 1.0 | No | No |
+| bounded reference TSF build | Yes, current 1.1 | Yes, reference subset | Yes | No |
+| portable DocumentPackage validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator/export | Yes, through package commands | No |
+| sealed DocumentPackage ingestion | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
+| `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
+| contract 1.1 generated artifacts | Yes | Yes | Yes | No: two-host aggregate pending |
 
-`Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。machine input対応済みと表明できる最初のgateはMI1-17であり、それ以前のpartial implementationは上表の後三軸を自動的に変更しない。
+`Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。現在のworktreeではpublic machine commandとLinux actual-host gateまで検証済みである。release-supportedはCIが同一revision/source/artifactのLinux・macOS evidenceを実際に集約してからだけ`Yes`へ変更する。
 
 ## 設計文書
 
@@ -50,6 +50,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 ### 利用・実装・検証
 
 - [CLI](docs/19-cli.md)
+- [Machine input CLI producer guide](docs/26-machine-input-cli.md)
 - [Testing strategy](docs/20-testing.md)
 - [Implementation roadmap](docs/21-roadmap.md)
 - [Cross-layer contract matrix](docs/22-contract-matrix.md)
@@ -62,6 +63,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 - [`schemas/`](schemas/) — canonical JSON/TOML Schema
 - [ADR catalog](adr/README.md) — 採用済みの設計判断と適用範囲
 - [`samples/`](samples/) — valid/invalid contract fixture
+- [Machine package fixture README](samples/machine-package/README.md) — runnable M1 packageとhost evidence gate
 
 ## 実装
 
@@ -89,3 +91,14 @@ MuPDFとPopplerを使う独立renderer/extractor gateは、比較する二つの
 ```console
 python3 tools/verify_pdf_differential.py --pdf first.pdf --pdf second.pdf --expected-pages 1 --expected-text 'expected'
 ```
+
+公開machine profileのclean build、二回実行、異名source snapshot再現性、Schema、MuPDF/Poppler、host evidenceをまとめたgateは次で実行する。
+
+```console
+python3 tools/verify_machine_profile.py \
+  --repository . \
+  --fixture samples/machine-package/profiles/paragraph-1/combined/expected.json \
+  --runs 2 --require-external-tools
+```
+
+Linux/macOS evidenceの集約方法は[fixture README](samples/machine-package/README.md#release-and-host-evidence)を参照する。片方のevidence欠落、failed/noncanonical/stale revision、異なるsource/fixture/artifactはrelease gateのfailureである。

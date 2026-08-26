@@ -2665,7 +2665,11 @@ fn write_glyph_run(
                 write_utf16be_hex(output, unicode.iter().map(|scalar| scalar.get()), true)?;
                 output.extend(b" >> BDC\n")?;
             }
-            ClusterExtractionPlan::Artifact { .. } => output.extend(b"/Artifact BMC\n")?,
+            ClusterExtractionPlan::Artifact { .. } => {
+                // A zero-length ActualText prevents extractors that ignore the
+                // Artifact tag from falling back to the raw CID value.
+                output.extend(b"/Artifact << /ActualText <> >> BDC\n")?;
+            }
             ClusterExtractionPlan::PerCid { .. } => {}
         }
         let cid_count = cluster_plan_cid_count(extraction);

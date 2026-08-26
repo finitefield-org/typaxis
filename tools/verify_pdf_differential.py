@@ -69,7 +69,16 @@ def _normalized_text(payload: bytes) -> str:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as error:
         raise PdfDifferentialError("extractor output is not UTF-8") from error
-    return text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n\f")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Some extractors expose an unmapped CID from Artifact marked content as
+    # a C0 control scalar. Controls other than the structural tab/newline/form
+    # feed separators are not normalized document text.
+    text = "".join(
+        character
+        for character in text
+        if character in "\t\n\f" or ord(character) >= 0x20
+    )
+    return text.rstrip("\n\f")
 
 
 def verify_pdf_differential(

@@ -4,18 +4,18 @@ The evidence matrix below does not by itself report delivery completion. Machine
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| reference TSF build | Yes, current 1.0 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage portable validation/export | Yes, current 1.0 | Partial: Schema/validator/`dump-ast` | No trusted ingestion | No |
-| sealed package/source ingestion | Yes, ADR-0027 target | No | No | No |
-| `typaxis.machine-pdf/paragraph-1` | Yes, immutable capability contract | No descriptor/preflight yet | No | No |
-| generated contract 1.1 artifacts | Yes, MI1-14 migration plan | No; current wire remains 1.0 | No | No |
+| reference TSF build | Yes, current 1.1 | Yes, bounded reference subset | Yes | No |
+| DocumentPackage portable validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator and shared `dump-ast` encoder | Yes, package commands and round trip | No |
+| sealed package/source ingestion | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
+| `typaxis.machine-pdf/paragraph-1` | Yes, immutable capability contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
+| generated contract 1.1 artifacts | Yes | Yes: config/trace/diagnostics/manifest/package/capabilities/evidence | Yes | No: two-host aggregate pending |
 
 `Contract-defined` does not imply that a Rust owner exists, the current `build` accepts DocumentPackage JSON, public CLI E2E passes, or a release supports the feature.
 
 | Contract | Rust | JSON | Docs | Validator |
 |---|---|---|---|---|
 | product/CLI identity | `typaxis_core::PRODUCT_NAME` / Cargo `[[bin]]` | manifest `engine.name` | docs/19 | exact name/bin/Schema checks |
-| wire ID | current `typaxis_core::CONTRACT` is 1.0; MI1-14 target is atomic 1.1 switch | current roots use 1.0; 1.0 freeze/1.1 registry are not implemented | contract-version, ADR-0027 | current exact scan; dual registry pending MI1-14 |
+| wire ID | current `typaxis_core::CONTRACT` is 1.1; typed DocumentPackage input IDs are 1.0/1.1 | current roots use 1.1; the seven-schema 1.0 registry is frozen separately | contract-version, ADR-0027 | independent frozen seven-schema 1.0/current eleven-schema 1.1 registries, compatibility hash, and no cross-registration |
 | source/text/local map range | `SourceSpan` / `TextSpan` / `Utf8ByteRange` | common + document package | docs/03 | bounds/boundary/coverage |
 | generated/Display text ownership | `GeneratedBufferKey` / `GeneratedTextStore` / `DisplayTextMap` / `DisplayDocument.text_buffers` | display text buffers/spans | docs/05,09,11 | canonical key allocation + disjoint internal IDs + selected-bound stable dense remap + artifact-owned text table |
 | validated parser output | sealed `Parser` / `ValidatedParsedPackage` / `ParseOutcome` / `AdvisoryDiagnostic` | N/A (in-process) | docs/01,03 | source-driven owner + no feature promotion + compile-fail boundary + error-or-fatal/value exclusion |
@@ -23,8 +23,8 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | URI admission | `SafeUri` | typed URI fields | docs/03,15,18 | scheme/control/whitespace/length |
 | length and transform | `Length` / `AffineTransform` | common defs | docs/24 | numeric/type checks |
 | parser package | `ParsedPackage` | document root | docs/03,04 | Rust token + Schema |
-| machine package ingestion | target owners/receipts are contract-defined but unimplemented; `WireDocumentPackage` is untrusted and `DecodedDocumentPackage` is decoder-issued | DocumentPackage is a portable contract/export artifact, not current `build` input | ADR-0027, docs/02,19,25, contracts/phase-ownership | offline Schema/semantic validator only; no trusted CLI ingestion receipt |
-| machine PDF capability | target `MachineProfileDescriptor::PARAGRAPH_1` / preflight receipt are unimplemented | target capability JSON is contract 1.1 and not currently emitted | contracts/machine-pdf-capabilities, ADR-0027 | descriptor/Schema/combined CLI E2E pending MI1-10/MI1-14/MI1-17 |
+| machine package ingestion | stable-byte admission, strict decoder, sealed source validation, and session-bound receipts are implemented; `WireDocumentPackage` remains untrusted | 1.0/1.1 DocumentPackage input; current output is 1.1 | ADR-0027, docs/02,19,25,26, contracts/phase-ownership | dual Schema/semantic validation, Rust receipt tests, public positive/negative package-command E2E |
+| machine PDF capability | `MachineProfileDescriptor::PARAGRAPH_1` and matching preflight receipt | current 1.1 capability Schema and canonical fixture | contracts/machine-pdf-capabilities, ADR-0027, docs/26 | descriptor/encoder exact fixture, invalid limit fixture, public combined E2E, M2-negative assertion, external PDF and reproducibility gates; macOS/Linux aggregation remains release gate |
 | canonical lists | document list type | ordered/start relation | docs/04 | ordered positive start + unordered null |
 | block selectors/style cascade | style selector/cascade/`ResolvedTextStyle` types | block classes + closed typed style rules | docs/04 | grammar/class order/property registry/required text style/extends/winner |
 | page selection | `PageName` / `PageSelectionContext` / `PageContext` | page property + master rules | docs/04 | typed page value + derived flags + master winner |
@@ -41,10 +41,11 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | resource finalization | `ResourceCollector` / `FrozenPdfResourcePlans` | build records | docs/13 | selected epoch/ledger bind + usage union + admitted identity + typed indirect-object blueprint |
 | PDF stream | `PdfStreamObject` | N/A | docs/14 | reserved-key source invariant |
 | frozen PDF graph | untrusted builder / `FrozenPdfGraph` | N/A | docs/14,15 | full object preflight + font-role/page/annotation allocation + root/reference/page/destination/annotation/depth closure |
-| limits | `ResourceLimits` | config Schema | docs/03,07,09,10,18,19 | exact field set + source/text/resource relations + inclusive max semantics + iterative Document/style nesting precheck |
-| effective config/build manifest | `EffectiveConfig` / `BuildOutputCommitContext` / `ManifestPublicationContext` / `OutputSink` | config + build Schema | docs/16,19 | precedence/canonical set arrays/JCS hash/optional manifest + terminal failed/built publication + file/stdout sink + pre-write alias recheck |
+| limits | `ResourceLimits` / `MachineInputLimitBounds` | config and capability Schemas | docs/03,07,09,10,18,19,25 | exact field set + package-byte/JSON-depth default/maximum identity + inclusive max semantics + iterative nesting precheck + `I9100`/`I9101` mapping |
+| effective config/build manifest | `EffectiveConfig` / `BuildInputProfile` / `PackageInputRecord` / publication contexts | config + build Schema | docs/16,19,25 | precedence/canonical JCS hash + raw 1.0 normalization + reference/machine input conditional + package byte limit + terminal publication |
 | data/shaper/engine identity | `ResolvedDataTables` / `ShaperIdentity` / `EngineIdentity` | config/manifest identity facts | docs/05,16 | known table/shaper registry selection + build-issued engine facts; ShaperIdentity alone is not an actual-use capability |
-| diagnostics | `DiagnosticCode` / `AdvisoryDiagnostic` | diagnostic pattern/severity | docs/17 | exact category/severity + outcome rules |
+| diagnostics | `DiagnosticCode` / `DiagnosticLocation` / `AdvisoryDiagnostic` | diagnostic pattern/severity + tagged nullable location union | docs/17,25 | exact category/severity, package JSON/source locations, located notes, canonical encoding, and outcome rules |
+| machine host evidence | clean-built public binary + verifier-owned canonical evidence writer | machine-profile-evidence Schema | docs/25,26, sample README | exact check/tool/artifact sets, revision/source/fixture binding, Linux/macOS missing/failed/stale/cross-host mismatch rejection |
 | archive | release builder | MANIFEST | docs/16 | metadata/order/safety/rebuild |
 
 Contract変更時はRust、Schema、positive/negative fixture、docs、validatorを同じchange setで更新する。

@@ -10,6 +10,9 @@ workspace = true
 
 [dependencies]
 typaxis-core = { path = "../typaxis-core" }
+typaxis-host-admission = { path = "../typaxis-host-admission" }
+typaxis-machine-input = { path = "../typaxis-machine-input" }
+typaxis-machine-profile = { path = "../typaxis-machine-profile" }
 typaxis-pagination = { path = "../typaxis-pagination" }
 typaxis-pdf = { path = "../typaxis-pdf" }
 typaxis-resources = { path = "../typaxis-resources" }
@@ -18,6 +21,7 @@ typaxis-text = { path = "../typaxis-text" }
 
 [dev-dependencies]
 typaxis-display-list = { path = "../typaxis-display-list" }
+typaxis-diagnostics = { path = "../typaxis-diagnostics" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-layout = { path = "../typaxis-layout" }
 typaxis-style = { path = "../typaxis-style" }

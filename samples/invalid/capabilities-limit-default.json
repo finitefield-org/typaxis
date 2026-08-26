@@ -1,0 +1,14 @@
+{
+  "$fixture": "machine_capabilities",
+  "mutations": [
+    {
+      "path": [
+        "machine_input",
+        "limits",
+        "max_document_package_bytes",
+        "default"
+      ],
+      "value": 0
+    }
+  ]
+}

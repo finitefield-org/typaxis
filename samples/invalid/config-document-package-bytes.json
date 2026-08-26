@@ -1,0 +1,12 @@
+{
+  "$fixture": "package_config",
+  "mutations": [
+    {
+      "path": [
+        "limits",
+        "max_document_package_bytes"
+      ],
+      "value": 9007199254740992
+    }
+  ]
+}

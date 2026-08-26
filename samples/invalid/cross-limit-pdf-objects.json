@@ -1,1 +1,1 @@
-{"$fixture":"cross_artifacts","mutations":[{"artifact":"config","path":["limits","max_pdf_objects"],"value":3},{"artifact":"manifest","path":["config_sha256"],"value":"ddfe378475d5e94a4b8386418f33a1585c7be744076e6733b060fa9a156d9493"}]}
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"config","path":["limits","max_pdf_objects"],"value":3},{"artifact":"manifest","path":["config_sha256"],"value":"3e0603c126748bc178d4ca67cd89b760cb7c4efa069d14abc2fcbc50a967cf57"}]}

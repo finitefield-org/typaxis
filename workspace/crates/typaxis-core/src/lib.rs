@@ -7,13 +7,198 @@ use std::path::{Path, PathBuf};
 pub const PRODUCT_NAME: &str = "typaxis";
 pub const REGISTERED_UNICODE_VERSION: &str = "16.0.0";
 pub const REGISTERED_JAPANESE_LINE_BREAK_VERSION: &str = "typaxis-jlreq-horizontal/1.0.0";
-pub const CONTRACT: &str = "typaxis.contract/1.0";
+pub const CONTRACT: &str = DocumentPackageContractId::CURRENT.as_str();
 pub const COORDINATE_UNIT: &str = "pdf_point_1_65536";
 pub const UNITS_PER_PDF_POINT: i64 = 65_536;
 pub const JSON_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
 pub const MAX_BIDI_LEVEL: u8 = 125;
 pub const DEFAULT_MAX_URI_BYTES: usize = 8_192;
 pub const DEFAULT_ALLOWED_URI_SCHEMES: &[&str] = &["http", "https", "mailto", "tel"];
+
+/// A canonical RFC 6901 JSON Pointer.
+///
+/// Callers provide decoded path segments rather than a pre-escaped pointer,
+/// so values created through this API can only contain the RFC 6901 `~0` and
+/// `~1` escape forms. The empty segment sequence denotes the document root.
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct JsonPointer(String);
+
+impl JsonPointer {
+    /// The empty JSON Pointer identifying the whole document.
+    pub fn root() -> Self {
+        Self(String::new())
+    }
+
+    /// Construct a pointer from decoded reference-token segments.
+    pub fn from_segments<I, S>(segments: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut pointer = Self::root();
+        for segment in segments {
+            pointer.push_segment(segment.as_ref());
+        }
+        pointer
+    }
+
+    /// Return a new pointer with one decoded reference-token appended.
+    pub fn child(&self, segment: &str) -> Self {
+        let mut child = self.clone();
+        child.push_segment(segment);
+        child
+    }
+
+    /// Append one decoded reference-token using RFC 6901 escaping.
+    pub fn push_segment(&mut self, segment: &str) {
+        self.0.push('/');
+        for character in segment.chars() {
+            match character {
+                '~' => self.0.push_str("~0"),
+                '/' => self.0.push_str("~1"),
+                character => self.0.push(character),
+            }
+        }
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for JsonPointer {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for JsonPointer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// Closed set of DocumentPackage contracts accepted by the M1 decoder.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DocumentPackageContractId {
+    V1_0,
+    V1_1,
+}
+
+impl DocumentPackageContractId {
+    pub const CONTRACT_1_0: Self = Self::V1_0;
+    pub const CONTRACT_1_1: Self = Self::V1_1;
+    /// Contract emitted by every current generated artifact.
+    pub const CURRENT: Self = Self::V1_1;
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::V1_0 => "typaxis.contract/1.0",
+            Self::V1_1 => "typaxis.contract/1.1",
+        }
+    }
+}
+
+impl AsRef<str> for DocumentPackageContractId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for DocumentPackageContractId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UnknownDocumentPackageContractId;
+
+impl fmt::Display for UnknownDocumentPackageContractId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown DocumentPackage contract ID")
+    }
+}
+
+impl std::error::Error for UnknownDocumentPackageContractId {}
+
+impl std::str::FromStr for DocumentPackageContractId {
+    type Err = UnknownDocumentPackageContractId;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "typaxis.contract/1.0" => Ok(Self::V1_0),
+            "typaxis.contract/1.1" => Ok(Self::V1_1),
+            _ => Err(UnknownDocumentPackageContractId),
+        }
+    }
+}
+
+/// Closed set of immutable machine-PDF profiles known to M1.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachinePdfProfileId {
+    Paragraph1,
+}
+
+impl MachinePdfProfileId {
+    pub const PARAGRAPH_1: Self = Self::Paragraph1;
+    pub const CURRENT: Self = Self::Paragraph1;
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Paragraph1 => "typaxis.machine-pdf/paragraph-1",
+        }
+    }
+}
+
+impl AsRef<str> for MachinePdfProfileId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for MachinePdfProfileId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UnknownMachinePdfProfileId;
+
+impl fmt::Display for UnknownMachinePdfProfileId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown machine PDF profile ID")
+    }
+}
+
+impl std::error::Error for UnknownMachinePdfProfileId {}
+
+impl std::str::FromStr for MachinePdfProfileId {
+    type Err = UnknownMachinePdfProfileId;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "typaxis.machine-pdf/paragraph-1" => Ok(Self::Paragraph1),
+            _ => Err(UnknownMachinePdfProfileId),
+        }
+    }
+}
+
+/// Single source of truth for the configurable machine-package limit bounds.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MachineInputLimitBounds;
+
+impl MachineInputLimitBounds {
+    pub const DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES: u64 = 134_217_728;
+    pub const HARD_MAX_DOCUMENT_PACKAGE_BYTES: u64 = JSON_SAFE_INTEGER_MAX as u64;
+    pub const DEFAULT_MAX_JSON_NESTING_DEPTH: u16 = 256;
+    pub const HARD_MAX_JSON_NESTING_DEPTH: u16 = 256;
+}
 
 /// Dependency-free SHA-256 used at admission boundaries.
 pub fn sha256(bytes: &[u8]) -> [u8; 32] {
@@ -775,6 +960,8 @@ enum BuildOutputTarget {
 pub enum BuildExecutionError {
     EmptyOutput,
     AliasedWriteTarget,
+    AliasedReadWriteTarget,
+    ReadTargetChanged,
     CurrentDirectoryUnavailable,
 }
 
@@ -785,6 +972,7 @@ pub struct BuildExecutionContext {
     output: BuildOutputTarget,
     trace_target: Option<HostPath>,
     manifest_target: Option<HostPath>,
+    diagnostics_target: Option<HostPath>,
     replace_policy: ReplacePolicy,
 }
 impl BuildExecutionContext {
@@ -792,6 +980,7 @@ impl BuildExecutionContext {
         output_token: &OsStr,
         trace_target: Option<HostPath>,
         manifest_target: Option<HostPath>,
+        diagnostics_target: Option<HostPath>,
         replace_policy: ReplacePolicy,
     ) -> Result<Self, BuildExecutionError> {
         if output_token.is_empty() {
@@ -809,6 +998,7 @@ impl BuildExecutionContext {
             output,
             trace_target,
             manifest_target,
+            diagnostics_target,
             replace_policy,
         };
         context.validate_distinct_targets()?;
@@ -831,6 +1021,9 @@ impl BuildExecutionContext {
     }
     pub const fn manifest_target(&self) -> Option<&HostPath> {
         self.manifest_target.as_ref()
+    }
+    pub const fn diagnostics_target(&self) -> Option<&HostPath> {
+        self.diagnostics_target.as_ref()
     }
     pub const fn replace_policy(&self) -> ReplacePolicy {
         self.replace_policy
@@ -855,11 +1048,53 @@ impl BuildExecutionContext {
         if let Some(path) = self.manifest_target() {
             identities.push(write_target_identity(path)?);
         }
+        if let Some(path) = self.diagnostics_target() {
+            identities.push(write_target_identity(path)?);
+        }
         let unique: std::collections::BTreeSet<_> = identities.iter().collect();
         if unique.len() != identities.len() {
             return Err(BuildExecutionError::AliasedWriteTarget);
         }
         Ok(())
+    }
+}
+
+/// Host-only execution context for a diagnostics-only command such as
+/// `check-package`. It deliberately has no PDF output (and no dummy output
+/// path), while retaining the same construction and pre-publication target
+/// resolution rules as [`BuildExecutionContext`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiagnosticsExecutionContext {
+    diagnostics_target: HostPath,
+    replace_policy: ReplacePolicy,
+}
+
+impl DiagnosticsExecutionContext {
+    pub fn new(
+        diagnostics_target: HostPath,
+        replace_policy: ReplacePolicy,
+    ) -> Result<Self, BuildExecutionError> {
+        // Resolve the canonical parent+leaf and existing identity at context
+        // construction even though this context owns only one write target.
+        write_target_identity(&diagnostics_target)?;
+        Ok(Self {
+            diagnostics_target,
+            replace_policy,
+        })
+    }
+
+    pub const fn diagnostics_target(&self) -> &HostPath {
+        &self.diagnostics_target
+    }
+
+    pub const fn replace_policy(&self) -> ReplacePolicy {
+        self.replace_policy
+    }
+
+    /// Re-resolve the diagnostics target immediately before each temporary
+    /// write and publish operation.
+    pub fn revalidate_write_target(&self) -> Result<(), BuildExecutionError> {
+        write_target_identity(&self.diagnostics_target).map(|_| ())
     }
 }
 
@@ -1079,6 +1314,7 @@ fingerprint_type!(
     EffectiveConfigFingerprint,
     "typaxis.effective-config.jcs-sha256/1"
 );
+fingerprint_type!(MachineInputFingerprint, "typaxis.machine-input-sha256/1");
 
 /// Fingerprint value shared by the two closed pagination-state record
 /// variants. It deliberately has no single `ALGORITHM_ID`: state 0 and
@@ -1112,6 +1348,10 @@ pub fn style_fingerprint_from_jcs(canonical_jcs: &str) -> StyleFingerprint {
 }
 pub fn admitted_resource_fingerprint_from_jcs(canonical_jcs: &str) -> AdmittedResourceFingerprint {
     AdmittedResourceFingerprint::new(sha256(canonical_jcs.as_bytes()))
+}
+pub fn machine_input_fingerprint_from_jcs(canonical_jcs: &str) -> MachineInputFingerprint {
+    debug_assert!(canonical_jcs.contains(MachineInputFingerprint::ALGORITHM_ID));
+    MachineInputFingerprint::new(sha256(canonical_jcs.as_bytes()))
 }
 pub fn initial_pagination_state_fingerprint_from_jcs(
     canonical_jcs: &str,
@@ -1245,6 +1485,8 @@ pub struct ResourceLimits {
     pub max_resource_bytes: u64,
     pub max_image_pixels: u64,
     pub max_decoded_image_bytes: u64,
+    pub max_document_package_bytes: u64,
+    pub max_json_nesting_depth: u16,
     pub max_pages: u32,
     pub max_layout_passes: u16,
     pub max_uri_bytes: u32,
@@ -1283,6 +1525,8 @@ impl Default for ResourceLimits {
             max_resource_bytes: 1024 * 1024 * 1024,
             max_image_pixels: 100_000_000,
             max_decoded_image_bytes: 512 * 1024 * 1024,
+            max_document_package_bytes: MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
+            max_json_nesting_depth: MachineInputLimitBounds::DEFAULT_MAX_JSON_NESTING_DEPTH,
             max_pages: 10_000,
             max_layout_passes: 8,
             max_uri_bytes: DEFAULT_MAX_URI_BYTES as u32,
@@ -1305,6 +1549,8 @@ impl Default for ResourceLimits {
 pub enum ResourceLimitsError {
     ZeroLimit,
     IntegerNotJsonSafe,
+    DocumentPackageBytesExceedsProfile,
+    JsonNestingDepthExceedsProfile,
     AstNestingDepthExceedsProfile,
     FontCountExceedsSubsetNamespace,
     SourceExceedsInput,
@@ -1335,6 +1581,8 @@ impl ResourceLimits {
             self.max_resource_bytes,
             self.max_image_pixels,
             self.max_decoded_image_bytes,
+            self.max_document_package_bytes,
+            u64::from(self.max_json_nesting_depth),
             u64::from(self.max_pages),
             u64::from(self.max_layout_passes),
             u64::from(self.max_uri_bytes),
@@ -1363,10 +1611,19 @@ impl ResourceLimits {
             self.max_resource_bytes,
             self.max_image_pixels,
             self.max_decoded_image_bytes,
+            self.max_document_package_bytes,
             self.max_fragments,
             self.max_spool_bytes,
             self.max_output_bytes,
         ];
+        if self.max_document_package_bytes
+            > MachineInputLimitBounds::HARD_MAX_DOCUMENT_PACKAGE_BYTES
+        {
+            return Err(ResourceLimitsError::DocumentPackageBytesExceedsProfile);
+        }
+        if self.max_json_nesting_depth > MachineInputLimitBounds::HARD_MAX_JSON_NESTING_DEPTH {
+            return Err(ResourceLimitsError::JsonNestingDepthExceedsProfile);
+        }
         if json_safe
             .iter()
             .any(|value| *value > JSON_SAFE_INTEGER_MAX as u64)
@@ -1629,6 +1886,10 @@ fn push_limits_jcs(output: &mut String, limits: &ResourceLimits) {
             limits.max_column_balance_candidates
         ),
         ("max_decoded_image_bytes", limits.max_decoded_image_bytes),
+        (
+            "max_document_package_bytes",
+            limits.max_document_package_bytes
+        ),
         ("max_float_carry_pages", limits.max_float_carry_pages),
         ("max_float_queue", limits.max_float_queue),
         ("max_font_bytes", limits.max_font_bytes),
@@ -1644,6 +1905,7 @@ fn push_limits_jcs(output: &mut String, limits: &ResourceLimits) {
         ("max_include_depth", limits.max_include_depth),
         ("max_include_files", limits.max_include_files),
         ("max_input_bytes", limits.max_input_bytes),
+        ("max_json_nesting_depth", limits.max_json_nesting_depth),
         ("max_layout_passes", limits.max_layout_passes),
         ("max_line_reshape_passes", limits.max_line_reshape_passes),
         ("max_output_bytes", limits.max_output_bytes),
@@ -1667,6 +1929,62 @@ fn push_limits_jcs(output: &mut String, limits: &ResourceLimits) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn json_pointer_constructors_escape_decoded_segments() {
+        let root = JsonPointer::root();
+        assert!(root.is_root());
+        assert_eq!(root.as_str(), "");
+
+        let pointer = JsonPointer::from_segments(["a/b", "m~n", ""]);
+        assert_eq!(pointer.as_str(), "/a~1b/m~0n/");
+        assert_eq!(root.child("/").as_str(), "/~1");
+    }
+
+    #[test]
+    fn machine_contract_and_profile_ids_are_closed() {
+        assert_eq!(
+            DocumentPackageContractId::from_str("typaxis.contract/1.0"),
+            Ok(DocumentPackageContractId::CONTRACT_1_0)
+        );
+        assert_eq!(
+            DocumentPackageContractId::from_str("typaxis.contract/1.1"),
+            Ok(DocumentPackageContractId::CONTRACT_1_1)
+        );
+        assert!(DocumentPackageContractId::from_str("typaxis.contract/2.0").is_err());
+        assert_eq!(DocumentPackageContractId::CURRENT.as_str(), CONTRACT);
+        assert_eq!(CONTRACT, "typaxis.contract/1.1");
+
+        assert_eq!(
+            MachinePdfProfileId::from_str("typaxis.machine-pdf/paragraph-1"),
+            Ok(MachinePdfProfileId::PARAGRAPH_1)
+        );
+        assert!(MachinePdfProfileId::from_str("typaxis.machine-pdf/general").is_err());
+    }
+
+    #[test]
+    fn machine_input_limits_and_fingerprint_domain_are_fixed() {
+        assert_eq!(
+            MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
+            134_217_728
+        );
+        assert_eq!(
+            MachineInputLimitBounds::HARD_MAX_DOCUMENT_PACKAGE_BYTES,
+            JSON_SAFE_INTEGER_MAX as u64
+        );
+        assert_eq!(MachineInputLimitBounds::DEFAULT_MAX_JSON_NESTING_DEPTH, 256);
+        assert_eq!(MachineInputLimitBounds::HARD_MAX_JSON_NESTING_DEPTH, 256);
+        assert_eq!(
+            MachineInputFingerprint::ALGORITHM_ID,
+            "typaxis.machine-input-sha256/1"
+        );
+        assert_eq!(
+            MachineInputFingerprint::from_untrusted_bytes([7; 32]).bytes(),
+            [7; 32]
+        );
+    }
+
     #[test]
     fn spans_are_ordered_and_distinct() {
         assert!(Utf8ByteRange::new(Utf8ByteOffset::new(2), Utf8ByteOffset::new(1)).is_none());
@@ -1800,6 +2118,14 @@ mod tests {
         assert!(limits.max_float_carry_pages > 0);
         assert!(limits.max_cids_per_font > 0);
         assert_eq!(limits.max_ast_nesting_depth, MAX_AST_NESTING_DEPTH);
+        assert_eq!(
+            limits.max_document_package_bytes,
+            MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES
+        );
+        assert_eq!(
+            limits.max_json_nesting_depth,
+            MachineInputLimitBounds::DEFAULT_MAX_JSON_NESTING_DEPTH
+        );
         assert!(limits.validate().is_ok());
         let mut invalid = limits.clone();
         invalid.max_resource_bytes = invalid.max_font_bytes - 1;
@@ -1812,6 +2138,23 @@ mod tests {
         assert_eq!(
             invalid.validate(),
             Err(ResourceLimitsError::AstNestingDepthExceedsProfile)
+        );
+
+        let mut invalid = ResourceLimits {
+            max_document_package_bytes: MachineInputLimitBounds::HARD_MAX_DOCUMENT_PACKAGE_BYTES
+                + 1,
+            ..ResourceLimits::default()
+        };
+        assert_eq!(
+            invalid.validate(),
+            Err(ResourceLimitsError::DocumentPackageBytesExceedsProfile)
+        );
+        invalid.max_document_package_bytes =
+            MachineInputLimitBounds::HARD_MAX_DOCUMENT_PACKAGE_BYTES;
+        invalid.max_json_nesting_depth = MachineInputLimitBounds::HARD_MAX_JSON_NESTING_DEPTH + 1;
+        assert_eq!(
+            invalid.validate(),
+            Err(ResourceLimitsError::JsonNestingDepthExceedsProfile)
         );
 
         let mut exact_subset_namespace = ResourceLimits {
@@ -1871,6 +2214,7 @@ mod tests {
             OsStr::new("-"),
             None,
             None,
+            None,
             ReplacePolicy::NoReplace,
         )
         .unwrap();
@@ -1879,6 +2223,7 @@ mod tests {
 
         let file = BuildExecutionContext::from_cli_token(
             OsStr::new("./-"),
+            None,
             None,
             None,
             ReplacePolicy::NoReplace,
@@ -1892,10 +2237,63 @@ mod tests {
                 OsStr::new("target/out.pdf"),
                 Some(same),
                 None,
+                None,
                 ReplacePolicy::Replace,
             ),
             Err(BuildExecutionError::AliasedWriteTarget)
         );
+
+        let sidecar = || HostPath::new("target/shared.json").unwrap();
+        let distinct_output = OsStr::new("target/distinct.pdf");
+        for result in [
+            BuildExecutionContext::from_cli_token(
+                distinct_output,
+                Some(sidecar()),
+                Some(sidecar()),
+                None,
+                ReplacePolicy::NoReplace,
+            ),
+            BuildExecutionContext::from_cli_token(
+                distinct_output,
+                Some(sidecar()),
+                None,
+                Some(sidecar()),
+                ReplacePolicy::NoReplace,
+            ),
+            BuildExecutionContext::from_cli_token(
+                distinct_output,
+                None,
+                Some(sidecar()),
+                Some(sidecar()),
+                ReplacePolicy::NoReplace,
+            ),
+            BuildExecutionContext::from_cli_token(
+                OsStr::new("target/shared.json"),
+                None,
+                Some(sidecar()),
+                None,
+                ReplacePolicy::NoReplace,
+            ),
+            BuildExecutionContext::from_cli_token(
+                OsStr::new("target/shared.json"),
+                None,
+                None,
+                Some(sidecar()),
+                ReplacePolicy::NoReplace,
+            ),
+        ] {
+            assert_eq!(result, Err(BuildExecutionError::AliasedWriteTarget));
+        }
+    }
+
+    #[test]
+    fn diagnostics_execution_context_has_no_pdf_output() {
+        let target = HostPath::new("target/diagnostics.json").unwrap();
+        let context =
+            DiagnosticsExecutionContext::new(target.clone(), ReplacePolicy::NoReplace).unwrap();
+        assert_eq!(context.diagnostics_target(), &target);
+        assert_eq!(context.replace_policy(), ReplacePolicy::NoReplace);
+        context.revalidate_write_target().unwrap();
     }
 
     #[cfg(unix)]
@@ -1916,6 +2314,7 @@ mod tests {
             target.as_os_str(),
             Some(HostPath::new(alias.clone()).unwrap()),
             None,
+            None,
             ReplacePolicy::NoReplace,
         );
         assert_eq!(result, Err(BuildExecutionError::AliasedWriteTarget));
@@ -1930,6 +2329,7 @@ mod tests {
             BuildExecutionContext::from_cli_token(
                 hard_target.as_os_str(),
                 Some(HostPath::new(hard_alias.clone()).unwrap()),
+                None,
                 None,
                 ReplacePolicy::NoReplace,
             ),
@@ -1953,6 +2353,7 @@ mod tests {
                 through_symlink_parent.as_os_str(),
                 Some(HostPath::new(direct_after_symlink_parent).unwrap()),
                 None,
+                None,
                 ReplacePolicy::NoReplace,
             ),
             Err(BuildExecutionError::AliasedWriteTarget)
@@ -1970,6 +2371,7 @@ mod tests {
             BuildExecutionContext::from_cli_token(
                 direct_nested.as_os_str(),
                 Some(HostPath::new(alias_nested).unwrap()),
+                None,
                 None,
                 ReplacePolicy::NoReplace,
             ),
@@ -2020,7 +2422,7 @@ mod tests {
             .collect();
         assert_eq!(
             sample_hash,
-            "583021260f14cb709bd0f1eec0c41eb458cb670ff28e8ae948f1b87cb1224d0d"
+            "769ea09077d1abc6354fa305157d26fb0c337fd16c18bf51efd9fbcc14f2b75d"
         );
         assert_eq!(
             EffectiveConfig::new(

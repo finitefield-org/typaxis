@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.typaxis.invalid/1.0/common.schema.json",
-  "title": "Typaxis Common Definitions 1.0",
+  "$id": "https://schemas.typaxis.invalid/1.1/common.schema.json",
+  "title": "Typaxis Common Definitions 1.1",
   "$defs": {
     "contract": {
-      "const": "typaxis.contract/1.0"
+      "const": "typaxis.contract/1.1"
     },
     "coordinate_unit": {
       "const": "pdf_point_1_65536"

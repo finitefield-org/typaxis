@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.typaxis.invalid/1.0/layout-trace.schema.json",
-  "title": "Typaxis Layout Trace 1.0",
+  "$id": "https://schemas.typaxis.invalid/1.1/layout-trace.schema.json",
+  "title": "Typaxis Layout Trace 1.1",
   "type": "object",
   "additionalProperties": false,
   "required": ["contract", "coordinate_unit", "max_layout_passes", "initial_state", "initial_fingerprint", "passes", "result"],

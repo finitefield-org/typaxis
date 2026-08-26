@@ -4,29 +4,35 @@ use core::num::{NonZeroU16, NonZeroU64};
 use std::collections::BTreeMap;
 #[cfg(unix)]
 use std::ffi::OsString;
+use std::fs;
 #[cfg(unix)]
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::path::Path;
-#[cfg(unix)]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use typaxis_core::{
     AdmittedResourceFingerprint, BuildExecutionContext, BuildExecutionError, EffectiveConfig,
     EffectiveConfigFingerprint, EngineIdentity, FontFaceId, HostPath, ImageResourceId,
-    LayoutStateFingerprint, PortablePath, ReplacePolicy, ResolvedDataTables, ShaperIdentity,
-    SourceId, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
+    LayoutStateFingerprint, MachinePdfProfileId, PortablePath, ReplacePolicy, ResolvedDataTables,
+    ShaperIdentity, SourceId, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
 };
 pub use typaxis_core::{OutputSink, PdfStreamCompression};
+pub use typaxis_host_admission::HostReadIdentityLedgerToken as PublicationReadLedgerToken;
+use typaxis_host_admission::{HostAdmissionError, HostReadIdentityLedgerToken};
+use typaxis_machine_input::{
+    MachineInputFingerprint, MachineInputProgress, MachineInputSessionIdentity, MachineInputStage,
+};
+use typaxis_machine_profile::{MachinePdfPreflightReceipt, MachineProfileDescriptor};
 use typaxis_pagination::{ConvergenceStatus, PaginationResult};
 use typaxis_pdf::{PdfStreamWriteFacts, VerifiedPdfBytesReceipt};
-use typaxis_resources::AdmittedResourceLedgerToken;
-use typaxis_syntax::{PackageEpochIdentity, ValidatedParsedPackage};
+use typaxis_resources::{AdmittedResourceLedgerToken, ResourceAdmissionProgressToken};
+use typaxis_syntax::{PackageEpochIdentity, ValidatedMachinePackage, ValidatedParsedPackage};
 use typaxis_text::SourceRecord;
 
 pub const CONTRACT: &str = typaxis_core::CONTRACT;
 pub const ENGINE_NAME: &str = typaxis_core::PRODUCT_NAME;
 pub const PDF_PROFILE: &str = "pdf-1.7-classic-xref";
+pub const REFERENCE_INPUT_PROFILE: &str = "typaxis.reference-source/1";
 
 #[cfg(unix)]
 static OUTPUT_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -37,6 +43,36 @@ static PUBLICATION_SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 pub enum BuildStatus {
     Built,
     Failed,
+}
+
+/// Closed input identity bound before any terminal manifest can be prepared.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildInputProfile {
+    ReferenceSource1,
+    MachinePdfParagraph1,
+}
+
+impl BuildInputProfile {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReferenceSource1 => REFERENCE_INPUT_PROFILE,
+            Self::MachinePdfParagraph1 => MachinePdfProfileId::PARAGRAPH_1.as_str(),
+        }
+    }
+
+    pub const fn machine_profile(self) -> Option<MachinePdfProfileId> {
+        match self {
+            Self::ReferenceSource1 => None,
+            Self::MachinePdfParagraph1 => Some(MachinePdfProfileId::PARAGRAPH_1),
+        }
+    }
+
+    fn from_descriptor(descriptor: MachineProfileDescriptor) -> Self {
+        debug_assert_eq!(descriptor, MachineProfileDescriptor::PARAGRAPH_1);
+        match descriptor.id() {
+            MachinePdfProfileId::Paragraph1 => Self::MachinePdfParagraph1,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayoutStatus {
@@ -185,6 +221,54 @@ pub struct FileRecord {
     bytes: u64,
     sha256: [u8; 32],
 }
+
+/// Portable PACKAGE identity projected only from machine-input owner receipts.
+///
+/// ```compile_fail
+/// use typaxis_manifest::PackageInputRecord;
+/// use typaxis_core::PortablePath;
+/// let _forged = PackageInputRecord {
+///     uri: PortablePath::new("package.json").unwrap(),
+///     bytes: 1,
+///     sha256: [0; 32],
+///     contract: None,
+///     canonical_sha256: None,
+/// };
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackageInputRecord {
+    uri: PortablePath,
+    bytes: u64,
+    sha256: [u8; 32],
+    contract: Option<typaxis_core::DocumentPackageContractId>,
+    canonical_sha256: Option<[u8; 32]>,
+}
+
+impl PackageInputRecord {
+    pub const fn uri(&self) -> &PortablePath {
+        &self.uri
+    }
+
+    pub const fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    pub const fn sha256(&self) -> [u8; 32] {
+        self.sha256
+    }
+
+    pub const fn contract(&self) -> Option<typaxis_core::DocumentPackageContractId> {
+        self.contract
+    }
+
+    pub const fn canonical_sha256(&self) -> Option<[u8; 32]> {
+        self.canonical_sha256
+    }
+
+    fn is_decoded(&self) -> bool {
+        self.contract.is_some() && self.canonical_sha256.is_some()
+    }
+}
 impl FileRecord {
     pub const fn uri(&self) -> &PortablePath {
         &self.uri
@@ -295,6 +379,8 @@ pub struct BuildManifest {
     engine: EngineRecord,
     data_versions: DataVersions,
     config_sha256: [u8; 32],
+    input_profile: BuildInputProfile,
+    package_input: Option<PackageInputRecord>,
     inputs: Vec<FileRecord>,
     fonts: Vec<FontRecord>,
     images: Vec<ImageRecord>,
@@ -322,6 +408,7 @@ pub enum BuildManifestError {
     ConfigFingerprintMismatch,
     EmptyBuiltOutput,
     EmptyAdmittedResource,
+    PackageInputBytesLimit,
     InputSourceLimit,
     InputAggregateLimit,
     FontCountLimit,
@@ -339,6 +426,12 @@ pub enum BuildManifestError {
     InvalidFontMetadata,
     OutputSinkMismatch,
     OutputReceiptBindingMismatch,
+    InputProfileMismatch,
+    MachineProgressRegression,
+    MachineSessionMismatch,
+    MachinePackageMismatch,
+    MachineCapabilityMismatch,
+    ResourceProgressMismatch,
     AdmissionLedgerBindingMismatch,
     NonDenseAdmissionSource,
     DuplicateAdmissionRecord,
@@ -349,6 +442,8 @@ pub enum BuildManifestError {
     PaginationReceiptMismatch,
     PdfGraphReceiptMismatch,
     IncompleteLayoutAdmission,
+    ReadLedgerAlreadyBound,
+    ReadLedgerUnavailable,
 }
 
 /// Per-build owner of the configured PDF sink. This context exists whether
@@ -359,6 +454,7 @@ pub enum BuildManifestError {
 pub struct BuildOutputCommitContext {
     session: OutputCommitSessionId,
     config_fingerprint: EffectiveConfigFingerprint,
+    input_profile: BuildInputProfile,
     stream_compression: PdfStreamCompression,
     limits: ValidatedResourceLimits,
     execution: BuildExecutionContext,
@@ -375,12 +471,35 @@ impl BuildOutputCommitContext {
         config: &EffectiveConfig,
         execution: &BuildExecutionContext,
     ) -> Result<Self, BuildOutputCommitContextError> {
+        Self::new_bound(config, execution, BuildInputProfile::ReferenceSource1)
+    }
+
+    /// Creates an output session whose machine profile is derived from the
+    /// immutable adopted descriptor, not a string or caller-authored record.
+    pub fn new_machine(
+        config: &EffectiveConfig,
+        execution: &BuildExecutionContext,
+        descriptor: MachineProfileDescriptor,
+    ) -> Result<Self, BuildOutputCommitContextError> {
+        Self::new_bound(
+            config,
+            execution,
+            BuildInputProfile::from_descriptor(descriptor),
+        )
+    }
+
+    fn new_bound(
+        config: &EffectiveConfig,
+        execution: &BuildExecutionContext,
+        input_profile: BuildInputProfile,
+    ) -> Result<Self, BuildOutputCommitContextError> {
         execution
             .revalidate_write_targets()
             .map_err(BuildOutputCommitContextError::Execution)?;
         Ok(Self {
             session: OutputCommitSessionId::allocate()?,
             config_fingerprint: config.fingerprint(),
+            input_profile,
             stream_compression: config.stream_compression(),
             limits: config.limits().clone(),
             execution: execution.clone(),
@@ -389,6 +508,9 @@ impl BuildOutputCommitContext {
 
     pub const fn config_fingerprint(&self) -> EffectiveConfigFingerprint {
         self.config_fingerprint
+    }
+    pub const fn input_profile(&self) -> BuildInputProfile {
+        self.input_profile
     }
     pub const fn limits(&self) -> &ValidatedResourceLimits {
         &self.limits
@@ -418,22 +540,64 @@ impl BuildOutputCommitContext {
         self,
         pdf: VerifiedPdfBytesReceipt,
     ) -> Result<PdfSinkCommitReceipt, PdfSinkCommitError> {
+        self.prepare_pdf_without_manifest_guarded(pdf, None)?
+            .commit()
+    }
+
+    /// Standalone PDF publication guarded by the last sealed command-wide
+    /// read ledger. This is used by machine builds that did not request a
+    /// manifest; `--force` still cannot replace an input candidate.
+    pub fn commit_pdf_without_manifest_with_read_ledger(
+        self,
+        pdf: VerifiedPdfBytesReceipt,
+        read_ledger: HostReadIdentityLedgerToken,
+    ) -> Result<PdfSinkCommitReceipt, PdfSinkCommitError> {
+        self.prepare_pdf_without_manifest_guarded(pdf, Some(read_ledger))?
+            .commit()
+    }
+
+    pub fn prepare_pdf_without_manifest(
+        self,
+        pdf: VerifiedPdfBytesReceipt,
+    ) -> Result<PreparedStandalonePdfPublication, PdfSinkCommitError> {
+        self.prepare_pdf_without_manifest_guarded(pdf, None)
+    }
+
+    pub fn prepare_pdf_without_manifest_with_read_ledger(
+        self,
+        pdf: VerifiedPdfBytesReceipt,
+        read_ledger: HostReadIdentityLedgerToken,
+    ) -> Result<PreparedStandalonePdfPublication, PdfSinkCommitError> {
+        self.prepare_pdf_without_manifest_guarded(pdf, Some(read_ledger))
+    }
+
+    fn prepare_pdf_without_manifest_guarded(
+        self,
+        pdf: VerifiedPdfBytesReceipt,
+        read_ledger: Option<HostReadIdentityLedgerToken>,
+    ) -> Result<PreparedStandalonePdfPublication, PdfSinkCommitError> {
         if self.manifest_requested() {
             return Err(PdfSinkCommitError::ManifestPreflightRequired);
         }
         let facts = validate_standalone_pdf_output_facts(&self, &pdf)
             .map_err(PdfSinkCommitError::InvalidFacts)?;
-        let durability = commit_verified_pdf(&self.execution, &pdf)?;
-        let receipt = self.issue_receipt(facts);
-        match durability {
-            SinkCommitDurability::Durable => Ok(receipt),
-            SinkCommitDurability::PublishedButDurabilityUncertain(source) => {
-                Err(PdfSinkCommitError::PublishedButDurabilityUncertain {
-                    receipt: Box::new(receipt),
-                    source,
-                })
-            }
-        }
+        let staged_pdf = match self.execution.output_path() {
+            Some(target) => Some(prepare_file_atomically(
+                &self.execution,
+                target.as_path(),
+                pdf.bytes(),
+                self.execution.replace_policy(),
+                read_ledger.as_ref(),
+            )?),
+            None => None,
+        };
+        Ok(PreparedStandalonePdfPublication {
+            output: self,
+            pdf,
+            facts,
+            read_ledger,
+            staged_pdf,
+        })
     }
 
     /// Commits a manifest-bound publication that has already passed every
@@ -453,48 +617,245 @@ impl BuildOutputCommitContext {
         self,
         prepared: PreparedBuiltPublication,
     ) -> Result<CommittedBuiltPublication, BuiltPublicationCommitError> {
+        match self.commit_prepared_pdf(prepared) {
+            Ok(pending) => pending.commit_built_manifest(),
+            Err(PreparedPdfCommitError::Invalid(source)) => {
+                Err(BuiltPublicationCommitError::Pdf(source))
+            }
+            Err(PreparedPdfCommitError::SinkFailed { source, failed }) => {
+                let failed_manifest = match failed.commit_failed_manifest() {
+                    Ok(publication) => FailedManifestPublication::Committed(Box::new(publication)),
+                    Err(error) => FailedManifestPublication::CommitError(Box::new(error)),
+                };
+                Err(BuiltPublicationCommitError::PdfSinkFailed {
+                    source,
+                    failed_manifest,
+                })
+            }
+            Err(PreparedPdfCommitError::DurabilityUncertain {
+                pdf_receipt,
+                source,
+            }) => Err(BuiltPublicationCommitError::PdfDurability {
+                pdf_receipt,
+                source,
+            }),
+        }
+    }
+
+    /// Publish only the PDF stage of a fully preflighted built result. The
+    /// returned capability owns the terminal built manifest, allowing the CLI
+    /// to publish diagnostics between PDF visibility and the terminal record.
+    /// Dropping that capability after diagnostics failure leaves the built
+    /// manifest unpublished.
+    pub fn commit_prepared_pdf(
+        self,
+        prepared: PreparedBuiltPublication,
+    ) -> Result<PendingBuiltManifestPublication, PreparedPdfCommitError> {
         if prepared.binding.output != self.binding() {
-            return Err(BuiltPublicationCommitError::Pdf(
+            return Err(PreparedPdfCommitError::Invalid(
                 PdfSinkCommitError::InvalidFacts(BuildManifestError::OutputReceiptBindingMismatch),
             ));
         }
-        let manifest_target = self
-            .execution
-            .manifest_target()
-            .ok_or(BuiltPublicationCommitError::Pdf(
+        if self.execution.manifest_target().is_none() {
+            return Err(PreparedPdfCommitError::Invalid(
                 PdfSinkCommitError::ManifestPreflightRequired,
-            ))?
-            .clone();
-        let pdf_durability = match commit_verified_pdf(&self.execution, &prepared.pdf) {
+            ));
+        }
+        let pdf_durability = match commit_verified_pdf(
+            &self.execution,
+            &prepared.pdf,
+            prepared.read_ledger.as_ref(),
+        ) {
             Ok(durability) => durability,
             Err(source) => {
                 let failed = PreparedFailedPublication {
                     binding: prepared.binding,
                     manifest: prepared.failed_manifest,
                     manifest_bytes: prepared.failed_manifest_bytes,
+                    read_ledger: prepared.read_ledger,
                 };
-                let failed_manifest = match self.commit_prepared_failed(failed) {
-                    Ok(publication) => FailedManifestPublication::Committed(Box::new(publication)),
-                    Err(error) => FailedManifestPublication::CommitError(Box::new(error)),
-                };
-                return Err(BuiltPublicationCommitError::PdfSinkFailed {
+                return Err(PreparedPdfCommitError::SinkFailed {
                     source,
-                    failed_manifest,
+                    failed: Box::new(PendingFailedManifestPublication {
+                        output: self,
+                        prepared: failed,
+                        staged_manifest: None,
+                    }),
                 });
             }
         };
         let receipt = self.issue_receipt(prepared.output);
         if let SinkCommitDurability::PublishedButDurabilityUncertain(source) = pdf_durability {
-            return Err(BuiltPublicationCommitError::PdfDurability {
+            return Err(PreparedPdfCommitError::DurabilityUncertain {
                 pdf_receipt: Box::new(receipt),
                 source,
             });
         }
-        let manifest_durability = match commit_file_bytes(
+        Ok(PendingBuiltManifestPublication {
+            output: self,
+            binding: prepared.binding,
+            manifest: prepared.manifest,
+            manifest_bytes: prepared.manifest_bytes,
+            read_ledger: prepared.read_ledger,
+            pdf_receipt: receipt,
+            staged_manifest: None,
+        })
+    }
+
+    /// Convert a preflighted built plan to its already-sealed output-null
+    /// failed counterpart without attempting PDF. This is used when trace
+    /// publication fails before the PDF stage.
+    pub fn fail_prepared_built(
+        self,
+        prepared: PreparedBuiltPublication,
+    ) -> Result<PendingFailedManifestPublication, PdfSinkCommitError> {
+        if prepared.binding.output != self.binding() {
+            return Err(PdfSinkCommitError::InvalidFacts(
+                BuildManifestError::OutputReceiptBindingMismatch,
+            ));
+        }
+        Ok(PendingFailedManifestPublication {
+            output: self,
+            prepared: PreparedFailedPublication {
+                binding: prepared.binding,
+                manifest: prepared.failed_manifest,
+                manifest_bytes: prepared.failed_manifest_bytes,
+                read_ledger: prepared.read_ledger,
+            },
+            staged_manifest: None,
+        })
+    }
+
+    /// Wrap a directly preflighted processing failure so diagnostics can be
+    /// attempted first while preserving one-shot manifest publication.
+    pub fn defer_prepared_failed(
+        self,
+        prepared: PreparedFailedPublication,
+    ) -> Result<PendingFailedManifestPublication, ManifestSinkCommitError> {
+        if prepared.binding.output != self.binding() {
+            return Err(ManifestSinkCommitError::InvalidFacts(
+                BuildManifestError::OutputReceiptBindingMismatch,
+            ));
+        }
+        Ok(PendingFailedManifestPublication {
+            output: self,
+            prepared,
+            staged_manifest: None,
+        })
+    }
+
+    /// Prewrite and fsync a processing-failure manifest before diagnostics are
+    /// published. The returned capability remains one-shot and can be consumed
+    /// after the diagnostics attempt regardless of that attempt's result.
+    pub fn stage_prepared_failed(
+        self,
+        prepared: PreparedFailedPublication,
+    ) -> Result<PendingFailedManifestPublication, ManifestSinkCommitError> {
+        if prepared.binding.output != self.binding() {
+            return Err(ManifestSinkCommitError::InvalidFacts(
+                BuildManifestError::OutputReceiptBindingMismatch,
+            ));
+        }
+        let manifest_target = self
+            .execution
+            .manifest_target()
+            .ok_or(ManifestSinkCommitError::MissingManifestTarget)?;
+        let staged_manifest = prepare_file_atomically(
             &self.execution,
             manifest_target.as_path(),
             &prepared.manifest_bytes,
-        ) {
+            self.execution.replace_policy(),
+            prepared.read_ledger.as_ref(),
+        )
+        .map_err(map_pdf_error_to_manifest_error)?;
+        Ok(PendingFailedManifestPublication {
+            output: self,
+            prepared,
+            staged_manifest: Some(staged_manifest),
+        })
+    }
+
+    /// Prewrite and fsync the PDF file (when applicable) plus both terminal
+    /// manifest alternatives before the first trace/PDF/diagnostics publish.
+    /// No target becomes visible during this method.
+    pub fn stage_prepared_built(
+        self,
+        prepared: PreparedBuiltPublication,
+    ) -> Result<StagedBuiltPublication, BuiltPublicationStagingError> {
+        if prepared.binding.output != self.binding() {
+            return Err(BuiltPublicationStagingError::Invalid(
+                PdfSinkCommitError::InvalidFacts(BuildManifestError::OutputReceiptBindingMismatch),
+            ));
+        }
+        let manifest_target =
+            self.execution
+                .manifest_target()
+                .ok_or(BuiltPublicationStagingError::Invalid(
+                    PdfSinkCommitError::ManifestPreflightRequired,
+                ))?;
+        let staged_pdf = match self.execution.output_path() {
+            Some(target) => Some(
+                prepare_file_atomically(
+                    &self.execution,
+                    target.as_path(),
+                    prepared.pdf.bytes(),
+                    self.execution.replace_policy(),
+                    prepared.read_ledger.as_ref(),
+                )
+                .map_err(BuiltPublicationStagingError::Pdf)?,
+            ),
+            None => None,
+        };
+        let staged_built_manifest = prepare_file_atomically(
+            &self.execution,
+            manifest_target.as_path(),
+            &prepared.manifest_bytes,
+            self.execution.replace_policy(),
+            prepared.read_ledger.as_ref(),
+        )
+        .map_err(BuiltPublicationStagingError::BuiltManifest)?;
+        let staged_failed_manifest = prepare_file_atomically(
+            &self.execution,
+            manifest_target.as_path(),
+            &prepared.failed_manifest_bytes,
+            self.execution.replace_policy(),
+            prepared.read_ledger.as_ref(),
+        )
+        .map_err(BuiltPublicationStagingError::FailedManifest)?;
+        Ok(StagedBuiltPublication {
+            output: self,
+            prepared,
+            staged_pdf,
+            staged_built_manifest,
+            staged_failed_manifest,
+        })
+    }
+
+    fn commit_pending_built_manifest(
+        self,
+        binding: PublicationBinding,
+        manifest: ValidatedBuildManifest,
+        manifest_bytes: Vec<u8>,
+        read_ledger: Option<HostReadIdentityLedgerToken>,
+        receipt: PdfSinkCommitReceipt,
+        staged_manifest: Option<PreparedAtomicFile>,
+    ) -> Result<CommittedBuiltPublication, BuiltPublicationCommitError> {
+        let manifest_target = self
+            .execution
+            .manifest_target()
+            .expect("pending built publication retains its manifest target")
+            .clone();
+        let manifest_durability = match match staged_manifest {
+            Some(prepared) => {
+                publish_prepared_file(&self.execution, prepared, read_ledger.as_ref())
+            }
+            None => commit_file_bytes(
+                &self.execution,
+                manifest_target.as_path(),
+                &manifest_bytes,
+                read_ledger.as_ref(),
+            ),
+        } {
             Ok(durability) => durability,
             Err(error) => {
                 return Err(match error {
@@ -509,7 +870,8 @@ impl BuildOutputCommitContext {
                         source,
                     },
                     PdfSinkCommitError::InvalidFacts(_)
-                    | PdfSinkCommitError::ManifestPreflightRequired => {
+                    | PdfSinkCommitError::ManifestPreflightRequired
+                    | PdfSinkCommitError::StdoutPartial { .. } => {
                         BuiltPublicationCommitError::ManifestInvariant {
                             pdf_receipt: Box::new(receipt),
                         }
@@ -523,11 +885,11 @@ impl BuildOutputCommitContext {
             }
         };
         let manifest_receipt = ManifestSinkCommitReceipt {
-            binding: prepared.binding,
-            bytes: prepared.manifest_bytes.len() as u64,
+            binding,
+            bytes: manifest_bytes.len() as u64,
         };
         let committed = CommittedBuiltPublication {
-            manifest: prepared.manifest,
+            manifest,
             receipt,
             manifest_receipt,
         };
@@ -549,6 +911,14 @@ impl BuildOutputCommitContext {
         self,
         prepared: PreparedFailedPublication,
     ) -> Result<CommittedFailedPublication, ManifestSinkCommitError> {
+        self.commit_prepared_failed_inner(prepared, None)
+    }
+
+    fn commit_prepared_failed_inner(
+        self,
+        prepared: PreparedFailedPublication,
+        staged_manifest: Option<PreparedAtomicFile>,
+    ) -> Result<CommittedFailedPublication, ManifestSinkCommitError> {
         if prepared.binding.output != self.binding() {
             return Err(ManifestSinkCommitError::InvalidFacts(
                 BuildManifestError::OutputReceiptBindingMismatch,
@@ -559,24 +929,18 @@ impl BuildOutputCommitContext {
             .manifest_target()
             .ok_or(ManifestSinkCommitError::MissingManifestTarget)?
             .clone();
-        let durability = commit_file_bytes(
-            &self.execution,
-            manifest_target.as_path(),
-            &prepared.manifest_bytes,
-        )
-        .map_err(|error| match error {
-            PdfSinkCommitError::Execution(source) => ManifestSinkCommitError::Execution(source),
-            PdfSinkCommitError::Io(source) => ManifestSinkCommitError::Io(source),
-            PdfSinkCommitError::InvalidFacts(error) => ManifestSinkCommitError::InvalidFacts(error),
-            PdfSinkCommitError::ManifestPreflightRequired => {
-                ManifestSinkCommitError::MissingManifestTarget
+        let durability = match staged_manifest {
+            Some(staged) => {
+                publish_prepared_file(&self.execution, staged, prepared.read_ledger.as_ref())
             }
-            PdfSinkCommitError::PublishedButDurabilityUncertain { .. } => {
-                ManifestSinkCommitError::InvalidFacts(
-                    BuildManifestError::OutputReceiptBindingMismatch,
-                )
-            }
-        })?;
+            None => commit_file_bytes(
+                &self.execution,
+                manifest_target.as_path(),
+                &prepared.manifest_bytes,
+                prepared.read_ledger.as_ref(),
+            ),
+        }
+        .map_err(map_pdf_error_to_manifest_error)?;
         let receipt = ManifestSinkCommitReceipt {
             binding: prepared.binding,
             bytes: prepared.manifest_bytes.len() as u64,
@@ -612,6 +976,7 @@ impl BuildOutputCommitContext {
         OutputCommitBinding {
             session: self.session,
             config_fingerprint: self.config_fingerprint,
+            input_profile: self.input_profile,
             stream_compression: self.stream_compression,
             limits: self.limits.clone(),
             execution: self.execution.clone(),
@@ -638,6 +1003,7 @@ impl OutputCommitSessionId {
 struct OutputCommitBinding {
     session: OutputCommitSessionId,
     config_fingerprint: EffectiveConfigFingerprint,
+    input_profile: BuildInputProfile,
     stream_compression: PdfStreamCompression,
     limits: ValidatedResourceLimits,
     execution: BuildExecutionContext,
@@ -649,6 +1015,7 @@ pub struct ManifestPublicationContext {
     output: OutputCommitBinding,
     manifest_target: HostPath,
     config_fingerprint: EffectiveConfigFingerprint,
+    input_profile: BuildInputProfile,
     stream_compression: PdfStreamCompression,
     data_versions: DataVersions,
     engine: EngineRecord,
@@ -691,6 +1058,7 @@ impl ManifestPublicationContext {
             output: output.binding(),
             manifest_target,
             config_fingerprint: config.fingerprint(),
+            input_profile: output.input_profile,
             stream_compression: config.stream_compression(),
             data_versions: DataVersions::from_runtime(tables, shaper),
             engine: EngineRecord::from_identity(&EngineIdentity::compiled()),
@@ -704,6 +1072,9 @@ impl ManifestPublicationContext {
     pub const fn config_fingerprint(&self) -> EffectiveConfigFingerprint {
         self.config_fingerprint
     }
+    pub const fn input_profile(&self) -> BuildInputProfile {
+        self.input_profile
+    }
     pub const fn limits(&self) -> &ValidatedResourceLimits {
         &self.limits
     }
@@ -716,10 +1087,18 @@ impl ManifestPublicationContext {
     pub fn begin_admission_ledger(&self) -> ManifestAdmissionLedger {
         ManifestAdmissionLedger {
             binding: self.binding(),
+            machine: self
+                .input_profile
+                .machine_profile()
+                .map(|_| MachineLedgerState::no_input()),
+            package_input: None,
             sources: BTreeMap::new(),
             fonts: BTreeMap::new(),
             images: BTreeMap::new(),
+            expected_fonts: Vec::new(),
+            expected_images: Vec::new(),
             package_epoch: None,
+            resource_progress: None,
             resource_fingerprint: None,
         }
     }
@@ -735,6 +1114,9 @@ impl ManifestPublicationContext {
         pagination: &PaginationResult,
         pdf: VerifiedPdfBytesReceipt,
     ) -> Result<PreparedBuiltPublication, BuildManifestError> {
+        if self.input_profile != BuildInputProfile::ReferenceSource1 {
+            return Err(BuildManifestError::InputProfileMismatch);
+        }
         let output = validate_pdf_output_facts(&self, pagination, &pdf)?;
         let manifest = prepare_built_manifest(&self, package, admitted, pagination, output)?;
         let manifest_bytes = manifest.manifest().to_canonical_json_bytes();
@@ -752,6 +1134,45 @@ impl ManifestPublicationContext {
             failed_manifest_bytes,
             pdf,
             output,
+            read_ledger: None,
+        })
+    }
+
+    /// Machine-only built preflight. The adopted capability receipt,
+    /// provenance, complete resource session, selected pagination result, and
+    /// serializer receipt are closed together before any publication I/O.
+    pub fn prepare_machine_built(
+        self,
+        package: &ValidatedMachinePackage,
+        capability: &MachinePdfPreflightReceipt,
+        admitted: AdmittedResourceLedgerToken<'_>,
+        pagination: &PaginationResult,
+        pdf: VerifiedPdfBytesReceipt,
+    ) -> Result<PreparedBuiltPublication, BuildManifestError> {
+        if self.input_profile != BuildInputProfile::MachinePdfParagraph1 {
+            return Err(BuildManifestError::InputProfileMismatch);
+        }
+        let output = validate_pdf_output_facts(&self, pagination, &pdf)?;
+        let (manifest, ledger) = prepare_machine_built_manifest(
+            &self, package, capability, admitted, pagination, output,
+        )?;
+        let manifest_bytes = manifest.manifest().to_canonical_json_bytes();
+        let failed_manifest = ValidatedBuildManifest::failed(&self, &ledger, Some(pagination))?;
+        let failed_manifest_bytes = failed_manifest.manifest().to_canonical_json_bytes();
+        let read_ledger = package
+            .provenance()
+            .admission()
+            .read_ledger_token()
+            .map_err(|_| BuildManifestError::ReadLedgerUnavailable)?;
+        Ok(PreparedBuiltPublication {
+            binding: self.binding(),
+            manifest,
+            manifest_bytes,
+            failed_manifest,
+            failed_manifest_bytes,
+            pdf,
+            output,
+            read_ledger: Some(read_ledger),
         })
     }
 
@@ -769,6 +1190,7 @@ impl ManifestPublicationContext {
             binding: self.binding(),
             manifest,
             manifest_bytes,
+            read_ledger: None,
         })
     }
 
@@ -813,19 +1235,83 @@ struct PublicationBinding {
     engine: EngineRecord,
 }
 
+/// Highest trusted machine build phase admitted into a manifest ledger.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ManifestAdmissionStage {
+    NoInput,
+    RawPackageAdmitted,
+    PackageDecoded,
+    SourcesAdmitted,
+    PackageValidated,
+    CapabilityValidated,
+    ResourcesAdmitted,
+    LayoutSelected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MachineLedgerState {
+    stage: ManifestAdmissionStage,
+    session: Option<MachineInputSessionIdentity>,
+    fingerprint: Option<MachineInputFingerprint>,
+}
+
+impl MachineLedgerState {
+    const fn no_input() -> Self {
+        Self {
+            stage: ManifestAdmissionStage::NoInput,
+            session: None,
+            fingerprint: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpectedFontResource {
+    id: FontFaceId,
+    uri: PortablePath,
+    family: String,
+    face_index: u32,
+    expected_sha256: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpectedImageResource {
+    id: ImageResourceId,
+    uri: PortablePath,
+    expected_sha256: Option<[u8; 32]>,
+}
+
+type ManifestFontRecords = BTreeMap<FontFaceId, FontRecord>;
+type ManifestImageRecords = BTreeMap<ImageResourceId, ImageRecord>;
+
+struct ManifestTerminalRecords {
+    package_input: Option<PackageInputRecord>,
+    inputs: Vec<FileRecord>,
+    fonts: Vec<FontRecord>,
+    images: Vec<ImageRecord>,
+}
+
 /// Canonical facts admitted so far for a terminal failed manifest. This token
 /// is tied to one publication context and can only copy facts from owner types.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManifestAdmissionLedger {
     binding: PublicationBinding,
+    machine: Option<MachineLedgerState>,
+    package_input: Option<PackageInputRecord>,
     sources: BTreeMap<SourceId, FileRecord>,
     fonts: BTreeMap<FontFaceId, FontRecord>,
     images: BTreeMap<ImageResourceId, ImageRecord>,
+    expected_fonts: Vec<ExpectedFontResource>,
+    expected_images: Vec<ExpectedImageResource>,
     package_epoch: Option<PackageEpochIdentity>,
+    resource_progress: Option<ResourceAdmissionProgressToken>,
     resource_fingerprint: Option<AdmittedResourceFingerprint>,
 }
 impl ManifestAdmissionLedger {
     pub fn admit_source(&mut self, source: &SourceRecord) -> Result<(), BuildManifestError> {
+        if self.machine.is_some() {
+            return Err(BuildManifestError::InputProfileMismatch);
+        }
         if self.package_epoch.is_some() {
             return Err(BuildManifestError::DuplicateAdmissionRecord);
         }
@@ -864,12 +1350,338 @@ impl ManifestAdmissionLedger {
         &mut self,
         package: &ValidatedParsedPackage,
     ) -> Result<(), BuildManifestError> {
+        if self.machine.is_some() {
+            return Err(BuildManifestError::InputProfileMismatch);
+        }
         let mut candidate = self.clone();
         for source in package.package().sources.records() {
             candidate.admit_source(source)?;
         }
         candidate.package_epoch = Some(package.epoch_identity().clone());
+        candidate.expected_fonts = package
+            .package()
+            .resources
+            .font_faces
+            .iter()
+            .map(|resource| ExpectedFontResource {
+                id: resource.font_face_id,
+                uri: resource.uri.clone(),
+                family: resource.family.clone(),
+                face_index: resource.face_index,
+                expected_sha256: resource.expected_sha256,
+            })
+            .collect();
+        candidate.expected_images = package
+            .package()
+            .resources
+            .images
+            .iter()
+            .map(|resource| ExpectedImageResource {
+                id: resource.image_id,
+                uri: resource.uri.clone(),
+                expected_sha256: resource.expected_sha256,
+            })
+            .collect();
         *self = candidate;
+        Ok(())
+    }
+
+    /// Projects a machine-input owner's sealed progress snapshot. No record
+    /// field is accepted independently, and later snapshots must retain every
+    /// already-admitted package/source/session fact exactly.
+    pub fn admit_machine_input_progress(
+        &mut self,
+        progress: &MachineInputProgress,
+    ) -> Result<(), BuildManifestError> {
+        let mut candidate = self.clone();
+        candidate.admit_machine_input_progress_inner(progress)?;
+        *self = candidate;
+        Ok(())
+    }
+
+    fn admit_machine_input_progress_inner(
+        &mut self,
+        progress: &MachineInputProgress,
+    ) -> Result<(), BuildManifestError> {
+        let state = self
+            .machine
+            .as_mut()
+            .ok_or(BuildManifestError::InputProfileMismatch)?;
+        let incoming_stage = match progress.stage() {
+            MachineInputStage::NoInput => ManifestAdmissionStage::NoInput,
+            MachineInputStage::RawPackageAdmitted => ManifestAdmissionStage::RawPackageAdmitted,
+            MachineInputStage::PackageDecoded => ManifestAdmissionStage::PackageDecoded,
+            MachineInputStage::SourcesAdmitted => ManifestAdmissionStage::SourcesAdmitted,
+        };
+        if incoming_stage < state.stage || state.stage > ManifestAdmissionStage::SourcesAdmitted {
+            return Err(BuildManifestError::MachineProgressRegression);
+        }
+
+        let incoming_session = progress.session_identity();
+        if state
+            .session
+            .as_ref()
+            .zip(incoming_session)
+            .is_some_and(|(established, incoming)| established != incoming)
+        {
+            return Err(BuildManifestError::MachineSessionMismatch);
+        }
+
+        let package = progress.package().map(|raw| PackageInputRecord {
+            uri: raw.uri().clone(),
+            bytes: raw.bytes(),
+            sha256: raw.sha256(),
+            contract: progress.decoded().map(|decoded| decoded.contract()),
+            canonical_sha256: progress.decoded().map(|decoded| decoded.canonical_sha256()),
+        });
+        let shape_is_valid = match incoming_stage {
+            ManifestAdmissionStage::NoInput => {
+                incoming_session.is_none()
+                    && package.is_none()
+                    && progress.decoded().is_none()
+                    && progress.sources().is_empty()
+                    && progress.fingerprint().is_none()
+            }
+            ManifestAdmissionStage::RawPackageAdmitted => {
+                incoming_session.is_some()
+                    && package.is_some()
+                    && progress.decoded().is_none()
+                    && progress.sources().is_empty()
+                    && progress.fingerprint().is_none()
+            }
+            ManifestAdmissionStage::PackageDecoded => {
+                incoming_session.is_some()
+                    && package.as_ref().is_some_and(PackageInputRecord::is_decoded)
+                    && progress.sources().is_empty()
+                    && progress.fingerprint().is_none()
+            }
+            ManifestAdmissionStage::SourcesAdmitted => {
+                incoming_session.is_some()
+                    && package.as_ref().is_some_and(PackageInputRecord::is_decoded)
+                    && progress.sources().len() == 1
+                    && progress.fingerprint().is_some()
+            }
+            ManifestAdmissionStage::PackageValidated
+            | ManifestAdmissionStage::CapabilityValidated
+            | ManifestAdmissionStage::ResourcesAdmitted
+            | ManifestAdmissionStage::LayoutSelected => false,
+        };
+        if !shape_is_valid {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+        if self
+            .package_input
+            .as_ref()
+            .zip(package.as_ref())
+            .is_some_and(|(established, incoming)| {
+                established.uri != incoming.uri
+                    || established.bytes != incoming.bytes
+                    || established.sha256 != incoming.sha256
+                    || established
+                        .contract
+                        .is_some_and(|value| Some(value) != incoming.contract)
+                    || established
+                        .canonical_sha256
+                        .is_some_and(|value| Some(value) != incoming.canonical_sha256)
+            })
+            || (self.package_input.is_some() && package.is_none())
+        {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+
+        let mut sources = BTreeMap::new();
+        for (expected, source) in progress.sources().iter().enumerate() {
+            if source.source_id().get()
+                != u32::try_from(expected)
+                    .map_err(|_| BuildManifestError::NonDenseAdmissionSource)?
+                || sources
+                    .values()
+                    .any(|record: &FileRecord| record.uri == *source.uri())
+            {
+                return Err(BuildManifestError::NonDenseAdmissionSource);
+            }
+            sources.insert(
+                source.source_id(),
+                FileRecord {
+                    uri: source.uri().clone(),
+                    bytes: source.bytes(),
+                    sha256: source.sha256(),
+                },
+            );
+        }
+        if !self.sources.is_empty() && self.sources != sources {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+        if !sources.is_empty() {
+            validate_admission_limits(&sources, &self.fonts, &self.images, &self.binding)?;
+        }
+        if package
+            .as_ref()
+            .is_some_and(|record| record.bytes > JSON_SAFE_INTEGER_MAX as u64)
+        {
+            return Err(BuildManifestError::IntegerNotJsonSafe);
+        }
+        if state
+            .fingerprint
+            .zip(progress.fingerprint())
+            .is_some_and(|(established, incoming)| established != incoming)
+            || (state.fingerprint.is_some() && progress.fingerprint().is_none())
+        {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+
+        state.stage = incoming_stage;
+        if state.session.is_none() {
+            state.session = incoming_session.cloned();
+        }
+        if state.fingerprint.is_none() {
+            state.fingerprint = progress.fingerprint();
+        }
+        self.package_input = package.or_else(|| self.package_input.take());
+        if self.sources.is_empty() {
+            self.sources = sources;
+        }
+        Ok(())
+    }
+
+    /// Admits syntax validation only from the wrapper that still owns exact
+    /// machine provenance and the trusted parsed package.
+    pub fn admit_validated_machine_package(
+        &mut self,
+        package: &ValidatedMachinePackage,
+    ) -> Result<(), BuildManifestError> {
+        let mut candidate = self.clone();
+        candidate.admit_machine_input_progress_inner(package.provenance().progress())?;
+        let state = candidate
+            .machine
+            .as_mut()
+            .ok_or(BuildManifestError::InputProfileMismatch)?;
+        if state.stage != ManifestAdmissionStage::SourcesAdmitted
+            || state.session.as_ref() != Some(package.provenance().session_identity())
+            || state.fingerprint != Some(package.provenance().fingerprint())
+        {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+        let package_input = candidate
+            .package_input
+            .as_ref()
+            .ok_or(BuildManifestError::MachinePackageMismatch)?;
+        if package_input.sha256 != package.provenance().raw_sha256().into_bytes()
+            || package_input.canonical_sha256
+                != Some(package.provenance().canonical_jcs_sha256().into_bytes())
+            || package.package().package().sources.records().len() != candidate.sources.len()
+            || package
+                .package()
+                .package()
+                .sources
+                .records()
+                .iter()
+                .any(|source| {
+                    candidate
+                        .sources
+                        .get(&source.source_id())
+                        .map_or(true, |record| {
+                            record.uri != *source.uri()
+                                || record.bytes != u64::from(source.utf8_byte_length())
+                                || record.sha256 != source.content_hash()
+                        })
+                })
+        {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+        candidate.package_epoch = Some(package.package().epoch_identity().clone());
+        candidate.expected_fonts = package
+            .package()
+            .package()
+            .resources
+            .font_faces
+            .iter()
+            .map(|resource| ExpectedFontResource {
+                id: resource.font_face_id,
+                uri: resource.uri.clone(),
+                family: resource.family.clone(),
+                face_index: resource.face_index,
+                expected_sha256: resource.expected_sha256,
+            })
+            .collect();
+        candidate.expected_images = package
+            .package()
+            .package()
+            .resources
+            .images
+            .iter()
+            .map(|resource| ExpectedImageResource {
+                id: resource.image_id,
+                uri: resource.uri.clone(),
+                expected_sha256: resource.expected_sha256,
+            })
+            .collect();
+        state.stage = ManifestAdmissionStage::PackageValidated;
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Admits the capability gate by asking its non-forgeable receipt to
+    /// verify the exact package and profile already bound to this ledger.
+    pub fn admit_machine_capability(
+        &mut self,
+        package: &ValidatedMachinePackage,
+        receipt: &MachinePdfPreflightReceipt,
+    ) -> Result<(), BuildManifestError> {
+        let profile = self
+            .binding
+            .output
+            .input_profile
+            .machine_profile()
+            .ok_or(BuildManifestError::InputProfileMismatch)?;
+        let state = self
+            .machine
+            .as_mut()
+            .ok_or(BuildManifestError::InputProfileMismatch)?;
+        if state.stage != ManifestAdmissionStage::PackageValidated
+            || state.session.as_ref() != Some(package.provenance().session_identity())
+            || state.fingerprint != Some(package.provenance().fingerprint())
+            || self.package_epoch.as_ref() != Some(package.package().epoch_identity())
+            || receipt.verify(profile, package).is_err()
+        {
+            return Err(BuildManifestError::MachineCapabilityMismatch);
+        }
+        state.stage = ManifestAdmissionStage::CapabilityValidated;
+        Ok(())
+    }
+
+    /// Replaces the resource projection with a later verified snapshot from
+    /// the same resolver session. Partial resource progress never becomes a
+    /// layout capability.
+    pub fn admit_resource_progress(
+        &mut self,
+        progress: ResourceAdmissionProgressToken,
+    ) -> Result<(), BuildManifestError> {
+        if let Some(state) = self.machine.as_ref() {
+            if state.stage != ManifestAdmissionStage::CapabilityValidated {
+                return Err(BuildManifestError::MachineProgressRegression);
+            }
+        } else if self.package_epoch.is_none() {
+            return Err(BuildManifestError::MachineProgressRegression);
+        }
+        if self
+            .resource_progress
+            .as_ref()
+            .is_some_and(|previous| progress != *previous && !progress.continues(previous))
+        {
+            return Err(BuildManifestError::ResourceProgressMismatch);
+        }
+        validate_expected_resources(
+            &progress,
+            &self.expected_fonts,
+            &self.expected_images,
+            false,
+        )?;
+        let (fonts, images) = resource_progress_records(&progress)?;
+        validate_admission_limits(&self.sources, &fonts, &images, &self.binding)?;
+        self.fonts = fonts;
+        self.images = images;
+        self.resource_progress = Some(progress);
         Ok(())
     }
 
@@ -880,8 +1692,7 @@ impl ManifestAdmissionLedger {
         &mut self,
         admitted: AdmittedResourceLedgerToken<'_>,
     ) -> Result<(), BuildManifestError> {
-        if !self.fonts.is_empty() || !self.images.is_empty() || self.resource_fingerprint.is_some()
-        {
+        if self.resource_fingerprint.is_some() {
             return Err(BuildManifestError::DuplicateAdmissionRecord);
         }
         let mut fonts = BTreeMap::new();
@@ -924,10 +1735,68 @@ impl ManifestAdmissionLedger {
                 return Err(BuildManifestError::DuplicateAdmissionRecord);
             }
         }
+        if let Some(state) = self.machine.as_mut() {
+            if state.stage != ManifestAdmissionStage::CapabilityValidated {
+                return Err(BuildManifestError::MachineProgressRegression);
+            }
+            if self
+                .resource_progress
+                .as_ref()
+                .is_some_and(|progress| !admitted.continues_progress(progress))
+            {
+                return Err(BuildManifestError::ResourceProgressMismatch);
+            }
+            let complete_progress = admitted.ledger().progress_token();
+            validate_expected_resources(
+                &complete_progress,
+                &self.expected_fonts,
+                &self.expected_images,
+                true,
+            )?;
+            state.stage = ManifestAdmissionStage::ResourcesAdmitted;
+        } else {
+            if self.package_epoch.is_none() {
+                return Err(BuildManifestError::PackageResourceMismatch);
+            }
+            if self
+                .resource_progress
+                .as_ref()
+                .is_some_and(|progress| !admitted.continues_progress(progress))
+            {
+                return Err(BuildManifestError::ResourceProgressMismatch);
+            }
+            validate_expected_resources(
+                &admitted.ledger().progress_token(),
+                &self.expected_fonts,
+                &self.expected_images,
+                true,
+            )?;
+        }
         validate_admission_limits(&self.sources, &fonts, &images, &self.binding)?;
         self.fonts = fonts;
         self.images = images;
+        self.resource_progress = Some(admitted.ledger().progress_token());
         self.resource_fingerprint = Some(admitted.fingerprint());
+        Ok(())
+    }
+
+    pub fn admit_layout_selected(
+        &mut self,
+        pagination: &PaginationResult,
+    ) -> Result<(), BuildManifestError> {
+        let stage = self
+            .machine
+            .as_ref()
+            .map(|state| state.stage)
+            .ok_or(BuildManifestError::InputProfileMismatch)?;
+        if stage != ManifestAdmissionStage::ResourcesAdmitted {
+            return Err(BuildManifestError::MachineProgressRegression);
+        }
+        validate_ledger_pagination_closure(self, pagination)?;
+        self.machine
+            .as_mut()
+            .expect("machine profile was checked above")
+            .stage = ManifestAdmissionStage::LayoutSelected;
         Ok(())
     }
 
@@ -941,15 +1810,115 @@ impl ManifestAdmissionLedger {
         self.images.len()
     }
 
-    fn manifest_records(&self) -> (Vec<FileRecord>, Vec<FontRecord>, Vec<ImageRecord>) {
+    pub fn machine_stage(&self) -> Option<ManifestAdmissionStage> {
+        self.machine.as_ref().map(|state| state.stage)
+    }
+
+    pub const fn package_input(&self) -> Option<&PackageInputRecord> {
+        self.package_input.as_ref()
+    }
+
+    fn manifest_records(&self) -> ManifestTerminalRecords {
         let mut inputs: Vec<_> = self.sources.values().cloned().collect();
         inputs.sort_by(|left, right| left.uri.cmp(&right.uri));
-        (
+        ManifestTerminalRecords {
+            package_input: self.package_input.clone(),
             inputs,
-            self.fonts.values().cloned().collect(),
-            self.images.values().cloned().collect(),
-        )
+            fonts: self.fonts.values().cloned().collect(),
+            images: self.images.values().cloned().collect(),
+        }
     }
+}
+
+fn resource_progress_records(
+    progress: &ResourceAdmissionProgressToken,
+) -> Result<(ManifestFontRecords, ManifestImageRecords), BuildManifestError> {
+    let mut fonts = BTreeMap::new();
+    for font in progress.fonts() {
+        if fonts
+            .insert(
+                font.font_face_id(),
+                FontRecord {
+                    font_face_id: font.font_face_id(),
+                    uri: font.uri().clone(),
+                    face_index: font.face_index(),
+                    bytes: font.byte_length(),
+                    sha256: font.content_hash(),
+                    units_per_em: font.metadata().units_per_em,
+                    glyph_count: font.metadata().glyph_count,
+                },
+            )
+            .is_some()
+        {
+            return Err(BuildManifestError::DuplicateAdmissionRecord);
+        }
+    }
+    let mut images = BTreeMap::new();
+    for image in progress.images() {
+        if images
+            .insert(
+                image.image_id(),
+                ImageRecord {
+                    image_id: image.image_id(),
+                    uri: image.uri().clone(),
+                    bytes: image.byte_length(),
+                    sha256: image.content_hash(),
+                    pixel_width: image.width().get(),
+                    pixel_height: image.height().get(),
+                    decoded_bytes: image.decoded_bytes(),
+                },
+            )
+            .is_some()
+        {
+            return Err(BuildManifestError::DuplicateAdmissionRecord);
+        }
+    }
+    Ok((fonts, images))
+}
+
+fn validate_expected_resources(
+    progress: &ResourceAdmissionProgressToken,
+    expected_fonts: &[ExpectedFontResource],
+    expected_images: &[ExpectedImageResource],
+    complete: bool,
+) -> Result<(), BuildManifestError> {
+    if (complete
+        && (progress.fonts().len() != expected_fonts.len()
+            || progress.images().len() != expected_images.len()))
+        || progress.fonts().len() > expected_fonts.len()
+        || progress.images().len() > expected_images.len()
+    {
+        return Err(BuildManifestError::PackageResourceMismatch);
+    }
+    for font in progress.fonts() {
+        let Some(expected) = expected_fonts.get(font.font_face_id().get() as usize) else {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        };
+        if expected.id != font.font_face_id()
+            || expected.uri != *font.uri()
+            || expected.family != font.family()
+            || expected.face_index != font.face_index()
+            || expected
+                .expected_sha256
+                .is_some_and(|hash| hash != font.content_hash())
+        {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        }
+    }
+    for image in progress.images() {
+        let Some(expected) = expected_images.get(image.image_id().get() as usize) else {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        };
+        if expected.id != image.image_id()
+            || expected.uri != *image.uri()
+            || expected
+                .expected_sha256
+                .is_some_and(|hash| hash != image.content_hash())
+        {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        }
+    }
+    Ok(())
 }
 
 /// One-shot capability proving that all built-publication invariants were
@@ -958,6 +1927,39 @@ impl ManifestAdmissionLedger {
 /// output-null failed counterpart can only be released if that sink commit
 /// fails. `BuildOutputCommitContext::commit_prepared_built` consumes the token
 /// through the exact output session captured here.
+#[derive(Debug)]
+pub struct PreparedStandalonePdfPublication {
+    output: BuildOutputCommitContext,
+    pdf: VerifiedPdfBytesReceipt,
+    facts: PreparedPdfOutputFacts,
+    read_ledger: Option<HostReadIdentityLedgerToken>,
+    staged_pdf: Option<PreparedAtomicFile>,
+}
+
+impl PreparedStandalonePdfPublication {
+    pub fn commit(self) -> Result<PdfSinkCommitReceipt, PdfSinkCommitError> {
+        let durability = match self.staged_pdf {
+            Some(prepared) => {
+                publish_prepared_file(&self.output.execution, prepared, self.read_ledger.as_ref())?
+            }
+            None => {
+                commit_verified_pdf(&self.output.execution, &self.pdf, self.read_ledger.as_ref())?
+            }
+        };
+        let receipt = self.output.issue_receipt(self.facts);
+        match durability {
+            SinkCommitDurability::Durable => Ok(receipt),
+            SinkCommitDurability::PublishedButDurabilityUncertain(source) => {
+                Err(PdfSinkCommitError::PublishedButDurabilityUncertain {
+                    receipt: Box::new(receipt),
+                    source,
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct PreparedBuiltPublication {
     binding: PublicationBinding,
     manifest: ValidatedBuildManifest,
@@ -966,15 +1968,204 @@ pub struct PreparedBuiltPublication {
     failed_manifest_bytes: Vec<u8>,
     pdf: VerifiedPdfBytesReceipt,
     output: PreparedPdfOutputFacts,
+    read_ledger: Option<HostReadIdentityLedgerToken>,
+}
+
+impl PreparedBuiltPublication {
+    /// Attach the final sealed read ledger before any terminal artifact is
+    /// published. Machine built preflight does this automatically; this method
+    /// lets reference/failure integration share the same alias guard.
+    pub fn bind_read_ledger(
+        mut self,
+        read_ledger: HostReadIdentityLedgerToken,
+    ) -> Result<Self, BuildManifestError> {
+        if self.read_ledger.is_some() {
+            return Err(BuildManifestError::ReadLedgerAlreadyBound);
+        }
+        self.read_ledger = Some(read_ledger);
+        Ok(self)
+    }
+}
+
+/// Built terminal plan whose complete file temporaries were written and
+/// fsynced without making any requested artifact visible. Each target is
+/// published atomically on its own; this is deliberately not a multi-file
+/// transaction and never promises rollback of an earlier visible artifact.
+#[derive(Debug)]
+pub struct StagedBuiltPublication {
+    output: BuildOutputCommitContext,
+    prepared: PreparedBuiltPublication,
+    staged_pdf: Option<PreparedAtomicFile>,
+    staged_built_manifest: PreparedAtomicFile,
+    staged_failed_manifest: PreparedAtomicFile,
+}
+
+impl StagedBuiltPublication {
+    pub fn fail_before_pdf(self) -> PendingFailedManifestPublication {
+        PendingFailedManifestPublication {
+            output: self.output,
+            prepared: PreparedFailedPublication {
+                binding: self.prepared.binding,
+                manifest: self.prepared.failed_manifest,
+                manifest_bytes: self.prepared.failed_manifest_bytes,
+                read_ledger: self.prepared.read_ledger,
+            },
+            staged_manifest: Some(self.staged_failed_manifest),
+        }
+    }
+
+    pub fn commit_pdf(self) -> Result<PendingBuiltManifestPublication, PreparedPdfCommitError> {
+        let pdf_durability = match self.staged_pdf {
+            Some(staged) => publish_prepared_file(
+                &self.output.execution,
+                staged,
+                self.prepared.read_ledger.as_ref(),
+            ),
+            None => commit_verified_pdf(
+                &self.output.execution,
+                &self.prepared.pdf,
+                self.prepared.read_ledger.as_ref(),
+            ),
+        };
+        let pdf_durability = match pdf_durability {
+            Ok(durability) => durability,
+            Err(source) => {
+                return Err(PreparedPdfCommitError::SinkFailed {
+                    source,
+                    failed: Box::new(PendingFailedManifestPublication {
+                        output: self.output,
+                        prepared: PreparedFailedPublication {
+                            binding: self.prepared.binding,
+                            manifest: self.prepared.failed_manifest,
+                            manifest_bytes: self.prepared.failed_manifest_bytes,
+                            read_ledger: self.prepared.read_ledger,
+                        },
+                        staged_manifest: Some(self.staged_failed_manifest),
+                    }),
+                })
+            }
+        };
+        let receipt = self.output.issue_receipt(self.prepared.output);
+        if let SinkCommitDurability::PublishedButDurabilityUncertain(source) = pdf_durability {
+            return Err(PreparedPdfCommitError::DurabilityUncertain {
+                pdf_receipt: Box::new(receipt),
+                source,
+            });
+        }
+        Ok(PendingBuiltManifestPublication {
+            output: self.output,
+            binding: self.prepared.binding,
+            manifest: self.prepared.manifest,
+            manifest_bytes: self.prepared.manifest_bytes,
+            read_ledger: self.prepared.read_ledger,
+            pdf_receipt: receipt,
+            staged_manifest: Some(self.staged_built_manifest),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum BuiltPublicationStagingError {
+    Invalid(PdfSinkCommitError),
+    Pdf(PdfSinkCommitError),
+    BuiltManifest(PdfSinkCommitError),
+    FailedManifest(PdfSinkCommitError),
 }
 
 /// One-shot capability for atomic publication of a terminal failed manifest.
 /// Its record and canonical bytes are private until the bound output session
 /// consumes it.
+#[derive(Debug)]
 pub struct PreparedFailedPublication {
     binding: PublicationBinding,
     manifest: ValidatedBuildManifest,
     manifest_bytes: Vec<u8>,
+    read_ledger: Option<HostReadIdentityLedgerToken>,
+}
+
+/// PDF-visible success whose terminal built manifest is still private and
+/// unpublished. Diagnostics publication is the only intended intervening
+/// operation; dropping this capability is the fail-closed diagnostics-error
+/// path.
+#[derive(Debug)]
+pub struct PendingBuiltManifestPublication {
+    output: BuildOutputCommitContext,
+    binding: PublicationBinding,
+    manifest: ValidatedBuildManifest,
+    manifest_bytes: Vec<u8>,
+    read_ledger: Option<HostReadIdentityLedgerToken>,
+    pdf_receipt: PdfSinkCommitReceipt,
+    staged_manifest: Option<PreparedAtomicFile>,
+}
+
+impl PendingBuiltManifestPublication {
+    pub const fn pdf_receipt(&self) -> &PdfSinkCommitReceipt {
+        &self.pdf_receipt
+    }
+
+    pub fn commit_built_manifest(
+        self,
+    ) -> Result<CommittedBuiltPublication, BuiltPublicationCommitError> {
+        self.output.commit_pending_built_manifest(
+            self.binding,
+            self.manifest,
+            self.manifest_bytes,
+            self.read_ledger,
+            self.pdf_receipt,
+            self.staged_manifest,
+        )
+    }
+}
+
+/// Output-null failed terminal record held while diagnostics publication is
+/// attempted. The manifest can be attempted exactly once even when diagnostics
+/// itself failed.
+#[derive(Debug)]
+pub struct PendingFailedManifestPublication {
+    output: BuildOutputCommitContext,
+    prepared: PreparedFailedPublication,
+    staged_manifest: Option<PreparedAtomicFile>,
+}
+
+impl PendingFailedManifestPublication {
+    pub fn commit_failed_manifest(
+        self,
+    ) -> Result<CommittedFailedPublication, ManifestSinkCommitError> {
+        self.output
+            .commit_prepared_failed_inner(self.prepared, self.staged_manifest)
+    }
+}
+
+#[derive(Debug)]
+pub enum PreparedPdfCommitError {
+    /// No output bytes were attempted because the staged capabilities did not
+    /// match the output owner.
+    Invalid(PdfSinkCommitError),
+    /// The PDF sink failed (including a rollback-impossible stdout prefix).
+    /// Diagnostics must be attempted before consuming `failed`.
+    SinkFailed {
+        source: PdfSinkCommitError,
+        failed: Box<PendingFailedManifestPublication>,
+    },
+    /// A file PDF is visible but its parent sync failed. No failed manifest is
+    /// offered because the visible PDF must not be described as ungenerated.
+    DurabilityUncertain {
+        pdf_receipt: Box<PdfSinkCommitReceipt>,
+        source: io::Error,
+    },
+}
+
+impl PreparedFailedPublication {
+    pub fn bind_read_ledger(
+        mut self,
+        read_ledger: HostReadIdentityLedgerToken,
+    ) -> Result<Self, BuildManifestError> {
+        if self.read_ledger.is_some() {
+            return Err(BuildManifestError::ReadLedgerAlreadyBound);
+        }
+        self.read_ledger = Some(read_ledger);
+        Ok(self)
+    }
 }
 
 /// Trusted artifacts released together after the configured PDF sink commit
@@ -1084,6 +2275,13 @@ pub enum PdfSinkCommitError {
     ManifestPreflightRequired,
     Execution(BuildExecutionError),
     Io(io::Error),
+    /// Stdout accepted at least one byte but the complete verified receipt was
+    /// not durably delivered. Unlike a file pre-publication failure, this
+    /// prefix is externally visible and cannot be rolled back.
+    StdoutPartial {
+        bytes_written: u64,
+        source: io::Error,
+    },
     /// The atomic target update completed, but synchronizing the containing
     /// directory failed. The receipt proves visibility and prevents callers
     /// from treating this as a rollback or blindly retrying the publication.
@@ -1158,6 +2356,21 @@ pub enum ManifestSinkCommitError {
     },
 }
 
+fn map_pdf_error_to_manifest_error(error: PdfSinkCommitError) -> ManifestSinkCommitError {
+    match error {
+        PdfSinkCommitError::Execution(source) => ManifestSinkCommitError::Execution(source),
+        PdfSinkCommitError::Io(source) => ManifestSinkCommitError::Io(source),
+        PdfSinkCommitError::InvalidFacts(error) => ManifestSinkCommitError::InvalidFacts(error),
+        PdfSinkCommitError::ManifestPreflightRequired => {
+            ManifestSinkCommitError::MissingManifestTarget
+        }
+        PdfSinkCommitError::StdoutPartial { .. }
+        | PdfSinkCommitError::PublishedButDurabilityUncertain { .. } => {
+            ManifestSinkCommitError::InvalidFacts(BuildManifestError::OutputReceiptBindingMismatch)
+        }
+    }
+}
+
 #[derive(Debug)]
 enum SinkCommitDurability {
     Durable,
@@ -1167,23 +2380,114 @@ enum SinkCommitDurability {
 fn commit_verified_pdf(
     execution: &BuildExecutionContext,
     pdf: &VerifiedPdfBytesReceipt,
+    read_ledger: Option<&HostReadIdentityLedgerToken>,
 ) -> Result<SinkCommitDurability, PdfSinkCommitError> {
     match execution.output_sink() {
         OutputSink::Stdout => {
-            execution
-                .revalidate_write_targets()
+            revalidate_publication_targets(execution, read_ledger)
                 .map_err(PdfSinkCommitError::Execution)?;
             let stdout = io::stdout();
             let mut sink = stdout.lock();
-            let streamed = pdf
-                .write_streaming(&mut sink)
-                .map_err(PdfSinkCommitError::Io)?;
-            validate_streamed_pdf_facts(pdf, streamed).map_err(PdfSinkCommitError::InvalidFacts)?;
-            sink.flush().map_err(PdfSinkCommitError::Io)?;
+            stream_verified_pdf(pdf, &mut sink)?;
             Ok(SinkCommitDurability::Durable)
         }
-        OutputSink::File => commit_file_pdf_bytes(execution, pdf.bytes()),
+        OutputSink::File => commit_file_pdf_bytes_guarded(execution, pdf.bytes(), read_ledger),
     }
+}
+
+struct CountingWriter<W> {
+    inner: W,
+    bytes_written: u64,
+}
+
+impl<W> CountingWriter<W> {
+    const fn new(inner: W) -> Self {
+        Self {
+            inner,
+            bytes_written: 0,
+        }
+    }
+}
+
+impl<W: Write> Write for CountingWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(bytes)?;
+        self.bytes_written = self
+            .bytes_written
+            .checked_add(u64::try_from(written).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "stdout byte count overflowed")
+            })?)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "stdout byte count overflowed")
+            })?;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn stream_verified_pdf<W: Write>(
+    pdf: &VerifiedPdfBytesReceipt,
+    sink: &mut W,
+) -> Result<(), PdfSinkCommitError> {
+    let mut counted = CountingWriter::new(sink);
+    let streamed = match pdf.write_streaming(&mut counted) {
+        Ok(streamed) => streamed,
+        Err(source) if counted.bytes_written == 0 => return Err(PdfSinkCommitError::Io(source)),
+        Err(source) => {
+            return Err(PdfSinkCommitError::StdoutPartial {
+                bytes_written: counted.bytes_written,
+                source,
+            })
+        }
+    };
+    if let Err(error) = validate_streamed_pdf_facts(pdf, streamed) {
+        return Err(PdfSinkCommitError::StdoutPartial {
+            bytes_written: counted.bytes_written,
+            source: io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("streamed PDF facts failed validation: {error:?}"),
+            ),
+        });
+    }
+    counted
+        .flush()
+        .map_err(|source| PdfSinkCommitError::StdoutPartial {
+            bytes_written: counted.bytes_written,
+            source,
+        })
+}
+
+fn revalidate_publication_targets(
+    execution: &BuildExecutionContext,
+    read_ledger: Option<&HostReadIdentityLedgerToken>,
+) -> Result<(), BuildExecutionError> {
+    execution.revalidate_write_targets()?;
+    let Some(read_ledger) = read_ledger else {
+        return Ok(());
+    };
+    for target in [
+        execution.output_path(),
+        execution.trace_target(),
+        execution.manifest_target(),
+        execution.diagnostics_target(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        match read_ledger.revalidate_write_target(target) {
+            Ok(false) => {}
+            Ok(true) => return Err(BuildExecutionError::AliasedReadWriteTarget),
+            Err(error) => return Err(map_read_ledger_error(error)),
+        }
+    }
+    Ok(())
+}
+
+const fn map_read_ledger_error(_error: HostAdmissionError) -> BuildExecutionError {
+    BuildExecutionError::ReadTargetChanged
 }
 
 fn validate_streamed_pdf_facts(
@@ -1209,9 +2513,18 @@ fn validate_streamed_pdf_facts(
     Ok(())
 }
 
+#[cfg(test)]
 fn commit_file_pdf_bytes(
     execution: &BuildExecutionContext,
     bytes: &[u8],
+) -> Result<SinkCommitDurability, PdfSinkCommitError> {
+    commit_file_pdf_bytes_guarded(execution, bytes, None)
+}
+
+fn commit_file_pdf_bytes_guarded(
+    execution: &BuildExecutionContext,
+    bytes: &[u8],
+    read_ledger: Option<&HostReadIdentityLedgerToken>,
 ) -> Result<SinkCommitDurability, PdfSinkCommitError> {
     let target = execution.output_path().ok_or_else(|| {
         PdfSinkCommitError::Io(io::Error::new(
@@ -1219,27 +2532,51 @@ fn commit_file_pdf_bytes(
             "file output has no target",
         ))
     })?;
-    commit_file_bytes(execution, target.as_path(), bytes)
+    commit_file_bytes(execution, target.as_path(), bytes, read_ledger)
 }
 
 fn commit_file_bytes(
     execution: &BuildExecutionContext,
     target: &Path,
     bytes: &[u8],
+    read_ledger: Option<&HostReadIdentityLedgerToken>,
 ) -> Result<SinkCommitDurability, PdfSinkCommitError> {
-    execution
-        .revalidate_write_targets()
-        .map_err(PdfSinkCommitError::Execution)?;
-    commit_file_atomically(execution, target, bytes, execution.replace_policy())
+    let prepared = prepare_file_atomically(
+        execution,
+        target,
+        bytes,
+        execution.replace_policy(),
+        read_ledger,
+    )?;
+    publish_prepared_file(execution, prepared, read_ledger)
+}
+
+#[derive(Debug)]
+struct PreparedAtomicFile {
+    target: PathBuf,
+    parent: PathBuf,
+    temporary: Option<PathBuf>,
+    replace_policy: ReplacePolicy,
+}
+
+impl Drop for PreparedAtomicFile {
+    fn drop(&mut self) {
+        if let Some(temporary) = self.temporary.take() {
+            let _ = fs::remove_file(temporary);
+        }
+    }
 }
 
 #[cfg(unix)]
-fn commit_file_atomically(
+fn prepare_file_atomically(
     execution: &BuildExecutionContext,
     target: &Path,
     bytes: &[u8],
     replace_policy: ReplacePolicy,
-) -> Result<SinkCommitDurability, PdfSinkCommitError> {
+    read_ledger: Option<&HostReadIdentityLedgerToken>,
+) -> Result<PreparedAtomicFile, PdfSinkCommitError> {
+    revalidate_publication_targets(execution, read_ledger)
+        .map_err(PdfSinkCommitError::Execution)?;
     let parent = target
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -1252,33 +2589,57 @@ fn commit_file_atomically(
     })?;
     let (temporary, mut file) =
         create_output_temporary(parent, leaf).map_err(PdfSinkCommitError::Io)?;
-    let prepublication = (|| {
+    if let Err(error) = (|| {
         file.write_all(bytes).map_err(PdfSinkCommitError::Io)?;
         file.sync_all().map_err(PdfSinkCommitError::Io)?;
-        execution
-            .revalidate_write_targets()
-            .map_err(PdfSinkCommitError::Execution)?;
-        match replace_policy {
-            ReplacePolicy::NoReplace => {
-                fs::hard_link(&temporary, target).map_err(PdfSinkCommitError::Io)?;
-            }
-            ReplacePolicy::Replace => {
-                fs::rename(&temporary, target).map_err(PdfSinkCommitError::Io)?
-            }
-        }
         Ok(())
-    })();
-    if let Err(error) = prepublication {
+    })() {
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
-    if replace_policy == ReplacePolicy::NoReplace {
+    Ok(PreparedAtomicFile {
+        target: target.to_path_buf(),
+        parent: parent.to_path_buf(),
+        temporary: Some(temporary),
+        replace_policy,
+    })
+}
+
+#[cfg(unix)]
+fn publish_prepared_file(
+    execution: &BuildExecutionContext,
+    mut prepared: PreparedAtomicFile,
+    read_ledger: Option<&HostReadIdentityLedgerToken>,
+) -> Result<SinkCommitDurability, PdfSinkCommitError> {
+    revalidate_publication_targets(execution, read_ledger)
+        .map_err(PdfSinkCommitError::Execution)?;
+    let temporary = prepared.temporary.as_ref().ok_or_else(|| {
+        PdfSinkCommitError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "prepared output temporary is missing",
+        ))
+    })?;
+    match prepared.replace_policy {
+        ReplacePolicy::NoReplace => {
+            fs::hard_link(temporary, &prepared.target).map_err(PdfSinkCommitError::Io)?;
+        }
+        ReplacePolicy::Replace => {
+            fs::rename(temporary, &prepared.target).map_err(PdfSinkCommitError::Io)?;
+        }
+    }
+    if prepared.replace_policy == ReplacePolicy::NoReplace {
         // The target link is already the published artifact. Temporary-name
         // cleanup is best effort and must not turn a successful publication
         // into a false rollback report.
-        let _ = fs::remove_file(&temporary);
+        if let Some(temporary) = prepared.temporary.take() {
+            let _ = fs::remove_file(temporary);
+        }
+    } else {
+        prepared.temporary = None;
     }
-    Ok(classify_parent_sync(sync_parent_directory(parent)))
+    Ok(classify_parent_sync(sync_parent_directory(
+        &prepared.parent,
+    )))
 }
 
 fn classify_parent_sync(result: io::Result<()>) -> SinkCommitDurability {
@@ -1318,15 +2679,28 @@ fn sync_parent_directory(parent: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn commit_file_atomically(
+fn prepare_file_atomically(
     _execution: &BuildExecutionContext,
     _target: &Path,
     _bytes: &[u8],
     _replace_policy: ReplacePolicy,
-) -> Result<SinkCommitDurability, PdfSinkCommitError> {
+    _read_ledger: Option<&HostReadIdentityLedgerToken>,
+) -> Result<PreparedAtomicFile, PdfSinkCommitError> {
     Err(PdfSinkCommitError::Io(io::Error::new(
         io::ErrorKind::Unsupported,
         "no atomic file-output committer is registered for this platform",
+    )))
+}
+
+#[cfg(not(unix))]
+fn publish_prepared_file(
+    _execution: &BuildExecutionContext,
+    _prepared: PreparedAtomicFile,
+    _read_ledger: Option<&HostReadIdentityLedgerToken>,
+) -> Result<SinkCommitDurability, PdfSinkCommitError> {
+    Err(PdfSinkCommitError::Io(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "no atomic file-output publisher is registered for this platform",
     )))
 }
 
@@ -1344,9 +2718,7 @@ impl BuildManifest {
     fn terminal(
         publication: &ManifestPublicationContext,
         status: BuildStatus,
-        inputs: Vec<FileRecord>,
-        fonts: Vec<FontRecord>,
-        images: Vec<ImageRecord>,
+        records: ManifestTerminalRecords,
         layout: Option<LayoutRecord>,
         output: Option<OutputRecord>,
     ) -> Self {
@@ -1357,9 +2729,11 @@ impl BuildManifest {
             engine: publication.engine.clone(),
             data_versions: publication.data_versions.clone(),
             config_sha256: publication.config_fingerprint.bytes(),
-            inputs,
-            fonts,
-            images,
+            input_profile: publication.input_profile,
+            package_input: records.package_input,
+            inputs: records.inputs,
+            fonts: records.fonts,
+            images: records.images,
             pdf_profile: PDF_PROFILE.to_owned(),
             stream_compression: publication.stream_compression,
             layout,
@@ -1384,6 +2758,12 @@ impl BuildManifest {
     }
     pub const fn config_sha256(&self) -> [u8; 32] {
         self.config_sha256
+    }
+    pub const fn input_profile(&self) -> BuildInputProfile {
+        self.input_profile
+    }
+    pub const fn package_input(&self) -> Option<&PackageInputRecord> {
+        self.package_input.as_ref()
     }
     pub fn inputs(&self) -> &[FileRecord] {
         &self.inputs
@@ -1439,6 +2819,26 @@ impl BuildManifest {
         if self.config_sha256 != expectations.publication.config_fingerprint.bytes() {
             return Err(BuildManifestError::ConfigFingerprintMismatch);
         }
+        if self.input_profile != expectations.publication.input_profile {
+            return Err(BuildManifestError::InputProfileMismatch);
+        }
+        match (self.input_profile, self.status, self.package_input.as_ref()) {
+            (BuildInputProfile::ReferenceSource1, _, None) => {}
+            (BuildInputProfile::ReferenceSource1, _, Some(_)) => {
+                return Err(BuildManifestError::MachinePackageMismatch)
+            }
+            (BuildInputProfile::MachinePdfParagraph1, BuildStatus::Built, Some(package))
+                if package.is_decoded() && self.inputs.len() == 1 => {}
+            (BuildInputProfile::MachinePdfParagraph1, BuildStatus::Built, _) => {
+                return Err(BuildManifestError::MachinePackageMismatch)
+            }
+            (BuildInputProfile::MachinePdfParagraph1, BuildStatus::Failed, Some(package))
+                if package.contract.is_some() == package.canonical_sha256.is_some() => {}
+            (BuildInputProfile::MachinePdfParagraph1, BuildStatus::Failed, None) => {}
+            (BuildInputProfile::MachinePdfParagraph1, BuildStatus::Failed, Some(_)) => {
+                return Err(BuildManifestError::MachinePackageMismatch)
+            }
+        }
         if self
             .inputs
             .windows(2)
@@ -1471,6 +2871,7 @@ impl BuildManifest {
             .map(|record| record.bytes)
             .chain(self.fonts.iter().map(|record| record.bytes))
             .chain(self.images.iter().map(|record| record.bytes))
+            .chain(self.package_input.iter().map(|record| record.bytes))
             .chain(self.output.iter().map(|record| record.bytes))
             .max()
             .unwrap_or(0);
@@ -1490,6 +2891,13 @@ impl BuildManifest {
             return Err(BuildManifestError::InvalidFontMetadata);
         }
         let limits = expectations.publication.limits.get();
+        if self
+            .package_input
+            .as_ref()
+            .is_some_and(|record| record.bytes > limits.max_document_package_bytes)
+        {
+            return Err(BuildManifestError::PackageInputBytesLimit);
+        }
         if self
             .layout
             .is_some_and(|layout| layout.pass_count.get() > limits.max_layout_passes)
@@ -1604,6 +3012,8 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     push_fonts_json(&mut json, &manifest.fonts);
     push_json_member_name(&mut json, "images", false);
     push_images_json(&mut json, &manifest.images);
+    push_json_member_name(&mut json, "input_profile", false);
+    push_json_string(&mut json, manifest.input_profile.as_str());
     push_json_member_name(&mut json, "inputs", false);
     push_inputs_json(&mut json, &manifest.inputs);
     push_json_member_name(&mut json, "layout", false);
@@ -1614,6 +3024,11 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     push_json_member_name(&mut json, "output", false);
     match &manifest.output {
         Some(output) => push_output_json(&mut json, output),
+        None => json.push_str("null"),
+    }
+    push_json_member_name(&mut json, "package_input", false);
+    match &manifest.package_input {
+        Some(package) => push_package_input_json(&mut json, package),
         None => json.push_str("null"),
     }
     push_json_member_name(&mut json, "pdf_profile", false);
@@ -1636,6 +3051,27 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     );
     json.push('}');
     json
+}
+
+fn push_package_input_json(json: &mut String, record: &PackageInputRecord) {
+    json.push('{');
+    push_json_member_name(json, "bytes", true);
+    json.push_str(&record.bytes.to_string());
+    push_json_member_name(json, "canonical_sha256", false);
+    match record.canonical_sha256 {
+        Some(hash) => push_json_hex(json, &hash),
+        None => json.push_str("null"),
+    }
+    push_json_member_name(json, "contract", false);
+    match record.contract {
+        Some(contract) => push_json_string(json, contract.as_str()),
+        None => json.push_str("null"),
+    }
+    push_json_member_name(json, "sha256", false);
+    push_json_hex(json, &record.sha256);
+    push_json_member_name(json, "uri", false);
+    push_json_string(json, record.uri.as_str());
+    json.push('}');
 }
 
 fn push_engine_json(json: &mut String, engine: &EngineRecord) {
@@ -2086,7 +3522,7 @@ fn prepare_built_manifest(
     ledger.admit_validated_package_sources(package)?;
     validate_complete_resource_closure(package, admitted)?;
     ledger.admit_resources(admitted)?;
-    let (inputs, fonts, images) = ledger.manifest_records();
+    let records = ledger.manifest_records();
     let output = OutputRecord {
         sink: output.sink,
         bytes: output.bytes,
@@ -2097,9 +3533,7 @@ fn prepare_built_manifest(
     let manifest = BuildManifest::terminal(
         publication,
         BuildStatus::Built,
-        inputs,
-        fonts,
-        images,
+        records,
         Some(layout),
         Some(output),
     );
@@ -2107,6 +3541,54 @@ fn prepare_built_manifest(
         manifest,
         ManifestExpectations::from_publication(publication),
     )
+}
+
+fn prepare_machine_built_manifest(
+    publication: &ManifestPublicationContext,
+    package: &ValidatedMachinePackage,
+    capability: &MachinePdfPreflightReceipt,
+    admitted: AdmittedResourceLedgerToken<'_>,
+    pagination: &PaginationResult,
+    output: PreparedPdfOutputFacts,
+) -> Result<(ValidatedBuildManifest, ManifestAdmissionLedger), BuildManifestError> {
+    if output.sink != publication.output_sink() {
+        return Err(BuildManifestError::OutputSinkMismatch);
+    }
+    let layout = layout_record_for(publication, pagination)?;
+    let page_count = u32::try_from(pagination.selected_pages().len())
+        .map_err(|_| BuildManifestError::PageLimit)?;
+    if output.selected_fingerprint != pagination.final_fingerprint()
+        || output.page_count != page_count
+    {
+        return Err(BuildManifestError::PaginationReceiptMismatch);
+    }
+
+    let mut ledger = publication.begin_admission_ledger();
+    ledger.admit_validated_machine_package(package)?;
+    ledger.admit_machine_capability(package, capability)?;
+    validate_complete_resource_closure(package.package(), admitted)?;
+    ledger.admit_resources(admitted)?;
+    ledger.admit_layout_selected(pagination)?;
+    let records = ledger.manifest_records();
+    let output = OutputRecord {
+        sink: output.sink,
+        bytes: output.bytes,
+        sha256: output.sha256,
+        page_count: output.page_count,
+        pdf_object_count: output.pdf_object_count,
+    };
+    let manifest = BuildManifest::terminal(
+        publication,
+        BuildStatus::Built,
+        records,
+        Some(layout),
+        Some(output),
+    );
+    let validated = ValidatedBuildManifest::new(
+        manifest,
+        ManifestExpectations::from_publication(publication),
+    )?;
+    Ok((validated, ledger))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2128,22 +3610,29 @@ impl ValidatedBuildManifest {
         if ledger.binding != publication.binding() {
             return Err(BuildManifestError::AdmissionLedgerBindingMismatch);
         }
+        let mut candidate = ledger.clone();
         let layout = pagination
             .map(|pagination| {
-                validate_ledger_pagination_closure(ledger, pagination)?;
+                if candidate.machine.is_some() {
+                    if candidate.machine_stage() == Some(ManifestAdmissionStage::ResourcesAdmitted)
+                    {
+                        candidate.admit_layout_selected(pagination)?;
+                    } else if candidate.machine_stage()
+                        != Some(ManifestAdmissionStage::LayoutSelected)
+                    {
+                        return Err(BuildManifestError::IncompleteLayoutAdmission);
+                    } else {
+                        validate_ledger_pagination_closure(&candidate, pagination)?;
+                    }
+                } else {
+                    validate_ledger_pagination_closure(&candidate, pagination)?;
+                }
                 layout_record_for(publication, pagination)
             })
             .transpose()?;
-        let (inputs, fonts, images) = ledger.manifest_records();
-        let manifest = BuildManifest::terminal(
-            publication,
-            BuildStatus::Failed,
-            inputs,
-            fonts,
-            images,
-            layout,
-            None,
-        );
+        let records = candidate.manifest_records();
+        let manifest =
+            BuildManifest::terminal(publication, BuildStatus::Failed, records, layout, None);
         Self::new(
             manifest,
             ManifestExpectations::from_publication(publication),
@@ -2162,12 +3651,21 @@ impl ValidatedBuildManifest {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use typaxis_core::{
-        BuildExecutionContext, ConfigResourceRoot, EffectiveConfig, EffectiveDataVersions,
-        HostPath, ReplacePolicy, ResourceLimits,
+        sha256, BuildExecutionContext, ConfigResourceRoot, DocumentPackageContractId,
+        EffectiveConfig, EffectiveDataVersions, HostPath, ReplacePolicy, ResourceLimits,
     };
+    use typaxis_diagnostics::{MachineDiagnosticBudget, MachineDiagnosticPhase};
     use typaxis_display_list::ValidatedDisplayDocument;
+    use typaxis_host_admission::{HostAdmissionSession, HostReadIdentityLedger};
     use typaxis_layout::{FlowCursor, FlowTree, LayoutEpoch, PageContext, ResolvedPageSelection};
+    use typaxis_machine_input::{
+        AdmittedPackageBytes, HostMachineInputSession, MachineInputHostOptions,
+    };
+    use typaxis_machine_profile::MachinePdfPreflight;
     use typaxis_pagination::{
         InitialPaginationState, LayoutPass, LayoutPassInput, PageFrameKind, PageFramePlan,
         PagePlan, PaginationInput, PaginationOptions, PaginationOutcome,
@@ -2177,8 +3675,9 @@ mod tests {
         AdmittedResourceLedger, AdmittedResourceResolver, FrozenPdfResourcePlans,
     };
     use typaxis_syntax::{
+        machine_profile_boundary::wire, DocumentPackageParser, MachineParseOutcome,
         PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser, SourceFile,
-        ValidatedParsedPackage,
+        ValidatedMachinePackage, ValidatedParsedPackage,
     };
     use typaxis_text::GeneratedTextStore;
 
@@ -2218,11 +3717,194 @@ mod tests {
             OsStr::new("-"),
             None,
             Some(HostPath::new("target/build-manifest.json").unwrap()),
+            None,
             ReplacePolicy::NoReplace,
         )
         .unwrap();
         let output = BuildOutputCommitContext::new(config, &execution).unwrap();
         ManifestPublicationContext::new(config, &output, shaper_identity(), &tables()).unwrap()
+    }
+
+    fn machine_publication_for(config: &EffectiveConfig) -> ManifestPublicationContext {
+        machine_contexts_for(config).1
+    }
+
+    fn machine_contexts_for(
+        config: &EffectiveConfig,
+    ) -> (BuildOutputCommitContext, ManifestPublicationContext) {
+        let execution = BuildExecutionContext::from_cli_token(
+            OsStr::new("-"),
+            None,
+            Some(HostPath::new("target/machine-build-manifest.json").unwrap()),
+            None,
+            ReplacePolicy::NoReplace,
+        )
+        .unwrap();
+        let output = BuildOutputCommitContext::new_machine(
+            config,
+            &execution,
+            MachineProfileDescriptor::PARAGRAPH_1,
+        )
+        .unwrap();
+        let publication =
+            ManifestPublicationContext::new(config, &output, shaper_identity(), &tables()).unwrap();
+        (output, publication)
+    }
+
+    static NEXT_MACHINE_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+    struct MachineFixtureRoot(PathBuf);
+
+    impl MachineFixtureRoot {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "typaxis-manifest-machine-{label}-{}-{}",
+                std::process::id(),
+                NEXT_MACHINE_FIXTURE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for MachineFixtureRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn machine_wire(with_paragraph: bool) -> wire::WireDocumentPackage {
+        let blocks = if with_paragraph {
+            vec![wire::WireBlock::Paragraph {
+                node_id: 1,
+                span: wire::WireSourceSpan {
+                    source_id: 0,
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+                classes: Vec::new(),
+                children: Vec::new(),
+            }]
+        } else {
+            Vec::new()
+        };
+        wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_0,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks,
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet { rules: Vec::new() },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        }
+    }
+
+    fn open_machine_fixture(
+        label: &str,
+        package: &wire::WireDocumentPackage,
+        limits: &ValidatedResourceLimits,
+    ) -> (
+        MachineFixtureRoot,
+        HostMachineInputSession,
+        AdmittedPackageBytes,
+    ) {
+        let root = MachineFixtureRoot::new(label);
+        let package_path = root.path().join("document-package.json");
+        let bytes = wire::DocumentPackageEncoder::default()
+            .to_jcs_vec(package)
+            .unwrap();
+        fs::write(&package_path, bytes).unwrap();
+        fs::write(root.path().join("input.tsf"), []).unwrap();
+        let options = MachineInputHostOptions::new(HostPath::new(package_path).unwrap(), None);
+        let (session, raw) = HostMachineInputSession::open(options, limits).unwrap();
+        (root, session, raw)
+    }
+
+    fn validated_machine_fixture(
+        label: &str,
+        wire_package: &wire::WireDocumentPackage,
+    ) -> Box<ValidatedMachinePackage> {
+        validated_machine_fixture_with_root(label, wire_package).1
+    }
+
+    fn validated_machine_fixture_with_root(
+        label: &str,
+        wire_package: &wire::WireDocumentPackage,
+    ) -> (MachineFixtureRoot, Box<ValidatedMachinePackage>) {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let (root, session, raw) = open_machine_fixture(label, wire_package, &limits);
+        let decoded = session
+            .decode_and_bind(
+                &raw,
+                &wire::StrictDocumentPackageDecoder::new(),
+                &wire::DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let sources = session.admit_sources(&decoded, &limits).unwrap();
+        let admitted = session.finish(raw, decoded, sources).unwrap();
+        let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>();
+        let policy = PackageValidationPolicy::new(&limits, &allowed_schemes).unwrap();
+        let package = match DocumentPackageParser::new().parse(admitted, &policy) {
+            MachineParseOutcome::Parsed { package } => package,
+            MachineParseOutcome::Failed { failure, .. } => panic!("machine fixture: {failure}"),
+        };
+        (root, package)
+    }
+
+    fn machine_capability(package: &ValidatedMachinePackage) -> MachinePdfPreflightReceipt {
+        let mut budget = MachineDiagnosticBudget::new();
+        let mut diagnostics = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+        MachinePdfPreflight::PARAGRAPH_1
+            .run(package, &mut diagnostics)
+            .unwrap()
+    }
+
+    fn failed_machine_manifest(progress: &MachineInputProgress) -> BuildManifest {
+        let publication = machine_publication_for(&effective_config());
+        let mut ledger = publication.begin_admission_ledger();
+        ledger.admit_machine_input_progress(progress).unwrap();
+        publication
+            .prepare_failed(ledger, None)
+            .unwrap()
+            .manifest
+            .into_manifest()
     }
 
     fn failed_manifest() -> BuildManifest {
@@ -2238,6 +3920,8 @@ mod tests {
             engine: EngineRecord::from_identity(&EngineIdentity::compiled()),
             data_versions: DataVersions::from_runtime(&tables(), shaper_identity()),
             config_sha256: config.fingerprint().bytes(),
+            input_profile: BuildInputProfile::ReferenceSource1,
+            package_input: None,
             inputs: vec![FileRecord {
                 uri: PortablePath::new("entry.tsf").unwrap(),
                 bytes: 0,
@@ -2250,6 +3934,198 @@ mod tests {
             layout: None,
             output: None,
         }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_failed_projection_preserves_decode_stage_nullability() {
+        let config = effective_config();
+        let limits = config.limits().clone();
+
+        let missing_root = MachineFixtureRoot::new("no-input");
+        let missing = MachineInputHostOptions::new(
+            HostPath::new(missing_root.path().join("missing-package.json")).unwrap(),
+            None,
+        );
+        let error = HostMachineInputSession::open(missing, &limits).unwrap_err();
+        let (_, no_input) = error.into_parts();
+        let manifest = failed_machine_manifest(&no_input);
+        assert_eq!(
+            manifest.input_profile(),
+            BuildInputProfile::MachinePdfParagraph1
+        );
+        assert!(manifest.package_input().is_none());
+        assert!(manifest.inputs().is_empty());
+
+        let wire_package = machine_wire(false);
+        let (_root, session, raw) = open_machine_fixture("stages", &wire_package, &limits);
+        let raw_manifest = failed_machine_manifest(&session.progress());
+        let raw_record = raw_manifest.package_input().unwrap();
+        assert_eq!(raw_record.uri().as_str(), "document-package.json");
+        assert!(raw_record.contract().is_none());
+        assert!(raw_record.canonical_sha256().is_none());
+        assert!(raw_manifest.inputs().is_empty());
+
+        let decoded = session
+            .decode_and_bind(
+                &raw,
+                &wire::StrictDocumentPackageDecoder::new(),
+                &wire::DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let decoded_manifest = failed_machine_manifest(&session.progress());
+        let decoded_record = decoded_manifest.package_input().unwrap();
+        assert_eq!(
+            decoded_record.contract(),
+            Some(DocumentPackageContractId::V1_0)
+        );
+        assert!(decoded_record.canonical_sha256().is_some());
+        assert!(decoded_manifest.inputs().is_empty());
+
+        let sources = session.admit_sources(&decoded, &limits).unwrap();
+        let sources_manifest = failed_machine_manifest(&session.progress());
+        assert_eq!(sources_manifest.inputs().len(), 1);
+        assert_eq!(sources_manifest.inputs()[0].uri().as_str(), "input.tsf");
+        assert_ne!(
+            sources_manifest.package_input().unwrap().uri(),
+            sources_manifest.inputs()[0].uri()
+        );
+        let _ = session.finish(raw, decoded, sources).unwrap();
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_built_preflight_closes_profile_package_resources_layout_and_pdf() {
+        let config = effective_config();
+        let (root, package) = validated_machine_fixture_with_root("built", &machine_wire(false));
+        let capability = machine_capability(&package);
+        let admitted =
+            AdmittedResourceResolver::new(&package.package().package().resources, config.limits())
+                .unwrap()
+                .finish()
+                .unwrap();
+        let pagination = pagination_for(package.package(), &admitted);
+        let pdf = serialized_pdf_for(package.package(), &admitted, &pagination, &config);
+        let output_path = root.path().join("output.pdf");
+        let manifest_path = root.path().join("manifest.json");
+        let execution = BuildExecutionContext::from_cli_token(
+            output_path.as_os_str(),
+            None,
+            Some(HostPath::new(manifest_path.clone()).unwrap()),
+            None,
+            ReplacePolicy::NoReplace,
+        )
+        .unwrap();
+        let output_context = BuildOutputCommitContext::new_machine(
+            &config,
+            &execution,
+            MachineProfileDescriptor::PARAGRAPH_1,
+        )
+        .unwrap();
+        let publication =
+            ManifestPublicationContext::new(&config, &output_context, shaper_identity(), &tables())
+                .unwrap();
+        assert_eq!(
+            publication.input_profile(),
+            BuildInputProfile::MachinePdfParagraph1
+        );
+
+        let prepared = publication
+            .prepare_machine_built(&package, &capability, admitted.token(), &pagination, pdf)
+            .unwrap();
+        let manifest = prepared.manifest.manifest();
+        assert_eq!(manifest.status(), BuildStatus::Built);
+        assert_eq!(
+            manifest.input_profile(),
+            BuildInputProfile::MachinePdfParagraph1
+        );
+        let package_record = manifest.package_input().unwrap();
+        assert_eq!(
+            package_record.contract(),
+            Some(DocumentPackageContractId::V1_0)
+        );
+        assert!(package_record.canonical_sha256().is_some());
+        assert_eq!(manifest.inputs().len(), 1);
+        assert_eq!(manifest.inputs()[0].uri().as_str(), "input.tsf");
+        assert!(manifest.layout().is_some());
+        assert!(manifest.output().is_some());
+        let committed = output_context.commit_prepared_built(prepared).unwrap();
+        assert_eq!(committed.manifest().manifest().status(), BuildStatus::Built);
+        assert!(fs::read(output_path).unwrap().starts_with(b"%PDF-"));
+        assert!(fs::read_to_string(manifest_path)
+            .unwrap()
+            .contains("\"input_profile\":\"typaxis.machine-pdf/paragraph-1\""));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_ledger_rejects_profile_package_session_and_resource_swaps() {
+        let config = effective_config();
+        let first = validated_machine_fixture("swap-first", &machine_wire(false));
+        let identical_other_session =
+            validated_machine_fixture("swap-session", &machine_wire(false));
+        let different_package = validated_machine_fixture("swap-package", &machine_wire(true));
+        let first_capability = machine_capability(&first);
+        let session_capability = machine_capability(&identical_other_session);
+        let different_capability = machine_capability(&different_package);
+
+        let reference = publication();
+        assert_eq!(
+            reference
+                .begin_admission_ledger()
+                .admit_validated_machine_package(&first),
+            Err(BuildManifestError::InputProfileMismatch)
+        );
+
+        let machine = machine_publication_for(&config);
+        let mut session_swap = machine.begin_admission_ledger();
+        session_swap
+            .admit_validated_machine_package(&first)
+            .unwrap();
+        assert_eq!(
+            session_swap.admit_machine_capability(&first, &session_capability),
+            Err(BuildManifestError::MachineCapabilityMismatch)
+        );
+
+        let machine = machine_publication_for(&config);
+        let mut package_swap = machine.begin_admission_ledger();
+        package_swap
+            .admit_validated_machine_package(&first)
+            .unwrap();
+        assert_eq!(
+            package_swap.admit_machine_capability(&different_package, &different_capability),
+            Err(BuildManifestError::MachineCapabilityMismatch)
+        );
+
+        let machine = machine_publication_for(&config);
+        let mut resource_swap = machine.begin_admission_ledger();
+        resource_swap
+            .admit_validated_machine_package(&first)
+            .unwrap();
+        resource_swap
+            .admit_machine_capability(&first, &first_capability)
+            .unwrap();
+        let first_resolver = AdmittedResourceResolver::new_empty(config.limits()).unwrap();
+        let first_progress = first_resolver.progress_token();
+        let first_resources = first_resolver.finish().unwrap();
+        let foreign_resources = AdmittedResourceResolver::new_empty(config.limits())
+            .unwrap()
+            .finish()
+            .unwrap();
+        resource_swap
+            .admit_resource_progress(first_progress)
+            .unwrap();
+        assert_eq!(
+            resource_swap.admit_resources(foreign_resources.token()),
+            Err(BuildManifestError::ResourceProgressMismatch)
+        );
+        resource_swap
+            .admit_resources(first_resources.token())
+            .unwrap();
+        assert_eq!(
+            resource_swap.machine_stage(),
+            Some(ManifestAdmissionStage::ResourcesAdmitted)
+        );
     }
 
     fn validate(manifest: BuildManifest) -> Result<ValidatedBuildManifest, BuildManifestError> {
@@ -2404,6 +4280,49 @@ mod tests {
     }
 
     #[test]
+    fn stdout_prefix_failure_is_distinct_from_prepublication_io() {
+        struct PrefixThenFail {
+            accepted: usize,
+            maximum: usize,
+        }
+
+        impl Write for PrefixThenFail {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if self.accepted == self.maximum {
+                    return Err(io::Error::new(io::ErrorKind::BrokenPipe, "injected"));
+                }
+                let written = bytes.len().min(self.maximum - self.accepted);
+                self.accepted += written;
+                Ok(written)
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let config = effective_config();
+        let package = validated_package("");
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, config.limits())
+            .unwrap()
+            .finish()
+            .unwrap();
+        let pagination = pagination_for(&package, &admitted);
+        let pdf = serialized_pdf_for(&package, &admitted, &pagination, &config);
+        let mut sink = PrefixThenFail {
+            accepted: 0,
+            maximum: 11,
+        };
+        assert!(matches!(
+            stream_verified_pdf(&pdf, &mut sink),
+            Err(PdfSinkCommitError::StdoutPartial {
+                bytes_written: 11,
+                source,
+            }) if source.kind() == io::ErrorKind::BrokenPipe
+        ));
+    }
+
+    #[test]
     fn failed_factory_owns_only_publication_bound_admission_facts() {
         let publication = publication();
         let mut ledger = publication.begin_admission_ledger();
@@ -2467,6 +4386,7 @@ mod tests {
             output.as_os_str(),
             None,
             None,
+            None,
             ReplacePolicy::NoReplace,
         )
         .unwrap();
@@ -2481,6 +4401,7 @@ mod tests {
 
         let replace = BuildExecutionContext::from_cli_token(
             output.as_os_str(),
+            None,
             None,
             None,
             ReplacePolicy::Replace,
@@ -2519,6 +4440,7 @@ mod tests {
             output.as_os_str(),
             None,
             Some(HostPath::new(manifest_path.clone()).unwrap()),
+            None,
             ReplacePolicy::Replace,
         )
         .unwrap();
@@ -2553,6 +4475,7 @@ mod tests {
             output_path.as_os_str(),
             None,
             Some(HostPath::new(manifest_path.clone()).unwrap()),
+            None,
             ReplacePolicy::Replace,
         )
         .unwrap();
@@ -2614,6 +4537,7 @@ mod tests {
             output_path.as_os_str(),
             None,
             Some(HostPath::new(manifest_path.clone()).unwrap()),
+            None,
             ReplacePolicy::NoReplace,
         )
         .unwrap();
@@ -2662,6 +4586,7 @@ mod tests {
             output_path.as_os_str(),
             None,
             Some(HostPath::new(manifest_path.clone()).unwrap()),
+            None,
             ReplacePolicy::NoReplace,
         )
         .unwrap();
@@ -2714,6 +4639,80 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn sealed_read_alias_blocks_pdf_and_failed_manifest_publication() {
+        let output_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("target");
+        fs::create_dir_all(&output_root).unwrap();
+        let ordinal = OUTPUT_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = output_root.join(format!(
+            "manifest-read-alias-{}-{ordinal}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        let input_path = root.join("input.pdf");
+        let manifest_path = root.join("manifest.json");
+        fs::write(&input_path, b"admitted input").unwrap();
+
+        let read_ledger = HostReadIdentityLedger::new();
+        let host = HostAdmissionSession::new_contained_root_with_read_ledger(
+            &HostPath::new(root.clone()).unwrap(),
+            &read_ledger,
+        )
+        .unwrap();
+        drop(
+            host.roots()
+                .open(&PortablePath::new("input.pdf").unwrap())
+                .unwrap(),
+        );
+        let token = read_ledger.token().unwrap();
+
+        let config = effective_config();
+        let package = validated_package("");
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, config.limits())
+            .unwrap()
+            .finish()
+            .unwrap();
+        let pagination = pagination_for(&package, &admitted);
+        let pdf = serialized_pdf_for(&package, &admitted, &pagination, &config);
+        let execution = BuildExecutionContext::from_cli_token(
+            input_path.as_os_str(),
+            None,
+            Some(HostPath::new(manifest_path.clone()).unwrap()),
+            None,
+            ReplacePolicy::Replace,
+        )
+        .unwrap();
+        let output = BuildOutputCommitContext::new(&config, &execution).unwrap();
+        let publication =
+            ManifestPublicationContext::new(&config, &output, shaper_identity(), &tables())
+                .unwrap();
+        let prepared = publication
+            .prepare_built(&package, admitted.token(), &pagination, pdf)
+            .unwrap()
+            .bind_read_ledger(token)
+            .unwrap();
+        let error = output.commit_prepared_built(prepared).unwrap_err();
+        let BuiltPublicationCommitError::PdfSinkFailed {
+            source: PdfSinkCommitError::Execution(BuildExecutionError::AliasedReadWriteTarget),
+            failed_manifest: FailedManifestPublication::CommitError(failed_manifest),
+        } = error
+        else {
+            panic!("read/write alias must block both terminal writes");
+        };
+        assert!(matches!(
+            *failed_manifest,
+            ManifestSinkCommitError::Execution(BuildExecutionError::AliasedReadWriteTarget)
+        ));
+        assert_eq!(fs::read(&input_path).unwrap(), b"admitted input");
+        assert!(!manifest_path.exists());
+
+        fs::remove_file(input_path).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn successful_pdf_commit_still_preserves_manifest_failure_receipt() {
         let output_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
@@ -2738,6 +4737,7 @@ mod tests {
             output_path.as_os_str(),
             None,
             Some(HostPath::new(manifest_path.clone()).unwrap()),
+            None,
             ReplacePolicy::NoReplace,
         )
         .unwrap();
@@ -2769,6 +4769,57 @@ mod tests {
         );
 
         fs::remove_file(manifest_path).unwrap();
+        fs::remove_file(output_path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn diagnostics_failure_after_pdf_leaves_built_manifest_unpublished() {
+        let output_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("target");
+        fs::create_dir_all(&output_root).unwrap();
+        let ordinal = OUTPUT_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let stem = format!("manifest-diagnostics-stop-{}-{ordinal}", std::process::id());
+        let output_path = output_root.join(format!("{stem}.pdf"));
+        let manifest_path = output_root.join(format!("{stem}.json"));
+        let diagnostics_path = output_root.join(format!("{stem}.diagnostics.json"));
+
+        let config = effective_config();
+        let package = validated_package("");
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, config.limits())
+            .unwrap()
+            .finish()
+            .unwrap();
+        let pagination = pagination_for(&package, &admitted);
+        let pdf = serialized_pdf_for(&package, &admitted, &pagination, &config);
+        let execution = BuildExecutionContext::from_cli_token(
+            output_path.as_os_str(),
+            None,
+            Some(HostPath::new(manifest_path.clone()).unwrap()),
+            Some(HostPath::new(diagnostics_path).unwrap()),
+            ReplacePolicy::Replace,
+        )
+        .unwrap();
+        let output = BuildOutputCommitContext::new(&config, &execution).unwrap();
+        let publication =
+            ManifestPublicationContext::new(&config, &output, shaper_identity(), &tables())
+                .unwrap();
+        let prepared = publication
+            .prepare_built(&package, admitted.token(), &pagination, pdf)
+            .unwrap();
+
+        let staged = output.stage_prepared_built(prepared).unwrap();
+        assert!(!output_path.exists());
+        assert!(!manifest_path.exists());
+        let pending = staged.commit_pdf().unwrap();
+        assert!(pending.pdf_receipt().bytes() > 0);
+        assert!(output_path.exists());
+        assert!(!manifest_path.exists());
+        // A diagnostics publisher would drop this capability on error.
+        drop(pending);
+        assert!(!manifest_path.exists());
+
         fs::remove_file(output_path).unwrap();
     }
 
@@ -2979,10 +5030,40 @@ mod tests {
     }
 
     #[test]
+    fn package_input_bytes_use_the_effective_inclusive_limit() {
+        let config = effective_config();
+        let publication = machine_publication_for(&config);
+        let mut manifest = failed_manifest_for(&config);
+        manifest.input_profile = BuildInputProfile::MachinePdfParagraph1;
+        manifest.package_input = Some(PackageInputRecord {
+            uri: PortablePath::new("document-package.json").unwrap(),
+            bytes: config.limits().get().max_document_package_bytes,
+            sha256: [0; 32],
+            contract: None,
+            canonical_sha256: None,
+        });
+        let canonical = canonical_manifest_json(&manifest);
+        assert!(canonical.contains("\"input_profile\":\"typaxis.machine-pdf/paragraph-1\""));
+        assert!(canonical.contains(&format!(
+            "\"package_input\":{{\"bytes\":{},\"canonical_sha256\":null,\"contract\":null,\"sha256\":\"{}\",\"uri\":\"document-package.json\"}}",
+            config.limits().get().max_document_package_bytes,
+            "0".repeat(64),
+        )));
+        assert!(validate_against(manifest.clone(), &publication).is_ok());
+
+        manifest.package_input.as_mut().unwrap().bytes += 1;
+        assert_eq!(
+            validate_against(manifest, &publication),
+            Err(BuildManifestError::PackageInputBytesLimit)
+        );
+    }
+
+    #[test]
     fn publication_context_exists_only_after_config_and_manifest_target() {
         let config = effective_config();
         let without_target = BuildExecutionContext::from_cli_token(
             OsStr::new("-"),
+            None,
             None,
             None,
             ReplacePolicy::NoReplace,

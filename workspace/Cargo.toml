@@ -2,6 +2,10 @@
 resolver = "2"
 members = [
   "crates/typaxis-core",
+  "crates/typaxis-host-admission",
+  "crates/typaxis-document-package",
+  "crates/typaxis-machine-input",
+  "crates/typaxis-machine-profile",
   "crates/typaxis-diagnostics",
   "crates/typaxis-text",
   "crates/typaxis-document",

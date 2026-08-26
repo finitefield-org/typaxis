@@ -1,31 +1,61 @@
 #![forbid(unsafe_code)]
 
+use core::num::{NonZeroU16, NonZeroU64};
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
-    document_fingerprint_from_jcs, push_jcs_string, style_fingerprint_from_jcs, AnchorId,
+    document_fingerprint_from_jcs, push_jcs_string, sha256, style_fingerprint_from_jcs, AnchorId,
     DocumentFingerprint, FontFaceId, FootnoteId, GeneratedBufferKey, GenerationKind,
-    ImageResourceId, Length, MasterId, NodeId, PageName, PortablePath, PositiveLength, Rect,
-    ReferenceFingerprint, SafeUriError, SourceId, SourceSpan, StyleFingerprint, StyleId,
-    TextBufferId, TextSpan, Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits, CONTRACT,
-    COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
+    ImageResourceId, JsonPointer, Length, MasterId, NodeId, PageName, PortablePath, PositiveLength,
+    Rect, ReferenceFingerprint, SafeUri, SafeUriError, SourceId, SourceSpan, StyleFingerprint,
+    StyleId, TextBufferId, TextSpan, Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits,
+    CONTRACT, COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
 };
 use typaxis_diagnostics::{
-    AdvisoryDiagnostic, Diagnostic, DiagnosticCode, DiagnosticFlow, ParseFailure, PhaseDiagnostics,
-    Severity,
+    AdvisoryDiagnostic, Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticFlow,
+    DiagnosticLocation, DiagnosticSubject, MasterErrorSubject, ParseFailure, PhaseDiagnostics,
+    PublicMachineError, ResourceErrorSubject, Severity, SourceDiagnosticLocation,
+    StyleErrorSubject, StylePropertyName,
 };
 use typaxis_document::{
     Block, ColumnSizing, Document, DocumentNodeKind, FontFaceDeclaration, FootnoteDefinition,
-    GeneratedSiteTarget, Inline, LinkTarget, ListItem, ReferenceFormat, ResourceCatalog, TableCell,
-    TableColumn, TableRow, ValidatedDocumentNodeIndex,
+    GeneratedSiteTarget, HeadingLevel, ImageDeclaration, Inline, LinkTarget, ListItem,
+    ReferenceFormat, ResourceCatalog, TableCell, TableColumn, TableRow, ValidatedDocumentNodeIndex,
+};
+use typaxis_document_package::{
+    self as wire, CanonicalDocumentPackageJcsSha256, DocumentPackageRootMember, JsonLocationIndex,
+    RawDocumentPackageSha256, WireDocumentPackage,
+};
+use typaxis_machine_input::{
+    AdmittedMachinePackage, AdmittedMachineSource, MachineInputAdmissionProvenance,
+    MachineInputFingerprint, MachineInputProgress, MachineInputSessionIdentity, MachineInputStage,
 };
 use typaxis_style::{
-    is_style_identifier, ComputedStyle, Declaration, PageMaster, PageMasterSet,
+    is_style_identifier, ComputedStyle, Declaration, PageMaster, PageMasterRule, PageMasterSet,
     PageMasterValidationError, PageParity, StyleRule, StyleSheet, StyleValidationError, StyleValue,
 };
 use typaxis_text::{
     GeneratedBufferDraft, GeneratedProvenance, GeneratedTextStore, SourceCatalog, SourceRecord,
     TextBuffer, TextMapKind, TextMapSegment, TextStore,
 };
+
+/// Narrow dependency-inversion facade used by `typaxis-machine-profile`.
+///
+/// The profile crate is intentionally limited to `core + syntax +
+/// diagnostics`. These are already-public domain/admission types needed to
+/// inspect a sealed [`ValidatedMachinePackage`] and compose target facts; this
+/// module issues no trusted value and exposes no DTO-to-trusted promotion path.
+#[doc(hidden)]
+pub mod machine_profile_boundary {
+    pub use typaxis_document::{Block, FootnoteDefinition, Inline, ReferenceFormat};
+    pub use typaxis_document_package as wire;
+    pub use typaxis_machine_input::{
+        AtomicFilePublicationCapabilityToken, HostMachineInputSession,
+        HostResourceCapabilityToken as ResourceAdmissionCapabilityToken,
+        MachineInputCapabilityToken, MachineInputHostOptions, MachineInputSessionIdentity,
+        MAX_HOST_READ_CANDIDATES, MAX_RESOURCE_ROOTS,
+    };
+    pub use typaxis_style::{PageMaster, PageMasterRule, StyleRule, StyleValue};
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceFile {
@@ -41,6 +71,457 @@ pub struct ParsedPackage {
     pub style_sheet: StyleSheet,
     pub page_masters: PageMasterSet,
     pub resources: ResourceCatalog,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DocumentPackageConversionError {
+    UnknownStyleDeclarationName(String),
+}
+
+impl std::fmt::Display for DocumentPackageConversionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownStyleDeclarationName(name) => write!(
+                formatter,
+                "style declaration `{name}` has no current DocumentPackage wire representation"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DocumentPackageConversionError {}
+
+fn parsed_package_to_wire(
+    package: &ParsedPackage,
+) -> Result<WireDocumentPackage, DocumentPackageConversionError> {
+    Ok(WireDocumentPackage {
+        contract: typaxis_core::DocumentPackageContractId::CURRENT,
+        coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+        sources: package
+            .sources
+            .records()
+            .iter()
+            .map(|source| wire::WireSource {
+                source_id: source.source_id().get(),
+                uri: source.uri().as_str().to_owned(),
+                utf8_byte_length: source.utf8_byte_length(),
+                sha256: source.content_hash(),
+            })
+            .collect(),
+        text_buffers: package
+            .text_store
+            .buffers()
+            .iter()
+            .map(|buffer| wire::WireTextBuffer {
+                text_id: buffer.text_id().get(),
+                utf8: buffer.text().to_owned(),
+                mappings: buffer
+                    .mappings()
+                    .iter()
+                    .map(|mapping| wire::WireTextMapSegment {
+                        text_range: wire_byte_range(mapping.text_range),
+                        kind: match mapping.kind {
+                            TextMapKind::Identity => wire::WireTextMapKind::Identity,
+                            TextMapKind::Replacement => wire::WireTextMapKind::Replacement,
+                            TextMapKind::Inserted => wire::WireTextMapKind::Inserted,
+                        },
+                        source_span: mapping.source_span.map(wire_source_span),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        document: wire_document(&package.document),
+        style_sheet: wire_style_sheet(&package.style_sheet)?,
+        page_masters: wire_page_masters(&package.page_masters),
+        resources: wire_resources(&package.resources),
+    })
+}
+
+fn wire_document(document: &Document) -> wire::WireDocument {
+    wire::WireDocument {
+        node_id: document.node_id.get(),
+        blocks: document.blocks.iter().map(wire_block).collect(),
+        footnotes: document
+            .footnotes
+            .iter()
+            .map(|footnote| wire::WireFootnote {
+                footnote_id: footnote.footnote_id.as_str().to_owned(),
+                node_id: footnote.node_id.get(),
+                span: wire_source_span(footnote.span),
+                blocks: footnote.blocks.iter().map(wire_block).collect(),
+            })
+            .collect(),
+    }
+}
+
+fn wire_block(block: &Block) -> wire::WireBlock {
+    match block {
+        Block::Paragraph {
+            node_id,
+            span,
+            classes,
+            children,
+        } => wire::WireBlock::Paragraph {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            classes: classes.clone(),
+            children: children.iter().map(wire_inline).collect(),
+        },
+        Block::Heading {
+            node_id,
+            span,
+            classes,
+            level,
+            anchor_id,
+            children,
+        } => wire::WireBlock::Heading {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            classes: classes.clone(),
+            level: level.get(),
+            anchor_id: anchor_id.as_ref().map(|value| value.as_str().to_owned()),
+            children: children.iter().map(wire_inline).collect(),
+        },
+        Block::List {
+            node_id,
+            span,
+            classes,
+            ordered,
+            start,
+            items,
+        } => wire::WireBlock::List {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            classes: classes.clone(),
+            ordered: *ordered,
+            start: *start,
+            items: items
+                .iter()
+                .map(|item| wire::WireListItem {
+                    node_id: item.node_id.get(),
+                    span: wire_source_span(item.span),
+                    blocks: item.blocks.iter().map(wire_block).collect(),
+                })
+                .collect(),
+        },
+        Block::Table {
+            node_id,
+            span,
+            classes,
+            columns,
+            head,
+            body,
+        } => wire::WireBlock::Table {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            classes: classes.clone(),
+            columns: columns
+                .iter()
+                .map(|column| match column.sizing {
+                    ColumnSizing::Fixed(width) => wire::WireTableColumn::Fixed {
+                        width: width.get().raw(),
+                    },
+                    ColumnSizing::Fraction(weight) => wire::WireTableColumn::Fraction {
+                        weight: weight.get(),
+                    },
+                })
+                .collect(),
+            head: head.iter().map(wire_table_row).collect(),
+            body: body.iter().map(wire_table_row).collect(),
+        },
+        Block::Figure {
+            node_id,
+            span,
+            classes,
+            image_id,
+            alt,
+            caption,
+        } => wire::WireBlock::Figure {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            classes: classes.clone(),
+            image_id: image_id.get(),
+            alt: alt.clone(),
+            caption: caption.iter().map(wire_block).collect(),
+        },
+        Block::PageBreak {
+            node_id,
+            span,
+            classes,
+        } => wire::WireBlock::PageBreak {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            classes: classes.clone(),
+        },
+    }
+}
+
+fn wire_table_row(row: &TableRow) -> wire::WireTableRow {
+    wire::WireTableRow {
+        node_id: row.node_id.get(),
+        span: wire_source_span(row.span),
+        cells: row
+            .cells
+            .iter()
+            .map(|cell| wire::WireTableCell {
+                node_id: cell.node_id.get(),
+                span: wire_source_span(cell.span),
+                colspan: cell.colspan.get(),
+                rowspan: cell.rowspan.get(),
+                blocks: cell.blocks.iter().map(wire_block).collect(),
+            })
+            .collect(),
+    }
+}
+
+fn wire_inline(inline: &Inline) -> wire::WireInline {
+    match inline {
+        Inline::Text {
+            node_id,
+            span,
+            text_span,
+        } => wire::WireInline::Text {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            text_span: wire_text_span(*text_span),
+        },
+        Inline::Emphasis {
+            node_id,
+            span,
+            children,
+        } => wire::WireInline::Emphasis {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            children: children.iter().map(wire_inline).collect(),
+        },
+        Inline::Strong {
+            node_id,
+            span,
+            children,
+        } => wire::WireInline::Strong {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            children: children.iter().map(wire_inline).collect(),
+        },
+        Inline::Link {
+            node_id,
+            span,
+            target,
+            children,
+        } => wire::WireInline::Link {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            target: match target {
+                LinkTarget::Internal(anchor_id) => wire::WireLinkTarget::Internal {
+                    anchor_id: anchor_id.as_str().to_owned(),
+                },
+                LinkTarget::Uri(uri) => wire::WireLinkTarget::Uri {
+                    uri: uri.as_str().to_owned(),
+                },
+            },
+            children: children.iter().map(wire_inline).collect(),
+        },
+        Inline::Anchor {
+            node_id,
+            span,
+            anchor_id,
+        } => wire::WireInline::Anchor {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            anchor_id: anchor_id.as_str().to_owned(),
+        },
+        Inline::Reference {
+            node_id,
+            span,
+            target,
+            format,
+        } => wire::WireInline::Reference {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            target: target.as_str().to_owned(),
+            format: match format {
+                ReferenceFormat::Text => wire::WireReferenceFormat::Text,
+                ReferenceFormat::Page => wire::WireReferenceFormat::Page,
+                ReferenceFormat::Number => wire::WireReferenceFormat::Number,
+            },
+        },
+        Inline::FootnoteReference {
+            node_id,
+            span,
+            footnote_id,
+        } => wire::WireInline::FootnoteReference {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+            footnote_id: footnote_id.as_str().to_owned(),
+        },
+        Inline::SoftBreak { node_id, span } => wire::WireInline::SoftBreak {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+        },
+        Inline::HardBreak { node_id, span } => wire::WireInline::HardBreak {
+            node_id: node_id.get(),
+            span: wire_source_span(*span),
+        },
+    }
+}
+
+fn wire_style_sheet(
+    style_sheet: &StyleSheet,
+) -> Result<wire::WireStyleSheet, DocumentPackageConversionError> {
+    let rules = style_sheet
+        .rules
+        .iter()
+        .map(|rule| {
+            Ok(wire::WireStyleRule {
+                style_id: rule.style_id.as_str().to_owned(),
+                extends: rule.extends.as_ref().map(|value| value.as_str().to_owned()),
+                selector: rule.selector.clone(),
+                source_order: rule.source_order,
+                declarations: rule
+                    .declarations
+                    .iter()
+                    .map(wire_declaration)
+                    .collect::<Result<_, _>>()?,
+            })
+        })
+        .collect::<Result<_, DocumentPackageConversionError>>()?;
+    Ok(wire::WireStyleSheet { rules })
+}
+
+fn wire_declaration(
+    declaration: &Declaration,
+) -> Result<wire::WireDeclaration, DocumentPackageConversionError> {
+    let name = match declaration.name.as_str() {
+        "font_family" => wire::WireDeclarationName::FontFamily,
+        "font_size" => wire::WireDeclarationName::FontSize,
+        "line_height" => wire::WireDeclarationName::LineHeight,
+        "page" => wire::WireDeclarationName::Page,
+        name => {
+            return Err(DocumentPackageConversionError::UnknownStyleDeclarationName(
+                name.to_owned(),
+            ))
+        }
+    };
+    let value = match &declaration.value {
+        StyleValue::Keyword(value) => wire::WireStyleValue::Keyword {
+            value: value.clone(),
+        },
+        StyleValue::Text(value) => wire::WireStyleValue::String {
+            value: value.clone(),
+        },
+        StyleValue::Integer(value) => wire::WireStyleValue::Integer { value: *value },
+        StyleValue::Length(value) => wire::WireStyleValue::Length { value: value.raw() },
+        StyleValue::Boolean(value) => wire::WireStyleValue::Boolean { value: *value },
+        StyleValue::FontFamilyList(families) => wire::WireStyleValue::FontFamilyList {
+            families: families.clone(),
+        },
+        StyleValue::Ratio {
+            numerator,
+            denominator,
+        } => wire::WireStyleValue::Ratio {
+            numerator: *numerator,
+            denominator: denominator.get(),
+        },
+    };
+    Ok(wire::WireDeclaration {
+        name,
+        value,
+        important: declaration.important,
+    })
+}
+
+fn wire_page_masters(page_masters: &PageMasterSet) -> wire::WirePageMasterSet {
+    wire::WirePageMasterSet {
+        default_master_id: page_masters.default_master_id.as_str().to_owned(),
+        masters: page_masters
+            .masters
+            .iter()
+            .map(|master| wire::WirePageMaster {
+                master_id: master.master_id.as_str().to_owned(),
+                width: master.width.get().raw(),
+                height: master.height.get().raw(),
+                body: wire_rect(master.body),
+                header: master.header.map(wire_rect),
+                footer: master.footer.map(wire_rect),
+                footnote: master.footnote.map(wire_rect),
+            })
+            .collect(),
+        selection_rules: page_masters
+            .selection_rules
+            .iter()
+            .map(|rule| wire::WirePageMasterRule {
+                master_id: rule.master_id.as_str().to_owned(),
+                parity: match rule.parity {
+                    PageParity::Any => wire::WirePageParity::Any,
+                    PageParity::Odd => wire::WirePageParity::Odd,
+                    PageParity::Even => wire::WirePageParity::Even,
+                },
+                first: rule.first,
+                named_page: rule
+                    .named_page
+                    .as_ref()
+                    .map(|value| value.as_str().to_owned()),
+                source_order: rule.source_order,
+            })
+            .collect(),
+    }
+}
+
+fn wire_resources(resources: &ResourceCatalog) -> wire::WireResourceCatalog {
+    wire::WireResourceCatalog {
+        font_faces: resources
+            .font_faces
+            .iter()
+            .map(|font| wire::WireFontFace {
+                font_face_id: font.font_face_id.get(),
+                family: font.family.clone(),
+                uri: font.uri.as_str().to_owned(),
+                face_index: font.face_index,
+                expected_sha256: font.expected_sha256,
+            })
+            .collect(),
+        images: resources
+            .images
+            .iter()
+            .map(|image| wire::WireImage {
+                image_id: image.image_id.get(),
+                uri: image.uri.as_str().to_owned(),
+                expected_sha256: image.expected_sha256,
+            })
+            .collect(),
+    }
+}
+
+fn wire_rect(rect: Rect) -> wire::WireRect {
+    wire::WireRect {
+        x: rect.x().raw(),
+        y: rect.y().raw(),
+        width: rect.width().get().raw(),
+        height: rect.height().get().raw(),
+    }
+}
+
+fn wire_source_span(span: SourceSpan) -> wire::WireSourceSpan {
+    wire::WireSourceSpan {
+        source_id: span.source_id().get(),
+        start_byte: span.start_byte().get(),
+        end_byte: span.end_byte().get(),
+    }
+}
+
+fn wire_text_span(span: TextSpan) -> wire::WireTextSpan {
+    wire::WireTextSpan {
+        text_id: span.text_id().get(),
+        start_byte: span.range().start_byte().get(),
+        end_byte: span.range().end_byte().get(),
+    }
+}
+
+fn wire_byte_range(range: Utf8ByteRange) -> wire::WireByteRange {
+    wire::WireByteRange {
+        start_byte: range.start_byte().get(),
+        end_byte: range.end_byte().get(),
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -309,6 +790,7 @@ pub struct PackagePaginationContext {
     page_masters: PageMasterSet,
     document: DocumentFingerprint,
     style: StyleFingerprint,
+    document_node_id: NodeId,
 }
 impl PackagePaginationContext {
     pub const fn page_masters(&self) -> &PageMasterSet {
@@ -319,6 +801,9 @@ impl PackagePaginationContext {
     }
     pub const fn style_fingerprint(&self) -> StyleFingerprint {
         self.style
+    }
+    pub const fn document_node_id(&self) -> NodeId {
+        self.document_node_id
     }
 }
 
@@ -1258,54 +1743,61 @@ impl ValidatedParsedPackage {
         }
         let include_graph = ValidatedIncludeGraph::entry_only(&package.sources, policy.limits)
             .map_err(|_| PackageValidationError::IncludeGraphMismatch)?;
-        Self::new_resolved(package, policy, &include_graph)
+        Self::new_resolved(package, policy, &include_graph, |_, error| error)
     }
 
-    #[allow(dead_code)] // called by the in-crate parser owner once implemented
-    fn new_resolved(
+    fn new_resolved<E>(
         package: ParsedPackage,
         policy: &PackageValidationPolicy<'_>,
         include_graph: &ValidatedIncludeGraph,
-    ) -> Result<Self, PackageValidationError> {
-        if !include_graph.matches(&package.sources)
-            || include_graph.max_observed_depth() > policy.limits.get().max_include_depth
-        {
-            return Err(PackageValidationError::IncludeGraphMismatch);
-        }
-        let non_document_ast_nodes = validate_package_limits(&package, policy)?;
-        validate_document_ast_limits(&package.document, policy.limits, non_document_ast_nodes)?;
-        for buffer in package.text_store.buffers() {
-            for mapping in buffer.mappings() {
-                if let Some(source_span) = mapping.source_span {
-                    let source = validate_source_span(&package, source_span)?;
-                    if mapping.kind == TextMapKind::Identity {
-                        let text_start = mapping.text_range.start_byte().get() as usize;
-                        let text_end = mapping.text_range.end_byte().get() as usize;
-                        let source_start = source_span.start_byte().get() as usize;
-                        let source_end = source_span.end_byte().get() as usize;
-                        if buffer.text()[text_start..text_end]
-                            != source.utf8()[source_start..source_end]
-                        {
-                            return Err(PackageValidationError::IdentityBytesMismatch);
+        map_error: impl FnOnce(&ParsedPackage, PackageValidationError) -> E,
+    ) -> Result<Self, E> {
+        let validation = (|| -> Result<_, PackageValidationError> {
+            if !include_graph.matches(&package.sources)
+                || include_graph.max_observed_depth() > policy.limits.get().max_include_depth
+            {
+                return Err(PackageValidationError::IncludeGraphMismatch);
+            }
+            let non_document_ast_nodes = validate_package_limits(&package, policy)?;
+            validate_document_ast_limits(&package.document, policy.limits, non_document_ast_nodes)?;
+            for buffer in package.text_store.buffers() {
+                for mapping in buffer.mappings() {
+                    if let Some(source_span) = mapping.source_span {
+                        let source = validate_source_span(&package, source_span)?;
+                        if mapping.kind == TextMapKind::Identity {
+                            let text_start = mapping.text_range.start_byte().get() as usize;
+                            let text_end = mapping.text_range.end_byte().get() as usize;
+                            let source_start = source_span.start_byte().get() as usize;
+                            let source_end = source_span.end_byte().get() as usize;
+                            if buffer.text()[text_start..text_end]
+                                != source.utf8()[source_start..source_end]
+                            {
+                                return Err(PackageValidationError::IdentityBytesMismatch);
+                            }
                         }
                     }
                 }
             }
-        }
-        validate_style_inheritance_depth(&package.style_sheet, policy.limits)?;
-        package
-            .style_sheet
-            .validate()
-            .map_err(PackageValidationError::InvalidStyle)?;
-        package
-            .page_masters
-            .validate()
-            .map_err(PackageValidationError::InvalidPageMasters)?;
-        let image_ids = validate_resource_catalog(&package.resources)?;
-        validate_document(&package, &image_ids, policy, non_document_ast_nodes)?;
-        let document_nodes = ValidatedDocumentNodeIndex::new(&package.document)
-            .map_err(|_| PackageValidationError::NonCanonicalNodeId)?;
-        let epoch_identity = PackageEpochIdentity::from_package(&package);
+            validate_style_inheritance_depth(&package.style_sheet, policy.limits)?;
+            package
+                .style_sheet
+                .validate()
+                .map_err(PackageValidationError::InvalidStyle)?;
+            package
+                .page_masters
+                .validate()
+                .map_err(PackageValidationError::InvalidPageMasters)?;
+            let image_ids = validate_resource_catalog(&package.resources)?;
+            validate_document(&package, &image_ids, policy, non_document_ast_nodes)?;
+            let document_nodes = ValidatedDocumentNodeIndex::new(&package.document)
+                .map_err(|_| PackageValidationError::NonCanonicalNodeId)?;
+            let epoch_identity = PackageEpochIdentity::from_package(&package);
+            Ok((document_nodes, epoch_identity))
+        })();
+        let (document_nodes, epoch_identity) = match validation {
+            Ok(validated) => validated,
+            Err(error) => return Err(map_error(&package, error)),
+        };
         Ok(Self {
             package,
             document_nodes,
@@ -1316,6 +1808,15 @@ impl ValidatedParsedPackage {
 
     pub fn package(&self) -> &ParsedPackage {
         &self.package
+    }
+    /// Converts the complete validated domain package to its untrusted wire DTO.
+    ///
+    /// This conversion is intentionally owned by the syntax/domain boundary so
+    /// downstream callers do not duplicate variant spelling or field ordering.
+    pub fn to_wire_document_package(
+        &self,
+    ) -> Result<WireDocumentPackage, DocumentPackageConversionError> {
+        parsed_package_to_wire(&self.package)
     }
     pub const fn document_nodes(&self) -> &ValidatedDocumentNodeIndex {
         &self.document_nodes
@@ -1331,6 +1832,7 @@ impl ValidatedParsedPackage {
             page_masters: self.package.page_masters.clone(),
             document: self.epoch_identity.document(),
             style: self.epoch_identity.style(),
+            document_node_id: self.package.document.node_id,
         }
     }
     /// Materializes the canonical Profile 1.0 bytes for one registered list
@@ -1559,6 +2061,2113 @@ impl ValidatedParsedPackage {
     pub fn into_package(self) -> ParsedPackage {
         self.package
     }
+}
+
+/// Typed reason a decoder-admitted package did not cross the syntax trust
+/// boundary. Capability/PDF support is intentionally not represented here.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MachineParseFailureKind {
+    AdmissionSessionMismatch,
+    AdmissionProgressMismatch,
+    AdmissionFingerprintMismatch,
+    PackageIdentityMismatch,
+    ContractMismatch,
+    CoordinateUnitMismatch,
+    SourceCountMismatch,
+    SourceDeclarationMismatch,
+    SourceBytesMismatch,
+    InvalidSourceCatalog,
+    NonCanonicalTextBufferId,
+    InvalidTextBuffer,
+    InvalidSourceSpan,
+    InvalidTextSpan,
+    NonCanonicalNodeId,
+    AstNestingDepthLimit,
+    AstNodeLimit,
+    NonCanonicalStyleOrder,
+    NonCanonicalPageMasterOrder,
+    NonCanonicalFontFaceId,
+    NonCanonicalImageId,
+    InvalidIdentifier,
+    InvalidHeadingLevel,
+    InvalidLength,
+    InvalidTableShape,
+    InvalidUri,
+    PackageValidation(PackageValidationError),
+}
+
+impl MachineParseFailureKind {
+    /// Stable public class assignment. This match is the only syntax-to-public
+    /// code mapper and never inspects formatted error text.
+    pub fn public_error(&self) -> PublicMachineError {
+        match self {
+            Self::AdmissionSessionMismatch
+            | Self::AdmissionProgressMismatch
+            | Self::AdmissionFingerprintMismatch
+            | Self::PackageIdentityMismatch => PublicMachineError::CapabilityDomainMismatch,
+            Self::ContractMismatch | Self::CoordinateUnitMismatch => {
+                PublicMachineError::PackageContract
+            }
+            Self::SourceCountMismatch | Self::SourceDeclarationMismatch => {
+                PublicMachineError::SourceProfile
+            }
+            Self::SourceBytesMismatch => PublicMachineError::SourceIdentity,
+            Self::PackageValidation(
+                PackageValidationError::IdentityBytesMismatch
+                | PackageValidationError::SourceSpanOutOfBounds
+                | PackageValidationError::SourceSpanNotUtf8Boundary
+                | PackageValidationError::SourceByteLimit
+                | PackageValidationError::InputByteLimit,
+            ) => PublicMachineError::SourceIdentity,
+            Self::PackageValidation(
+                PackageValidationError::MissingEntrySource
+                | PackageValidationError::IncludeFileLimit
+                | PackageValidationError::IncludeGraphMismatch
+                | PackageValidationError::UnresolvedIncludeDirective,
+            ) => PublicMachineError::SourceProfile,
+            _ => PublicMachineError::PackageMember,
+        }
+    }
+
+    pub const fn canonical_message(&self) -> &'static str {
+        match self {
+            Self::AdmissionSessionMismatch => "machine admission session does not match",
+            Self::AdmissionProgressMismatch => "machine admission progress does not match",
+            Self::AdmissionFingerprintMismatch => "machine admission fingerprint does not match",
+            Self::PackageIdentityMismatch => "package identity does not match admission",
+            Self::ContractMismatch => "DocumentPackage contract is unsupported",
+            Self::CoordinateUnitMismatch => "coordinate unit is unsupported",
+            Self::SourceCountMismatch => "source profile requires exactly one source",
+            Self::SourceDeclarationMismatch => "source declaration does not match admission",
+            Self::SourceBytesMismatch => "source bytes do not match admitted identity",
+            Self::InvalidSourceCatalog => "source catalog is invalid",
+            Self::NonCanonicalTextBufferId => "text buffer ID is not canonical",
+            Self::InvalidTextBuffer => "text buffer is invalid",
+            Self::InvalidSourceSpan => "source span is invalid",
+            Self::InvalidTextSpan => "text span is invalid",
+            Self::NonCanonicalNodeId => "node ID is not canonical",
+            Self::AstNestingDepthLimit => "AST nesting depth limit was exceeded",
+            Self::AstNodeLimit => "AST node limit was exceeded",
+            Self::NonCanonicalStyleOrder => "style order is not canonical",
+            Self::NonCanonicalPageMasterOrder => "page master order is not canonical",
+            Self::NonCanonicalFontFaceId => "font face ID is not canonical",
+            Self::NonCanonicalImageId => "image ID is not canonical",
+            Self::InvalidIdentifier => "identifier is invalid",
+            Self::InvalidHeadingLevel => "heading level is invalid",
+            Self::InvalidLength => "length is invalid",
+            Self::InvalidTableShape => "table shape is invalid",
+            Self::InvalidUri => "URI is invalid",
+            Self::PackageValidation(error) => package_validation_canonical_message(error),
+        }
+    }
+}
+
+const fn package_validation_canonical_message(error: &PackageValidationError) -> &'static str {
+    match error {
+        PackageValidationError::UnknownSource => "source ID is unknown",
+        PackageValidationError::SourceSpanOutOfBounds => "source span is out of bounds",
+        PackageValidationError::SourceSpanNotUtf8Boundary => {
+            "source span is not on UTF-8 boundaries"
+        }
+        PackageValidationError::IdentityBytesMismatch => {
+            "identity text mapping does not match source bytes"
+        }
+        PackageValidationError::UnknownTextBuffer => "text buffer ID is unknown",
+        PackageValidationError::TextSpanOutOfBounds => "text span is out of bounds",
+        PackageValidationError::TextSpanNotUtf8Boundary => "text span is not on UTF-8 boundaries",
+        PackageValidationError::DuplicateNodeId => "node ID is duplicated",
+        PackageValidationError::NonCanonicalNodeId => "node ID is not canonical",
+        PackageValidationError::DuplicateAnchorId => "anchor ID is duplicated",
+        PackageValidationError::DuplicateFootnoteId => "footnote ID is duplicated",
+        PackageValidationError::UnknownInternalTarget => "internal target is unknown",
+        PackageValidationError::UnknownFootnoteTarget => "footnote target is unknown",
+        PackageValidationError::DuplicateFontFaceId => "font face ID is duplicated",
+        PackageValidationError::NonCanonicalFontFaceId => "font face ID is not canonical",
+        PackageValidationError::DuplicateFontFamily => "font family is duplicated",
+        PackageValidationError::InvalidFontFamily => "font family is invalid",
+        PackageValidationError::DuplicateImageId => "image ID is duplicated",
+        PackageValidationError::NonCanonicalImageId => "image ID is not canonical",
+        PackageValidationError::UnknownImageTarget => "image target is unknown",
+        PackageValidationError::InvalidBlockClass => "block class is invalid",
+        PackageValidationError::DuplicateBlockClass => "block class is duplicated",
+        PackageValidationError::NonCanonicalBlockClasses => "block class order is not canonical",
+        PackageValidationError::InvalidStyle(_) => "style sheet is invalid",
+        PackageValidationError::InvalidPageMasters(_) => "page master set is invalid",
+        PackageValidationError::InvalidUri(_) => "URI policy was rejected",
+        PackageValidationError::InvalidListStart => "list start is invalid",
+        PackageValidationError::EmptyListItems => "list has no items",
+        PackageValidationError::ListMarkerOverflow => "list marker exceeds the supported range",
+        PackageValidationError::EmptyTableColumns => "table has no columns",
+        PackageValidationError::EmptyTableRows => "table has no rows",
+        PackageValidationError::InvalidTableGrid => "table grid is invalid",
+        PackageValidationError::TableHeadBodyCross => "table row span crosses head and body",
+        PackageValidationError::SourceByteLimit => "source byte limit was exceeded",
+        PackageValidationError::InputByteLimit => "aggregate input byte limit was exceeded",
+        PackageValidationError::IncludeFileLimit => "source file count limit was exceeded",
+        PackageValidationError::AstNestingDepthLimit => "AST nesting depth limit was exceeded",
+        PackageValidationError::AstNodeLimit => "AST node limit was exceeded",
+        PackageValidationError::StyleRuleLimit => "style rule limit was exceeded",
+        PackageValidationError::TextBufferByteLimit => "text buffer byte limit was exceeded",
+        PackageValidationError::TextByteLimit => "aggregate text byte limit was exceeded",
+        PackageValidationError::NonCanonicalFootnoteOrder => "footnote order is not canonical",
+        PackageValidationError::MissingEntrySource => "entry source is missing",
+        PackageValidationError::IncludeGraphMismatch => "include graph does not match sources",
+        PackageValidationError::UnresolvedIncludeDirective => {
+            "source contains an unresolved include directive"
+        }
+    }
+}
+
+impl std::fmt::Display for MachineParseFailureKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.canonical_message())
+    }
+}
+
+/// Exactly one primary location for a machine syntax failure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MachineParsePrimaryLocation {
+    PackageJson(JsonPointer),
+    Source(SourceSpan),
+}
+
+/// Pointer-aware semantic failure. A source primary always carries exactly one
+/// package JSON note; package-primary failures never carry a second primary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MachineParseFailure {
+    kind: MachineParseFailureKind,
+    primary: MachineParsePrimaryLocation,
+    package_note: Option<JsonPointer>,
+    subject: Option<DiagnosticSubject>,
+}
+
+impl MachineParseFailure {
+    fn package(kind: MachineParseFailureKind, pointer: JsonPointer) -> Self {
+        Self {
+            kind,
+            primary: MachineParsePrimaryLocation::PackageJson(pointer),
+            package_note: None,
+            subject: None,
+        }
+    }
+
+    fn package_with_subject(
+        kind: MachineParseFailureKind,
+        pointer: JsonPointer,
+        subject: DiagnosticSubject,
+    ) -> Self {
+        Self {
+            kind,
+            primary: MachineParsePrimaryLocation::PackageJson(pointer),
+            package_note: None,
+            subject: Some(subject),
+        }
+    }
+
+    fn with_subject(mut self, subject: DiagnosticSubject) -> Self {
+        self.subject = Some(subject);
+        self
+    }
+
+    fn source(kind: MachineParseFailureKind, span: SourceSpan, package: JsonPointer) -> Self {
+        Self {
+            kind,
+            primary: MachineParsePrimaryLocation::Source(span),
+            package_note: Some(package),
+            subject: None,
+        }
+    }
+
+    pub const fn kind(&self) -> &MachineParseFailureKind {
+        &self.kind
+    }
+
+    pub const fn primary(&self) -> &MachineParsePrimaryLocation {
+        &self.primary
+    }
+
+    pub const fn package_note(&self) -> Option<&JsonPointer> {
+        self.package_note.as_ref()
+    }
+
+    pub const fn subject(&self) -> Option<&DiagnosticSubject> {
+        self.subject.as_ref()
+    }
+
+    /// Project this typed syntax failure into the structured public model.
+    /// The package URI is already a portable logical path; byte offsets remain
+    /// absent when the semantic location index only has an RFC 6901 pointer.
+    pub fn to_diagnostic(&self, package_uri: &PortablePath) -> Diagnostic {
+        let public_error = self.kind.public_error();
+        let location = match &self.primary {
+            MachineParsePrimaryLocation::PackageJson(pointer) => {
+                DiagnosticLocation::package_json(package_uri.clone(), pointer.clone(), None)
+            }
+            MachineParsePrimaryLocation::Source(span) => DiagnosticLocation::source(
+                SourceDiagnosticLocation::new(Some(*span), None, None)
+                    .expect("a source primary always supplies a source span"),
+            ),
+        };
+        let mut builder = DiagnosticBuilder::located(
+            public_error.code(),
+            Severity::Error,
+            self.kind.canonical_message(),
+            location,
+        )
+        .expect("static canonical syntax messages are valid");
+        if let Some(subject) = self.subject.clone().or_else(|| public_error.subject()) {
+            builder = builder.subject(subject);
+        }
+        if let Some(pointer) = &self.package_note {
+            builder = builder
+                .located_note(
+                    "related package member",
+                    DiagnosticLocation::package_json(package_uri.clone(), pointer.clone(), None),
+                )
+                .expect("static canonical syntax notes are valid");
+        }
+        builder.build()
+    }
+}
+
+impl std::fmt::Display for MachineParseFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.primary {
+            MachineParsePrimaryLocation::PackageJson(pointer) => {
+                write!(formatter, "{} at {pointer}", self.kind)
+            }
+            MachineParsePrimaryLocation::Source(span) => write!(
+                formatter,
+                "{} at source {} bytes {}..{} (package note {})",
+                self.kind,
+                span.source_id().get(),
+                span.start_byte().get(),
+                span.end_byte().get(),
+                self.package_note
+                    .as_ref()
+                    .expect("source failures always have one package note")
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MachineParseFailure {}
+
+/// Decoder/admission provenance kept with a syntax-validated package.
+#[derive(Debug)]
+pub struct ValidatedMachineProvenance {
+    admission: MachineInputAdmissionProvenance,
+    raw_sha256: RawDocumentPackageSha256,
+    canonical_jcs_sha256: CanonicalDocumentPackageJcsSha256,
+    locations: JsonLocationIndex,
+}
+
+impl ValidatedMachineProvenance {
+    pub const fn session_identity(&self) -> &MachineInputSessionIdentity {
+        self.admission.session_identity()
+    }
+
+    pub const fn admission(&self) -> &MachineInputAdmissionProvenance {
+        &self.admission
+    }
+
+    pub const fn progress(&self) -> &MachineInputProgress {
+        self.admission.progress()
+    }
+
+    pub const fn fingerprint(&self) -> MachineInputFingerprint {
+        self.admission.fingerprint()
+    }
+
+    pub const fn raw_sha256(&self) -> RawDocumentPackageSha256 {
+        self.raw_sha256
+    }
+
+    pub const fn canonical_jcs_sha256(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.canonical_jcs_sha256
+    }
+
+    pub const fn locations(&self) -> &JsonLocationIndex {
+        &self.locations
+    }
+}
+
+/// The only successful machine syntax result. It wraps the existing trusted
+/// package rather than introducing a weaker parallel AST.
+///
+/// Raw wire DTOs and caller-built parsed packages have no promotion API:
+///
+/// ```compile_fail
+/// use typaxis_syntax::ValidatedMachinePackage;
+/// let _ = ValidatedMachinePackage::from_wire;
+/// ```
+///
+/// ```compile_fail
+/// use typaxis_syntax::ValidatedMachinePackage;
+/// let _ = ValidatedMachinePackage::from_parsed_package;
+/// ```
+#[derive(Debug)]
+pub struct ValidatedMachinePackage {
+    package: ValidatedParsedPackage,
+    provenance: ValidatedMachineProvenance,
+}
+
+impl ValidatedMachinePackage {
+    pub const fn package(&self) -> &ValidatedParsedPackage {
+        &self.package
+    }
+
+    pub const fn provenance(&self) -> &ValidatedMachineProvenance {
+        &self.provenance
+    }
+}
+
+#[derive(Debug)]
+pub enum MachineParseOutcome {
+    Parsed {
+        package: Box<ValidatedMachinePackage>,
+    },
+    Failed {
+        progress: Box<MachineInputProgress>,
+        failure: MachineParseFailure,
+    },
+}
+
+/// Syntax-owner parser for decoder- and host-admission-issued machine input.
+///
+/// The entry-only graph constructor remains private to this crate:
+///
+/// ```compile_fail
+/// use typaxis_syntax::ValidatedIncludeGraph;
+/// let _ = ValidatedIncludeGraph::entry_only;
+/// ```
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DocumentPackageParser;
+
+impl DocumentPackageParser {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn parse(
+        &self,
+        input: AdmittedMachinePackage,
+        policy: &PackageValidationPolicy<'_>,
+    ) -> MachineParseOutcome {
+        let (decoded, sources, admission) = input.into_parts();
+        match lower_machine_package(decoded, sources, &admission, policy) {
+            Ok((package, raw_sha256, canonical_jcs_sha256, locations)) => {
+                MachineParseOutcome::Parsed {
+                    package: Box::new(ValidatedMachinePackage {
+                        package,
+                        provenance: ValidatedMachineProvenance {
+                            admission,
+                            raw_sha256,
+                            canonical_jcs_sha256,
+                            locations,
+                        },
+                    }),
+                }
+            }
+            Err(failure) => MachineParseOutcome::Failed {
+                progress: Box::new(admission.into_failure_progress()),
+                failure,
+            },
+        }
+    }
+}
+
+fn lower_machine_package(
+    decoded: wire::DecodedDocumentPackage,
+    admitted_sources: Vec<AdmittedMachineSource>,
+    admission: &MachineInputAdmissionProvenance,
+    policy: &PackageValidationPolicy<'_>,
+) -> Result<
+    (
+        ValidatedParsedPackage,
+        RawDocumentPackageSha256,
+        CanonicalDocumentPackageJcsSha256,
+        JsonLocationIndex,
+    ),
+    MachineParseFailure,
+> {
+    let (wire, raw_sha256, canonical_jcs_sha256, locations) = decoded.into_parts();
+    recheck_machine_admission(
+        &wire,
+        raw_sha256,
+        canonical_jcs_sha256,
+        &admitted_sources,
+        admission,
+        &locations,
+    )?;
+    preflight_wire_semantics(&wire, policy.limits, &locations)?;
+
+    let WireDocumentPackage {
+        contract: _,
+        coordinate_unit: _,
+        sources,
+        text_buffers,
+        document,
+        style_sheet,
+        page_masters,
+        resources,
+    } = wire;
+    let source_catalog = lower_sources(sources, admitted_sources, &locations)?;
+    let text_store = lower_text_store(text_buffers, policy.limits, &locations)?;
+    let package = ParsedPackage {
+        sources: source_catalog,
+        text_store,
+        document: lower_document(document, policy, &locations)?,
+        style_sheet: lower_style_sheet(style_sheet, &locations)?,
+        page_masters: lower_page_masters(page_masters, &locations)?,
+        resources: lower_resources(resources, &locations)?,
+    };
+
+    // Machine profile M1 has exactly one admitted entry source. No producer
+    // source keyword scan participates in this closure proof.
+    let include_graph = ValidatedIncludeGraph::entry_only(&package.sources, policy.limits)
+        .map_err(|_| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::PackageValidation(
+                    PackageValidationError::IncludeGraphMismatch,
+                ),
+                locations.root_member(DocumentPackageRootMember::Sources),
+            )
+        })?;
+    let package =
+        ValidatedParsedPackage::new_resolved(package, policy, &include_graph, |package, error| {
+            machine_validation_failure(package, error, &locations)
+        })?;
+    Ok((package, raw_sha256, canonical_jcs_sha256, locations))
+}
+
+fn recheck_machine_admission(
+    package: &WireDocumentPackage,
+    raw_sha256: RawDocumentPackageSha256,
+    canonical_jcs_sha256: CanonicalDocumentPackageJcsSha256,
+    sources: &[AdmittedMachineSource],
+    admission: &MachineInputAdmissionProvenance,
+    locations: &JsonLocationIndex,
+) -> Result<(), MachineParseFailure> {
+    let progress = admission.progress();
+    if progress.stage() != MachineInputStage::SourcesAdmitted {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::AdmissionProgressMismatch,
+            JsonPointer::root(),
+        ));
+    }
+    if progress.session_identity() != Some(admission.session_identity()) {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::AdmissionSessionMismatch,
+            JsonPointer::root(),
+        ));
+    }
+    if progress.fingerprint() != Some(admission.fingerprint()) {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::AdmissionFingerprintMismatch,
+            JsonPointer::root(),
+        ));
+    }
+    let Some(package_facts) = progress.package() else {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::AdmissionProgressMismatch,
+            JsonPointer::root(),
+        ));
+    };
+    let Some(decoded_facts) = progress.decoded() else {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::AdmissionProgressMismatch,
+            JsonPointer::root(),
+        ));
+    };
+    if package_facts.sha256() != raw_sha256.into_bytes()
+        || decoded_facts.canonical_sha256() != canonical_jcs_sha256.into_bytes()
+    {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::PackageIdentityMismatch,
+            JsonPointer::root(),
+        ));
+    }
+    if decoded_facts.contract() != package.contract {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::ContractMismatch,
+            locations.root_member(DocumentPackageRootMember::Contract),
+        ));
+    }
+    if package.coordinate_unit != wire::WireCoordinateUnit::PdfPoint1_65536 {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::CoordinateUnitMismatch,
+            locations.root_member(DocumentPackageRootMember::CoordinateUnit),
+        ));
+    }
+    if package.sources.len() != 1 || sources.len() != 1 || progress.sources().len() != 1 {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceCountMismatch,
+            locations.root_member(DocumentPackageRootMember::Sources),
+        ));
+    }
+    if progress.sources()[0] != *sources[0].facts() {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceDeclarationMismatch,
+            source_pointer(locations, package.sources[0].source_id, 0),
+        ));
+    }
+    let declaration = &package.sources[0];
+    let facts = sources[0].facts();
+    let pointer = source_pointer(locations, declaration.source_id, 0);
+    if declaration.source_id != 0 || declaration.source_id != facts.source_id().get() {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceDeclarationMismatch,
+            pointer.child("source_id"),
+        ));
+    }
+    if declaration.uri != facts.uri().as_str() {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceDeclarationMismatch,
+            pointer.child("uri"),
+        ));
+    }
+    if u64::from(declaration.utf8_byte_length) != facts.bytes() {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceDeclarationMismatch,
+            pointer.child("utf8_byte_length"),
+        ));
+    }
+    if declaration.sha256 != facts.sha256() {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceDeclarationMismatch,
+            pointer.child("sha256"),
+        ));
+    }
+    let actual = sources[0].text().as_bytes();
+    if u64::try_from(actual.len()).ok() != Some(facts.bytes()) || sha256(actual) != facts.sha256() {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceBytesMismatch,
+            source_pointer(locations, declaration.source_id, 0),
+        ));
+    }
+    Ok(())
+}
+
+fn source_pointer(locations: &JsonLocationIndex, source_id: u32, occurrence: usize) -> JsonPointer {
+    locations
+        .source(source_id, occurrence)
+        .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Sources))
+}
+
+fn text_pointer(locations: &JsonLocationIndex, text_id: u32, occurrence: usize) -> JsonPointer {
+    locations
+        .text_buffer(text_id, occurrence)
+        .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::TextBuffers))
+}
+
+fn node_pointer(locations: &JsonLocationIndex, node_id: u32, occurrence: usize) -> JsonPointer {
+    locations
+        .node(node_id, occurrence)
+        .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Document))
+}
+
+#[derive(Clone, Copy)]
+enum WirePreorderNode<'a> {
+    Document(&'a wire::WireDocument),
+    Block(&'a wire::WireBlock),
+    Inline(&'a wire::WireInline),
+    Footnote(&'a wire::WireFootnote),
+    ListItem(&'a wire::WireListItem),
+    TableRow(&'a wire::WireTableRow),
+    TableCell(&'a wire::WireTableCell),
+}
+
+impl WirePreorderNode<'_> {
+    fn node_id(self) -> u32 {
+        match self {
+            Self::Document(document) => document.node_id,
+            Self::Footnote(footnote) => footnote.node_id,
+            Self::ListItem(item) => item.node_id,
+            Self::TableRow(row) => row.node_id,
+            Self::TableCell(cell) => cell.node_id,
+            Self::Block(block) => match block {
+                wire::WireBlock::Paragraph { node_id, .. }
+                | wire::WireBlock::Heading { node_id, .. }
+                | wire::WireBlock::List { node_id, .. }
+                | wire::WireBlock::Table { node_id, .. }
+                | wire::WireBlock::Figure { node_id, .. }
+                | wire::WireBlock::PageBreak { node_id, .. } => *node_id,
+            },
+            Self::Inline(inline) => match inline {
+                wire::WireInline::Text { node_id, .. }
+                | wire::WireInline::Emphasis { node_id, .. }
+                | wire::WireInline::Strong { node_id, .. }
+                | wire::WireInline::Link { node_id, .. }
+                | wire::WireInline::Anchor { node_id, .. }
+                | wire::WireInline::Reference { node_id, .. }
+                | wire::WireInline::FootnoteReference { node_id, .. }
+                | wire::WireInline::SoftBreak { node_id, .. }
+                | wire::WireInline::HardBreak { node_id, .. } => *node_id,
+            },
+        }
+    }
+}
+
+fn preflight_wire_semantics(
+    package: &WireDocumentPackage,
+    limits: &ValidatedResourceLimits,
+    locations: &JsonLocationIndex,
+) -> Result<(), MachineParseFailure> {
+    for (index, source) in package.sources.iter().enumerate() {
+        let expected = u32::try_from(index).unwrap_or(u32::MAX);
+        if source.source_id != expected {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::SourceDeclarationMismatch,
+                source_pointer(locations, source.source_id, 0).child("source_id"),
+            ));
+        }
+    }
+    let mut text_occurrences = BTreeMap::new();
+    for (index, buffer) in package.text_buffers.iter().enumerate() {
+        let occurrence = next_occurrence(&mut text_occurrences, buffer.text_id);
+        let expected = u32::try_from(index).unwrap_or(u32::MAX);
+        if buffer.text_id != expected {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::NonCanonicalTextBufferId,
+                text_pointer(locations, buffer.text_id, occurrence).child("text_id"),
+            ));
+        }
+    }
+    let style_count = u64::try_from(package.style_sheet.rules.len()).unwrap_or(u64::MAX);
+    if style_count > limits.get().max_style_rules {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::PackageValidation(PackageValidationError::StyleRuleLimit),
+            locations.root_member(DocumentPackageRootMember::StyleSheet),
+        ));
+    }
+    let mut non_document_nodes = 0u64;
+    let mut style_order_occurrences = BTreeMap::new();
+    for (index, rule) in package.style_sheet.rules.iter().enumerate() {
+        let occurrence = next_occurrence(&mut style_order_occurrences, rule.source_order);
+        let expected = u32::try_from(index).unwrap_or(u32::MAX);
+        if rule.source_order != expected {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::NonCanonicalStyleOrder,
+                locations
+                    .style_rule_by_source_order(rule.source_order, occurrence)
+                    .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::StyleSheet))
+                    .child("source_order"),
+            ));
+        }
+        let declarations = u64::try_from(rule.declarations.len()).unwrap_or(u64::MAX);
+        non_document_nodes = non_document_nodes.saturating_add(declarations.saturating_mul(2));
+    }
+    if non_document_nodes > limits.get().max_ast_nodes {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::AstNodeLimit,
+            locations.root_member(DocumentPackageRootMember::StyleSheet),
+        ));
+    }
+
+    let mut previous_master: Option<&str> = None;
+    let mut master_occurrences = BTreeMap::new();
+    for master in &package.page_masters.masters {
+        let occurrence = next_occurrence(&mut master_occurrences, master.master_id.as_str());
+        if previous_master.is_some_and(|previous| previous >= master.master_id.as_str()) {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::NonCanonicalPageMasterOrder,
+                locations
+                    .page_master(&master.master_id, occurrence)
+                    .unwrap_or_else(|| {
+                        locations.root_member(DocumentPackageRootMember::PageMasters)
+                    })
+                    .child("master_id"),
+            ));
+        }
+        previous_master = Some(&master.master_id);
+    }
+    let mut master_rule_occurrences = BTreeMap::new();
+    for (index, rule) in package.page_masters.selection_rules.iter().enumerate() {
+        let occurrence = next_occurrence(&mut master_rule_occurrences, rule.source_order);
+        let expected = u32::try_from(index).unwrap_or(u32::MAX);
+        if rule.source_order != expected {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::NonCanonicalPageMasterOrder,
+                locations
+                    .page_master_rule_by_source_order(rule.source_order, occurrence)
+                    .unwrap_or_else(|| {
+                        locations.root_member(DocumentPackageRootMember::PageMasters)
+                    })
+                    .child("source_order"),
+            ));
+        }
+    }
+    let mut font_occurrences = BTreeMap::new();
+    for (index, font) in package.resources.font_faces.iter().enumerate() {
+        let occurrence = next_occurrence(&mut font_occurrences, font.font_face_id);
+        let expected = u32::try_from(index).unwrap_or(u32::MAX);
+        if font.font_face_id != expected {
+            return Err(MachineParseFailure::package_with_subject(
+                MachineParseFailureKind::NonCanonicalFontFaceId,
+                locations
+                    .font_face(font.font_face_id, occurrence)
+                    .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Resources))
+                    .child("font_face_id"),
+                DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(FontFaceId::new(
+                    font.font_face_id,
+                ))),
+            ));
+        }
+    }
+    let mut image_occurrences = BTreeMap::new();
+    for (index, image) in package.resources.images.iter().enumerate() {
+        let occurrence = next_occurrence(&mut image_occurrences, image.image_id);
+        let expected = u32::try_from(index).unwrap_or(u32::MAX);
+        if image.image_id != expected {
+            return Err(MachineParseFailure::package_with_subject(
+                MachineParseFailureKind::NonCanonicalImageId,
+                locations
+                    .image(image.image_id, occurrence)
+                    .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Resources))
+                    .child("image_id"),
+                DiagnosticSubject::Resource(ResourceErrorSubject::Image(ImageResourceId::new(
+                    image.image_id,
+                ))),
+            ));
+        }
+    }
+    let mut previous_footnote: Option<&str> = None;
+    for footnote in &package.document.footnotes {
+        if previous_footnote.is_some_and(|previous| previous >= footnote.footnote_id.as_str()) {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::PackageValidation(
+                    PackageValidationError::NonCanonicalFootnoteOrder,
+                ),
+                node_pointer(locations, footnote.node_id, 0).child("footnote_id"),
+            ));
+        }
+        previous_footnote = Some(&footnote.footnote_id);
+    }
+
+    let mut stack = vec![(WirePreorderNode::Document(&package.document), 1u32)];
+    let mut expected_node_id = 0u32;
+    let mut observed_nodes = non_document_nodes;
+    let mut occurrences = BTreeMap::<u32, usize>::new();
+    while let Some((node, depth)) = stack.pop() {
+        let node_id = node.node_id();
+        let occurrence = occurrences.entry(node_id).or_insert(0);
+        let pointer = node_pointer(locations, node_id, *occurrence);
+        *occurrence = occurrence.saturating_add(1);
+        if depth > limits.get().max_ast_nesting_depth {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::AstNestingDepthLimit,
+                pointer,
+            ));
+        }
+        observed_nodes = observed_nodes.saturating_add(1);
+        if observed_nodes > limits.get().max_ast_nodes {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::AstNodeLimit,
+                pointer,
+            ));
+        }
+        if node_id != expected_node_id {
+            return Err(MachineParseFailure::package_with_subject(
+                MachineParseFailureKind::NonCanonicalNodeId,
+                pointer.child("node_id"),
+                DiagnosticSubject::Node(NodeId::new(node_id)),
+            ));
+        }
+        expected_node_id = expected_node_id.checked_add(1).ok_or_else(|| {
+            MachineParseFailure::package(MachineParseFailureKind::AstNodeLimit, pointer.clone())
+        })?;
+        let child_depth = depth.checked_add(1).ok_or_else(|| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::AstNestingDepthLimit,
+                pointer.clone(),
+            )
+        })?;
+        push_wire_children(&mut stack, node, child_depth);
+    }
+    Ok(())
+}
+
+fn next_occurrence<K: Ord>(occurrences: &mut BTreeMap<K, usize>, key: K) -> usize {
+    let next = occurrences.entry(key).or_insert(0);
+    let occurrence = *next;
+    *next = next.saturating_add(1);
+    occurrence
+}
+
+fn push_wire_children<'a>(
+    stack: &mut Vec<(WirePreorderNode<'a>, u32)>,
+    node: WirePreorderNode<'a>,
+    depth: u32,
+) {
+    match node {
+        WirePreorderNode::Document(document) => {
+            stack.extend(
+                document
+                    .footnotes
+                    .iter()
+                    .rev()
+                    .map(|value| (WirePreorderNode::Footnote(value), depth)),
+            );
+            stack.extend(
+                document
+                    .blocks
+                    .iter()
+                    .rev()
+                    .map(|value| (WirePreorderNode::Block(value), depth)),
+            );
+        }
+        WirePreorderNode::Block(block) => match block {
+            wire::WireBlock::Paragraph { children, .. }
+            | wire::WireBlock::Heading { children, .. } => stack.extend(
+                children
+                    .iter()
+                    .rev()
+                    .map(|value| (WirePreorderNode::Inline(value), depth)),
+            ),
+            wire::WireBlock::List { items, .. } => stack.extend(
+                items
+                    .iter()
+                    .rev()
+                    .map(|value| (WirePreorderNode::ListItem(value), depth)),
+            ),
+            wire::WireBlock::Table { head, body, .. } => {
+                stack.extend(
+                    body.iter()
+                        .rev()
+                        .map(|value| (WirePreorderNode::TableRow(value), depth)),
+                );
+                stack.extend(
+                    head.iter()
+                        .rev()
+                        .map(|value| (WirePreorderNode::TableRow(value), depth)),
+                );
+            }
+            wire::WireBlock::Figure { caption, .. } => stack.extend(
+                caption
+                    .iter()
+                    .rev()
+                    .map(|value| (WirePreorderNode::Block(value), depth)),
+            ),
+            wire::WireBlock::PageBreak { .. } => {}
+        },
+        WirePreorderNode::Inline(inline) => match inline {
+            wire::WireInline::Emphasis { children, .. }
+            | wire::WireInline::Strong { children, .. }
+            | wire::WireInline::Link { children, .. } => stack.extend(
+                children
+                    .iter()
+                    .rev()
+                    .map(|value| (WirePreorderNode::Inline(value), depth)),
+            ),
+            wire::WireInline::Text { .. }
+            | wire::WireInline::Anchor { .. }
+            | wire::WireInline::Reference { .. }
+            | wire::WireInline::FootnoteReference { .. }
+            | wire::WireInline::SoftBreak { .. }
+            | wire::WireInline::HardBreak { .. } => {}
+        },
+        WirePreorderNode::Footnote(footnote) => stack.extend(
+            footnote
+                .blocks
+                .iter()
+                .rev()
+                .map(|value| (WirePreorderNode::Block(value), depth)),
+        ),
+        WirePreorderNode::ListItem(item) => stack.extend(
+            item.blocks
+                .iter()
+                .rev()
+                .map(|value| (WirePreorderNode::Block(value), depth)),
+        ),
+        WirePreorderNode::TableRow(row) => stack.extend(
+            row.cells
+                .iter()
+                .rev()
+                .map(|value| (WirePreorderNode::TableCell(value), depth)),
+        ),
+        WirePreorderNode::TableCell(cell) => stack.extend(
+            cell.blocks
+                .iter()
+                .rev()
+                .map(|value| (WirePreorderNode::Block(value), depth)),
+        ),
+    }
+}
+
+fn lower_sources(
+    declarations: Vec<wire::WireSource>,
+    admitted: Vec<AdmittedMachineSource>,
+    locations: &JsonLocationIndex,
+) -> Result<SourceCatalog, MachineParseFailure> {
+    let mut records = Vec::with_capacity(admitted.len());
+    for (declaration, source) in declarations.into_iter().zip(admitted) {
+        let pointer = source_pointer(locations, declaration.source_id, 0);
+        let (facts, text) = source.into_parts();
+        let record =
+            SourceRecord::new(facts.source_id(), facts.uri().clone(), text).map_err(|_| {
+                MachineParseFailure::package(
+                    MachineParseFailureKind::InvalidSourceCatalog,
+                    pointer.clone(),
+                )
+            })?;
+        if record.utf8_byte_length() != declaration.utf8_byte_length
+            || record.content_hash() != declaration.sha256
+        {
+            return Err(MachineParseFailure::package(
+                MachineParseFailureKind::SourceBytesMismatch,
+                pointer,
+            ));
+        }
+        records.push(record);
+    }
+    SourceCatalog::new(records).map_err(|_| {
+        MachineParseFailure::package(
+            MachineParseFailureKind::InvalidSourceCatalog,
+            locations.root_member(DocumentPackageRootMember::Sources),
+        )
+    })
+}
+
+fn lower_text_store(
+    buffers: Vec<wire::WireTextBuffer>,
+    limits: &ValidatedResourceLimits,
+    locations: &JsonLocationIndex,
+) -> Result<TextStore, MachineParseFailure> {
+    let mut lowered = Vec::with_capacity(buffers.len());
+    for buffer in buffers {
+        let pointer = text_pointer(locations, buffer.text_id, 0);
+        let text_id = TextBufferId::new(buffer.text_id);
+        let mut mappings = Vec::with_capacity(buffer.mappings.len());
+        for (ordinal, mapping) in buffer.mappings.into_iter().enumerate() {
+            let mapping_pointer = locations
+                .text_mapping(buffer.text_id, 0, ordinal)
+                .unwrap_or_else(|| pointer.clone());
+            mappings.push(TextMapSegment {
+                text_range: lower_byte_range(
+                    mapping.text_range,
+                    mapping_pointer.child("text_range"),
+                )?,
+                kind: match mapping.kind {
+                    wire::WireTextMapKind::Identity => TextMapKind::Identity,
+                    wire::WireTextMapKind::Replacement => TextMapKind::Replacement,
+                    wire::WireTextMapKind::Inserted => TextMapKind::Inserted,
+                },
+                source_span: mapping
+                    .source_span
+                    .map(|span| lower_source_span(span, mapping_pointer.child("source_span")))
+                    .transpose()?,
+            });
+        }
+        lowered.push(
+            TextBuffer::new(
+                text_id,
+                buffer.utf8,
+                mappings,
+                limits.get().max_text_buffer_bytes,
+            )
+            .map_err(|_| {
+                MachineParseFailure::package(MachineParseFailureKind::InvalidTextBuffer, pointer)
+            })?,
+        );
+    }
+    TextStore::new(lowered).map_err(|_| {
+        MachineParseFailure::package(
+            MachineParseFailureKind::NonCanonicalTextBufferId,
+            locations.root_member(DocumentPackageRootMember::TextBuffers),
+        )
+    })
+}
+
+fn lower_byte_range(
+    range: wire::WireByteRange,
+    pointer: JsonPointer,
+) -> Result<Utf8ByteRange, MachineParseFailure> {
+    Utf8ByteRange::new(
+        Utf8ByteOffset::new(range.start_byte),
+        Utf8ByteOffset::new(range.end_byte),
+    )
+    .ok_or_else(|| MachineParseFailure::package(MachineParseFailureKind::InvalidTextSpan, pointer))
+}
+
+fn lower_source_span(
+    span: wire::WireSourceSpan,
+    pointer: JsonPointer,
+) -> Result<SourceSpan, MachineParseFailure> {
+    SourceSpan::new(
+        SourceId::new(span.source_id),
+        Utf8ByteOffset::new(span.start_byte),
+        Utf8ByteOffset::new(span.end_byte),
+    )
+    .ok_or_else(|| {
+        MachineParseFailure::package(MachineParseFailureKind::InvalidSourceSpan, pointer)
+    })
+}
+
+fn lower_text_span(
+    span: wire::WireTextSpan,
+    pointer: JsonPointer,
+) -> Result<TextSpan, MachineParseFailure> {
+    TextSpan::new(
+        TextBufferId::new(span.text_id),
+        Utf8ByteOffset::new(span.start_byte),
+        Utf8ByteOffset::new(span.end_byte),
+    )
+    .ok_or_else(|| MachineParseFailure::package(MachineParseFailureKind::InvalidTextSpan, pointer))
+}
+
+fn lower_document(
+    document: wire::WireDocument,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+) -> Result<Document, MachineParseFailure> {
+    Ok(Document {
+        node_id: NodeId::new(document.node_id),
+        blocks: document
+            .blocks
+            .into_iter()
+            .map(|block| lower_block(block, policy, locations))
+            .collect::<Result<_, _>>()?,
+        footnotes: document
+            .footnotes
+            .into_iter()
+            .map(|footnote| {
+                let pointer = node_pointer(locations, footnote.node_id, 0);
+                Ok(FootnoteDefinition {
+                    footnote_id: FootnoteId::new(footnote.footnote_id).map_err(|_| {
+                        MachineParseFailure::package(
+                            MachineParseFailureKind::InvalidIdentifier,
+                            pointer.child("footnote_id"),
+                        )
+                    })?,
+                    node_id: NodeId::new(footnote.node_id),
+                    span: lower_source_span(footnote.span, pointer.child("span"))?,
+                    blocks: footnote
+                        .blocks
+                        .into_iter()
+                        .map(|block| lower_block(block, policy, locations))
+                        .collect::<Result<_, _>>()?,
+                })
+            })
+            .collect::<Result<_, MachineParseFailure>>()?,
+    })
+}
+
+fn lower_block(
+    block: wire::WireBlock,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+) -> Result<Block, MachineParseFailure> {
+    match block {
+        wire::WireBlock::Paragraph {
+            node_id,
+            span,
+            classes,
+            children,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Block::Paragraph {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                classes,
+                children: lower_inlines(children, policy, locations)?,
+            })
+        }
+        wire::WireBlock::Heading {
+            node_id,
+            span,
+            classes,
+            level,
+            anchor_id,
+            children,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Block::Heading {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                classes,
+                level: HeadingLevel::new(level).ok_or_else(|| {
+                    MachineParseFailure::package(
+                        MachineParseFailureKind::InvalidHeadingLevel,
+                        pointer.child("level"),
+                    )
+                })?,
+                anchor_id: anchor_id
+                    .map(|value| {
+                        AnchorId::new(value).map_err(|_| {
+                            MachineParseFailure::package(
+                                MachineParseFailureKind::InvalidIdentifier,
+                                pointer.child("anchor_id"),
+                            )
+                        })
+                    })
+                    .transpose()?,
+                children: lower_inlines(children, policy, locations)?,
+            })
+        }
+        wire::WireBlock::List {
+            node_id,
+            span,
+            classes,
+            ordered,
+            start,
+            items,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Block::List {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                classes,
+                ordered,
+                start,
+                items: items
+                    .into_iter()
+                    .map(|item| lower_list_item(item, policy, locations))
+                    .collect::<Result<_, _>>()?,
+            })
+        }
+        wire::WireBlock::Table {
+            node_id,
+            span,
+            classes,
+            columns,
+            head,
+            body,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Block::Table {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                classes,
+                columns: columns
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, column)| {
+                        let column_pointer = pointer.child("columns").child(&index.to_string());
+                        let sizing = match column {
+                            wire::WireTableColumn::Fixed { width } => {
+                                ColumnSizing::Fixed(positive_length(width, column_pointer)?)
+                            }
+                            wire::WireTableColumn::Fraction { weight } => ColumnSizing::Fraction(
+                                NonZeroU16::new(weight).ok_or_else(|| {
+                                    MachineParseFailure::package(
+                                        MachineParseFailureKind::InvalidTableShape,
+                                        column_pointer,
+                                    )
+                                })?,
+                            ),
+                        };
+                        Ok(TableColumn { sizing })
+                    })
+                    .collect::<Result<_, MachineParseFailure>>()?,
+                head: head
+                    .into_iter()
+                    .map(|row| lower_table_row(row, policy, locations))
+                    .collect::<Result<_, _>>()?,
+                body: body
+                    .into_iter()
+                    .map(|row| lower_table_row(row, policy, locations))
+                    .collect::<Result<_, _>>()?,
+            })
+        }
+        wire::WireBlock::Figure {
+            node_id,
+            span,
+            classes,
+            image_id,
+            alt,
+            caption,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Block::Figure {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                classes,
+                image_id: ImageResourceId::new(image_id),
+                alt,
+                caption: caption
+                    .into_iter()
+                    .map(|block| lower_block(block, policy, locations))
+                    .collect::<Result<_, _>>()?,
+            })
+        }
+        wire::WireBlock::PageBreak {
+            node_id,
+            span,
+            classes,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Block::PageBreak {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                classes,
+            })
+        }
+    }
+}
+
+fn lower_list_item(
+    item: wire::WireListItem,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+) -> Result<ListItem, MachineParseFailure> {
+    let pointer = node_pointer(locations, item.node_id, 0);
+    Ok(ListItem {
+        node_id: NodeId::new(item.node_id),
+        span: lower_source_span(item.span, pointer.child("span"))?,
+        blocks: item
+            .blocks
+            .into_iter()
+            .map(|block| lower_block(block, policy, locations))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn lower_table_row(
+    row: wire::WireTableRow,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+) -> Result<TableRow, MachineParseFailure> {
+    let pointer = node_pointer(locations, row.node_id, 0);
+    Ok(TableRow {
+        node_id: NodeId::new(row.node_id),
+        span: lower_source_span(row.span, pointer.child("span"))?,
+        cells: row
+            .cells
+            .into_iter()
+            .map(|cell| lower_table_cell(cell, policy, locations))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn lower_table_cell(
+    cell: wire::WireTableCell,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+) -> Result<TableCell, MachineParseFailure> {
+    let pointer = node_pointer(locations, cell.node_id, 0);
+    Ok(TableCell {
+        node_id: NodeId::new(cell.node_id),
+        span: lower_source_span(cell.span, pointer.child("span"))?,
+        colspan: NonZeroU16::new(cell.colspan).ok_or_else(|| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::InvalidTableShape,
+                pointer.child("colspan"),
+            )
+        })?,
+        rowspan: NonZeroU16::new(cell.rowspan).ok_or_else(|| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::InvalidTableShape,
+                pointer.child("rowspan"),
+            )
+        })?,
+        blocks: cell
+            .blocks
+            .into_iter()
+            .map(|block| lower_block(block, policy, locations))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn lower_inlines(
+    inlines: Vec<wire::WireInline>,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+) -> Result<Vec<Inline>, MachineParseFailure> {
+    inlines
+        .into_iter()
+        .map(|inline| lower_inline(inline, policy, locations))
+        .collect()
+}
+
+fn lower_inline(
+    inline: wire::WireInline,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+) -> Result<Inline, MachineParseFailure> {
+    match inline {
+        wire::WireInline::Text {
+            node_id,
+            span,
+            text_span,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Inline::Text {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                text_span: lower_text_span(text_span, pointer.child("text_span"))?,
+            })
+        }
+        wire::WireInline::Emphasis {
+            node_id,
+            span,
+            children,
+        } => lower_inline_container(node_id, span, children, policy, locations, true),
+        wire::WireInline::Strong {
+            node_id,
+            span,
+            children,
+        } => lower_inline_container(node_id, span, children, policy, locations, false),
+        wire::WireInline::Link {
+            node_id,
+            span,
+            target,
+            children,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            let target = match target {
+                wire::WireLinkTarget::Internal { anchor_id } => {
+                    LinkTarget::Internal(AnchorId::new(anchor_id).map_err(|_| {
+                        MachineParseFailure::package(
+                            MachineParseFailureKind::InvalidIdentifier,
+                            pointer.child("target").child("anchor_id"),
+                        )
+                    })?)
+                }
+                wire::WireLinkTarget::Uri { uri } => {
+                    let schemes: Vec<&str> = policy
+                        .allowed_uri_schemes
+                        .iter()
+                        .map(String::as_str)
+                        .collect();
+                    LinkTarget::Uri(
+                        SafeUri::with_policy(
+                            uri,
+                            &schemes,
+                            policy.limits.get().max_uri_bytes as usize,
+                        )
+                        .map_err(|_| {
+                            MachineParseFailure::package(
+                                MachineParseFailureKind::InvalidUri,
+                                pointer.child("target").child("uri"),
+                            )
+                        })?,
+                    )
+                }
+            };
+            Ok(Inline::Link {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                target,
+                children: lower_inlines(children, policy, locations)?,
+            })
+        }
+        wire::WireInline::Anchor {
+            node_id,
+            span,
+            anchor_id,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Inline::Anchor {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                anchor_id: AnchorId::new(anchor_id).map_err(|_| {
+                    MachineParseFailure::package(
+                        MachineParseFailureKind::InvalidIdentifier,
+                        pointer.child("anchor_id"),
+                    )
+                })?,
+            })
+        }
+        wire::WireInline::Reference {
+            node_id,
+            span,
+            target,
+            format,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Inline::Reference {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                target: AnchorId::new(target).map_err(|_| {
+                    MachineParseFailure::package(
+                        MachineParseFailureKind::InvalidIdentifier,
+                        pointer.child("target"),
+                    )
+                })?,
+                format: match format {
+                    wire::WireReferenceFormat::Text => ReferenceFormat::Text,
+                    wire::WireReferenceFormat::Page => ReferenceFormat::Page,
+                    wire::WireReferenceFormat::Number => ReferenceFormat::Number,
+                },
+            })
+        }
+        wire::WireInline::FootnoteReference {
+            node_id,
+            span,
+            footnote_id,
+        } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Inline::FootnoteReference {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+                footnote_id: FootnoteId::new(footnote_id).map_err(|_| {
+                    MachineParseFailure::package(
+                        MachineParseFailureKind::InvalidIdentifier,
+                        pointer.child("footnote_id"),
+                    )
+                })?,
+            })
+        }
+        wire::WireInline::SoftBreak { node_id, span } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Inline::SoftBreak {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+            })
+        }
+        wire::WireInline::HardBreak { node_id, span } => {
+            let pointer = node_pointer(locations, node_id, 0);
+            Ok(Inline::HardBreak {
+                node_id: NodeId::new(node_id),
+                span: lower_source_span(span, pointer.child("span"))?,
+            })
+        }
+    }
+}
+
+fn lower_inline_container(
+    node_id: u32,
+    span: wire::WireSourceSpan,
+    children: Vec<wire::WireInline>,
+    policy: &PackageValidationPolicy<'_>,
+    locations: &JsonLocationIndex,
+    emphasis: bool,
+) -> Result<Inline, MachineParseFailure> {
+    let pointer = node_pointer(locations, node_id, 0);
+    let span = lower_source_span(span, pointer.child("span"))?;
+    let children = lower_inlines(children, policy, locations)?;
+    if emphasis {
+        Ok(Inline::Emphasis {
+            node_id: NodeId::new(node_id),
+            span,
+            children,
+        })
+    } else {
+        Ok(Inline::Strong {
+            node_id: NodeId::new(node_id),
+            span,
+            children,
+        })
+    }
+}
+
+fn positive_length(
+    value: i64,
+    pointer: JsonPointer,
+) -> Result<PositiveLength, MachineParseFailure> {
+    Length::from_raw(value)
+        .and_then(PositiveLength::new)
+        .ok_or_else(|| {
+            MachineParseFailure::package(MachineParseFailureKind::InvalidLength, pointer)
+        })
+}
+
+fn lower_style_sheet(
+    style_sheet: wire::WireStyleSheet,
+    locations: &JsonLocationIndex,
+) -> Result<StyleSheet, MachineParseFailure> {
+    let mut rules = Vec::with_capacity(style_sheet.rules.len());
+    for rule in style_sheet.rules {
+        let pointer = locations
+            .style_rule_by_source_order(rule.source_order, 0)
+            .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::StyleSheet));
+        let style_id = StyleId::new(rule.style_id).map_err(|_| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::InvalidIdentifier,
+                pointer.child("style_id"),
+            )
+        })?;
+        let extends = rule
+            .extends
+            .map(|value| {
+                StyleId::new(value).map_err(|_| {
+                    MachineParseFailure::package(
+                        MachineParseFailureKind::InvalidIdentifier,
+                        pointer.child("extends"),
+                    )
+                })
+            })
+            .transpose()?;
+        let mut declarations = Vec::with_capacity(rule.declarations.len());
+        for (ordinal, declaration) in rule.declarations.into_iter().enumerate() {
+            let declaration_pointer = pointer.child("declarations").child(&ordinal.to_string());
+            let name = match declaration.name {
+                wire::WireDeclarationName::FontFamily => "font_family",
+                wire::WireDeclarationName::FontSize => "font_size",
+                wire::WireDeclarationName::LineHeight => "line_height",
+                wire::WireDeclarationName::Page => "page",
+            };
+            let subject = DiagnosticSubject::Style(StyleErrorSubject::new(
+                NodeId::new(0),
+                Some(style_id.clone()),
+                Some(
+                    StylePropertyName::new(name)
+                        .expect("closed wire declaration names are canonical"),
+                ),
+            ));
+            declarations.push(Declaration {
+                name: name.to_owned(),
+                value: lower_style_value(declaration.value, declaration_pointer.child("value"))
+                    .map_err(|failure| failure.with_subject(subject))?,
+                important: declaration.important,
+            });
+        }
+        rules.push(StyleRule {
+            style_id,
+            extends,
+            selector: rule.selector,
+            source_order: rule.source_order,
+            declarations,
+        });
+    }
+    Ok(StyleSheet { rules })
+}
+
+fn lower_style_value(
+    value: wire::WireStyleValue,
+    pointer: JsonPointer,
+) -> Result<StyleValue, MachineParseFailure> {
+    match value {
+        wire::WireStyleValue::Keyword { value } => Ok(StyleValue::Keyword(value)),
+        wire::WireStyleValue::String { value } => Ok(StyleValue::Text(value)),
+        wire::WireStyleValue::Integer { value } => Ok(StyleValue::Integer(value)),
+        wire::WireStyleValue::Length { value } => Length::from_raw(value)
+            .map(StyleValue::Length)
+            .ok_or_else(|| {
+                MachineParseFailure::package(MachineParseFailureKind::InvalidLength, pointer)
+            }),
+        wire::WireStyleValue::Boolean { value } => Ok(StyleValue::Boolean(value)),
+        wire::WireStyleValue::FontFamilyList { families } => {
+            Ok(StyleValue::FontFamilyList(families))
+        }
+        wire::WireStyleValue::Ratio {
+            numerator,
+            denominator,
+        } => Ok(StyleValue::Ratio {
+            numerator,
+            denominator: NonZeroU64::new(denominator).ok_or_else(|| {
+                MachineParseFailure::package(MachineParseFailureKind::InvalidLength, pointer)
+            })?,
+        }),
+    }
+}
+
+fn lower_page_masters(
+    page_masters: wire::WirePageMasterSet,
+    locations: &JsonLocationIndex,
+) -> Result<PageMasterSet, MachineParseFailure> {
+    let default_master_id = MasterId::new(page_masters.default_master_id).map_err(|_| {
+        MachineParseFailure::package(
+            MachineParseFailureKind::InvalidIdentifier,
+            locations
+                .root_member(DocumentPackageRootMember::PageMasters)
+                .child("default_master_id"),
+        )
+    })?;
+    let mut masters = Vec::with_capacity(page_masters.masters.len());
+    for master in page_masters.masters {
+        let pointer = locations
+            .page_master(&master.master_id, 0)
+            .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::PageMasters));
+        let master_id = MasterId::new(master.master_id).map_err(|_| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::InvalidIdentifier,
+                pointer.child("master_id"),
+            )
+        })?;
+        let subject = DiagnosticSubject::Master(MasterErrorSubject::new(master_id.clone(), None));
+        masters.push(PageMaster {
+            master_id,
+            width: positive_length(master.width, pointer.child("width"))
+                .map_err(|failure| failure.with_subject(subject.clone()))?,
+            height: positive_length(master.height, pointer.child("height"))
+                .map_err(|failure| failure.with_subject(subject.clone()))?,
+            body: lower_rect(master.body, pointer.child("body"))
+                .map_err(|failure| failure.with_subject(subject.clone()))?,
+            header: master
+                .header
+                .map(|rect| lower_rect(rect, pointer.child("header")))
+                .transpose()
+                .map_err(|failure| failure.with_subject(subject.clone()))?,
+            footer: master
+                .footer
+                .map(|rect| lower_rect(rect, pointer.child("footer")))
+                .transpose()
+                .map_err(|failure| failure.with_subject(subject.clone()))?,
+            footnote: master
+                .footnote
+                .map(|rect| lower_rect(rect, pointer.child("footnote")))
+                .transpose()
+                .map_err(|failure| failure.with_subject(subject))?,
+        });
+    }
+    let mut selection_rules = Vec::with_capacity(page_masters.selection_rules.len());
+    for (ordinal, rule) in page_masters.selection_rules.into_iter().enumerate() {
+        let pointer = locations
+            .page_master_selection_rule(ordinal)
+            .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::PageMasters));
+        let master_id = MasterId::new(rule.master_id).map_err(|_| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::InvalidIdentifier,
+                pointer.child("master_id"),
+            )
+        })?;
+        let subject = DiagnosticSubject::Master(MasterErrorSubject::new(
+            master_id.clone(),
+            u32::try_from(ordinal).ok(),
+        ));
+        selection_rules.push(PageMasterRule {
+            master_id,
+            parity: match rule.parity {
+                wire::WirePageParity::Any => PageParity::Any,
+                wire::WirePageParity::Odd => PageParity::Odd,
+                wire::WirePageParity::Even => PageParity::Even,
+            },
+            first: rule.first,
+            named_page: rule
+                .named_page
+                .map(|value| {
+                    PageName::new(value).map_err(|_| {
+                        MachineParseFailure::package(
+                            MachineParseFailureKind::InvalidIdentifier,
+                            pointer.child("named_page"),
+                        )
+                        .with_subject(subject.clone())
+                    })
+                })
+                .transpose()?,
+            source_order: rule.source_order,
+        });
+    }
+    Ok(PageMasterSet {
+        default_master_id,
+        masters,
+        selection_rules,
+    })
+}
+
+fn lower_rect(rect: wire::WireRect, pointer: JsonPointer) -> Result<Rect, MachineParseFailure> {
+    let x = Length::from_raw(rect.x).ok_or_else(|| {
+        MachineParseFailure::package(MachineParseFailureKind::InvalidLength, pointer.child("x"))
+    })?;
+    let y = Length::from_raw(rect.y).ok_or_else(|| {
+        MachineParseFailure::package(MachineParseFailureKind::InvalidLength, pointer.child("y"))
+    })?;
+    let width = positive_length(rect.width, pointer.child("width"))?;
+    let height = positive_length(rect.height, pointer.child("height"))?;
+    Ok(Rect::new(x, y, width, height))
+}
+
+fn lower_resources(
+    resources: wire::WireResourceCatalog,
+    locations: &JsonLocationIndex,
+) -> Result<ResourceCatalog, MachineParseFailure> {
+    let mut font_faces = Vec::with_capacity(resources.font_faces.len());
+    for font in resources.font_faces {
+        let pointer = locations
+            .font_face(font.font_face_id, 0)
+            .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Resources));
+        font_faces.push(FontFaceDeclaration {
+            font_face_id: FontFaceId::new(font.font_face_id),
+            family: font.family,
+            uri: PortablePath::new(font.uri).map_err(|_| {
+                MachineParseFailure::package_with_subject(
+                    MachineParseFailureKind::InvalidUri,
+                    pointer.child("uri"),
+                    DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(FontFaceId::new(
+                        font.font_face_id,
+                    ))),
+                )
+            })?,
+            face_index: font.face_index,
+            expected_sha256: font.expected_sha256,
+        });
+    }
+    let mut images = Vec::with_capacity(resources.images.len());
+    for image in resources.images {
+        let pointer = locations
+            .image(image.image_id, 0)
+            .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Resources));
+        images.push(ImageDeclaration {
+            image_id: ImageResourceId::new(image.image_id),
+            uri: PortablePath::new(image.uri).map_err(|_| {
+                MachineParseFailure::package_with_subject(
+                    MachineParseFailureKind::InvalidUri,
+                    pointer.child("uri"),
+                    DiagnosticSubject::Resource(ResourceErrorSubject::Image(ImageResourceId::new(
+                        image.image_id,
+                    ))),
+                )
+            })?,
+            expected_sha256: image.expected_sha256,
+        });
+    }
+    Ok(ResourceCatalog { font_faces, images })
+}
+
+fn machine_validation_failure(
+    package: &ParsedPackage,
+    error: PackageValidationError,
+    locations: &JsonLocationIndex,
+) -> MachineParseFailure {
+    if matches!(
+        error,
+        PackageValidationError::SourceSpanOutOfBounds
+            | PackageValidationError::SourceSpanNotUtf8Boundary
+            | PackageValidationError::IdentityBytesMismatch
+    ) {
+        if let Some((span, pointer)) = locate_mapping_source_failure(package, &error, locations)
+            .or_else(|| locate_document_source_failure(package, &error, locations))
+        {
+            return MachineParseFailure::source(
+                MachineParseFailureKind::PackageValidation(error),
+                span,
+                pointer,
+            );
+        }
+    }
+    if matches!(
+        error,
+        PackageValidationError::UnknownTextBuffer
+            | PackageValidationError::TextSpanOutOfBounds
+            | PackageValidationError::TextSpanNotUtf8Boundary
+    ) {
+        if let Some(pointer) = locate_document_text_failure(package, &error, locations) {
+            return MachineParseFailure::package(
+                MachineParseFailureKind::PackageValidation(error),
+                pointer,
+            );
+        }
+    }
+
+    let pointer = match &error {
+        PackageValidationError::UnknownSource
+        | PackageValidationError::SourceSpanOutOfBounds
+        | PackageValidationError::SourceSpanNotUtf8Boundary
+        | PackageValidationError::IdentityBytesMismatch
+        | PackageValidationError::SourceByteLimit
+        | PackageValidationError::InputByteLimit
+        | PackageValidationError::IncludeFileLimit
+        | PackageValidationError::MissingEntrySource
+        | PackageValidationError::IncludeGraphMismatch
+        | PackageValidationError::UnresolvedIncludeDirective => {
+            locations.root_member(DocumentPackageRootMember::Sources)
+        }
+        PackageValidationError::UnknownTextBuffer
+        | PackageValidationError::TextSpanOutOfBounds
+        | PackageValidationError::TextSpanNotUtf8Boundary
+        | PackageValidationError::TextBufferByteLimit
+        | PackageValidationError::TextByteLimit => {
+            locations.root_member(DocumentPackageRootMember::TextBuffers)
+        }
+        PackageValidationError::InvalidStyle(_) | PackageValidationError::StyleRuleLimit => {
+            locations
+                .style_rule_by_source_order(0, 0)
+                .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::StyleSheet))
+        }
+        PackageValidationError::InvalidPageMasters(_) => locations
+            .page_master(&package.page_masters.default_master_id.to_string(), 0)
+            .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::PageMasters)),
+        PackageValidationError::DuplicateFontFaceId
+        | PackageValidationError::NonCanonicalFontFaceId
+        | PackageValidationError::DuplicateFontFamily
+        | PackageValidationError::InvalidFontFamily => package
+            .resources
+            .font_faces
+            .first()
+            .and_then(|font| locations.font_face(font.font_face_id.get(), 0))
+            .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Resources)),
+        PackageValidationError::DuplicateImageId | PackageValidationError::NonCanonicalImageId => {
+            package
+                .resources
+                .images
+                .first()
+                .and_then(|image| locations.image(image.image_id.get(), 0))
+                .unwrap_or_else(|| locations.root_member(DocumentPackageRootMember::Resources))
+        }
+        PackageValidationError::InvalidUri(_) => {
+            locations.root_member(DocumentPackageRootMember::Document)
+        }
+        PackageValidationError::AstNestingDepthLimit
+        | PackageValidationError::AstNodeLimit
+        | PackageValidationError::DuplicateNodeId
+        | PackageValidationError::NonCanonicalNodeId
+        | PackageValidationError::DuplicateAnchorId
+        | PackageValidationError::DuplicateFootnoteId
+        | PackageValidationError::UnknownInternalTarget
+        | PackageValidationError::UnknownFootnoteTarget
+        | PackageValidationError::UnknownImageTarget
+        | PackageValidationError::InvalidBlockClass
+        | PackageValidationError::DuplicateBlockClass
+        | PackageValidationError::NonCanonicalBlockClasses
+        | PackageValidationError::InvalidListStart
+        | PackageValidationError::EmptyListItems
+        | PackageValidationError::ListMarkerOverflow
+        | PackageValidationError::EmptyTableColumns
+        | PackageValidationError::EmptyTableRows
+        | PackageValidationError::InvalidTableGrid
+        | PackageValidationError::TableHeadBodyCross
+        | PackageValidationError::NonCanonicalFootnoteOrder => {
+            locations.root_member(DocumentPackageRootMember::Document)
+        }
+    };
+    let subject = match &error {
+        PackageValidationError::InvalidStyle(_) | PackageValidationError::StyleRuleLimit => {
+            package.style_sheet.rules.first().map(|rule| {
+                DiagnosticSubject::Style(StyleErrorSubject::new(
+                    package.document.node_id,
+                    Some(rule.style_id.clone()),
+                    rule.declarations
+                        .first()
+                        .and_then(|declaration| StylePropertyName::new(declaration.name.clone())),
+                ))
+            })
+        }
+        PackageValidationError::InvalidPageMasters(_) => Some(DiagnosticSubject::Master(
+            MasterErrorSubject::new(package.page_masters.default_master_id.clone(), None),
+        )),
+        PackageValidationError::DuplicateFontFaceId
+        | PackageValidationError::NonCanonicalFontFaceId
+        | PackageValidationError::DuplicateFontFamily
+        | PackageValidationError::InvalidFontFamily => {
+            package.resources.font_faces.first().map(|font| {
+                DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(font.font_face_id))
+            })
+        }
+        PackageValidationError::DuplicateImageId | PackageValidationError::NonCanonicalImageId => {
+            package.resources.images.first().map(|image| {
+                DiagnosticSubject::Resource(ResourceErrorSubject::Image(image.image_id))
+            })
+        }
+        PackageValidationError::InvalidUri(_)
+        | PackageValidationError::AstNestingDepthLimit
+        | PackageValidationError::AstNodeLimit
+        | PackageValidationError::DuplicateNodeId
+        | PackageValidationError::NonCanonicalNodeId
+        | PackageValidationError::DuplicateAnchorId
+        | PackageValidationError::DuplicateFootnoteId
+        | PackageValidationError::UnknownInternalTarget
+        | PackageValidationError::UnknownFootnoteTarget
+        | PackageValidationError::UnknownImageTarget
+        | PackageValidationError::InvalidBlockClass
+        | PackageValidationError::DuplicateBlockClass
+        | PackageValidationError::NonCanonicalBlockClasses
+        | PackageValidationError::InvalidListStart
+        | PackageValidationError::EmptyListItems
+        | PackageValidationError::ListMarkerOverflow
+        | PackageValidationError::EmptyTableColumns
+        | PackageValidationError::EmptyTableRows
+        | PackageValidationError::InvalidTableGrid
+        | PackageValidationError::TableHeadBodyCross
+        | PackageValidationError::NonCanonicalFootnoteOrder => {
+            Some(DiagnosticSubject::Node(package.document.node_id))
+        }
+        _ => None,
+    };
+    let failure =
+        MachineParseFailure::package(MachineParseFailureKind::PackageValidation(error), pointer);
+    match subject {
+        Some(subject) => failure.with_subject(subject),
+        None => failure,
+    }
+}
+
+fn locate_mapping_source_failure(
+    package: &ParsedPackage,
+    expected: &PackageValidationError,
+    locations: &JsonLocationIndex,
+) -> Option<(SourceSpan, JsonPointer)> {
+    for buffer in package.text_store.buffers() {
+        for (ordinal, mapping) in buffer.mappings().iter().enumerate() {
+            let Some(span) = mapping.source_span else {
+                continue;
+            };
+            let pointer = locations
+                .text_mapping(buffer.text_id().get(), 0, ordinal)
+                .unwrap_or_else(|| text_pointer(locations, buffer.text_id().get(), 0));
+            match validate_source_span(package, span) {
+                Err(error) if &error == expected => return Some((span, pointer)),
+                Err(_) => continue,
+                Ok(source) if *expected == PackageValidationError::IdentityBytesMismatch => {
+                    if mapping.kind != TextMapKind::Identity {
+                        continue;
+                    }
+                    let text_start = mapping.text_range.start_byte().get() as usize;
+                    let text_end = mapping.text_range.end_byte().get() as usize;
+                    let source_start = span.start_byte().get() as usize;
+                    let source_end = span.end_byte().get() as usize;
+                    if buffer.text()[text_start..text_end]
+                        != source.utf8()[source_start..source_end]
+                    {
+                        return Some((span, pointer));
+                    }
+                }
+                Ok(_) => {}
+            }
+        }
+    }
+    None
+}
+
+#[derive(Clone, Copy)]
+enum LocatedDomainNode<'a> {
+    Block(&'a Block),
+    Inline(&'a Inline),
+    Footnote(&'a FootnoteDefinition),
+    ListItem(&'a ListItem),
+    TableRow(&'a TableRow),
+    TableCell(&'a TableCell),
+}
+
+impl LocatedDomainNode<'_> {
+    fn node_id(self) -> NodeId {
+        match self {
+            Self::Footnote(value) => value.node_id,
+            Self::ListItem(value) => value.node_id,
+            Self::TableRow(value) => value.node_id,
+            Self::TableCell(value) => value.node_id,
+            Self::Block(value) => match value {
+                Block::Paragraph { node_id, .. }
+                | Block::Heading { node_id, .. }
+                | Block::List { node_id, .. }
+                | Block::Table { node_id, .. }
+                | Block::Figure { node_id, .. }
+                | Block::PageBreak { node_id, .. } => *node_id,
+            },
+            Self::Inline(value) => match value {
+                Inline::Text { node_id, .. }
+                | Inline::Emphasis { node_id, .. }
+                | Inline::Strong { node_id, .. }
+                | Inline::Link { node_id, .. }
+                | Inline::Anchor { node_id, .. }
+                | Inline::Reference { node_id, .. }
+                | Inline::FootnoteReference { node_id, .. }
+                | Inline::SoftBreak { node_id, .. }
+                | Inline::HardBreak { node_id, .. } => *node_id,
+            },
+        }
+    }
+
+    fn source_span(self) -> SourceSpan {
+        match self {
+            Self::Footnote(value) => value.span,
+            Self::ListItem(value) => value.span,
+            Self::TableRow(value) => value.span,
+            Self::TableCell(value) => value.span,
+            Self::Block(value) => match value {
+                Block::Paragraph { span, .. }
+                | Block::Heading { span, .. }
+                | Block::List { span, .. }
+                | Block::Table { span, .. }
+                | Block::Figure { span, .. }
+                | Block::PageBreak { span, .. } => *span,
+            },
+            Self::Inline(value) => match value {
+                Inline::Text { span, .. }
+                | Inline::Emphasis { span, .. }
+                | Inline::Strong { span, .. }
+                | Inline::Link { span, .. }
+                | Inline::Anchor { span, .. }
+                | Inline::Reference { span, .. }
+                | Inline::FootnoteReference { span, .. }
+                | Inline::SoftBreak { span, .. }
+                | Inline::HardBreak { span, .. } => *span,
+            },
+        }
+    }
+}
+
+fn initial_domain_stack(document: &Document) -> Vec<LocatedDomainNode<'_>> {
+    let mut stack = Vec::new();
+    stack.extend(
+        document
+            .footnotes
+            .iter()
+            .rev()
+            .map(LocatedDomainNode::Footnote),
+    );
+    stack.extend(document.blocks.iter().rev().map(LocatedDomainNode::Block));
+    stack
+}
+
+fn push_domain_children<'a>(stack: &mut Vec<LocatedDomainNode<'a>>, node: LocatedDomainNode<'a>) {
+    match node {
+        LocatedDomainNode::Block(block) => match block {
+            Block::Paragraph { children, .. } | Block::Heading { children, .. } => {
+                stack.extend(children.iter().rev().map(LocatedDomainNode::Inline));
+            }
+            Block::List { items, .. } => {
+                stack.extend(items.iter().rev().map(LocatedDomainNode::ListItem));
+            }
+            Block::Table { head, body, .. } => {
+                stack.extend(body.iter().rev().map(LocatedDomainNode::TableRow));
+                stack.extend(head.iter().rev().map(LocatedDomainNode::TableRow));
+            }
+            Block::Figure { caption, .. } => {
+                stack.extend(caption.iter().rev().map(LocatedDomainNode::Block));
+            }
+            Block::PageBreak { .. } => {}
+        },
+        LocatedDomainNode::Inline(inline) => match inline {
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => {
+                stack.extend(children.iter().rev().map(LocatedDomainNode::Inline));
+            }
+            Inline::Text { .. }
+            | Inline::Anchor { .. }
+            | Inline::Reference { .. }
+            | Inline::FootnoteReference { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::HardBreak { .. } => {}
+        },
+        LocatedDomainNode::Footnote(footnote) => {
+            stack.extend(footnote.blocks.iter().rev().map(LocatedDomainNode::Block));
+        }
+        LocatedDomainNode::ListItem(item) => {
+            stack.extend(item.blocks.iter().rev().map(LocatedDomainNode::Block));
+        }
+        LocatedDomainNode::TableRow(row) => {
+            stack.extend(row.cells.iter().rev().map(LocatedDomainNode::TableCell));
+        }
+        LocatedDomainNode::TableCell(cell) => {
+            stack.extend(cell.blocks.iter().rev().map(LocatedDomainNode::Block));
+        }
+    }
+}
+
+fn locate_document_source_failure(
+    package: &ParsedPackage,
+    expected: &PackageValidationError,
+    locations: &JsonLocationIndex,
+) -> Option<(SourceSpan, JsonPointer)> {
+    let mut stack = initial_domain_stack(&package.document);
+    while let Some(node) = stack.pop() {
+        let span = node.source_span();
+        if validate_source_span(package, span).is_err_and(|error| &error == expected) {
+            return Some((span, node_pointer(locations, node.node_id().get(), 0)));
+        }
+        push_domain_children(&mut stack, node);
+    }
+    None
+}
+
+fn locate_document_text_failure(
+    package: &ParsedPackage,
+    expected: &PackageValidationError,
+    locations: &JsonLocationIndex,
+) -> Option<JsonPointer> {
+    let mut stack = initial_domain_stack(&package.document);
+    while let Some(node) = stack.pop() {
+        if let LocatedDomainNode::Inline(Inline::Text { text_span, .. }) = node {
+            if validate_text_span(package, *text_span).is_err_and(|error| &error == expected) {
+                return Some(node_pointer(locations, node.node_id().get(), 0).child("text_span"));
+            }
+        }
+        push_domain_children(&mut stack, node);
+    }
+    None
 }
 
 fn canonical_list_marker_texts(
@@ -2753,19 +5362,21 @@ impl Parser for ReferenceParser {
     fn parse(&self, source: &SourceFile, policy: &PackageValidationPolicy<'_>) -> ParseOutcome {
         let package = match parse_reference_entry(source) {
             Ok(package) => package,
-            Err(message) => return reference_parse_failure(message),
+            Err(message) => return reference_parse_failure(source, message),
         };
         let include_graph = match ValidatedIncludeGraph::entry_only(&package.sources, policy.limits)
         {
             Ok(include_graph) => include_graph,
-            Err(_) => return reference_parse_failure("entry include closure was rejected"),
+            Err(_) => return reference_parse_failure(source, "entry include closure was rejected"),
         };
-        match ValidatedParsedPackage::new_resolved(package, policy, &include_graph) {
+        match ValidatedParsedPackage::new_resolved(package, policy, &include_graph, |_, error| {
+            error
+        }) {
             Ok(package) => ParseOutcome::Parsed {
                 package: Box::new(package),
                 diagnostics: vec![],
             },
-            Err(_) => reference_parse_failure("reference source failed package validation"),
+            Err(_) => reference_parse_failure(source, "reference source failed package validation"),
         }
     }
 }
@@ -3140,13 +5751,23 @@ fn parse_reference_inline_sequence(
     Ok(children)
 }
 
-fn reference_parse_failure(message: &'static str) -> ParseOutcome {
-    let diagnostic = Diagnostic::new(
+fn reference_parse_failure(source: &SourceFile, message: &'static str) -> ParseOutcome {
+    let source_span = SourceSpan::new(
+        source.source_id,
+        Utf8ByteOffset::new(0),
+        Utf8ByteOffset::new(0),
+    )
+    .expect("an empty source span is valid");
+    let diagnostic = Diagnostic::located(
         DiagnosticCode::new("P1000").expect("static diagnostic code is valid"),
         Severity::Error,
         message,
+        DiagnosticLocation::source(
+            SourceDiagnosticLocation::new(Some(source_span), None, None)
+                .expect("a source span forms a diagnostic location"),
+        ),
     )
-    .expect("static diagnostic message is nonempty");
+    .expect("static reference diagnostic content is canonical");
     let mut phase = PhaseDiagnostics::new();
     let flow = phase.emit(diagnostic);
     debug_assert_eq!(flow, DiagnosticFlow::Continue);
@@ -3160,18 +5781,286 @@ fn reference_parse_failure(message: &'static str) -> ParseOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::num::NonZeroU16;
+    use core::num::{NonZeroU16, NonZeroU64};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use typaxis_core::{
-        GeneratedBufferKey, GenerationKind, Length, MasterId, PositiveLength, Rect, ResourceLimits,
-        SourceSpan, StyleId, TextBufferId, Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits,
+        FootnoteId, GeneratedBufferKey, GenerationKind, ImageResourceId, Length, MasterId,
+        PageName, PositiveLength, Rect, ResourceLimits, SafeUri, SourceSpan, StyleId, TextBufferId,
+        Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits,
     };
     use typaxis_document::{
-        ColumnSizing, FontFaceDeclaration, ImageDeclaration, ListItem, TableColumn,
+        ColumnSizing, FontFaceDeclaration, FootnoteDefinition, HeadingLevel, ImageDeclaration,
+        LinkTarget, ListItem, TableCell, TableColumn, TableRow,
     };
-    use typaxis_style::{Declaration, PageMaster, StyleRule};
+    use typaxis_style::{
+        Declaration, PageMaster, PageMasterRule, PageParity, StyleRule, StyleValue,
+    };
     use typaxis_text::{
         GeneratedBufferDraft, SourceRecord, TextBuffer, TextMapKind, TextMapSegment,
     };
+
+    static NEXT_MACHINE_TEST_ROOT: AtomicU64 = AtomicU64::new(0);
+
+    struct MachineTestRoot(PathBuf);
+
+    impl MachineTestRoot {
+        fn new(label: &str) -> Self {
+            let ordinal = NEXT_MACHINE_TEST_ROOT.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "typaxis-syntax-{label}-{}-{ordinal}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for MachineTestRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn machine_wire(
+        source: &str,
+        text: Option<(String, wire::WireTextMapKind, Option<wire::WireSourceSpan>)>,
+    ) -> WireDocumentPackage {
+        let text_buffers = text
+            .map(|(utf8, kind, source_span)| {
+                let end = u32::try_from(utf8.len()).unwrap();
+                vec![wire::WireTextBuffer {
+                    text_id: 0,
+                    utf8,
+                    mappings: if end == 0 {
+                        vec![]
+                    } else {
+                        vec![wire::WireTextMapSegment {
+                            text_range: wire::WireByteRange {
+                                start_byte: 0,
+                                end_byte: end,
+                            },
+                            kind,
+                            source_span,
+                        }]
+                    },
+                }]
+            })
+            .unwrap_or_default();
+        WireDocumentPackage {
+            contract: typaxis_core::DocumentPackageContractId::CONTRACT_1_0,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: u32::try_from(source.len()).unwrap(),
+                sha256: sha256(source.as_bytes()),
+            }],
+            text_buffers,
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![],
+                footnotes: vec![],
+            },
+            style_sheet: wire::WireStyleSheet { rules: vec![] },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: vec![],
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: vec![],
+                images: vec![],
+            },
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn admit_machine_wire(
+        root: &MachineTestRoot,
+        package: &WireDocumentPackage,
+        source: &str,
+        limits: &ValidatedResourceLimits,
+    ) -> AdmittedMachinePackage {
+        let bytes = wire::DocumentPackageEncoder::default()
+            .to_jcs_vec(package)
+            .unwrap();
+        let package_path = root.path().join("document-package.json");
+        fs::write(&package_path, bytes).unwrap();
+        fs::write(root.path().join("input.tsf"), source).unwrap();
+        let options = typaxis_machine_input::MachineInputHostOptions::new(
+            typaxis_core::HostPath::new(package_path).unwrap(),
+            None,
+        );
+        let (session, raw) =
+            typaxis_machine_input::HostMachineInputSession::open(options, limits).unwrap();
+        let decode_policy = wire::DocumentPackageDecodePolicy::new(limits);
+        let decoded = session
+            .decode_and_bind(
+                &raw,
+                &wire::StrictDocumentPackageDecoder::new(),
+                &decode_policy,
+            )
+            .unwrap();
+        let sources = session.admit_sources(&decoded, limits).unwrap();
+        session.finish(raw, decoded, sources).unwrap()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_parser_moves_large_source_and_text_buffers_without_cloning() {
+        let root = MachineTestRoot::new("machine-move");
+        let source = "include is ordinary producer text here\n".repeat(32_768);
+        let text = "x".repeat(1 << 20);
+        let package = machine_wire(&source, Some((text, wire::WireTextMapKind::Inserted, None)));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let admitted = admit_machine_wire(&root, &package, &source, &limits);
+        let source_pointer = admitted.sources()[0].text().as_ptr();
+        let text_pointer = admitted.decoded().wire().text_buffers[0].utf8.as_ptr();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let policy = PackageValidationPolicy::new(&limits, &schemes).unwrap();
+
+        let MachineParseOutcome::Parsed { package } =
+            DocumentPackageParser::new().parse(admitted, &policy)
+        else {
+            panic!("admitted package must cross syntax validation");
+        };
+        assert_eq!(
+            package.package().package().sources.records()[0]
+                .utf8()
+                .as_ptr(),
+            source_pointer
+        );
+        assert_eq!(
+            package.package().package().text_store.buffers()[0]
+                .text()
+                .as_ptr(),
+            text_pointer
+        );
+        assert!(package.package().include_graph().edges().is_empty());
+        assert_eq!(
+            package.provenance().progress().stage(),
+            MachineInputStage::SourcesAdmitted
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_parser_rejects_identity_mismatch_with_source_primary_and_package_note() {
+        let root = MachineTestRoot::new("identity-mismatch");
+        let source = "actual";
+        let package = machine_wire(
+            source,
+            Some((
+                "xxxxxx".to_owned(),
+                wire::WireTextMapKind::Identity,
+                Some(wire::WireSourceSpan {
+                    source_id: 0,
+                    start_byte: 0,
+                    end_byte: 6,
+                }),
+            )),
+        );
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let admitted = admit_machine_wire(&root, &package, source, &limits);
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let policy = PackageValidationPolicy::new(&limits, &schemes).unwrap();
+
+        let MachineParseOutcome::Failed { progress, failure } =
+            DocumentPackageParser::new().parse(admitted, &policy)
+        else {
+            panic!("identity bytes must be rechecked against actual source bytes");
+        };
+        assert_eq!(progress.stage(), MachineInputStage::SourcesAdmitted);
+        assert_eq!(
+            failure.kind(),
+            &MachineParseFailureKind::PackageValidation(
+                PackageValidationError::IdentityBytesMismatch
+            )
+        );
+        let MachineParsePrimaryLocation::Source(span) = failure.primary() else {
+            panic!("identity mismatch must use its actual source span as primary");
+        };
+        assert_eq!(span.source_id(), SourceId::new(0));
+        assert_eq!(span.start_byte(), Utf8ByteOffset::new(0));
+        assert_eq!(span.end_byte(), Utf8ByteOffset::new(6));
+        assert_eq!(
+            failure.package_note().map(JsonPointer::as_str),
+            Some("/text_buffers/0/mappings/0")
+        );
+        let diagnostic = failure.to_diagnostic(
+            &PortablePath::new("document-package.json").expect("static package URI is portable"),
+        );
+        assert_eq!(*diagnostic.code(), typaxis_diagnostics::P1112);
+        assert!(matches!(
+            diagnostic.location(),
+            Some(DiagnosticLocation::Source(_))
+        ));
+        assert!(matches!(
+            diagnostic.notes().first().and_then(|note| note.location()),
+            Some(DiagnosticLocation::PackageJson { json_pointer, .. })
+                if json_pointer.as_str() == "/text_buffers/0/mappings/0"
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_parser_maps_noncanonical_node_id_through_location_index() {
+        let root = MachineTestRoot::new("node-location");
+        let source = "\n";
+        let mut package = machine_wire(source, None);
+        package.document.node_id = 7;
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let admitted = admit_machine_wire(&root, &package, source, &limits);
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let policy = PackageValidationPolicy::new(&limits, &schemes).unwrap();
+
+        let MachineParseOutcome::Failed { progress, failure } =
+            DocumentPackageParser::new().parse(admitted, &policy)
+        else {
+            panic!("non-canonical node ID must fail before recursive lowering");
+        };
+        assert_eq!(progress.stage(), MachineInputStage::SourcesAdmitted);
+        assert_eq!(failure.kind(), &MachineParseFailureKind::NonCanonicalNodeId);
+        assert_eq!(
+            failure.primary(),
+            &MachineParsePrimaryLocation::PackageJson(JsonPointer::from_segments([
+                "document", "node_id",
+            ]))
+        );
+        assert_eq!(failure.package_note(), None);
+        assert_eq!(
+            failure.subject(),
+            Some(&DiagnosticSubject::Node(NodeId::new(7)))
+        );
+        let diagnostic = failure.to_diagnostic(
+            &PortablePath::new("document-package.json").expect("static package URI is portable"),
+        );
+        assert_eq!(*diagnostic.code(), typaxis_diagnostics::P1102);
+        assert_eq!(
+            diagnostic.subject(),
+            Some(&DiagnosticSubject::Node(NodeId::new(7)))
+        );
+    }
 
     fn empty_package(sources: SourceCatalog, text_store: TextStore) -> ParsedPackage {
         let size = PositiveLength::new(Length::from_raw(100).unwrap()).unwrap();
@@ -3246,6 +6135,421 @@ mod tests {
             SourceCatalog::new(vec![source]).unwrap(),
             TextStore::new(vec![]).unwrap(),
         )
+    }
+
+    fn test_source_span() -> SourceSpan {
+        SourceSpan::new(
+            SourceId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(1),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn full_domain_surface_converts_and_encodes_through_the_shared_wire_tree() {
+        let source_span = test_source_span();
+        let text_range =
+            Utf8ByteRange::new(Utf8ByteOffset::new(0), Utf8ByteOffset::new(1)).unwrap();
+        let sources = SourceCatalog::new(vec![SourceRecord::new(
+            SourceId::new(0),
+            PortablePath::new("input.tsf").unwrap(),
+            "abc".to_owned(),
+        )
+        .unwrap()])
+        .unwrap();
+        let text_store = TextStore::new(vec![
+            TextBuffer::new(
+                TextBufferId::new(0),
+                "a".to_owned(),
+                vec![TextMapSegment {
+                    text_range,
+                    kind: TextMapKind::Identity,
+                    source_span: Some(source_span),
+                }],
+                1,
+            )
+            .unwrap(),
+            TextBuffer::new(
+                TextBufferId::new(1),
+                "x".to_owned(),
+                vec![TextMapSegment {
+                    text_range,
+                    kind: TextMapKind::Replacement,
+                    source_span: Some(source_span),
+                }],
+                1,
+            )
+            .unwrap(),
+            TextBuffer::new(
+                TextBufferId::new(2),
+                "y".to_owned(),
+                vec![TextMapSegment {
+                    text_range,
+                    kind: TextMapKind::Inserted,
+                    source_span: None,
+                }],
+                1,
+            )
+            .unwrap(),
+        ])
+        .unwrap();
+        let mut package = empty_package(sources, text_store);
+        let empty_children = Vec::new();
+        let inline_variants = vec![
+            Inline::Text {
+                node_id: NodeId::new(2),
+                span: source_span,
+                text_span: TextSpan::new(
+                    TextBufferId::new(0),
+                    Utf8ByteOffset::new(0),
+                    Utf8ByteOffset::new(1),
+                )
+                .unwrap(),
+            },
+            Inline::Emphasis {
+                node_id: NodeId::new(3),
+                span: source_span,
+                children: empty_children.clone(),
+            },
+            Inline::Strong {
+                node_id: NodeId::new(4),
+                span: source_span,
+                children: empty_children.clone(),
+            },
+            Inline::Link {
+                node_id: NodeId::new(5),
+                span: source_span,
+                target: LinkTarget::Internal(AnchorId::new("target").unwrap()),
+                children: empty_children.clone(),
+            },
+            Inline::Link {
+                node_id: NodeId::new(6),
+                span: source_span,
+                target: LinkTarget::Uri(SafeUri::new("https://example.test/").unwrap()),
+                children: empty_children.clone(),
+            },
+            Inline::Anchor {
+                node_id: NodeId::new(7),
+                span: source_span,
+                anchor_id: AnchorId::new("target").unwrap(),
+            },
+            Inline::Reference {
+                node_id: NodeId::new(8),
+                span: source_span,
+                target: AnchorId::new("target").unwrap(),
+                format: ReferenceFormat::Text,
+            },
+            Inline::Reference {
+                node_id: NodeId::new(9),
+                span: source_span,
+                target: AnchorId::new("target").unwrap(),
+                format: ReferenceFormat::Page,
+            },
+            Inline::Reference {
+                node_id: NodeId::new(10),
+                span: source_span,
+                target: AnchorId::new("target").unwrap(),
+                format: ReferenceFormat::Number,
+            },
+            Inline::FootnoteReference {
+                node_id: NodeId::new(11),
+                span: source_span,
+                footnote_id: FootnoteId::new("note").unwrap(),
+            },
+            Inline::SoftBreak {
+                node_id: NodeId::new(12),
+                span: source_span,
+            },
+            Inline::HardBreak {
+                node_id: NodeId::new(13),
+                span: source_span,
+            },
+        ];
+        let size = PositiveLength::new(Length::from_raw(100).unwrap()).unwrap();
+        let table_head_row = TableRow {
+            node_id: NodeId::new(19),
+            span: source_span,
+            cells: vec![TableCell {
+                node_id: NodeId::new(20),
+                span: source_span,
+                colspan: NonZeroU16::new(2).unwrap(),
+                rowspan: NonZeroU16::new(1).unwrap(),
+                blocks: vec![],
+            }],
+        };
+        let table_body_row = TableRow {
+            node_id: NodeId::new(21),
+            span: source_span,
+            cells: vec![TableCell {
+                node_id: NodeId::new(22),
+                span: source_span,
+                colspan: NonZeroU16::new(2).unwrap(),
+                rowspan: NonZeroU16::new(1).unwrap(),
+                blocks: vec![],
+            }],
+        };
+        package.document = Document {
+            node_id: NodeId::new(0),
+            blocks: vec![
+                Block::Paragraph {
+                    node_id: NodeId::new(1),
+                    span: source_span,
+                    classes: vec!["body".to_owned()],
+                    children: inline_variants,
+                },
+                Block::Heading {
+                    node_id: NodeId::new(14),
+                    span: source_span,
+                    classes: vec!["title".to_owned()],
+                    level: HeadingLevel::new(2).unwrap(),
+                    anchor_id: Some(AnchorId::new("heading").unwrap()),
+                    children: vec![],
+                },
+                Block::List {
+                    node_id: NodeId::new(15),
+                    span: source_span,
+                    classes: vec![],
+                    ordered: true,
+                    start: Some(1),
+                    items: vec![ListItem {
+                        node_id: NodeId::new(16),
+                        span: source_span,
+                        blocks: vec![Block::PageBreak {
+                            node_id: NodeId::new(17),
+                            span: source_span,
+                            classes: vec![],
+                        }],
+                    }],
+                },
+                Block::Table {
+                    node_id: NodeId::new(18),
+                    span: source_span,
+                    classes: vec!["grid".to_owned()],
+                    columns: vec![
+                        TableColumn {
+                            sizing: ColumnSizing::Fixed(size),
+                        },
+                        TableColumn {
+                            sizing: ColumnSizing::Fraction(NonZeroU16::new(2).unwrap()),
+                        },
+                    ],
+                    head: vec![table_head_row],
+                    body: vec![table_body_row],
+                },
+                Block::Figure {
+                    node_id: NodeId::new(23),
+                    span: source_span,
+                    classes: vec!["figure".to_owned()],
+                    image_id: ImageResourceId::new(0),
+                    alt: "diagram".to_owned(),
+                    caption: vec![Block::Paragraph {
+                        node_id: NodeId::new(24),
+                        span: source_span,
+                        classes: vec![],
+                        children: vec![],
+                    }],
+                },
+                Block::PageBreak {
+                    node_id: NodeId::new(25),
+                    span: source_span,
+                    classes: vec![],
+                },
+            ],
+            footnotes: vec![FootnoteDefinition {
+                footnote_id: FootnoteId::new("note").unwrap(),
+                node_id: NodeId::new(26),
+                span: source_span,
+                blocks: vec![Block::Paragraph {
+                    node_id: NodeId::new(27),
+                    span: source_span,
+                    classes: vec![],
+                    children: vec![],
+                }],
+            }],
+        };
+        package.style_sheet = StyleSheet {
+            rules: vec![StyleRule {
+                style_id: StyleId::new("style").unwrap(),
+                extends: Some(StyleId::new("base").unwrap()),
+                selector: "paragraph.body".to_owned(),
+                source_order: 0,
+                declarations: vec![
+                    Declaration {
+                        name: "font_family".to_owned(),
+                        value: StyleValue::FontFamilyList(vec!["Body".to_owned()]),
+                        important: false,
+                    },
+                    Declaration {
+                        name: "font_size".to_owned(),
+                        value: StyleValue::Length(Length::from_raw(10).unwrap()),
+                        important: true,
+                    },
+                    Declaration {
+                        name: "line_height".to_owned(),
+                        value: StyleValue::Integer(-2),
+                        important: false,
+                    },
+                    Declaration {
+                        name: "page".to_owned(),
+                        value: StyleValue::Keyword("auto".to_owned()),
+                        important: false,
+                    },
+                    Declaration {
+                        name: "page".to_owned(),
+                        value: StyleValue::Text("chapter".to_owned()),
+                        important: false,
+                    },
+                    Declaration {
+                        name: "page".to_owned(),
+                        value: StyleValue::Boolean(true),
+                        important: false,
+                    },
+                    Declaration {
+                        name: "page".to_owned(),
+                        value: StyleValue::Ratio {
+                            numerator: -3,
+                            denominator: NonZeroU64::new(4).unwrap(),
+                        },
+                        important: false,
+                    },
+                ],
+            }],
+        };
+        let frame = Rect::new(Length::ZERO, Length::ZERO, size, size);
+        package.page_masters = PageMasterSet {
+            default_master_id: MasterId::new("default").unwrap(),
+            masters: vec![PageMaster {
+                master_id: MasterId::new("default").unwrap(),
+                width: size,
+                height: size,
+                body: frame,
+                header: Some(frame),
+                footer: Some(frame),
+                footnote: Some(frame),
+            }],
+            selection_rules: vec![
+                PageMasterRule {
+                    master_id: MasterId::new("default").unwrap(),
+                    parity: PageParity::Any,
+                    first: Some(true),
+                    named_page: Some(PageName::new("chapter").unwrap()),
+                    source_order: 0,
+                },
+                PageMasterRule {
+                    master_id: MasterId::new("default").unwrap(),
+                    parity: PageParity::Odd,
+                    first: Some(false),
+                    named_page: None,
+                    source_order: 1,
+                },
+                PageMasterRule {
+                    master_id: MasterId::new("default").unwrap(),
+                    parity: PageParity::Even,
+                    first: None,
+                    named_page: None,
+                    source_order: 2,
+                },
+            ],
+        };
+        package.resources = ResourceCatalog {
+            font_faces: vec![FontFaceDeclaration {
+                font_face_id: FontFaceId::new(0),
+                family: "Body".to_owned(),
+                uri: PortablePath::new("body.ttf").unwrap(),
+                face_index: 2,
+                expected_sha256: Some([0x11; 32]),
+            }],
+            images: vec![ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("diagram.png").unwrap(),
+                expected_sha256: Some([0x22; 32]),
+            }],
+        };
+
+        let wire_package = parsed_package_to_wire(&package).unwrap();
+        assert_eq!(wire_package.text_buffers.len(), 3);
+        assert_eq!(wire_package.document.blocks.len(), 6);
+        assert_eq!(wire_package.document.footnotes.len(), 1);
+        assert_eq!(wire_package.style_sheet.rules[0].declarations.len(), 7);
+        assert_eq!(wire_package.page_masters.selection_rules.len(), 3);
+        assert_eq!(wire_package.resources.font_faces.len(), 1);
+        assert_eq!(wire_package.resources.images.len(), 1);
+
+        let json = wire::DocumentPackageEncoder::default()
+            .to_jcs_string(&wire_package)
+            .unwrap();
+        for expected in [
+            "\"kind\":\"identity\"",
+            "\"kind\":\"replacement\"",
+            "\"kind\":\"inserted\"",
+            "\"kind\":\"emphasis\"",
+            "\"kind\":\"strong\"",
+            "\"kind\":\"link\"",
+            "\"kind\":\"footnote_reference\"",
+            "\"kind\":\"soft_break\"",
+            "\"kind\":\"hard_break\"",
+            "\"kind\":\"heading\"",
+            "\"kind\":\"list\"",
+            "\"kind\":\"table\"",
+            "\"kind\":\"figure\"",
+            "\"kind\":\"page_break\"",
+            "\"kind\":\"font_family_list\"",
+            "\"kind\":\"ratio\"",
+        ] {
+            assert!(
+                json.contains(expected),
+                "missing canonical wire value {expected}"
+            );
+        }
+
+        #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+        {
+            // Integer/boolean/ratio are representable wire values but are not
+            // valid for any current style property. Keep the encoder coverage
+            // above, then select the semantically valid subset for issuance.
+            let mut trusted_wire = wire_package;
+            let rule = &mut trusted_wire.style_sheet.rules[0];
+            rule.extends = None;
+            rule.declarations[2].value = wire::WireStyleValue::Length { value: 12 };
+            rule.declarations.truncate(5);
+            let root = MachineTestRoot::new("full-wire-lowering");
+            let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+            let admitted = admit_machine_wire(&root, &trusted_wire, "abc", &limits);
+            let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+            let policy = PackageValidationPolicy::new(&limits, &schemes).unwrap();
+            let MachineParseOutcome::Parsed { package } =
+                DocumentPackageParser::new().parse(admitted, &policy)
+            else {
+                panic!("the complete semantically valid wire surface must be trusted");
+            };
+            assert_eq!(package.package().document_nodes().node_count(), 28);
+            assert_eq!(package.package().package().document.blocks.len(), 6);
+            assert_eq!(package.package().package().resources.font_faces.len(), 1);
+            assert_eq!(package.package().package().resources.images.len(), 1);
+        }
+    }
+
+    #[test]
+    fn unknown_style_declaration_requires_an_explicit_contract_migration() {
+        let mut package = empty_package_with_source();
+        package.style_sheet.rules.push(StyleRule {
+            style_id: StyleId::new("future").unwrap(),
+            extends: None,
+            selector: "paragraph".to_owned(),
+            source_order: 0,
+            declarations: vec![Declaration {
+                name: "future_property".to_owned(),
+                value: StyleValue::Boolean(true),
+                important: false,
+            }],
+        });
+        assert_eq!(
+            parsed_package_to_wire(&package),
+            Err(DocumentPackageConversionError::UnknownStyleDeclarationName(
+                "future_property".to_owned()
+            ))
+        );
     }
 
     #[test]
@@ -4383,7 +7687,7 @@ mod tests {
         };
         assert_eq!(
             hex(identity.document().bytes()),
-            "8237caf0e302bfc1ec235431fa05d483aae850677633104d7ffc77e795a7e619"
+            "4b9228095eacd6527953123afee6e890267d19877ec9b083c452c05f6919c69a"
         );
         assert_eq!(
             hex(identity.style().bytes()),

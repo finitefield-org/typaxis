@@ -1,169 +1,66 @@
+use std::io::Write;
 use typaxis_core::{
-    push_jcs_string, LayoutStateFingerprint, Rect, SourceSpan, TextSpan, CONTRACT, COORDINATE_UNIT,
+    push_jcs_string, LayoutStateFingerprint, Rect, ValidatedResourceLimits, CONTRACT,
+    COORDINATE_UNIT,
 };
-use typaxis_document::{Block, Inline};
+use typaxis_document_package::{CanonicalJcsStats, DocumentPackageEncoder, JcsEncodeError};
 use typaxis_layout::{FlowPosition, FlowTree, LayoutEpoch};
 use typaxis_pagination::{
     ConvergenceStatus, InitialPaginationState, PageFrameKind, PagePlan, PaginationResult,
-    PlacedAnchor,
+    PlacedAnchor, ResolvedReference,
 };
-use typaxis_syntax::ValidatedParsedPackage;
-use typaxis_text::TextMapKind;
+use typaxis_syntax::{DocumentPackageConversionError, ValidatedParsedPackage};
+use typaxis_text::GeneratedTextStore;
 
-pub fn document_package_json(package: &ValidatedParsedPackage) -> Result<String, &'static str> {
-    let package = package.package();
-    if !package.style_sheet.rules.is_empty()
-        || !package.page_masters.selection_rules.is_empty()
-        || !package.resources.font_faces.is_empty()
-        || !package.resources.images.is_empty()
-        || !package.document.footnotes.is_empty()
-    {
-        return Err("the reference artifact encoder received an unsupported package shape");
-    }
+pub const GENERATED_TRACE_TEXT_REQUIRES_OPT_IN: &str =
+    "generated text requires `--trace-text` for a complete trace";
 
-    let mut json = String::from("{\"contract\":");
-    push_jcs_string(&mut json, CONTRACT);
-    json.push_str(",\"coordinate_unit\":");
-    push_jcs_string(&mut json, COORDINATE_UNIT);
-    json.push_str(",\"document\":{\"blocks\":[");
-    for (index, block) in package.document.blocks.iter().enumerate() {
-        comma(&mut json, index);
-        push_reference_block(&mut json, block)?;
-    }
-    json.push_str("],\"footnotes\":[],\"node_id\":");
-    json.push_str(&package.document.node_id.get().to_string());
-    json.push_str("},\"page_masters\":{");
-    json.push_str("\"default_master_id\":");
-    push_jcs_string(&mut json, package.page_masters.default_master_id.as_str());
-    json.push_str(",\"masters\":[");
-    for (index, master) in package.page_masters.masters.iter().enumerate() {
-        comma(&mut json, index);
-        json.push_str("{\"body\":");
-        push_rect(&mut json, master.body);
-        json.push_str(",\"footer\":");
-        push_optional_rect(&mut json, master.footer);
-        json.push_str(",\"footnote\":");
-        push_optional_rect(&mut json, master.footnote);
-        json.push_str(",\"header\":");
-        push_optional_rect(&mut json, master.header);
-        json.push_str(",\"height\":");
-        json.push_str(&master.height.get().raw().to_string());
-        json.push_str(",\"master_id\":");
-        push_jcs_string(&mut json, master.master_id.as_str());
-        json.push_str(",\"width\":");
-        json.push_str(&master.width.get().raw().to_string());
-        json.push('}');
-    }
-    json.push_str(
-        "],\"selection_rules\":[]},\"resources\":{\"font_faces\":[],\"images\":[]},\"sources\":[",
-    );
-    for (index, source) in package.sources.records().iter().enumerate() {
-        comma(&mut json, index);
-        json.push_str("{\"sha256\":");
-        push_hex(&mut json, source.content_hash());
-        json.push_str(",\"source_id\":");
-        json.push_str(&source.source_id().get().to_string());
-        json.push_str(",\"uri\":");
-        push_jcs_string(&mut json, source.uri().as_str());
-        json.push_str(",\"utf8_byte_length\":");
-        json.push_str(&source.utf8_byte_length().to_string());
-        json.push('}');
-    }
-    json.push_str("],\"style_sheet\":{\"rules\":[]},\"text_buffers\":[");
-    for (index, buffer) in package.text_store.buffers().iter().enumerate() {
-        comma(&mut json, index);
-        json.push_str("{\"mappings\":[");
-        for (mapping_index, mapping) in buffer.mappings().iter().enumerate() {
-            comma(&mut json, mapping_index);
-            json.push_str("{\"kind\":");
-            push_jcs_string(
-                &mut json,
-                match mapping.kind {
-                    TextMapKind::Identity => "identity",
-                    TextMapKind::Replacement => "replacement",
-                    TextMapKind::Inserted => "inserted",
-                },
-            );
-            json.push_str(",\"source_span\":");
-            match mapping.source_span {
-                Some(span) => push_source_span(&mut json, span),
-                None => json.push_str("null"),
-            }
-            json.push_str(",\"text_range\":{\"end_byte\":");
-            json.push_str(&mapping.text_range.end_byte().get().to_string());
-            json.push_str(",\"start_byte\":");
-            json.push_str(&mapping.text_range.start_byte().get().to_string());
-            json.push_str("}}");
-        }
-        json.push_str("],\"text_id\":");
-        json.push_str(&buffer.text_id().get().to_string());
-        json.push_str(",\"utf8\":");
-        push_jcs_string(&mut json, buffer.text());
-        json.push('}');
-    }
-    json.push_str("]}");
-    Ok(json)
+#[derive(Debug)]
+pub enum DocumentPackageArtifactError {
+    Conversion(DocumentPackageConversionError),
+    Encoding(JcsEncodeError),
 }
 
-fn push_reference_block(json: &mut String, block: &Block) -> Result<(), &'static str> {
-    let Block::Paragraph {
-        node_id,
-        span,
-        classes,
-        children,
-    } = block
-    else {
-        return Err("the reference parser emitted an unsupported block");
-    };
-    json.push_str("{\"children\":[");
-    for (index, inline) in children.iter().enumerate() {
-        comma(json, index);
-        push_reference_inline(json, inline)?;
+impl std::fmt::Display for DocumentPackageArtifactError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Conversion(error) => error.fmt(formatter),
+            Self::Encoding(error) => error.fmt(formatter),
+        }
     }
-    json.push_str("],\"classes\":[");
-    for (index, class) in classes.iter().enumerate() {
-        comma(json, index);
-        push_jcs_string(json, class);
-    }
-    json.push_str("],\"kind\":\"paragraph\",\"node_id\":");
-    json.push_str(&node_id.get().to_string());
-    json.push_str(",\"span\":");
-    push_source_span(json, *span);
-    json.push('}');
-    Ok(())
 }
 
-fn push_reference_inline(json: &mut String, inline: &Inline) -> Result<(), &'static str> {
-    match inline {
-        Inline::Text {
-            node_id,
-            span,
-            text_span,
-        } => {
-            json.push_str("{\"kind\":\"text\",\"node_id\":");
-            json.push_str(&node_id.get().to_string());
-            json.push_str(",\"span\":");
-            push_source_span(json, *span);
-            json.push_str(",\"text_span\":");
-            push_text_span(json, *text_span);
-            json.push('}');
+impl std::error::Error for DocumentPackageArtifactError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Conversion(error) => Some(error),
+            Self::Encoding(error) => Some(error),
         }
-        Inline::Anchor {
-            node_id,
-            span,
-            anchor_id,
-        } => {
-            json.push_str("{\"anchor_id\":");
-            push_jcs_string(json, anchor_id.as_str());
-            json.push_str(",\"kind\":\"anchor\",\"node_id\":");
-            json.push_str(&node_id.get().to_string());
-            json.push_str(",\"span\":");
-            push_source_span(json, *span);
-            json.push('}');
-        }
-        _ => return Err("the reference parser emitted an unsupported inline"),
     }
-    Ok(())
+}
+
+pub fn write_document_package_json<W: Write>(
+    package: &ValidatedParsedPackage,
+    limits: &ValidatedResourceLimits,
+    output: &mut W,
+) -> Result<CanonicalJcsStats, DocumentPackageArtifactError> {
+    let wire_package = package
+        .to_wire_document_package()
+        .map_err(DocumentPackageArtifactError::Conversion)?;
+    DocumentPackageEncoder::new(limits.get().max_document_package_bytes)
+        .map_err(DocumentPackageArtifactError::Encoding)?
+        .write_preflighted(&wire_package, output)
+        .map_err(DocumentPackageArtifactError::Encoding)
+}
+
+#[cfg(test)]
+fn document_package_json(
+    package: &ValidatedParsedPackage,
+    limits: &ValidatedResourceLimits,
+) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    write_document_package_json(package, limits, &mut bytes).map_err(|error| error.to_string())?;
+    String::from_utf8(bytes).map_err(|error| error.to_string())
 }
 
 pub fn reference_layout_page_json(
@@ -205,15 +102,11 @@ pub fn reference_layout_trace_json(
             .iter()
             .any(|pass| !pass.generated_text().buffers().is_empty());
     ensure_requested_trace_text_is_representable(include_trace_text, contains_trace_text)?;
-    if contains_trace_text {
-        return Err("the reference trace encoder received unsupported generated text");
-    }
     if pagination.passes().iter().any(|pass| {
         pass.pages().iter().any(|page| {
             !page.footnote_ids.is_empty()
                 || !page.float_decisions.is_empty()
                 || !page.column_decisions.is_empty()
-                || !page.resolved_references.is_empty()
         })
     }) {
         return Err("the reference trace encoder received unsupported layout content");
@@ -230,7 +123,9 @@ pub fn reference_layout_trace_json(
     push_flow_positions(&mut json, flow.positions());
     json.push_str("],\"layout_epoch\":");
     push_layout_epoch(&mut json, initial.layout_epoch());
-    json.push_str(",\"resolved_generated_text\":[]},\"max_layout_passes\":");
+    json.push_str(",\"resolved_generated_text\":[");
+    push_generated_text(&mut json, initial.generated_text());
+    json.push_str("]},\"max_layout_passes\":");
     json.push_str(&max_layout_passes.to_string());
     json.push_str(",\"passes\":[");
     for (index, pass) in pagination.passes().iter().enumerate() {
@@ -284,14 +179,16 @@ pub fn reference_layout_trace_json(
         json.push_str(",\"pages\":[");
         for (page_index, page) in pass.pages().iter().enumerate() {
             comma(&mut json, page_index);
-            push_reference_page_plan(&mut json, page)?;
+            push_reference_trace_page_plan(&mut json, page)?;
         }
         json.push_str("],\"placed_anchors\":[");
         for (anchor_index, anchor) in pass.placed_anchors().enumerate() {
             comma(&mut json, anchor_index);
             push_placed_anchor(&mut json, anchor);
         }
-        json.push_str("],\"resolved_generated_text\":[]}}");
+        json.push_str("],\"resolved_generated_text\":[");
+        push_generated_text(&mut json, pass.generated_text());
+        json.push_str("]}}");
     }
     json.push_str("],\"result\":{");
     if let ConvergenceStatus::CycleFallback { cycle_start_state } = pagination.status() {
@@ -325,10 +222,23 @@ fn ensure_requested_trace_text_is_representable(
     include_trace_text: bool,
     contains_trace_text: bool,
 ) -> Result<(), &'static str> {
-    if include_trace_text && contains_trace_text {
-        Err("requested trace text is not representable by the reference trace encoder")
+    if contains_trace_text && !include_trace_text {
+        Err(GENERATED_TRACE_TEXT_REQUIRES_OPT_IN)
     } else {
         Ok(())
+    }
+}
+
+fn push_generated_text(json: &mut String, generated: &GeneratedTextStore) {
+    for (index, buffer) in generated.buffers().iter().enumerate() {
+        comma(json, index);
+        json.push_str("{\"end_byte\":");
+        json.push_str(&buffer.utf8().len().to_string());
+        json.push_str(",\"key\":");
+        typaxis_core::push_generated_buffer_key_jcs(json, buffer.key());
+        json.push_str(",\"start_byte\":0,\"utf8\":");
+        push_jcs_string(json, buffer.utf8());
+        json.push('}');
     }
 }
 
@@ -376,8 +286,13 @@ fn ensure_reference_page_shape(page: &PagePlan) -> Result<(), &'static str> {
     }
 }
 
-fn push_reference_page_plan(json: &mut String, page: &PagePlan) -> Result<(), &'static str> {
-    ensure_reference_page_shape(page)?;
+fn push_reference_trace_page_plan(json: &mut String, page: &PagePlan) -> Result<(), &'static str> {
+    if !page.footnote_ids.is_empty()
+        || !page.float_decisions.is_empty()
+        || !page.column_decisions.is_empty()
+    {
+        return Err("the reference trace encoder received unsupported page content");
+    }
     json.push_str(
         "{\"column_decisions\":[],\"float_decisions\":[],\"footnote_ids\":[],\"fragments\":[",
     );
@@ -388,8 +303,29 @@ fn push_reference_page_plan(json: &mut String, page: &PagePlan) -> Result<(), &'
     push_jcs_string(json, page.master_id.as_str());
     json.push_str(",\"page_index\":");
     json.push_str(&page.page_index.to_string());
-    json.push_str(",\"resolved_references\":[]}");
+    json.push_str(",\"resolved_references\":[");
+    for (index, reference) in page.resolved_references.iter().enumerate() {
+        comma(json, index);
+        push_resolved_reference(json, reference);
+    }
+    json.push_str("]}");
     Ok(())
+}
+
+fn push_resolved_reference(json: &mut String, reference: &ResolvedReference) {
+    let provenance = reference.provenance();
+    let range = provenance.text_span().range();
+    json.push_str("{\"anchor_id\":");
+    push_jcs_string(json, reference.anchor_id().as_str());
+    json.push_str(",\"buffer_key\":");
+    typaxis_core::push_generated_buffer_key_jcs(json, provenance.buffer_key());
+    json.push_str(",\"end_byte\":");
+    json.push_str(&range.end_byte().get().to_string());
+    json.push_str(",\"start_byte\":");
+    json.push_str(&range.start_byte().get().to_string());
+    json.push_str(",\"utf8\":");
+    push_jcs_string(json, reference.utf8());
+    json.push('}');
 }
 
 fn push_fragments(json: &mut String, fragments: &[typaxis_pagination::PlacedFragment]) {
@@ -470,33 +406,6 @@ const fn frame_kind_name(kind: PageFrameKind) -> &'static str {
     }
 }
 
-fn push_source_span(json: &mut String, span: SourceSpan) {
-    json.push_str("{\"end_byte\":");
-    json.push_str(&span.end_byte().get().to_string());
-    json.push_str(",\"source_id\":");
-    json.push_str(&span.source_id().get().to_string());
-    json.push_str(",\"start_byte\":");
-    json.push_str(&span.start_byte().get().to_string());
-    json.push('}');
-}
-
-fn push_text_span(json: &mut String, span: TextSpan) {
-    json.push_str("{\"end_byte\":");
-    json.push_str(&span.end_byte().get().to_string());
-    json.push_str(",\"start_byte\":");
-    json.push_str(&span.start_byte().get().to_string());
-    json.push_str(",\"text_id\":");
-    json.push_str(&span.text_id().get().to_string());
-    json.push('}');
-}
-
-fn push_optional_rect(json: &mut String, rect: Option<Rect>) {
-    match rect {
-        Some(rect) => push_rect(json, rect),
-        None => json.push_str("null"),
-    }
-}
-
 fn push_rect(json: &mut String, rect: Rect) {
     json.push_str("{\"height\":");
     json.push_str(&rect.height().get().raw().to_string());
@@ -564,10 +473,6 @@ mod tests {
             panic!("source should parse")
         };
         package
-    }
-
-    fn package(text: &str) -> Box<ValidatedParsedPackage> {
-        package_with_config(text, &config())
     }
 
     fn assert_jcs_member_order(json: &str) {
@@ -671,16 +576,41 @@ mod tests {
 
     #[test]
     fn package_json_contains_reference_parser_facts_without_source_text() {
-        let json = document_package_json(&package("text:hello\nanchor:target\n")).unwrap();
-        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.0\""));
+        let config = config();
+        let json = document_package_json(
+            &package_with_config("text:hello\nanchor:target\n", &config),
+            config.limits(),
+        )
+        .unwrap();
+        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.1\""));
         assert!(json.contains("\"kind\":\"text\""));
         assert!(json.contains("\"anchor_id\":\"target\""));
         assert!(!json.contains("text:hello"));
     }
 
     #[test]
+    fn package_json_uses_the_full_converter_for_styles_and_resources() {
+        let config = config();
+        let json = document_package_json(
+            &package_with_config("font:Body:body.ttf\ntext:hello\n", &config),
+            config.limits(),
+        )
+        .unwrap();
+        assert!(json.contains("\"font_faces\":[{"));
+        assert!(json.contains("\"family\":\"Body\""));
+        assert!(json.contains("\"name\":\"font_family\""));
+        assert!(json.contains("\"kind\":\"font_family_list\""));
+        assert_jcs_member_order(&json);
+    }
+
+    #[test]
     fn document_package_uses_jcs_member_order_recursively() {
-        let json = document_package_json(&package("text:hello\nanchor:target\n")).unwrap();
+        let config = config();
+        let json = document_package_json(
+            &package_with_config("text:hello\nanchor:target\n", &config),
+            config.limits(),
+        )
+        .unwrap();
         assert_jcs_member_order(&json);
     }
 
@@ -770,12 +700,12 @@ mod tests {
     }
 
     #[test]
-    fn requested_trace_text_fails_closed_only_when_text_is_present() {
+    fn generated_trace_text_requires_explicit_opt_in() {
         assert!(ensure_requested_trace_text_is_representable(true, false).is_ok());
-        assert!(ensure_requested_trace_text_is_representable(false, true).is_ok());
+        assert!(ensure_requested_trace_text_is_representable(true, true).is_ok());
         assert_eq!(
-            ensure_requested_trace_text_is_representable(true, true),
-            Err("requested trace text is not representable by the reference trace encoder")
+            ensure_requested_trace_text_is_representable(false, true),
+            Err(GENERATED_TRACE_TEXT_REQUIRES_OPT_IN)
         );
     }
 }
