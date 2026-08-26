@@ -154,6 +154,17 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 `MI1-14`はcontract IDの意味を部分的に変えないため意図的にcross-cuttingである。ほかのmilestoneは原則として1 crate責務または1 vertical sliceへ限定する。
 
+### M1 completion evidence
+
+- Implementation commit: `69e2df43282e6fcb816d4c77fda6fb678020ba2f`。
+- Completion review (2026-08-26): MI1-01からMI1-17までをdependency map順に再確認し、各deliverable、non-goal、acceptance criteriaと実装・fixture・public CLI surfaceが一致することを確認した。
+- macOS 26.5.2 arm64、rustc/cargo 1.97.1でlocked workspace all-targets check/test、clippy `-D warnings`、fmt、host/resource targeted tests、Schema validator、Python suiteがexit 0だった。obsoleteなMI0 macOS unsupported-resource testは、MI1-06のcontained-open実装と矛盾するため削除し、font付きcombined public E2Eをcurrent regressionとした。
+- macOS `aarch64-apple-darwin`とmanaged Linux `aarch64-unknown-linux-gnu`で、同一revision/source snapshot/fixtureからcanonical host evidenceを生成した。各hostの14 checksはclean build、public check/build二回、five-artifact byte identity、Schema、M1-only capability、MuPDF raster、Poppler page/text、異名source snapshot再現性をすべて`passed`とした。
+- `python3 tools/verify_machine_profile.py --require-host-evidence target/machine-e2e/host-evidence --required-host macos --required-host linux`は、両hostの同一source/fixture/artifact bindingを確認してexit 0だった。GitHub Actions/GitHub workflowは使用していない。
+- macOS linkerがnative archive memberのtarget pathをsymbol tableへ保持する差を検出したため、machine reproducibility buildはsource/target path remapとdebug/local symbol除去を使い、isolated target名長も固定した。異名checkoutのbinary bytes、version、five artifact bytesのexact一致をactual gateと回帰testで確認した。
+
+この共有evidenceにより、各MI1 milestoneの直接verificationとdependency closureが成立した。M2以降は引き続きPendingであり、`paragraph-1`のclosed contractは拡張しない。
+
 ## 4. M0: baseline and decisions
 
 ### MI0-01 macOS build baselineを復旧する
@@ -266,7 +277,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-01 Core identityと4 crateのcompile boundaryを作る
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI0-02
 - Design inputs: docs/25 §12.1、§12.2、§14 file map
 - Primary files:
@@ -309,7 +320,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-02 Full wire DTOとshared JCS encoderを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-01
 - Design inputs: docs/25 §6.3、§6.10、§12.1、§12.4
 - Primary files:
@@ -344,7 +355,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-03 Iterative strict JSON preflightを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-02
 - Design inputs: docs/25 §6.3、§12.4、diagnostic `P1100`/`P1101`、limit `I9100`/`I9101`
 - Primary files:
@@ -375,7 +386,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-04 Bounded typed decoderとJSON location indexを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-03
 - Design inputs: docs/25 §12.2、§12.4、§15.1 decoder cases
 - Primary files:
@@ -411,7 +422,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-05 Generic host admissionをresource crateから抽出する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-01
 - Design inputs: docs/25 §12.1、§12.3、docs/18 resource trust
 - Primary files:
@@ -444,7 +455,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-06 Cross-platform contained open、stable read、read ledgerを完成する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-05
 - Design inputs: docs/25 §12.3、§12.6 host availability、`I9102`、`I9110`〜`I9113`
 - Primary files:
@@ -479,7 +490,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-07 Machine package/source admission sessionを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-04、MI1-06
 - Design inputs: docs/25 §6.2、§6.4、§12.2、§12.3
 - Primary files:
@@ -511,7 +522,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-08 Syntax loweringとsealed trusted package issuanceを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-07
 - Design inputs: docs/25 §4.3、§4.4、§12.5
 - Primary files:
@@ -549,7 +560,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-09 Structured diagnostic modelとcommand-wide budgetを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-04、MI1-07
 - Design inputs: docs/25 §6.9、§12.4、§12.9、§12.10
 - Primary files:
@@ -586,7 +597,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-10 `paragraph-1` descriptor、preflight、capabilitiesを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-06、MI1-08、MI1-09
 - Design inputs: docs/25 §6.7、§12.6、§13.5
 - Primary files:
@@ -626,7 +637,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-11 Machine layout wrapperとcheck-package preflight境界を実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-10
 - Design inputs: docs/25 §12.6、§12.7、existing `layout_reference`
 - Primary files:
@@ -660,7 +671,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-12 Manifest machine identityとsealed progress ledgerを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-10
 - Design inputs: docs/25 §6.8、§12.2、§12.8
 - Primary files:
@@ -695,7 +706,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-13 Diagnostics target、read/write alias、terminal publicationを統合する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-06、MI1-09、MI1-12
 - Design inputs: docs/25 §6.6、§12.7、§12.9
 - Primary files:
@@ -741,7 +752,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - write target全pairと、output/trace/manifest/diagnostics × PACKAGE/source/config/resourceのlexical/symlink/hard-link/publish-race matrix、missing candidate、read mutation、diagnostics failure、reference file/stdout/no-manifest regressionをtestで固定した。
   - 上記3本のmilestone verification、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、`python3 schemas/validate.py`はすべてexit 0だった。test evidenceは`typaxis-core`、`typaxis-machine-input`、`typaxis-manifest`、`typaxis-cli::sidecar`および`typaxis-cli/tests/cli_end_to_end.rs`にある。
   - contract/Schema/public command surfaceは変更していない。CLIからgeneric host ownerへの禁止dependencyを追加せず、opaque publication read tokenはmanifest owner経由で渡す。
-  - dependency milestone MI1-06/MI1-09/MI1-12が本task文書上Pendingのため、§12.1/§12.2に従いStatusはPendingのままにする。implementation commit/evidence linkはdependency closure後に記録する。
+  - Completion update (2026-08-26): MI1-06/MI1-09/MI1-12を含むdependency closureとshared M1 completion evidenceを確認し、StatusをCompletedとした。
   - Scope adjustment: strict lint closureのためpreceding diagnostics APIのbehavior-preserving lint annotation/test lifetime cleanupをPrimary filesへ追加した。
 - Non-goals:
   - machine CLI command exposure
@@ -749,7 +760,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-14 Contract 1.1へatomic migrationする
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI0-02、MI1-02、MI1-04、MI1-09、MI1-10、MI1-12、MI1-13
 - Design inputs: docs/25 §12.4、§12.8、§12.9、Slice 1
 - Primary files:
@@ -809,7 +820,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - diagnostics tagged location union、manifestの`input_profile`/`package_input` conditional、internal capabilities Schema/fixturesを1.1 encoderと同時に切り替えた。`dump-ast`はshared converter/encoderを使い、count/hash preflight後の二回目だけstdoutへstreamする。
   - minimal/conformance/invalid/cross fixtures、JCS golden、expected errors、contract matrixを1.1へ再生成し、1.0 canonical compatibility fixtureを別directoryへ保持した。validatorはfrozen 7/current 8 Schema、全731 `$ref`、全208 invalid fixture、全6 JCS goldenを検証する。
   - milestone verification三本、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、`python3 schemas/validate.py`はすべてexit 0だった。`dump-ast`のstdoutは1.1 compact JSONで、package byte limit failureはexit 5かつstdout 0 bytesである。
-  - dependency milestone MI1-02/MI1-04/MI1-09/MI1-10/MI1-12/MI1-13が本task文書上Pendingのため、§12.1/§12.2に従いStatusはPendingのままにする。implementation commit/evidence linkはdependency closure後に記録する。
+  - Completion update (2026-08-26): MI0-02およびMI1-02/MI1-04/MI1-09/MI1-10/MI1-12/MI1-13のdependency closureとshared M1 completion evidenceを確認し、StatusをCompletedとした。
   - Scope adjustment: public `dump-ast`/limit failure E2Eとcurrent epoch goldenのためCLI main/E2E、machine-input、syntax、compatibility/capabilities documentationをPrimary filesへ追加した。
 - Notes:
   - このmilestoneは部分commitへ分割してcurrent 1.1 IDを途中のshapeへ付けない。準備commitを使う場合も最終switch前はpublic current contractを1.0のまま保つ。
@@ -819,7 +830,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
 
 ### MI1-15 Machine commandの非公開orchestrationを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-11、MI1-13、MI1-14
 - Design inputs: docs/25 §6.1、§6.6、§12.7
 - Primary files:
@@ -856,14 +867,14 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - check runnerはcomputed family preparationで終了し、layout/trace/PDF/manifestを作らない。build runnerはreceipt-gated machine layout/PDFを呼び、failure時`diagnostics -> failed manifest`、success時`trace -> PDF -> diagnostics -> built manifest`の個別atomic publicationと最終read-ledger再検証を行う。
   - 1.1 machine output bindingをterminal planでも受理するようmanifest commit gateのobsolete reference-only rejectionを除去し、machine built planの実commit testとprivate runnerのblank/paragraph success、unsupported-inline pre-resource failureを追加した。
   - milestone verification三本、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、`python3 schemas/validate.py`はすべてexit 0だった。
-  - dependency milestone MI1-11/MI1-13/MI1-14が本task文書上Pendingのため、§12.1/§12.2に従いStatusはPendingのままにする。Scope adjustmentとして1.1 machine terminal-plan commit gateを実装する`workspace/crates/typaxis-manifest/src/lib.rs`をPrimary filesへimplementation前に追加した。
+  - Completion update (2026-08-26): MI1-11/MI1-13/MI1-14のdependency closureとshared M1 completion evidenceを確認し、StatusをCompletedとした。Scope adjustmentとして1.1 machine terminal-plan commit gateを実装する`workspace/crates/typaxis-manifest/src/lib.rs`をPrimary filesへimplementation前に追加した。
 - Non-goals:
   - public command/help exposure
   - release status update
 
 ### MI1-16 Machine package fixtureとinternal E2E matrixを閉じる
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-15
 - Design inputs: docs/25 §15.1、§15.2、§16
 - Primary files:
@@ -910,14 +921,14 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - BOM/NUL/trailing、JSON/typed/contract、bytes/depth exactとmax+1、source closure/path/identity、contained-open/stable-read、unsupported content/style/image、diagnostic max+1、session receipt swap、全target pair/input alias、partial publication、canonical/semantic/dump-build round tripをclosure testへ接続した。DocumentPackageには0〜1024 arbitrary bytes totality、escaped Unicode duplicate key、hard depth 256/max+1、raw/canonical hash property testを追加した。
   - fixtureで見つかったorchestration差分として、explicit root外PACKAGEをcontext作成前usage gateへ移し、typed decode diagnosticをhost pathを含まないcanonical messageへ射影し、aggregated capability failureへfirst typed `L5100`/`L5101`/`R7100` primary codeを保持した。fixture readerはworkspaceのJSON dependency ownershipを守るtest-local decoderとし、新しいdependency edgeは追加していない。
   - milestone verification四本、locked workspace all-targets check/test、all-targets clippy `-D warnings`、fmt check、machine-profile regression、`git diff --check`はすべてexit 0だった。
-  - dependency milestone MI1-15が本task文書上Pendingのため、§2.5に従いStatusはPendingのままにする。Scope adjustmentとしてvalidator、CLI module registration/orchestration fixes、machine-profile typed failure filesをPrimary filesへimplementation前に追加した。
+  - Completion update (2026-08-26): MI1-15のdependency closureとshared M1 completion evidenceを確認し、StatusをCompletedとした。Scope adjustmentとしてvalidator、CLI module registration/orchestration fixes、machine-profile typed failure filesをPrimary filesへimplementation前に追加した。
 - Non-goals:
   - public help/status claim
   - long-running fuzz gate
 
 ### MI1-17 Public CLI、producer docs、release gateを閉じる
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-16
 - Design inputs: docs/25 §9、§10、§15.3、§16
 - Primary files:
@@ -940,6 +951,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `workspace/README.md`
   - `tools/verify_machine_profile.py`
   - `tools/test_machine_profile.py`
+  - `tools/test_release.py`（macOS filesystem-independent Python gate fixture）
   - `tools/verify_pdf_differential.py`
   - `tools/test_pdf_differential.py`
   - `tools/verify_reproducibility.py`
@@ -978,11 +990,11 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `build-package`、`check-package`、`capabilities`を一つのchange setでtop-level command list/parser/dispatch/helpへ登録した。large public command payloadは`Invocation` boundaryでbox化し、source commandとmachine commandのtyped grammar/loader分離を維持した。public binary E2Eはfont付きcombinedのcheck/build、PDF/trace/manifest/diagnostics facts、BOM negativeのexit 1/`P1100`/failed progress、hostile config/`TYPAXIS_*`/locale下のexact capability bytesを検査する。
   - current eleven-schema registryへclosed `typaxis.machine-profile-evidence/1`を追加した。唯一のper-host writer `verify_machine_profile.py`はcurrent worktreeからclean binaryをbuildし、positive expectedまたはmatrixをpublic commandで二回実行し、five artifactのSchema/bytes/hash、M1-only capability、manifest/PDF binding、MuPDF raster、Poppler page/text、異名source snapshot再現性を検査して、exact 14 check/six tool/five artifactをcanonical atomic evidenceへ記録する。aggregation modeはmissing/failed/noncanonical/duplicate/incomplete/stale revision、source/fixture/artifact mismatchをfail closedにする。
   - `verify_reproducibility.py --machine-fixture`はtracked+untracked non-ignored current worktreeを異なる二名へmaterializeし、fixed source remapを使う二つのclean buildについてbinary bytes/versionとfive artifact bytesをexact比較する。binary hash、Git revision、source snapshot、Cargo.lock、tool/fixture/resource/artifact hashはhost evidenceへbindする。
-  - repository policyはGitHub Actions/GitHub workflowを使用しない。locked fmt/check/test/clippy、Schema/Python suite、required MuPDF/Poppler public gateは明示的に管理する各hostで実行し、canonical evidenceをoperator-controlled directoryへcopyしてaggregation commandへ渡す。local Linux writerは`target/machine-e2e/host-evidence/x86_64-unknown-linux-gnu.json`を生成したが、current-source macOS artifactはlocal環境では生成できないためrelease-supportedは`No`のままにした。
+  - repository policyはGitHub Actions/GitHub workflowを使用しない。locked fmt/check/test/clippy、Schema/Python suite、required MuPDF/Poppler public gateは明示的に管理する各hostで実行し、canonical evidenceをoperator-controlled directoryへcopyしてaggregation commandへ渡す。completion reviewではmacOS `aarch64-apple-darwin`とmanaged Linux `aarch64-unknown-linux-gnu`のcurrent-source evidenceを生成・集約した。
   - combined fixtureのexternal gateで見つかったintegration差分として、generated-referenceをtraceへcanonical projectionしcomplete traceに`--trace-text`を要求した。generated labelはDisplayでArtifact extractionへ分類し、PDFでempty `ActualText` marked contentを付けてvisual glyphを保持しつつnormalized textから除外した。Popplerが返すunmapped artifact CIDのnonstructural C0 scalarだけをnormalizerで除去し、期待text `Typaxis machine input`を固定した。
   - producer guide、runnable sample README、README/CLI/roadmap/matrix/checklist/Schema/workspace statusをpublic Linux E2Eまで更新し、M2以降をadvertiseしないexact/negative assertionsをRustとPythonの両方へ追加した。
-  - locked fmt/check/workspace all-targets test/clippy `-D warnings`、current/frozen Schema validator、19 Python tests、public machine profile gate、machine reproducibility gateはexit 0だった。required-host aggregation commandはactual macOS evidence欠落を成功skipせずrejectする。
-  - dependency milestone MI1-16が本task文書上Pendingであり、actual current-source macOS/Linux evidence aggregateも未成立なので、§12.1/§12.2と本milestone acceptance criteriaに従いStatusはPendingのままにする。Scope adjustmentとしてcombined fixtureから発見したtrace/extraction ownerとverifier unit testsをPrimary filesへ追加した。
+  - locked fmt/check/workspace all-targets test/clippy `-D warnings`、current/frozen Schema validator、21 Python tests、public machine profile gate、machine reproducibility gateはexit 0だった。required-host aggregation commandはactual macOS/Linux evidenceを受理し、missing/failed/stale evidenceを引き続きfail closedにする。
+  - Completion update (2026-08-26): MI1-16のdependency closureとactual current-source macOS/Linux evidence aggregateを確認し、StatusをCompletedとした。Scope adjustmentとしてcombined fixtureから発見したtrace/extraction ownerとverifier unit tests、macOSのcase-insensitive/precomposed filesystemでも同じunsafe archive treeを作る`tools/test_release.py`をPrimary filesへ追加した。
 - Non-goals:
   - full-book/release profile
   - M2 feature acceptance

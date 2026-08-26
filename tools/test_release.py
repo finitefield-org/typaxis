@@ -44,6 +44,17 @@ def commit(repository: Path, message: str = "fixture") -> str:
     return git(repository, "rev-parse", "HEAD^{tree}")
 
 
+def git_blob(repository: Path, payload: bytes) -> str:
+    completed = subprocess.run(
+        ["/usr/bin/git", "-C", os.fspath(repository), "hash-object", "-w", "--stdin"],
+        input=payload,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return completed.stdout.decode("ascii", "strict").strip()
+
+
 def make_tree(
     parent: Path,
     name: str,
@@ -57,22 +68,49 @@ def make_tree(
     repository = parent / name
     repository.mkdir()
     git(repository, "init", "--quiet")
+    git(repository, "config", "core.ignorecase", "false")
+    git(repository, "config", "core.precomposeunicode", "false")
     (repository / "README.md").write_bytes(b"typaxis\n")
     (repository / "nested").mkdir()
     (repository / "nested/data.bin").write_bytes(bytes(range(32)))
-    if collision:
-        (repository / "Case").write_bytes(b"upper")
-        (repository / "case").write_bytes(b"lower")
-    if file_directory_collision:
-        (repository / "A").write_bytes(b"file")
-        (repository / "a").mkdir()
-        (repository / "a/data").write_bytes(b"nested")
-    if unicode_collision:
-        (repository / "\N{LATIN SMALL LETTER E WITH ACUTE}").write_bytes(b"NFC")
-        (repository / "e\N{COMBINING ACUTE ACCENT}").write_bytes(b"NFD")
     if symlink:
         (repository / "link").symlink_to("README.md")
     git(repository, "add", "-A")
+    if collision:
+        # Populate the index directly so the fixture is valid on both
+        # case-sensitive and case-insensitive host filesystems.
+        upper = git_blob(repository, b"upper")
+        lower = git_blob(repository, b"lower")
+        git(repository, "update-index", "--add", "--cacheinfo", f"100644,{upper},Case")
+        git(repository, "update-index", "--add", "--cacheinfo", f"100644,{lower},case")
+    if file_directory_collision:
+        file_blob = git_blob(repository, b"file")
+        nested_blob = git_blob(repository, b"nested")
+        git(repository, "update-index", "--add", "--cacheinfo", f"100644,{file_blob},A")
+        git(
+            repository,
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"100644,{nested_blob},a/data",
+        )
+    if unicode_collision:
+        nfc_blob = git_blob(repository, b"NFC")
+        nfd_blob = git_blob(repository, b"NFD")
+        git(
+            repository,
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"100644,{nfc_blob},\N{LATIN SMALL LETTER E WITH ACUTE}",
+        )
+        git(
+            repository,
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"100644,{nfd_blob},e\N{COMBINING ACUTE ACCENT}",
+        )
     if committed:
         return repository, commit(repository)
     return repository, git(repository, "write-tree")
@@ -231,7 +269,7 @@ class ReleaseArchiveTests(unittest.TestCase):
                 with self.assertRaises(release.ReleaseDurabilityError) as raised:
                     release.build_release(repository, output, revision=tree)
 
-            self.assertEqual(raised.exception.output, output)
+            self.assertEqual(raised.exception.output, output.resolve())
             self.assertEqual(raised.exception.source, error)
             self.assertTrue(output.is_file())
             self.assertEqual(
@@ -391,6 +429,7 @@ class ReproducibilityTests(unittest.TestCase):
                 "TYPAXIS_STRICT": "true",
                 "typaxis_limits__max_input_bytes": "1",
                 "CARGO_TARGET_DIR": "/ambient/target",
+                "CARGO_ENCODED_RUSTFLAGS": "ambient",
             }
         )
         self.assertEqual(environment["PATH"], "/bin")
@@ -398,6 +437,7 @@ class ReproducibilityTests(unittest.TestCase):
             any(key.upper().startswith("TYPAXIS_") for key in environment)
         )
         self.assertNotIn("CARGO_TARGET_DIR", environment)
+        self.assertNotIn("CARGO_ENCODED_RUSTFLAGS", environment)
         self.assertEqual(environment["CARGO_INCREMENTAL"], "0")
 
     def test_materialized_checkout_contains_only_selected_git_tree(self) -> None:

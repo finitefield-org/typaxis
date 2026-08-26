@@ -7,19 +7,19 @@
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
 | reference TSF pipeline | Yes, current 1.1 | Yes, bounded subset | Yes | No |
-| DocumentPackage portable Schema/export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | No |
-| sealed machine ingestion | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
-| contract 1.1 output | Yes | Yes, current output | Yes | No: two-host aggregate pending |
+| DocumentPackage portable Schema/export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | Yes, M1 host gate |
+| sealed machine ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
+| contract 1.1 output | Yes | Yes, current output | Yes | Yes, M1 host gate |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
 - [x] `paragraph-1` explicitly distinguishes visual heading layout from outline/tagged heading semantics
 - [x] target host/document-package/machine-input/machine-profile owners and session-bound receipts are implemented
 - [x] public `build-package`, `check-package`, and `capabilities --format json` have positive/negative CLI E2E fixtures
-- [ ] producer guide, Linux actual-host evidence, and reproducibility gates exist; matching current-source macOS/Linux evidence must still aggregate before MI1-17 release completion
+- [x] producer guide、macOS/Linux actual-host evidence、reproducibility/external PDF gatesが同一current-source artifactとして集約され、MI1-17 release completionを閉じる
 
-The first three checked items are contract decisions. The next two are implementation/public-E2E claims. The final unchecked item is deliberately a release claim and cannot be inferred from Linux-only evidence or a synthetic aggregation test.
+The first three checked items are contract decisions. The next two are implementation/public-E2E claims. The final item is an actual-host release claim backed by the canonical macOS/Linux aggregation gate, not inferred from a single host or synthetic evidence.
 
 ## Source and text
 
@@ -143,7 +143,7 @@ The first three checked items are contract decisions. The next two are implement
 - [x] exact max succeeds and max+1 fails before work; initial footnote fragment/float page are not reflow/carry and final allowed reshape failure is reported after that pass
 - [x] table cells use deterministic leftmost-free placement with full row coverage and no head/body-crossing rowspan
 - [x] every bounded line/lookback/footnote/column/float algorithm has exact-limit tests
-- [ ] cargo check/test and public machine profile gate on every documented host target（MI0-01のmacOS reference baselineと、MI1-17 worktreeのLinux locked/static/workspace/public machine E2Eは成功済み。current-source macOS machine evidenceとLinux/macOS aggregateは明示的に管理するhost gateで未確認。GitHub Actionsは使用しない）
+- [x] cargo check/test and public machine profile gate on every documented host target（MI1-17のcurrent-source macOS/Linux actual evidenceとaggregateが成功。GitHub Actionsは使用していない）
 - [x] Unicode conformance data
 - [x] subset round-trip
 - [x] renderer/extractor differential

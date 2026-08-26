@@ -22,6 +22,10 @@ class ReproducibilityError(Exception):
     pass
 
 
+MACHINE_TARGET_DIRECTORY_NAMES = ("target-clean", "target-alpha", "target-bravo")
+MACHINE_TEMPORARY_PREFIX = "typaxis-machine-gate-"
+
+
 @dataclass(frozen=True)
 class ReproducibilityResult:
     tree: str
@@ -68,6 +72,7 @@ def filtered_environment(base: Mapping[str, str] | None = None) -> dict[str, str
     environment.pop("CARGO_TARGET_DIR", None)
     environment.pop("RUSTFLAGS", None)
     environment.pop("RUSTDOCFLAGS", None)
+    environment.pop("CARGO_ENCODED_RUSTFLAGS", None)
     return environment
 
 
@@ -369,8 +374,8 @@ def _build_machine_binary(
         raise ReproducibilityError("source snapshot lacks workspace/Cargo.toml")
     build_environment = dict(environment)
     build_environment["CARGO_TARGET_DIR"] = os.fspath(target)
-    build_environment["RUSTFLAGS"] = (
-        f"--remap-path-prefix={os.fspath(checkout)}=/typaxis-source"
+    build_environment["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(
+        _machine_build_rustflags(checkout, target)
     )
     _run_checked(
         [
@@ -391,6 +396,25 @@ def _build_machine_binary(
     if not executable.is_file():
         raise ReproducibilityError(f"Cargo did not produce {executable}")
     return executable
+
+
+def _machine_build_rustflags(checkout: Path, target: Path) -> tuple[str, ...]:
+    """Keep release-gate binaries independent of source and target paths.
+
+    macOS linkers retain native archive member paths in the final symbol table.
+    Remapping Rust paths alone therefore leaves checkout-specific bytes from
+    crates with native objects (notably ``psm``).  The evidence binary does not
+    need debug or local symbols, so strip them during the reproducibility build.
+    """
+
+    return (
+        f"--remap-path-prefix={os.fspath(checkout)}=/typaxis-source",
+        f"--remap-path-prefix={os.fspath(target)}=/typaxis-target",
+        "-C",
+        "debuginfo=0",
+        "-C",
+        "strip=symbols",
+    )
 
 
 def _run_machine_fixture(
@@ -465,7 +489,7 @@ def verify_machine_reproducibility(
 
     files = _listed_worktree_files(root, environment)
     source_snapshot_sha256 = _source_snapshot_sha256(root, files)
-    with tempfile.TemporaryDirectory(prefix="typaxis-machine-repro-") as raw_temporary:
+    with tempfile.TemporaryDirectory(prefix=MACHINE_TEMPORARY_PREFIX) as raw_temporary:
         temporary = Path(raw_temporary)
         first_checkout = temporary / "checkout-alpha"
         second_checkout = temporary / "typaxis-source-under-a-different-name"
@@ -479,13 +503,16 @@ def verify_machine_reproducibility(
 
         first_binary = _build_machine_binary(
             first_checkout,
-            temporary / "target-alpha",
+            temporary / MACHINE_TARGET_DIRECTORY_NAMES[1],
             cargo=cargo,
             environment=environment,
         )
         second_binary = _build_machine_binary(
             second_checkout,
-            temporary / "target-beta",
+            # Darwin's linker lays out native archive paths before stripping
+            # local symbols.  Equal-length isolated target names keep that
+            # non-source input from obscuring the checkout-name assertion.
+            temporary / MACHINE_TARGET_DIRECTORY_NAMES[2],
             cargo=cargo,
             environment=environment,
         )

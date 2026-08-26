@@ -24,11 +24,11 @@ typaxis list-fonts --font-dir DIR
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
 | current `build` reference TSF | Yes, current 1.1 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage Schema / `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | No |
-| sealed machine package commands | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed profile | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
+| DocumentPackage Schema / `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | Yes, M1 host gate |
+| sealed machine package commands | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed profile | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 
-`Contract-defined`やoffline Schema validationはcommand registrationを意味しない。上表のpublic E2Eはclean-built binaryのpositive/negative fixtureで確認済みである。release statusは同一source/artifactに対するLinux/macOS actual-host evidenceの集約が成功するまで`No`とする。
+`Contract-defined`やoffline Schema validationはcommand registrationを意味しない。上表のpublic E2Eはclean-built binaryのpositive/negative fixtureで確認済みであり、M1 release statusは同一source/artifactに対するLinux/macOS actual-host evidenceの集約で閉じた。
 
 ## Public machine command contract
 

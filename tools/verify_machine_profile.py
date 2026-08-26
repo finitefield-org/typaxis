@@ -564,9 +564,11 @@ def verify_machine_profile(
     cargo_lock = (root / "workspace/Cargo.lock").read_bytes()
     expected_capabilities = (root / "samples/machine-package/capabilities.json").read_bytes()
 
-    with tempfile.TemporaryDirectory(prefix="typaxis-machine-profile-") as raw_temporary:
+    with tempfile.TemporaryDirectory(
+        prefix=reproducibility.MACHINE_TEMPORARY_PREFIX
+    ) as raw_temporary:
         temporary = Path(raw_temporary)
-        target = temporary / "clean-target"
+        target = temporary / reproducibility.MACHINE_TARGET_DIRECTORY_NAMES[0]
         if target.exists():
             raise MachineProfileError("clean Cargo target unexpectedly exists")
         try:

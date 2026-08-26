@@ -2,23 +2,24 @@
 
 ## 1. 文書情報
 
-- 状態: 調査済み実装設計（本文で「実装済み」と明記した項目を除き未実装）
+- 状態: M0/M1実装・actual-host gate完了、M2〜M5実装設計
 - 調査基準: Typaxis commit `6d9be4e20fb02901b5ff4f1bf4ef36643f4fd9e8`
 - 設計基準: Typaxis commit `d11e90b03cac20435278fecef2fa8774b758ffad`
 - 調査日: 2026-08-25
+- M1完了確認日: 2026-08-26
 - 検証host: `aarch64-apple-darwin`、Rust `1.97.1`
 - 対象: CLI、canonical `DocumentPackage`、source/include trust、layout、Display、PDF、manifest、diagnostic、関連文書
 - 主な利用者: Typaxisへ文書を機械生成して渡すproducer。特に、VMBのように自前のASTを持つ上流システム
 
-本書は、現行実装の到達範囲を調査した結果と、machine-readableな文書入力からPDFを生成できるようにするための改善要求をまとめる。既存の設計契約を実装済みと読み替える文書ではなく、未実装箇所を明示するためのstatus/gap文書である。
+本書は、調査基準commitの到達範囲を調査した結果と、machine-readableな文書入力からPDFを生成できるようにするための改善要求をまとめる。M0/M1の実装・完了記録は[task plan](25-machine-input-pdf-improvements-todo.md)を正とし、本書の調査結果は当時のgapを示すhistorical baselineとして保持する。M2以降は未実装箇所を明示するstatus/gap文書である。
 
 ## 2. 結論
 
-現行Typaxisは、machine inputからPDFを生成できない。
+調査基準commitのTypaxisは、machine inputからPDFを生成できなかった。現在のM1実装は、公開`build-package`/`check-package`/`capabilities`、sealed ingestion、`typaxis.machine-pdf/paragraph-1`のfont付きPDF経路を提供し、macOS/Linux actual-host evidence集約まで完了している。
 
-`schemas/document-package.schema.json`、portable validator、`dump-ast --format json`は存在するが、これらはCLI ingestion APIではない。現在の`typaxis build INPUT`はINPUTをUTF-8のreference TSFとして読み、sealed `ReferenceParser`へ渡す。JSONの`DocumentPackage`を復号して`ValidatedParsedPackage`へ昇格するcommand、decoder、source admission、trusted receiptは存在しない。
+`typaxis build INPUT`は引き続きINPUTをUTF-8のreference TSFとして読み、sealed `ReferenceParser`へ渡す。JSONの`DocumentPackage`は別の公開package commandがbounded decoder、source admission、trusted receiptを経由して処理する。portable validatorと`dump-ast --format json`だけではtrusted ingestionにならないという調査時のtrust-boundary判断は維持する。
 
-加えて、調査対象commitはmacOS上のclean locked build/checkが`typaxis-resource-admission`のplatform `cfg`不整合でコンパイル失敗する。machine input実装以前に、documented hostで現在のsourceからCLI binaryを作れるbaselineを復旧する必要がある。source tree内の既存`workspace/target/debug/typaxis`が動いても、対象commitの実装証拠にはならない。
+加えて、調査対象commitではmacOS上のclean locked build/checkが`typaxis-resource-admission`のplatform `cfg`不整合でコンパイル失敗していた。このbaselineはMI0-01で復旧し、MI1-06でmacOS contained-openへ置き換え、MI1-17でcurrent-sourceのfont付きactual-host gateを閉じた。source tree内の既存`workspace/target/debug/typaxis`だけを対象revisionの実装証拠にしない規則は維持する。
 
 さらに、machine input decoderだけを追加してもVMB等の一般的な文書はPDFにならない。CLIから到達するlayout/fragment/display経路はtop-level paragraphとheadingに限定され、list、table、figure、page break、footnote、link annotation、画像描画はend-to-endで未実装である。数式、SVG/vector、document language、outline、tagged PDFはDocument/PDFのportable contract自体にも不足がある。
 

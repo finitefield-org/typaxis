@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 import verify_machine_profile as machine
+import verify_reproducibility as reproducibility
 
 
 class MachineProfileEvidenceTests(unittest.TestCase):
@@ -115,6 +116,27 @@ class MachineProfileEvidenceTests(unittest.TestCase):
         future["machine_input"]["profiles"][0]["blocks"].append("table")
         with self.assertRaises(machine.MachineProfileError):
             machine._assert_m1_only(future)
+
+    def test_machine_build_flags_remove_checkout_specific_symbol_paths(self) -> None:
+        flags = reproducibility._machine_build_rustflags(
+            Path("/tmp/source-alpha"), Path("/tmp/target-alpha")
+        )
+        self.assertEqual(
+            flags,
+            (
+                "--remap-path-prefix=/tmp/source-alpha=/typaxis-source",
+                "--remap-path-prefix=/tmp/target-alpha=/typaxis-target",
+                "-C",
+                "debuginfo=0",
+                "-C",
+                "strip=symbols",
+            ),
+        )
+
+    def test_reproducibility_target_names_have_equal_encoded_length(self) -> None:
+        names = reproducibility.MACHINE_TARGET_DIRECTORY_NAMES
+        self.assertEqual(len(set(names)), len(names))
+        self.assertEqual(len({len(name.encode()) for name in names}), 1)
 
 
 if __name__ == "__main__":

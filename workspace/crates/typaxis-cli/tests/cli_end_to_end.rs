@@ -283,6 +283,7 @@ fn byte_offset(bytes: &[u8], marker: &[u8]) -> usize {
         .unwrap_or_else(|| panic!("PDF must contain marker {:?}", marker))
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 fn assert_artifact_glyph_is_painted(pdf: &[u8]) {
     let marked = bytes_after(pdf, b"/Artifact << /ActualText <> >> BDC\n");
     let body = &marked[..byte_offset(marked, b"EMC\n")];
@@ -979,70 +980,6 @@ fn reference_paragraphs_and_anchors_build_with_selected_destinations() {
     assert!(trace.contains("\"anchor_id\":\"a\""));
     assert!(trace.contains("\"anchor_id\":\"z\""));
     assert!(trace.contains("\"fragments\":[{"));
-}
-
-#[cfg(target_os = "macos")]
-#[test]
-fn resource_is_stable_unsupported_on_macos() {
-    let directory = TestDirectory::new();
-    fs::write(directory.path().join("Synthetic.ttf"), b"must not be read").unwrap();
-    fs::write(
-        directory.path().join("text.tsf"),
-        b"font:Synthetic:Synthetic.ttf\ntext:Hello world\n",
-    )
-    .unwrap();
-
-    let absent = run(
-        directory.path(),
-        &strings(&[
-            "build",
-            "text.tsf",
-            "-o",
-            "output.pdf",
-            "--emit-build-manifest",
-            "manifest.json",
-        ]),
-    );
-    assert_eq!(absent.status.code(), Some(3));
-    assert!(absent.stdout.is_empty());
-    assert_eq!(
-        String::from_utf8(absent.stderr).unwrap(),
-        "error: resource admission I/O failed: UnsupportedContainedOpen\n"
-    );
-    assert!(!directory.path().join("output.pdf").exists());
-    assert!(!directory.path().join("manifest.json").exists());
-
-    fs::write(directory.path().join("existing.pdf"), b"existing pdf").unwrap();
-    fs::write(
-        directory.path().join("existing-manifest.json"),
-        b"existing manifest",
-    )
-    .unwrap();
-    let existing = run(
-        directory.path(),
-        &strings(&[
-            "build",
-            "text.tsf",
-            "-o",
-            "existing.pdf",
-            "--emit-build-manifest",
-            "existing-manifest.json",
-            "--force",
-        ]),
-    );
-    assert_eq!(existing.status.code(), Some(3));
-    assert_eq!(
-        String::from_utf8(existing.stderr).unwrap(),
-        "error: resource admission I/O failed: UnsupportedContainedOpen\n"
-    );
-    assert_eq!(
-        fs::read(directory.path().join("existing.pdf")).unwrap(),
-        b"existing pdf"
-    );
-    assert_eq!(
-        fs::read(directory.path().join("existing-manifest.json")).unwrap(),
-        b"existing manifest"
-    );
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]

@@ -30,7 +30,7 @@ MI0-01のactual-host gateはimplementation commit `edd8ec9f57a2a58de6f6c23af94b1
 | contained machine PACKAGE/source open | Not part of the MI0 baseline | current machine host admission and `build-package` are verified by the separate MI1 gate below |
 | declared font/imageのcontained resource open | Unsupported in MI0 | exit 3、stable `UnsupportedContainedOpen`、requested PDF/manifestは作成・置換しない |
 
-上表はMI0-01時点のhistorical baselineである。current worktreeのLinux contained package/source/font pathはMI1 public gateで検証済みであり、current-source macOS machine evidenceは明示的に管理するmacOS hostとlocal aggregation commandで閉じる。GitHub Actionsは使用しない。AndroidはM1 release-supported hostではない。
+上表はMI0-01時点のhistorical baselineである。current worktreeのmacOS/Linux contained package/source/font pathはMI1 public gateで検証済みであり、current-source actual evidenceはlocal aggregation commandで閉じた。GitHub Actionsは使用していない。AndroidはM1 release-supported hostではない。
 
 ## Machine input status
 
@@ -39,14 +39,14 @@ MI0-01のactual-host gateはimplementation commit `edd8ec9f57a2a58de6f6c23af94b1
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
 | reference TSF pipeline | Yes, current 1.1 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage portable Schema/export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | No |
-| sealed package/source admission | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
-| contract 1.1 generated artifacts | Yes | Yes, current output | Yes | No: two-host aggregate pending |
+| DocumentPackage portable Schema/export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | Yes, M1 host gate |
+| sealed package/source admission | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
+| contract 1.1 generated artifacts | Yes | Yes, current output | Yes | Yes, M1 host gate |
 
-Portable validation、Rust owners、public CLI E2E、release supportは別のstatus軸である。public commandは利用可能だが、release supportは同一revision/source/artifactのcurrent Linux/macOS evidenceを実際に集約するまで主張しない。
+Portable validation、Rust owners、public CLI E2E、release supportは別のstatus軸である。M1 release supportは同一revision/source/artifactのcurrent Linux/macOS actual evidenceを集約して完了した。
 
-repository rootからpublic Linux host gateを実行するにはMuPDFとPopplerを用意し、次を使う。
+repository rootからpublic current-host gateを実行するにはMuPDFとPopplerを用意し、次を使う。
 
 ```text
 python3 tools/verify_machine_profile.py \

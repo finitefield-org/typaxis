@@ -5,10 +5,10 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
 | reference TSF build | Yes, current 1.1 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage portable validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator and shared `dump-ast` encoder | Yes, package commands and round trip | No |
-| sealed package/source ingestion | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
-| `typaxis.machine-pdf/paragraph-1` | Yes, immutable capability contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
-| generated contract 1.1 artifacts | Yes | Yes: config/trace/diagnostics/manifest/package/capabilities/evidence | Yes | No: two-host aggregate pending |
+| DocumentPackage portable validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator and shared `dump-ast` encoder | Yes, package commands and round trip | Yes, M1 host gate |
+| sealed package/source ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
+| `typaxis.machine-pdf/paragraph-1` | Yes, immutable capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
+| generated contract 1.1 artifacts | Yes | Yes: config/trace/diagnostics/manifest/package/capabilities/evidence | Yes | Yes, M1 host gate |
 
 `Contract-defined` does not imply that a Rust owner exists, the current `build` accepts DocumentPackage JSON, public CLI E2E passes, or a release supports the feature.
 
@@ -24,7 +24,7 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | length and transform | `Length` / `AffineTransform` | common defs | docs/24 | numeric/type checks |
 | parser package | `ParsedPackage` | document root | docs/03,04 | Rust token + Schema |
 | machine package ingestion | stable-byte admission, strict decoder, sealed source validation, and session-bound receipts are implemented; `WireDocumentPackage` remains untrusted | 1.0/1.1 DocumentPackage input; current output is 1.1 | ADR-0027, docs/02,19,25,26, contracts/phase-ownership | dual Schema/semantic validation, Rust receipt tests, public positive/negative package-command E2E |
-| machine PDF capability | `MachineProfileDescriptor::PARAGRAPH_1` and matching preflight receipt | current 1.1 capability Schema and canonical fixture | contracts/machine-pdf-capabilities, ADR-0027, docs/26 | descriptor/encoder exact fixture, invalid limit fixture, public combined E2E, M2-negative assertion, external PDF and reproducibility gates; macOS/Linux aggregation remains release gate |
+| machine PDF capability | `MachineProfileDescriptor::PARAGRAPH_1` and matching preflight receipt | current 1.1 capability Schema and canonical fixture | contracts/machine-pdf-capabilities, ADR-0027, docs/26 | descriptor/encoder exact fixture, invalid limit fixture, public combined E2E, M2-negative assertion, external PDF/reproducibility gates, completed macOS/Linux aggregation |
 | canonical lists | document list type | ordered/start relation | docs/04 | ordered positive start + unordered null |
 | block selectors/style cascade | style selector/cascade/`ResolvedTextStyle` types | block classes + closed typed style rules | docs/04 | grammar/class order/property registry/required text style/extends/winner |
 | page selection | `PageName` / `PageSelectionContext` / `PageContext` | page property + master rules | docs/04 | typed page value + derived flags + master winner |

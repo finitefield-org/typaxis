@@ -1,6 +1,6 @@
 # typaxis
 
-Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はProfile 1.1の現行契約と、凍結した1.0 input互換契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。machine inputの公開範囲は[producer guide](docs/26-machine-input-cli.md)、残るrelease gateは[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
+Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はProfile 1.1の現行契約と、凍結した1.0 input互換契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。M1 machine inputの公開範囲は[producer guide](docs/26-machine-input-cli.md)、M2以降の不足機能は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
 
 ## 現行inputとmachine delivery status
 
@@ -9,12 +9,12 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
 | bounded reference TSF build | Yes, current 1.1 | Yes, reference subset | Yes | No |
-| portable DocumentPackage validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator/export | Yes, through package commands | No |
-| sealed DocumentPackage ingestion | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
-| `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
-| contract 1.1 generated artifacts | Yes | Yes | Yes | No: two-host aggregate pending |
+| portable DocumentPackage validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator/export | Yes, through package commands | Yes, M1 host gate |
+| sealed DocumentPackage ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
+| `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
+| contract 1.1 generated artifacts | Yes | Yes | Yes | Yes, M1 host gate |
 
-`Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。現在のworktreeではpublic machine commandとLinux actual-host gateまで検証済みである。release-supportedは、明示的に管理するLinux・macOS hostで同一revision/source/artifactのevidenceを実際に生成・集約してからだけ`Yes`へ変更する。GitHub Actionsは使用しない。
+`Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。M1は、明示的に管理するLinux・macOS hostで同一revision/source/artifactのactual evidenceを生成・集約して`Release-supported`となった。GitHub Actionsは使用していない。
 
 ## 設計文書
 

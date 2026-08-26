@@ -4,11 +4,11 @@
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| DocumentPackage portable shape | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/offline semantic validation | Yes, package commands | No |
-| `dump-ast` DocumentPackage export | Yes, current 1.1 | Yes, shared converter/encoder | Yes, supported package round trip | No |
-| sealed package/source admission | Yes, ADR-0027 | Yes | Yes, Linux fixture gate | No: two-host aggregate pending |
-| `typaxis.machine-pdf/paragraph-1` | Yes, closed contract | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
-| contract 1.1 Schema registry | Yes | Yes: eleven-schema current registry plus frozen seven-schema 1.0 registry | Yes | No: two-host aggregate pending |
+| DocumentPackage portable shape | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/offline semantic validation | Yes, package commands | Yes, M1 host gate |
+| `dump-ast` DocumentPackage export | Yes, current 1.1 | Yes, shared converter/encoder | Yes, supported package round trip | Yes, M1 host gate |
+| sealed package/source admission | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
+| `typaxis.machine-pdf/paragraph-1` | Yes, closed contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
+| contract 1.1 Schema registry | Yes | Yes: eleven-schema current registry plus frozen seven-schema 1.0 registry | Yes | Yes, M1 host gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -35,7 +35,7 @@ contains the separate current eleven-schema 1.1 registry, including capability,
 fixture/matrix, and machine host-evidence Schemas. Current generators emit 1.1
 only, while the typed DocumentPackage parser recognizes 1.0 and 1.1. Public
 `build-package`, `check-package`, and capability CLI E2E are available. Release
-support remains gated on matching current-source Linux/macOS evidence aggregation.
+support is backed by the completed matching current-source Linux/macOS evidence aggregation.
 
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/` and
 `https://schemas.typaxis.invalid/1.1/` are logical, offline identifiers. They

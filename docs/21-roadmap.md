@@ -16,14 +16,14 @@
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
 | bounded reference TSF pipeline | Yes, current 1.1 | Yes, reference subset | Yes | No |
-| DocumentPackage portable Schema and `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual validator/export | Yes, package round trip | No |
+| DocumentPackage portable Schema and `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual validator/export | Yes, package round trip | Yes, M1 host gate |
 | MI0-01 macOS baseline | Yes | Completed | blank reference smoke only | Not a machine release gate |
-| MI0-02 machine ingestion architecture | Yes, ADR-0027 | Yes: owner graph and sealed receipts | Yes, through M1 commands | No |
-| M1 `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, Linux combined fixture | No: two-host aggregate pending |
-| contract 1.1 generated artifacts | Yes | Yes, current output | Yes | No: two-host aggregate pending |
+| MI0-02 machine ingestion architecture | Yes, ADR-0027 | Yes: owner graph and sealed receipts | Yes, through M1 commands | Not a standalone release gate |
+| M1 `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined fixture | Yes |
+| contract 1.1 generated artifacts | Yes | Yes, current output | Yes | Yes, M1 host gate |
 | M2-M5 rich machine profiles | No: decision-gate ADR pending | No | No | No |
 
-現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2EはLinuxで成功済みであり、producer guideと再現性・external PDF・host evidence gateも実装済みである。release列は同一revision/source/artifactのmacOS/Linux actual evidenceが明示的に管理する各hostで生成・集約されるまで`No`のままとする。GitHub Actionsは使用しない。
+現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2E、producer guide、再現性・external PDF gate、同一revision/source/artifactのmacOS/Linux actual evidence集約は完了した。GitHub Actionsは使用していない。
 
 ## Machine-input rollout order
 
