@@ -143,7 +143,7 @@ The first three checked items are contract decisions. The next two are implement
 - [x] exact max succeeds and max+1 fails before work; initial footnote fragment/float page are not reflow/carry and final allowed reshape failure is reported after that pass
 - [x] table cells use deterministic leftmost-free placement with full row coverage and no head/body-crossing rowspan
 - [x] every bounded line/lookback/footnote/column/float algorithm has exact-limit tests
-- [ ] cargo check/test and public machine profile gate on every documented host target（MI0-01のmacOS reference baselineと、MI1-17 worktreeのLinux locked/static/workspace/public machine E2Eは成功済み。current-source macOS machine evidenceとLinux/macOS aggregateはCI gateで未確認）
+- [ ] cargo check/test and public machine profile gate on every documented host target（MI0-01のmacOS reference baselineと、MI1-17 worktreeのLinux locked/static/workspace/public machine E2Eは成功済み。current-source macOS machine evidenceとLinux/macOS aggregateは明示的に管理するhost gateで未確認。GitHub Actionsは使用しない）
 - [x] Unicode conformance data
 - [x] subset round-trip
 - [x] renderer/extractor differential

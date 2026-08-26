@@ -23,7 +23,7 @@
 | contract 1.1 generated artifacts | Yes | Yes, current output | Yes | No: two-host aggregate pending |
 | M2-M5 rich machine profiles | No: decision-gate ADR pending | No | No | No |
 
-現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2EはLinuxで成功済みであり、producer guideと再現性・external PDF・host evidence gateも実装済みである。release列は同一revision/source/artifactのmacOS/Linux actual evidenceがCIで集約されるまで`No`のままとする。
+現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2EはLinuxで成功済みであり、producer guideと再現性・external PDF・host evidence gateも実装済みである。release列は同一revision/source/artifactのmacOS/Linux actual evidenceが明示的に管理する各hostで生成・集約されるまで`No`のままとする。GitHub Actionsは使用しない。
 
 ## Machine-input rollout order
 

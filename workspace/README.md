@@ -30,7 +30,7 @@ MI0-01のactual-host gateはimplementation commit `edd8ec9f57a2a58de6f6c23af94b1
 | contained machine PACKAGE/source open | Not part of the MI0 baseline | current machine host admission and `build-package` are verified by the separate MI1 gate below |
 | declared font/imageのcontained resource open | Unsupported in MI0 | exit 3、stable `UnsupportedContainedOpen`、requested PDF/manifestは作成・置換しない |
 
-上表はMI0-01時点のhistorical baselineである。current worktreeのLinux contained package/source/font pathはMI1 public gateで検証済みであり、current-source macOS machine evidenceはCI aggregationで閉じる。AndroidはM1 release-supported hostではない。
+上表はMI0-01時点のhistorical baselineである。current worktreeのLinux contained package/source/font pathはMI1 public gateで検証済みであり、current-source macOS machine evidenceは明示的に管理するmacOS hostとlocal aggregation commandで閉じる。GitHub Actionsは使用しない。AndroidはM1 release-supported hostではない。
 
 ## Machine input status
 

@@ -198,4 +198,5 @@ observations. It atomically writes canonical host evidence beneath
 `target/machine-e2e/host-evidence/`. Missing external tools are a failed gate,
 not a successful skip. Release support additionally requires current-revision
 Linux and macOS evidence to pass the aggregation command documented in the
-sample README and CI workflow.
+sample README. Each host command is run explicitly on a managed host; this
+repository does not use GitHub Actions or GitHub workflow files.

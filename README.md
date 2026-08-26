@@ -14,7 +14,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 | `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | Yes | Yes, Linux combined PDF/sidecars | No: two-host aggregate pending |
 | contract 1.1 generated artifacts | Yes | Yes | Yes | No: two-host aggregate pending |
 
-`Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。現在のworktreeではpublic machine commandとLinux actual-host gateまで検証済みである。release-supportedはCIが同一revision/source/artifactのLinux・macOS evidenceを実際に集約してからだけ`Yes`へ変更する。
+`Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。現在のworktreeではpublic machine commandとLinux actual-host gateまで検証済みである。release-supportedは、明示的に管理するLinux・macOS hostで同一revision/source/artifactのevidenceを実際に生成・集約してからだけ`Yes`へ変更する。GitHub Actionsは使用しない。
 
 ## 設計文書
 

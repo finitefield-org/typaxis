@@ -85,8 +85,8 @@ MuPDF `mutool` and Poppler `pdfinfo`/`pdftotext` are required. On success the
 only per-host evidence writer atomically creates
 `target/machine-e2e/host-evidence/{target-triple}.json`.
 
-After Linux and macOS CI artifacts are downloaded into one directory, aggregate
-them with:
+After independently managed Linux and macOS hosts have copied their canonical
+evidence into one directory, aggregate it with:
 
 ```text
 python3 tools/verify_machine_profile.py \
@@ -96,5 +96,6 @@ python3 tools/verify_machine_profile.py \
 ```
 
 The aggregate rejects missing, failed, noncanonical, stale-revision, mismatched
-source/fixture, and cross-host artifact evidence. The workflow implementation
-is `.github/workflows/machine-input.yml`.
+source/fixture, and cross-host artifact evidence. Run the current-host command
+explicitly on each managed host. This repository does not use GitHub Actions or
+GitHub workflow files.

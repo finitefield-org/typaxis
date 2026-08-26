@@ -4297,7 +4297,7 @@ def main() -> int:
             f"and config JCS hash {config_digest}"
         )
         return 0
-    except Exception as error:  # one concise failure path for CI and local use
+    except Exception as error:  # one concise failure path for automation and local use
         failures.append(str(error))
 
     for failure in failures:

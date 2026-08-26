@@ -943,7 +943,6 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `tools/verify_pdf_differential.py`
   - `tools/test_pdf_differential.py`
   - `tools/verify_reproducibility.py`
-  - `.github/workflows/machine-input.yml`
 - Deliverables:
   - public `build-package`、`check-package`、`capabilities --format json`。
   - normative producer guide、support matrix、actual-host evidence。
@@ -957,7 +956,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   7. 同toolからpositive PDFをMuPDF/Poppler differentialへ渡しpage count/raster/text extractionを検査する。required tool不在をsuccess skipにしない。
   8. `verify_reproducibility.py`へmachine fixture/異名checkout modeを追加し、current source binaryのversion、Git revision、SHA-256をintegration evidenceへ記録する。
   9. `schemas/machine-profile-evidence.schema.json`を追加する。`verify_machine_profile.py`を唯一のper-host evidence writerとし、`verify_reproducibility.py`のtyped resultを取り込んで、OS/arch/target triple、source revision、Cargo.lock/binary/tool hash、fixture/artifact hash、checks/resultを`target/machine-e2e/host-evidence/{target-triple}.json`へcanonical JCSでatomic出力する。
-  10. `.github/workflows/machine-input.yml`でclean macOS/Linux jobを実行し、host evidenceをartifactとして集約する。集約jobは`verify_machine_profile.py --require-host-evidence DIR --required-host macos --required-host linux`でmissing/failed/stale revisionを拒否する。
+  10. GitHub Actionsを使わず、明示的に管理するclean macOS/Linux hostで同一revisionのgateを実行してhost evidenceを一つのdirectoryへcopyする。operatorは`verify_machine_profile.py --require-host-evidence DIR --required-host macos --required-host linux`を実行し、missing/failed/stale revisionを拒否する。
   11. support matrix、README、roadmap、checklistを集約済みactual E2E statusへ更新する。
   12. capabilityへM2以降のfeatureが無いことをnegative assertionで固定する。
 - Acceptance criteria:
@@ -979,7 +978,7 @@ MI1-17 -> M2 series -> M3 series -> M4 series -> M5 series
   - `build-package`、`check-package`、`capabilities`を一つのchange setでtop-level command list/parser/dispatch/helpへ登録した。large public command payloadは`Invocation` boundaryでbox化し、source commandとmachine commandのtyped grammar/loader分離を維持した。public binary E2Eはfont付きcombinedのcheck/build、PDF/trace/manifest/diagnostics facts、BOM negativeのexit 1/`P1100`/failed progress、hostile config/`TYPAXIS_*`/locale下のexact capability bytesを検査する。
   - current eleven-schema registryへclosed `typaxis.machine-profile-evidence/1`を追加した。唯一のper-host writer `verify_machine_profile.py`はcurrent worktreeからclean binaryをbuildし、positive expectedまたはmatrixをpublic commandで二回実行し、five artifactのSchema/bytes/hash、M1-only capability、manifest/PDF binding、MuPDF raster、Poppler page/text、異名source snapshot再現性を検査して、exact 14 check/six tool/five artifactをcanonical atomic evidenceへ記録する。aggregation modeはmissing/failed/noncanonical/duplicate/incomplete/stale revision、source/fixture/artifact mismatchをfail closedにする。
   - `verify_reproducibility.py --machine-fixture`はtracked+untracked non-ignored current worktreeを異なる二名へmaterializeし、fixed source remapを使う二つのclean buildについてbinary bytes/versionとfive artifact bytesをexact比較する。binary hash、Git revision、source snapshot、Cargo.lock、tool/fixture/resource/artifact hashはhost evidenceへbindする。
-  - `.github/workflows/machine-input.yml`はLinux/macOSでlocked fmt/check/test/clippy、Schema/Python suite、required MuPDF/Poppler public gateを実行し、host artifactをdownloadしたaggregation jobが両OS evidenceを必須にする。local Linux writerは`target/machine-e2e/host-evidence/x86_64-unknown-linux-gnu.json`を生成したが、current-source macOS artifactはlocal環境では生成できないためrelease-supportedは`No`のままにした。
+  - repository policyはGitHub Actions/GitHub workflowを使用しない。locked fmt/check/test/clippy、Schema/Python suite、required MuPDF/Poppler public gateは明示的に管理する各hostで実行し、canonical evidenceをoperator-controlled directoryへcopyしてaggregation commandへ渡す。local Linux writerは`target/machine-e2e/host-evidence/x86_64-unknown-linux-gnu.json`を生成したが、current-source macOS artifactはlocal環境では生成できないためrelease-supportedは`No`のままにした。
   - combined fixtureのexternal gateで見つかったintegration差分として、generated-referenceをtraceへcanonical projectionしcomplete traceに`--trace-text`を要求した。generated labelはDisplayでArtifact extractionへ分類し、PDFでempty `ActualText` marked contentを付けてvisual glyphを保持しつつnormalized textから除外した。Popplerが返すunmapped artifact CIDのnonstructural C0 scalarだけをnormalizerで除去し、期待text `Typaxis machine input`を固定した。
   - producer guide、runnable sample README、README/CLI/roadmap/matrix/checklist/Schema/workspace statusをpublic Linux E2Eまで更新し、M2以降をadvertiseしないexact/negative assertionsをRustとPythonの両方へ追加した。
   - locked fmt/check/workspace all-targets test/clippy `-D warnings`、current/frozen Schema validator、19 Python tests、public machine profile gate、machine reproducibility gateはexit 0だった。required-host aggregation commandはactual macOS evidence欠落を成功skipせずrejectする。
@@ -2345,7 +2344,7 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   - `workspace/crates/typaxis-testkit/src/`
   - `tools/verify_fuzz_targets.py`
   - `tools/run_fuzz_matrix.py`
-  - `.github/workflows/fuzz.yml`
+  - `release/fuzz-evidence/`
 - Deliverables:
   - deterministic seed corpus、bounded fuzz targets、crash/minimization/replay workflow。
 - Tasks:
@@ -2354,9 +2353,9 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   3. panic、abort、stack overflow、OOM相当、hang、limit bypass、non-deterministic resultをfailure oracleにする。
   4. targetごとにbytes/depth/operation/time/memoryのharness上限を固定し、engine limit failureとharness timeoutを区別する。
   5. M1〜M4のregression fixtureと過去crashをversioned seed corpusへ登録する。
-  6. PR smoke budgetとscheduled long-run budgetを分け、toolchain/engine/seed corpus identityをartifactへ記録する。
+  6. local smoke budgetと明示的に管理するlong-run host budgetを分け、toolchain/engine/seed corpus identityをevidenceへ記録する。GitHub Actionsは使用しない。
   7. minimized reproducerを通常unit testへ昇格してからcorpusへ追加する運用を文書化する。
-  8. `verify_fuzz_targets.py`でcapability/decoder inventory coverageを検査し、`run_fuzz_matrix.py`で同じtarget matrixをlocal smoke/CI long-runへ実行する。
+  8. `verify_fuzz_targets.py`でcapability/decoder inventory coverageを検査し、`run_fuzz_matrix.py`で同じtarget matrixをlocal smoke/managed-host long-runへ実行する。
 - Acceptance criteria:
   - 全advertised decoder/admission boundaryに少なくとも一つのfuzz targetがある。
   - same seed/toolchainでclassificationとdiagnostic codeが再現される。
@@ -2414,7 +2413,7 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   - `tools/pdf-differential-matrix.json`
   - `tools/pdf-structure-matrix.json`
   - `samples/machine-package/`
-  - `.github/workflows/pdf-differential.yml`
+  - `release/pdf-differential-evidence/`
 - Deliverables:
   - pinned independent renderer/extractor/structure validator matrixとexpected ledger。
 - Tasks:
@@ -2424,7 +2423,7 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   4. raster comparisonのsize/color normalizationとtoleranceを固定し、blank/欠落pageが誤って合格しないsentinelを入れる。
   5. extractor observationをlogical expected text/reading orderへ比較し、font subset差を無視してcontent欠落を検出する。
   6. validator warning、crash、timeout、missing binary、version mismatchを明示failure classにし、success skipを禁止する。
-  7. failing output、tool stdout/stderr、identity、input PDF hashをCI artifactへ保存する。
+  7. failing output、tool stdout/stderr、identity、input PDF hashをmanaged-host evidence directoryへ保存する。
 - Acceptance criteria:
   - 全公開profileに少なくとも一つのpositive differential fixtureがある。
   - production profileはvisual、text、navigation、accessibilityの全gateを通る。
@@ -2443,7 +2442,6 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
 - Primary files:
   - `tools/verify_reproducibility.py`
   - `tools/reproducibility-matrix.json`
-  - `.github/workflows/reproducibility.yml`
   - `docs/20-testing.md`
   - `rust-toolchain.toml`
   - `schemas/host-evidence-index.schema.json`
@@ -2482,13 +2480,13 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   - `samples/machine-package/`
   - `workspace/crates/typaxis-resource-admission/src/`
   - `tools/verify_resource_governance.py`
-  - `.github/workflows/resource-governance.yml`
+  - `release/resource-governance-evidence/`
 - Deliverables:
   - fixture/resource provenance ledger、license allow/deny policy、release audit。
 - Tasks:
   1. repository同梱font/image/vector/math fixtureごとにsource URLまたは生成手順、license/SPDX、redistribution/embedding条件、content hashを`contracts/resource-governance.json`へ記録し、Schemaを追加する。
   2. release profileで許容するmedia/font embedding permissionとrestricted resource failureをpolicy化する。
-  3. fixture bytesとledger hash、declared media/profile、expected admission factsをCIで照合する。
+  3. fixture bytesとledger hash、declared media/profile、expected admission factsをlocalまたは明示的に管理するrelease hostで照合する。
   4. MI4-12がmanifestへbindしたlicense/embedding factsとMI4-13 production evidenceをgovernance ledgerに照合し、M5で新しいmanifest fieldや旧contractの意味を追加せずrelease evidenceへ参照する。
   5. unknown license、hash drift、missing provenance、prohibited embedding、undeclared binary fixtureをrelease blockerにする。
   6. resource parser/decoder/toolのversionとsecurity update手順、profile停止時のfail-closed手順を文書化する。
@@ -2521,7 +2519,6 @@ M5は新しい表現機能を追加するphaseではない。M1〜M4でadvertise
   - `schemas/release-evidence.schema.json`
   - `release/`
   - `tools/verify_release_profile.py`
-  - `.github/workflows/release.yml`
 - Deliverables:
   - immutable release profile descriptor、pre-output readiness gate、reviewed release evidence。
 - Tasks:
