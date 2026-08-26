@@ -1005,7 +1005,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
 
 ### MI2-01 Basic document profile ADRとclosed contractを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI1-17
 - Design inputs: docs/25 §8 M2、§13.2、§13.5
 - Primary files:
@@ -1034,6 +1034,11 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
 - Verification:
   - `rg -n "profile|page break|caption|oversize|max_ast_nodes|max_ast_nesting_depth|max_text_buffer_bytes|max_image_pixels|max_fragments|max_pdf_objects" adr contracts/machine-pdf-capabilities.md`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-27, macOS):
+  - repositoryで次に空いていた`ADR-0028`をAcceptedとし、immutable profile `typaxis.machine-pdf/basic-document-1`、new wire contract `typaxis.contract/1.2`、versioned DocumentPackage Schema `$id` `https://schemas.typaxis.invalid/1.2/document-package.schema.json`を予約した。MI2-08まではpublic decoder/current Schema/capability/helpを1.1/`paragraph-1`のまま維持し、MI2-02〜MI2-07のcrate-private stagingだけがversioned 1.2 artifactを扱う契約とした。
+  - paragraph-1との差分をlist/figure/page_break/link、八つのtyped style property、PNG XObject、internal/external annotationへclosed限定した。wire tagged value、initial/inherit/cascade/applicability、list marker/empty item、forced-break blank page、figure caption keep/oversize、URI normalization/internal anchor/empty link policyを一意に固定した。
+  - body/list-item/caption registry、selected state、trace/manifest facts、receipt algorithmを全subflowへbindし、既存limitのunit/consume owner/inclusive boundaryとstable error code、no-fallback、個別atomic publication順、1.0/1.1/1.2 migration tableを固定した。contract matrixとphase ownershipも同じdecisionへ更新した。
+  - milestone指定の`rg` gate、`python3 schemas/validate.py`、repository共通の`cargo fmt --manifest-path workspace/Cargo.toml --all -- --check`はexit 0だった。Schema validatorはfrozen 1.0/current 1.1 registryと既存fixtureが不変であることを確認した。
 - Non-goals:
   - table、footnote、header/footer、column、float
   - math/vector/tagged PDF

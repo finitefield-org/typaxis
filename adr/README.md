@@ -1,6 +1,6 @@
 # ADR catalog
 
-この一覧は現行`typaxis.contract/1.0`に適用する判断と、明示的にfuture targetとして採択した判断を責務ごとに整理したものです。各ADRの`Status`とimplementation statusを確認し、Accepted targetを現行CLI/Schema/releaseで利用可能という意味に読み替えません。
+この一覧は現行contractに適用する判断と、明示的にfuture targetとして採択した判断を責務ごとに整理したものです。各ADRの`Status`とimplementation statusを確認し、Accepted targetを現行CLI/Schema/releaseで利用可能という意味に読み替えません。
 
 ## Core model と portability
 
@@ -42,4 +42,5 @@
 
 ## Machine input target
 
-- [ADR-0027: Machine DocumentPackage ingestion and immutable PDF profile](ADR-0027-machine-document-package-ingestion.md) — M1 targetとしてAccepted。現行machine command、contract 1.1、CLI E2E、release supportは未実装。
+- [ADR-0027: Machine DocumentPackage ingestion and immutable PDF profile](ADR-0027-machine-document-package-ingestion.md) — M1 targetとしてAccepted・実装済み。contract 1.1、public CLI E2E、macOS/Linux evidenceをMI1-17で公開済み。
+- [ADR-0028: Basic document machine-PDF profile](ADR-0028-basic-document-profile.md) — M2 targetとしてAccepted。contract 1.2と`basic-document-1`はMI2-08まで非公開staging。

@@ -1,8 +1,8 @@
 # Phase ownership
 
-## Accepted M1 machine-input ownership
+## Implemented M1 machine-input ownership
 
-The following rows are the target ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md). They are contract-defined but not yet implemented, public CLI E2E, or release-supported. Until their implementation milestones complete, the current 1.0 owner table in the next section remains the implementation inventory.
+The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and implemented by the completed M1 series. Public package commands, macOS/Linux E2E evidence, and release support are present. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -36,7 +36,27 @@ NoInput
 
 `typaxis-machine-input -> typaxis-syntax` is forbidden. `WireDocumentPackage` is explicitly untrusted; decoder-issued `DecodedDocumentPackage`, session-bound package/source receipts, `ValidatedMachinePackage`, capability receipts, and publication receipts have private fields, no public raw-parts constructor, and no `Clone`. A downstream owner may project only the last issued token and must not recreate upstream facts from a DTO, error message, path, or canonical artifact.
 
-## Current 1.0 ownership
+## Accepted M2 basic-document ownership
+
+These rows are the non-public target adopted by [ADR-0028](../adr/ADR-0028-basic-document-profile.md). They become current/public only through MI2-08; until then the public owner graph above continues to expose only contract 1.1 and `paragraph-1`.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| closed `basic-document-1` feature/policy table and `typaxis.basic-profile-receipt/1` fingerprint | `typaxis-machine-profile` | derive staging descriptor, typed preflight, capability projection, fixture coverage, and `BasicDocumentPreflightReceipt`; public descriptor remains unchanged before MI2-08 |
+| contract 1.2 declaration enum and exact tagged-value relation | `typaxis-document-package` versioned 1.2 decoder/encoder | issue typed wire values only; unknown/wrong tagged values are `P1102` and raw strings never reach style/layout |
+| initial/inherit/cascade/applicability registry for 1.2 block properties | `typaxis-style` | issue package/style/registry-version-bound computed-style receipts; inapplicable known properties are `L5101` |
+| canonical body/list-item/caption flow allocation, owner/parent/terminal closure, and `typaxis.basic-flow-registry/1` hash | `ProductionFlowIrBuilder` / `ValidatedFlowContentRegistry` in the layout-contract owner | issue `ValidatedFlowRegistryReceipt`; caller insertion and worker completion order cannot assign FlowId |
+| checked list marker bytes and marker/item-first-paint keep group | generated-text owner and layout fragment owner respectively | bind marker buffer/limits and prevent marker orphaning |
+| typed forced-boundary consume and before/after cursor progress | pagination | produce the ADR-0028 blank-page result and reject a repeated cursor as `I9190`; Display emits no break paint |
+| PNG media attestation, dimensions, decoded-byte accounting, and ImageResourceId | resource-admission PNG decoder | feed figure geometry/finalization; URI suffix and caller media strings have no authority |
+| figure width/aspect geometry, caption FlowId, keep and oversize outcome | typed style/layout figure owner | issue one selected figure placement consumed by Display, finalization, PDF, and manifest |
+| link logical cluster range and selected page/line rectangle union | itemizer then selected-layout link owner | issue canonical nonempty rectangles; Display/PDF cannot infer links from coordinates or raw URI text |
+| selected body/subflow state and full basic-document artifact closure | selected-state owner | bind preflight, registry, flow cursors, breaks, markers, figures, links, and resource ledger into trace/Display/PDF/manifest |
+| versioned 1.2 staging registry and atomic current publication | Schema/contract integration owner in MI2-08 | keep 1.1 aliases and public commands unchanged during slices; freeze 1.1 and switch every current artifact/decoder/help/capability together |
+
+The M2 progress suffix is `ResourcesAdmitted -> FlowRegistryValidated -> LayoutSelected`. A downstream phase cannot reconstruct a flow registry from trace JSON, infer PNG from a path, normalize a URI again, relax keep/oversize policy, or fabricate profile/registry hashes for manifest output.
+
+## Shared base ownership (originating in contract 1.0)
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|

@@ -1,17 +1,17 @@
 # Machine PDF capability contract
 
-This document is the normative closed capability contract adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md). It describes the M1 target; it is not evidence that the current CLI implements or advertises machine input.
+This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and [ADR-0028](../adr/ADR-0028-basic-document-profile.md). Status axes distinguish the implemented/public M1 profile from the accepted but non-current M2 target.
 
 ## Status axes
 
 | Axis | Current status |
 | --- | --- |
-| contract-defined | Yes: `typaxis.machine-pdf/paragraph-1` is fixed below |
-| implemented | Yes internally: one descriptor drives capability encoding and typed preflight |
-| public CLI E2E | No: `build-package`, `check-package`, and `capabilities` remain unregistered until MI1-17 |
-| release-supported | No: only MI1-17 may change this status |
+| contract-defined | Yes: `paragraph-1` and the future `basic-document-1` are fixed below |
+| implemented | `paragraph-1`: yes; `basic-document-1`: no, M2 slices pending |
+| public CLI E2E | `paragraph-1`: yes on macOS/Linux; `basic-document-1`: no, public CLI rejects it |
+| release-supported | `paragraph-1`: yes; `basic-document-1`: no, reserved for MI2-08 |
 
-Portable DocumentPackage 1.0/1.1 validation, current 1.1 `dump-ast` export, and the internal descriptor do not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
+Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
 ## Identity and default
 
@@ -106,6 +106,39 @@ The target 1.1 artifact publishes these descriptor facts from their sole constan
 
 Exact maxima are accepted; max+1 is rejected before the associated allocation, open, read, work, or ID issuance. Host root/read-candidate and diagnostics caps are fixed security-profile constants, not per-job overrides.
 
+## Accepted M2 target: `basic-document-1`
+
+`typaxis.machine-pdf/basic-document-1` is an immutable closed target adopted by ADR-0028. It is not present in current public capabilities and must be rejected by the public CLI until MI2-08. Its required raw DocumentPackage contract is `typaxis.contract/1.2`, with versioned Schema `$id` `https://schemas.typaxis.invalid/1.2/document-package.schema.json`. Contract 1.2 and this profile are staged privately and are published atomically only after all M2 slices and the combined fixture pass.
+
+The accepted profile domain is exactly:
+
+| Axis | Accepted by `basic-document-1` |
+| --- | --- |
+| source | the same one-source, source-0, entry-only closure as `paragraph-1` |
+| body/list-item blocks | `paragraph`, `heading`, `list`, `figure`, `page_break` |
+| caption blocks | `paragraph`, `heading` |
+| inlines | `text`, `anchor`, `reference(format = page)`, `soft_break`, `hard_break`, and non-nested `link` with painted content |
+| list | ordered/unordered, checked canonical marker, independent item subflows, nested within existing AST limits |
+| style properties | M1 properties plus `space_before`, `space_after`, `start_indent`, `end_indent`, `text_align`, `width`, `keep_with_next`, `keep_caption` |
+| page masters | one default body master, `page = auto`, no rules or auxiliary frames |
+| images | non-floating PNG with bytes-derived media attestation, required positive computed width, aspect-derived height |
+| links | package-local named destination or validated `http`/`https`/`mailto`/`tel` `SafeUri`; one annotation per selected page/line rectangle |
+| PDF features | M1 text/destination behavior plus PNG XObjects and internal/external link annotations |
+
+The profile rejects table, footnote, emphasis/strong, non-page references, nested/empty/unpainted links, named-page/master behavior, JPEG/SVG/vector/float, OTF/CFF, outline/tagged PDF, and all M3-or-later domains. It never falls back to `paragraph-1`, reference TSF, another backend, raster substitution, clipped/scaled figure output, or unlinked plain text.
+
+The closed policy summary is:
+
+- list marker bytes are checked decimal plus `.` or U+2022, and the marker stays with the item's first painted line; a marker-only item is rejected;
+- each forced page break finalizes the open page and opens the next, so leading, consecutive, and trailing breaks intentionally preserve blank pages and `N` breaks without paint produce `N + 1` pages;
+- figures use ties-to-even checked aspect rounding, reject zero/overflow or dimensions larger than an empty body frame, and apply the typed `keep_caption` policy without implicit relaxation;
+- links lowercase only the URI scheme, preserve the scheme-specific bytes, require at least one positive-area selected cluster, and union exactly one rectangle per page/line;
+- `paragraph-1` remains the `default_profile` throughout contract 1.1 and after the 1.2 migration. `basic-document-1` always requires explicit selection.
+
+The descriptor maps flow/list nodes to `max_ast_nodes`, flow nesting to `max_ast_nesting_depth`, per-marker and selected-overlay bytes to `max_text_buffer_bytes`/`max_text_bytes`, PNG pixels and expanded bytes to `max_image_pixels`/`max_decoded_image_bytes`, link rectangles to `max_fragments`, and annotations/XObjects to `max_pdf_objects`. Exact maxima are accepted and max+1 is refused by the owning phase before work. Stable limit codes are `P1120`, `P1121`, `T2100`, `T2101`, `R7110`, `R7111`, `L5110`, and `G6100` in that order of subjects; no synonymous limit fields are added.
+
+Successful staging artifacts bind `typaxis.basic-profile-receipt/1` and `typaxis.basic-flow-registry/1` fingerprints. Trace and manifest cover the body and every list-item/caption subflow, plus forced-break consumption, list marker groups, figure placement/media, and link rectangles. Missing, extra, wrong-owner/parent/epoch/terminal/target records are `I9190` before publication. Exact property wire values, applicability, keep/oversize behavior, receipt fields, manifest fact names, and the old/new contract compatibility table are normative in ADR-0028 and must be derived from the descriptor rather than re-authored by the CLI.
+
 ## Compatible changes
 
 The following changes are compatible with the same profile ID when they preserve observable semantics and existing fixtures:
@@ -125,12 +158,12 @@ The following changes are incompatible and require a new profile ID or an explic
 - changing single-source/entry-only closure or source ordering;
 - changing default layout, pagination, fallback, blank-page, shaping, extraction, or publication policy;
 - removing an advertised semantic feature while continuing to report the profile available;
-- changing the default profile during contract 1.1;
+- changing the default profile for a published contract without an explicit new contract migration;
 - changing diagnostic code/location/primary-order meaning in a way that alters producer control flow;
 - treating a host-availability difference as a different semantic interpretation of the same profile.
 
-`paragraph-1` is never broadened in place. M2 and later capabilities require a decision-gate ADR that fixes a new profile ID, closed domain, limits, fallback/oversize behavior, publication semantics, fixtures, and migration rule before implementation begins.
+`paragraph-1` is never broadened in place. M2 is governed by ADR-0028; M3 and later capabilities require their own decision-gate ADR fixing a new profile ID, closed domain, limits, fallback/oversize behavior, publication semantics, fixtures, and migration rule before implementation begins.
 
 ## Contract and release gating
 
-The capability artifact and its current Schema use `typaxis.contract/1.1`. Its encoder, positive fixture, invalid fixture, and offline validation are internal implementation evidence; no public command is registered by this migration. MI1-17 is the only milestone that may simultaneously register `capabilities`, publish the profile evidence, mark public CLI E2E complete, and claim release support.
+The public capability artifact and current Schema use `typaxis.contract/1.1`, and MI1-17 has registered the package commands and completed the `paragraph-1` host gate. ADR-0028 does not alter those bytes or claims. MI2-08 is the only milestone that may atomically switch current output to 1.2, add the new profile to public capabilities, remove the staging runner, publish its combined fixture/evidence, and mark `basic-document-1` public or release-supported.

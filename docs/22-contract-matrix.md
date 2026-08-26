@@ -8,7 +8,9 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | DocumentPackage portable validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator and shared `dump-ast` encoder | Yes, package commands and round trip | Yes, M1 host gate |
 | sealed package/source ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, immutable capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
+| `typaxis.machine-pdf/basic-document-1` | Yes, ADR-0028 immutable M2 target | No, M2 slices pending | No, public CLI rejects it until MI2-08 | No |
 | generated contract 1.1 artifacts | Yes | Yes: config/trace/diagnostics/manifest/package/capabilities/evidence | Yes | Yes, M1 host gate |
+| contract 1.2 staging/publication | Yes, ADR-0028 reservation and migration table | No versioned staging Schema yet | No; current aliases/output stay 1.1 | No; MI2-08 is the atomic gate |
 
 `Contract-defined` does not imply that a Rust owner exists, the current `build` accepts DocumentPackage JSON, public CLI E2E passes, or a release supports the feature.
 
@@ -25,6 +27,7 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | parser package | `ParsedPackage` | document root | docs/03,04 | Rust token + Schema |
 | machine package ingestion | stable-byte admission, strict decoder, sealed source validation, and session-bound receipts are implemented; `WireDocumentPackage` remains untrusted | 1.0/1.1 DocumentPackage input; current output is 1.1 | ADR-0027, docs/02,19,25,26, contracts/phase-ownership | dual Schema/semantic validation, Rust receipt tests, public positive/negative package-command E2E |
 | machine PDF capability | `MachineProfileDescriptor::PARAGRAPH_1` and matching preflight receipt | current 1.1 capability Schema and canonical fixture | contracts/machine-pdf-capabilities, ADR-0027, docs/26 | descriptor/encoder exact fixture, invalid limit fixture, public combined E2E, M2-negative assertion, external PDF/reproducibility gates, completed macOS/Linux aggregation |
+| basic-document target | future `BasicDocumentPreflightReceipt`, `ValidatedFlowRegistryReceipt`, and typed style/figure/link owners | reserved 1.2 versioned Schema IDs; no current alias before MI2-08 | ADR-0028, contracts/machine-pdf-capabilities, docs/25 | closed block/inline/style/resource set; blank-page/keep/oversize/URI policy; existing-limit mapping; full body/subflow trace/manifest closure; public negative assertion until atomic publication |
 | canonical lists | document list type | ordered/start relation | docs/04 | ordered positive start + unordered null |
 | block selectors/style cascade | style selector/cascade/`ResolvedTextStyle` types | block classes + closed typed style rules | docs/04 | grammar/class order/property registry/required text style/extends/winner |
 | page selection | `PageName` / `PageSelectionContext` / `PageContext` | page property + master rules | docs/04 | typed page value + derived flags + master winner |
@@ -49,3 +52,17 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | archive | release builder | MANIFEST | docs/16 | metadata/order/safety/rebuild |
 
 Contract変更時はRust、Schema、positive/negative fixture、docs、validatorを同じchange setで更新する。
+
+## M2 contract/profile migration matrix
+
+ADR-0028 fixes this publication behavior; implementation may not infer a newer profile or silently upgrade a wire package.
+
+| Raw DocumentPackage contract | Profile | Before MI2-08 | After MI2-08 |
+|---|---|---|---|
+| 1.0 / 1.1 | omitted or `paragraph-1` | accepted under frozen paragraph semantics | accepted as compatibility input; generated artifacts are 1.2 |
+| 1.2 paragraph-only semantic subset | omitted or `paragraph-1` | `P1103` because 1.2 is non-current | accepted without broadening the paragraph descriptor |
+| 1.0 / 1.1 | `basic-document-1` | unknown profile usage exit 2 | `P1103` at `/contract`; typed 1.2 properties are not synthesized |
+| 1.2 | `basic-document-1` | unknown profile/contract rejected by public CLI | accepted only for ADR-0028's complete closed domain |
+| unknown | any | `P1103` | `P1103`; no newest-contract fallback |
+
+The default remains `typaxis.machine-pdf/paragraph-1`. MI2-02 through MI2-07 may validate versioned 1.2 staging artifacts only through the crate-private runner. MI2-08 freezes 1.1, switches every current artifact/decoder/`dump-ast` alias to 1.2, removes staging access, publishes the descriptor and combined fixture, and only then changes the public/release status rows above.
