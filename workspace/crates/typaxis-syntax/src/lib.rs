@@ -56,8 +56,8 @@ use typaxis_text::{
 #[doc(hidden)]
 pub mod machine_profile_boundary {
     pub use typaxis_document::{
-        Block, FigurePlacement, FootnoteDefinition, Inline, PageRegionBlock, PageRegionInline,
-        ReferenceFormat,
+        Block, ColumnBalance, ColumnFill, ColumnLayout, FigurePlacement, FootnoteDefinition,
+        Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
     };
     pub use typaxis_document_package as wire;
     pub use typaxis_machine_input::{

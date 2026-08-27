@@ -69,6 +69,11 @@ STAGING_HEADER_FOOTER_FIXTURE_ROOT = (
     / "staging"
     / "header-footer-1"
 )
+STAGING_COLUMNS_FIXTURE_ROOT = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "columns-1"
+)
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
@@ -4947,38 +4952,46 @@ def main() -> int:
                     f"the frozen 1.1 schema bytes changed: {filename}"
                 )
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
-        for fixture_name in ("combined", "empty", "oversize"):
-            advanced_document = load_json(
-                STAGING_HEADER_FOOTER_FIXTURE_ROOT
-                / fixture_name
-                / "job"
-                / "document-package.json"
-            )
-            advanced_document_errors = schema_errors(
-                advanced_staging_validators["document-package.schema.json"],
-                advanced_document,
-            )
-            if advanced_document_errors:
-                raise ValidationFailure(
-                    f"the private 1.3 header/footer {fixture_name} fixture was rejected: "
-                    + " | ".join(advanced_document_errors)
+        advanced_fixture_roots = (
+            ("header/footer", STAGING_HEADER_FOOTER_FIXTURE_ROOT),
+            ("columns", STAGING_COLUMNS_FIXTURE_ROOT),
+        )
+        for fixture_label, fixture_root in advanced_fixture_roots:
+            for fixture_name in ("combined", "empty", "oversize"):
+                advanced_document_path = (
+                    fixture_root / fixture_name / "job" / "document-package.json"
                 )
-        advanced_manifest = load_json(
-            STAGING_HEADER_FOOTER_FIXTURE_ROOT
-            / "combined"
-            / "staging-advanced-pagination.json"
-        )
-        advanced_manifest_errors = schema_errors(
-            advanced_staging_validators[
-                "machine-advanced-pagination-manifest.schema.json"
-            ],
-            advanced_manifest,
-        )
-        if advanced_manifest_errors:
-            raise ValidationFailure(
-                "the private 1.3 advanced-pagination projection was rejected: "
-                + " | ".join(advanced_manifest_errors)
+                advanced_document = load_json(advanced_document_path)
+                advanced_document_errors = schema_errors(
+                    advanced_staging_validators["document-package.schema.json"],
+                    advanced_document,
+                )
+                if advanced_document_errors:
+                    raise ValidationFailure(
+                        f"the private 1.3 {fixture_label} {fixture_name} fixture was rejected: "
+                        + " | ".join(advanced_document_errors)
+                    )
+            advanced_manifest_path = (
+                fixture_root / "combined" / "staging-advanced-pagination.json"
             )
+            advanced_manifest = load_json(advanced_manifest_path)
+            advanced_manifest_errors = schema_errors(
+                advanced_staging_validators[
+                    "machine-advanced-pagination-manifest.schema.json"
+                ],
+                advanced_manifest,
+            )
+            if advanced_manifest_errors:
+                raise ValidationFailure(
+                    f"the private 1.3 {fixture_label} advanced-pagination projection was rejected: "
+                    + " | ".join(advanced_manifest_errors)
+                )
+            if advanced_manifest_path.read_bytes().rstrip(b"\n") != jcs_bytes(
+                advanced_manifest
+            ):
+                raise ValidationFailure(
+                    f"the private 1.3 {fixture_label} projection is not canonical JCS"
+                )
         minimal_document = load_json(MINIMAL_DIR / "document-package.json")
         minimal_display = load_json(MINIMAL_DIR / "display-list.json")
         minimal_trace = load_json(MINIMAL_DIR / "layout-trace.json")

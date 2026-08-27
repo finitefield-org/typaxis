@@ -1,110 +1,21 @@
-use typaxis_core::{push_jcs_string, sha256, Rect};
-use typaxis_display_list::StagingHeaderFooterDisplay;
-use typaxis_machine_profile::STAGING_HEADER_FOOTER_PROFILE_ID;
+use typaxis_core::{push_jcs_string, Rect};
+use typaxis_display_list::StagingColumnsDisplay;
+use typaxis_machine_profile::STAGING_COLUMNS_PROFILE_ID;
 use typaxis_pagination::{
-    StagingAdvancedFlowPosition, StagingHeaderFooterSelectedLayout, StagingPageMargins,
-    StagingPdfPageBox, StagingSelectedAdvancedFrame,
+    StagingAdvancedFlowPosition, StagingColumnBalanceReceipt, StagingColumnsSelectedLayout,
+    StagingPageMargins, StagingPdfPageBox, StagingSelectedAdvancedFrame, COLUMN_BALANCE_ALGORITHM,
 };
-use typaxis_pdf::StagingHeaderFooterPdf;
+use typaxis_pdf::StagingColumnsPdf;
 
-pub const ADVANCED_PAGINATION_MANIFEST_ALGORITHM: &str = "typaxis.advanced-pagination-manifest/1";
+use crate::advanced_header_footer::{
+    StagingAdvancedPaginationManifest, StagingAdvancedPaginationManifestError,
+    ADVANCED_PAGINATION_MANIFEST_ALGORITHM,
+};
 
-#[derive(Debug)]
-pub struct StagingAdvancedPaginationManifest {
-    canonical_jcs: String,
-    fingerprint: [u8; 32],
-    profile_receipt_sha256: [u8; 32],
-    flow_registry_sha256: [u8; 32],
-    selected_layout_sha256: [u8; 32],
-    paint_closure_sha256: [u8; 32],
-}
-
-impl StagingAdvancedPaginationManifest {
-    pub(crate) fn from_projection(
-        canonical_jcs: String,
-        profile_receipt_sha256: [u8; 32],
-        flow_registry_sha256: [u8; 32],
-        selected_layout_sha256: [u8; 32],
-        paint_closure_sha256: [u8; 32],
-    ) -> Self {
-        Self {
-            fingerprint: sha256(canonical_jcs.as_bytes()),
-            canonical_jcs,
-            profile_receipt_sha256,
-            flow_registry_sha256,
-            selected_layout_sha256,
-            paint_closure_sha256,
-        }
-    }
-
-    pub fn canonical_jcs(&self) -> &str {
-        &self.canonical_jcs
-    }
-    pub const fn fingerprint(&self) -> [u8; 32] {
-        self.fingerprint
-    }
-    pub const fn profile_receipt_sha256(&self) -> [u8; 32] {
-        self.profile_receipt_sha256
-    }
-    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
-        self.flow_registry_sha256
-    }
-    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
-        self.selected_layout_sha256
-    }
-    pub const fn paint_closure_sha256(&self) -> [u8; 32] {
-        self.paint_closure_sha256
-    }
-
-    /// Both artifact owners embed this exact byte sequence.  They do not
-    /// independently reconstruct or reorder the advanced projection.
-    pub fn wrapped_artifact_jcs(&self) -> String {
-        let mut output = String::from("{\"advanced_pagination\":");
-        output.push_str(&self.canonical_jcs);
-        output.push('}');
-        output
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StagingAdvancedPaginationManifestError {
-    ReceiptMismatch,
-    MissingPage,
-    ExtraPage,
-    WrongPage,
-    WrongMaster,
-    WrongBox,
-    WrongRepetition,
-    WrongColumn,
-    WrongBalance,
-    WrongPaint,
-    ArithmeticOverflow,
-}
-
-impl std::fmt::Display for StagingAdvancedPaginationManifestError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(match self {
-            Self::ReceiptMismatch => "I9190: advanced receipt mismatch",
-            Self::MissingPage => "I9190: advanced artifact page is missing",
-            Self::ExtraPage => "I9190: advanced artifact has an extra page",
-            Self::WrongPage => "I9190: advanced artifact page mismatch",
-            Self::WrongMaster => "I9190: advanced artifact master mismatch",
-            Self::WrongBox => "I9190: advanced artifact page-box mismatch",
-            Self::WrongRepetition => "I9190: advanced repetition mismatch",
-            Self::WrongColumn => "I9190: advanced column mismatch",
-            Self::WrongBalance => "I9190: advanced balance mismatch",
-            Self::WrongPaint => "I9190: advanced paint mismatch",
-            Self::ArithmeticOverflow => "I9190: advanced manifest arithmetic overflow",
-        })
-    }
-}
-
-impl std::error::Error for StagingAdvancedPaginationManifestError {}
-
-pub fn project_staging_header_footer_manifest(
-    selected: &StagingHeaderFooterSelectedLayout,
-    display: &StagingHeaderFooterDisplay,
-    pdf: &StagingHeaderFooterPdf,
+pub fn project_staging_columns_manifest(
+    selected: &StagingColumnsSelectedLayout,
+    display: &StagingColumnsDisplay,
+    pdf: &StagingColumnsPdf,
 ) -> Result<StagingAdvancedPaginationManifest, StagingAdvancedPaginationManifestError> {
     selected
         .verify_receipt()
@@ -139,13 +50,8 @@ pub fn project_staging_header_footer_manifest(
         }
         std::cmp::Ordering::Equal => {}
     }
-    let mut repetitions = std::collections::BTreeMap::<
-        (
-            typaxis_core::MasterId,
-            typaxis_pagination::StagingAdvancedPageFrameKind,
-        ),
-        u32,
-    >::new();
+
+    let mut command_offset = 0usize;
     for ((selected_page, display_page), pdf_page) in selected
         .pages()
         .iter()
@@ -167,37 +73,54 @@ pub fn project_staging_header_footer_manifest(
         {
             return Err(StagingAdvancedPaginationManifestError::WrongBox);
         }
-        let expected_paint = u32::try_from(selected_page.region_fragments().len())
+        let expected_count = u32::try_from(selected_page.fragments().len())
             .map_err(|_| StagingAdvancedPaginationManifestError::ArithmeticOverflow)?;
-        if display_page.command_count() != expected_paint
-            || pdf_page.command_count() != expected_paint
+        if display_page.command_count() != expected_count
+            || pdf_page.command_count() != expected_count
+            || usize::try_from(display_page.first_command()) != Ok(command_offset)
         {
             return Err(StagingAdvancedPaginationManifestError::WrongPaint);
         }
-        for frame in selected_page.frames() {
-            if frame.kind() == typaxis_pagination::StagingAdvancedPageFrameKind::Body {
-                if frame.repetition_index().is_some() {
-                    return Err(StagingAdvancedPaginationManifestError::WrongRepetition);
-                }
-            } else {
-                let kind = match frame.kind() {
-                    kind @ (typaxis_pagination::StagingAdvancedPageFrameKind::Header
-                    | typaxis_pagination::StagingAdvancedPageFrameKind::Footer) => kind,
-                    typaxis_pagination::StagingAdvancedPageFrameKind::Body => {
-                        unreachable!("body was handled above")
-                    }
-                };
-                let next = repetitions
-                    .entry((selected_page.master_id().clone(), kind))
-                    .or_insert(0);
-                if frame.repetition_index() != Some(*next) {
-                    return Err(StagingAdvancedPaginationManifestError::WrongRepetition);
-                }
-                *next = next
-                    .checked_add(1)
-                    .ok_or(StagingAdvancedPaginationManifestError::ArithmeticOverflow)?;
+        let command_end = command_offset
+            .checked_add(selected_page.fragments().len())
+            .ok_or(StagingAdvancedPaginationManifestError::ArithmeticOverflow)?;
+        let commands = display
+            .commands()
+            .get(command_offset..command_end)
+            .ok_or(StagingAdvancedPaginationManifestError::WrongPaint)?;
+        for (fragment, command) in selected_page.fragments().iter().zip(commands) {
+            if fragment.page_index() != command.page_index()
+                || fragment.column_index() != command.column_index()
+                || fragment.frame_flow_id() != command.frame_flow_id()
+                || fragment.source_flow_id() != command.source_flow_id()
+                || fragment.block_node_id() != command.block_node_id()
+                || fragment.bounds() != command.bounds()
+            {
+                return Err(StagingAdvancedPaginationManifestError::WrongColumn);
             }
         }
+        command_offset = command_end;
+        if selected_page
+            .frames()
+            .iter()
+            .enumerate()
+            .any(|(index, frame)| {
+                frame.column_index() != u32::try_from(index).ok()
+                    || frame.repetition_index().is_some()
+            })
+        {
+            return Err(StagingAdvancedPaginationManifestError::WrongColumn);
+        }
+        if selected_page.balance().is_some()
+            && selected_page.page_index()
+                != u32::try_from(selected.pages().len() - 1)
+                    .map_err(|_| StagingAdvancedPaginationManifestError::ArithmeticOverflow)?
+        {
+            return Err(StagingAdvancedPaginationManifestError::WrongBalance);
+        }
+    }
+    if command_offset != display.commands().len() {
+        return Err(StagingAdvancedPaginationManifestError::WrongPaint);
     }
 
     let profile_receipt_sha256 = selected.receipt().profile_receipt_sha256();
@@ -211,18 +134,17 @@ pub fn project_staging_header_footer_manifest(
         selected_layout_sha256,
         paint_closure_sha256,
     );
-    Ok(StagingAdvancedPaginationManifest {
-        fingerprint: sha256(canonical_jcs.as_bytes()),
+    Ok(StagingAdvancedPaginationManifest::from_projection(
         canonical_jcs,
         profile_receipt_sha256,
         flow_registry_sha256,
         selected_layout_sha256,
         paint_closure_sha256,
-    })
+    ))
 }
 
 fn encode_projection(
-    selected: &StagingHeaderFooterSelectedLayout,
+    selected: &StagingColumnsSelectedLayout,
     profile_receipt_sha256: [u8; 32],
     flow_registry_sha256: [u8; 32],
     selected_layout_sha256: [u8; 32],
@@ -237,7 +159,12 @@ fn encode_projection(
         if index > 0 {
             output.push(',');
         }
-        output.push_str("{\"balance\":null,\"crop_box\":");
+        output.push_str("{\"balance\":");
+        match page.balance() {
+            Some(balance) => push_balance(&mut output, balance),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"crop_box\":");
         push_box(&mut output, page.boxes().crop_box());
         output.push_str(",\"float_carries\":[],\"float_placements\":[],\"float_queue_after\":[],\"float_queue_before\":[],\"frames\":[");
         for (frame_index, frame) in page.frames().iter().enumerate() {
@@ -261,13 +188,27 @@ fn encode_projection(
     output.push_str("],\"paint_closure_sha256\":");
     push_hex(&mut output, paint_closure_sha256);
     output.push_str(",\"profile\":");
-    push_jcs_string(&mut output, STAGING_HEADER_FOOTER_PROFILE_ID);
+    push_jcs_string(&mut output, STAGING_COLUMNS_PROFILE_ID);
     output.push_str(",\"profile_receipt_sha256\":");
     push_hex(&mut output, profile_receipt_sha256);
     output.push_str(",\"selected_layout_sha256\":");
     push_hex(&mut output, selected_layout_sha256);
     output.push('}');
     output
+}
+
+fn push_balance(output: &mut String, balance: &StagingColumnBalanceReceipt) {
+    output.push_str("{\"algorithm\":");
+    push_jcs_string(output, COLUMN_BALANCE_ALGORITHM);
+    output.push_str(",\"candidate_count\":");
+    output.push_str(&balance.candidate_count().to_string());
+    output.push_str(",\"input_sha256\":");
+    push_hex(output, balance.input_sha256());
+    output.push_str(",\"receipt_sha256\":");
+    push_hex(output, balance.receipt_sha256());
+    output.push_str(",\"selected_target_height\":");
+    output.push_str(&balance.selected_target_height().get().raw().to_string());
+    output.push('}');
 }
 
 fn push_frame(output: &mut String, frame: &StagingSelectedAdvancedFrame) {
@@ -286,12 +227,7 @@ fn push_frame(output: &mut String, frame: &StagingSelectedAdvancedFrame) {
     push_jcs_string(output, frame.kind().as_str());
     output.push_str(",\"rect\":");
     push_rect(output, frame.rect());
-    output.push_str(",\"repetition_index\":");
-    match frame.repetition_index() {
-        Some(value) => output.push_str(&value.to_string()),
-        None => output.push_str("null"),
-    }
-    output.push_str(",\"source_flow_id\":");
+    output.push_str(",\"repetition_index\":null,\"source_flow_id\":");
     output.push_str(&frame.source_flow_id().get().to_string());
     output.push_str(",\"terminal\":");
     output.push_str(if frame.terminal() { "true" } else { "false" });
@@ -349,4 +285,34 @@ fn push_hex(output: &mut String, bytes: [u8; 32]) {
         output.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     output.push('"');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use typaxis_core::{ResourceLimits, ValidatedResourceLimits};
+
+    #[test]
+    fn columns_manifest_closes_selected_display_pdf_and_balance_receipts() {
+        let selected = typaxis_pagination::staging_columns_selected_fixture();
+        let display = typaxis_display_list::build_staging_columns_display(&selected).unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let pdf = typaxis_pdf::serialize_staging_columns_pdf(&display, &limits).unwrap();
+        let manifest = project_staging_columns_manifest(&selected, &display, &pdf).unwrap();
+
+        assert!(manifest
+            .canonical_jcs()
+            .contains("\"profile\":\"typaxis.machine-pdf/columns-1\""));
+        assert!(manifest
+            .canonical_jcs()
+            .contains("\"algorithm\":\"typaxis.column-balance-candidates/1\""));
+        assert_eq!(
+            manifest.selected_layout_sha256(),
+            selected.receipt().selected_layout_sha256()
+        );
+        assert_eq!(
+            manifest.paint_closure_sha256(),
+            pdf.receipt().paint_closure_sha256()
+        );
+    }
 }

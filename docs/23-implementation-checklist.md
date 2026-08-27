@@ -12,7 +12,7 @@
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed capability contracts | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.2 output | Yes | Yes, current output | Yes | Yes |
-| contract 1.3 advanced-pagination targets | Yes, ADR-0031 | Partial: private `header-footer-1`; columns/float pending | No | No, MI3-12 gate |
+| contract 1.3 advanced-pagination targets | Yes, ADR-0031 | Partial: private `header-footer-1` and `columns-1`; float pending | No | No, MI3-12 gate |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
@@ -22,12 +22,13 @@
 - [x] producer guide、macOS/Linux actual-host evidence、reproducibility/external PDF gatesが同一current-source artifactとして集約され、MI1-17 release completionを閉じる
 - [x] ADR-0031 fixes the non-current 1.3 wire, immutable header/footer/columns/float profile split, bounded progress, closed rejection list, and MI3-12 atomic migration
 - [x] MI3-09 privately implements and closes header/footer subflows, canonical page-master selection, page boxes, repetition, and artifact receipts without changing public 1.2
-- [ ] MI3-10 through MI3-12 implement columns/float, complete 1.3, publish, and release-gate the ADR-0031 targets
+- [x] MI3-10 privately implements exact sequential columns, canonical column FlowIds, bounded final-page balance, and artifact closure without changing public 1.2
+- [ ] MI3-11 and MI3-12 implement float carry, complete 1.3, publish, and release-gate the ADR-0031 targets
 
 The ADR-0027/ownership/paragraph items are contract-boundary decisions; the
 command and evidence items are implementation/public/release claims backed by
 canonical macOS/Linux aggregation rather than a synthetic host. ADR-0031 is a
-completed decision, and the checked MI3-09 item is explicitly private
+completed decision, and the checked MI3-09/MI3-10 items are explicitly private
 implementation evidence only. The remaining unchecked item prevents that
 target from being read as public or release evidence.
 

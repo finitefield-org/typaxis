@@ -9,7 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-staging-fixtures = []
+staging-fixtures = ["typaxis-pagination/staging-fixtures"]
 
 [dependencies]
 typaxis-core = { path = "../typaxis-core" }
@@ -24,4 +24,5 @@ typaxis-style = { path = "../typaxis-style" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 
 [dev-dependencies]
+typaxis-pagination = { path = "../typaxis-pagination", features = ["staging-fixtures"] }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }

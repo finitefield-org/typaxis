@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). The first four are implemented, public, and release-gated. MI3-09 implements ADR-0031's header/footer target privately; all three advanced profiles remain non-public and unsupported until MI3-12.
+This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). The first four are implemented, public, and release-gated. MI3-09 and MI3-10 implement ADR-0031's header/footer and columns targets privately; all three advanced profiles remain non-public and unsupported until MI3-12.
 
 ## Status axes
 
@@ -11,7 +11,7 @@ This document records the normative closed machine-PDF profiles adopted by [ADR-
 | `table-1` | Yes, ADR-0029 | Yes | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
 | `footnote-1` | Yes, ADR-0030 | Yes: discovery, reflow, carry, paint, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-07 gate |
 | `header-footer-1` | Yes, ADR-0031 on target contract 1.3 | Yes: private MI3-09 vertical slice | No; public profile ID is rejected | No, MI3-12 gate |
-| `columns-1` | Yes, ADR-0031 on target contract 1.3 | No | No; public profile ID is rejected | No, MI3-12 gate |
+| `columns-1` | Yes, ADR-0031 on target contract 1.3 | Yes: private MI3-10 column/balance/artifact vertical slice | No; public profile ID is rejected | No, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on target contract 1.3 | No | No; public profile ID is rejected | No, MI3-12 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
@@ -484,9 +484,10 @@ on the same wire; the default remains `paragraph-1`. Future features may not
 broaden any public profile in place.
 
 ADR-0031's contract 1.3 and three profile IDs remain non-public target facts.
-MI3-09 adds only a private header/footer decoder, preflight, layout/pagination,
-Display/PDF, manifest, Schema subset, and fixture gate. Until MI3-12, all three
-IDs are absent from the public capability artifact and current Schema aliases.
+MI3-09 and MI3-10 add private header/footer and columns decoders, preflights,
+layout/pagination, Display/PDF, manifest, Schema, and fixture gates. Until
+MI3-12, all three IDs are absent from the public capability artifact and current
+Schema aliases.
 At MI3-12 the profile array becomes byte ordered `basic-document-1`,
 `columns-1`, `float-1`, `footnote-1`, `header-footer-1`, `paragraph-1`,
 `table-1`, while the default remains `paragraph-1`. `paragraph-1` accepts the

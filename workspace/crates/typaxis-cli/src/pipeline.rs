@@ -4497,6 +4497,176 @@ pub(crate) fn run_staging_machine_header_footer(
     })
 }
 
+/// Private MI3-10 vertical runner. It is reachable only from crate tests and
+/// therefore cannot make the reserved 1.3 contract or columns profile public.
+/// MI3-12 removes this entry point when the complete advanced profile ships.
+#[derive(Debug)]
+#[cfg(test)]
+pub(crate) struct MachineColumnsStagingOutput {
+    pdf: Vec<u8>,
+    projection_jcs: String,
+    trace_jcs: String,
+    manifest_jcs: String,
+    page_count: usize,
+    column_widths: Vec<Vec<i64>>,
+    balance_targets: Vec<Option<i64>>,
+    balance_candidate_counts: Vec<Option<u32>>,
+    selected_layout_sha256: [u8; 32],
+    paint_closure_sha256: [u8; 32],
+}
+
+#[cfg(test)]
+impl MachineColumnsStagingOutput {
+    pub(crate) fn pdf(&self) -> &[u8] {
+        &self.pdf
+    }
+    pub(crate) fn projection_jcs(&self) -> &str {
+        &self.projection_jcs
+    }
+    pub(crate) fn trace_jcs(&self) -> &str {
+        &self.trace_jcs
+    }
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+    pub(crate) const fn page_count(&self) -> usize {
+        self.page_count
+    }
+    pub(crate) fn column_widths(&self) -> &[Vec<i64>] {
+        &self.column_widths
+    }
+    pub(crate) fn balance_targets(&self) -> &[Option<i64>] {
+        &self.balance_targets
+    }
+    pub(crate) fn balance_candidate_counts(&self) -> &[Option<u32>] {
+        &self.balance_candidate_counts
+    }
+    pub(crate) const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub(crate) const fn paint_closure_sha256(&self) -> [u8; 32] {
+        self.paint_closure_sha256
+    }
+}
+
+#[derive(Debug)]
+#[cfg(test)]
+pub(crate) enum MachineColumnsStagingError {
+    Decode(typaxis_document_package::StagingAdvancedDecodeError),
+    Syntax(typaxis_syntax::StagingAdvancedPackageParseError),
+    Profile(typaxis_machine_profile::StagingColumnsPreflightError),
+    Layout(typaxis_layout::StagingColumnsLayoutError),
+    Pagination(typaxis_pagination::StagingColumnsPaginationError),
+    Display(typaxis_display_list::StagingColumnsDisplayError),
+    Pdf(typaxis_pdf::StagingColumnsPdfError),
+    Manifest(typaxis_manifest::StagingAdvancedPaginationManifestError),
+    InvalidPolicy,
+}
+
+#[cfg(test)]
+impl std::fmt::Display for MachineColumnsStagingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Decode(error) => error.fmt(formatter),
+            Self::Syntax(error) => error.fmt(formatter),
+            Self::Profile(error) => error.fmt(formatter),
+            Self::Layout(error) => error.fmt(formatter),
+            Self::Pagination(error) => error.fmt(formatter),
+            Self::Display(error) => error.fmt(formatter),
+            Self::Pdf(error) => error.fmt(formatter),
+            Self::Manifest(error) => error.fmt(formatter),
+            Self::InvalidPolicy => formatter.write_str("invalid staging URI policy"),
+        }
+    }
+}
+
+#[cfg(test)]
+impl std::error::Error for MachineColumnsStagingError {}
+
+#[cfg(test)]
+pub(crate) fn run_staging_machine_columns(
+    package_bytes: &[u8],
+    source_utf8: String,
+    limits: &ValidatedResourceLimits,
+) -> Result<MachineColumnsStagingOutput, MachineColumnsStagingError> {
+    let profile_session = typaxis_machine_profile::StagingColumnsSessionIdentity::fresh();
+    let decode_policy = typaxis_document_package::DocumentPackageDecodePolicy::new(limits);
+    let decoded = typaxis_document_package::StagingAdvancedDocumentPackageDecoder::new()
+        .decode(package_bytes, &decode_policy)
+        .map_err(MachineColumnsStagingError::Decode)?;
+    let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    let syntax_policy = typaxis_syntax::PackageValidationPolicy::new(limits, &allowed_schemes)
+        .map_err(|_| MachineColumnsStagingError::InvalidPolicy)?;
+    let package = typaxis_syntax::StagingAdvancedPackageParser::new()
+        .parse(decoded, source_utf8, &syntax_policy)
+        .map_err(MachineColumnsStagingError::Syntax)?;
+    let profile = typaxis_machine_profile::preflight_staging_columns_profile(
+        &package,
+        limits,
+        &profile_session,
+    )
+    .map_err(MachineColumnsStagingError::Profile)?;
+    profile
+        .verify(&package, limits, &profile_session)
+        .map_err(MachineColumnsStagingError::Profile)?;
+    let layout =
+        typaxis_layout::layout_staging_columns(&package, profile.profile_receipt_sha256(), limits)
+            .map_err(MachineColumnsStagingError::Layout)?;
+    layout
+        .verify_receipt(&package, profile.profile_receipt_sha256(), limits)
+        .map_err(MachineColumnsStagingError::Layout)?;
+    let selected = typaxis_pagination::paginate_staging_columns(&layout, limits)
+        .map_err(MachineColumnsStagingError::Pagination)?;
+    let display = typaxis_display_list::build_staging_columns_display(&selected)
+        .map_err(MachineColumnsStagingError::Display)?;
+    let pdf = typaxis_pdf::serialize_staging_columns_pdf(&display, limits)
+        .map_err(MachineColumnsStagingError::Pdf)?;
+    let manifest = typaxis_manifest::project_staging_columns_manifest(&selected, &display, &pdf)
+        .map_err(MachineColumnsStagingError::Manifest)?;
+
+    let page_count = selected.pages().len();
+    let column_widths = selected
+        .pages()
+        .iter()
+        .map(|page| {
+            page.frames()
+                .iter()
+                .map(|frame| frame.rect().width().get().raw())
+                .collect()
+        })
+        .collect();
+    let balance_targets = selected
+        .pages()
+        .iter()
+        .map(|page| {
+            page.balance()
+                .map(|balance| balance.selected_target_height().get().raw())
+        })
+        .collect();
+    let balance_candidate_counts = selected
+        .pages()
+        .iter()
+        .map(|page| page.balance().map(|balance| balance.candidate_count()))
+        .collect();
+    let projection_jcs = manifest.canonical_jcs().to_owned();
+    let projection = manifest.wrapped_artifact_jcs();
+    Ok(MachineColumnsStagingOutput {
+        pdf: pdf.bytes().to_vec(),
+        projection_jcs,
+        trace_jcs: projection.clone(),
+        manifest_jcs: projection,
+        page_count,
+        column_widths,
+        balance_targets,
+        balance_candidate_counts,
+        selected_layout_sha256: manifest.selected_layout_sha256(),
+        paint_closure_sha256: manifest.paint_closure_sha256(),
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -7191,5 +7361,305 @@ pub(crate) mod tests {
         let pdf = String::from_utf8_lossy(output.pdf());
         assert_eq!(pdf.matches("/MediaBox").count(), 1);
         assert!(!pdf.contains("% typaxis"));
+    }
+
+    #[test]
+    fn machine_columns_combined_closes_breaks_balance_display_pdf_and_manifest() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let output = run_staging_machine_columns(package, String::new(), &limits).unwrap();
+
+        assert_eq!(output.page_count(), 2);
+        assert_eq!(output.column_widths(), [vec![5, 6], vec![5, 6]]);
+        assert_eq!(output.balance_targets(), [None, Some(4)]);
+        assert_eq!(output.balance_candidate_counts(), [None, Some(2)]);
+        assert_eq!(output.trace_jcs(), output.manifest_jcs());
+        let golden = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/combined/staging-advanced-pagination.json"
+        ));
+        assert_eq!(output.projection_jcs(), golden.trim_end());
+        assert!(output
+            .projection_jcs()
+            .contains("\"profile\":\"typaxis.machine-pdf/columns-1\""));
+        assert!(output
+            .projection_jcs()
+            .contains("\"selected_target_height\":4"));
+        assert!(output.projection_jcs().contains("\"candidate_count\":2"));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"column_index\":0,\"frame_flow_id\":3"));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"column_index\":1,\"frame_flow_id\":4"));
+        assert_ne!(output.selected_layout_sha256(), [0; 32]);
+        assert_ne!(output.paint_closure_sha256(), [0; 32]);
+
+        let pdf = String::from_utf8_lossy(output.pdf());
+        assert_eq!(pdf.matches("/MediaBox").count(), 2);
+        assert_eq!(pdf.matches("/CropBox").count(), 2);
+        assert_eq!(pdf.matches("/TrimBox").count(), 2);
+        assert!(pdf.contains("% typaxis column=0 flow=3 node=1"));
+        assert!(pdf.contains("% typaxis column=1 flow=4 node=7"));
+        assert!(!pdf.contains("/BleedBox"));
+        assert!(!pdf.contains("/ArtBox"));
+
+        let public_error = wire::StrictDocumentPackageDecoder::new()
+            .decode(package, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .expect_err("public current decoder must continue rejecting 1.3");
+        assert!(matches!(
+            public_error.typed_error().map(|error| error.kind()),
+            Some(wire::DocumentPackageTypedDecodeErrorKind::UnknownContract)
+        ));
+    }
+
+    #[test]
+    fn machine_columns_profile_receipt_rejects_limit_session_and_package_replay() {
+        let package_bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let decode_policy = wire::DocumentPackageDecodePolicy::new(&limits);
+        let decoded = wire::StagingAdvancedDocumentPackageDecoder::new()
+            .decode(package_bytes, &decode_policy)
+            .unwrap();
+        let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>();
+        let syntax_policy =
+            typaxis_syntax::PackageValidationPolicy::new(&limits, &allowed_schemes).unwrap();
+        let package = typaxis_syntax::StagingAdvancedPackageParser::new()
+            .parse(decoded, String::new(), &syntax_policy)
+            .unwrap();
+        let session = typaxis_machine_profile::StagingColumnsSessionIdentity::fresh();
+        let receipt =
+            typaxis_machine_profile::preflight_staging_columns_profile(&package, &limits, &session)
+                .unwrap();
+        receipt.verify(&package, &limits, &session).unwrap();
+
+        let other_session = typaxis_machine_profile::StagingColumnsSessionIdentity::fresh();
+        assert!(matches!(
+            receipt.verify(&package, &limits, &other_session),
+            Err(typaxis_machine_profile::StagingColumnsPreflightError::ReceiptMismatch)
+        ));
+
+        let defaults = ResourceLimits::default();
+        let other_limits = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: defaults.max_pages - 1,
+            ..defaults
+        })
+        .unwrap();
+        assert!(matches!(
+            receipt.verify(&package, &other_limits, &session),
+            Err(typaxis_machine_profile::StagingColumnsPreflightError::ReceiptMismatch)
+        ));
+
+        let mut reformatted = Vec::with_capacity(package_bytes.len() + 1);
+        reformatted.push(b' ');
+        reformatted.extend_from_slice(package_bytes);
+        let replay = wire::StagingAdvancedDocumentPackageDecoder::new()
+            .decode(&reformatted, &decode_policy)
+            .unwrap();
+        let replay = typaxis_syntax::StagingAdvancedPackageParser::new()
+            .parse(replay, String::new(), &syntax_policy)
+            .unwrap();
+        assert!(matches!(
+            receipt.verify(&replay, &limits, &session),
+            Err(typaxis_machine_profile::StagingColumnsPreflightError::ReceiptMismatch)
+        ));
+    }
+
+    #[test]
+    fn machine_columns_limits_are_inclusive_and_stop_at_max_plus_one() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/combined/job/document-package.json"
+        ));
+        let defaults = ResourceLimits::default();
+        let baseline = run_staging_machine_columns(
+            package,
+            String::new(),
+            &ValidatedResourceLimits::new(defaults.clone()).unwrap(),
+        )
+        .unwrap();
+        let exact_output_bytes = u64::try_from(baseline.pdf().len()).unwrap();
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 2,
+            max_fragments: 9,
+            max_column_balance_candidates: 2,
+            max_pdf_objects: 6,
+            max_output_bytes: exact_output_bytes,
+            ..defaults.clone()
+        })
+        .unwrap();
+        run_staging_machine_columns(package, String::new(), &exact).unwrap();
+
+        let candidate_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_column_balance_candidates: 1,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_columns(package, String::new(), &candidate_over),
+            Err(MachineColumnsStagingError::Pagination(
+                typaxis_pagination::StagingColumnsPaginationError::BalanceLimit
+            ))
+        ));
+
+        let page_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 1,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_columns(package, String::new(), &page_over),
+            Err(MachineColumnsStagingError::Pagination(
+                typaxis_pagination::StagingColumnsPaginationError::PageLimit
+            ))
+        ));
+
+        let fragment_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_fragments: 8,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_columns(package, String::new(), &fragment_over),
+            Err(MachineColumnsStagingError::Pagination(
+                typaxis_pagination::StagingColumnsPaginationError::FragmentLimit
+            ))
+        ));
+
+        let object_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_pdf_objects: 5,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_columns(package, String::new(), &object_over),
+            Err(MachineColumnsStagingError::Pdf(
+                typaxis_pdf::StagingColumnsPdfError::PageObjectLimit
+            ))
+        ));
+
+        let output_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_output_bytes: exact_output_bytes - 1,
+            ..defaults
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_columns(package, String::new(), &output_over),
+            Err(MachineColumnsStagingError::Pdf(
+                typaxis_pdf::StagingColumnsPdfError::OutputLimit
+            ))
+        ));
+    }
+
+    #[test]
+    fn machine_columns_oversize_and_unsupported_master_fail_before_artifacts() {
+        let fixture = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/combined/job/document-package.json"
+        ));
+        let oversize = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/oversize/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+
+        assert!(matches!(
+            run_staging_machine_columns(oversize, String::new(), &limits),
+            Err(MachineColumnsStagingError::Pagination(
+                typaxis_pagination::StagingColumnsPaginationError::Oversize(_)
+            ))
+        ));
+
+        let unsupported_balance = fixture.replacen("\"last_page\"", "\"none\"", 1);
+        assert!(matches!(
+            run_staging_machine_columns(unsupported_balance.as_bytes(), String::new(), &limits),
+            Err(MachineColumnsStagingError::Profile(
+                typaxis_machine_profile::StagingColumnsPreflightError::InvalidGeometry(_)
+            ))
+        ));
+
+        let unsupported_header = fixture.replacen(
+            "\"header\": null",
+            "\"header\": {\"x\": 1, \"y\": 0, \"width\": 12, \"height\": 1}",
+            1,
+        );
+        assert!(matches!(
+            run_staging_machine_columns(unsupported_header.as_bytes(), String::new(), &limits),
+            Err(MachineColumnsStagingError::Profile(
+                typaxis_machine_profile::StagingColumnsPreflightError::UnsupportedMaster(_)
+            ))
+        ));
+
+        let custom_trim = fixture.replacen(
+            "\"trim\": {\"x\": 0, \"y\": 0, \"width\": 20, \"height\": 20}",
+            "\"trim\": {\"x\": 1, \"y\": 1, \"width\": 18, \"height\": 18}",
+            1,
+        );
+        assert!(matches!(
+            run_staging_machine_columns(custom_trim.as_bytes(), String::new(), &limits),
+            Err(MachineColumnsStagingError::Profile(
+                typaxis_machine_profile::StagingColumnsPreflightError::InvalidGeometry(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn machine_columns_empty_and_neutral_layouts_are_terminal_and_unbalanced() {
+        let fixture = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/empty/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let columns =
+            run_staging_machine_columns(fixture.as_bytes(), String::new(), &limits).unwrap();
+        assert_eq!(columns.page_count(), 1);
+        assert_eq!(columns.column_widths(), [vec![5, 6]]);
+        assert_eq!(columns.balance_targets(), [None]);
+        assert!(columns
+            .manifest_jcs()
+            .contains("\"balance\":null,\"crop_box\":[0,0,20,20]"));
+        assert_eq!(
+            columns
+                .pdf()
+                .windows(17)
+                .filter(|value| *value == b"% typaxis column")
+                .count(),
+            0
+        );
+
+        let neutral = fixture.replacen(
+            "{\"count\": 2, \"gap\": 1, \"fill\": \"sequential\", \"balance\": \"last_page\"}",
+            "null",
+            1,
+        );
+        let neutral =
+            run_staging_machine_columns(neutral.as_bytes(), String::new(), &limits).unwrap();
+        assert_eq!(neutral.page_count(), 1);
+        assert_eq!(neutral.column_widths(), [vec![12]]);
+        assert_eq!(neutral.balance_targets(), [None]);
+    }
+
+    #[test]
+    fn machine_columns_same_toolchain_output_is_reproducible() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/columns-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let first = run_staging_machine_columns(package, String::new(), &limits).unwrap();
+        let second = run_staging_machine_columns(package, String::new(), &limits).unwrap();
+        assert_eq!(first.pdf(), second.pdf());
+        assert_eq!(first.projection_jcs(), second.projection_jcs());
+        assert_eq!(first.trace_jcs(), second.trace_jcs());
+        assert_eq!(first.manifest_jcs(), second.manifest_jcs());
     }
 }

@@ -110,6 +110,15 @@ pub struct StagingPdfPageBox {
 }
 
 impl StagingPdfPageBox {
+    pub(crate) const fn new(x_min: i64, y_min: i64, x_max: i64, y_max: i64) -> Self {
+        Self {
+            x_min,
+            y_min,
+            x_max,
+            y_max,
+        }
+    }
+
     pub const fn values(self) -> [i64; 4] {
         [self.x_min, self.y_min, self.x_max, self.y_max]
     }
@@ -123,6 +132,18 @@ pub struct StagingSelectedPageBoxes {
 }
 
 impl StagingSelectedPageBoxes {
+    pub(crate) const fn new(
+        media_box: StagingPdfPageBox,
+        crop_box: StagingPdfPageBox,
+        trim_box: StagingPdfPageBox,
+    ) -> Self {
+        Self {
+            media_box,
+            crop_box,
+            trim_box,
+        }
+    }
+
     pub const fn media_box(self) -> StagingPdfPageBox {
         self.media_box
     }
@@ -143,6 +164,20 @@ pub struct StagingPageMargins {
 }
 
 impl StagingPageMargins {
+    pub(crate) const fn new(
+        top: NonNegativeLength,
+        right: NonNegativeLength,
+        bottom: NonNegativeLength,
+        left: NonNegativeLength,
+    ) -> Self {
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+
     pub const fn top(self) -> NonNegativeLength {
         self.top
     }
@@ -181,6 +216,10 @@ pub struct StagingAdvancedFlowPosition {
 }
 
 impl StagingAdvancedFlowPosition {
+    pub(crate) const fn new(flow_id: FlowId, ordinal: u32) -> Self {
+        Self { flow_id, ordinal }
+    }
+
     pub const fn flow_id(self) -> FlowId {
         self.flow_id
     }
@@ -203,6 +242,31 @@ pub struct StagingSelectedAdvancedFrame {
 }
 
 impl StagingSelectedAdvancedFrame {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn new(
+        kind: StagingAdvancedPageFrameKind,
+        column_index: Option<u32>,
+        frame_flow_id: FlowId,
+        source_flow_id: FlowId,
+        rect: Rect,
+        before_position: StagingAdvancedFlowPosition,
+        after_position: StagingAdvancedFlowPosition,
+        terminal: bool,
+        repetition_index: Option<u32>,
+    ) -> Self {
+        Self {
+            kind,
+            column_index,
+            frame_flow_id,
+            source_flow_id,
+            rect,
+            before_position,
+            after_position,
+            terminal,
+            repetition_index,
+        }
+    }
+
     pub const fn kind(&self) -> StagingAdvancedPageFrameKind {
         self.kind
     }

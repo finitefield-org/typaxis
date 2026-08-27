@@ -1,7 +1,14 @@
 #![forbid(unsafe_code)]
 
+mod advanced_columns;
 mod advanced_header_footer;
 
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use advanced_columns::staging_columns_display_fixture;
+pub use advanced_columns::{
+    build_staging_columns_display, StagingColumnPaintCommand, StagingColumnsDisplay,
+    StagingColumnsDisplayError, StagingColumnsDisplayPage, StagingColumnsDisplayReceipt,
+};
 pub use advanced_header_footer::{
     build_staging_header_footer_display, StagingHeaderFooterDisplay,
     StagingHeaderFooterDisplayError, StagingHeaderFooterDisplayPage,

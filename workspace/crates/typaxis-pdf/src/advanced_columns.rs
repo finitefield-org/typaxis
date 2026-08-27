@@ -1,13 +1,13 @@
 use typaxis_core::{push_jcs_string, sha256, MasterId, ValidatedResourceLimits};
-use typaxis_display_list::{
-    StagingHeaderFooterDisplay, StagingPdfPageBox, StagingSelectedPageBoxes,
+use typaxis_display_list::{StagingColumnsDisplay, StagingPdfPageBox, StagingSelectedPageBoxes};
+
+use crate::advanced_header_footer::{
+    append_limited, pdf_box, pdf_fixed, push_object, write_classic_pdf,
+    STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
 };
 
-pub const STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM: &str =
-    "typaxis.advanced-pagination-pdf-closure/1";
-
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StagingHeaderFooterPdfPageObservation {
+pub struct StagingColumnsPdfPageObservation {
     page_index: u32,
     master_id: MasterId,
     boxes: StagingSelectedPageBoxes,
@@ -16,7 +16,7 @@ pub struct StagingHeaderFooterPdfPageObservation {
     command_count: u32,
 }
 
-impl StagingHeaderFooterPdfPageObservation {
+impl StagingColumnsPdfPageObservation {
     pub const fn page_index(&self) -> u32 {
         self.page_index
     }
@@ -38,7 +38,7 @@ impl StagingHeaderFooterPdfPageObservation {
 }
 
 #[derive(Debug)]
-pub struct StagingHeaderFooterPdfClosureReceipt {
+pub struct StagingColumnsPdfClosureReceipt {
     display_paint_sha256: [u8; 32],
     pdf_sha256: [u8; 32],
     paint_closure_sha256: [u8; 32],
@@ -46,7 +46,7 @@ pub struct StagingHeaderFooterPdfClosureReceipt {
     canonical_jcs: String,
 }
 
-impl StagingHeaderFooterPdfClosureReceipt {
+impl StagingColumnsPdfClosureReceipt {
     pub const fn display_paint_sha256(&self) -> [u8; 32] {
         self.display_paint_sha256
     }
@@ -65,32 +65,32 @@ impl StagingHeaderFooterPdfClosureReceipt {
 }
 
 #[derive(Debug)]
-pub struct StagingHeaderFooterPdf {
+pub struct StagingColumnsPdf {
     bytes: Vec<u8>,
-    pages: Vec<StagingHeaderFooterPdfPageObservation>,
-    receipt: StagingHeaderFooterPdfClosureReceipt,
+    pages: Vec<StagingColumnsPdfPageObservation>,
+    receipt: StagingColumnsPdfClosureReceipt,
 }
 
-impl StagingHeaderFooterPdf {
+impl StagingColumnsPdf {
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
-    pub fn pages(&self) -> &[StagingHeaderFooterPdfPageObservation] {
+    pub fn pages(&self) -> &[StagingColumnsPdfPageObservation] {
         &self.pages
     }
-    pub const fn receipt(&self) -> &StagingHeaderFooterPdfClosureReceipt {
+    pub const fn receipt(&self) -> &StagingColumnsPdfClosureReceipt {
         &self.receipt
     }
 
     pub fn verify_receipt(
         &self,
-        display: &StagingHeaderFooterDisplay,
-    ) -> Result<(), StagingHeaderFooterPdfError> {
+        display: &StagingColumnsDisplay,
+    ) -> Result<(), StagingColumnsPdfError> {
         display
             .verify_receipt()
-            .map_err(|_| StagingHeaderFooterPdfError::DisplayClosureMismatch)?;
+            .map_err(|_| StagingColumnsPdfError::DisplayClosureMismatch)?;
         if self.pages.len() != display.pages().len() {
-            return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+            return Err(StagingColumnsPdfError::DisplayClosureMismatch);
         }
         for (index, (pdf_page, display_page)) in self.pages.iter().zip(display.pages()).enumerate()
         {
@@ -98,7 +98,7 @@ impl StagingHeaderFooterPdf {
                 .ok()
                 .and_then(|value| value.checked_mul(2))
                 .and_then(|value| value.checked_add(3))
-                .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+                .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
             if pdf_page.page_index != display_page.page_index()
                 || pdf_page.master_id != *display_page.master_id()
                 || pdf_page.boxes != display_page.boxes()
@@ -107,16 +107,16 @@ impl StagingHeaderFooterPdf {
                 || pdf_page.content_object_id
                     != expected_page_object
                         .checked_add(1)
-                        .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?
+                        .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?
             {
-                return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+                return Err(StagingColumnsPdfError::DisplayClosureMismatch);
             }
         }
         let expected_objects = u32::try_from(self.pages.len())
             .ok()
             .and_then(|pages| pages.checked_mul(2))
             .and_then(|pages| pages.checked_add(2))
-            .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+            .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
         let pdf_sha256 = sha256(&self.bytes);
         let canonical = encode_pdf_closure(
             display.receipt().paint_closure_sha256(),
@@ -130,14 +130,14 @@ impl StagingHeaderFooterPdf {
             || self.receipt.canonical_jcs != canonical
             || self.receipt.paint_closure_sha256 != sha256(canonical.as_bytes())
         {
-            return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+            return Err(StagingColumnsPdfError::DisplayClosureMismatch);
         }
         Ok(())
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StagingHeaderFooterPdfError {
+pub enum StagingColumnsPdfError {
     DisplayClosureMismatch,
     PageObjectLimit,
     OutputLimit,
@@ -145,133 +145,137 @@ pub enum StagingHeaderFooterPdfError {
     AllocationFailure,
 }
 
-impl std::fmt::Display for StagingHeaderFooterPdfError {
+impl std::fmt::Display for StagingColumnsPdfError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
-            Self::DisplayClosureMismatch => "I9190: PDF/Display header-footer closure mismatch",
-            Self::PageObjectLimit => "D8101: PDF object limit exceeded",
-            Self::OutputLimit => "D8101: PDF output limit exceeded",
-            Self::ArithmeticOverflow => "I9190: PDF serialization arithmetic overflow",
-            Self::AllocationFailure => "D8101: PDF allocation failure",
+            Self::DisplayClosureMismatch => "I9190: columns PDF/Display closure mismatch",
+            Self::PageObjectLimit => "D8101: columns PDF object limit exceeded",
+            Self::OutputLimit => "D8101: columns PDF output limit exceeded",
+            Self::ArithmeticOverflow => "I9190: columns PDF arithmetic overflow",
+            Self::AllocationFailure => "D8101: columns PDF allocation failure",
         })
     }
 }
 
-impl std::error::Error for StagingHeaderFooterPdfError {}
+impl std::error::Error for StagingColumnsPdfError {}
 
-pub fn serialize_staging_header_footer_pdf(
-    display: &StagingHeaderFooterDisplay,
+pub fn serialize_staging_columns_pdf(
+    display: &StagingColumnsDisplay,
     limits: &ValidatedResourceLimits,
-) -> Result<StagingHeaderFooterPdf, StagingHeaderFooterPdfError> {
+) -> Result<StagingColumnsPdf, StagingColumnsPdfError> {
     display
         .verify_receipt()
-        .map_err(|_| StagingHeaderFooterPdfError::DisplayClosureMismatch)?;
+        .map_err(|_| StagingColumnsPdfError::DisplayClosureMismatch)?;
     if display.pages().is_empty() {
-        return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+        return Err(StagingColumnsPdfError::DisplayClosureMismatch);
     }
     let page_count = u32::try_from(display.pages().len())
-        .map_err(|_| StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+        .map_err(|_| StagingColumnsPdfError::ArithmeticOverflow)?;
     let object_count = page_count
         .checked_mul(2)
         .and_then(|value| value.checked_add(2))
-        .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+        .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
     if object_count > limits.get().max_pdf_objects {
-        return Err(StagingHeaderFooterPdfError::PageObjectLimit);
+        return Err(StagingColumnsPdfError::PageObjectLimit);
     }
 
-    let object_capacity = usize::try_from(object_count)
-        .map_err(|_| StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+    let object_capacity =
+        usize::try_from(object_count).map_err(|_| StagingColumnsPdfError::ArithmeticOverflow)?;
     let mut objects = Vec::<Vec<u8>>::new();
     objects
         .try_reserve_exact(object_capacity)
-        .map_err(|_| StagingHeaderFooterPdfError::AllocationFailure)?;
+        .map_err(|_| StagingColumnsPdfError::AllocationFailure)?;
     let mut staged_payload_bytes = 0u64;
     push_object(
         &mut objects,
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         &mut staged_payload_bytes,
         limits.get().max_output_bytes,
-    )?;
+    )
+    .map_err(map_common_error)?;
     let mut pages_dictionary = Vec::new();
     let pages_header = format!("<< /Type /Pages /Count {page_count} /Kids [");
     append_limited(
         &mut pages_dictionary,
         pages_header.as_bytes(),
         limits.get().max_output_bytes,
-    )?;
+    )
+    .map_err(map_common_error)?;
     for page_index in 0..page_count {
         let page_object = page_index
             .checked_mul(2)
             .and_then(|value| value.checked_add(3))
-            .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+            .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
         let page_reference = format!(" {page_object} 0 R");
         append_limited(
             &mut pages_dictionary,
             page_reference.as_bytes(),
             limits.get().max_output_bytes,
-        )?;
+        )
+        .map_err(map_common_error)?;
     }
     append_limited(
         &mut pages_dictionary,
         b" ] >>",
         limits.get().max_output_bytes,
-    )?;
+    )
+    .map_err(map_common_error)?;
     push_object(
         &mut objects,
         pages_dictionary,
         &mut staged_payload_bytes,
         limits.get().max_output_bytes,
-    )?;
+    )
+    .map_err(map_common_error)?;
 
     let mut observations = Vec::new();
     observations
         .try_reserve_exact(display.pages().len())
-        .map_err(|_| StagingHeaderFooterPdfError::AllocationFailure)?;
+        .map_err(|_| StagingColumnsPdfError::AllocationFailure)?;
     for page in display.pages() {
         let page_object_id = page
             .page_index()
             .checked_mul(2)
             .and_then(|value| value.checked_add(3))
-            .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+            .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
         let content_object_id = page_object_id
             .checked_add(1)
-            .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
-        let mut content = Vec::new();
+            .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
         let first = usize::try_from(page.first_command())
-            .map_err(|_| StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+            .map_err(|_| StagingColumnsPdfError::ArithmeticOverflow)?;
         let end = first
             .checked_add(
                 usize::try_from(page.command_count())
-                    .map_err(|_| StagingHeaderFooterPdfError::ArithmeticOverflow)?,
+                    .map_err(|_| StagingColumnsPdfError::ArithmeticOverflow)?,
             )
-            .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+            .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
         let commands = display
             .commands()
             .get(first..end)
-            .ok_or(StagingHeaderFooterPdfError::DisplayClosureMismatch)?;
+            .ok_or(StagingColumnsPdfError::DisplayClosureMismatch)?;
+        let mut content = Vec::new();
         let media_height = page.boxes().media_box().values()[3];
         for (command_index, command) in commands.iter().enumerate() {
             if command.page_index() != page.page_index() || command.master_id() != page.master_id()
             {
-                return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+                return Err(StagingColumnsPdfError::DisplayClosureMismatch);
             }
             let expected_ordinal = first
                 .checked_add(command_index)
                 .and_then(|value| u32::try_from(value).ok())
-                .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+                .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
             if command.command_ordinal() != expected_ordinal {
-                return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+                return Err(StagingColumnsPdfError::DisplayClosureMismatch);
             }
             let bounds = command.bounds();
             let pdf_y = media_height
                 .checked_sub(bounds.y().raw())
                 .and_then(|value| value.checked_sub(bounds.height().get().raw()))
-                .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+                .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
             let record = format!(
-                "% typaxis {} flow={} repetition={} node={}\nq 0 g {} {} {} {} re f Q\n",
-                command.kind().as_str(),
-                command.source_flow_id().get(),
-                command.repetition_index(),
+                "% typaxis column={} flow={} node={}\nq 0 g {} {} {} {} re f Q\n",
+                command.column_index(),
+                command.frame_flow_id().get(),
                 command.block_node_id().get(),
                 pdf_fixed(bounds.x().raw()),
                 pdf_fixed(pdf_y),
@@ -282,21 +286,25 @@ pub fn serialize_staging_header_footer_pdf(
                 &mut content,
                 record.as_bytes(),
                 limits.get().max_output_bytes,
-            )?;
+            )
+            .map_err(map_common_error)?;
         }
-        let content_object = format!("<< /Length {} >>\nstream\n", content.len());
+        let content_header = format!("<< /Length {} >>\nstream\n", content.len());
         let mut content_bytes = Vec::new();
         append_limited(
             &mut content_bytes,
-            content_object.as_bytes(),
+            content_header.as_bytes(),
             limits.get().max_output_bytes,
-        )?;
-        append_limited(&mut content_bytes, &content, limits.get().max_output_bytes)?;
+        )
+        .map_err(map_common_error)?;
+        append_limited(&mut content_bytes, &content, limits.get().max_output_bytes)
+            .map_err(map_common_error)?;
         append_limited(
             &mut content_bytes,
             b"endstream",
             limits.get().max_output_bytes,
-        )?;
+        )
+        .map_err(map_common_error)?;
         let boxes = page.boxes();
         let page_object = format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox {} /CropBox {} /TrimBox {} /Resources << >> /Contents {content_object_id} 0 R >>",
@@ -309,14 +317,16 @@ pub fn serialize_staging_header_footer_pdf(
             page_object.into_bytes(),
             &mut staged_payload_bytes,
             limits.get().max_output_bytes,
-        )?;
+        )
+        .map_err(map_common_error)?;
         push_object(
             &mut objects,
             content_bytes,
             &mut staged_payload_bytes,
             limits.get().max_output_bytes,
-        )?;
-        observations.push(StagingHeaderFooterPdfPageObservation {
+        )
+        .map_err(map_common_error)?;
+        observations.push(StagingColumnsPdfPageObservation {
             page_index: page.page_index(),
             master_id: page.master_id().clone(),
             boxes,
@@ -326,9 +336,10 @@ pub fn serialize_staging_header_footer_pdf(
         });
     }
     if objects.len() != object_capacity {
-        return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+        return Err(StagingColumnsPdfError::DisplayClosureMismatch);
     }
-    let bytes = write_classic_pdf(&objects, limits.get().max_output_bytes)?;
+    let bytes =
+        write_classic_pdf(&objects, limits.get().max_output_bytes).map_err(map_common_error)?;
     let pdf_sha256 = sha256(&bytes);
     let canonical_jcs = encode_pdf_closure(
         display.receipt().paint_closure_sha256(),
@@ -336,14 +347,14 @@ pub fn serialize_staging_header_footer_pdf(
         pdf_sha256,
         object_count,
     );
-    let receipt = StagingHeaderFooterPdfClosureReceipt {
+    let receipt = StagingColumnsPdfClosureReceipt {
         display_paint_sha256: display.receipt().paint_closure_sha256(),
         pdf_sha256,
         paint_closure_sha256: sha256(canonical_jcs.as_bytes()),
         object_count,
         canonical_jcs,
     };
-    let pdf = StagingHeaderFooterPdf {
+    let pdf = StagingColumnsPdf {
         bytes,
         pages: observations,
         receipt,
@@ -352,134 +363,27 @@ pub fn serialize_staging_header_footer_pdf(
     Ok(pdf)
 }
 
-pub(super) fn push_object(
-    objects: &mut Vec<Vec<u8>>,
-    object: Vec<u8>,
-    staged_payload_bytes: &mut u64,
-    max_output_bytes: u64,
-) -> Result<(), StagingHeaderFooterPdfError> {
-    let object_bytes =
-        u64::try_from(object.len()).map_err(|_| StagingHeaderFooterPdfError::OutputLimit)?;
-    let next = staged_payload_bytes
-        .checked_add(object_bytes)
-        .ok_or(StagingHeaderFooterPdfError::OutputLimit)?;
-    if next > max_output_bytes {
-        return Err(StagingHeaderFooterPdfError::OutputLimit);
-    }
-    *staged_payload_bytes = next;
-    objects.push(object);
-    Ok(())
-}
-
-pub(super) fn append_limited(
-    output: &mut Vec<u8>,
-    bytes: &[u8],
-    maximum: u64,
-) -> Result<(), StagingHeaderFooterPdfError> {
-    let next = output
-        .len()
-        .checked_add(bytes.len())
-        .ok_or(StagingHeaderFooterPdfError::OutputLimit)?;
-    if u64::try_from(next).map_err(|_| StagingHeaderFooterPdfError::OutputLimit)? > maximum {
-        return Err(StagingHeaderFooterPdfError::OutputLimit);
-    }
-    output
-        .try_reserve(bytes.len())
-        .map_err(|_| StagingHeaderFooterPdfError::AllocationFailure)?;
-    output.extend_from_slice(bytes);
-    Ok(())
-}
-
-pub(super) fn write_classic_pdf(
-    objects: &[Vec<u8>],
-    max_output_bytes: u64,
-) -> Result<Vec<u8>, StagingHeaderFooterPdfError> {
-    let mut output = Vec::new();
-    let initial_capacity = usize::try_from(max_output_bytes.min(1024))
-        .map_err(|_| StagingHeaderFooterPdfError::OutputLimit)?;
-    output
-        .try_reserve(initial_capacity)
-        .map_err(|_| StagingHeaderFooterPdfError::AllocationFailure)?;
-    append_limited(
-        &mut output,
-        b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n",
-        max_output_bytes,
-    )?;
-    let mut offsets = Vec::new();
-    offsets
-        .try_reserve_exact(objects.len())
-        .map_err(|_| StagingHeaderFooterPdfError::AllocationFailure)?;
-    for (index, object) in objects.iter().enumerate() {
-        offsets.push(output.len());
-        let object_id = index
-            .checked_add(1)
-            .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
-        let header = format!("{object_id} 0 obj\n");
-        append_limited(&mut output, header.as_bytes(), max_output_bytes)?;
-        append_limited(&mut output, object, max_output_bytes)?;
-        append_limited(&mut output, b"\nendobj\n", max_output_bytes)?;
-    }
-    let xref = output.len();
-    let size = objects
-        .len()
-        .checked_add(1)
-        .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
-    let xref_header = format!("xref\n0 {size}\n0000000000 65535 f \n");
-    append_limited(&mut output, xref_header.as_bytes(), max_output_bytes)?;
-    for offset in offsets {
-        if offset > 9_999_999_999usize {
-            return Err(StagingHeaderFooterPdfError::OutputLimit);
+fn map_common_error(error: crate::StagingHeaderFooterPdfError) -> StagingColumnsPdfError {
+    match error {
+        crate::StagingHeaderFooterPdfError::DisplayClosureMismatch => {
+            StagingColumnsPdfError::DisplayClosureMismatch
         }
-        let record = format!("{offset:010} 00000 n \n");
-        append_limited(&mut output, record.as_bytes(), max_output_bytes)?;
-    }
-    let trailer = format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
-    append_limited(&mut output, trailer.as_bytes(), max_output_bytes)?;
-    Ok(output)
-}
-
-pub(super) fn pdf_box(value: StagingPdfPageBox) -> String {
-    let values = value.values();
-    format!(
-        "[{} {} {} {}]",
-        pdf_fixed(values[0]),
-        pdf_fixed(values[1]),
-        pdf_fixed(values[2]),
-        pdf_fixed(values[3])
-    )
-}
-
-pub(super) fn pdf_fixed(raw: i64) -> String {
-    const SCALE: i64 = 65_536;
-    const DECIMAL_SCALE: u64 = 10_000_000_000_000_000;
-    const BINARY_TO_DECIMAL: u64 = 152_587_890_625; // 5^16
-    let negative = raw < 0;
-    let magnitude = raw.unsigned_abs();
-    let whole = magnitude / SCALE as u64;
-    let remainder = magnitude % SCALE as u64;
-    if remainder == 0 {
-        return if negative {
-            format!("-{whole}")
-        } else {
-            whole.to_string()
-        };
-    }
-    let fraction = remainder * BINARY_TO_DECIMAL;
-    debug_assert!(fraction < DECIMAL_SCALE);
-    let mut fraction = format!("{fraction:016}");
-    while fraction.ends_with('0') {
-        fraction.pop();
-    }
-    if negative {
-        format!("-{whole}.{fraction}")
-    } else {
-        format!("{whole}.{fraction}")
+        crate::StagingHeaderFooterPdfError::PageObjectLimit => {
+            StagingColumnsPdfError::PageObjectLimit
+        }
+        crate::StagingHeaderFooterPdfError::OutputLimit => StagingColumnsPdfError::OutputLimit,
+        crate::StagingHeaderFooterPdfError::ArithmeticOverflow => {
+            StagingColumnsPdfError::ArithmeticOverflow
+        }
+        crate::StagingHeaderFooterPdfError::AllocationFailure => {
+            StagingColumnsPdfError::AllocationFailure
+        }
     }
 }
 
 fn encode_pdf_closure(
     display_paint_sha256: [u8; 32],
-    pages: &[StagingHeaderFooterPdfPageObservation],
+    pages: &[StagingColumnsPdfPageObservation],
     pdf_sha256: [u8; 32],
     object_count: u32,
 ) -> String {
@@ -541,14 +445,63 @@ fn push_hex(output: &mut String, bytes: [u8; 32]) {
 
 #[cfg(test)]
 mod tests {
-    use super::pdf_fixed;
+    use super::*;
+    use typaxis_core::ResourceLimits;
 
     #[test]
-    fn fixed_point_pdf_numbers_are_exact_and_minimal() {
-        assert_eq!(pdf_fixed(0), "0");
-        assert_eq!(pdf_fixed(65_536), "1");
-        assert_eq!(pdf_fixed(32_768), "0.5");
-        assert_eq!(pdf_fixed(1), "0.0000152587890625");
-        assert_eq!(pdf_fixed(-98_304), "-1.5");
+    fn columns_pdf_closes_boxes_commands_objects_and_exact_bytes() {
+        let display = typaxis_display_list::staging_columns_display_fixture();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let first = serialize_staging_columns_pdf(&display, &limits).unwrap();
+        let second = serialize_staging_columns_pdf(&display, &limits).unwrap();
+        assert_eq!(first.bytes(), second.bytes());
+        assert_eq!(first.pages().len(), 2);
+        let text = String::from_utf8_lossy(first.bytes());
+        assert_eq!(text.matches("/MediaBox").count(), 2);
+        assert_eq!(text.matches("/CropBox").count(), 2);
+        assert_eq!(text.matches("/TrimBox").count(), 2);
+        assert!(text.contains("% typaxis column=0"));
+        assert!(text.contains("% typaxis column=1"));
+        first.verify_receipt(&display).unwrap();
+    }
+
+    #[test]
+    fn columns_pdf_rejects_extra_wrong_page_object_and_exact_limit_tamper() {
+        let display = typaxis_display_list::staging_columns_display_fixture();
+        let exact = ResourceLimits {
+            max_pdf_objects: 6,
+            ..ResourceLimits::default()
+        };
+        let exact = ValidatedResourceLimits::new(exact).unwrap();
+        let mut pdf = serialize_staging_columns_pdf(&display, &exact).unwrap();
+        pdf.pages[0].page_object_id = 4;
+        assert!(matches!(
+            pdf.verify_receipt(&display),
+            Err(StagingColumnsPdfError::DisplayClosureMismatch)
+        ));
+
+        let mut wrong_page = serialize_staging_columns_pdf(&display, &exact).unwrap();
+        wrong_page.pages[0].page_index = 1;
+        assert!(matches!(
+            wrong_page.verify_receipt(&display),
+            Err(StagingColumnsPdfError::DisplayClosureMismatch)
+        ));
+
+        let mut extra = serialize_staging_columns_pdf(&display, &exact).unwrap();
+        extra.pages.push(extra.pages[0].clone());
+        assert!(matches!(
+            extra.verify_receipt(&display),
+            Err(StagingColumnsPdfError::DisplayClosureMismatch)
+        ));
+
+        let over = ResourceLimits {
+            max_pdf_objects: 5,
+            ..ResourceLimits::default()
+        };
+        let over = ValidatedResourceLimits::new(over).unwrap();
+        assert!(matches!(
+            serialize_staging_columns_pdf(&display, &over),
+            Err(StagingColumnsPdfError::PageObjectLimit)
+        ));
     }
 }

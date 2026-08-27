@@ -7,6 +7,7 @@
 //! that descriptor, so advertising a feature and accepting it cannot drift
 //! into independent lists.
 
+mod advanced_columns;
 mod advanced_header_footer;
 mod basic_figures;
 mod basic_links;
@@ -20,6 +21,11 @@ mod preflight;
 #[cfg(test)]
 mod tests;
 
+pub use advanced_columns::{
+    preflight_staging_columns_profile, StagingColumnsPreflightError,
+    StagingColumnsPreflightReceipt, StagingColumnsProfileDescriptor, StagingColumnsSessionIdentity,
+    COLUMNS_PROFILE_RECEIPT_ALGORITHM, STAGING_COLUMNS_PROFILE_ID,
+};
 pub use advanced_header_footer::{
     preflight_staging_header_footer_profile, StagingHeaderFooterPreflightError,
     StagingHeaderFooterPreflightReceipt, StagingHeaderFooterProfileDescriptor,

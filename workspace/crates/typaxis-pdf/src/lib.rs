@@ -1,7 +1,12 @@
 #![forbid(unsafe_code)]
 
+mod advanced_columns;
 mod advanced_header_footer;
 
+pub use advanced_columns::{
+    serialize_staging_columns_pdf, StagingColumnsPdf, StagingColumnsPdfClosureReceipt,
+    StagingColumnsPdfError, StagingColumnsPdfPageObservation,
+};
 pub use advanced_header_footer::{
     serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,
     StagingHeaderFooterPdfClosureReceipt, StagingHeaderFooterPdfError,

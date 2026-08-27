@@ -1734,7 +1734,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-10 Multi-column flowとbounded balanceを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-08
 - Design inputs: docs/25 §7 writing/page requirements、§13.1 future subflows
 - Primary files:
@@ -1773,6 +1773,13 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list columns --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf columns --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_columns --locked`
+- Implementation notes (2026-08-28, Linux):
+  - public/current 1.2を変更せず、MI3-08で採択しMI3-09で着地したprivate `typaxis.contract/1.3` column DTO/domain/syntax/three-schema staging registryを`columns-1`専用runnerへ接続した。public strict decoderはraw 1.3を引き続き拒否し、public profile dispatch/capability/current Schema aliasは未変更である。
+  - `columns-1` preflightをopaque session、raw/canonical package fingerprint、style/document epoch、全effective limitsへbindした。horizontal-tb/LTR、exact one master、full-media trim、null auxiliary regions/content、sequential + last-page column form、checked count/gap geometry、block Figure、closed basic-document structural subsetだけをlayout前に受理する。
+  - body/list-item/figure-captionをpreorderで割り当てた後、physical columnをascending indexでparent body/source bodyへbindするcanonical dense FlowId registryを実装した。`(count-1)*gap`、available、floor width、last-physical-column residualをchecked導出し、receipt verificationはpackageから全flow/column/block registryを独立再導出する。
+  - nonfinal pageをfull-height ascending columnへsequential fillし、body cursorのstrict monotonic progressと各frame before/after positionをselected receiptへbindした。nonempty terminal pageだけをfull-height evaluationから`ceil(selected_extent/count)`で開始し、typed rejection deficitによるstrictly increasing target、candidate/input/rejection fingerprint、inclusive max、max+1前`G6003`、oscillation、empty trailing frame、indivisible oversizeを閉じた。
+  - selected column frame/FlowId/cursor/balance receiptからstructural Display commandsとclassic PDF page dictionaries/contentを構築し、manifest projectorがpage/master/box/column/frame/source/node/bounds/paint hashを相互検証する。paragraph/list/block-Figure combined、empty、neutral null-layout、oversize、wrong target/column/page/object、candidate/page/fragment/output exact/max+1、session/limits/package replay、same-toolchain reproducibilityとcanonical Schema goldenを追加した。
+  - milestone指定の4 test、layout/manifest focused test、private Schema validator、forbidden-dependency test、locked workspace all-target check/test、clippy `-D warnings`、cargo format、Markdown link/table、whitespace/diff checkをlocalで完了した。current aliasとversioned 1.2 DocumentPackage Schemaは同一byteのままで、floatとfull 1.3 publication/release evidenceはMI3-11/MI3-12に残る。
 - Non-goals:
   - unbounded optimal balancing
   - vertical writing mode
