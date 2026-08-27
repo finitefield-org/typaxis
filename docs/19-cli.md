@@ -28,7 +28,7 @@ typaxis list-fonts --font-dir DIR
 | sealed machine package commands | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed profile | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed profiles | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
-| contract 1.3 advanced-pagination profiles | Yes, ADR-0031 target | No | No; public IDs rejected | No, MI3-12 gate |
+| contract 1.3 advanced-pagination profiles | Yes, ADR-0031 target | Partial: private `header-footer-1`; columns/float pending | No; public IDs rejected | No, MI3-12 gate |
 
 `Contract-defined`やoffline Schema validationはcommand registrationを意味しない。上表のpublic E2Eはclean-built binaryのpositive/negative fixtureで確認済みであり、M1 release statusは同一source/artifactに対するLinux/macOS actual-host evidenceの集約で閉じた。
 

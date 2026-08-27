@@ -1,5 +1,12 @@
 #![forbid(unsafe_code)]
 
+mod advanced;
+
+pub use advanced::{
+    StagingAdvancedPackageParseError, StagingAdvancedPackageParser, StagingAdvancedSyntaxFailure,
+    ValidatedStagingAdvancedPackage,
+};
+
 use core::num::{NonZeroU16, NonZeroU64};
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
@@ -48,7 +55,10 @@ use typaxis_text::{
 /// module issues no trusted value and exposes no DTO-to-trusted promotion path.
 #[doc(hidden)]
 pub mod machine_profile_boundary {
-    pub use typaxis_document::{Block, FootnoteDefinition, Inline, ReferenceFormat};
+    pub use typaxis_document::{
+        Block, FigurePlacement, FootnoteDefinition, Inline, PageRegionBlock, PageRegionInline,
+        ReferenceFormat,
+    };
     pub use typaxis_document_package as wire;
     pub use typaxis_machine_input::{
         AtomicFilePublicationCapabilityToken, HostMachineInputSession,
@@ -58,7 +68,7 @@ pub mod machine_profile_boundary {
     };
     pub use typaxis_style::{
         BasicBlockStylePropertyDescriptor, BasicStyleBlockKind, BasicStyleProperty, PageMaster,
-        PageMasterRule, StyleRule, StyleValue, BASIC_BLOCK_STYLE_PROPERTIES,
+        PageMasterRule, PageParity, StyleRule, StyleValue, BASIC_BLOCK_STYLE_PROPERTIES,
         BASIC_BLOCK_STYLE_REGISTRY_VERSION,
     };
 

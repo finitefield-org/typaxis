@@ -1682,7 +1682,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-09 Header/footer subflowとpage-master selectionを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-08
 - Design inputs: docs/25 §7 page master、§13.1 future subflows
 - Primary files:
@@ -1699,6 +1699,12 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `workspace/crates/typaxis-cli/tests/`
   - `samples/machine-package/`
   - `schemas/`
+  - `README.md`
+  - `docs/19-cli.md`
+  - `docs/21-roadmap.md`
+  - `docs/22-contract-matrix.md`
+  - `docs/23-implementation-checklist.md`
+  - `contracts/machine-pdf-capabilities.md`
 - Deliverables:
   - typed page-master selection、page boxesとheader/footer independent subflows。
 - Tasks:
@@ -1716,6 +1722,13 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination page_master --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_header_footer --locked`
+- Implementation notes (2026-08-28, Linux):
+  - current/public 1.2を変更せず、private `typaxis.contract/1.3` staging decoder、DTO/domain、global dense NodeIdとregion grammarのsyntax validation、three-file staging Schema registryを追加した。public strict decoderはraw 1.3を引き続き拒否し、current aliasとversioned 1.2 DocumentPackage Schemaは同一byteのままである。
+  - private `header-footer-1` preflightをeffective limitsとopaque session identityへbindし、horizontal-tb/LTR、singleまたはcanonical first/left/right master集合、custom trim、checked Media/Crop/Trim boxes、margin/header/body/footer non-overlap、unsupported columns/footnote/name/rule/style domainをresource/layout前に閉じた。
+  - body、master-owned header/footer、list/caption descendantをcanonical dense FlowId registryへ分離した。page ordinalからmasterを選択し、regionは各selected pageでsource startからterminalまで独立実行し、per-master/kind repetition index、body cursor、frame/fragment workをchecked limitの範囲でreceiptへbindした。
+  - selected layout、page-region block boundsのprivate structural Display paint、classic PDF page dictionary、trace/build共通advanced projectionをprofile/flow/selected/paint hashで相互検証した。PDFはexact MediaBox=CropBox、custom TrimBox、no BleedBox/ArtBox/Rotate/UserUnitを発行し、manifest projectorはpage/master/box/repetition/paintのmissing/extra/mismatchをtyped failureにする。public resource admission、text/image paint、通常artifact publicationとの統合はMI3-12のままである。
+  - custom trim + first/left/right + three-page paragraph/list/block-Figure、empty region/body、region oversize、unsupported master、same-position progress、session/limits/raw-package replay、page/object/output exact/max+1をfixture/testへ追加した。combined runner outputはschema-valid canonical three-page goldenとexact byte比較する。
+  - milestone指定test、private Schema validator、forbidden-dependency test、locked workspace all-target check/test、clippy `-D warnings`、cargo format、Markdown link/table、whitespace/diff checkをlocalで完了した。public CLI/profile/capability/current Schema aliasesは未変更で、columns/floatとfull 1.3 publication/release evidenceはMI3-10〜12に残る。
 - Non-goals:
   - running element expression language
 

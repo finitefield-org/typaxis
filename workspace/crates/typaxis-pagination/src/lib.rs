@@ -1,5 +1,16 @@
 #![forbid(unsafe_code)]
 
+mod advanced_header_footer;
+
+pub use advanced_header_footer::{
+    derive_staging_header_footer_body_pages, paginate_staging_header_footer,
+    StagingAdvancedFlowPosition, StagingAdvancedPageFrameKind, StagingHeaderFooterBodyPage,
+    StagingHeaderFooterPaginationError, StagingHeaderFooterSelectedLayout,
+    StagingHeaderFooterSelectedLayoutReceipt, StagingPageMargins, StagingPdfPageBox,
+    StagingRepeatedRegionFragment, StagingSelectedAdvancedFrame, StagingSelectedAdvancedPage,
+    StagingSelectedPageBoxes, ADVANCED_SELECTED_LAYOUT_ALGORITHM,
+};
+
 use core::fmt;
 use core::num::NonZeroU16;
 use std::borrow::Cow;

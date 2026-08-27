@@ -22,7 +22,7 @@
 | M1 `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined fixture | Yes |
 | contract 1.2 generated artifacts | Yes | Yes, current output with frozen 1.0/1.1 input | Yes | Yes |
 | M2 `basic-document-1` and M3 `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined fixtures | Yes, profile gates |
-| M3 `header-footer-1` / `columns-1` / `float-1` targets | Yes, ADR-0031 on non-current contract 1.3 | No; MI3-09 starts private implementation | No; public IDs rejected until MI3-12 | No, MI3-12 gate |
+| M3 `header-footer-1` / `columns-1` / `float-1` targets | Yes, ADR-0031 on non-current contract 1.3 | Partial: `header-footer-1` private vertical slice; columns/float pending | No; public IDs rejected until MI3-12 | No, MI3-12 gate |
 | remaining M4-M5 profiles | No: decision-gate ADR pending | No | No | No |
 
 現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2E、producer guide、再現性・external PDF gate、同一revision/source/artifactのmacOS/Linux actual evidence集約は完了した。GitHub Actionsは使用していない。
@@ -40,7 +40,7 @@
 9. MI3-09〜MI3-11: header/footer、columns、floatをcrate-private stagingとして実装する。
 10. MI3-12: full 1.3 Schema/encoder/decoder/artifact migration、3 profile、`m3-all.json`を一つのpublication gateで公開する。
 
-未採択のmath/vector/book publicationは各decision-gate ADRがAcceptedになるまでcontract-definedへ昇格しない。ADR-0031で採択済みのadvanced paginationもMI3-12まではimplemented/public/release-supportedへ昇格しない。公開済み`paragraph-1`、`basic-document-1`、`table-1`、`footnote-1`を拡張して代用しない。
+未採択のmath/vector/book publicationは各decision-gate ADRがAcceptedになるまでcontract-definedへ昇格しない。ADR-0031で採択済みのadvanced paginationはMI3-09でheader/footerだけをprivate implementationへ進めたが、MI3-12まではpublic/release-supportedへ昇格しない。公開済み`paragraph-1`、`basic-document-1`、`table-1`、`footnote-1`を拡張して代用しない。
 
 ## Existing reference capability history (not completion status)
 

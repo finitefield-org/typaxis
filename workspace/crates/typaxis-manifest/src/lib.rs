@@ -1,5 +1,12 @@
 #![forbid(unsafe_code)]
 
+mod advanced_header_footer;
+
+pub use advanced_header_footer::{
+    project_staging_header_footer_manifest, StagingAdvancedPaginationManifest,
+    StagingAdvancedPaginationManifestError, ADVANCED_PAGINATION_MANIFEST_ALGORITHM,
+};
+
 use core::num::{NonZeroU16, NonZeroU64};
 use std::collections::BTreeMap;
 #[cfg(unix)]

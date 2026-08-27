@@ -7,6 +7,7 @@
 //! that descriptor, so advertising a feature and accepting it cannot drift
 //! into independent lists.
 
+mod advanced_header_footer;
 mod basic_figures;
 mod basic_links;
 mod basic_lists;
@@ -19,6 +20,12 @@ mod preflight;
 #[cfg(test)]
 mod tests;
 
+pub use advanced_header_footer::{
+    preflight_staging_header_footer_profile, StagingHeaderFooterPreflightError,
+    StagingHeaderFooterPreflightReceipt, StagingHeaderFooterProfileDescriptor,
+    StagingHeaderFooterSessionIdentity, StagingMasterSelectionCapability,
+    HEADER_FOOTER_PROFILE_RECEIPT_ALGORITHM, STAGING_HEADER_FOOTER_PROFILE_ID,
+};
 pub use basic_figures::{
     BasicDocumentFigureCaptionPolicy, BasicDocumentFigureDescriptor,
     BasicDocumentFigureMediaPolicy, BasicDocumentFigureOversizePolicy,

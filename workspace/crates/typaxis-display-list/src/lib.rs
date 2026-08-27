@@ -1,5 +1,14 @@
 #![forbid(unsafe_code)]
 
+mod advanced_header_footer;
+
+pub use advanced_header_footer::{
+    build_staging_header_footer_display, StagingHeaderFooterDisplay,
+    StagingHeaderFooterDisplayError, StagingHeaderFooterDisplayPage,
+    StagingHeaderFooterDisplayReceipt, StagingHeaderFooterPaintCommand, StagingPdfPageBox,
+    StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
+};
+
 use typaxis_core::{
     push_generated_buffer_key_jcs, push_jcs_string, sha256, AffineTransform, AnchorId, BidiLevel,
     DisplayGlyphRunId, DisplayTextBufferId, DisplayTextSpan, EffectiveConfig, FontFaceId,

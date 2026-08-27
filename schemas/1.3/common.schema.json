@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.3/common.schema.json",
+  "title": "Typaxis Common Definitions 1.3 (private staging)",
+  "$defs": {
+    "contract": {
+      "const": "typaxis.contract/1.3"
+    },
+    "coordinate_unit": {
+      "const": "pdf_point_1_65536"
+    },
+    "id32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "layout_epoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admitted_resources_sha256",
+        "document_sha256",
+        "resolved_input_sha256",
+        "style_page_master_sha256"
+      ],
+      "properties": {
+        "admitted_resources_sha256": {"$ref": "#/$defs/sha256"},
+        "document_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_input_sha256": {"$ref": "#/$defs/sha256"},
+        "style_page_master_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "u16": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "safe_integer": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "nonnegative_safe_integer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "positive_safe_integer": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "length": {
+      "$ref": "#/$defs/safe_integer"
+    },
+    "positive_length": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "start_byte",
+        "end_byte"
+      ],
+      "properties": {
+        "source_id": {
+          "$ref": "#/$defs/id32"
+        },
+        "start_byte": {
+          "$ref": "#/$defs/id32"
+        },
+        "end_byte": {
+          "$ref": "#/$defs/id32"
+        }
+      }
+    },
+    "text_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text_id",
+        "start_byte",
+        "end_byte"
+      ],
+      "properties": {
+        "text_id": {
+          "$ref": "#/$defs/id32"
+        },
+        "start_byte": {
+          "$ref": "#/$defs/id32"
+        },
+        "end_byte": {
+          "$ref": "#/$defs/id32"
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/length"
+        },
+        "y": {
+          "$ref": "#/$defs/length"
+        }
+      }
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/length"
+        },
+        "y": {
+          "$ref": "#/$defs/length"
+        },
+        "width": {
+          "$ref": "#/$defs/positive_length"
+        },
+        "height": {
+          "$ref": "#/$defs/positive_length"
+        }
+      }
+    },
+    "affine_transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "a_16_16",
+        "b_16_16",
+        "c_16_16",
+        "d_16_16",
+        "e",
+        "f"
+      ],
+      "properties": {
+        "a_16_16": {
+          "$ref": "#/$defs/unitless_16_16"
+        },
+        "b_16_16": {
+          "$ref": "#/$defs/unitless_16_16"
+        },
+        "c_16_16": {
+          "$ref": "#/$defs/unitless_16_16"
+        },
+        "d_16_16": {
+          "$ref": "#/$defs/unitless_16_16"
+        },
+        "e": {
+          "$ref": "#/$defs/length"
+        },
+        "f": {
+          "$ref": "#/$defs/length"
+        }
+      }
+    },
+    "link_target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "anchor_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "internal"
+            },
+            "anchor_id": {
+              "$ref": "#/$defs/anchor_id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "uri"
+          ],
+          "properties": {
+            "kind": {
+              "const": "uri"
+            },
+            "uri": {
+              "$ref": "#/$defs/allowed_uri"
+            }
+          }
+        }
+      ]
+    },
+    "nonnegative_length": {
+      "$ref": "#/$defs/nonnegative_safe_integer"
+    },
+    "byte_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_byte",
+        "end_byte"
+      ],
+      "properties": {
+        "start_byte": {
+          "$ref": "#/$defs/id32"
+        },
+        "end_byte": {
+          "$ref": "#/$defs/id32"
+        }
+      }
+    },
+    "bidi_level": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 125
+    },
+    "unitless_16_16": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647
+    },
+    "positive_unitless_16_16": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "anchor_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$",
+      "not": {
+        "pattern": "[\\u0000-\\u001F\\u007F]"
+      }
+    },
+    "footnote_id": {
+      "$ref": "#/$defs/anchor_id"
+    },
+    "style_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+      "not": {
+        "pattern": "[\\u0000-\\u001F\\u007F]"
+      }
+    },
+    "page_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+      "not": {
+        "pattern": "[\\u0000-\\u001F\\u007F]"
+      }
+    },
+    "master_id": {
+      "$ref": "#/$defs/style_id"
+    },
+    "allowed_uri": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "[\\u0000-\\u001F\\u007F]"
+      },
+      "oneOf": [
+        {
+          "pattern": "^https?://[^\\s/?#]+(?:[^\\s]*)$"
+        },
+        {
+          "pattern": "^mailto:[^\\s@]+@[^\\s@]+(?:\\?[^\\s]*)?$"
+        },
+        {
+          "pattern": "^tel:\\+?[0-9][0-9().-]*$"
+        }
+      ]
+    },
+    "portable_relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*//)(?!.*\\/$).+$"
+        },
+        {
+          "not": {
+            "pattern": "(^|/)(?:\\.|\\.\\.)(?:/|$)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "[\\u0000-\\u001F\\u007F]"
+          }
+        }
+      ]
+    },
+    "resource_root": {
+      "oneOf": [
+        {
+          "const": "."
+        },
+        {
+          "$ref": "#/$defs/portable_relative_path"
+        }
+      ]
+    }
+  }
+}

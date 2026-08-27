@@ -3,8 +3,8 @@
 use core::num::NonZeroU16;
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
-    AnchorId, FootnoteId, GeneratedBufferKey, GenerationKind, ImageResourceId, NodeId,
-    PortablePath, PositiveLength, SafeUri, SourceSpan, TextSpan,
+    AnchorId, FootnoteId, GeneratedBufferKey, GenerationKind, ImageResourceId, MasterId, NodeId,
+    NonNegativeLength, PortablePath, PositiveLength, Rect, SafeUri, SourceSpan, TextSpan,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -12,6 +12,160 @@ pub struct Document {
     pub node_id: NodeId,
     pub blocks: Vec<Block>,
     pub footnotes: Vec<FootnoteDefinition>,
+}
+
+/// Contract-1.3 page-region content.  This intentionally is not a `Document`:
+/// the closed region grammar has no definitions, generated sites, containers,
+/// links, or other body-only constructs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PageRegion {
+    pub node_id: NodeId,
+    pub span: SourceSpan,
+    pub blocks: Vec<PageRegionBlock>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PageRegionBlock {
+    Paragraph {
+        node_id: NodeId,
+        span: SourceSpan,
+        classes: Vec<String>,
+        children: Vec<PageRegionInline>,
+    },
+    Heading {
+        node_id: NodeId,
+        span: SourceSpan,
+        classes: Vec<String>,
+        level: HeadingLevel,
+        children: Vec<PageRegionInline>,
+    },
+}
+
+impl PageRegionBlock {
+    pub const fn node_id(&self) -> NodeId {
+        match self {
+            Self::Paragraph { node_id, .. } | Self::Heading { node_id, .. } => *node_id,
+        }
+    }
+
+    pub const fn span(&self) -> SourceSpan {
+        match self {
+            Self::Paragraph { span, .. } | Self::Heading { span, .. } => *span,
+        }
+    }
+
+    pub fn classes(&self) -> &[String] {
+        match self {
+            Self::Paragraph { classes, .. } | Self::Heading { classes, .. } => classes,
+        }
+    }
+
+    pub fn children(&self) -> &[PageRegionInline] {
+        match self {
+            Self::Paragraph { children, .. } | Self::Heading { children, .. } => children,
+        }
+    }
+
+    pub const fn style_block_name(&self) -> &'static str {
+        match self {
+            Self::Paragraph { .. } => "paragraph",
+            Self::Heading { .. } => "heading",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PageRegionInline {
+    Text {
+        node_id: NodeId,
+        span: SourceSpan,
+        text_span: TextSpan,
+    },
+    SoftBreak {
+        node_id: NodeId,
+        span: SourceSpan,
+    },
+    HardBreak {
+        node_id: NodeId,
+        span: SourceSpan,
+    },
+}
+
+impl PageRegionInline {
+    pub const fn node_id(&self) -> NodeId {
+        match self {
+            Self::Text { node_id, .. }
+            | Self::SoftBreak { node_id, .. }
+            | Self::HardBreak { node_id, .. } => *node_id,
+        }
+    }
+
+    pub const fn span(&self) -> SourceSpan {
+        match self {
+            Self::Text { span, .. }
+            | Self::SoftBreak { span, .. }
+            | Self::HardBreak { span, .. } => *span,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FigurePlacement {
+    Block,
+    Float,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PageProgression {
+    LeftToRight,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PageWritingMode {
+    HorizontalTopToBottom,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ColumnFill {
+    Sequential,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ColumnBalance {
+    None,
+    LastPage,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ColumnLayout {
+    pub count: NonZeroU16,
+    pub gap: NonNegativeLength,
+    pub fill: ColumnFill,
+    pub balance: ColumnBalance,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdvancedPageMaster {
+    pub master_id: MasterId,
+    pub trim: Rect,
+    pub header_content: Option<PageRegion>,
+    pub footer_content: Option<PageRegion>,
+    pub column_layout: Option<ColumnLayout>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdvancedPageMasterSet {
+    pub page_progression: PageProgression,
+    pub writing_mode: PageWritingMode,
+    pub masters: Vec<AdvancedPageMaster>,
+}
+
+impl AdvancedPageMasterSet {
+    pub fn master(&self, master_id: &MasterId) -> Option<&AdvancedPageMaster> {
+        self.masters
+            .iter()
+            .find(|master| &master.master_id == master_id)
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LinkTarget {

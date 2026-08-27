@@ -27,6 +27,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent
 FROZEN_SCHEMA_DIR = SCHEMA_DIR / "1.0"
 PREVIOUS_SCHEMA_DIR = SCHEMA_DIR / "1.1"
 STAGING_SCHEMA_DIR = SCHEMA_DIR / "1.2"
+ADVANCED_STAGING_SCHEMA_DIR = SCHEMA_DIR / "1.3"
 REPOSITORY_ROOT = SCHEMA_DIR.parent
 MINIMAL_DIR = REPOSITORY_ROOT / "samples" / "minimal"
 CONFORMANCE_DIR = REPOSITORY_ROOT / "samples" / "conformance"
@@ -62,6 +63,11 @@ STAGING_LINK_FIXTURE_DIR = (
     / "staging"
     / "basic-document-1"
     / "machine-link"
+)
+STAGING_HEADER_FOOTER_FIXTURE_ROOT = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "header-footer-1"
 )
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
@@ -4889,6 +4895,9 @@ def main() -> int:
         staging_schemas, staging_validators, staging_reference_count = load_schema_registry(
             STAGING_SCHEMA_DIR, "1.2"
         )
+        advanced_staging_schemas, advanced_staging_validators, advanced_staging_reference_count = (
+            load_schema_registry(ADVANCED_STAGING_SCHEMA_DIR, "1.3")
+        )
         if set(staging_schemas) != {
             "build-manifest.schema.json",
             "common.schema.json",
@@ -4911,6 +4920,12 @@ def main() -> int:
             "package-config.schema.json",
         }:
             raise ValidationFailure("the versioned 1.2 registry has a missing or extra schema")
+        if set(advanced_staging_schemas) != {
+            "common.schema.json",
+            "document-package.schema.json",
+            "machine-advanced-pagination-manifest.schema.json",
+        }:
+            raise ValidationFailure("the private 1.3 staging registry has a missing or extra schema")
         if set(frozen_schemas) != set(FROZEN_SCHEMA_SHA256):
             raise ValidationFailure("the frozen 1.0 registry has a missing or extra schema")
         for filename, expected_digest in FROZEN_SCHEMA_SHA256.items():
@@ -4932,6 +4947,38 @@ def main() -> int:
                     f"the frozen 1.1 schema bytes changed: {filename}"
                 )
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
+        for fixture_name in ("combined", "empty", "oversize"):
+            advanced_document = load_json(
+                STAGING_HEADER_FOOTER_FIXTURE_ROOT
+                / fixture_name
+                / "job"
+                / "document-package.json"
+            )
+            advanced_document_errors = schema_errors(
+                advanced_staging_validators["document-package.schema.json"],
+                advanced_document,
+            )
+            if advanced_document_errors:
+                raise ValidationFailure(
+                    f"the private 1.3 header/footer {fixture_name} fixture was rejected: "
+                    + " | ".join(advanced_document_errors)
+                )
+        advanced_manifest = load_json(
+            STAGING_HEADER_FOOTER_FIXTURE_ROOT
+            / "combined"
+            / "staging-advanced-pagination.json"
+        )
+        advanced_manifest_errors = schema_errors(
+            advanced_staging_validators[
+                "machine-advanced-pagination-manifest.schema.json"
+            ],
+            advanced_manifest,
+        )
+        if advanced_manifest_errors:
+            raise ValidationFailure(
+                "the private 1.3 advanced-pagination projection was rejected: "
+                + " | ".join(advanced_manifest_errors)
+            )
         minimal_document = load_json(MINIMAL_DIR / "document-package.json")
         minimal_display = load_json(MINIMAL_DIR / "display-list.json")
         minimal_trace = load_json(MINIMAL_DIR / "layout-trace.json")
@@ -5998,7 +6045,8 @@ def main() -> int:
             "validated "
             f"{len(frozen_schemas)} frozen 1.0, {len(previous_schemas)} frozen 1.1, "
             f"{len(schemas)} current 1.2 aliases, and {len(staging_schemas)} versioned 1.2 schemas, "
-            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count} refs, "
+            f"{len(advanced_staging_schemas)} private staging 1.3 schemas, "
+            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count + advanced_staging_reference_count} refs, "
             f"{len(POSITIVE_FIXTURES)} artifact and "
             f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
             f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "

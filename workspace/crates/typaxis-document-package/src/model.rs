@@ -379,6 +379,131 @@ pub struct WirePageMasterSet {
     pub selection_rules: Vec<WirePageMasterRule>,
 }
 
+/// Required contract-1.3 additions retained beside the frozen 1.2 DTO.  They
+/// are decoded only by the private advanced-pagination decoder until MI3-12.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WirePageProgression {
+    LeftToRight,
+}
+
+impl WirePageProgression {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LeftToRight => "ltr",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WirePageWritingMode {
+    HorizontalTopToBottom,
+}
+
+impl WirePageWritingMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::HorizontalTopToBottom => "horizontal-tb",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WireFigurePlacement {
+    Block,
+    Float,
+}
+
+impl WireFigurePlacement {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::Float => "float",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WireColumnFill {
+    Sequential,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WireColumnBalance {
+    None,
+    LastPage,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WireColumnLayout {
+    pub count: u16,
+    pub gap: i64,
+    pub fill: WireColumnFill,
+    pub balance: WireColumnBalance,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WirePageRegionInline {
+    Text {
+        node_id: u32,
+        span: WireSourceSpan,
+        text_span: WireTextSpan,
+    },
+    SoftBreak {
+        node_id: u32,
+        span: WireSourceSpan,
+    },
+    HardBreak {
+        node_id: u32,
+        span: WireSourceSpan,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WirePageRegionBlock {
+    Paragraph {
+        node_id: u32,
+        span: WireSourceSpan,
+        classes: Vec<String>,
+        children: Vec<WirePageRegionInline>,
+    },
+    Heading {
+        node_id: u32,
+        span: WireSourceSpan,
+        classes: Vec<String>,
+        level: u8,
+        children: Vec<WirePageRegionInline>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WirePageRegion {
+    pub node_id: u32,
+    pub span: WireSourceSpan,
+    pub blocks: Vec<WirePageRegionBlock>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WireAdvancedPageMaster {
+    pub master_id: String,
+    pub trim: WireRect,
+    pub header_content: Option<WirePageRegion>,
+    pub footer_content: Option<WirePageRegion>,
+    pub column_layout: Option<WireColumnLayout>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WireAdvancedPageMasterSet {
+    pub page_progression: WirePageProgression,
+    pub writing_mode: WirePageWritingMode,
+    pub masters: Vec<WireAdvancedPageMaster>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WireFigurePlacementRecord {
+    pub node_id: u32,
+    pub placement: WireFigurePlacement,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WireFontFace {
     pub font_face_id: u32,

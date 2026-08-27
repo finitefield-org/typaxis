@@ -5,6 +5,7 @@
 //! The public DTOs in this crate are intentionally caller-constructible. They
 //! describe wire data and confer no admission or syntax-validation trust.
 
+mod advanced;
 mod decode;
 mod encoder;
 mod error;
@@ -13,6 +14,10 @@ mod location;
 mod model;
 mod preflight;
 
+pub use advanced::{
+    DecodedStagingAdvancedDocumentPackage, StagingAdvancedDecodeError,
+    StagingAdvancedDocumentPackageDecoder, STAGING_ADVANCED_DOCUMENT_PACKAGE_CONTRACT,
+};
 pub use decode::{
     DecodedDocumentPackage, DecodedStagingStyleDocumentPackage, DocumentPackageDecodeError,
     DocumentPackageDecodeErrorClass, DocumentPackageDecodeLimit, DocumentPackageDecodeLocation,

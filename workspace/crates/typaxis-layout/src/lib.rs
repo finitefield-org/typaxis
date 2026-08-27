@@ -1,5 +1,16 @@
 #![forbid(unsafe_code)]
 
+mod advanced_header_footer;
+
+#[cfg(feature = "staging-fixtures")]
+pub use advanced_header_footer::staging_header_footer_page_master_fixture;
+pub use advanced_header_footer::{
+    layout_staging_header_footer, StagingAdvancedFlowOwnerKind, StagingAdvancedFlowRecord,
+    StagingAdvancedFlowRegistryReceipt, StagingHeaderFooterLayout, StagingHeaderFooterLayoutError,
+    StagingPageRegionKind, StagingPageRegionLayout, StagingRegionBlockLayout,
+    ADVANCED_FLOW_REGISTRY_ALGORITHM,
+};
+
 use core::cmp::Ordering;
 use core::num::{NonZeroU16, NonZeroU32};
 use std::collections::{BTreeMap, BTreeSet};

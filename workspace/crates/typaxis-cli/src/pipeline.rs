@@ -4356,6 +4356,147 @@ fn map_resource_error(error: ResourceError) -> Failure {
     }
 }
 
+/// Private MI3-09 vertical runner.  It is callable only from crate tests and
+/// does not register a hidden selector or alter the public parser's rejection
+/// of the reserved ID. MI3-12 removes this entry point when 1.3 is published.
+#[derive(Debug)]
+#[cfg(test)]
+pub(crate) struct MachineHeaderFooterStagingOutput {
+    pdf: Vec<u8>,
+    projection_jcs: String,
+    trace_jcs: String,
+    manifest_jcs: String,
+    selected_masters: Vec<String>,
+    selected_layout_sha256: [u8; 32],
+    paint_closure_sha256: [u8; 32],
+}
+
+#[cfg(test)]
+impl MachineHeaderFooterStagingOutput {
+    pub(crate) fn pdf(&self) -> &[u8] {
+        &self.pdf
+    }
+    pub(crate) fn trace_jcs(&self) -> &str {
+        &self.trace_jcs
+    }
+    pub(crate) fn projection_jcs(&self) -> &str {
+        &self.projection_jcs
+    }
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+    pub(crate) fn selected_masters(&self) -> &[String] {
+        &self.selected_masters
+    }
+    pub(crate) const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub(crate) const fn paint_closure_sha256(&self) -> [u8; 32] {
+        self.paint_closure_sha256
+    }
+}
+
+#[derive(Debug)]
+#[cfg(test)]
+pub(crate) enum MachineHeaderFooterStagingError {
+    Decode(typaxis_document_package::StagingAdvancedDecodeError),
+    Syntax(typaxis_syntax::StagingAdvancedPackageParseError),
+    Profile(typaxis_machine_profile::StagingHeaderFooterPreflightError),
+    Layout(typaxis_layout::StagingHeaderFooterLayoutError),
+    Pagination(typaxis_pagination::StagingHeaderFooterPaginationError),
+    Display(typaxis_display_list::StagingHeaderFooterDisplayError),
+    Pdf(typaxis_pdf::StagingHeaderFooterPdfError),
+    Manifest(typaxis_manifest::StagingAdvancedPaginationManifestError),
+    InvalidPolicy,
+}
+
+#[cfg(test)]
+impl std::fmt::Display for MachineHeaderFooterStagingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Decode(error) => error.fmt(formatter),
+            Self::Syntax(error) => error.fmt(formatter),
+            Self::Profile(error) => error.fmt(formatter),
+            Self::Layout(error) => error.fmt(formatter),
+            Self::Pagination(error) => error.fmt(formatter),
+            Self::Display(error) => error.fmt(formatter),
+            Self::Pdf(error) => error.fmt(formatter),
+            Self::Manifest(error) => error.fmt(formatter),
+            Self::InvalidPolicy => formatter.write_str("invalid staging URI policy"),
+        }
+    }
+}
+
+#[cfg(test)]
+impl std::error::Error for MachineHeaderFooterStagingError {}
+
+#[cfg(test)]
+pub(crate) fn run_staging_machine_header_footer(
+    package_bytes: &[u8],
+    source_utf8: String,
+    limits: &ValidatedResourceLimits,
+) -> Result<MachineHeaderFooterStagingOutput, MachineHeaderFooterStagingError> {
+    let profile_session = typaxis_machine_profile::StagingHeaderFooterSessionIdentity::fresh();
+    let decode_policy = typaxis_document_package::DocumentPackageDecodePolicy::new(limits);
+    let decoded = typaxis_document_package::StagingAdvancedDocumentPackageDecoder::new()
+        .decode(package_bytes, &decode_policy)
+        .map_err(MachineHeaderFooterStagingError::Decode)?;
+    let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    let syntax_policy = typaxis_syntax::PackageValidationPolicy::new(limits, &allowed_schemes)
+        .map_err(|_| MachineHeaderFooterStagingError::InvalidPolicy)?;
+    let package = typaxis_syntax::StagingAdvancedPackageParser::new()
+        .parse(decoded, source_utf8, &syntax_policy)
+        .map_err(MachineHeaderFooterStagingError::Syntax)?;
+    let profile = typaxis_machine_profile::preflight_staging_header_footer_profile(
+        &package,
+        limits,
+        &profile_session,
+    )
+    .map_err(MachineHeaderFooterStagingError::Profile)?;
+    profile
+        .verify(&package, limits, &profile_session)
+        .map_err(MachineHeaderFooterStagingError::Profile)?;
+    let layout = typaxis_layout::layout_staging_header_footer(
+        &package,
+        profile.profile_receipt_sha256(),
+        limits,
+    )
+    .map_err(MachineHeaderFooterStagingError::Layout)?;
+    layout
+        .verify_receipt(&package, profile.profile_receipt_sha256())
+        .map_err(MachineHeaderFooterStagingError::Layout)?;
+    let body_pages = typaxis_pagination::derive_staging_header_footer_body_pages(&package, limits)
+        .map_err(MachineHeaderFooterStagingError::Pagination)?;
+    let selected = typaxis_pagination::paginate_staging_header_footer(&layout, &body_pages, limits)
+        .map_err(MachineHeaderFooterStagingError::Pagination)?;
+    let display = typaxis_display_list::build_staging_header_footer_display(&selected)
+        .map_err(MachineHeaderFooterStagingError::Display)?;
+    let pdf = typaxis_pdf::serialize_staging_header_footer_pdf(&display, limits)
+        .map_err(MachineHeaderFooterStagingError::Pdf)?;
+    let manifest =
+        typaxis_manifest::project_staging_header_footer_manifest(&selected, &display, &pdf)
+            .map_err(MachineHeaderFooterStagingError::Manifest)?;
+    let selected_masters = selected
+        .pages()
+        .iter()
+        .map(|page| page.master_id().as_str().to_owned())
+        .collect();
+    let projection_jcs = manifest.canonical_jcs().to_owned();
+    let projection = manifest.wrapped_artifact_jcs();
+    Ok(MachineHeaderFooterStagingOutput {
+        pdf: pdf.bytes().to_vec(),
+        projection_jcs,
+        trace_jcs: projection.clone(),
+        manifest_jcs: projection,
+        selected_masters,
+        selected_layout_sha256: manifest.selected_layout_sha256(),
+        paint_closure_sha256: manifest.paint_closure_sha256(),
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -6813,5 +6954,242 @@ pub(crate) mod tests {
         ));
         assert_eq!(diagnostics.diagnostics().len(), 1);
         assert_eq!(*diagnostics.diagnostics()[0].code(), L5101);
+    }
+
+    #[test]
+    fn machine_header_footer_combined_closes_master_boxes_display_pdf_and_manifest() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/header-footer-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let output = run_staging_machine_header_footer(package, String::new(), &limits).unwrap();
+
+        assert_eq!(output.selected_masters(), ["first", "left", "right"]);
+        assert_eq!(output.trace_jcs(), output.manifest_jcs());
+        let golden = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/header-footer-1/combined/staging-advanced-pagination.json"
+        ));
+        assert_eq!(output.projection_jcs(), golden.trim_end());
+        assert!(output
+            .manifest_jcs()
+            .contains("\"algorithm\":\"typaxis.advanced-pagination-manifest/1\""));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"media_box\":[0,0,40000000,50000000]"));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"trim_box\":[1000000,1000000,39000000,49000000]"));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"kind\":\"header\",\"rect\""));
+        assert!(output.manifest_jcs().contains("\"kind\":\"body\",\"rect\""));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"kind\":\"footer\",\"rect\""));
+        assert_ne!(output.selected_layout_sha256(), [0; 32]);
+        assert_ne!(output.paint_closure_sha256(), [0; 32]);
+
+        let pdf = String::from_utf8_lossy(output.pdf());
+        assert_eq!(pdf.matches("/MediaBox").count(), 3);
+        assert_eq!(pdf.matches("/CropBox").count(), 3);
+        assert_eq!(pdf.matches("/TrimBox").count(), 3);
+        assert!(!pdf.contains("/BleedBox"));
+        assert!(!pdf.contains("/ArtBox"));
+        assert!(!pdf.contains("/Rotate"));
+        assert!(!pdf.contains("/UserUnit"));
+        assert!(pdf.contains("% typaxis header"));
+        assert!(pdf.contains("% typaxis footer"));
+        assert!(pdf.contains(" re f Q"));
+
+        let public_error = wire::StrictDocumentPackageDecoder::new()
+            .decode(package, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .expect_err("public current decoder must continue rejecting 1.3");
+        assert!(matches!(
+            public_error.typed_error().map(|error| error.kind()),
+            Some(wire::DocumentPackageTypedDecodeErrorKind::UnknownContract)
+        ));
+    }
+
+    #[test]
+    fn machine_header_footer_profile_receipt_rejects_limit_session_and_package_replay() {
+        let package_bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/header-footer-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let decode_policy = wire::DocumentPackageDecodePolicy::new(&limits);
+        let decoded = wire::StagingAdvancedDocumentPackageDecoder::new()
+            .decode(package_bytes, &decode_policy)
+            .unwrap();
+        let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>();
+        let syntax_policy =
+            typaxis_syntax::PackageValidationPolicy::new(&limits, &allowed_schemes).unwrap();
+        let package = typaxis_syntax::StagingAdvancedPackageParser::new()
+            .parse(decoded, String::new(), &syntax_policy)
+            .unwrap();
+        let session = typaxis_machine_profile::StagingHeaderFooterSessionIdentity::fresh();
+        let receipt = typaxis_machine_profile::preflight_staging_header_footer_profile(
+            &package, &limits, &session,
+        )
+        .unwrap();
+        receipt.verify(&package, &limits, &session).unwrap();
+
+        let other_session = typaxis_machine_profile::StagingHeaderFooterSessionIdentity::fresh();
+        assert!(matches!(
+            receipt.verify(&package, &limits, &other_session),
+            Err(typaxis_machine_profile::StagingHeaderFooterPreflightError::ReceiptMismatch)
+        ));
+
+        let defaults = ResourceLimits::default();
+        let other_limits = ResourceLimits {
+            max_pages: defaults.max_pages - 1,
+            ..defaults
+        };
+        let other_limits = ValidatedResourceLimits::new(other_limits).unwrap();
+        assert!(matches!(
+            receipt.verify(&package, &other_limits, &session),
+            Err(typaxis_machine_profile::StagingHeaderFooterPreflightError::ReceiptMismatch)
+        ));
+
+        let mut reformatted = Vec::with_capacity(package_bytes.len() + 1);
+        reformatted.push(b' ');
+        reformatted.extend_from_slice(package_bytes);
+        let replay = wire::StagingAdvancedDocumentPackageDecoder::new()
+            .decode(&reformatted, &decode_policy)
+            .unwrap();
+        let replay = typaxis_syntax::StagingAdvancedPackageParser::new()
+            .parse(replay, String::new(), &syntax_policy)
+            .unwrap();
+        assert!(matches!(
+            receipt.verify(&replay, &limits, &session),
+            Err(typaxis_machine_profile::StagingHeaderFooterPreflightError::ReceiptMismatch)
+        ));
+    }
+
+    #[test]
+    fn machine_header_footer_page_pdf_and_output_limits_stop_before_artifacts() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/header-footer-1/combined/job/document-package.json"
+        ));
+
+        let exact = ResourceLimits {
+            max_pages: 3,
+            max_pdf_objects: 8,
+            ..ResourceLimits::default()
+        };
+        let exact = ValidatedResourceLimits::new(exact).unwrap();
+        run_staging_machine_header_footer(package, String::new(), &exact).unwrap();
+
+        let page_over = ResourceLimits {
+            max_pages: 2,
+            ..ResourceLimits::default()
+        };
+        let page_over = ValidatedResourceLimits::new(page_over).unwrap();
+        assert!(matches!(
+            run_staging_machine_header_footer(package, String::new(), &page_over),
+            Err(MachineHeaderFooterStagingError::Pagination(
+                typaxis_pagination::StagingHeaderFooterPaginationError::PageLimit
+            ))
+        ));
+
+        let object_over = ResourceLimits {
+            max_pdf_objects: 7,
+            ..ResourceLimits::default()
+        };
+        let object_over = ValidatedResourceLimits::new(object_over).unwrap();
+        assert!(matches!(
+            run_staging_machine_header_footer(package, String::new(), &object_over),
+            Err(MachineHeaderFooterStagingError::Pdf(
+                typaxis_pdf::StagingHeaderFooterPdfError::PageObjectLimit
+            ))
+        ));
+
+        let output_over = ResourceLimits {
+            max_output_bytes: 128,
+            ..ResourceLimits::default()
+        };
+        let output_over = ValidatedResourceLimits::new(output_over).unwrap();
+        assert!(matches!(
+            run_staging_machine_header_footer(package, String::new(), &output_over),
+            Err(MachineHeaderFooterStagingError::Pdf(
+                typaxis_pdf::StagingHeaderFooterPdfError::OutputLimit
+            ))
+        ));
+    }
+
+    #[test]
+    fn machine_header_footer_oversize_and_unsupported_master_fail_before_artifacts() {
+        let fixture = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/header-footer-1/combined/job/document-package.json"
+        ));
+        let oversize = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/header-footer-1/oversize/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+
+        assert!(matches!(
+            run_staging_machine_header_footer(oversize, String::new(), &limits),
+            Err(MachineHeaderFooterStagingError::Pagination(
+                typaxis_pagination::StagingHeaderFooterPaginationError::RegionOversize { .. }
+            ))
+        ));
+
+        let unsupported = fixture.replacen(
+            "\"column_layout\": null",
+            "\"column_layout\": {\"balance\": \"none\", \"count\": 2, \"fill\": \"sequential\", \"gap\": 0}",
+            1,
+        );
+        assert!(matches!(
+            run_staging_machine_header_footer(unsupported.as_bytes(), String::new(), &limits),
+            Err(MachineHeaderFooterStagingError::Profile(
+                typaxis_machine_profile::StagingHeaderFooterPreflightError::UnsupportedMaster(_)
+            ))
+        ));
+
+        let invalid_geometry = fixture.replacen(
+            "\"header\": {\"x\": 3000000",
+            "\"header\": {\"x\": 4000000",
+            1,
+        );
+        assert!(matches!(
+            run_staging_machine_header_footer(invalid_geometry.as_bytes(), String::new(), &limits),
+            Err(MachineHeaderFooterStagingError::Profile(
+                typaxis_machine_profile::StagingHeaderFooterPreflightError::InvalidGeometry(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn machine_header_footer_empty_body_and_region_are_terminal_transparent() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/header-footer-1/empty/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let output = run_staging_machine_header_footer(package, String::new(), &limits).unwrap();
+
+        assert_eq!(output.selected_masters(), ["single"]);
+        assert_eq!(output.manifest_jcs().matches("\"master_id\":").count(), 1);
+        assert_eq!(output.manifest_jcs().matches("\"kind\":").count(), 2);
+        assert!(output.manifest_jcs().contains("\"kind\":\"header\""));
+        assert!(output.manifest_jcs().contains("\"kind\":\"body\""));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"after_position\":{\"flow_id\":1,\"ordinal\":0},\"before_position\":{\"flow_id\":1,\"ordinal\":0}"));
+        assert!(output
+            .manifest_jcs()
+            .contains("\"kind\":\"body\",\"rect\":{\"height\":6000000,\"width\":6000000,\"x\":2000000,\"y\":3000000},\"repetition_index\":null,\"source_flow_id\":0,\"terminal\":true"));
+
+        let pdf = String::from_utf8_lossy(output.pdf());
+        assert_eq!(pdf.matches("/MediaBox").count(), 1);
+        assert!(!pdf.contains("% typaxis"));
     }
 }

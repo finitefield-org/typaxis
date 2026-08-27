@@ -14,7 +14,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 | `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.2 generated artifacts | Yes | Yes | Yes | Yes |
-| contract 1.3 advanced-pagination profiles | Yes, ADR-0031 target | No | No; current remains 1.2 | No, MI3-12 gate |
+| contract 1.3 advanced-pagination profiles | Yes, ADR-0031 target | Partial: private `header-footer-1`; columns/float pending | No; current remains 1.2 | No, MI3-12 gate |
 
 `Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。M1は、明示的に管理するLinux・macOS hostで同一revision/source/artifactのactual evidenceを生成・集約して`Release-supported`となった。GitHub Actionsは使用していない。
 

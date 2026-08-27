@@ -1,5 +1,13 @@
 #![forbid(unsafe_code)]
 
+mod advanced_header_footer;
+
+pub use advanced_header_footer::{
+    serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,
+    StagingHeaderFooterPdfClosureReceipt, StagingHeaderFooterPdfError,
+    StagingHeaderFooterPdfPageObservation, STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
+};
+
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use typaxis_core::{

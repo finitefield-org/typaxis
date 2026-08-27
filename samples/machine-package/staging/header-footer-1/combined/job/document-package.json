@@ -1,0 +1,165 @@
+{
+  "contract": "typaxis.contract/1.3",
+  "coordinate_unit": "pdf_point_1_65536",
+  "sources": [
+    {
+      "source_id": 0,
+      "uri": "input.tsf",
+      "utf8_byte_length": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "text_buffers": [
+    {"text_id": 0, "utf8": "Body one", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 8}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 1, "utf8": "Item", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 4}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 2, "utf8": "Caption", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 7}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 3, "utf8": "Body two", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 8}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 4, "utf8": "Body three", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 10}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 5, "utf8": "First header", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 12}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 6, "utf8": "Left footer", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 11}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 7, "utf8": "Right header", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 12}, "kind": "inserted", "source_span": null}]},
+    {"text_id": 8, "utf8": "Right footer", "mappings": [{"text_range": {"start_byte": 0, "end_byte": 12}, "kind": "inserted", "source_span": null}]}
+  ],
+  "document": {
+    "node_id": 0,
+    "blocks": [
+      {
+        "kind": "paragraph",
+        "node_id": 1,
+        "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+        "classes": [],
+        "children": [{"kind": "text", "node_id": 2, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 0, "start_byte": 0, "end_byte": 8}}]
+      },
+      {
+        "kind": "list",
+        "node_id": 3,
+        "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+        "classes": [],
+        "ordered": true,
+        "start": 1,
+        "items": [{
+          "node_id": 4,
+          "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+          "blocks": [{
+            "kind": "paragraph",
+            "node_id": 5,
+            "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+            "classes": [],
+            "children": [{"kind": "text", "node_id": 6, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 1, "start_byte": 0, "end_byte": 4}}]
+          }]
+        }]
+      },
+      {
+        "kind": "figure",
+        "placement": "block",
+        "node_id": 7,
+        "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+        "classes": [],
+        "image_id": 0,
+        "alt": "fixture",
+        "caption": [{
+          "kind": "paragraph",
+          "node_id": 8,
+          "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+          "classes": [],
+          "children": [{"kind": "text", "node_id": 9, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 2, "start_byte": 0, "end_byte": 7}}]
+        }]
+      },
+      {"kind": "page_break", "node_id": 10, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": []},
+      {
+        "kind": "paragraph",
+        "node_id": 11,
+        "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+        "classes": [],
+        "children": [{"kind": "text", "node_id": 12, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 3, "start_byte": 0, "end_byte": 8}}]
+      },
+      {"kind": "page_break", "node_id": 13, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": []},
+      {
+        "kind": "paragraph",
+        "node_id": 14,
+        "span": {"source_id": 0, "start_byte": 0, "end_byte": 0},
+        "classes": [],
+        "children": [{"kind": "text", "node_id": 15, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 4, "start_byte": 0, "end_byte": 10}}]
+      }
+    ],
+    "footnotes": []
+  },
+  "style_sheet": {
+    "rules": [
+      {"style_id": "paragraph", "extends": null, "selector": "paragraph", "source_order": 0, "declarations": [
+        {"name": "font_family", "value": {"kind": "font_family_list", "families": ["Body"]}, "important": false},
+        {"name": "font_size", "value": {"kind": "length", "value": 700000}, "important": false},
+        {"name": "line_height", "value": {"kind": "length", "value": 1000000}, "important": false},
+        {"name": "page", "value": {"kind": "keyword", "value": "auto"}, "important": false}
+      ]},
+      {"style_id": "heading", "extends": null, "selector": "heading", "source_order": 1, "declarations": [
+        {"name": "font_family", "value": {"kind": "font_family_list", "families": ["Body"]}, "important": false},
+        {"name": "font_size", "value": {"kind": "length", "value": 700000}, "important": false},
+        {"name": "line_height", "value": {"kind": "length", "value": 1000000}, "important": false},
+        {"name": "page", "value": {"kind": "keyword", "value": "auto"}, "important": false}
+      ]},
+      {"style_id": "list", "extends": null, "selector": "list", "source_order": 2, "declarations": [
+        {"name": "font_family", "value": {"kind": "font_family_list", "families": ["Body"]}, "important": false},
+        {"name": "font_size", "value": {"kind": "length", "value": 700000}, "important": false},
+        {"name": "line_height", "value": {"kind": "length", "value": 1000000}, "important": false},
+        {"name": "page", "value": {"kind": "keyword", "value": "auto"}, "important": false}
+      ]},
+      {"style_id": "figure", "extends": null, "selector": "figure", "source_order": 3, "declarations": [
+        {"name": "page", "value": {"kind": "keyword", "value": "auto"}, "important": false},
+        {"name": "width", "value": {"kind": "length", "value": 2000000}, "important": false},
+        {"name": "keep_caption", "value": {"kind": "boolean", "value": true}, "important": false}
+      ]},
+      {"style_id": "page-break", "extends": null, "selector": "page_break", "source_order": 4, "declarations": [
+        {"name": "page", "value": {"kind": "keyword", "value": "auto"}, "important": false}
+      ]}
+    ]
+  },
+  "page_masters": {
+    "default_master_id": "right",
+    "page_progression": "ltr",
+    "writing_mode": "horizontal-tb",
+    "masters": [
+      {
+        "master_id": "first", "width": 40000000, "height": 50000000,
+        "trim": {"x": 1000000, "y": 1000000, "width": 38000000, "height": 48000000},
+        "body": {"x": 3000000, "y": 6000000, "width": 34000000, "height": 38000000},
+        "header": {"x": 3000000, "y": 2000000, "width": 34000000, "height": 3000000},
+        "footer": {"x": 3000000, "y": 45000000, "width": 34000000, "height": 3000000},
+        "footnote": null,
+        "header_content": {"node_id": 16, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "blocks": [{"kind": "paragraph", "node_id": 17, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": [], "children": [{"kind": "text", "node_id": 18, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 5, "start_byte": 0, "end_byte": 12}}]}]},
+        "footer_content": {"node_id": 19, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "blocks": []},
+        "column_layout": null
+      },
+      {
+        "master_id": "left", "width": 40000000, "height": 50000000,
+        "trim": {"x": 1000000, "y": 1000000, "width": 38000000, "height": 48000000},
+        "body": {"x": 3000000, "y": 6000000, "width": 34000000, "height": 38000000},
+        "header": {"x": 3000000, "y": 2000000, "width": 34000000, "height": 3000000},
+        "footer": {"x": 3000000, "y": 45000000, "width": 34000000, "height": 3000000},
+        "footnote": null,
+        "header_content": {"node_id": 20, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "blocks": []},
+        "footer_content": {"node_id": 21, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "blocks": [{"kind": "paragraph", "node_id": 22, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": [], "children": [{"kind": "text", "node_id": 23, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 6, "start_byte": 0, "end_byte": 11}}]}]},
+        "column_layout": null
+      },
+      {
+        "master_id": "right", "width": 40000000, "height": 50000000,
+        "trim": {"x": 1000000, "y": 1000000, "width": 38000000, "height": 48000000},
+        "body": {"x": 3000000, "y": 6000000, "width": 34000000, "height": 38000000},
+        "header": {"x": 3000000, "y": 2000000, "width": 34000000, "height": 3000000},
+        "footer": {"x": 3000000, "y": 45000000, "width": 34000000, "height": 3000000},
+        "footnote": null,
+        "header_content": {"node_id": 24, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "blocks": [{"kind": "heading", "node_id": 25, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": [], "level": 2, "anchor_id": null, "children": [{"kind": "text", "node_id": 26, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 7, "start_byte": 0, "end_byte": 12}}]}]},
+        "footer_content": {"node_id": 27, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "blocks": [{"kind": "paragraph", "node_id": 28, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": [], "children": [{"kind": "text", "node_id": 29, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 8, "start_byte": 0, "end_byte": 12}}]}]},
+        "column_layout": null
+      }
+    ],
+    "selection_rules": [
+      {"master_id": "first", "parity": "any", "first": true, "named_page": null, "source_order": 0},
+      {"master_id": "left", "parity": "even", "first": null, "named_page": null, "source_order": 1}
+    ]
+  },
+  "resources": {
+    "font_faces": [{"font_face_id": 0, "family": "Body", "uri": "body.ttf", "face_index": 0, "expected_sha256": null}],
+    "images": [{"image_id": 0, "uri": "figure.data", "expected_sha256": null}]
+  }
+}

@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.3/machine-advanced-pagination-manifest.schema.json",
+  "title": "Typaxis Advanced Pagination Manifest 1.3 (private staging)",
+  "description": "Closed trace/build projection for the three ADR-0031 advanced-pagination profiles. It is not a current public artifact until MI3-12.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "flow_registry_sha256",
+    "pages",
+    "paint_closure_sha256",
+    "profile",
+    "profile_receipt_sha256",
+    "selected_layout_sha256"
+  ],
+  "properties": {
+    "algorithm": {"const": "typaxis.advanced-pagination-manifest/1"},
+    "flow_registry_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/page"}
+    },
+    "paint_closure_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "profile": {
+      "enum": [
+        "typaxis.machine-pdf/header-footer-1",
+        "typaxis.machine-pdf/columns-1",
+        "typaxis.machine-pdf/float-1"
+      ]
+    },
+    "profile_receipt_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "selected_layout_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"profile": {"const": "typaxis.machine-pdf/header-footer-1"}}},
+      "then": {
+        "properties": {
+          "pages": {
+            "items": {
+              "properties": {
+                "balance": {"type": "null"},
+                "float_queue_before": {"maxItems": 0},
+                "float_placements": {"maxItems": 0},
+                "float_carries": {"maxItems": 0},
+                "float_queue_after": {"maxItems": 0}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"profile": {"const": "typaxis.machine-pdf/columns-1"}}},
+      "then": {
+        "properties": {
+          "pages": {
+            "items": {
+              "properties": {
+                "float_queue_before": {"maxItems": 0},
+                "float_placements": {"maxItems": 0},
+                "float_carries": {"maxItems": 0},
+                "float_queue_after": {"maxItems": 0}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"profile": {"const": "typaxis.machine-pdf/float-1"}}},
+      "then": {"properties": {"pages": {"items": {"properties": {"balance": {"type": "null"}}}}}}
+    }
+  ],
+  "$defs": {
+    "u32": {"$ref": "common.schema.json#/$defs/id32"},
+    "flow_position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flow_id", "ordinal"],
+      "properties": {
+        "flow_id": {"$ref": "#/$defs/u32"},
+        "ordinal": {"$ref": "#/$defs/u32"}
+      }
+    },
+    "pdf_box": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"$ref": "common.schema.json#/$defs/safe_integer"},
+        {"$ref": "common.schema.json#/$defs/safe_integer"},
+        {"$ref": "common.schema.json#/$defs/safe_integer"},
+        {"$ref": "common.schema.json#/$defs/safe_integer"}
+      ],
+      "items": false
+    },
+    "margins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["top", "right", "bottom", "left"],
+      "properties": {
+        "top": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "right": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "bottom": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "left": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"}
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "column_index",
+        "frame_flow_id",
+        "source_flow_id",
+        "rect",
+        "before_position",
+        "after_position",
+        "terminal",
+        "repetition_index"
+      ],
+      "properties": {
+        "kind": {"enum": ["header", "body", "footer"]},
+        "column_index": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/u32"}]
+        },
+        "frame_flow_id": {"$ref": "#/$defs/u32"},
+        "source_flow_id": {"$ref": "#/$defs/u32"},
+        "rect": {"$ref": "common.schema.json#/$defs/rect"},
+        "before_position": {"$ref": "#/$defs/flow_position"},
+        "after_position": {"$ref": "#/$defs/flow_position"},
+        "terminal": {"type": "boolean"},
+        "repetition_index": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/u32"}]
+        }
+      }
+    },
+    "balance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "input_sha256",
+        "candidate_count",
+        "selected_target_height",
+        "receipt_sha256"
+      ],
+      "properties": {
+        "algorithm": {"const": "typaxis.column-balance-candidates/1"},
+        "input_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "candidate_count": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "selected_target_height": {"$ref": "common.schema.json#/$defs/positive_length"},
+        "receipt_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "queue_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "float_flow_id",
+        "figure_node_id",
+        "anchor_body_flow_id",
+        "anchor_position",
+        "carry_count"
+      ],
+      "properties": {
+        "float_flow_id": {"$ref": "#/$defs/u32"},
+        "figure_node_id": {"$ref": "#/$defs/u32"},
+        "anchor_body_flow_id": {"$ref": "#/$defs/u32"},
+        "anchor_position": {"$ref": "#/$defs/flow_position"},
+        "carry_count": {"$ref": "#/$defs/u32"}
+      }
+    },
+    "float_placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "float_flow_id",
+        "figure_node_id",
+        "class",
+        "page_index",
+        "column_index",
+        "frame_paint_ordinal",
+        "bounds",
+        "float_terminal",
+        "caption_terminal"
+      ],
+      "properties": {
+        "float_flow_id": {"$ref": "#/$defs/u32"},
+        "figure_node_id": {"$ref": "#/$defs/u32"},
+        "class": {"enum": ["here", "top", "bottom", "next_page"]},
+        "page_index": {"$ref": "#/$defs/u32"},
+        "column_index": {"$ref": "#/$defs/u32"},
+        "frame_paint_ordinal": {"$ref": "#/$defs/u32"},
+        "bounds": {"$ref": "common.schema.json#/$defs/rect"},
+        "float_terminal": {"type": "boolean"},
+        "caption_terminal": {"type": "boolean"}
+      }
+    },
+    "float_carry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "float_flow_id",
+        "figure_node_id",
+        "source_page_index",
+        "target_page_index",
+        "carry_count"
+      ],
+      "properties": {
+        "float_flow_id": {"$ref": "#/$defs/u32"},
+        "figure_node_id": {"$ref": "#/$defs/u32"},
+        "source_page_index": {"$ref": "#/$defs/u32"},
+        "target_page_index": {"$ref": "#/$defs/u32"},
+        "carry_count": {"type": "integer", "minimum": 1, "maximum": 4294967295}
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page_index",
+        "master_id",
+        "media_box",
+        "crop_box",
+        "trim_box",
+        "margins",
+        "frames",
+        "balance",
+        "float_queue_before",
+        "float_placements",
+        "float_carries",
+        "float_queue_after"
+      ],
+      "properties": {
+        "page_index": {"$ref": "#/$defs/u32"},
+        "master_id": {"$ref": "common.schema.json#/$defs/master_id"},
+        "media_box": {"$ref": "#/$defs/pdf_box"},
+        "crop_box": {"$ref": "#/$defs/pdf_box"},
+        "trim_box": {"$ref": "#/$defs/pdf_box"},
+        "margins": {"$ref": "#/$defs/margins"},
+        "frames": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/frame"}},
+        "balance": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/balance"}]
+        },
+        "float_queue_before": {"type": "array", "items": {"$ref": "#/$defs/queue_entry"}},
+        "float_placements": {"type": "array", "items": {"$ref": "#/$defs/float_placement"}},
+        "float_carries": {"type": "array", "items": {"$ref": "#/$defs/float_carry"}},
+        "float_queue_after": {"type": "array", "items": {"$ref": "#/$defs/queue_entry"}}
+      }
+    }
+  }
+}
