@@ -9,7 +9,7 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | sealed package/source ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, immutable capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `typaxis.machine-pdf/basic-document-1` | Yes, ADR-0028 immutable M2 profile | Yes: canonical multi-flow, typed block-style, list, forced-page-break, PNG figure, and link annotation/named-destination pipeline | Yes, combined PDF/sidecars | Yes |
-| `typaxis.machine-pdf/table-1` | Yes, ADR-0029 immutable M3 target on contract 1.2 | No: MI3-02/MI3-03 pending | No: unknown public profile until MI3-04 | No: MI3-04 gate |
+| `typaxis.machine-pdf/table-1` | Yes, ADR-0029 immutable M3 profile on contract 1.2 | Yes: resolved grid/cell flows, row fragmentation/header repetition, and Display/PDF closure | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
 | generated contract 1.2 artifacts | Yes | Yes: config/trace/diagnostics/manifest/package/capabilities/evidence | Yes | Yes |
 | contract 1.2 publication | Yes, ADR-0028 migration table | Yes: current aliases plus the complete independent `schemas/1.2/` registry; former 1.1 is frozen | Yes | Yes |
 
@@ -27,9 +27,9 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | length and transform | `Length` / `AffineTransform` | common defs | docs/24 | numeric/type checks |
 | parser package | `ParsedPackage` | document root | docs/03,04 | Rust token + Schema |
 | machine package ingestion | stable-byte admission, strict decoder, sealed source validation, and session-bound receipts are implemented; `WireDocumentPackage` remains untrusted | 1.0/1.1/1.2 DocumentPackage input; current output is 1.2 | ADR-0027, ADR-0028, docs/02,19,25,26, contracts/phase-ownership | independent Schema/semantic validation, Rust receipt tests, public positive/negative package-command E2E |
-| machine PDF capability | exact `PARAGRAPH_1` and `BASIC_DOCUMENT_1` descriptors with matching preflight receipts | current 1.2 capability Schema and canonical fixture | contracts/machine-pdf-capabilities, ADR-0027, ADR-0028, docs/26 | bidirectional descriptor/fixture closure, compatibility/default goldens, public combined E2E, external PDF and cross-checkout reproducibility gates |
+| machine PDF capability | exact `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, and `TABLE_1` descriptors with matching preflight receipts | current 1.2 capability Schema and canonical fixture | contracts/machine-pdf-capabilities, ADR-0027, ADR-0028, ADR-0029, docs/26 | bidirectional descriptor/fixture closure, compatibility/default goldens, public combined E2E, external PDF and cross-checkout reproducibility gates |
 | basic-document profile | MI2-02 multi-flow owners, MI2-03 typed block-style receipts/consumers, MI2-04 syntax-owned marker/list receipts, MI2-05 forced-boundary receipts, MI2-06 admitted-PNG/figure-placement/DrawImage/XObject receipts, and MI2-07 package-bound link/cluster/rectangle/annotation receipts | current 1.2 DocumentPackage plus versioned multi-flow and selected block-style/list/forced-break/PNG-figure/link facts | ADR-0028, contracts/machine-pdf-capabilities, docs/25,26 | combined all-advertised fixture, typed closure, deterministic PDF goldens, exact limits, receipt swaps, and tamper negatives |
-| table profile target | pending MI3-02/MI3-03 owners: resolved columns/grid, canonical cell FlowIds, row bands/fragments, rowspan continuation, and header repetition; pending MI3-04 Display/PDF closure | unchanged current 1.2 `table`/fixed/fraction/head/body/colspan/rowspan wire; no table-specific style field | ADR-0029, contracts/machine-pdf-capabilities, docs/10,25 | contract-defined only: future `m3-table.json` combined coverage, exact limits, receipt tamper, zero-decoration PDF/raster, reproducibility, and old-profile rejection gate |
+| table profile | MI3-02/MI3-03 resolved columns/grid, canonical cell FlowIds, row bands/fragments, rowspan continuation, and header repetition; MI3-04 exact Display-command and frozen-PDF graph closure | unchanged current 1.2 `table`/fixed/fraction/head/body/colspan/rowspan wire plus conditional table trace/manifest facts; no table-specific style field | ADR-0029, contracts/machine-pdf-capabilities, docs/10,25,26 | public `m3-table.json` table-only/combined coverage, exact limits, receipt and command tamper negatives, zero-decoration PDF/raster, reproducibility, and old-profile rejection gate |
 | canonical lists | current document list type plus package-bound marker-usage, item-flow layout, selected fragment, Display/PDF, and manifest receipts | ordered/start relation plus versioned 1.2 selected list facts | docs/04, ADR-0028, docs/25 | ordered positive start + checked item index, unordered null/U+2022, marker buffer/aggregate max+1, widest-column LTR/RTL placement, nested child-frame indent, marker orphan and missing/extra/wrong-item closure |
 | forced page breaks | current typed `PageBreak` plus package/epoch/FlowId-bound layout boundary and exact consume receipt | versioned 1.2 selected forced-break cursor/page facts | ADR-0028, docs/09, docs/25 | start/middle/consecutive/trailing blank policy, `N + 1` pages, exact/max+1 page limit, stale-cursor and break-paint closure; `paragraph-1` remains closed |
 | non-floating PNG figures | decoder-only `AdmittedImageMediaKind::Png`, package-bound Figure/caption usage, `ValidatedFigureLayout`, selected placement, one-DrawImage Display, finalized image/soft-mask plans, and graph/serializer-bound XObject facts | current 1.2 Figure plus versioned `machine-figure-manifest`; image declarations have no caller-authoritative media field | ADR-0028, docs/07,13,25 | opaque-suffix stable-read admission, full bounded decode, pixel/aspect dimensions, caption split/keep/terminal oversize, bad hash/non-PNG/invalid dimensions/pixel limit, missing/extra/wrong IDs and XObjects, publication failure, deterministic double build; `paragraph-1` remains closed |
@@ -74,8 +74,8 @@ The default remains `typaxis.machine-pdf/paragraph-1`. MI2-08 completed the “A
 
 ## M3 table profile adoption matrix
 
-ADR-0029 fixes table semantics without migrating the current wire. Contract
-definition and public support remain separate until MI3-04.
+ADR-0029 fixed table semantics without migrating the current wire. The middle
+column preserves the pre-publication state; MI3-04 closed the final column.
 
 | Raw DocumentPackage contract | Profile | After MI3-01 / before MI3-04 | After the MI3-04 gate |
 |---|---|---|---|
@@ -85,9 +85,9 @@ definition and public support remain separate until MI3-04.
 | 1.2 with a table border/padding/alignment/background/split field | `table-1` | `P1102` as unknown current wire/style | unchanged; requires a new contract and profile |
 | unknown | any | `P1103` or unknown-profile usage error | same; no newest-contract/profile fallback |
 
-MI3-04 may move only the `table-1` status axes after descriptor/combined-fixture
+MI3-04 moved only the `table-1` status axes after descriptor/combined-fixture
 bidirectional coverage, grid/rowspan/header/Display/PDF receipt closure,
 inclusive `max_ast_nodes`/`max_fragments` max+1 checks, zero-decoration raster
-evidence, reproducibility, and older-profile rejection goldens all pass. It does
+evidence, reproducibility, and older-profile rejection goldens passed. It did
 not change the current contract ID, DocumentPackage Schema bytes, or default
 profile.

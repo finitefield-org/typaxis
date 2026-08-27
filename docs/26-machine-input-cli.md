@@ -18,9 +18,10 @@ typaxis capabilities --format json
 The complete grammar is emitted by `typaxis help build-package`,
 `typaxis help check-package`, and `typaxis help capabilities`. `build` continues
 to accept bounded reference TSF; it never sniffs JSON or switches to machine
-mode. The public profiles are `typaxis.machine-pdf/paragraph-1` and
-`typaxis.machine-pdf/basic-document-1`. `paragraph-1` remains the default when
-`--profile` is omitted; Typaxis never infers a profile from package contents.
+mode. The public profiles are `typaxis.machine-pdf/paragraph-1`,
+`typaxis.machine-pdf/basic-document-1`, and `typaxis.machine-pdf/table-1`.
+`paragraph-1` remains the default when `--profile` is omitted; Typaxis never
+infers a profile from package contents.
 
 ## Package directory and roots
 
@@ -43,8 +44,8 @@ then opened relative to one contained root using no-follow, stable-read host
 admission. Symlinks, non-regular files, root escapes, read mutation, and declared
 length/hash mismatches fail closed.
 
-Source and resource roots are intentionally separate. Both public profiles accept exactly one
-source declaration, `SourceId` 0, with entry-only closure. Its URI is resolved
+Source and resource roots are intentionally separate. All three public profiles
+accept exactly one source declaration, `SourceId` 0, with entry-only closure. Its URI is resolved
 only beneath the package root. Font resources are resolved only from explicit
 `--resource-root DIR` values and configured resource roots; a package root is
 not implicitly a resource root. Canonical artifacts and manifests never contain
@@ -98,6 +99,40 @@ with this profile fail at `/contract`; Typaxis does not synthesize 1.2 values.
 The combined fixture renders two pages and Poppler-normalized text exactly
 `Basic document internal external First item Second entry PNG caption`.
 
+### `table-1`
+
+`typaxis.machine-pdf/table-1` requires a raw `typaxis.contract/1.2` package,
+inherits the complete `basic-document-1` domain, and adds direct document-body
+tables. It must be selected explicitly. `paragraph-1` stays the default, and
+both older profiles continue to reject every table.
+
+The table subset is closed: one or more fixed/fraction columns, `head` followed
+by `body`, dense non-overlapping colspan/rowspan coverage, and cell flows made
+only from paragraphs containing text, soft breaks, or hard breaks. Columns are
+resolved in integer `pdf_point_1_65536` units; fractional rounding uses
+ties-to-even and assigns the signed residual only to the last fraction column.
+The complete header group repeats on every continuation page and remains bound
+to its original row, cell flow, and dense repetition index.
+
+Table selectors accept only `page = auto`, `space_before`, `space_after`,
+`start_indent`, `end_indent`, and `keep_with_next`. Cell paragraphs use the
+existing paragraph style rules. Border, background, padding, vertical
+alignment, border spacing, and authored split/repeat controls are not contract
+1.2 fields. The fixed visual policy is no border, transparent background, zero
+padding/spacing, and block-start content; the table contributes zero path or
+decoration operations. Unsupported placement/content is `L5100`, an
+inapplicable known property is `L5101`, and an invented raw declaration is
+`P1102`.
+
+Successful table traces and built manifests carry identical `table_layouts`
+facts for resolved columns, grid/cell FlowIds, selected row pieces, rowspan
+continuations, header occurrences, and the selected-layout hash. Display and
+the frozen PDF graph bind the exact retained cell glyph commands and reject a
+missing, extra, relocated, repeated-as-the-wrong-header, or decorated table
+before publication. The combined fixture renders three pages and extracts
+exactly `Basic document internal external First item Second entry PNG caption
+Header A Header B alpha beta Header A delta Header B gamma`.
+
 ## Checking and building
 
 Example validation:
@@ -116,6 +151,16 @@ For a contract 1.2 basic-document package, select the profile explicitly:
 typaxis check-package job/document-package.json \
   --package-root job \
   --profile typaxis.machine-pdf/basic-document-1 \
+  --resource-root job \
+  --emit-diagnostics check-diagnostics.json
+```
+
+For a contract 1.2 table package, select the table profile explicitly:
+
+```text
+typaxis check-package job/document-package.json \
+  --package-root job \
+  --profile typaxis.machine-pdf/table-1 \
   --resource-root job \
   --emit-diagnostics check-diagnostics.json
 ```
@@ -196,7 +241,10 @@ the profile preflight receipt hash. `inputs` contains only successfully
 admitted companion sources; the package is not duplicated there. `fonts` and
 `images` contain only reached resource-admission facts. `layout` appears only
 after layout selection and repeats the matching profile receipt hash. For
-`basic-document-1`, it additionally binds the canonical all-flow registry hash.
+`basic-document-1` and `table-1`, it additionally binds the canonical all-flow
+registry hash. A successful `table-1` trace and built manifest both contain the
+same canonical `table_layouts` projection; older profiles omit that member so
+their artifact bytes remain frozen.
 Receipt/profile/package/session substitution is an internal `I9190` failure,
 not a producer-recoverable fallback. A built manifest binds the file/stdout sink, PDF bytes,
 SHA-256, page count, and object count. A failed manifest has `output: null` and
@@ -231,6 +279,16 @@ The public basic-document release gate is:
 python3 tools/verify_machine_profile.py \
   --repository . \
   --matrix samples/machine-package/matrices/m2-basic.json \
+  --runs 2 \
+  --require-external-tools
+```
+
+The public table release gate is:
+
+```text
+python3 tools/verify_machine_profile.py \
+  --repository . \
+  --matrix samples/machine-package/matrices/m3-table.json \
   --runs 2 \
   --require-external-tools
 ```

@@ -59,6 +59,7 @@ REQUIRED_TOOLS = {"cargo", "mutool", "pdfinfo", "pdftotext", "python", "rustc"}
 PUBLIC_PROFILES = {
     "typaxis.machine-pdf/basic-document-1",
     "typaxis.machine-pdf/paragraph-1",
+    "typaxis.machine-pdf/table-1",
 }
 
 
@@ -333,11 +334,236 @@ def _assert_profile_receipt_closure(
     trace_flow = trace.get("flow_registry_sha256")
     if manifest_flow != trace_flow:
         raise MachineProfileError("flow registry differs between trace and manifest")
-    if profile == "typaxis.machine-pdf/basic-document-1":
+    if profile in {
+        "typaxis.machine-pdf/basic-document-1",
+        "typaxis.machine-pdf/table-1",
+    }:
         if not isinstance(manifest_flow, str) or len(manifest_flow) != 64:
-            raise MachineProfileError("basic-document-1 lacks its selected flow registry binding")
+            raise MachineProfileError(f"{profile} lacks its selected flow registry binding")
     elif manifest_flow is not None:
         raise MachineProfileError("paragraph-1 unexpectedly carries a basic flow registry")
+    manifest_tables = manifest.get("table_layouts")
+    trace_tables = trace.get("table_layouts")
+    if manifest_tables != trace_tables:
+        raise MachineProfileError("table selected state differs between trace and manifest")
+    if profile == "typaxis.machine-pdf/table-1":
+        if not isinstance(manifest_tables, list):
+            raise MachineProfileError("table-1 lacks selected table layout facts")
+    elif manifest_tables is not None or trace_tables is not None:
+        raise MachineProfileError("an older profile unexpectedly carries table layout facts")
+
+
+def _assert_table_layout_facts(expected: dict[str, Any], manifest: dict[str, Any]) -> None:
+    if expected.get("profile") != "typaxis.machine-pdf/table-1":
+        return
+    tables = manifest.get("table_layouts")
+    output = manifest.get("output")
+    output_pages = output.get("page_count") if isinstance(output, dict) else None
+    if not isinstance(tables, list) or not isinstance(output_pages, int):
+        raise MachineProfileError("table fixture lacks selected table/page facts")
+    if not tables:
+        return
+    previous_owner = -1
+    for table in tables:
+        if not isinstance(table, dict):
+            raise MachineProfileError("table layout fact is not an object")
+        owner = table.get("table_node_id")
+        start = table.get("target_page_start")
+        page_count = table.get("page_count")
+        if (
+            not isinstance(owner, int)
+            or owner <= previous_owner
+            or not isinstance(start, int)
+            or not isinstance(page_count, int)
+            or page_count <= 0
+            or start < 0
+            or start + page_count > output_pages
+        ):
+            raise MachineProfileError("table page range or canonical owner order is invalid")
+        previous_owner = owner
+        columns = table.get("columns")
+        residual = table.get("rounding_residual")
+        recipient = table.get("residual_recipient")
+        if (
+            not isinstance(columns, list)
+            or not columns
+            or type(residual) is not int
+            or (recipient is not None and type(recipient) is not int)
+        ):
+            raise MachineProfileError("table column/residual facts are incomplete")
+        fraction_ordinals: list[int] = []
+        for ordinal, column in enumerate(columns):
+            if not isinstance(column, dict) or column.get("column_ordinal") != ordinal:
+                raise MachineProfileError("table columns are not in dense canonical order")
+            kind = column.get("input_kind")
+            input_value = column.get("input_value")
+            rounded = column.get("rounded_fraction_width")
+            final_width = column.get("final_width")
+            if (
+                type(input_value) is not int
+                or input_value <= 0
+                or type(final_width) is not int
+                or final_width <= 0
+            ):
+                raise MachineProfileError("table column width fact is invalid")
+            if kind == "fixed":
+                if rounded is not None or final_width != input_value:
+                    raise MachineProfileError("fixed table column was reinterpreted")
+            elif kind == "fraction":
+                if type(rounded) is not int or rounded < 0:
+                    raise MachineProfileError("fraction table column lacks its rounded share")
+                fraction_ordinals.append(ordinal)
+            else:
+                raise MachineProfileError("table column input kind is not closed")
+        if fraction_ordinals:
+            if recipient != fraction_ordinals[-1]:
+                raise MachineProfileError("table residual recipient is not the last fraction")
+            for ordinal in fraction_ordinals:
+                column = columns[ordinal]
+                expected_width = column["rounded_fraction_width"]
+                if ordinal == recipient:
+                    expected_width += residual
+                if column["final_width"] != expected_width:
+                    raise MachineProfileError("fraction table final width differs from its receipt")
+        elif recipient is not None or residual != 0:
+            raise MachineProfileError("fixed-only table unexpectedly carries a residual")
+
+        rows = table.get("rows")
+        sources = table.get("header_sources")
+        occurrences = table.get("header_occurrences")
+        if not all(isinstance(value, list) for value in (rows, sources, occurrences)):
+            raise MachineProfileError("table row/header closure is incomplete")
+        if any(
+            not isinstance(row, dict)
+            or not start <= row.get("page_index", -1) < start + page_count
+            for row in rows
+        ):
+            raise MachineProfileError("table body row targets a wrong PDF page")
+        for row in rows:
+            _assert_table_manifest_cells(row.get("cells"), len(columns))
+            for key in ("continuation_before", "continuation_after"):
+                _assert_table_manifest_continuation(row.get(key), len(columns))
+        for source in sources:
+            if not isinstance(source, dict):
+                raise MachineProfileError("table header source fact is not an object")
+            _assert_table_manifest_cells(source.get("cells"), len(columns))
+        if not sources:
+            if occurrences:
+                raise MachineProfileError("header occurrence exists without a selected source")
+            continue
+        source_keys = [
+            (source.get("source_fragment_id"), source.get("row_node_id"))
+            for source in sources
+            if isinstance(source, dict)
+        ]
+        if len(source_keys) != len(sources) or len(occurrences) % len(sources) != 0:
+            raise MachineProfileError("table header source/occurrence cardinality differs")
+        repetition_count = len(occurrences) // len(sources)
+        if repetition_count != page_count:
+            raise MachineProfileError("table header was not repeated on every selected page")
+        for repetition_index in range(repetition_count):
+            group = occurrences[
+                repetition_index * len(sources) : (repetition_index + 1) * len(sources)
+            ]
+            observed_keys = [
+                (item.get("source_fragment_id"), item.get("row_node_id"))
+                for item in group
+                if isinstance(item, dict)
+            ]
+            if (
+                observed_keys != source_keys
+                or any(item.get("repetition_index") != repetition_index for item in group)
+                or any(item.get("target_page_index") != start + repetition_index for item in group)
+            ):
+                raise MachineProfileError("table header repetition is missing, stale, or reordered")
+
+
+def _assert_table_manifest_cells(cells: Any, column_count: int) -> None:
+    if not isinstance(cells, list) or not cells:
+        raise MachineProfileError("table row/header lacks selected cell facts")
+    previous_column = -1
+    for cell in cells:
+        if not isinstance(cell, dict):
+            raise MachineProfileError("table selected cell fact is not an object")
+        column = cell.get("column_ordinal")
+        colspan = cell.get("colspan")
+        rowspan = cell.get("rowspan")
+        if (
+            type(column) is not int
+            or column <= previous_column
+            or type(colspan) is not int
+            or colspan <= 0
+            or column + colspan > column_count
+            or type(rowspan) is not int
+            or rowspan <= 0
+        ):
+            raise MachineProfileError("table selected cell span/order is invalid")
+        previous_column = column
+        integer_fields = (
+            "after_fragment_ordinal",
+            "before_fragment_ordinal",
+            "cell_node_id",
+            "flow_id",
+            "selected_block_extent",
+            "vertical_offset_after",
+            "vertical_offset_before",
+        )
+        if any(type(cell.get(key)) is not int or cell[key] < 0 for key in integer_fields):
+            raise MachineProfileError("table selected cell cursor/geometry is incomplete")
+        if any(type(cell.get(key)) is not bool for key in ("after_terminal", "before_terminal")):
+            raise MachineProfileError("table selected cell terminal state is incomplete")
+
+
+def _assert_table_manifest_continuation(continuation: Any, column_count: int) -> None:
+    if not isinstance(continuation, dict) or not isinstance(continuation.get("entries"), list):
+        raise MachineProfileError("table rowspan continuation is incomplete")
+    if type(continuation.get("logical_row_ordinal")) is not int:
+        raise MachineProfileError("table rowspan continuation lacks its logical row")
+    previous_column = -1
+    for entry in continuation["entries"]:
+        cursor = entry.get("cell_flow_cursor") if isinstance(entry, dict) else None
+        column = entry.get("column_ordinal") if isinstance(entry, dict) else None
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(cursor, dict)
+            or type(column) is not int
+            or column <= previous_column
+            or column >= column_count
+            or type(entry.get("remaining_logical_rows")) is not int
+            or entry["remaining_logical_rows"] <= 0
+            or type(entry.get("vertical_offset")) is not int
+            or entry["vertical_offset"] < 0
+            or type(entry.get("cell_node_id")) is not int
+            or type(entry.get("flow_id")) is not int
+            or cursor.get("flow_id") != entry.get("flow_id")
+            or type(cursor.get("next_fragment_ordinal")) is not int
+            or type(cursor.get("terminal")) is not bool
+        ):
+            raise MachineProfileError("table rowspan continuation entry is invalid")
+        previous_column = column
+
+
+def _assert_table_zero_decoration(
+    expected: dict[str, Any],
+    pdf: Path,
+    *,
+    repository: Path,
+    environment: Mapping[str, str],
+    mutool: str,
+) -> None:
+    if expected.get("profile") != "typaxis.machine-pdf/table-1":
+        return
+    trace = _run_capture(
+        [mutool, "draw", "-F", "trace", pdf],
+        cwd=repository,
+        environment=environment,
+    )
+    forbidden = (b"<fill_path", b"<stroke_path", b"<clip_path")
+    if any(token in trace for token in forbidden):
+        raise MachineProfileError("table PDF contains an unexpected path decoration operation")
+    expected_pages = expected.get("expected", {}).get("page_count")
+    if isinstance(expected_pages, int) and trace.count(b"<page ") != expected_pages:
+        raise MachineProfileError("MuPDF trace page count differs from the table expectation")
 
 
 def _verify_fixture(
@@ -400,6 +626,7 @@ def _verify_fixture(
         if not isinstance(manifest, dict) or not isinstance(trace, dict):
             raise MachineProfileError("machine trace or manifest root is not an object")
         _assert_profile_receipt_closure(expected, manifest, trace)
+        _assert_table_layout_facts(expected, manifest)
         run_directories.append(output)
         run_artifacts.append(artifacts)
 
@@ -442,6 +669,14 @@ def _verify_fixture(
         )
     except (OSError, pdf_differential.PdfDifferentialError) as error:
         raise MachineProfileError(f"external PDF differential failed: {error}") from error
+    for directory in run_directories:
+        _assert_table_zero_decoration(
+            expected,
+            directory / "output.pdf",
+            repository=repository,
+            environment=environment,
+            mutool=mutool,
+        )
     return FixtureResult(
         expected_path=expected_path,
         expected=expected,

@@ -19,10 +19,10 @@ DocumentPackage input parsing recognizes exactly `typaxis.contract/1.0`,
 `typaxis.contract/1.1`, and `typaxis.contract/1.2`. The default
 `typaxis.machine-pdf/paragraph-1` profile accepts all three identifiers while
 retaining its frozen semantic subset. Explicit
-`typaxis.machine-pdf/basic-document-1` requires raw contract 1.2; a 1.0 or 1.1
-package is rejected at `/contract` and is never upgraded by synthesizing the
-additive style properties. Unknown identifiers never fall back to the current
-contract or newest profile.
+`typaxis.machine-pdf/basic-document-1` and `typaxis.machine-pdf/table-1` require
+raw contract 1.2; a 1.0 or 1.1 package is rejected at `/contract` and is never
+upgraded by synthesizing additive style or table semantics. Unknown identifiers
+never fall back to the current contract or newest profile.
 
 Raw configuration input recognizes the same closed contract set. A raw 1.0
 configuration receives defaults for fields added after 1.0. Semantically equal
@@ -35,8 +35,9 @@ Contract 1.2 adds the closed style-property names `space_before`,
 `space_after`, `start_indent`, `end_indent`, `text_align`, `width`,
 `keep_with_next`, and `keep_caption`, with the exact tagged values and semantics
 adopted by [ADR-0028](../adr/ADR-0028-basic-document-profile.md). The publication
-also exposes the immutable `basic-document-1` profile, while `paragraph-1`
-remains the default and is not broadened.
+exposes the immutable `basic-document-1` profile, and MI3-04 subsequently
+published the immutable `table-1` profile on the unchanged 1.2 table wire.
+`paragraph-1` remains the default and neither older profile is broadened.
 
 The contract remains a draft until the repository has a matching release tag
 for the design-package release. An incompatible change to field meaning,

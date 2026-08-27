@@ -2,12 +2,14 @@
 
 ## Status
 
-Accepted on 2026-08-27 as the target contract for the M3 table slice.
+Accepted on 2026-08-27 as the target contract for the M3 table slice and
+published by MI3-04 on 2026-08-27.
 
-This ADR is a decision gate. It does not add a Rust profile identifier, make
-the profile selectable, advertise it in current capabilities, or claim layout,
-Display, PDF, CLI E2E, or release support. MI3-02 and MI3-03 may use only
-crate-private staging entry points. MI3-04 is the sole publication milestone.
+At adoption this ADR was a decision gate: it did not add a Rust profile
+identifier, make the profile selectable, advertise it in current capabilities,
+or claim layout, Display, PDF, CLI E2E, or release support. MI3-02 and MI3-03
+therefore used only crate-private staging entry points. MI3-04 is the sole
+publication milestone and has now closed that gate.
 
 | Status axis | At ADR adoption |
 | --- | --- |
@@ -15,6 +17,10 @@ crate-private staging entry points. MI3-04 is the sole publication milestone.
 | implemented | No: table grid, subflow, and fragmentation owners are pending |
 | public CLI E2E | No: `table-1` remains an unknown public profile |
 | release-supported | No: the publication gate is MI3-04 |
+
+Current status after MI3-04 is implemented, public CLI E2E, and
+release-supported. The adoption table remains the historical state that made
+the publication preconditions explicit.
 
 ## Context
 
@@ -356,9 +362,10 @@ pass locally on every documented host:
 6. contract 1.2 and all DocumentPackage Schema bytes remain unchanged, while
    `paragraph-1` and `basic-document-1` golden negatives still reject table.
 
-Until that gate closes, passing `--profile typaxis.machine-pdf/table-1` is a
-usage error, no current capability artifact lists it, and docs must label it
-contract-defined only. Publication does not switch the default profile.
+Before that gate closed, passing `--profile typaxis.machine-pdf/table-1` was a
+usage error, no current capability artifact listed it, and docs labeled it
+contract-defined only. MI3-04 satisfied the gate; publication did not switch
+the default profile.
 
 ## Rejected alternatives
 

@@ -430,6 +430,16 @@ const BASIC_UNSUPPORTED_PDF_FEATURES: &[MachinePdfFeature] = &[
     MachinePdfFeature::TaggedPdf,
 ];
 
+const TABLE_ACCEPTED_BLOCKS: &[MachineBlockKind] = &[
+    MachineBlockKind::Figure,
+    MachineBlockKind::Heading,
+    MachineBlockKind::List,
+    MachineBlockKind::PageBreak,
+    MachineBlockKind::Paragraph,
+    MachineBlockKind::Table,
+];
+const TABLE_STYLE_BLOCK_TYPES: &[MachineBlockKind] = TABLE_ACCEPTED_BLOCKS;
+
 /// Immutable, closed contract for one machine-PDF profile.
 ///
 /// All fields are private and every slice points at static, canonically ordered
@@ -544,10 +554,52 @@ impl MachineProfileDescriptor {
         unsupported_pdf_features: BASIC_UNSUPPORTED_PDF_FEATURES,
     };
 
+    /// Immutable, closed M3 table profile adopted by ADR-0029. It contains
+    /// the complete basic-document domain and adds only direct-body tables.
+    pub const TABLE_1: Self = Self {
+        id: MachinePdfProfileId::TABLE_1,
+        source_closure: MachineSourceClosure::EntryOnly,
+        source_count: SourceCountBounds {
+            minimum: 1,
+            maximum: 1,
+        },
+        accepted_blocks: TABLE_ACCEPTED_BLOCKS,
+        rejected_blocks: &[],
+        accepted_inlines: BASIC_ACCEPTED_INLINES,
+        rejected_inlines: BASIC_REJECTED_INLINES,
+        accepted_reference_formats: ACCEPTED_REFERENCE_FORMATS,
+        rejected_reference_formats: REJECTED_REFERENCE_FORMATS,
+        footnotes: FootnoteCapability {
+            definitions: false,
+            references: false,
+        },
+        style_block_types: TABLE_STYLE_BLOCK_TYPES,
+        accepted_style_selectors: TABLE_STYLE_BLOCK_TYPES,
+        rejected_style_selectors: &[],
+        accepted_style_properties: BASIC_ACCEPTED_STYLE_PROPERTIES,
+        rejected_style_properties: &[],
+        accepted_page_values: ACCEPTED_PAGE_VALUES,
+        rejected_page_values: REJECTED_PAGE_VALUES,
+        page_master: MachinePageMasterCapability {
+            count: 1,
+            optional_frames: &[],
+            rejected_optional_frames: REJECTED_OPTIONAL_FRAMES,
+            selection_rules: false,
+        },
+        accepted_font_formats: ACCEPTED_FONT_FORMATS,
+        rejected_font_formats: REJECTED_FONT_FORMATS,
+        minimum_fonts_for_text: 1,
+        accepted_image_formats: BASIC_ACCEPTED_IMAGE_FORMATS,
+        rejected_image_formats: BASIC_REJECTED_IMAGE_FORMATS,
+        pdf_features: BASIC_PDF_FEATURES,
+        unsupported_pdf_features: BASIC_UNSUPPORTED_PDF_FEATURES,
+    };
+
     pub const fn for_id(id: MachinePdfProfileId) -> Self {
         match id {
             MachinePdfProfileId::BasicDocument1 => Self::BASIC_DOCUMENT_1,
             MachinePdfProfileId::Paragraph1 => Self::PARAGRAPH_1,
+            MachinePdfProfileId::Table1 => Self::TABLE_1,
         }
     }
 
@@ -666,12 +718,16 @@ impl MachineProfileDescriptor {
     }
 
     pub(crate) fn accepts_style_selector(self, selector: &str) -> bool {
-        let block = if self.id == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+        let extended = matches!(
+            self.id,
+            MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+        );
+        let block = if extended {
             selector.split('.').next().unwrap_or_default()
         } else {
             selector
         };
-        (self.id == MachinePdfProfileId::BASIC_DOCUMENT_1 || !selector.contains('.'))
+        (extended || !selector.contains('.'))
             && self
                 .accepted_style_selectors
                 .iter()

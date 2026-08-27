@@ -4515,7 +4515,7 @@ def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[
     while stack:
         node = stack.pop()
         kind = node.get("kind")
-        if kind in {"figure", "heading", "list", "page_break", "paragraph"}:
+        if kind in {"figure", "heading", "list", "page_break", "paragraph", "table"}:
             items.add(f"block:{kind}")
         if kind in {"anchor", "hard_break", "link", "reference", "soft_break", "text"}:
             items.add(f"inline:{kind}")
@@ -4529,6 +4529,11 @@ def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[
         if kind == "list":
             for item in reversed(node.get("items", [])):
                 stack.extend(reversed(item.get("blocks", [])))
+        if kind == "table":
+            rows = [*node.get("head", []), *node.get("body", [])]
+            for row in reversed(rows):
+                for cell in reversed(row.get("cells", [])):
+                    stack.extend(reversed(cell.get("blocks", [])))
         if kind == "link":
             saw_link = True
         if kind == "reference":
@@ -4652,6 +4657,11 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             "basic-document-1.combined",
             "Basic document internal external First item Second entry PNG caption",
         ),
+        (
+            "typaxis.machine-pdf/table-1",
+            "table-1.combined",
+            "Basic document internal external First item Second entry PNG caption Header A Header B alpha beta Header A delta Header B gamma",
+        ),
     )
     for profile_id, fixture_id, expected_text in combined_profiles:
         advertised = machine_advertised_items(capabilities, profile_id)
@@ -4672,6 +4682,36 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             )
         if combined["expected"]["normalized_extracted_text"] != expected_text:
             raise ValidationFailure(f"{fixture_id} normalized extracted text is not fixed")
+
+    table_combined_path, table_combined = expectations["table-1.combined"]
+    table_package = load_json(table_combined_path.parent / table_combined["package"])
+    direct_tables = [
+        block
+        for block in table_package["document"]["blocks"]
+        if block.get("kind") == "table"
+    ]
+    if len(direct_tables) != 1:
+        raise ValidationFailure("table-1.combined must contain one direct-body table")
+    table = direct_tables[0]
+    column_kinds = [column.get("kind") for column in table.get("columns", [])]
+    cells = [
+        cell
+        for row in [*table.get("head", []), *table.get("body", [])]
+        for cell in row.get("cells", [])
+    ]
+    if (
+        "fixed" not in column_kinds
+        or "fraction" not in column_kinds
+        or not table.get("head")
+        or not table.get("body")
+        or not any(cell.get("colspan", 0) > 1 for cell in cells)
+        or not any(cell.get("rowspan", 0) > 1 for cell in cells)
+        or table_combined["expected"]["page_count"] < 2
+        or table_combined["expected"]["normalized_extracted_text"].count("Header A") < 2
+    ):
+        raise ValidationFailure(
+            "table-1.combined lacks fixed/fraction, colspan/rowspan, or repeated-header coverage"
+        )
 
     machine_test_source = (
         REPOSITORY_ROOT / "workspace/crates/typaxis-cli/src/machine_tests.rs"
@@ -4866,6 +4906,7 @@ def main() -> int:
             "machine-link-manifest.schema.json",
             "machine-list-manifest.schema.json",
             "machine-profile-evidence.schema.json",
+            "machine-table-manifest.schema.json",
             "package-config.schema.json",
         }:
             raise ValidationFailure("the versioned 1.2 registry has a missing or extra schema")

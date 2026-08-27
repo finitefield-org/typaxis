@@ -551,6 +551,7 @@ dependencies = [
  "typaxis-document",
  "typaxis-host-admission",
  "typaxis-layout",
+ "typaxis-layout-contract",
  "typaxis-machine-input",
  "typaxis-machine-profile",
  "typaxis-pagination",

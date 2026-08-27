@@ -56,5 +56,6 @@ pub use descriptor::{
 pub use preflight::{
     HostCapabilityPreflightError, MachinePdfPreflight, MachinePdfPreflightFailure,
     MachinePdfPreflightReceipt, MachinePdfReceiptMismatch, BASIC_PROFILE_RECEIPT_ALGORITHM,
+    TABLE_PROFILE_RECEIPT_ALGORITHM,
 };
 pub use typaxis_core::{MachineInputLimitBounds, MachinePdfProfileId};

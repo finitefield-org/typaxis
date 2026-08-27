@@ -14,12 +14,486 @@ use typaxis_display_list::{
     StagingForcedPageBreakDisplay, StagingMachineBlockStyleDisplay,
     StagingMachineFigureDisplayFacts, StagingMachineLinkDisplayFacts,
     StagingMachineLinkDisplayRectangle, StagingMachineLinkDisplayTarget, StagingMachineListDisplay,
-    ValidatedDisplayDocument,
+    TableDisplayClosureReceipt, TablePaintCellObservation, TablePaintCommandObservation,
+    TablePaintOccurrenceKind, TablePaintRect, TableProfileDisplay, ValidatedDisplayDocument,
 };
 use typaxis_resources::{
     ClusterExtractionPlan, FrozenPdfAlphaMask, FrozenPdfFontPlan, FrozenPdfImagePlan,
     FrozenPdfResourcePlans, ImageColorSpace, ImageEncoding, PdfFontIndirectObjectRole,
 };
+
+pub const TABLE_PDF_CLOSURE_ALGORITHM: &str = "typaxis.table-pdf-closure/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TablePdfDecorationObservation {
+    Background,
+    Border,
+    BorderSpacing,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TablePdfCellObservation {
+    pub kind: TablePaintOccurrenceKind,
+    pub page_index: u32,
+    pub fragment_id: u64,
+    pub source_fragment_id: Option<u64>,
+    pub repetition_index: Option<u32>,
+    pub row_node_id: u32,
+    pub logical_row_ordinal: u32,
+    pub row_fragment_ordinal: u32,
+    pub cell_node_id: u32,
+    pub flow_id: u32,
+    pub column_ordinal: u32,
+    pub colspan: u16,
+    pub rowspan: u16,
+    pub rect: TablePaintRect,
+    pub content_fragment_start: u32,
+    pub content_fragment_end: u32,
+}
+
+impl From<&TablePaintCellObservation> for TablePdfCellObservation {
+    fn from(value: &TablePaintCellObservation) -> Self {
+        Self {
+            kind: value.kind,
+            page_index: value.page_index,
+            fragment_id: value.fragment_id,
+            source_fragment_id: value.source_fragment_id,
+            repetition_index: value.repetition_index,
+            row_node_id: value.row_node_id.get(),
+            logical_row_ordinal: value.logical_row_ordinal,
+            row_fragment_ordinal: value.row_fragment_ordinal,
+            cell_node_id: value.cell_node_id.get(),
+            flow_id: value.flow_id.get(),
+            column_ordinal: value.column_ordinal,
+            colspan: value.colspan,
+            rowspan: value.rowspan,
+            rect: value.rect,
+            content_fragment_start: value.content_fragment_start,
+            content_fragment_end: value.content_fragment_end,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TablePdfClosureError {
+    DisplayStateMismatch,
+    PageClosure,
+    PdfReceiptMismatch,
+    MissingCell,
+    ExtraCell,
+    WrongCell,
+    WrongPage,
+    WrongRepetition,
+    WrongRectangle,
+    WrongContentRange,
+    MissingCommand,
+    ExtraCommand,
+    WrongCommand,
+    DecorationForbidden,
+    AllocationFailure,
+}
+
+/// PDF observation bound to the exact selected table Display receipt and the
+/// serializer's non-cloneable byte receipt. The table contributes no PDF path,
+/// fill, background, border, or spacing operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TablePdfClosureReceipt {
+    display_sha256: [u8; 32],
+    selected_layout_sha256: [u8; 32],
+    pdf_sha256: [u8; 32],
+    pdf_byte_length: u64,
+    page_count: u32,
+    object_count: u32,
+    records: Vec<TablePdfCellObservation>,
+    commands: Vec<TablePaintCommandObservation>,
+    decoration_op_count: u32,
+    canonical_jcs: String,
+}
+
+impl TablePdfClosureReceipt {
+    pub fn from_serialized(
+        display: &TableDisplayClosureReceipt,
+        graph: &FrozenPdfGraph,
+        receipt: &VerifiedPdfBytesReceipt,
+    ) -> Result<Self, TablePdfClosureError> {
+        let observations = display.records().iter().map(Into::into).collect();
+        Self::from_serialized_observed(
+            display,
+            graph,
+            receipt,
+            observations,
+            display.commands().to_vec(),
+            &[],
+        )
+    }
+
+    pub fn from_serialized_observed(
+        display: &TableDisplayClosureReceipt,
+        graph: &FrozenPdfGraph,
+        receipt: &VerifiedPdfBytesReceipt,
+        observed: Vec<TablePdfCellObservation>,
+        observed_commands: Vec<TablePaintCommandObservation>,
+        decorations: &[TablePdfDecorationObservation],
+    ) -> Result<Self, TablePdfClosureError> {
+        reject_table_pdf_decorations(display.decoration_op_count(), decorations)?;
+        if graph.selected_layout_fingerprint().bytes() != display.layout_state_sha256()
+            || receipt.selected_layout_fingerprint() != graph.selected_layout_fingerprint()
+            || !graph
+                .table_closures()
+                .iter()
+                .any(|closure| closure == display)
+        {
+            return Err(TablePdfClosureError::DisplayStateMismatch);
+        }
+        let expected_pages = display
+            .page_bodies()
+            .last()
+            .and_then(|page| page.target_page_index().checked_add(1))
+            .ok_or(TablePdfClosureError::PageClosure)?;
+        if graph.page_count() < expected_pages || receipt.page_count() != graph.page_count() {
+            return Err(TablePdfClosureError::PageClosure);
+        }
+        if receipt.object_count() != graph.object_count()
+            || receipt.byte_length() == 0
+            || sha256(receipt.bytes()) != receipt.content_hash()
+        {
+            return Err(TablePdfClosureError::PdfReceiptMismatch);
+        }
+        let expected: Vec<_> = display.records().iter().map(Into::into).collect();
+        validate_table_pdf_records(&expected, &observed)?;
+        validate_table_pdf_commands(display.commands(), &observed_commands, graph)?;
+        let mut value = Self {
+            display_sha256: sha256(display.canonical_jcs().as_bytes()),
+            selected_layout_sha256: display.selected_layout_sha256(),
+            pdf_sha256: receipt.content_hash(),
+            pdf_byte_length: receipt.byte_length(),
+            page_count: receipt.page_count(),
+            object_count: receipt.object_count(),
+            records: observed,
+            commands: observed_commands,
+            decoration_op_count: 0,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_table_pdf_closure(&value);
+        Ok(value)
+    }
+
+    pub const fn display_sha256(&self) -> [u8; 32] {
+        self.display_sha256
+    }
+    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub const fn pdf_sha256(&self) -> [u8; 32] {
+        self.pdf_sha256
+    }
+    pub const fn pdf_byte_length(&self) -> u64 {
+        self.pdf_byte_length
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub const fn object_count(&self) -> u32 {
+        self.object_count
+    }
+    pub fn records(&self) -> &[TablePdfCellObservation] {
+        &self.records
+    }
+    pub fn commands(&self) -> &[TablePaintCommandObservation] {
+        &self.commands
+    }
+    pub const fn decoration_op_count(&self) -> u32 {
+        self.decoration_op_count
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn reject_table_pdf_decorations(
+    display_decoration_count: u32,
+    decorations: &[TablePdfDecorationObservation],
+) -> Result<(), TablePdfClosureError> {
+    if display_decoration_count == 0 && decorations.is_empty() {
+        Ok(())
+    } else {
+        Err(TablePdfClosureError::DecorationForbidden)
+    }
+}
+
+fn validate_table_pdf_commands(
+    expected: &[TablePaintCommandObservation],
+    observed: &[TablePaintCommandObservation],
+    graph: &FrozenPdfGraph,
+) -> Result<(), TablePdfClosureError> {
+    if observed.len() < expected.len() {
+        return Err(TablePdfClosureError::MissingCommand);
+    }
+    if observed.len() > expected.len() {
+        return Err(TablePdfClosureError::ExtraCommand);
+    }
+    for (actual, expected) in observed.iter().zip(expected) {
+        if actual != expected {
+            if actual.page_index != expected.page_index {
+                return Err(TablePdfClosureError::WrongPage);
+            }
+            if actual.repetition_index != expected.repetition_index {
+                return Err(TablePdfClosureError::WrongRepetition);
+            }
+            if actual.cell_node_id != expected.cell_node_id
+                || actual.fragment_id != expected.fragment_id
+            {
+                return Err(TablePdfClosureError::WrongCell);
+            }
+            return Err(TablePdfClosureError::WrongCommand);
+        }
+        let page = graph
+            .graph
+            .iter()
+            .filter_map(|(_, body)| match body {
+                IndirectObjectBody::DisplayPageContent(page)
+                    if page.page_index == actual.page_index =>
+                {
+                    Some(page)
+                }
+                _ => None,
+            })
+            .next()
+            .ok_or(TablePdfClosureError::WrongPage)?;
+        if page.commands.get(actual.page_command_index as usize) != Some(&actual.command) {
+            return Err(TablePdfClosureError::WrongCommand);
+        }
+    }
+    validate_no_unclaimed_table_graph_commands(graph)?;
+    if graph.graph.iter().any(|(_, body)| {
+        matches!(body, IndirectObjectBody::DisplayPageContent(page) if page.commands.iter().any(|command| matches!(command, DisplayCommand::ClipPath { .. } | DisplayCommand::FillPath { .. } | DisplayCommand::StrokePath { .. })))
+    }) {
+        return Err(TablePdfClosureError::DecorationForbidden);
+    }
+    Ok(())
+}
+
+fn validate_no_unclaimed_table_graph_commands(
+    graph: &FrozenPdfGraph,
+) -> Result<(), TablePdfClosureError> {
+    let claimed: BTreeSet<_> = graph
+        .table_closures()
+        .iter()
+        .flat_map(|closure| closure.commands())
+        .map(|observation| (observation.page_index, observation.page_command_index))
+        .collect();
+    let expected_commands: Vec<_> = graph
+        .table_closures()
+        .iter()
+        .flat_map(|closure| closure.commands().iter().map(|command| &command.command))
+        .collect();
+    let records: Vec<_> = graph
+        .table_closures()
+        .iter()
+        .flat_map(|closure| closure.records())
+        .collect();
+    for page in graph.graph.iter().filter_map(|(_, body)| match body {
+        IndirectObjectBody::DisplayPageContent(page) => Some(page),
+        _ => None,
+    }) {
+        for (command_index, command) in page.commands.iter().enumerate() {
+            let command_index = u32::try_from(command_index)
+                .map_err(|_| TablePdfClosureError::AllocationFailure)?;
+            if claimed.contains(&(page.page_index, command_index)) {
+                continue;
+            }
+            if is_unclaimed_table_command(command, page.page_index, &expected_commands, &records) {
+                return Err(TablePdfClosureError::ExtraCommand);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_unclaimed_table_command(
+    command: &DisplayCommand,
+    page_index: u32,
+    expected_commands: &[&DisplayCommand],
+    records: &[&TablePaintCellObservation],
+) -> bool {
+    expected_commands.contains(&command)
+        || command_intersects_table_records(command, page_index, records)
+}
+
+fn command_intersects_table_records(
+    command: &DisplayCommand,
+    page_index: u32,
+    records: &[&TablePaintCellObservation],
+) -> bool {
+    records.iter().any(|record| {
+        if record.page_index != page_index {
+            return false;
+        }
+        match command {
+            DisplayCommand::DrawGlyphRun { origin, .. } => {
+                table_rect_contains_point(record.rect, origin.x.raw(), origin.y.raw())
+            }
+            DisplayCommand::DrawImage { rect, .. } => table_rects_intersect(record.rect, *rect),
+            _ => false,
+        }
+    })
+}
+
+fn table_rect_contains_point(rect: TablePaintRect, x: i64, y: i64) -> bool {
+    let Some(right) = rect.x().checked_add(rect.width()) else {
+        return false;
+    };
+    let Some(bottom) = rect.y().checked_add(rect.height()) else {
+        return false;
+    };
+    x >= rect.x() && x < right && y >= rect.y() && y < bottom
+}
+
+fn table_rects_intersect(table: TablePaintRect, other: Rect) -> bool {
+    let Some(table_right) = table.x().checked_add(table.width()) else {
+        return false;
+    };
+    let Some(table_bottom) = table.y().checked_add(table.height()) else {
+        return false;
+    };
+    let Some(other_right) = other.x().raw().checked_add(other.width().get().raw()) else {
+        return false;
+    };
+    let Some(other_bottom) = other.y().raw().checked_add(other.height().get().raw()) else {
+        return false;
+    };
+    table.x() < other_right
+        && other.x().raw() < table_right
+        && table.y() < other_bottom
+        && other.y().raw() < table_bottom
+}
+
+fn validate_table_pdf_records(
+    expected: &[TablePdfCellObservation],
+    observed: &[TablePdfCellObservation],
+) -> Result<(), TablePdfClosureError> {
+    if observed.len() < expected.len() {
+        return Err(TablePdfClosureError::MissingCell);
+    }
+    if observed.len() > expected.len() {
+        return Err(TablePdfClosureError::ExtraCell);
+    }
+    for (actual, expected) in observed.iter().zip(expected) {
+        if actual == expected {
+            continue;
+        }
+        if actual.page_index != expected.page_index {
+            return Err(TablePdfClosureError::WrongPage);
+        }
+        if actual.kind != expected.kind
+            || actual.repetition_index != expected.repetition_index
+            || actual.source_fragment_id != expected.source_fragment_id
+        {
+            return Err(TablePdfClosureError::WrongRepetition);
+        }
+        if actual.row_node_id != expected.row_node_id
+            || actual.logical_row_ordinal != expected.logical_row_ordinal
+            || actual.row_fragment_ordinal != expected.row_fragment_ordinal
+            || actual.cell_node_id != expected.cell_node_id
+            || actual.flow_id != expected.flow_id
+            || actual.column_ordinal != expected.column_ordinal
+            || actual.colspan != expected.colspan
+            || actual.rowspan != expected.rowspan
+        {
+            return Err(TablePdfClosureError::WrongCell);
+        }
+        if actual.rect != expected.rect {
+            return Err(TablePdfClosureError::WrongRectangle);
+        }
+        if actual.content_fragment_start != expected.content_fragment_start
+            || actual.content_fragment_end != expected.content_fragment_end
+        {
+            return Err(TablePdfClosureError::WrongContentRange);
+        }
+        return Err(TablePdfClosureError::WrongCell);
+    }
+    Ok(())
+}
+
+fn encode_table_pdf_closure(value: &TablePdfClosureReceipt) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, TABLE_PDF_CLOSURE_ALGORITHM);
+    output.push_str(",\"command_count\":");
+    output.push_str(&value.commands.len().to_string());
+    output.push_str(",\"decoration_op_count\":");
+    output.push_str(&value.decoration_op_count.to_string());
+    output.push_str(",\"display_sha256\":");
+    push_json_hex(&mut output, &value.display_sha256);
+    output.push_str(",\"object_count\":");
+    output.push_str(&value.object_count.to_string());
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"pdf_byte_length\":");
+    output.push_str(&value.pdf_byte_length.to_string());
+    output.push_str(",\"pdf_sha256\":");
+    push_json_hex(&mut output, &value.pdf_sha256);
+    output.push_str(",\"records\":[");
+    for (index, record) in value.records.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"cell_node_id\":");
+        output.push_str(&record.cell_node_id.to_string());
+        output.push_str(",\"column_ordinal\":");
+        output.push_str(&record.column_ordinal.to_string());
+        output.push_str(",\"colspan\":");
+        output.push_str(&record.colspan.to_string());
+        output.push_str(",\"content_fragment_end\":");
+        output.push_str(&record.content_fragment_end.to_string());
+        output.push_str(",\"content_fragment_start\":");
+        output.push_str(&record.content_fragment_start.to_string());
+        output.push_str(",\"flow_id\":");
+        output.push_str(&record.flow_id.to_string());
+        output.push_str(",\"fragment_id\":");
+        output.push_str(&record.fragment_id.to_string());
+        output.push_str(",\"kind\":");
+        push_jcs_string(
+            &mut output,
+            match record.kind {
+                TablePaintOccurrenceKind::Header => "header",
+                TablePaintOccurrenceKind::Body => "body",
+            },
+        );
+        output.push_str(",\"logical_row_ordinal\":");
+        output.push_str(&record.logical_row_ordinal.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&record.page_index.to_string());
+        output.push_str(",\"rect\":{\"height\":");
+        output.push_str(&record.rect.height().to_string());
+        output.push_str(",\"width\":");
+        output.push_str(&record.rect.width().to_string());
+        output.push_str(",\"x\":");
+        output.push_str(&record.rect.x().to_string());
+        output.push_str(",\"y\":");
+        output.push_str(&record.rect.y().to_string());
+        output.push_str("},\"repetition_index\":");
+        match record.repetition_index {
+            Some(value) => output.push_str(&value.to_string()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"row_fragment_ordinal\":");
+        output.push_str(&record.row_fragment_ordinal.to_string());
+        output.push_str(",\"row_node_id\":");
+        output.push_str(&record.row_node_id.to_string());
+        output.push_str(",\"rowspan\":");
+        output.push_str(&record.rowspan.to_string());
+        output.push_str(",\"source_fragment_id\":");
+        match record.source_fragment_id {
+            Some(value) => output.push_str(&value.to_string()),
+            None => output.push_str("null"),
+        }
+        output.push('}');
+    }
+    output.push_str("],\"selected_layout_sha256\":");
+    push_json_hex(&mut output, &value.selected_layout_sha256);
+    output.push('}');
+    output
+}
 
 pub const STAGING_MACHINE_BLOCK_STYLE_PDF_ALGORITHM: &str = "typaxis.machine-block-style-pdf/1";
 
@@ -1626,6 +2100,7 @@ pub enum PdfError {
     ResourcePlanMismatch,
     InvalidDestinationClosure,
     InvalidAnnotationClosure,
+    TableClosure,
     DirectValueDepth,
     PageTreeDepth,
     ContentStream,
@@ -1782,6 +2257,7 @@ pub struct FrozenPdfGraph {
     object_count: u32,
     font_bindings: Vec<PdfResourceBinding<FontInstanceId>>,
     image_bindings: Vec<PdfResourceBinding<ImageResourceId>>,
+    table_closures: Vec<TableDisplayClosureReceipt>,
 }
 impl FrozenPdfGraph {
     pub const fn selected_layout_fingerprint(&self) -> LayoutStateFingerprint {
@@ -1805,6 +2281,9 @@ impl FrozenPdfGraph {
         self.image_bindings
             .iter()
             .map(|binding| (binding.logical_id, &binding.name))
+    }
+    pub fn table_closures(&self) -> &[TableDisplayClosureReceipt] {
+        &self.table_closures
     }
 }
 
@@ -2140,8 +2619,97 @@ fn required_object_count(
     u32::try_from(required).map_err(|_| PdfError::ObjectCountOverflow)
 }
 
+fn validate_table_display_graph_closure(
+    display: &ValidatedDisplayDocument,
+    closures: &[TableDisplayClosureReceipt],
+) -> Result<(), PdfError> {
+    let layout_state = display
+        .document()
+        .source_layout()
+        .state_fingerprint()
+        .bytes();
+    let mut previous_table = None;
+    let mut claimed_commands = BTreeSet::new();
+    for closure in closures {
+        if closure.layout_state_sha256() != layout_state
+            || closure.decoration_op_count() != 0
+            || previous_table.is_some_and(|owner| owner >= closure.table_node_id())
+        {
+            return Err(PdfError::TableClosure);
+        }
+        previous_table = Some(closure.table_node_id());
+        for observation in closure.commands() {
+            let page = display
+                .document()
+                .pages
+                .get(observation.page_index as usize)
+                .filter(|page| page.page_index == observation.page_index)
+                .ok_or(PdfError::TableClosure)?;
+            let command = page
+                .commands
+                .get(observation.page_command_index as usize)
+                .ok_or(PdfError::TableClosure)?;
+            if command != &observation.command
+                || !matches!(command, DisplayCommand::DrawGlyphRun { .. })
+                || !claimed_commands
+                    .insert((observation.page_index, observation.page_command_index))
+            {
+                return Err(PdfError::TableClosure);
+            }
+        }
+    }
+    let expected_commands: Vec<_> = closures
+        .iter()
+        .flat_map(|closure| closure.commands().iter().map(|command| &command.command))
+        .collect();
+    let records: Vec<_> = closures
+        .iter()
+        .flat_map(|closure| closure.records())
+        .collect();
+    for page in &display.document().pages {
+        for (command_index, command) in page.commands.iter().enumerate() {
+            let command_index = u32::try_from(command_index).map_err(|_| PdfError::TableClosure)?;
+            if claimed_commands.contains(&(page.page_index, command_index)) {
+                continue;
+            }
+            if is_unclaimed_table_command(command, page.page_index, &expected_commands, &records) {
+                return Err(PdfError::TableClosure);
+            }
+        }
+    }
+    if display
+        .document()
+        .pages
+        .iter()
+        .flat_map(|page| &page.commands)
+        .any(|command| {
+            matches!(
+                command,
+                DisplayCommand::ClipPath { .. }
+                    | DisplayCommand::FillPath { .. }
+                    | DisplayCommand::StrokePath { .. }
+            )
+        })
+    {
+        return Err(PdfError::TableClosure);
+    }
+    Ok(())
+}
+
 pub struct PdfBackend;
 impl PdfBackend {
+    pub fn build_table_profile(
+        display: TableProfileDisplay,
+        resource_plans: FrozenPdfResourcePlans,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<FrozenPdfGraph, PdfError> {
+        let (display, table_closures) = display.into_parts();
+        validate_table_display_graph_closure(&display, &table_closures)?;
+        let mut graph = Self::build(display, resource_plans, limits)?;
+        graph.table_closures = table_closures;
+        Ok(graph)
+    }
+
     pub fn build(
         display: ValidatedDisplayDocument,
         resource_plans: FrozenPdfResourcePlans,
@@ -2392,6 +2960,7 @@ impl PdfBackend {
             object_count,
             font_bindings,
             image_bindings,
+            table_closures: Vec::new(),
         })
     }
 
@@ -4665,7 +5234,7 @@ fn collect_value_references(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typaxis_core::{EffectiveDataVersions, ResourceLimits, ValidatedResourceLimits};
+    use typaxis_core::{EffectiveDataVersions, NodeId, ResourceLimits, ValidatedResourceLimits};
     fn name(value: &[u8]) -> PdfName {
         PdfName::from_bytes(value.to_vec()).unwrap()
     }
@@ -4682,6 +5251,136 @@ mod tests {
             limits,
         )
         .unwrap()
+    }
+
+    fn table_pdf_record_fixture() -> TablePdfCellObservation {
+        TablePdfCellObservation {
+            kind: TablePaintOccurrenceKind::Header,
+            page_index: 1,
+            fragment_id: 9,
+            source_fragment_id: Some(3),
+            repetition_index: Some(1),
+            row_node_id: 2,
+            logical_row_ordinal: 0,
+            row_fragment_ordinal: 0,
+            cell_node_id: 3,
+            flow_id: 1,
+            column_ordinal: 0,
+            colspan: 1,
+            rowspan: 1,
+            rect: TablePaintRect::from_untrusted_parts(10, 20, 30, 40),
+            content_fragment_start: 0,
+            content_fragment_end: 2,
+        }
+    }
+
+    #[test]
+    fn table_pdf_closure_rejects_missing_extra_wrong_cell_page_repetition_and_content() {
+        let expected = table_pdf_record_fixture();
+        assert_eq!(
+            validate_table_pdf_records(std::slice::from_ref(&expected), &[]),
+            Err(TablePdfClosureError::MissingCell)
+        );
+        assert_eq!(
+            validate_table_pdf_records(
+                std::slice::from_ref(&expected),
+                &[expected.clone(), expected.clone()],
+            ),
+            Err(TablePdfClosureError::ExtraCell)
+        );
+        let mut wrong = expected.clone();
+        wrong.page_index += 1;
+        assert_eq!(
+            validate_table_pdf_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TablePdfClosureError::WrongPage)
+        );
+        let mut wrong = expected.clone();
+        wrong.repetition_index = Some(2);
+        assert_eq!(
+            validate_table_pdf_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TablePdfClosureError::WrongRepetition)
+        );
+        let mut wrong = expected.clone();
+        wrong.cell_node_id += 1;
+        assert_eq!(
+            validate_table_pdf_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TablePdfClosureError::WrongCell)
+        );
+        let mut wrong = expected.clone();
+        wrong.rect = TablePaintRect::from_untrusted_parts(11, 20, 30, 40);
+        assert_eq!(
+            validate_table_pdf_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TablePdfClosureError::WrongRectangle)
+        );
+        let mut wrong = expected.clone();
+        wrong.content_fragment_end += 1;
+        assert_eq!(
+            validate_table_pdf_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TablePdfClosureError::WrongContentRange)
+        );
+    }
+
+    #[test]
+    fn table_pdf_closure_rejects_command_and_decoration_tampering() {
+        assert_eq!(reject_table_pdf_decorations(0, &[]), Ok(()));
+        assert_eq!(
+            reject_table_pdf_decorations(1, &[]),
+            Err(TablePdfClosureError::DecorationForbidden)
+        );
+        assert_eq!(
+            reject_table_pdf_decorations(0, &[TablePdfDecorationObservation::Border]),
+            Err(TablePdfClosureError::DecorationForbidden)
+        );
+
+        let graph = blank_content_graph();
+        let observation = TablePaintCommandObservation {
+            page_index: 0,
+            page_command_index: 0,
+            fragment_id: 1,
+            repetition_index: None,
+            cell_node_id: NodeId::new(3),
+            command: DisplayCommand::DrawImage {
+                image_id: ImageResourceId::new(0),
+                rect: Rect::new(
+                    Length::ZERO,
+                    Length::ZERO,
+                    positive_points(1),
+                    positive_points(1),
+                ),
+            },
+        };
+        assert!(is_unclaimed_table_command(
+            &observation.command,
+            0,
+            &[&observation.command],
+            &[],
+        ));
+        let selected_rect = TablePaintRect::from_untrusted_parts(10, 20, 30, 40);
+        assert!(table_rect_contains_point(selected_rect, 10, 20));
+        assert!(!table_rect_contains_point(selected_rect, 40, 20));
+        assert!(table_rects_intersect(
+            selected_rect,
+            Rect::new(
+                Length::from_raw(39).unwrap(),
+                Length::from_raw(59).unwrap(),
+                PositiveLength::new(Length::from_raw(2).unwrap()).unwrap(),
+                PositiveLength::new(Length::from_raw(2).unwrap()).unwrap(),
+            ),
+        ));
+        assert_eq!(
+            validate_table_pdf_commands(std::slice::from_ref(&observation), &[], &graph),
+            Err(TablePdfClosureError::MissingCommand)
+        );
+        assert_eq!(
+            validate_table_pdf_commands(&[], std::slice::from_ref(&observation), &graph),
+            Err(TablePdfClosureError::ExtraCommand)
+        );
+        let mut wrong = observation.clone();
+        wrong.page_index = 1;
+        assert_eq!(
+            validate_table_pdf_commands(std::slice::from_ref(&observation), &[wrong], &graph,),
+            Err(TablePdfClosureError::WrongPage)
+        );
     }
     fn positive_points(points: i64) -> PositiveLength {
         PositiveLength::new(Length::from_raw(points * 65_536).unwrap()).unwrap()
@@ -4705,6 +5404,7 @@ mod tests {
             object_count,
             font_bindings: vec![],
             image_bindings: vec![],
+            table_closures: vec![],
         }
     }
     fn blank_content_graph() -> FrozenPdfGraph {
@@ -5393,6 +6093,7 @@ mod tests {
             object_count: 3,
             font_bindings: vec![],
             image_bindings: vec![],
+            table_closures: vec![],
         };
         let expected = EffectiveConfigFingerprint::from_untrusted_bytes([5; 32]);
         let different = EffectiveConfigFingerprint::from_untrusted_bytes([6; 32]);

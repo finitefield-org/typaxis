@@ -15,6 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 PROFILE = "typaxis.machine-pdf/paragraph-1"
 BASIC_PROFILE = "typaxis.machine-pdf/basic-document-1"
+TABLE_PROFILE = "typaxis.machine-pdf/table-1"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 PHRASE = "Typaxis machine input"
 MATRIX_TEST = "machine_tests::matrix_{row:02d}_{name}"
@@ -605,6 +606,281 @@ def basic_document_combined_package(
     return package
 
 
+def table_document_combined_package(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    """The complete M2 package plus a multi-page fixed/fraction table."""
+    package = basic_document_combined_package(ttf, ttc, png)
+    table_texts = [
+        "Header A",
+        "Header B",
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+    ]
+    first_text_id = len(package["text_buffers"])
+    package["text_buffers"].extend(
+        {
+            "text_id": first_text_id + ordinal,
+            "utf8": value,
+            "mappings": [
+                {
+                    "text_range": {
+                        "start_byte": 0,
+                        "end_byte": len(value.encode("utf-8")),
+                    },
+                    "kind": "inserted",
+                    "source_span": None,
+                }
+            ],
+        }
+        for ordinal, value in enumerate(table_texts)
+    )
+
+    def text_node(node_id: int, text_ordinal: int) -> dict[str, Any]:
+        value = table_texts[text_ordinal]
+        return {
+            "kind": "text",
+            "node_id": node_id,
+            "span": span(),
+            "text_span": {
+                "text_id": first_text_id + text_ordinal,
+                "start_byte": 0,
+                "end_byte": len(value.encode("utf-8")),
+            },
+        }
+
+    def paragraph(node_id: int, text_node_id: int, text_ordinal: int) -> dict[str, Any]:
+        return {
+            "kind": "paragraph",
+            "node_id": node_id,
+            "span": span(),
+            "classes": ["tall"] if text_ordinal >= 2 else [],
+            "children": [text_node(text_node_id, text_ordinal)],
+        }
+
+    package["document"]["blocks"].append(
+        {
+            "kind": "table",
+            "node_id": 25,
+            "span": span(),
+            "classes": ["matrix"],
+            "columns": [
+                {"kind": "fixed", "width": 5_000_000},
+                {"kind": "fraction", "weight": 3},
+            ],
+            "head": [
+                {
+                    "node_id": 26,
+                    "span": span(),
+                    "cells": [
+                        {
+                            "node_id": 27,
+                            "span": span(),
+                            "colspan": 1,
+                            "rowspan": 1,
+                            "blocks": [paragraph(28, 29, 0)],
+                        },
+                        {
+                            "node_id": 30,
+                            "span": span(),
+                            "colspan": 1,
+                            "rowspan": 1,
+                            "blocks": [paragraph(31, 32, 1)],
+                        },
+                    ],
+                }
+            ],
+            "body": [
+                {
+                    "node_id": 33,
+                    "span": span(),
+                    "cells": [
+                        {
+                            "node_id": 34,
+                            "span": span(),
+                            "colspan": 1,
+                            "rowspan": 2,
+                            "blocks": [paragraph(35, 36, 2)],
+                        },
+                        {
+                            "node_id": 37,
+                            "span": span(),
+                            "colspan": 1,
+                            "rowspan": 1,
+                            "blocks": [paragraph(38, 39, 3)],
+                        },
+                    ],
+                },
+                {
+                    "node_id": 40,
+                    "span": span(),
+                    "cells": [
+                        {
+                            "node_id": 41,
+                            "span": span(),
+                            "colspan": 1,
+                            "rowspan": 1,
+                            "blocks": [paragraph(42, 43, 4)],
+                        }
+                    ],
+                },
+                {
+                    "node_id": 44,
+                    "span": span(),
+                    "cells": [
+                        {
+                            "node_id": 45,
+                            "span": span(),
+                            "colspan": 2,
+                            "rowspan": 1,
+                            "blocks": [paragraph(46, 47, 5)],
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+
+    def declaration(name: str, value: dict[str, Any]) -> dict[str, Any]:
+        return {"name": name, "value": value, "important": False}
+
+    package["style_sheet"]["rules"].append(
+        {
+            "style_id": "table-cell-tall",
+            "extends": None,
+            "selector": "paragraph.tall",
+            "source_order": 5,
+            "declarations": [
+                declaration("line_height", {"kind": "length", "value": 8_000_000})
+            ],
+        }
+    )
+    package["style_sheet"]["rules"].append(
+        {
+            "style_id": "table-matrix",
+            "extends": None,
+            "selector": "table.matrix",
+            "source_order": 6,
+            "declarations": [
+                declaration("page", {"kind": "keyword", "value": "auto"}),
+                declaration("space_before", {"kind": "length", "value": 65_536}),
+                declaration("space_after", {"kind": "length", "value": 65_536}),
+                declaration("start_indent", {"kind": "length", "value": 65_536}),
+                declaration("end_indent", {"kind": "length", "value": 65_536}),
+                declaration("keep_with_next", {"kind": "boolean", "value": False}),
+            ],
+        }
+    )
+    return package
+
+
+def table_only_package(ttf: bytes, ttc: bytes, png: bytes) -> dict[str, Any]:
+    """The table slice without any ordinary M2 body blocks."""
+    package = table_document_combined_package(ttf, ttc, png)
+    table = package["document"]["blocks"][-1]
+    first_table_text_id = 6
+    # Keep the compact table-only baseline on one page; the public combined
+    # fixture owns the explicit colspan and continuation coverage.
+    table["body"].pop()
+    package["document"]["blocks"] = [table]
+    package["text_buffers"] = package["text_buffers"][first_table_text_id:-1]
+    for text_id, buffer in enumerate(package["text_buffers"]):
+        buffer["text_id"] = text_id
+    for row in [*table["head"], *table["body"]]:
+        for cell in row["cells"]:
+            for paragraph in cell["blocks"]:
+                for inline in paragraph["children"]:
+                    if inline["kind"] == "text":
+                        inline["text_span"]["text_id"] -= first_table_text_id
+
+    next_node_id = 1
+
+    def issue_node(value: dict[str, Any]) -> None:
+        nonlocal next_node_id
+        value["node_id"] = next_node_id
+        next_node_id += 1
+
+    issue_node(table)
+    for row in [*table["head"], *table["body"]]:
+        issue_node(row)
+        for cell in row["cells"]:
+            issue_node(cell)
+            for paragraph in cell["blocks"]:
+                issue_node(paragraph)
+                for inline in paragraph["children"]:
+                    issue_node(inline)
+    package["style_sheet"]["rules"] = [
+        rule
+        for rule in package["style_sheet"]["rules"]
+        if rule["selector"] in {"paragraph", "paragraph.tall", "table.matrix"}
+    ]
+    for source_order, rule in enumerate(package["style_sheet"]["rules"]):
+        rule["source_order"] = source_order
+    package["resources"] = {
+        "font_faces": [package["resources"]["font_faces"][0]],
+        "images": [],
+    }
+    return package
+
+
+def table_rejection_package() -> dict[str, Any]:
+    """A decoration-free empty table rejected only by the older profiles."""
+    package = base_package(
+        contract="typaxis.contract/1.2", source=b"", master_id="table-rejection"
+    )
+    package["sources"][0]["uri"] = "input.tsf"
+    body_width = package["page_masters"]["masters"][0]["body"]["width"]
+    package["document"]["blocks"] = [
+        {
+            "kind": "table",
+            "node_id": 1,
+            "span": span(),
+            "classes": [],
+            "columns": [{"kind": "fixed", "width": body_width}],
+            "head": [],
+            "body": [
+                {
+                    "node_id": 2,
+                    "span": span(),
+                    "cells": [
+                        {
+                            "node_id": 3,
+                            "span": span(),
+                            "colspan": 1,
+                            "rowspan": 1,
+                            "blocks": [],
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    return package
+
+
+def table_arguments(profile: str) -> list[str]:
+    return [
+        "job/document-package.json",
+        "-o",
+        "$OUTPUT/output.pdf",
+        "--package-root",
+        "job",
+        "--profile",
+        profile,
+        "--resource-root",
+        "job",
+        "--trace",
+        "$OUTPUT/trace.json",
+        "--trace-text",
+        "--emit-build-manifest",
+        "$OUTPUT/manifest.json",
+        "--emit-diagnostics",
+        "$OUTPUT/diagnostics.json",
+    ]
+
+
 ADVERTISED_COVERAGE = sorted(
     [
         "block:heading",
@@ -655,6 +931,15 @@ BASIC_ADVERTISED_COVERAGE = sorted(
             "text_align", "width",
         ]),
         *(f"style_selector:{name}" for name in ["figure", "heading", "list", "page_break", "paragraph"]),
+    ]
+)
+
+TABLE_ADVERTISED_COVERAGE = sorted(
+    [
+        *BASIC_ADVERTISED_COVERAGE,
+        "block:table",
+        "style_block_type:table",
+        "style_selector:table",
     ]
 )
 
@@ -1021,6 +1306,180 @@ def main() -> None:
         resources={"body.ttf": ttf, "collection.ttc": ttc, "figure.data": png},
     )
 
+    table_resources = {
+        "body.ttf": ttf,
+        "collection.ttc": ttc,
+        "figure.data": png,
+    }
+    table_only = table_only_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "table-1.only",
+        contract="typaxis.contract/1.2",
+        text="Header A alpha Header B beta gamma",
+        profile=TABLE_PROFILE,
+    )
+    expected["arguments"] = table_arguments(TABLE_PROFILE)
+    expected["advertised_item_coverage"] = [
+        "block:table",
+        "style_block_type:table",
+        "style_selector:table",
+    ]
+    expected["expected"]["page_count"] = 1
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["expected"]["visible_artifacts"].append("trace")
+    expected["expected"]["visible_artifacts"].sort()
+    expected["resource_hashes"] = [
+        {"bytes": len(ttf), "sha256": sha256(ttf), "uri": "body.ttf"},
+    ]
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/table-1/only",
+        jcs(table_only),
+        expected,
+        sources={"input.tsf": b""},
+        resources={"body.ttf": ttf},
+    )
+
+    table_combined = table_document_combined_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "table-1.combined",
+        contract="typaxis.contract/1.2",
+        text=(
+            "Basic document internal external First item Second entry PNG caption "
+            "Header A Header B alpha beta Header A delta Header B gamma"
+        ),
+        profile=TABLE_PROFILE,
+    )
+    expected["arguments"] = table_arguments(TABLE_PROFILE)
+    expected["advertised_item_coverage"] = TABLE_ADVERTISED_COVERAGE
+    expected["expected"]["page_count"] = 3
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["expected"]["visible_artifacts"].append("trace")
+    expected["expected"]["visible_artifacts"].sort()
+    expected["resource_hashes"] = [
+        {"bytes": len(ttf), "sha256": sha256(ttf), "uri": "body.ttf"},
+        {"bytes": len(ttc), "sha256": sha256(ttc), "uri": "collection.ttc"},
+        {"bytes": len(png), "sha256": sha256(png), "uri": "figure.data"},
+    ]
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/table-1/combined",
+        jcs(table_combined),
+        expected,
+        sources={"input.tsf": b""},
+        resources=table_resources,
+    )
+
+    table_policy_rejections: list[tuple[str, dict[str, Any], dict[str, Any], dict[str, bytes]]] = []
+    decoration = copy.deepcopy(table_only)
+    decoration["style_sheet"]["rules"][2]["declarations"].append(
+        {
+            "name": "border",
+            "value": {"kind": "keyword", "value": "none"},
+            "important": False,
+        }
+    )
+    table_policy_rejections.append(
+        (
+            "invalid/table-1-decoration",
+            decoration,
+            invalid_outcome(
+                "table-1.decoration-rejected",
+                "P1102",
+                location="json:/style_sheet/rules/2/declarations/6/name",
+                contract="typaxis.contract/1.2",
+                profile=TABLE_PROFILE,
+            ),
+            {"body.ttf": ttf},
+        )
+    )
+
+    inapplicable = copy.deepcopy(table_only)
+    inapplicable["style_sheet"]["rules"][2]["declarations"].append(
+        {
+            "name": "font_size",
+            "value": {"kind": "length", "value": 786_432},
+            "important": False,
+        }
+    )
+    table_policy_rejections.append(
+        (
+            "invalid/table-1-inapplicable-style",
+            inapplicable,
+            invalid_outcome(
+                "table-1.inapplicable-style-rejected",
+                "L5101",
+                location="json:/style_sheet/rules/2/declarations/6",
+                package_progress="validated",
+                sources_progress="admitted",
+                resources_progress="registered",
+                source_read=True,
+                contract="typaxis.contract/1.2",
+                profile=TABLE_PROFILE,
+            ),
+            {"body.ttf": ttf},
+        )
+    )
+
+    old_table_contract = base_package(
+        contract="typaxis.contract/1.1", source=b"", master_id="old-table"
+    )
+    old_table_contract["sources"][0]["uri"] = "input.tsf"
+    table_policy_rejections.append(
+        (
+            "invalid/table-1-old-contract",
+            old_table_contract,
+            invalid_outcome(
+                "table-1.old-contract-rejected",
+                "P1103",
+                location="json:/contract",
+                package_progress="validated",
+                sources_progress="admitted",
+                source_read=True,
+                contract="typaxis.contract/1.1",
+                profile=TABLE_PROFILE,
+            ),
+            {},
+        )
+    )
+    for relative, package, expected, resources in table_policy_rejections:
+        fixtures[expected["fixture_id"]] = write_fixture(
+            relative,
+            jcs(package),
+            expected,
+            sources={"input.tsf": b""},
+            resources=resources,
+        )
+
+    table_rejection = table_rejection_package()
+    for profile, fixture_id, relative in [
+        (
+            BASIC_PROFILE,
+            "basic-document-1.table-rejected",
+            "invalid/basic-document-1-table",
+        ),
+        (
+            PROFILE,
+            "paragraph-1.table-rejected",
+            "invalid/paragraph-1-table",
+        ),
+    ]:
+        expected = invalid_outcome(
+            fixture_id,
+            "L5100",
+            location="json:/document/blocks/0",
+            package_progress="validated",
+            sources_progress="admitted",
+            resources_progress="registered",
+            source_read=True,
+            contract="typaxis.contract/1.2",
+            profile=profile,
+        )
+        fixtures[fixture_id] = write_fixture(
+            relative,
+            jcs(table_rejection),
+            expected,
+            sources={"input.tsf": b""},
+        )
+
     old_basic = base_package(contract="typaxis.contract/1.1", master_id="old-basic")
     old_basic["sources"][0]["uri"] = "input.tsf"
     expected = invalid_outcome(
@@ -1361,6 +1820,11 @@ def main() -> None:
         ("aliases", ["publication.alias-race"], "machine_tests::all_machine_targets_reject_input_aliases"),
         ("publication", ["publication.partial-failure"], "machine_tests::publication_failure_artifact_sets_are_typed"),
         ("round-trip", ["round-trip.canonical"], "machine_tests::canonical_round_trip_relations_hold"),
+        (
+            "paragraph-table-rejection",
+            ["paragraph-1.table-rejected"],
+            "machine_tests::machine_table_paragraph_profile_rejects_table",
+        ),
     ]
     closure_matrix = {
         "contract": "typaxis.machine-fixture-matrix/1",
@@ -1388,6 +1852,11 @@ def main() -> None:
             ["basic-document-1.old-contract"],
             "machine_tests::matrix_m2_basic_old_contract",
         ),
+        (
+            "m2-basic-table-rejection",
+            ["basic-document-1.table-rejected"],
+            "machine_tests::machine_table_basic_profile_rejects_table",
+        ),
     ]
     m2_matrix = {
         "contract": "typaxis.machine-fixture-matrix/1",
@@ -1409,6 +1878,42 @@ def main() -> None:
         ],
     }
     (ROOT / "matrices/m2-basic.json").write_bytes(jcs(m2_matrix))
+
+    m3_rows = [
+        (
+            "m3-table-only",
+            ["table-1.only"],
+            "machine_tests::machine_table_only",
+        ),
+        (
+            "m3-table-combined",
+            ["table-1.combined"],
+            "machine_tests::machine_table_combined",
+        ),
+        (
+            "m3-table-policy-rejections",
+            [
+                "table-1.decoration-rejected",
+                "table-1.inapplicable-style-rejected",
+                "table-1.old-contract-rejected",
+            ],
+            "machine_tests::machine_table_policy_rejections",
+        ),
+    ]
+    m3_matrix = {
+        "contract": "typaxis.machine-fixture-matrix/1",
+        "fixtures": [
+            {"expected": fixtures[fixture_id], "fixture_id": fixture_id}
+            for fixture_id in sorted({item for _, ids, _ in m3_rows for item in ids})
+        ],
+        "profile": TABLE_PROFILE,
+        "rows": [
+            {"fixture_ids": ids, "id": row_id, "test": test}
+            for row_id, ids, test in m3_rows
+        ],
+        "verification_commands": m2_matrix["verification_commands"],
+    }
+    (ROOT / "matrices/m3-table.json").write_bytes(jcs(m3_matrix))
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ use typaxis_core::{
 };
 use typaxis_document_package::{CanonicalJcsStats, DocumentPackageEncoder, JcsEncodeError};
 use typaxis_layout::{FlowPosition, FlowTree, LayoutEpoch};
+use typaxis_manifest::StagingTableLayoutFacts;
 use typaxis_pagination::{
     ConvergenceStatus, InitialPaginationState, PageFrameKind, PagePlan, PaginationResult,
     PlacedAnchor, ResolvedReference,
@@ -103,7 +104,28 @@ pub fn reference_layout_trace_json(
         max_layout_passes,
         include_trace_text,
         None,
+        None,
     )
+}
+
+pub struct MachineTraceBinding<'a> {
+    capability: &'a typaxis_machine_profile::MachinePdfPreflightReceipt,
+    flow_registry_sha256: Option<[u8; 32]>,
+    table_layouts: &'a [StagingTableLayoutFacts],
+}
+
+impl<'a> MachineTraceBinding<'a> {
+    pub const fn new(
+        capability: &'a typaxis_machine_profile::MachinePdfPreflightReceipt,
+        flow_registry_sha256: Option<[u8; 32]>,
+        table_layouts: &'a [StagingTableLayoutFacts],
+    ) -> Self {
+        Self {
+            capability,
+            flow_registry_sha256,
+            table_layouts,
+        }
+    }
 }
 
 pub fn machine_layout_trace_json(
@@ -112,16 +134,22 @@ pub fn machine_layout_trace_json(
     pagination: &PaginationResult,
     max_layout_passes: u16,
     include_trace_text: bool,
-    capability: &typaxis_machine_profile::MachinePdfPreflightReceipt,
-    flow_registry_sha256: Option<[u8; 32]>,
+    binding: MachineTraceBinding<'_>,
 ) -> Result<String, &'static str> {
+    let table_layouts = (binding.capability.profile()
+        == typaxis_core::MachinePdfProfileId::TABLE_1)
+        .then_some(binding.table_layouts);
     layout_trace_json(
         flow,
         initial,
         pagination,
         max_layout_passes,
         include_trace_text,
-        Some((capability.profile_receipt_sha256(), flow_registry_sha256)),
+        Some((
+            binding.capability.profile_receipt_sha256(),
+            binding.flow_registry_sha256,
+        )),
+        table_layouts,
     )
 }
 
@@ -132,6 +160,7 @@ fn layout_trace_json(
     max_layout_passes: u16,
     include_trace_text: bool,
     machine_binding: Option<([u8; 32], Option<[u8; 32]>)>,
+    table_layouts: Option<&[StagingTableLayoutFacts]>,
 ) -> Result<String, &'static str> {
     let contains_trace_text = !initial.generated_text().buffers().is_empty()
         || pagination
@@ -263,7 +292,16 @@ fn layout_trace_json(
         ConvergenceStatus::CycleFallback { .. } => push_jcs_string(&mut json, "cycle_fallback"),
         ConvergenceStatus::MaxPassFallback => push_jcs_string(&mut json, "max_pass_fallback"),
     }
-    json.push_str("}}");
+    json.push('}');
+    if let Some(table_layouts) = table_layouts {
+        json.push_str(",\"table_layouts\":[");
+        for (index, table) in table_layouts.iter().enumerate() {
+            comma(&mut json, index);
+            json.push_str(table.canonical_jcs());
+        }
+        json.push(']');
+    }
+    json.push('}');
     Ok(json)
 }
 

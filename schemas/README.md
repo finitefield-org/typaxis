@@ -9,8 +9,9 @@
 | sealed package/source admission | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `typaxis.machine-pdf/basic-document-1` | Yes, ADR-0028 | Yes: full profile, receipt, multi-flow, style/list/break/figure/link closure | Yes, combined PDF/sidecars | Yes |
+| `typaxis.machine-pdf/table-1` | Yes, ADR-0029 | Yes: grid/cell-flow, fragmentation/header, Display/PDF, trace/manifest closure | Yes, table-only and combined PDF/sidecars | Yes, MI3-04 gate |
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
-| contract 1.2 Schema registry | Yes, ADR-0028 | Yes: current aliases plus complete independent seventeen-schema versioned registry | Yes | Yes |
+| contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029 | Yes: current aliases plus complete independent eighteen-schema versioned registry | Yes | Yes |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -31,14 +32,15 @@ strict decoder only on stable bytes owned by machine admission and lets sealed
 in-process receipt.
 
 [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and
-[ADR-0028](../adr/ADR-0028-basic-document-profile.md) define the migrations
-implemented by the registries. `schemas/1.0/` contains the frozen seven-schema
+[ADR-0028](../adr/ADR-0028-basic-document-profile.md) define the input/profile migrations,
+and [ADR-0029](../adr/ADR-0029-table-profile.md) defines the table profile on
+that unchanged wire. `schemas/1.0/` contains the frozen seven-schema
 registry and `schemas/1.1/` contains the frozen former-current eleven-schema
 registry. Top-level `schemas/*.schema.json` files are current 1.2 aliases,
 including capability, fixture/matrix, and machine host-evidence Schemas. Current
 generators emit 1.2, while the typed DocumentPackage parser recognizes 1.0,
 1.1, and 1.2. The public `build-package`, `check-package`, and capability CLI
-surface supports both immutable profiles.
+surface supports all three immutable profiles.
 
 `schemas/1.2/` is the complete current versioned registry. MI2-02 added
 canonical multi-flow trace/manifest projections; MI2-03 added the additive
@@ -50,7 +52,10 @@ figure/caption placement, DrawImage, and serialized image-XObject closure;
 MI2-07 added package-anchor/normalized-URI targets, logical shaping-cluster
 ranges, selected page/line rectangles, named destinations, and serialized link
 annotation closure. MI2-08 completed the remaining general artifact Schemas,
-froze 1.1, and switched all top-level aliases atomically.
+froze 1.1, and switched all top-level aliases atomically. MI3-04 added
+`machine-table-manifest.schema.json` and the conditional `table_layouts`
+projection to trace/build-manifest Schemas: it is required for a built
+`table-1` artifact and forbidden for older profiles, preserving their bytes.
 
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/`,
 `https://schemas.typaxis.invalid/1.1/`, and
@@ -111,6 +116,10 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   order and bounds, named-destination ownership, per-page annotation counts,
   exact PDF annotation-object closure, deterministic runner golden, and
   missing/extra/wrong-page/wrong-target/rectangle semantic negatives;
+- validates MI3-04's exact three-profile descriptor, table-only and complete-M2
+  combined fixtures, identical trace/manifest table projections, dense cell
+  FlowIds/row pieces/header repetitions, old-profile table rejection, and
+  zero-decoration publication matrix;
 - checks that `samples/invalid/expected-errors.json` indexes every invalid fixture;
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;

@@ -2,7 +2,7 @@
 
 ## Implemented public machine-input ownership
 
-The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md). Public package commands and local host evidence cover both immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
+The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md) and [ADR-0029](../adr/ADR-0029-table-profile.md). Public package commands and local host evidence cover all three immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -13,7 +13,7 @@ The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machi
 | strict JSON lexical preflight, caller-constructible `WireDocumentPackage`, decoder-issued `DecodedDocumentPackage`, JSON location index, and package JCS hash | `typaxis-document-package` | portable decode/export only; never issue host or trusted syntax authority |
 | raw PACKAGE receipt, decoded binding, exact single companion-source set, read budgets, and monotonic machine-input progress | `typaxis-machine-input` | issue `AdmittedMachinePackage`; reject cross-session raw/decoded/source receipt substitution |
 | DTO lowering, actual source/TextMap/AST/style/master/resource validation, entry-only closure, and trusted package issuance | sealed `typaxis-syntax::DocumentPackageParser` | issue `ValidatedMachinePackage { ValidatedParsedPackage, provenance }`; no public DTO promotion path |
-| immutable `paragraph-1` / `basic-document-1` descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
+| immutable `paragraph-1` / `basic-document-1` / `table-1` descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
 | all safe declared resource candidates before capability preflight | `typaxis-host-admission::HostReadIdentityLedger`, populated by machine orchestration | prevent requested diagnostics/manifest/PDF targets from aliasing existing or missing input candidates without opening resource bytes |
 | logical font/image binding, bytes-derived metadata, partial progress, and complete resource ledger | `typaxis-resource-admission` using generic host receipts | capability-success path only; layout/finalization receives complete ledger, failed manifest may receive sealed progress |
 | typed phase diagnostic code/category/subject and command-wide 256-record budget | originating phase plus `typaxis-diagnostics` materializer | map subjects through package JSON/source indexes; stderr and canonical sidecar read the same typed diagnostic, never parse `Debug` strings |
@@ -55,6 +55,26 @@ These rows are the public contract 1.2 ownership adopted by [ADR-0028](../adr/AD
 | versioned/current 1.2 registry and frozen 1.1 registry | Schema/contract integration owner | keep each registry independent; current aliases, decoder, help, capabilities, fixtures, and generated artifacts switch only at an atomic publication milestone |
 
 The M2 progress suffix is `ResourcesAdmitted -> FlowRegistryValidated -> LayoutSelected`. A downstream phase cannot reconstruct a flow registry from trace JSON, infer PNG from a path, normalize a URI again, relax keep/oversize policy, or fabricate profile/registry hashes for manifest output.
+
+## Implemented M3 table ownership
+
+These rows are the public table contract adopted by ADR-0029 and integrated by
+MI3-04. They add a direct-body table to the complete M2 domain without changing
+contract 1.2 bytes or either older profile.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| closed `table-1` domain, fixed zero-decoration policy, and `typaxis.table-profile-receipt/1` fingerprint | `typaxis-machine-profile` | derive the public descriptor, typed preflight, capability projection, and table fixture coverage |
+| fixed/fraction resolution, signed residual recipient, dense grid, cell origins/spans, and canonical cell FlowIds | table grid/layout owner | issue `ValidatedTableGridReceipt`; caller order and Display coordinates cannot assign columns or cell ownership |
+| cell paragraph fragments, row bands, common cuts, rowspan continuation, and header repetition | layout/pagination table owners | issue the complete `SelectedTableLayoutReceipt` with strict cursor progress and original-header bindings |
+| exact cell rectangles, canonical cell glyph commands, and zero table decoration | table Display owner | issue `TableDisplayClosureReceipt`; missing/extra/wrong-cell/page/repetition commands or any path decoration fail before PDF publication |
+| retained table commands in the frozen graph and serialized page streams | PDF graph and serializer owners | reopen the actual Display/PDF observations and bind them to the same table closure instead of trusting caller counts |
+| selected grid/row/cell/header facts in trace and built manifest | selected-table and manifest projection owners | require identical `table_layouts` closure for built `table-1`; omit the member for older profiles to preserve their artifact bytes |
+
+The M3 progress suffix remains `ResourcesAdmitted -> FlowRegistryValidated ->
+LayoutSelected -> DisplayClosed -> PdfGraphFrozen`. Trace or manifest JSON is
+never an authority for reconstructing a grid, repetition, command, or PDF
+observation.
 
 ## Shared base ownership (originating in contract 1.0)
 

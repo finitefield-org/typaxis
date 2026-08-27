@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 typaxis-core = { path = "../typaxis-core" }
 typaxis-host-admission = { path = "../typaxis-host-admission" }
+typaxis-layout-contract = { path = "../typaxis-layout-contract" }
 typaxis-machine-input = { path = "../typaxis-machine-input" }
 typaxis-machine-profile = { path = "../typaxis-machine-profile" }
 typaxis-pagination = { path = "../typaxis-pagination" }

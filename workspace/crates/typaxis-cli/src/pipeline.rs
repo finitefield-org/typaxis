@@ -1,15 +1,16 @@
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path};
 
+#[cfg(test)]
+use typaxis_core::ImageResourceId;
 use typaxis_core::{
     DocumentFingerprint, EffectiveConfig, FontInstanceId, GeneratedBufferKey, GenerationKind,
-    HostAdmissionContext, JsonPointer, MachineInputFingerprint, MachinePdfProfileId,
-    NonNegativeLength, PortablePath, ResolvedDataTables, SourceId, StyleFingerprint, TextSpan,
-    Utf8ByteOffset, ValidatedResourceLimits,
+    HostAdmissionContext, JsonPointer, Length, MachineInputFingerprint, MachinePdfProfileId,
+    NodeId, NonNegativeLength, PortablePath, PositiveLength, ResolvedDataTables, SourceId,
+    StyleFingerprint, TextSpan, Utf8ByteOffset, ValidatedResourceLimits,
 };
-#[cfg(test)]
-use typaxis_core::{ImageResourceId, NodeId};
 use typaxis_diagnostics::{
     DiagnosticBuilder, DiagnosticLocation, MachineDiagnosticLender, PublicMachineError, Severity,
 };
@@ -21,21 +22,21 @@ use typaxis_display_list::{
 use typaxis_display_list::{
     StagingForcedPageBreakDisplayError, StagingMachineFigureDisplayError,
     StagingMachineLinkDisplay, StagingMachineLinkDisplayError, StagingMachineListDisplayError,
-    ValidatedDisplayDocument,
+    TablePaintPageBody, TableProfilePaintInput, ValidatedDisplayDocument,
 };
 use typaxis_document::{Block, DocumentNodeKind, Inline, ReferenceFormat};
 #[cfg(test)]
 use typaxis_layout::{
     consume_typed_block_style, layout_staging_forced_page_breaks, layout_staging_machine_figures,
-    layout_staging_machine_lists, ProductionFlowIr, StagingMachineListLayoutInput,
-    TypedBlockLayoutInput,
+    layout_staging_machine_lists, StagingMachineListLayoutInput, TypedBlockLayoutInput,
 };
 use typaxis_layout::{
-    CanonicalFlowIrBuilder, FlowTree, LayoutEpoch, LayoutEpochError, MachineGlyphCoverage,
-    MachineParagraphFlowBuilder, MachineParagraphFlowError, MachineStyleFontPreparationError,
-    MachineTextSiteSource, PreparedMachineStyleFonts, ProductionFlowIrBuilder,
-    ShapeFontSelectionReceipt, StagingFigureLayoutError, StagingForcedPageBreakLayoutError,
-    StagingMachineListLayoutError, TypedStyleConsumerError,
+    layout_table_grid, layout_table_row_bands, CanonicalFlowIrBuilder, FlowTree, LayoutEpoch,
+    LayoutEpochError, MachineGlyphCoverage, MachineParagraphFlowBuilder, MachineParagraphFlowError,
+    MachineStyleFontPreparationError, MachineTextSiteSource, PreparedMachineStyleFonts,
+    ProductionFlowIr, ProductionFlowIrBuilder, ShapeFontSelectionReceipt, StagingFigureLayoutError,
+    StagingForcedPageBreakLayoutError, StagingMachineListLayoutError, TableCellLayoutInput,
+    TableRowBandLayoutReceipt, TypedStyleConsumerError, ValidatedTableGridReceipt,
 };
 use typaxis_linebreak::{
     break_paragraph_validated, BoundedReferenceParagraphFactory, LineLayoutContext, LineShape,
@@ -51,6 +52,7 @@ use typaxis_machine_profile::{
     BasicDocumentStylePreflightFailure, MachinePdfPreflight, MachinePdfPreflightFailure,
     MachinePdfPreflightReceipt, MachinePdfReceiptMismatch,
 };
+use typaxis_manifest::StagingTableLayoutFacts;
 #[cfg(test)]
 use typaxis_manifest::{
     StagingForcedPageBreakManifestFact, StagingMachineBlockStyleManifestFact,
@@ -65,9 +67,10 @@ use typaxis_pagination::{
     StagingMachineListPageInput,
 };
 use typaxis_pagination::{
-    ConvergenceStatus, InitialPaginationState, PaginationError, PaginationResult,
-    ReferencePaginator, StagingForcedPageBreakPaginationError, StagingMachineFigurePaginationError,
-    StagingMachineListPaginationError,
+    paginate_staging_table, ConvergenceStatus, InitialPaginationState, PaginationError,
+    PaginationResult, ReferencePaginator, SelectedTableLayoutReceipt,
+    StagingForcedPageBreakPaginationError, StagingMachineFigurePaginationError,
+    StagingMachineListPaginationError, StagingTablePageInput,
 };
 use typaxis_resources::{
     AdmittedFontInstanceTable, AdmittedResourceLedger, AdmittedResourceResolver,
@@ -78,9 +81,10 @@ use typaxis_shaping::{CanonicalItemizer, LinkedShaper, ParagraphItemizationInput
 #[cfg(test)]
 use typaxis_syntax::StagingStylePackageParser;
 use typaxis_syntax::{
-    PackageGeneratedTextError, PackageShapeTextReceipt, PackageValidationPolicy, ParseOutcome,
-    Parser, ReferenceParser, SourceFile, StagingStyleReceiptMismatch,
-    ValidatedBasicDocumentPackage, ValidatedMachinePackage, ValidatedParsedPackage,
+    machine_profile_boundary::StyleValue, PackageGeneratedTextError, PackageShapeTextReceipt,
+    PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser, SourceFile,
+    StagingStyleReceiptMismatch, ValidatedBasicDocumentPackage, ValidatedMachinePackage,
+    ValidatedParsedPackage,
 };
 use typaxis_text::GeneratedTextStore;
 
@@ -89,7 +93,9 @@ use typaxis_pdf::{
     PdfBackend, StagingForcedPageBreakPdf, StagingMachineBlockStylePdf, StagingMachineFigurePdf,
     StagingMachineLinkPdf, StagingMachineListPdf,
 };
-use typaxis_pdf::{StagingMachineFigurePdfError, StagingMachineLinkPdfError};
+use typaxis_pdf::{
+    StagingMachineFigurePdfError, StagingMachineLinkPdfError, TablePdfClosureReceipt,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FailureKind {
@@ -1473,26 +1479,33 @@ pub(crate) fn preflight_machine_package(
     diagnostics: &mut MachineDiagnosticLender<'_>,
     candidates: RegisteredMachineResourceCandidates,
 ) -> Result<MachineCapabilityPreparation, Failure> {
-    if profile == MachinePdfProfileId::BASIC_DOCUMENT_1
-        && package.contract() != typaxis_core::DocumentPackageContractId::V1_2
+    if matches!(
+        profile,
+        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+    ) && package.contract() != typaxis_core::DocumentPackageContractId::V1_2
     {
-        emit_basic_contract_diagnostic(package, diagnostics)?;
-        return Err(Failure::input(
-            "P1103: basic-document-1 requires raw DocumentPackage contract 1.2",
-        ));
+        emit_current_contract_diagnostic(package, profile, diagnostics)?;
+        return Err(Failure::input(format!(
+            "P1103: {} requires raw DocumentPackage contract 1.2",
+            profile.as_str()
+        )));
     }
     let preflight = match profile {
         MachinePdfProfileId::BasicDocument1 => MachinePdfPreflight::BASIC_DOCUMENT_1,
         MachinePdfProfileId::Paragraph1 => MachinePdfPreflight::PARAGRAPH_1,
+        MachinePdfProfileId::Table1 => MachinePdfPreflight::TABLE_1,
     };
     let receipt = preflight
         .run(package, diagnostics)
         .map_err(map_machine_preflight_failure)?;
-    if profile == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+    if matches!(
+        profile,
+        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+    ) {
         let basic = package.basic_document_view().ok_or_else(|| {
             Failure::capability_mismatch("basic-document syntax view was not issued")
         })?;
-        preflight_basic_document_slices(&basic, limits, diagnostics)?;
+        preflight_basic_document_slices(&basic, profile, limits, diagnostics)?;
     }
     Ok(MachineCapabilityPreparation {
         receipt,
@@ -1500,8 +1513,9 @@ pub(crate) fn preflight_machine_package(
     })
 }
 
-fn emit_basic_contract_diagnostic(
+fn emit_current_contract_diagnostic(
     package: &ValidatedMachinePackage,
+    profile: MachinePdfProfileId,
     diagnostics: &mut MachineDiagnosticLender<'_>,
 ) -> Result<(), Failure> {
     let uri = package
@@ -1515,7 +1529,10 @@ fn emit_basic_contract_diagnostic(
     let diagnostic = DiagnosticBuilder::located(
         error.code(),
         Severity::Error,
-        "basic-document-1 requires raw DocumentPackage contract 1.2",
+        format!(
+            "{} requires raw DocumentPackage contract 1.2",
+            profile.as_str()
+        ),
         DiagnosticLocation::package_json(uri, JsonPointer::root().child("contract"), None),
     )
     .map_err(|_| Failure::internal("basic-document contract diagnostic was not canonical"))?
@@ -1528,14 +1545,18 @@ fn emit_basic_contract_diagnostic(
 
 fn preflight_basic_document_slices(
     package: &ValidatedBasicDocumentPackage,
+    profile: MachinePdfProfileId,
     limits: &ValidatedResourceLimits,
     diagnostics: &mut MachineDiagnosticLender<'_>,
 ) -> Result<(), Failure> {
-    BasicDocumentStylePreflight::STAGING
-        .run(package, diagnostics)
-        .map_err(|error| {
-            Failure::input(format!("L5101: basic style preflight failed: {error:?}"))
-        })?;
+    let style_preflight = if profile == MachinePdfProfileId::TABLE_1 {
+        BasicDocumentStylePreflight::TABLE_1
+    } else {
+        BasicDocumentStylePreflight::STAGING
+    };
+    style_preflight.run(package, diagnostics).map_err(|error| {
+        Failure::input(format!("L5101: basic style preflight failed: {error:?}"))
+    })?;
     BasicDocumentListPreflight::STAGING
         .run(package, limits, diagnostics)
         .map_err(|error| {
@@ -1862,6 +1883,32 @@ pub fn layout_reference(
 
 /// Machine paragraph layout owns the already-complete preparation; no layout
 /// or finalization consumer can observe a partial resource resolver.
+pub struct MachineTableLayoutState {
+    paragraph_items: ValidatedParagraphItemRegistry,
+    grid: ValidatedTableGridReceipt,
+    row_bands: TableRowBandLayoutReceipt,
+    selected: SelectedTableLayoutReceipt,
+    page_bodies: Vec<TablePaintPageBody>,
+}
+
+impl MachineTableLayoutState {
+    pub const fn paragraph_items(&self) -> &ValidatedParagraphItemRegistry {
+        &self.paragraph_items
+    }
+    pub const fn grid(&self) -> &ValidatedTableGridReceipt {
+        &self.grid
+    }
+    pub const fn row_bands(&self) -> &TableRowBandLayoutReceipt {
+        &self.row_bands
+    }
+    pub const fn selected(&self) -> &SelectedTableLayoutReceipt {
+        &self.selected
+    }
+    pub fn page_bodies(&self) -> &[TablePaintPageBody] {
+        &self.page_bodies
+    }
+}
+
 #[allow(dead_code)] // wired to public command dispatch by MI1-15
 pub struct MachineParagraphLayout {
     preparation: MachinePackagePreparation,
@@ -1869,6 +1916,7 @@ pub struct MachineParagraphLayout {
     initial: InitialPaginationState,
     pagination: PaginationResult,
     flow_registry_sha256: Option<[u8; 32]>,
+    tables: Vec<MachineTableLayoutState>,
 }
 
 #[allow(dead_code)] // wired to public command dispatch by MI1-15
@@ -1891,6 +1939,39 @@ impl MachineParagraphLayout {
 
     pub const fn flow_registry_sha256(&self) -> Option<[u8; 32]> {
         self.flow_registry_sha256
+    }
+
+    pub fn tables(&self) -> &[MachineTableLayoutState] {
+        &self.tables
+    }
+
+    pub fn table_manifest_facts(&self) -> Result<Vec<StagingTableLayoutFacts>, Failure> {
+        let mut facts = Vec::new();
+        facts
+            .try_reserve_exact(self.tables.len())
+            .map_err(|_| Failure::limit("table manifest allocation failed"))?;
+        for table in &self.tables {
+            let trace = table.selected().trace_facts().map_err(|error| {
+                Failure::internal(format!("table trace closure failed: {error:?}"))
+            })?;
+            let target_page_start = table
+                .page_bodies()
+                .first()
+                .map(|page| page.target_page_index())
+                .ok_or_else(|| Failure::internal("table Display page closure is empty"))?;
+            facts.push(
+                StagingTableLayoutFacts::from_selected_at(
+                    &trace,
+                    table.grid(),
+                    table.selected(),
+                    target_page_start,
+                )
+                .map_err(|error| {
+                    Failure::internal(format!("table manifest closure failed: {error:?}"))
+                })?,
+            );
+        }
+        Ok(facts)
     }
 }
 
@@ -1964,7 +2045,10 @@ pub fn layout_machine_paragraphs(
         }
     }
     let pagination = outcome.into_result();
-    let flow_registry_sha256 = if preparation.profile() == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+    let flow_registry_sha256 = if matches!(
+        preparation.profile(),
+        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+    ) {
         Some(basic_flow_registry_sha256(
             parsed,
             pagination.selected_flow(),
@@ -1973,12 +2057,18 @@ pub fn layout_machine_paragraphs(
     } else {
         None
     };
+    let tables = if preparation.profile() == MachinePdfProfileId::TABLE_1 {
+        build_machine_table_layouts(package, &preparation, config, &pagination)?
+    } else {
+        Vec::new()
+    };
     Ok(MachineParagraphLayout {
         preparation,
         flow,
         initial,
         pagination,
         flow_registry_sha256,
+        tables,
     })
 }
 
@@ -2015,6 +2105,421 @@ fn basic_flow_registry_sha256(
         ))
     })?;
     Ok(registry.registry().receipt().fingerprint().bytes())
+}
+
+fn build_production_flow_ir(
+    package: &ValidatedParsedPackage,
+    paragraph_items: &ValidatedParagraphItemRegistry,
+    epoch: LayoutEpoch,
+    limits: &ValidatedResourceLimits,
+) -> Result<ProductionFlowIr, Failure> {
+    let mut builder = ProductionFlowIrBuilder::new(package, paragraph_items, epoch, limits)
+        .map_err(|error| {
+            Failure::capability_mismatch(format!(
+                "table flow registry construction failed: {error:?}"
+            ))
+        })?;
+    let owners: Vec<_> = builder.expected_content_owners().collect();
+    for owner in owners {
+        let content = builder.issue_content(owner).map_err(|error| {
+            Failure::capability_mismatch(format!("table flow content issuance failed: {error:?}"))
+        })?;
+        builder.register_content(content).map_err(|error| {
+            Failure::capability_mismatch(format!(
+                "table flow content registration failed: {error:?}"
+            ))
+        })?;
+    }
+    builder.finish().map_err(|error| {
+        Failure::capability_mismatch(format!("table flow registry closure failed: {error:?}"))
+    })
+}
+
+fn build_machine_table_layouts(
+    package: &ValidatedMachinePackage,
+    preparation: &MachinePackagePreparation,
+    config: &EffectiveConfig,
+    pagination: &PaginationResult,
+) -> Result<Vec<MachineTableLayoutState>, Failure> {
+    let parsed = package.package();
+    let epoch = pagination.selected_flow().epoch();
+    let table_view = package.basic_document_view().ok_or_else(|| {
+        Failure::capability_mismatch("table profile syntax view was not retained")
+    })?;
+    let generated = parsed
+        .bind_generated_text(pagination.selected_pass().generated_text(), config.limits())
+        .map_err(|error| {
+            Failure::capability_mismatch(format!(
+                "table generated-text binding mismatch: {error:?}"
+            ))
+        })?;
+    let default_master = parsed
+        .package()
+        .page_masters
+        .masters
+        .iter()
+        .find(|master| master.master_id == parsed.package().page_masters.default_master_id)
+        .ok_or_else(|| Failure::internal("default page master is missing"))?;
+    let body = default_master.body;
+    let body_inline_size = body.width();
+    let body_block_size = body.height();
+
+    let table_owners: Vec<_> = parsed
+        .package()
+        .document
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Table { node_id, .. } => Some(*node_id),
+            _ => None,
+        })
+        .collect();
+    if table_owners.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Resolve cell frame widths before the final line-break pass. The
+    // preliminary IR is already package/epoch complete; only the paragraph
+    // line shapes are replaced below.
+    let preliminary_items = pagination
+        .selected_flow()
+        .paragraph_items()
+        .ok_or_else(|| Failure::capability_mismatch("table layout lacks paragraph content"))?;
+    let preliminary_ir =
+        build_production_flow_ir(parsed, preliminary_items, epoch, config.limits())?;
+    let mut paragraph_widths = BTreeMap::new();
+    for table_owner in &table_owners {
+        let style = table_view
+            .compute_table_style(*table_owner)
+            .map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "table typed style receipt changed after preflight: {error:?}"
+                ))
+            })?;
+        let grid = layout_table_grid(
+            &table_view,
+            *table_owner,
+            &style,
+            &preliminary_ir,
+            body_inline_size,
+            config.limits(),
+        )
+        .map_err(map_machine_table_grid_error)?;
+        for cell in grid.cells() {
+            for paragraph in table_cell_paragraph_owners(
+                &parsed.package().document.blocks,
+                *table_owner,
+                cell.cell_owner(),
+            )
+            .ok_or_else(|| Failure::capability_mismatch("validated table cell owner disappeared"))?
+            {
+                let inline_size =
+                    table_cell_paragraph_inline_size(parsed, paragraph, cell.frame_inline_size())?;
+                if paragraph_widths.insert(paragraph, inline_size).is_some() {
+                    return Err(Failure::capability_mismatch(
+                        "table paragraph belongs to more than one cell",
+                    ));
+                }
+            }
+        }
+    }
+
+    let final_breaks = layout_paragraphs_with_fonts(
+        parsed,
+        generated,
+        preparation.admitted(),
+        epoch,
+        config,
+        ParagraphStyleFonts::Machine(preparation.style_fonts()),
+        Some(&paragraph_widths),
+    )?;
+    let paragraph_items =
+        ValidatedParagraphItemRegistry::from_breaks_allowing_empty(parsed, epoch, &final_breaks)
+            .map_err(map_machine_break_error)?;
+
+    let mut states = Vec::new();
+    states
+        .try_reserve_exact(table_owners.len())
+        .map_err(|_| Failure::limit("table layout allocation failed"))?;
+    let mut next_target_page = 0u32;
+    for table_owner in table_owners {
+        let ir = build_production_flow_ir(parsed, &paragraph_items, epoch, config.limits())?;
+        let style = table_view
+            .compute_table_style(table_owner)
+            .map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "table typed style receipt changed during layout: {error:?}"
+                ))
+            })?;
+        let grid = layout_table_grid(
+            &table_view,
+            table_owner,
+            &style,
+            &ir,
+            body_inline_size,
+            config.limits(),
+        )
+        .map_err(map_machine_table_grid_error)?;
+        let mut cell_inputs = Vec::new();
+        cell_inputs
+            .try_reserve_exact(grid.cells().len())
+            .map_err(|_| Failure::limit("table cell layout allocation failed"))?;
+        for cell in grid.cells() {
+            let paragraphs = table_cell_paragraph_owners(
+                &parsed.package().document.blocks,
+                table_owner,
+                cell.cell_owner(),
+            )
+            .ok_or_else(|| {
+                Failure::capability_mismatch("validated table cell owner disappeared")
+            })?;
+            let mut fragment_sizes = Vec::new();
+            for paragraph in paragraphs {
+                let line_count = paragraph_items
+                    .paragraph_break(paragraph)
+                    .map_or(0, |receipt| receipt.lines.len());
+                if line_count == 0 {
+                    continue;
+                }
+                let computed = parsed.cascade_style(paragraph).map_err(|error| {
+                    Failure::capability_mismatch(format!(
+                        "table cell paragraph style changed during layout: {error:?}"
+                    ))
+                })?;
+                let line_height = match computed.computed().properties().get("line_height") {
+                    Some(StyleValue::Length(value)) => PositiveLength::new(*value),
+                    _ => None,
+                }
+                .ok_or_else(|| {
+                    Failure::capability_mismatch(
+                        "table cell paragraph lacks a positive line-height",
+                    )
+                })?;
+                let space_before = table_nonnegative_style_length(
+                    computed.computed().properties().get("space_before"),
+                )?;
+                let space_after = table_nonnegative_style_length(
+                    computed.computed().properties().get("space_after"),
+                )?;
+                fragment_sizes
+                    .try_reserve_exact(line_count)
+                    .map_err(|_| Failure::limit("table line layout allocation failed"))?;
+                for line_index in 0..line_count {
+                    let mut block_size = line_height.get();
+                    if line_index == 0 {
+                        block_size =
+                            block_size.checked_add(space_before.get()).ok_or_else(|| {
+                                Failure::capability_mismatch(
+                                    "table paragraph block-start spacing overflowed",
+                                )
+                            })?;
+                    }
+                    if line_index + 1 == line_count {
+                        block_size =
+                            block_size.checked_add(space_after.get()).ok_or_else(|| {
+                                Failure::capability_mismatch(
+                                    "table paragraph block-end spacing overflowed",
+                                )
+                            })?;
+                    }
+                    fragment_sizes.push(PositiveLength::new(block_size).ok_or_else(|| {
+                        Failure::capability_mismatch(
+                            "table paragraph produced a non-positive line fragment",
+                        )
+                    })?);
+                }
+            }
+            cell_inputs.push(TableCellLayoutInput::new(
+                cell.cell_owner(),
+                cell.flow_id(),
+                fragment_sizes,
+            ));
+        }
+        let row_bands = layout_table_row_bands(&grid, cell_inputs, config.limits())
+            .map_err(map_machine_table_row_band_error)?;
+
+        let first_row_owner = grid
+            .rows()
+            .first()
+            .map(|row| row.row_owner())
+            .ok_or_else(|| Failure::capability_mismatch("validated table has no row"))?;
+        let (source_page, source_y) = pagination
+            .selected_pages()
+            .iter()
+            .find_map(|page| {
+                page.fragments
+                    .iter()
+                    .find(|fragment| fragment.owner == first_row_owner)
+                    .map(|fragment| (page.page_index, fragment.bounds.y().raw()))
+            })
+            .ok_or_else(|| {
+                Failure::capability_mismatch("selected body flow omitted a table row placeholder")
+            })?;
+        let mut target_page = source_page.max(next_target_page);
+        let mut first_offset = if target_page == source_page {
+            source_y
+                .checked_sub(body.y().raw())
+                .and_then(|value| value.checked_add(grid.space_before().get().raw()))
+                .ok_or_else(|| Failure::internal("table placement arithmetic overflow"))?
+        } else {
+            0
+        };
+        if first_offset < 0 {
+            return Err(Failure::internal(
+                "selected table placeholder starts outside the body frame",
+            ));
+        }
+        if first_offset >= body_block_size.get().raw() {
+            target_page = target_page
+                .checked_add(1)
+                .ok_or_else(|| Failure::limit("table page index overflow"))?;
+            first_offset = 0;
+        }
+        let first_remaining = body_block_size
+            .get()
+            .raw()
+            .checked_sub(first_offset)
+            .and_then(Length::from_raw)
+            .and_then(PositiveLength::new)
+            .ok_or_else(|| Failure::internal("table first-page extent is invalid"))?;
+        let page_input = StagingTablePageInput::new(body_block_size, first_remaining)
+            .map_err(map_machine_table_pagination_error)?;
+        let selected = paginate_staging_table(&row_bands, &ir, page_input, config.limits())
+            .map_err(map_machine_table_pagination_error)?;
+        let last_target_page = target_page
+            .checked_add(selected.page_count().saturating_sub(1))
+            .ok_or_else(|| Failure::limit("table page index overflow"))?;
+        if last_target_page >= config.limits().get().max_pages {
+            return Err(Failure::limit(
+                "L5110: table placement exceeded the configured page limit",
+            ));
+        }
+        let page_bodies = (0..selected.page_count())
+            .map(|page_index| {
+                TablePaintPageBody::new_at(page_index, target_page + page_index, body)
+            })
+            .collect::<Vec<_>>();
+        next_target_page = last_target_page
+            .checked_add(1)
+            .ok_or_else(|| Failure::limit("table page index overflow"))?;
+        states.push(MachineTableLayoutState {
+            paragraph_items: paragraph_items.clone(),
+            grid,
+            row_bands,
+            selected,
+            page_bodies,
+        });
+    }
+    Ok(states)
+}
+
+fn table_cell_paragraph_owners(
+    blocks: &[Block],
+    table_owner: NodeId,
+    cell_owner: NodeId,
+) -> Option<Vec<NodeId>> {
+    let table = blocks
+        .iter()
+        .find(|block| matches!(block, Block::Table { node_id, .. } if *node_id == table_owner))?;
+    let Block::Table { head, body, .. } = table else {
+        return None;
+    };
+    let cell = head
+        .iter()
+        .chain(body)
+        .flat_map(|row| &row.cells)
+        .find(|cell| cell.node_id == cell_owner)?;
+    cell.blocks
+        .iter()
+        .map(|block| match block {
+            Block::Paragraph { node_id, .. } => Some(*node_id),
+            _ => None,
+        })
+        .collect()
+}
+
+fn table_nonnegative_style_length(
+    value: Option<&StyleValue>,
+) -> Result<NonNegativeLength, Failure> {
+    match value {
+        Some(StyleValue::Length(value)) => NonNegativeLength::new(*value).ok_or_else(|| {
+            Failure::capability_mismatch("table cell paragraph has a negative block length")
+        }),
+        None => Ok(NonNegativeLength::ZERO),
+        Some(_) => Err(Failure::capability_mismatch(
+            "table cell paragraph has a non-length block value",
+        )),
+    }
+}
+
+fn table_cell_paragraph_inline_size(
+    package: &ValidatedParsedPackage,
+    paragraph: NodeId,
+    cell_inline_size: PositiveLength,
+) -> Result<PositiveLength, Failure> {
+    let computed = package.cascade_style(paragraph).map_err(|error| {
+        Failure::capability_mismatch(format!(
+            "table cell paragraph style resolution failed: {error:?}"
+        ))
+    })?;
+    let start =
+        table_nonnegative_style_length(computed.computed().properties().get("start_indent"))?;
+    let end = table_nonnegative_style_length(computed.computed().properties().get("end_indent"))?;
+    cell_inline_size
+        .get()
+        .checked_sub(start.get())
+        .and_then(|value| value.checked_sub(end.get()))
+        .and_then(PositiveLength::new)
+        .ok_or_else(|| {
+            Failure::capability_mismatch(
+                "L5100: table cell paragraph indents leave no positive inline size",
+            )
+        })
+}
+
+fn map_machine_table_grid_error(error: typaxis_layout::TableGridLayoutError) -> Failure {
+    use typaxis_layout::TableGridLayoutError as Error;
+    match error {
+        Error::AstNodeLimit => {
+            Failure::limit(format!("P1120: table AST limit exceeded: {error:?}"))
+        }
+        Error::UnsupportedTablePlacement(_)
+        | Error::UnsupportedCellContent(_)
+        | Error::EmptyColumns(_)
+        | Error::EmptyRows(_)
+        | Error::ColumnArithmetic
+        | Error::GridOutOfRange(_)
+        | Error::GridOverlap(_)
+        | Error::GridHole(_)
+        | Error::RowspanOutOfRange(_) => {
+            Failure::capability_mismatch(format!("L5100: table layout rejected input: {error:?}"))
+        }
+        _ => Failure::internal(format!("table grid invariant failed: {error:?}")),
+    }
+}
+
+fn map_machine_table_row_band_error(error: typaxis_layout::TableRowBandLayoutError) -> Failure {
+    if error == typaxis_layout::TableRowBandLayoutError::FragmentLimit {
+        Failure::limit(format!("L5110: table fragment limit exceeded: {error:?}"))
+    } else {
+        Failure::internal(format!("table row-band invariant failed: {error:?}"))
+    }
+}
+
+fn map_machine_table_pagination_error(
+    error: typaxis_pagination::StagingTablePaginationError,
+) -> Failure {
+    use typaxis_pagination::StagingTablePaginationError as Error;
+    match error {
+        Error::HeaderOversize(_) | Error::RowOversize(_) => {
+            Failure::capability_mismatch(format!("L5100: table row is oversize: {error:?}"))
+        }
+        Error::FragmentLimit => {
+            Failure::limit(format!("L5110: table fragment limit exceeded: {error:?}"))
+        }
+        Error::PageLimit => Failure::limit(format!("table page limit exceeded: {error:?}")),
+        _ => Failure::internal(format!("table pagination invariant failed: {error:?}")),
+    }
 }
 
 fn build_reference_flow(
@@ -2073,12 +2578,26 @@ fn build_machine_flow(
         &paragraph_breaks,
     )
     .map_err(map_machine_break_error)?;
-    if preparation.profile() == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+    if matches!(
+        preparation.profile(),
+        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+    ) {
         let mut flow_builder = CanonicalFlowIrBuilder::new(parsed, &paragraph_items)
             .map_err(|error| map_machine_flow_error(MachineParagraphFlowError::Flow(error)))?;
+        if preparation.profile() == MachinePdfProfileId::TABLE_1 {
+            flow_builder.use_separate_table_cell_flows();
+        }
+        let table_cell_paragraphs = if preparation.profile() == MachinePdfProfileId::TABLE_1 {
+            table_cell_paragraph_owner_set(&parsed.package().document.blocks)
+        } else {
+            BTreeMap::new()
+        };
         for (node, kind) in parsed.document_nodes().nodes() {
             match kind {
                 DocumentNodeKind::Paragraph | DocumentNodeKind::Heading => {
+                    if table_cell_paragraphs.contains_key(&node) {
+                        continue;
+                    }
                     let item_count = paragraph_items.item_count(node).ok_or_else(|| {
                         Failure::capability_mismatch(
                             "basic-document paragraph registry is incomplete",
@@ -2103,9 +2622,15 @@ fn build_machine_flow(
                     })?
                 }
                 DocumentNodeKind::TableRow => {
-                    return Err(Failure::capability_mismatch(
-                        "table row reached basic-document flow after preflight",
-                    ))
+                    if preparation.profile() == MachinePdfProfileId::TABLE_1 {
+                        flow_builder.push_table_row(node).map_err(|error| {
+                            map_machine_flow_error(MachineParagraphFlowError::Flow(error))
+                        })?;
+                    } else {
+                        return Err(Failure::capability_mismatch(
+                            "table row reached basic-document flow after preflight",
+                        ));
+                    }
                 }
                 _ => {}
             }
@@ -2125,6 +2650,32 @@ fn build_machine_flow(
         }
     }
     flow_builder.finish(epoch).map_err(map_machine_flow_error)
+}
+
+fn table_cell_paragraph_owner_set(blocks: &[Block]) -> BTreeMap<NodeId, NodeId> {
+    let mut owners = BTreeMap::new();
+    for block in blocks {
+        let Block::Table {
+            node_id: table_owner,
+            head,
+            body,
+            ..
+        } = block
+        else {
+            continue;
+        };
+        for paragraph in head
+            .iter()
+            .chain(body)
+            .flat_map(|row| &row.cells)
+            .flat_map(|cell| &cell.blocks)
+        {
+            if let Block::Paragraph { node_id, .. } = paragraph {
+                owners.insert(*node_id, *table_owner);
+            }
+        }
+    }
+    owners
 }
 
 #[allow(dead_code)] // reachable from the MI1-15 command integration
@@ -2288,6 +2839,7 @@ fn layout_paragraphs(
         epoch,
         config,
         ParagraphStyleFonts::Reference(&instances),
+        None,
     )
 }
 
@@ -2320,6 +2872,7 @@ fn layout_machine_paragraphs_for_epoch(
         epoch,
         config,
         ParagraphStyleFonts::Machine(preparation.style_fonts()),
+        None,
     )
 }
 
@@ -2330,6 +2883,7 @@ fn layout_paragraphs_with_fonts(
     epoch: LayoutEpoch,
     config: &EffectiveConfig,
     style_fonts: ParagraphStyleFonts<'_>,
+    paragraph_widths: Option<&BTreeMap<NodeId, PositiveLength>>,
 ) -> Result<Vec<ValidatedParagraphBreak>, Failure> {
     let versions = config.data_versions();
     let data_tables =
@@ -2343,7 +2897,6 @@ fn layout_paragraphs_with_fonts(
         .find(|master| master.master_id == package.package().page_masters.default_master_id)
         .map(|master| master.body.width())
         .ok_or_else(|| Failure::internal("default page master is missing"))?;
-    let line_shapes = [LineShape { inline_size }];
     let space_glue = ReferenceSpaceGlue::new(NonNegativeLength::ZERO, NonNegativeLength::ZERO);
     let mut cache = ShapingCache::new(config.limits());
     let paragraph_blocks = collect_layout_paragraph_blocks(&package.package().document.blocks);
@@ -2352,6 +2905,16 @@ fn layout_paragraphs_with_fonts(
         .try_reserve_exact(paragraph_blocks.len())
         .map_err(|_| Failure::limit("paragraph layout allocation failed"))?;
     for block in paragraph_blocks {
+        let paragraph_node = match block {
+            Block::Paragraph { node_id, .. } | Block::Heading { node_id, .. } => *node_id,
+            _ => unreachable!("paragraph collection contains only text blocks"),
+        };
+        let selected_inline_size = paragraph_widths
+            .and_then(|widths| widths.get(&paragraph_node).copied())
+            .unwrap_or(inline_size);
+        let line_shapes = [LineShape {
+            inline_size: selected_inline_size,
+        }];
         if let Some(receipt) = layout_paragraph(
             package,
             generated,
@@ -2813,6 +3376,79 @@ pub fn build_machine_pdf_graph(
     layout
         .preparation
         .verify(package, receipt, config.limits())?;
+    if layout.preparation.profile() == MachinePdfProfileId::TABLE_1 {
+        let table_view = package.basic_document_view().ok_or_else(|| {
+            Failure::capability_mismatch("table profile syntax view was not retained")
+        })?;
+        let links = BasicDocumentLinkPreflight::STAGING
+            .run(&table_view)
+            .map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "table profile link receipt changed after preflight: {error:?}"
+                ))
+            })?;
+        let registry = layout
+            .pagination
+            .selected_flow()
+            .paragraph_items()
+            .ok_or_else(|| {
+                Failure::capability_mismatch("table profile layout lacks paragraph clusters")
+            })?;
+        let clusters = if links.cluster_receipt().links().is_empty() {
+            None
+        } else {
+            Some(
+                ValidatedStagingMachineLinkClusters::from_registry(
+                    &table_view,
+                    links.cluster_receipt(),
+                    registry,
+                )
+                .map_err(|error| {
+                    Failure::capability_mismatch(format!(
+                        "table profile link clusters failed: {error:?}"
+                    ))
+                })?,
+            )
+        };
+        let table_inputs: Vec<_> = layout
+            .tables()
+            .iter()
+            .map(|table| {
+                TableProfilePaintInput::new(
+                    table.grid(),
+                    table.row_bands(),
+                    table.selected(),
+                    table.page_bodies(),
+                    table.paragraph_items(),
+                )
+            })
+            .collect();
+        let display = ValidatedDisplayDocument::paint_table_profile(
+            &table_view,
+            &layout.pagination,
+            layout.pagination.selected_flow(),
+            &table_inputs,
+            clusters.as_ref(),
+            config,
+        )
+        .map_err(|error| {
+            Failure::internal(format!("table display construction failed: {error:?}"))
+        })?;
+        let plans = ReferenceResourceFinalizer::new()
+            .finalize(ResourceFinalizationInput {
+                display: display.validated_document(),
+                admitted: layout.preparation.admitted(),
+                limits: config.limits(),
+            })
+            .map_err(map_resource_error)?;
+        return typaxis_pdf::PdfBackend::build_table_profile(display, plans, config.limits())
+            .map_err(|error| match error {
+                typaxis_pdf::PdfError::ObjectLimit | typaxis_pdf::PdfError::OutputTooLarge => {
+                    Failure::limit(format!("PDF resource limit exceeded: {error:?}"))
+                }
+                _ => Failure::internal(format!("PDF graph construction failed: {error:?}")),
+            });
+    }
     let display = if layout.preparation.profile() == MachinePdfProfileId::BASIC_DOCUMENT_1 {
         let basic = package.basic_document_view().ok_or_else(|| {
             Failure::capability_mismatch("basic-document syntax view was not retained")
@@ -2886,6 +3522,32 @@ pub fn build_machine_pdf_graph(
         }
         _ => Failure::internal(format!("PDF graph construction failed: {error:?}")),
     })
+}
+
+pub fn validate_machine_table_pdf_closure(
+    layout: &MachineParagraphLayout,
+    graph: &typaxis_pdf::FrozenPdfGraph,
+    receipt: &typaxis_pdf::VerifiedPdfBytesReceipt,
+) -> Result<(), Failure> {
+    if layout.preparation.profile() != MachinePdfProfileId::TABLE_1 {
+        return Ok(());
+    }
+    if graph.table_closures().len() != layout.tables().len()
+        || graph
+            .table_closures()
+            .iter()
+            .zip(layout.tables())
+            .any(|(closure, table)| closure.table_node_id() != table.grid().table_owner())
+    {
+        return Err(Failure::internal(
+            "table PDF closure set differs from selected layout",
+        ));
+    }
+    for closure in graph.table_closures() {
+        TablePdfClosureReceipt::from_serialized(closure, graph, receipt)
+            .map_err(|error| Failure::internal(format!("table PDF closure failed: {error:?}")))?;
+    }
+    Ok(())
 }
 
 fn map_pagination_error(error: PaginationError) -> Failure {

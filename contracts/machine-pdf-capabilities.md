@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), and the non-public table target adopted by [ADR-0029](../adr/ADR-0029-table-profile.md). The two current profiles are implemented and release-gated; `table-1` is contract-defined only and remains absent from public capabilities until MI3-04.
+This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), and [ADR-0029](../adr/ADR-0029-table-profile.md). All three current profiles are implemented, public, and release-gated. `table-1` was published by MI3-04 without broadening either older profile or changing the default.
 
 ## Status axes
 
@@ -8,7 +8,7 @@ This document records the normative closed machine-PDF profiles adopted by [ADR-
 | --- | --- | --- | --- | --- |
 | `paragraph-1` | Yes, ADR-0027 | Yes | Yes | Yes |
 | `basic-document-1` | Yes, ADR-0028 | Yes | Yes | Yes |
-| `table-1` | Yes, ADR-0029 target | No | No; public profile parsing rejects it | No; gate is MI3-04 |
+| `table-1` | Yes, ADR-0029 | Yes | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -57,7 +57,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns the closed `PARAGRAPH_1` and `BASIC_DOCUMENT_1` descriptors. The implementation must derive all of the following from those descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns the closed `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, and `TABLE_1` descriptors. The implementation must derive all of the following from those descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -138,13 +138,14 @@ The descriptor maps flow/list nodes to `max_ast_nodes`, flow nesting to `max_ast
 
 Successful basic-document artifacts bind `typaxis.basic-profile-receipt/1` and `typaxis.basic-flow-registry/1` fingerprints. The preflight receipt hash is carried into trace and manifest layout facts; the registry hash covers the body and every list-item/caption subflow, plus forced-break consumption, list marker groups, figure placement/media, and link rectangles. Missing, extra, wrong-owner/parent/epoch/terminal/target records are `I9190` before publication. Exact property wire values, applicability, keep/oversize behavior, receipt fields, manifest fact names, and the old/new contract compatibility table are normative in ADR-0028 and are derived from the descriptor rather than re-authored by the CLI.
 
-## Adopted non-public M3 table target: `table-1`
+## Public M3 profile: `table-1`
 
-`typaxis.machine-pdf/table-1` is the immutable target adopted by ADR-0029. It
-requires raw `typaxis.contract/1.2`, stays absent from current capability JSON,
-and is an unknown public profile until MI3-04. It does not broaden either
-public profile or change the `paragraph-1` default. Portable decode/export of
-the pre-existing table wire shape is not an implementation or support claim.
+`typaxis.machine-pdf/table-1` is the immutable profile adopted by ADR-0029 and
+published by MI3-04. It requires raw `typaxis.contract/1.2`, is the third entry
+in current capability JSON, and must be selected explicitly. It does not
+broaden either older profile or change the `paragraph-1` default. Portable
+decode/export of the pre-existing table wire shape alone is not an
+implementation or support claim.
 
 The target inherits the complete `basic-document-1` domain outside tables and
 adds only a direct document-body table. Nested/list-item/cell/caption tables are
@@ -231,14 +232,13 @@ row fragments and rowspan continuations, header repetitions,
 manifest. Missing, extra, wrong-owner/epoch/cursor/page/repetition or added
 decoration facts are `I9190` before publication.
 
-MI3-04 may advertise the profile only after bidirectional descriptor/fixture
+MI3-04 closed the publication gate with bidirectional descriptor/fixture
 coverage, a combined all-table-plus-M2 fixture in `m3-table.json`, exact/max/max+1
 and receipt-tamper negatives, older-profile table-rejection goldens, external
-PDF/raster checks, deterministic two-run/different-checkout comparison, and all
-documented-host gates pass. Contract 1.2 and current DocumentPackage Schema
-bytes must remain unchanged. If implementation needs a new wire/style field, a
-separate contract-migration task must be inserted before MI3-02/MI3-03 rather
-than changing this profile or contract in place.
+PDF/raster checks, and deterministic two-run/different-checkout comparison.
+Contract 1.2 and current DocumentPackage Schema bytes remain unchanged. A future
+implementation needing a new wire/style field requires a separate contract
+migration and profile rather than changing this profile or contract in place.
 
 ## Compatible changes
 
@@ -267,4 +267,4 @@ The following changes are incompatible and require a new profile ID or an explic
 
 ## Contract and release gating
 
-The public capability artifact and current Schema use `typaxis.contract/1.2`. Its profile array is exactly `basic-document-1`, then `paragraph-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the complete former 1.1 registry, switched every current artifact together, removed dedicated slice-runner entry points, and published `samples/machine-package/matrices/m2-basic.json`. `table-1` remains excluded until the ADR-0029 MI3-04 publication gate closes. Future features may not broaden either public profile in place.
+The public capability artifact and current Schema use `typaxis.contract/1.2`. Its profile array is exactly `basic-document-1`, then `paragraph-1`, then `table-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the complete former 1.1 registry and published `samples/machine-package/matrices/m2-basic.json`; MI3-04 published the table descriptor and `samples/machine-package/matrices/m3-table.json` without changing DocumentPackage Schema bytes. Future features may not broaden any public profile in place.

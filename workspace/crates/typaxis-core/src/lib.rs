@@ -147,11 +147,13 @@ impl std::str::FromStr for DocumentPackageContractId {
 pub enum MachinePdfProfileId {
     BasicDocument1,
     Paragraph1,
+    Table1,
 }
 
 impl MachinePdfProfileId {
     pub const PARAGRAPH_1: Self = Self::Paragraph1;
     pub const BASIC_DOCUMENT_1: Self = Self::BasicDocument1;
+    pub const TABLE_1: Self = Self::Table1;
     /// The CLI default remains the frozen paragraph profile after the 1.2
     /// contract migration. A wider profile is always an explicit request.
     pub const CURRENT: Self = Self::Paragraph1;
@@ -160,6 +162,7 @@ impl MachinePdfProfileId {
         match self {
             Self::BasicDocument1 => "typaxis.machine-pdf/basic-document-1",
             Self::Paragraph1 => "typaxis.machine-pdf/paragraph-1",
+            Self::Table1 => "typaxis.machine-pdf/table-1",
         }
     }
 }
@@ -194,6 +197,7 @@ impl std::str::FromStr for MachinePdfProfileId {
         match value {
             "typaxis.machine-pdf/basic-document-1" => Ok(Self::BasicDocument1),
             "typaxis.machine-pdf/paragraph-1" => Ok(Self::Paragraph1),
+            "typaxis.machine-pdf/table-1" => Ok(Self::Table1),
             _ => Err(UnknownMachinePdfProfileId),
         }
     }
@@ -1977,6 +1981,10 @@ mod tests {
         assert_eq!(
             MachinePdfProfileId::from_str("typaxis.machine-pdf/basic-document-1"),
             Ok(MachinePdfProfileId::BASIC_DOCUMENT_1)
+        );
+        assert_eq!(
+            MachinePdfProfileId::from_str("typaxis.machine-pdf/table-1"),
+            Ok(MachinePdfProfileId::TABLE_1)
         );
         assert!(MachinePdfProfileId::from_str("typaxis.machine-pdf/general").is_err());
     }

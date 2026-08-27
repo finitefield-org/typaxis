@@ -65,7 +65,8 @@
     "profile": {
       "enum": [
         "typaxis.machine-pdf/basic-document-1",
-        "typaxis.machine-pdf/paragraph-1"
+        "typaxis.machine-pdf/paragraph-1",
+        "typaxis.machine-pdf/table-1"
       ]
     },
     "resource_hashes": {

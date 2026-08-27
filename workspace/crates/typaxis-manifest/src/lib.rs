@@ -20,19 +20,22 @@ use typaxis_core::{
 pub use typaxis_core::{OutputSink, PdfStreamCompression};
 pub use typaxis_host_admission::HostReadIdentityLedgerToken as PublicationReadLedgerToken;
 use typaxis_host_admission::{HostAdmissionError, HostReadIdentityLedgerToken};
+use typaxis_layout_contract::{ResolvedTableColumnInput, ValidatedTableGridReceipt};
 use typaxis_machine_input::{
     MachineInputFingerprint, MachineInputProgress, MachineInputSessionIdentity, MachineInputStage,
 };
 use typaxis_machine_profile::{MachinePdfPreflightReceipt, MachineProfileDescriptor};
 use typaxis_pagination::{
     ConvergenceStatus, MultiFlowSelectedStateReceipt, MultiFlowTraceFacts, PaginationResult,
-    SelectedTableLayoutReceipt, StagingTableTraceFacts,
+    RowspanContinuationReceipt, SelectedTableLayoutReceipt, StagingTableCellFragmentReceipt,
+    StagingTableTraceFacts,
 };
 use typaxis_pdf::{
     PdfStreamWriteFacts, StagingForcedPageBreakPdf, StagingMachineBlockStylePdf,
     StagingMachineFigurePdf, StagingMachineLinkPdf, StagingMachineListPdf, VerifiedPdfBytesReceipt,
 };
 use typaxis_resources::{AdmittedResourceLedgerToken, ResourceAdmissionProgressToken};
+use typaxis_syntax::machine_profile_boundary::Block;
 use typaxis_syntax::{PackageEpochIdentity, ValidatedMachinePackage, ValidatedParsedPackage};
 use typaxis_text::SourceRecord;
 
@@ -58,6 +61,7 @@ pub enum BuildInputProfile {
     ReferenceSource1,
     MachinePdfBasicDocument1,
     MachinePdfParagraph1,
+    MachinePdfTable1,
 }
 
 impl BuildInputProfile {
@@ -66,6 +70,7 @@ impl BuildInputProfile {
             Self::ReferenceSource1 => REFERENCE_INPUT_PROFILE,
             Self::MachinePdfBasicDocument1 => MachinePdfProfileId::BASIC_DOCUMENT_1.as_str(),
             Self::MachinePdfParagraph1 => MachinePdfProfileId::PARAGRAPH_1.as_str(),
+            Self::MachinePdfTable1 => MachinePdfProfileId::TABLE_1.as_str(),
         }
     }
 
@@ -74,6 +79,7 @@ impl BuildInputProfile {
             Self::ReferenceSource1 => None,
             Self::MachinePdfBasicDocument1 => Some(MachinePdfProfileId::BASIC_DOCUMENT_1),
             Self::MachinePdfParagraph1 => Some(MachinePdfProfileId::PARAGRAPH_1),
+            Self::MachinePdfTable1 => Some(MachinePdfProfileId::TABLE_1),
         }
     }
 
@@ -81,6 +87,7 @@ impl BuildInputProfile {
         match descriptor.id() {
             MachinePdfProfileId::BasicDocument1 => Self::MachinePdfBasicDocument1,
             MachinePdfProfileId::Paragraph1 => Self::MachinePdfParagraph1,
+            MachinePdfProfileId::Table1 => Self::MachinePdfTable1,
         }
     }
 }
@@ -139,13 +146,17 @@ impl LayoutRecord {
         flow_registry_sha256: Option<[u8; 32]>,
     ) -> Result<Self, BuildManifestError> {
         match capability.profile() {
-            MachinePdfProfileId::BasicDocument1 if flow_registry_sha256.is_none() => {
+            MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+                if flow_registry_sha256.is_none() =>
+            {
                 return Err(BuildManifestError::MachineCapabilityMismatch)
             }
             MachinePdfProfileId::Paragraph1 if flow_registry_sha256.is_some() => {
                 return Err(BuildManifestError::MachineCapabilityMismatch)
             }
-            MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Paragraph1 => {}
+            MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Paragraph1
+            | MachinePdfProfileId::Table1 => {}
         }
         self.profile_receipt_sha256 = Some(capability.profile_receipt_sha256());
         self.flow_registry_sha256 = flow_registry_sha256;
@@ -311,17 +322,52 @@ pub const STAGING_TABLE_MANIFEST_ALGORITHM: &str = "typaxis.table-layout-manifes
 pub enum StagingTableManifestError {
     TraceMismatch,
     SelectedStateMismatch,
+    GridMismatch,
     FactCountMismatch,
     AllocationFailure,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingTableManifestColumnFact {
+    column_ordinal: u32,
+    input_kind: &'static str,
+    input_value: i64,
+    rounded_fraction_width: Option<i64>,
+    final_width: i64,
+}
+
+impl StagingTableManifestColumnFact {
+    pub const fn column_ordinal(self) -> u32 {
+        self.column_ordinal
+    }
+    pub const fn input_kind(self) -> &'static str {
+        self.input_kind
+    }
+    pub const fn input_value(self) -> i64 {
+        self.input_value
+    }
+    pub const fn rounded_fraction_width(self) -> Option<i64> {
+        self.rounded_fraction_width
+    }
+    pub const fn final_width(self) -> i64 {
+        self.final_width
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingTableManifestCellFact {
     cell_node_id: u32,
     flow_id: u32,
+    column_ordinal: u32,
+    colspan: u16,
+    rowspan: u16,
     selected_block_extent: i64,
     before_fragment_ordinal: u32,
     after_fragment_ordinal: u32,
+    before_terminal: bool,
+    after_terminal: bool,
+    vertical_offset_before: i64,
+    vertical_offset_after: i64,
 }
 
 impl StagingTableManifestCellFact {
@@ -330,6 +376,15 @@ impl StagingTableManifestCellFact {
     }
     pub const fn flow_id(&self) -> u32 {
         self.flow_id
+    }
+    pub const fn column_ordinal(&self) -> u32 {
+        self.column_ordinal
+    }
+    pub const fn colspan(&self) -> u16 {
+        self.colspan
+    }
+    pub const fn rowspan(&self) -> u16 {
+        self.rowspan
     }
     pub const fn selected_block_extent(&self) -> i64 {
         self.selected_block_extent
@@ -343,8 +398,11 @@ pub struct StagingTableManifestRowFact {
     logical_row_ordinal: u32,
     row_fragment_ordinal: u32,
     page_index: u32,
+    page_block_offset: i64,
     selected_block_extent: i64,
     cells: Vec<StagingTableManifestCellFact>,
+    continuation_before: RowspanContinuationReceipt,
+    continuation_after: RowspanContinuationReceipt,
 }
 
 impl StagingTableManifestRowFact {
@@ -370,6 +428,7 @@ pub struct StagingTableManifestHeaderSourceFact {
     source_fragment_id: u64,
     row_node_id: u32,
     row_ordinal: u32,
+    group_block_offset: i64,
     selected_block_extent: i64,
     cells: Vec<StagingTableManifestCellFact>,
 }
@@ -393,6 +452,7 @@ pub struct StagingTableManifestHeaderOccurrenceFact {
     fragment_id: u64,
     source_fragment_id: u64,
     row_node_id: u32,
+    target_block_offset: i64,
 }
 
 impl StagingTableManifestHeaderOccurrenceFact {
@@ -413,15 +473,20 @@ impl StagingTableManifestHeaderOccurrenceFact {
 /// Private MI3-03 manifest projection. It accepts only a trace/selection pair
 /// with identical grid, row-band, flow-registry, and selected-layout hashes;
 /// row, cell, and header facts are then copied without geometry recomputation.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingTableLayoutFacts {
+    package_sha256: [u8; 32],
     body_block_size: i64,
     first_page_remaining_block_size: i64,
     flow_registry_sha256: [u8; 32],
     grid_sha256: [u8; 32],
+    columns: Vec<StagingTableManifestColumnFact>,
+    rounding_residual: i64,
+    residual_recipient: Option<u32>,
     row_band_sha256: [u8; 32],
     selected_layout_sha256: [u8; 32],
     table_node_id: u32,
+    target_page_start: u32,
     page_count: u32,
     rows: Vec<StagingTableManifestRowFact>,
     header_sources: Vec<StagingTableManifestHeaderSourceFact>,
@@ -432,7 +497,17 @@ pub struct StagingTableLayoutFacts {
 impl StagingTableLayoutFacts {
     pub fn from_selected(
         trace: &StagingTableTraceFacts,
+        grid: &ValidatedTableGridReceipt,
         selected: &SelectedTableLayoutReceipt,
+    ) -> Result<Self, StagingTableManifestError> {
+        Self::from_selected_at(trace, grid, selected, 0)
+    }
+
+    pub fn from_selected_at(
+        trace: &StagingTableTraceFacts,
+        grid: &ValidatedTableGridReceipt,
+        selected: &SelectedTableLayoutReceipt,
+        target_page_start: u32,
     ) -> Result<Self, StagingTableManifestError> {
         if trace.selected_layout_sha256() != selected.fingerprint().bytes() {
             return Err(StagingTableManifestError::SelectedStateMismatch);
@@ -443,6 +518,14 @@ impl StagingTableLayoutFacts {
             || trace.page_count() != selected.page_count()
         {
             return Err(StagingTableManifestError::TraceMismatch);
+        }
+        if grid.package_sha256() != selected.package_sha256()
+            || grid.epoch() != selected.epoch()
+            || grid.flow_registry() != selected.flow_registry_fingerprint()
+            || grid.fingerprint().bytes() != selected.grid_sha256()
+            || grid.table_owner() != selected.table_owner()
+        {
+            return Err(StagingTableManifestError::GridMismatch);
         }
         if trace.row_fragment_count()
             != u64::try_from(selected.row_fragments().len())
@@ -459,6 +542,26 @@ impl StagingTableLayoutFacts {
             return Err(StagingTableManifestError::FactCountMismatch);
         }
 
+        let mut columns = Vec::new();
+        columns
+            .try_reserve_exact(grid.columns().len())
+            .map_err(|_| StagingTableManifestError::AllocationFailure)?;
+        for column in grid.columns() {
+            let (input_kind, input_value) = match column.input() {
+                ResolvedTableColumnInput::Fixed(width) => ("fixed", width.get().raw()),
+                ResolvedTableColumnInput::Fraction(weight) => ("fraction", i64::from(weight.get())),
+            };
+            columns.push(StagingTableManifestColumnFact {
+                column_ordinal: column.index(),
+                input_kind,
+                input_value,
+                rounded_fraction_width: column
+                    .rounded_fraction_width()
+                    .map(|width| width.get().raw()),
+                final_width: column.final_width().get().raw(),
+            });
+        }
+
         let mut rows = Vec::new();
         rows.try_reserve_exact(selected.row_fragments().len())
             .map_err(|_| StagingTableManifestError::AllocationFailure)?;
@@ -469,13 +572,7 @@ impl StagingTableLayoutFacts {
                 .try_reserve_exact(fragment.cells().len())
                 .map_err(|_| StagingTableManifestError::AllocationFailure)?;
             for cell in fragment.cells() {
-                cells.push(StagingTableManifestCellFact {
-                    cell_node_id: cell.cell_owner().get(),
-                    flow_id: cell.flow_id().get(),
-                    selected_block_extent: cell.selected_block_extent(),
-                    before_fragment_ordinal: cell.before_cursor().next_fragment_ordinal(),
-                    after_fragment_ordinal: cell.after_cursor().next_fragment_ordinal(),
-                });
+                cells.push(staging_table_manifest_cell(grid, cell)?);
                 observed_cell_count = observed_cell_count
                     .checked_add(1)
                     .ok_or(StagingTableManifestError::FactCountMismatch)?;
@@ -485,9 +582,14 @@ impl StagingTableLayoutFacts {
                 row_node_id: fragment.row_owner().get(),
                 logical_row_ordinal: fragment.logical_row_ordinal(),
                 row_fragment_ordinal: fragment.row_fragment_ordinal(),
-                page_index: fragment.page_index(),
+                page_index: target_page_start
+                    .checked_add(fragment.page_index())
+                    .ok_or(StagingTableManifestError::FactCountMismatch)?,
+                page_block_offset: fragment.page_block_offset(),
                 selected_block_extent: fragment.selected_block_extent(),
                 cells,
+                continuation_before: fragment.continuation_before().clone(),
+                continuation_after: fragment.continuation_after().clone(),
             });
         }
 
@@ -501,13 +603,7 @@ impl StagingTableLayoutFacts {
                 .try_reserve_exact(source.cells().len())
                 .map_err(|_| StagingTableManifestError::AllocationFailure)?;
             for cell in source.cells() {
-                cells.push(StagingTableManifestCellFact {
-                    cell_node_id: cell.cell_owner().get(),
-                    flow_id: cell.flow_id().get(),
-                    selected_block_extent: cell.selected_block_extent(),
-                    before_fragment_ordinal: cell.before_cursor().next_fragment_ordinal(),
-                    after_fragment_ordinal: cell.after_cursor().next_fragment_ordinal(),
-                });
+                cells.push(staging_table_manifest_cell(grid, cell)?);
                 observed_cell_count = observed_cell_count
                     .checked_add(1)
                     .ok_or(StagingTableManifestError::FactCountMismatch)?;
@@ -516,6 +612,7 @@ impl StagingTableLayoutFacts {
                 source_fragment_id: source.source_fragment_id(),
                 row_node_id: source.row_owner().get(),
                 row_ordinal: source.row_ordinal(),
+                group_block_offset: source.group_block_offset(),
                 selected_block_extent: source.selected_block_extent(),
                 cells,
             });
@@ -534,21 +631,29 @@ impl StagingTableLayoutFacts {
             for row in repetition.rows() {
                 header_occurrences.push(StagingTableManifestHeaderOccurrenceFact {
                     repetition_index: repetition.repetition_index(),
-                    target_page_index: repetition.target_page_index(),
+                    target_page_index: target_page_start
+                        .checked_add(repetition.target_page_index())
+                        .ok_or(StagingTableManifestError::FactCountMismatch)?,
                     fragment_id: row.fragment_id(),
                     source_fragment_id: row.source_fragment_id(),
                     row_node_id: row.row_owner().get(),
+                    target_block_offset: row.target_block_offset(),
                 });
             }
         }
         let mut facts = Self {
+            package_sha256: selected.package_sha256(),
             body_block_size: selected.body_block_size(),
             first_page_remaining_block_size: selected.first_page_remaining_block_size(),
             flow_registry_sha256: trace.flow_registry_sha256(),
             grid_sha256: trace.grid_sha256(),
+            columns,
+            rounding_residual: grid.rounding_residual().raw(),
+            residual_recipient: grid.residual_recipient(),
             row_band_sha256: trace.row_band_sha256(),
             selected_layout_sha256: trace.selected_layout_sha256(),
             table_node_id: selected.table_owner().get(),
+            target_page_start,
             page_count: selected.page_count(),
             rows,
             header_sources,
@@ -562,6 +667,21 @@ impl StagingTableLayoutFacts {
     pub const fn selected_layout_sha256(&self) -> [u8; 32] {
         self.selected_layout_sha256
     }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+    pub fn columns(&self) -> &[StagingTableManifestColumnFact] {
+        &self.columns
+    }
+    pub const fn rounding_residual(&self) -> i64 {
+        self.rounding_residual
+    }
+    pub const fn residual_recipient(&self) -> Option<u32> {
+        self.residual_recipient
+    }
     pub const fn body_block_size(&self) -> i64 {
         self.body_block_size
     }
@@ -570,6 +690,15 @@ impl StagingTableLayoutFacts {
     }
     pub const fn page_count(&self) -> u32 {
         self.page_count
+    }
+    pub const fn table_node_id(&self) -> u32 {
+        self.table_node_id
+    }
+    pub const fn target_page_start(&self) -> u32 {
+        self.target_page_start
+    }
+    pub fn target_page_end(&self) -> Option<u32> {
+        self.target_page_start.checked_add(self.page_count)
     }
     pub fn rows(&self) -> &[StagingTableManifestRowFact] {
         &self.rows
@@ -582,6 +711,70 @@ impl StagingTableLayoutFacts {
     }
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs
+    }
+}
+
+fn staging_table_manifest_cell(
+    grid: &ValidatedTableGridReceipt,
+    cell: &StagingTableCellFragmentReceipt,
+) -> Result<StagingTableManifestCellFact, StagingTableManifestError> {
+    let binding = grid
+        .cells()
+        .iter()
+        .find(|binding| binding.cell_owner() == cell.cell_owner())
+        .ok_or(StagingTableManifestError::GridMismatch)?;
+    if binding.flow_id() != cell.flow_id()
+        || cell.before_cursor().flow_id() != cell.flow_id()
+        || cell.after_cursor().flow_id() != cell.flow_id()
+    {
+        return Err(StagingTableManifestError::GridMismatch);
+    }
+    Ok(StagingTableManifestCellFact {
+        cell_node_id: cell.cell_owner().get(),
+        flow_id: cell.flow_id().get(),
+        column_ordinal: binding.column_ordinal(),
+        colspan: binding.colspan().get(),
+        rowspan: binding.rowspan().get(),
+        selected_block_extent: cell.selected_block_extent(),
+        before_fragment_ordinal: cell.before_cursor().next_fragment_ordinal(),
+        after_fragment_ordinal: cell.after_cursor().next_fragment_ordinal(),
+        before_terminal: cell.before_cursor().is_terminal(),
+        after_terminal: cell.after_cursor().is_terminal(),
+        vertical_offset_before: cell.vertical_offset_before(),
+        vertical_offset_after: cell.vertical_offset_after(),
+    })
+}
+
+/// Closed set of selected-layout facts consumed by machine manifest
+/// publication. Grouping these phase-owned values keeps the publication API
+/// explicit without allowing callers to insert manifest records directly.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineLayoutFacts {
+    flow_registry_sha256: Option<[u8; 32]>,
+    table_layouts: Vec<StagingTableLayoutFacts>,
+}
+
+impl StagingMachineLayoutFacts {
+    pub fn new(
+        flow_registry_sha256: Option<[u8; 32]>,
+        table_layouts: Vec<StagingTableLayoutFacts>,
+    ) -> Self {
+        Self {
+            flow_registry_sha256,
+            table_layouts,
+        }
+    }
+
+    pub const fn flow_registry_sha256(&self) -> Option<[u8; 32]> {
+        self.flow_registry_sha256
+    }
+
+    pub fn table_layouts(&self) -> &[StagingTableLayoutFacts] {
+        &self.table_layouts
+    }
+
+    fn into_parts(self) -> (Option<[u8; 32]>, Vec<StagingTableLayoutFacts>) {
+        (self.flow_registry_sha256, self.table_layouts)
     }
 }
 
@@ -1628,6 +1821,27 @@ fn encode_staging_table_layout_facts(value: &StagingTableLayoutFacts) -> String 
     push_jcs_string(&mut json, STAGING_TABLE_MANIFEST_ALGORITHM);
     json.push_str(",\"body_block_size\":");
     json.push_str(&value.body_block_size.to_string());
+    json.push_str(",\"columns\":[");
+    for (index, column) in value.columns.iter().enumerate() {
+        if index != 0 {
+            json.push(',');
+        }
+        json.push_str("{\"column_ordinal\":");
+        json.push_str(&column.column_ordinal.to_string());
+        json.push_str(",\"final_width\":");
+        json.push_str(&column.final_width.to_string());
+        json.push_str(",\"input_kind\":");
+        push_jcs_string(&mut json, column.input_kind);
+        json.push_str(",\"input_value\":");
+        json.push_str(&column.input_value.to_string());
+        json.push_str(",\"rounded_fraction_width\":");
+        match column.rounded_fraction_width {
+            Some(width) => json.push_str(&width.to_string()),
+            None => json.push_str("null"),
+        }
+        json.push('}');
+    }
+    json.push(']');
     json.push_str(",\"first_page_remaining_block_size\":");
     json.push_str(&value.first_page_remaining_block_size.to_string());
     json.push_str(",\"flow_registry_sha256\":");
@@ -1647,6 +1861,8 @@ fn encode_staging_table_layout_facts(value: &StagingTableLayoutFacts) -> String 
         json.push_str(&occurrence.row_node_id.to_string());
         json.push_str(",\"source_fragment_id\":");
         json.push_str(&occurrence.source_fragment_id.to_string());
+        json.push_str(",\"target_block_offset\":");
+        json.push_str(&occurrence.target_block_offset.to_string());
         json.push_str(",\"target_page_index\":");
         json.push_str(&occurrence.target_page_index.to_string());
         json.push('}');
@@ -1658,7 +1874,9 @@ fn encode_staging_table_layout_facts(value: &StagingTableLayoutFacts) -> String 
         }
         json.push_str("{\"cells\":[");
         encode_staging_table_manifest_cells(&mut json, &source.cells);
-        json.push_str("],\"row_node_id\":");
+        json.push_str("],\"group_block_offset\":");
+        json.push_str(&source.group_block_offset.to_string());
+        json.push_str(",\"row_node_id\":");
         json.push_str(&source.row_node_id.to_string());
         json.push_str(",\"row_ordinal\":");
         json.push_str(&source.row_ordinal.to_string());
@@ -1670,6 +1888,13 @@ fn encode_staging_table_layout_facts(value: &StagingTableLayoutFacts) -> String 
     }
     json.push_str("],\"page_count\":");
     json.push_str(&value.page_count.to_string());
+    json.push_str(",\"residual_recipient\":");
+    match value.residual_recipient {
+        Some(recipient) => json.push_str(&recipient.to_string()),
+        None => json.push_str("null"),
+    }
+    json.push_str(",\"rounding_residual\":");
+    json.push_str(&value.rounding_residual.to_string());
     json.push_str(",\"row_band_sha256\":");
     push_json_hex(&mut json, &value.row_band_sha256);
     json.push_str(",\"rows\":[");
@@ -1679,10 +1904,16 @@ fn encode_staging_table_layout_facts(value: &StagingTableLayoutFacts) -> String 
         }
         json.push_str("{\"cells\":[");
         encode_staging_table_manifest_cells(&mut json, &row.cells);
-        json.push_str("],\"fragment_id\":");
+        json.push_str("],\"continuation_after\":");
+        encode_staging_table_manifest_continuation(&mut json, &row.continuation_after);
+        json.push_str(",\"continuation_before\":");
+        encode_staging_table_manifest_continuation(&mut json, &row.continuation_before);
+        json.push_str(",\"fragment_id\":");
         json.push_str(&row.fragment_id.to_string());
         json.push_str(",\"logical_row_ordinal\":");
         json.push_str(&row.logical_row_ordinal.to_string());
+        json.push_str(",\"page_block_offset\":");
+        json.push_str(&row.page_block_offset.to_string());
         json.push_str(",\"page_index\":");
         json.push_str(&row.page_index.to_string());
         json.push_str(",\"row_fragment_ordinal\":");
@@ -1697,6 +1928,8 @@ fn encode_staging_table_layout_facts(value: &StagingTableLayoutFacts) -> String 
     push_json_hex(&mut json, &value.selected_layout_sha256);
     json.push_str(",\"table_node_id\":");
     json.push_str(&value.table_node_id.to_string());
+    json.push_str(",\"target_page_start\":");
+    json.push_str(&value.target_page_start.to_string());
     json.push('}');
     json
 }
@@ -1711,16 +1944,71 @@ fn encode_staging_table_manifest_cells(
         }
         output.push_str("{\"after_fragment_ordinal\":");
         output.push_str(&cell.after_fragment_ordinal.to_string());
+        output.push_str(",\"after_terminal\":");
+        output.push_str(if cell.after_terminal { "true" } else { "false" });
         output.push_str(",\"before_fragment_ordinal\":");
         output.push_str(&cell.before_fragment_ordinal.to_string());
+        output.push_str(",\"before_terminal\":");
+        output.push_str(if cell.before_terminal {
+            "true"
+        } else {
+            "false"
+        });
         output.push_str(",\"cell_node_id\":");
         output.push_str(&cell.cell_node_id.to_string());
+        output.push_str(",\"column_ordinal\":");
+        output.push_str(&cell.column_ordinal.to_string());
+        output.push_str(",\"colspan\":");
+        output.push_str(&cell.colspan.to_string());
         output.push_str(",\"flow_id\":");
         output.push_str(&cell.flow_id.to_string());
+        output.push_str(",\"rowspan\":");
+        output.push_str(&cell.rowspan.to_string());
         output.push_str(",\"selected_block_extent\":");
         output.push_str(&cell.selected_block_extent.to_string());
+        output.push_str(",\"vertical_offset_after\":");
+        output.push_str(&cell.vertical_offset_after.to_string());
+        output.push_str(",\"vertical_offset_before\":");
+        output.push_str(&cell.vertical_offset_before.to_string());
         output.push('}');
     }
+}
+
+fn encode_staging_table_manifest_continuation(
+    output: &mut String,
+    continuation: &RowspanContinuationReceipt,
+) {
+    output.push_str("{\"entries\":[");
+    for (index, entry) in continuation.entries().iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        let cursor = entry.cell_flow_cursor();
+        output.push_str("{\"cell_flow_cursor\":{\"flow_id\":");
+        output.push_str(&cursor.flow_id().get().to_string());
+        output.push_str(",\"next_fragment_ordinal\":");
+        output.push_str(&cursor.next_fragment_ordinal().to_string());
+        output.push_str(",\"terminal\":");
+        output.push_str(if cursor.is_terminal() {
+            "true"
+        } else {
+            "false"
+        });
+        output.push_str("},\"cell_node_id\":");
+        output.push_str(&entry.cell_owner().get().to_string());
+        output.push_str(",\"column_ordinal\":");
+        output.push_str(&entry.column_ordinal().to_string());
+        output.push_str(",\"flow_id\":");
+        output.push_str(&entry.flow_id().get().to_string());
+        output.push_str(",\"remaining_logical_rows\":");
+        output.push_str(&entry.remaining_logical_rows().get().to_string());
+        output.push_str(",\"vertical_offset\":");
+        output.push_str(&entry.vertical_offset().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"logical_row_ordinal\":");
+    output.push_str(&continuation.logical_row_ordinal().to_string());
+    output.push('}');
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EngineRecord {
@@ -1965,6 +2253,7 @@ pub struct BuildManifest {
     stream_compression: PdfStreamCompression,
     layout: Option<LayoutRecord>,
     output: Option<OutputRecord>,
+    table_layouts: Vec<StagingTableLayoutFacts>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2724,20 +3013,42 @@ impl ManifestPublicationContext {
         capability: &MachinePdfPreflightReceipt,
         admitted: AdmittedResourceLedgerToken<'_>,
         pagination: &PaginationResult,
-        flow_registry_sha256: Option<[u8; 32]>,
+        layout_facts: StagingMachineLayoutFacts,
         pdf: VerifiedPdfBytesReceipt,
     ) -> Result<PreparedBuiltPublication, BuildManifestError> {
         if self.input_profile.machine_profile() != Some(capability.profile()) {
             return Err(BuildManifestError::InputProfileMismatch);
         }
-        let output = validate_pdf_output_facts(&self, pagination, &pdf)?;
+        Self::validate_machine_table_layout_facts(package, capability, &layout_facts)?;
+        let base_page_count = u32::try_from(pagination.selected_pages().len())
+            .map_err(|_| BuildManifestError::PageLimit)?;
+        let expected_page_count = if capability.profile() == MachinePdfProfileId::TABLE_1 {
+            layout_facts
+                .table_layouts()
+                .iter()
+                .filter_map(StagingTableLayoutFacts::target_page_end)
+                .max()
+                .unwrap_or(base_page_count)
+                .max(base_page_count)
+        } else {
+            if !layout_facts.table_layouts().is_empty() {
+                return Err(BuildManifestError::MachineCapabilityMismatch);
+            }
+            base_page_count
+        };
+        let output = validate_pdf_output_facts_with_page_count(
+            &self,
+            pagination,
+            &pdf,
+            expected_page_count,
+        )?;
         let (manifest, ledger) = prepare_machine_built_manifest(
             &self,
             package,
             capability,
             admitted,
             pagination,
-            flow_registry_sha256,
+            layout_facts,
             output,
         )?;
         let manifest_bytes = manifest.manifest().to_canonical_json_bytes();
@@ -2758,6 +3069,51 @@ impl ManifestPublicationContext {
             output,
             read_ledger: Some(read_ledger),
         })
+    }
+
+    fn validate_machine_table_layout_facts(
+        package: &ValidatedMachinePackage,
+        capability: &MachinePdfPreflightReceipt,
+        layout_facts: &StagingMachineLayoutFacts,
+    ) -> Result<(), BuildManifestError> {
+        if capability.profile() != MachinePdfProfileId::TABLE_1 {
+            return if layout_facts.table_layouts().is_empty() {
+                Ok(())
+            } else {
+                Err(BuildManifestError::MachineCapabilityMismatch)
+            };
+        }
+        let expected_owners: Vec<_> = package
+            .package()
+            .package()
+            .document
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Table { node_id, .. } => Some(node_id.get()),
+                _ => None,
+            })
+            .collect();
+        let tables = layout_facts.table_layouts();
+        let package_sha256 = package.provenance().canonical_jcs_sha256().into_bytes();
+        let flow_registry_sha256 = layout_facts
+            .flow_registry_sha256()
+            .ok_or(BuildManifestError::MachineCapabilityMismatch)?;
+        if expected_owners.len() != tables.len()
+            || tables.iter().zip(expected_owners).any(|(table, owner)| {
+                table.table_node_id() != owner
+                    || table.package_sha256() != package_sha256
+                    || table.flow_registry_sha256() != flow_registry_sha256
+            })
+            || tables.windows(2).any(|pair| {
+                pair[0]
+                    .target_page_end()
+                    .map_or(true, |end| end > pair[1].target_page_start())
+            })
+        {
+            return Err(BuildManifestError::MachineCapabilityMismatch);
+        }
+        Ok(())
     }
 
     /// Preflights a terminal failed manifest from facts admitted by this exact
@@ -4312,6 +4668,7 @@ impl BuildManifest {
         records: ManifestTerminalRecords,
         layout: Option<LayoutRecord>,
         output: Option<OutputRecord>,
+        table_layouts: Vec<StagingTableLayoutFacts>,
     ) -> Self {
         Self {
             contract: CONTRACT.to_owned(),
@@ -4329,6 +4686,7 @@ impl BuildManifest {
             stream_compression: publication.stream_compression,
             layout,
             output,
+            table_layouts,
         }
     }
 
@@ -4377,6 +4735,9 @@ impl BuildManifest {
     pub const fn output(&self) -> Option<&OutputRecord> {
         self.output.as_ref()
     }
+    pub fn table_layouts(&self) -> &[StagingTableLayoutFacts] {
+        &self.table_layouts
+    }
 
     fn to_canonical_json_bytes(&self) -> Vec<u8> {
         canonical_manifest_json(self).into_bytes()
@@ -4420,7 +4781,8 @@ impl BuildManifest {
             }
             (
                 BuildInputProfile::MachinePdfBasicDocument1
-                | BuildInputProfile::MachinePdfParagraph1,
+                | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
                 Some(package),
             ) if package.is_decoded()
@@ -4428,25 +4790,29 @@ impl BuildManifest {
                 && self.inputs.len() == 1 => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
-                | BuildInputProfile::MachinePdfParagraph1,
+                | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
                 _,
             ) => return Err(BuildManifestError::MachinePackageMismatch),
             (
                 BuildInputProfile::MachinePdfBasicDocument1
-                | BuildInputProfile::MachinePdfParagraph1,
+                | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
                 Some(package),
             ) if package.contract.is_some() == package.canonical_sha256.is_some() => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
-                | BuildInputProfile::MachinePdfParagraph1,
+                | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
                 None,
             ) => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
-                | BuildInputProfile::MachinePdfParagraph1,
+                | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
                 Some(_),
             ) => return Err(BuildManifestError::MachinePackageMismatch),
@@ -4475,7 +4841,8 @@ impl BuildManifest {
                         return Err(BuildManifestError::MachineCapabilityMismatch);
                     }
                 }
-                BuildInputProfile::MachinePdfBasicDocument1 => {
+                BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfTable1 => {
                     let layout = self
                         .layout
                         .ok_or(BuildManifestError::MachineCapabilityMismatch)?;
@@ -4643,6 +5010,31 @@ impl BuildManifest {
                 return Err(BuildManifestError::PdfObjectLimit);
             }
         }
+        match (self.input_profile, self.status) {
+            (BuildInputProfile::MachinePdfTable1, BuildStatus::Built) => {
+                let output_pages = self
+                    .output
+                    .as_ref()
+                    .map(|output| output.page_count)
+                    .ok_or(BuildManifestError::BuiltRequiresLayoutAndOutput)?;
+                if self
+                    .table_layouts
+                    .windows(2)
+                    .any(|pair| pair[0].table_node_id() >= pair[1].table_node_id())
+                    || self.table_layouts.iter().any(|table| {
+                        table
+                            .target_page_end()
+                            .map_or(true, |end| end > output_pages)
+                    })
+                {
+                    return Err(BuildManifestError::MachineCapabilityMismatch);
+                }
+            }
+            _ if !self.table_layouts.is_empty() => {
+                return Err(BuildManifestError::MachineCapabilityMismatch)
+            }
+            _ => {}
+        }
         Ok(())
     }
 }
@@ -4701,6 +5093,19 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
             PdfStreamCompression::None => "none",
         },
     );
+    if manifest.input_profile == BuildInputProfile::MachinePdfTable1
+        && manifest.status == BuildStatus::Built
+    {
+        push_json_member_name(&mut json, "table_layouts", false);
+        json.push('[');
+        for (index, table) in manifest.table_layouts.iter().enumerate() {
+            if index != 0 {
+                json.push(',');
+            }
+            json.push_str(table.canonical_jcs());
+        }
+        json.push(']');
+    }
     json.push('}');
     json
 }
@@ -5092,6 +5497,15 @@ fn validate_pdf_output_facts(
 ) -> Result<PreparedPdfOutputFacts, BuildManifestError> {
     let page_count = u32::try_from(pagination.selected_pages().len())
         .map_err(|_| BuildManifestError::PageLimit)?;
+    validate_pdf_output_facts_with_page_count(publication, pagination, pdf, page_count)
+}
+
+fn validate_pdf_output_facts_with_page_count(
+    publication: &ManifestPublicationContext,
+    pagination: &PaginationResult,
+    pdf: &VerifiedPdfBytesReceipt,
+    page_count: u32,
+) -> Result<PreparedPdfOutputFacts, BuildManifestError> {
     let facts = validate_pdf_receipt_facts(
         publication.config_fingerprint,
         publication.stream_compression,
@@ -5205,6 +5619,7 @@ fn prepare_built_manifest(
         records,
         Some(layout),
         Some(output),
+        Vec::new(),
     );
     ValidatedBuildManifest::new(
         manifest,
@@ -5218,16 +5633,27 @@ fn prepare_machine_built_manifest(
     capability: &MachinePdfPreflightReceipt,
     admitted: AdmittedResourceLedgerToken<'_>,
     pagination: &PaginationResult,
-    flow_registry_sha256: Option<[u8; 32]>,
+    layout_facts: StagingMachineLayoutFacts,
     output: PreparedPdfOutputFacts,
 ) -> Result<(ValidatedBuildManifest, ManifestAdmissionLedger), BuildManifestError> {
     if output.sink != publication.output_sink() {
         return Err(BuildManifestError::OutputSinkMismatch);
     }
     let layout = layout_record_for(publication, pagination)?
-        .bind_machine_capability(capability, flow_registry_sha256)?;
-    let page_count = u32::try_from(pagination.selected_pages().len())
+        .bind_machine_capability(capability, layout_facts.flow_registry_sha256())?;
+    let (_, table_layouts) = layout_facts.into_parts();
+    let base_page_count = u32::try_from(pagination.selected_pages().len())
         .map_err(|_| BuildManifestError::PageLimit)?;
+    let page_count = if capability.profile() == MachinePdfProfileId::TABLE_1 {
+        table_layouts
+            .iter()
+            .filter_map(StagingTableLayoutFacts::target_page_end)
+            .max()
+            .unwrap_or(base_page_count)
+            .max(base_page_count)
+    } else {
+        base_page_count
+    };
     if output.selected_fingerprint != pagination.final_fingerprint()
         || output.page_count != page_count
     {
@@ -5254,6 +5680,7 @@ fn prepare_machine_built_manifest(
         records,
         Some(layout),
         Some(output),
+        table_layouts,
     );
     let validated = ValidatedBuildManifest::new(
         manifest,
@@ -5302,8 +5729,14 @@ impl ValidatedBuildManifest {
             })
             .transpose()?;
         let records = candidate.manifest_records();
-        let manifest =
-            BuildManifest::terminal(publication, BuildStatus::Failed, records, layout, None);
+        let manifest = BuildManifest::terminal(
+            publication,
+            BuildStatus::Failed,
+            records,
+            layout,
+            None,
+            Vec::new(),
+        );
         Self::new(
             manifest,
             ManifestExpectations::from_publication(publication),
@@ -5702,6 +6135,7 @@ mod tests {
             stream_compression: PdfStreamCompression::Flate,
             layout: None,
             output: None,
+            table_layouts: Vec::new(),
         }
     }
 
@@ -5845,11 +6279,19 @@ mod tests {
         )
         .unwrap();
         let trace = selected.trace_facts().unwrap();
-        let facts = StagingTableLayoutFacts::from_selected(&trace, &selected).unwrap();
+        let facts = StagingTableLayoutFacts::from_selected(&trace, &grid, &selected).unwrap();
 
         assert_eq!(facts.page_count(), 2);
         assert_eq!(facts.body_block_size(), 5);
         assert_eq!(facts.first_page_remaining_block_size(), 5);
+        assert_eq!(facts.columns().len(), 1);
+        assert_eq!(facts.columns()[0].column_ordinal(), 0);
+        assert_eq!(facts.columns()[0].input_kind(), "fixed");
+        assert_eq!(facts.columns()[0].input_value(), 10);
+        assert_eq!(facts.columns()[0].rounded_fraction_width(), None);
+        assert_eq!(facts.columns()[0].final_width(), 10);
+        assert_eq!(facts.rounding_residual(), 0);
+        assert_eq!(facts.residual_recipient(), None);
         assert_eq!(facts.rows().len(), 2);
         assert_eq!(facts.header_sources().len(), 1);
         assert_eq!(facts.header_occurrences().len(), 2);
@@ -5865,6 +6307,8 @@ mod tests {
         assert!(facts
             .canonical_jcs()
             .contains("\"selected_block_extent\":2"));
+        assert!(facts.canonical_jcs().contains("\"colspan\":1"));
+        assert!(facts.canonical_jcs().contains("\"continuation_before\""));
     }
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
@@ -6030,7 +6474,7 @@ mod tests {
                 &capability,
                 admitted.token(),
                 &pagination,
-                None,
+                StagingMachineLayoutFacts::new(None, Vec::new()),
                 pdf,
             )
             .unwrap();

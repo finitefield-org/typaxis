@@ -3929,6 +3929,7 @@ pub struct CanonicalFlowIrBuilder<'a> {
     paragraph_items: &'a ValidatedParagraphItemRegistry,
     boundaries: Vec<FlowBoundary>,
     inserted_boundaries: std::collections::BTreeMap<NodeId, u32>,
+    separate_table_cell_flows: bool,
 }
 
 impl<'a> CanonicalFlowIrBuilder<'a> {
@@ -3961,7 +3962,15 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
                 kind: FlowBoundaryKind::DocumentStart,
             }],
             inserted_boundaries: std::collections::BTreeMap::new(),
+            separate_table_cell_flows: false,
         })
+    }
+
+    /// Keep table-cell paragraphs in their canonical child `FlowId`s instead
+    /// of flattening them into the document-body cursor. The table profile is
+    /// the only public caller; all other builders retain the closed M2 flow.
+    pub fn use_separate_table_cell_flows(&mut self) {
+        self.separate_table_cell_flows = true;
     }
     /// `item_index` is the semantic paragraph-item index, not a worker
     /// allocation ordinal. Finish canonicalizes insertion order and requires a
@@ -4041,8 +4050,13 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
         {
             return Err(FlowTreeError::EpochPackageMismatch);
         }
+        let table_cell_descendants = if self.separate_table_cell_flows {
+            table_cell_descendant_owners(&self.package.package().document.blocks)
+        } else {
+            std::collections::BTreeSet::new()
+        };
         for (node_id, kind) in self.package.document_nodes().nodes() {
-            let needs_boundary = matches!(
+            let mut needs_boundary = matches!(
                 kind,
                 DocumentNodeKind::Paragraph
                     | DocumentNodeKind::Heading
@@ -4051,6 +4065,15 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
                     | DocumentNodeKind::Figure
                     | DocumentNodeKind::PageBreak
             );
+            if self.separate_table_cell_flows
+                && matches!(
+                    kind,
+                    DocumentNodeKind::Paragraph | DocumentNodeKind::Heading
+                )
+                && table_cell_descendants.contains(&node_id)
+            {
+                needs_boundary = false;
+            }
             if needs_boundary {
                 let expected = self.paragraph_items.item_count(node_id).unwrap_or(1);
                 let actual = self.inserted_boundaries.get(&node_id).copied().unwrap_or(0);
@@ -4076,6 +4099,41 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
             Some(self.paragraph_items.clone()),
         )
     }
+}
+
+fn table_cell_descendant_owners(blocks: &[Block]) -> std::collections::BTreeSet<NodeId> {
+    let mut owners = std::collections::BTreeSet::new();
+    let mut pending: Vec<(&Block, bool)> =
+        blocks.iter().rev().map(|block| (block, false)).collect();
+    while let Some((block, inside_cell)) = pending.pop() {
+        match block {
+            Block::Paragraph { node_id, .. } | Block::Heading { node_id, .. } => {
+                if inside_cell {
+                    owners.insert(*node_id);
+                }
+            }
+            Block::List { items, .. } => pending.extend(
+                items
+                    .iter()
+                    .rev()
+                    .flat_map(|item| item.blocks.iter().rev())
+                    .map(|block| (block, inside_cell)),
+            ),
+            Block::Table { head, body, .. } => pending.extend(
+                body.iter()
+                    .rev()
+                    .chain(head.iter().rev())
+                    .flat_map(|row| row.cells.iter().rev())
+                    .flat_map(|cell| cell.blocks.iter().rev())
+                    .map(|block| (block, true)),
+            ),
+            Block::Figure { caption, .. } => {
+                pending.extend(caption.iter().rev().map(|block| (block, inside_cell)))
+            }
+            Block::PageBreak { .. } => {}
+        }
+    }
+    owners
 }
 
 /// Paragraph-only flow builder reachable only after machine style/font
@@ -5142,6 +5200,27 @@ impl<'flow> ReferenceFragmenter<'flow> {
                         .checked_add(1)
                         .ok_or(FragmentError::ArithmeticOverflow)?;
                 }
+                Some(FlowBoundaryKind::TableRow) => {
+                    // Table rows are selected by the dedicated table
+                    // paginator. The body-flow placeholder is a one-unit,
+                    // paint-free progress record so the ordinary M2 flow can
+                    // still close around direct-body tables without flattening
+                    // cell subflows into the body cursor.
+                    lines.push(ReferenceLinePlacement {
+                        start: index,
+                        end: index
+                            .checked_add(1)
+                            .ok_or(FragmentError::ArithmeticOverflow)?,
+                        height: PositiveLength::new(
+                            Length::from_raw(1).ok_or(FragmentError::ArithmeticOverflow)?,
+                        )
+                        .ok_or(FragmentError::ArithmeticOverflow)?,
+                        forced_break: false,
+                    });
+                    index = index
+                        .checked_add(1)
+                        .ok_or(FragmentError::ArithmeticOverflow)?;
+                }
                 _ => return Err(FragmentError::UnsupportedFlowDomain),
             }
         }
@@ -5195,8 +5274,10 @@ impl<'flow> ReferenceFragmenter<'flow> {
             Some(FlowBoundaryKind::BlockItem) => {
                 CursorPosition::BlockItem(position.owner_local_boundary())
             }
+            Some(FlowBoundaryKind::TableRow) => {
+                CursorPosition::TableRow(position.owner_local_boundary())
+            }
             Some(FlowBoundaryKind::End) => CursorPosition::End,
-            Some(FlowBoundaryKind::TableRow) => return Err(FragmentError::UnsupportedFlowDomain),
             None => return Err(FragmentError::UnknownFlowPosition),
         };
         FlowCursor::at(
@@ -5257,6 +5338,9 @@ impl Fragmenter for ReferenceFragmenter<'_> {
                 if self.basic_document
                     && *local == request.cursor().position().owner_local_boundary() => {}
             (Some(FlowBoundaryKind::BlockItem), CursorPosition::BlockItem(local))
+                if self.basic_document
+                    && *local == request.cursor().position().owner_local_boundary() => {}
+            (Some(FlowBoundaryKind::TableRow), CursorPosition::TableRow(local))
                 if self.basic_document
                     && *local == request.cursor().position().owner_local_boundary() => {}
             (Some(FlowBoundaryKind::End), CursorPosition::End) => {

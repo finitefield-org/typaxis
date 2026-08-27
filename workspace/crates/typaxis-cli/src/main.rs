@@ -46,6 +46,7 @@ use typaxis_manifest::{
     ManifestPublicationContext, ManifestPublicationError, ManifestSinkCommitError,
     PdfSinkCommitError, PendingFailedManifestPublication, PreparedPdfCommitError,
     PreparedStandalonePdfPublication, PublicationReadLedgerToken, StagedBuiltPublication,
+    StagingMachineLayoutFacts,
 };
 use typaxis_resources::AdmittedResourceLedger;
 use typaxis_syntax::{
@@ -294,6 +295,7 @@ fn run_build_package_with_host(
             ));
         }
     }
+    let table_layouts_for_trace = layout.table_manifest_facts()?;
     let trace_json = match options.trace.as_ref() {
         Some(_) => match artifacts::machine_layout_trace_json(
             layout.flow(),
@@ -301,8 +303,11 @@ fn run_build_package_with_host(
             layout.pagination(),
             config.limits().get().max_layout_passes,
             options.trace_text,
-            &receipt,
-            layout.flow_registry_sha256(),
+            artifacts::MachineTraceBinding::new(
+                &receipt,
+                layout.flow_registry_sha256(),
+                &table_layouts_for_trace,
+            ),
         ) {
             Ok(trace) => Some(trace),
             Err(message) => {
@@ -344,8 +349,10 @@ fn run_build_package_with_host(
             let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Pdf)?;
             pipeline::build_machine_pdf_graph(&package, &receipt, &config, &layout).and_then(
                 |graph| {
-                    typaxis_pdf::PdfBackend::serialize(graph, &config)
-                        .map_err(map_machine_pdf_error)
+                    let pdf = typaxis_pdf::PdfBackend::serialize(graph.clone(), &config)
+                        .map_err(map_machine_pdf_error)?;
+                    pipeline::validate_machine_table_pdf_closure(&layout, &graph, &pdf)?;
+                    Ok(pdf)
                 },
             )
         };
@@ -1382,12 +1389,13 @@ fn publish_machine_success(
     let terminal = match publication {
         Some(publication) => {
             drop(terminal_read);
+            let table_layouts = layout.table_manifest_facts()?;
             let prepared = match publication.prepare_machine_built(
                 package,
                 receipt,
                 layout.preparation().admitted().token(),
                 layout.pagination(),
-                layout.flow_registry_sha256(),
+                StagingMachineLayoutFacts::new(layout.flow_registry_sha256(), table_layouts),
                 pdf,
             ) {
                 Ok(prepared) => prepared,

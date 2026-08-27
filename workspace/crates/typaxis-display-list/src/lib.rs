@@ -10,17 +10,21 @@ use typaxis_core::{
 };
 use typaxis_document::{Block, Inline};
 use typaxis_font::OriginalGlyphId;
-use typaxis_layout::{FlowTree, LayoutEpoch, SelectedTypedBlockStyle};
+use typaxis_layout::{
+    FlowId, FlowTree, LayoutEpoch, SelectedTypedBlockStyle, TableRowBandLayoutReceipt,
+    ValidatedTableGridReceipt,
+};
 use typaxis_linebreak::{
     reorder_line_l2, reset_line_bidi_levels, LineBidiClass, LineLevelsAfterL1, ParagraphItem,
     ShapedSlice, ValidatedParagraphItemRegistry, ValidatedStagingMachineLinkClusterRange,
     ValidatedStagingMachineLinkClusters,
 };
 use typaxis_pagination::{
-    PaginationResult, StagingForcedPageBreakConsumeReceipt, StagingForcedPageBreakSelectedPage,
-    StagingForcedPageBreakSelectedState, StagingMachineFigureCaptionFragment,
-    StagingMachineFigurePlacement, StagingMachineFigureSelectedPage,
-    StagingMachineFigureSelectedState, StagingMachineListSelectedState,
+    PaginationResult, SelectedTableLayoutReceipt, StagingForcedPageBreakConsumeReceipt,
+    StagingForcedPageBreakSelectedPage, StagingForcedPageBreakSelectedState,
+    StagingMachineFigureCaptionFragment, StagingMachineFigurePlacement,
+    StagingMachineFigureSelectedPage, StagingMachineFigureSelectedState,
+    StagingMachineListSelectedState,
 };
 use typaxis_shaping::{ShapeSourceSpan, ValidatedGlyphRun};
 use typaxis_style::{BasicStyleBlockKind, StyleValue};
@@ -2367,6 +2371,1003 @@ fn encode_staging_machine_list_display_item(
     output.push_str(&item.page_index.to_string());
     output.push('}');
 }
+
+pub const TABLE_PAINT_CLOSURE_ALGORITHM: &str = "typaxis.table-paint-closure/1";
+
+/// The first table profile has no authored or inferred table decoration. Any
+/// observation in this enum is an extra paint operation and is rejected before
+/// a publication-trusted Display document can be issued.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TableDecorationObservation {
+    Background,
+    Border,
+    BorderSpacing,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TablePaintOccurrenceKind {
+    Header,
+    Body,
+}
+
+impl TablePaintOccurrenceKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Header => "header",
+            Self::Body => "body",
+        }
+    }
+}
+
+/// Exact selected cell-slice rectangle. A structural zero-height row remains
+/// representable even though it cannot become a `DisplayCommand` rectangle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TablePaintRect {
+    x: i64,
+    y: i64,
+    width: i64,
+    height: i64,
+}
+
+impl TablePaintRect {
+    pub const fn from_untrusted_parts(x: i64, y: i64, width: i64, height: i64) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+    pub const fn x(self) -> i64 {
+        self.x
+    }
+    pub const fn y(self) -> i64 {
+        self.y
+    }
+    pub const fn width(self) -> i64 {
+        self.width
+    }
+    pub const fn height(self) -> i64 {
+        self.height
+    }
+}
+
+/// Untrusted worker observation for one selected cell slice. Every field is
+/// compared with a receipt-derived record; construction never implies trust.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TablePaintCellObservation {
+    pub kind: TablePaintOccurrenceKind,
+    pub page_index: u32,
+    pub fragment_id: u64,
+    pub source_fragment_id: Option<u64>,
+    pub repetition_index: Option<u32>,
+    pub row_node_id: NodeId,
+    pub logical_row_ordinal: u32,
+    pub row_fragment_ordinal: u32,
+    pub cell_node_id: NodeId,
+    pub flow_id: FlowId,
+    pub column_ordinal: u32,
+    pub colspan: u16,
+    pub rowspan: u16,
+    pub rect: TablePaintRect,
+    pub content_fragment_start: u32,
+    pub content_fragment_end: u32,
+    pub vertical_offset_before: i64,
+    pub vertical_offset_after: i64,
+}
+
+/// Exact table-owned command and its position in the final page command
+/// stream. Retaining the command lets the PDF closure reopen the frozen graph
+/// instead of trusting a caller-reported operation count.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TablePaintCommandObservation {
+    pub page_index: u32,
+    pub page_command_index: u32,
+    pub fragment_id: u64,
+    pub repetition_index: Option<u32>,
+    pub cell_node_id: NodeId,
+    pub command: DisplayCommand,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TableDisplayClosureError {
+    SelectedStateMismatch,
+    PageClosure,
+    MissingCell,
+    ExtraCell,
+    WrongCell,
+    WrongPage,
+    WrongRepetition,
+    WrongRectangle,
+    WrongContentRange,
+    NonCanonicalOrder,
+    DecorationForbidden,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+/// Dense selected-page body geometry supplied by the page-layout owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TablePaintPageBody {
+    selected_page_index: u32,
+    target_page_index: u32,
+    body: Rect,
+    table_block_offset: NonNegativeLength,
+}
+
+impl TablePaintPageBody {
+    pub const fn new(page_index: u32, body: Rect) -> Self {
+        Self {
+            selected_page_index: page_index,
+            target_page_index: page_index,
+            body,
+            table_block_offset: NonNegativeLength::ZERO,
+        }
+    }
+    pub const fn new_at(selected_page_index: u32, target_page_index: u32, body: Rect) -> Self {
+        Self::new_at_offset(
+            selected_page_index,
+            target_page_index,
+            body,
+            NonNegativeLength::ZERO,
+        )
+    }
+    pub const fn new_at_offset(
+        selected_page_index: u32,
+        target_page_index: u32,
+        body: Rect,
+        table_block_offset: NonNegativeLength,
+    ) -> Self {
+        Self {
+            selected_page_index,
+            target_page_index,
+            body,
+            table_block_offset,
+        }
+    }
+    pub const fn selected_page_index(self) -> u32 {
+        self.selected_page_index
+    }
+    pub const fn target_page_index(self) -> u32 {
+        self.target_page_index
+    }
+    pub const fn body(self) -> Rect {
+        self.body
+    }
+    pub const fn table_block_offset(self) -> NonNegativeLength {
+        self.table_block_offset
+    }
+}
+
+/// Complete Display-stage closure for one selected table. Records are ordered
+/// by page, header-before-body occurrence, logical row/fragment, cell origin,
+/// and then the child flow's own fragment order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TableDisplayClosureReceipt {
+    layout_state_sha256: [u8; 32],
+    package_sha256: [u8; 32],
+    grid_sha256: [u8; 32],
+    row_band_sha256: [u8; 32],
+    selected_layout_sha256: [u8; 32],
+    table_node_id: NodeId,
+    page_bodies: Vec<TablePaintPageBody>,
+    records: Vec<TablePaintCellObservation>,
+    commands: Vec<TablePaintCommandObservation>,
+    decoration_op_count: u32,
+    fingerprint: [u8; 32],
+    canonical_jcs: String,
+}
+
+impl TableDisplayClosureReceipt {
+    pub fn from_selected(
+        layout_state_sha256: [u8; 32],
+        grid: &ValidatedTableGridReceipt,
+        layout: &TableRowBandLayoutReceipt,
+        selected: &SelectedTableLayoutReceipt,
+        page_bodies: Vec<TablePaintPageBody>,
+    ) -> Result<Self, TableDisplayClosureError> {
+        let observations = derive_table_paint_observations(grid, layout, selected, &page_bodies)?;
+        Self::from_observed(
+            layout_state_sha256,
+            grid,
+            layout,
+            selected,
+            page_bodies,
+            observations,
+            &[],
+        )
+    }
+
+    pub fn from_observed(
+        layout_state_sha256: [u8; 32],
+        grid: &ValidatedTableGridReceipt,
+        layout: &TableRowBandLayoutReceipt,
+        selected: &SelectedTableLayoutReceipt,
+        page_bodies: Vec<TablePaintPageBody>,
+        observed: Vec<TablePaintCellObservation>,
+        decorations: &[TableDecorationObservation],
+    ) -> Result<Self, TableDisplayClosureError> {
+        reject_table_decorations(decorations)?;
+        let expected = derive_table_paint_observations(grid, layout, selected, &page_bodies)?;
+        validate_table_display_records(&expected, &observed)?;
+
+        let mut value = Self {
+            layout_state_sha256,
+            package_sha256: layout.package_sha256(),
+            grid_sha256: grid.fingerprint().bytes(),
+            row_band_sha256: layout.fingerprint(),
+            selected_layout_sha256: selected.fingerprint().bytes(),
+            table_node_id: selected.table_owner(),
+            page_bodies,
+            records: observed,
+            commands: Vec::new(),
+            decoration_op_count: 0,
+            fingerprint: [0; 32],
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_table_display_closure(&value);
+        value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+        Ok(value)
+    }
+
+    fn bind_painted_commands(
+        &mut self,
+        commands: Vec<TablePaintCommandObservation>,
+        decorations: &[TableDecorationObservation],
+    ) -> Result<(), TableDisplayClosureError> {
+        if !decorations.is_empty() {
+            return Err(TableDisplayClosureError::DecorationForbidden);
+        }
+        let mut previous = None;
+        for observation in &commands {
+            if !matches!(observation.command, DisplayCommand::DrawGlyphRun { .. }) {
+                return Err(TableDisplayClosureError::DecorationForbidden);
+            }
+            let key = (observation.page_index, observation.page_command_index);
+            if previous.is_some_and(|value| value >= key) {
+                return Err(TableDisplayClosureError::NonCanonicalOrder);
+            }
+            previous = Some(key);
+            if !self.records.iter().any(|record| {
+                record.page_index == observation.page_index
+                    && record.fragment_id == observation.fragment_id
+                    && record.repetition_index == observation.repetition_index
+                    && record.cell_node_id == observation.cell_node_id
+            }) {
+                return Err(TableDisplayClosureError::WrongCell);
+            }
+        }
+        self.commands = commands;
+        self.canonical_jcs = encode_table_display_closure(self);
+        self.fingerprint = sha256(self.canonical_jcs.as_bytes());
+        Ok(())
+    }
+
+    pub const fn layout_state_sha256(&self) -> [u8; 32] {
+        self.layout_state_sha256
+    }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn grid_sha256(&self) -> [u8; 32] {
+        self.grid_sha256
+    }
+    pub const fn row_band_sha256(&self) -> [u8; 32] {
+        self.row_band_sha256
+    }
+    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub const fn table_node_id(&self) -> NodeId {
+        self.table_node_id
+    }
+    pub fn page_bodies(&self) -> &[TablePaintPageBody] {
+        &self.page_bodies
+    }
+    pub fn records(&self) -> &[TablePaintCellObservation] {
+        &self.records
+    }
+    pub fn commands(&self) -> &[TablePaintCommandObservation] {
+        &self.commands
+    }
+    pub const fn decoration_op_count(&self) -> u32 {
+        self.decoration_op_count
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn reject_table_decorations(
+    decorations: &[TableDecorationObservation],
+) -> Result<(), TableDisplayClosureError> {
+    if decorations.is_empty() {
+        Ok(())
+    } else {
+        Err(TableDisplayClosureError::DecorationForbidden)
+    }
+}
+
+fn validate_table_display_records(
+    expected: &[TablePaintCellObservation],
+    observed: &[TablePaintCellObservation],
+) -> Result<(), TableDisplayClosureError> {
+    if observed.len() < expected.len() {
+        return Err(TableDisplayClosureError::MissingCell);
+    }
+    if observed.len() > expected.len() {
+        return Err(TableDisplayClosureError::ExtraCell);
+    }
+    for (actual, expected) in observed.iter().zip(expected) {
+        if actual == expected {
+            continue;
+        }
+        if actual.page_index != expected.page_index {
+            return Err(TableDisplayClosureError::WrongPage);
+        }
+        if actual.kind != expected.kind
+            || actual.repetition_index != expected.repetition_index
+            || actual.source_fragment_id != expected.source_fragment_id
+        {
+            return Err(TableDisplayClosureError::WrongRepetition);
+        }
+        if actual.row_node_id != expected.row_node_id
+            || actual.logical_row_ordinal != expected.logical_row_ordinal
+            || actual.row_fragment_ordinal != expected.row_fragment_ordinal
+            || actual.cell_node_id != expected.cell_node_id
+            || actual.flow_id != expected.flow_id
+            || actual.column_ordinal != expected.column_ordinal
+            || actual.colspan != expected.colspan
+            || actual.rowspan != expected.rowspan
+        {
+            return Err(TableDisplayClosureError::WrongCell);
+        }
+        if actual.rect != expected.rect {
+            return Err(TableDisplayClosureError::WrongRectangle);
+        }
+        if actual.content_fragment_start != expected.content_fragment_start
+            || actual.content_fragment_end != expected.content_fragment_end
+            || actual.vertical_offset_before != expected.vertical_offset_before
+            || actual.vertical_offset_after != expected.vertical_offset_after
+        {
+            return Err(TableDisplayClosureError::WrongContentRange);
+        }
+        return Err(TableDisplayClosureError::NonCanonicalOrder);
+    }
+    Ok(())
+}
+
+/// Receipt-only inputs for one table in the public `table-1` painter. Every
+/// reference is reclosed before paint; the constructor itself grants no trust.
+pub struct TableProfilePaintInput<'a> {
+    grid: &'a ValidatedTableGridReceipt,
+    layout: &'a TableRowBandLayoutReceipt,
+    selected: &'a SelectedTableLayoutReceipt,
+    page_bodies: &'a [TablePaintPageBody],
+    paragraph_items: &'a ValidatedParagraphItemRegistry,
+}
+
+impl<'a> TableProfilePaintInput<'a> {
+    pub const fn new(
+        grid: &'a ValidatedTableGridReceipt,
+        layout: &'a TableRowBandLayoutReceipt,
+        selected: &'a SelectedTableLayoutReceipt,
+        page_bodies: &'a [TablePaintPageBody],
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+    ) -> Self {
+        Self {
+            grid,
+            layout,
+            selected,
+            page_bodies,
+            paragraph_items,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TableProfileDisplayError {
+    Closure(TableDisplayClosureError),
+    TableSetMismatch,
+    ParagraphRegistryMismatch,
+    CellContentMismatch,
+    CellInlineOverflow,
+    CellBidiMismatch,
+    CellPaintBoundsMismatch,
+    NumericOverflow,
+    Link(StagingMachineLinkDisplayError),
+    Display(DisplayValidationError),
+}
+
+/// Publication-trusted table Display document plus the exact per-table paint
+/// receipts consumed by the PDF closure.
+pub struct TableProfileDisplay {
+    trusted: ValidatedDisplayDocument,
+    tables: Vec<TableDisplayClosureReceipt>,
+}
+
+impl TableProfileDisplay {
+    pub const fn validated_document(&self) -> &ValidatedDisplayDocument {
+        &self.trusted
+    }
+    pub fn table_closures(&self) -> &[TableDisplayClosureReceipt] {
+        &self.tables
+    }
+    pub fn into_parts(self) -> (ValidatedDisplayDocument, Vec<TableDisplayClosureReceipt>) {
+        (self.trusted, self.tables)
+    }
+}
+
+fn validate_table_profile_page_mapping(
+    package: &ValidatedParsedPackage,
+    pagination: &PaginationResult,
+    tables: &[TableProfilePaintInput<'_>],
+    body: Rect,
+) -> Result<(), TableDisplayClosureError> {
+    let body_height = body.height().get().raw();
+    let mut next_target_page = 0u32;
+    for input in tables {
+        if input.grid.frame_inline_size() != body.width() {
+            return Err(TableDisplayClosureError::PageClosure);
+        }
+        let first_row_owner = input
+            .grid
+            .rows()
+            .first()
+            .map(|row| row.row_owner())
+            .ok_or(TableDisplayClosureError::PageClosure)?;
+        let (source_page, source_y) = pagination
+            .selected_pages()
+            .iter()
+            .find_map(|page| {
+                page.fragments
+                    .iter()
+                    .find(|fragment| fragment.owner == first_row_owner)
+                    .map(|fragment| (page.page_index, fragment.bounds.y().raw()))
+            })
+            .ok_or(TableDisplayClosureError::PageClosure)?;
+        let mut target_page = source_page.max(next_target_page);
+        let mut first_offset = if target_page == source_page {
+            source_y
+                .checked_sub(body.y().raw())
+                .and_then(|value| value.checked_add(input.grid.space_before().get().raw()))
+                .ok_or(TableDisplayClosureError::ArithmeticOverflow)?
+        } else {
+            0
+        };
+        if first_offset < 0 {
+            return Err(TableDisplayClosureError::PageClosure);
+        }
+        if first_offset >= body_height {
+            target_page = target_page
+                .checked_add(1)
+                .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+            first_offset = 0;
+        }
+        let first_remaining = body_height
+            .checked_sub(first_offset)
+            .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+        if input.selected.body_block_size() != body_height
+            || input.selected.first_page_remaining_block_size() != first_remaining
+            || input.page_bodies.len()
+                != usize::try_from(input.selected.page_count())
+                    .map_err(|_| TableDisplayClosureError::ArithmeticOverflow)?
+            || input.page_bodies.iter().enumerate().any(|(index, page)| {
+                let Ok(index) = u32::try_from(index) else {
+                    return true;
+                };
+                let Some(expected_target_page) = target_page.checked_add(index) else {
+                    return true;
+                };
+                page.selected_page_index() != index
+                    || page.target_page_index() != expected_target_page
+                    || page.body() != body
+                    || page.table_block_offset() != NonNegativeLength::ZERO
+            })
+        {
+            return Err(TableDisplayClosureError::PageClosure);
+        }
+        next_target_page = target_page
+            .checked_add(input.selected.page_count())
+            .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+    }
+    if package.package().page_masters.masters.len() != 1 {
+        return Err(TableDisplayClosureError::PageClosure);
+    }
+    Ok(())
+}
+
+fn validate_table_display_inputs(
+    grid: &ValidatedTableGridReceipt,
+    layout: &TableRowBandLayoutReceipt,
+    selected: &SelectedTableLayoutReceipt,
+    page_bodies: &[TablePaintPageBody],
+) -> Result<(), TableDisplayClosureError> {
+    if grid.package_sha256() != layout.package_sha256()
+        || grid.epoch() != layout.epoch()
+        || grid.flow_registry() != layout.flow_registry_fingerprint()
+        || grid.fingerprint() != layout.grid_fingerprint()
+        || grid.table_owner() != layout.table_owner()
+        || selected.package_sha256() != layout.package_sha256()
+        || selected.epoch() != layout.epoch()
+        || selected.flow_registry_fingerprint() != layout.flow_registry_fingerprint()
+        || selected.grid_sha256() != grid.fingerprint().bytes()
+        || selected.row_band_sha256() != layout.fingerprint()
+        || selected.table_owner() != layout.table_owner()
+    {
+        return Err(TableDisplayClosureError::SelectedStateMismatch);
+    }
+    let page_count = usize::try_from(selected.page_count())
+        .map_err(|_| TableDisplayClosureError::ArithmeticOverflow)?;
+    if page_bodies.len() != page_count
+        || page_bodies.iter().enumerate().any(|(index, page)| {
+            u32::try_from(index) != Ok(page.selected_page_index)
+                || page.body.height().get().raw() != selected.body_block_size()
+        })
+        || page_bodies
+            .windows(2)
+            .any(|pair| pair[0].target_page_index.checked_add(1) != Some(pair[1].target_page_index))
+    {
+        return Err(TableDisplayClosureError::PageClosure);
+    }
+    // Selected header/body offsets are already relative to the complete body
+    // frame; the first-page consumed prefix is sealed by the selected receipt
+    // and must not be added a second time by Display page mapping.
+    if page_bodies
+        .iter()
+        .any(|page| page.table_block_offset != NonNegativeLength::ZERO)
+    {
+        return Err(TableDisplayClosureError::PageClosure);
+    }
+    Ok(())
+}
+
+fn derive_table_paint_observations(
+    grid: &ValidatedTableGridReceipt,
+    layout: &TableRowBandLayoutReceipt,
+    selected: &SelectedTableLayoutReceipt,
+    page_bodies: &[TablePaintPageBody],
+) -> Result<Vec<TablePaintCellObservation>, TableDisplayClosureError> {
+    validate_table_display_inputs(grid, layout, selected, page_bodies)?;
+    let mut records = Vec::new();
+    for page in selected.pages() {
+        let body = page_bodies
+            .get(
+                usize::try_from(page.page_index())
+                    .map_err(|_| TableDisplayClosureError::ArithmeticOverflow)?,
+            )
+            .ok_or(TableDisplayClosureError::PageClosure)?
+            .to_owned();
+        let target_page_index = body.target_page_index;
+        let table_block_offset = body.table_block_offset.get().raw();
+        let body = body.body;
+        if let Some(repetition_index) = page.header_repetition_index() {
+            let repetition = selected
+                .header_repetitions()
+                .iter()
+                .find(|receipt| {
+                    receipt.repetition_index() == repetition_index
+                        && receipt.target_page_index() == page.page_index()
+                })
+                .ok_or(TableDisplayClosureError::WrongRepetition)?;
+            for occurrence in repetition.rows() {
+                let source = selected
+                    .header_sources()
+                    .iter()
+                    .find(|source| {
+                        source.source_fragment_id() == occurrence.source_fragment_id()
+                            && source.row_owner() == occurrence.row_owner()
+                    })
+                    .ok_or(TableDisplayClosureError::WrongRepetition)?;
+                for cell in source.cells() {
+                    records
+                        .try_reserve(1)
+                        .map_err(|_| TableDisplayClosureError::AllocationFailure)?;
+                    records.push(table_paint_record(
+                        grid,
+                        layout,
+                        body,
+                        TablePaintOccurrenceKind::Header,
+                        target_page_index,
+                        occurrence.fragment_id(),
+                        Some(occurrence.source_fragment_id()),
+                        Some(repetition_index),
+                        occurrence.row_owner(),
+                        source.row_ordinal(),
+                        0,
+                        occurrence
+                            .target_block_offset()
+                            .checked_add(table_block_offset)
+                            .ok_or(TableDisplayClosureError::ArithmeticOverflow)?,
+                        cell,
+                    )?);
+                }
+            }
+        } else if !page.header_fragment_ids().is_empty() {
+            return Err(TableDisplayClosureError::WrongRepetition);
+        }
+        for fragment_id in page.row_fragment_ids() {
+            let row = selected
+                .row_fragments()
+                .iter()
+                .find(|row| {
+                    row.fragment_id() == *fragment_id && row.page_index() == page.page_index()
+                })
+                .ok_or(TableDisplayClosureError::WrongPage)?;
+            for cell in row.cells() {
+                records
+                    .try_reserve(1)
+                    .map_err(|_| TableDisplayClosureError::AllocationFailure)?;
+                records.push(table_paint_record(
+                    grid,
+                    layout,
+                    body,
+                    TablePaintOccurrenceKind::Body,
+                    target_page_index,
+                    row.fragment_id(),
+                    None,
+                    None,
+                    row.row_owner(),
+                    row.logical_row_ordinal(),
+                    row.row_fragment_ordinal(),
+                    row.page_block_offset()
+                        .checked_add(table_block_offset)
+                        .ok_or(TableDisplayClosureError::ArithmeticOverflow)?,
+                    cell,
+                )?);
+            }
+        }
+    }
+    Ok(records)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn table_paint_record(
+    grid: &ValidatedTableGridReceipt,
+    layout: &TableRowBandLayoutReceipt,
+    body: Rect,
+    kind: TablePaintOccurrenceKind,
+    page_index: u32,
+    fragment_id: u64,
+    source_fragment_id: Option<u64>,
+    repetition_index: Option<u32>,
+    row_node_id: NodeId,
+    logical_row_ordinal: u32,
+    row_fragment_ordinal: u32,
+    block_offset: i64,
+    cell: &typaxis_pagination::StagingTableCellFragmentReceipt,
+) -> Result<TablePaintCellObservation, TableDisplayClosureError> {
+    let measured = layout
+        .cell(cell.cell_owner())
+        .ok_or(TableDisplayClosureError::WrongCell)?;
+    let binding = grid
+        .cells()
+        .iter()
+        .find(|binding| binding.cell_owner() == cell.cell_owner())
+        .ok_or(TableDisplayClosureError::WrongCell)?;
+    if measured.flow_id() != cell.flow_id()
+        || binding.flow_id() != cell.flow_id()
+        || binding.column_ordinal() != measured.column_ordinal()
+        || binding.colspan() != measured.colspan()
+        || binding.rowspan() != measured.rowspan()
+        || cell.before_cursor().flow_id() != cell.flow_id()
+        || cell.after_cursor().flow_id() != cell.flow_id()
+    {
+        return Err(TableDisplayClosureError::WrongCell);
+    }
+    let x = body
+        .x()
+        .raw()
+        .checked_add(grid.start_indent().get().raw())
+        .and_then(|value| value.checked_add(measured.frame_inline_start().get().raw()))
+        .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+    let y = body
+        .y()
+        .raw()
+        .checked_add(block_offset)
+        .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+    let width = measured.frame_inline_size().get().raw();
+    let height = cell.selected_block_extent();
+    let right = x
+        .checked_add(width)
+        .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+    let bottom = y
+        .checked_add(height)
+        .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+    let body_right = body
+        .x()
+        .raw()
+        .checked_add(body.width().get().raw())
+        .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+    let body_bottom = body
+        .y()
+        .raw()
+        .checked_add(body.height().get().raw())
+        .ok_or(TableDisplayClosureError::ArithmeticOverflow)?;
+    if width <= 0
+        || height < 0
+        || x < body.x().raw()
+        || right > body_right
+        || y < body.y().raw()
+        || bottom > body_bottom
+    {
+        return Err(TableDisplayClosureError::WrongRectangle);
+    }
+    Ok(TablePaintCellObservation {
+        kind,
+        page_index,
+        fragment_id,
+        source_fragment_id,
+        repetition_index,
+        row_node_id,
+        logical_row_ordinal,
+        row_fragment_ordinal,
+        cell_node_id: cell.cell_owner(),
+        flow_id: cell.flow_id(),
+        column_ordinal: measured.column_ordinal(),
+        colspan: measured.colspan().get(),
+        rowspan: measured.rowspan().get(),
+        rect: TablePaintRect {
+            x,
+            y,
+            width,
+            height,
+        },
+        content_fragment_start: cell.before_cursor().next_fragment_ordinal(),
+        content_fragment_end: cell.after_cursor().next_fragment_ordinal(),
+        vertical_offset_before: cell.vertical_offset_before(),
+        vertical_offset_after: cell.vertical_offset_after(),
+    })
+}
+
+fn encode_table_display_closure(value: &TableDisplayClosureReceipt) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, TABLE_PAINT_CLOSURE_ALGORITHM);
+    output.push_str(",\"commands\":[");
+    for (index, observation) in value.commands.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"cell_node_id\":");
+        output.push_str(&observation.cell_node_id.get().to_string());
+        output.push_str(",\"command_sha256\":");
+        push_table_display_hex(
+            &mut output,
+            table_display_command_sha256(&observation.command),
+        );
+        output.push_str(",\"fragment_id\":");
+        output.push_str(&observation.fragment_id.to_string());
+        output.push_str(",\"page_command_index\":");
+        output.push_str(&observation.page_command_index.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&observation.page_index.to_string());
+        output.push_str(",\"repetition_index\":");
+        match observation.repetition_index {
+            Some(value) => output.push_str(&value.to_string()),
+            None => output.push_str("null"),
+        }
+        output.push('}');
+    }
+    output.push(']');
+    output.push_str(",\"decoration_op_count\":");
+    output.push_str(&value.decoration_op_count.to_string());
+    output.push_str(",\"grid_sha256\":");
+    push_table_display_hex(&mut output, value.grid_sha256);
+    output.push_str(",\"layout_state_sha256\":");
+    push_table_display_hex(&mut output, value.layout_state_sha256);
+    output.push_str(",\"page_bodies\":[");
+    for (index, page) in value.page_bodies.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"body\":{\"height\":");
+        output.push_str(&page.body.height().get().raw().to_string());
+        output.push_str(",\"width\":");
+        output.push_str(&page.body.width().get().raw().to_string());
+        output.push_str(",\"x\":");
+        output.push_str(&page.body.x().raw().to_string());
+        output.push_str(",\"y\":");
+        output.push_str(&page.body.y().raw().to_string());
+        output.push_str("},\"selected_page_index\":");
+        output.push_str(&page.selected_page_index.to_string());
+        output.push_str(",\"table_block_offset\":");
+        output.push_str(&page.table_block_offset.get().raw().to_string());
+        output.push_str(",\"target_page_index\":");
+        output.push_str(&page.target_page_index.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"package_sha256\":");
+    push_table_display_hex(&mut output, value.package_sha256);
+    output.push_str(",\"records\":[");
+    for (index, record) in value.records.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"cell_node_id\":");
+        output.push_str(&record.cell_node_id.get().to_string());
+        output.push_str(",\"column_ordinal\":");
+        output.push_str(&record.column_ordinal.to_string());
+        output.push_str(",\"colspan\":");
+        output.push_str(&record.colspan.to_string());
+        output.push_str(",\"content_fragment_end\":");
+        output.push_str(&record.content_fragment_end.to_string());
+        output.push_str(",\"content_fragment_start\":");
+        output.push_str(&record.content_fragment_start.to_string());
+        output.push_str(",\"flow_id\":");
+        output.push_str(&record.flow_id.get().to_string());
+        output.push_str(",\"fragment_id\":");
+        output.push_str(&record.fragment_id.to_string());
+        output.push_str(",\"kind\":");
+        push_jcs_string(&mut output, record.kind.as_str());
+        output.push_str(",\"logical_row_ordinal\":");
+        output.push_str(&record.logical_row_ordinal.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&record.page_index.to_string());
+        output.push_str(",\"rect\":{\"height\":");
+        output.push_str(&record.rect.height.to_string());
+        output.push_str(",\"width\":");
+        output.push_str(&record.rect.width.to_string());
+        output.push_str(",\"x\":");
+        output.push_str(&record.rect.x.to_string());
+        output.push_str(",\"y\":");
+        output.push_str(&record.rect.y.to_string());
+        output.push_str("},\"repetition_index\":");
+        match record.repetition_index {
+            Some(value) => output.push_str(&value.to_string()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"row_fragment_ordinal\":");
+        output.push_str(&record.row_fragment_ordinal.to_string());
+        output.push_str(",\"row_node_id\":");
+        output.push_str(&record.row_node_id.get().to_string());
+        output.push_str(",\"rowspan\":");
+        output.push_str(&record.rowspan.to_string());
+        output.push_str(",\"source_fragment_id\":");
+        match record.source_fragment_id {
+            Some(value) => output.push_str(&value.to_string()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"vertical_offset_after\":");
+        output.push_str(&record.vertical_offset_after.to_string());
+        output.push_str(",\"vertical_offset_before\":");
+        output.push_str(&record.vertical_offset_before.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"row_band_sha256\":");
+    push_table_display_hex(&mut output, value.row_band_sha256);
+    output.push_str(",\"selected_layout_sha256\":");
+    push_table_display_hex(&mut output, value.selected_layout_sha256);
+    output.push_str(",\"table_node_id\":");
+    output.push_str(&value.table_node_id.get().to_string());
+    output.push('}');
+    output
+}
+
+fn table_display_command_sha256(command: &DisplayCommand) -> [u8; 32] {
+    let mut output = String::new();
+    match command {
+        DisplayCommand::DrawGlyphRun {
+            run_id,
+            font_instance_id,
+            text_span,
+            origin,
+            font_size,
+            bidi_level,
+            fill,
+            glyphs,
+            clusters,
+        } => {
+            output.push_str("{\"bidi_level\":");
+            output.push_str(&bidi_level.get().to_string());
+            output.push_str(",\"clusters\":[");
+            for (index, cluster) in clusters.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str("{\"extraction\":");
+                match cluster.extraction {
+                    ClusterExtraction::Artifact => output.push_str("{\"kind\":\"artifact\"}"),
+                    ClusterExtraction::Unicode { text_span } => {
+                        output.push_str("{\"end_byte\":");
+                        output.push_str(&text_span.range().end_byte().get().to_string());
+                        output.push_str(",\"kind\":\"unicode\",\"start_byte\":");
+                        output.push_str(&text_span.range().start_byte().get().to_string());
+                        output.push_str(",\"text_id\":");
+                        output.push_str(&text_span.text_id().get().to_string());
+                        output.push('}');
+                    }
+                }
+                output.push_str(",\"glyph_end\":");
+                output.push_str(&cluster.glyph_end.to_string());
+                output.push_str(",\"glyph_start\":");
+                output.push_str(&cluster.glyph_start.to_string());
+                output.push_str(",\"logical_ordinal\":");
+                output.push_str(&cluster.logical_ordinal.to_string());
+                output.push('}');
+            }
+            output.push_str("],\"fill\":");
+            encode_table_display_paint(&mut output, *fill);
+            output.push_str(",\"font_instance_id\":");
+            output.push_str(&font_instance_id.get().to_string());
+            output.push_str(",\"font_size\":");
+            output.push_str(&font_size.get().raw().to_string());
+            output.push_str(",\"glyphs\":[");
+            for (index, glyph) in glyphs.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str("{\"advance_x\":");
+                output.push_str(&glyph.advance_x.raw().to_string());
+                output.push_str(",\"advance_y\":");
+                output.push_str(&glyph.advance_y.raw().to_string());
+                output.push_str(",\"offset_x\":");
+                output.push_str(&glyph.offset_x.raw().to_string());
+                output.push_str(",\"offset_y\":");
+                output.push_str(&glyph.offset_y.raw().to_string());
+                output.push_str(",\"original_gid\":");
+                output.push_str(&glyph.original_gid.get().to_string());
+                output.push('}');
+            }
+            output.push_str("],\"operation\":\"draw_glyph_run\",\"origin\":{\"x\":");
+            output.push_str(&origin.x.raw().to_string());
+            output.push_str(",\"y\":");
+            output.push_str(&origin.y.raw().to_string());
+            output.push_str("},\"run_id\":");
+            output.push_str(&run_id.get().to_string());
+            output.push_str(",\"text_span\":{\"end_byte\":");
+            output.push_str(&text_span.range().end_byte().get().to_string());
+            output.push_str(",\"start_byte\":");
+            output.push_str(&text_span.range().start_byte().get().to_string());
+            output.push_str(",\"text_id\":");
+            output.push_str(&text_span.text_id().get().to_string());
+            output.push_str("}}");
+        }
+        _ => output.push_str("{\"operation\":\"forbidden\"}"),
+    }
+    sha256(output.as_bytes())
+}
+
+fn encode_table_display_paint(output: &mut String, paint: Paint) {
+    match paint {
+        Paint::Gray(value) => {
+            output.push_str("{\"kind\":\"gray\",\"value\":");
+            output.push_str(&value.to_string());
+        }
+        Paint::Rgb { r, g, b } => {
+            output.push_str("{\"b\":");
+            output.push_str(&b.to_string());
+            output.push_str(",\"g\":");
+            output.push_str(&g.to_string());
+            output.push_str(",\"kind\":\"rgb\",\"r\":");
+            output.push_str(&r.to_string());
+        }
+        Paint::Cmyk { c, m, y, k } => {
+            output.push_str("{\"c\":");
+            output.push_str(&c.to_string());
+            output.push_str(",\"k\":");
+            output.push_str(&k.to_string());
+            output.push_str(",\"kind\":\"cmyk\",\"m\":");
+            output.push_str(&m.to_string());
+            output.push_str(",\"y\":");
+            output.push_str(&y.to_string());
+        }
+    }
+    output.push('}');
+}
+
+fn push_table_display_hex(output: &mut String, bytes: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push('"');
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output.push('"');
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FillRule {
     NonZero,
@@ -2729,6 +3730,7 @@ impl StructurallyValidatedDisplayDocument {
             selected,
             config,
             Some(&package.package().text_store),
+            None,
         )
     }
 
@@ -2737,7 +3739,22 @@ impl StructurallyValidatedDisplayDocument {
         selected: &PaginationResult,
         config: &EffectiveConfig,
     ) -> Result<Self, DisplayValidationError> {
-        Self::validate(document, selected, config, None)
+        Self::validate(document, selected, config, None, None)
+    }
+
+    fn from_verified_table_profile(
+        document: DisplayDocument,
+        selected: &PaginationResult,
+        config: &EffectiveConfig,
+        selected_page_geometry: Vec<ValidatedDisplayPageGeometry>,
+    ) -> Result<Self, DisplayValidationError> {
+        Self::validate(
+            document,
+            selected,
+            config,
+            None,
+            Some(selected_page_geometry),
+        )
     }
 
     fn validate(
@@ -2745,6 +3762,7 @@ impl StructurallyValidatedDisplayDocument {
         selected: &PaginationResult,
         config: &EffectiveConfig,
         parsed_store: Option<&TextStore>,
+        page_geometry_override: Option<Vec<ValidatedDisplayPageGeometry>>,
     ) -> Result<Self, DisplayValidationError> {
         if !document.source_layout.matches_selected(selected) {
             return Err(DisplayValidationError::SelectedLayoutMismatch);
@@ -2758,22 +3776,57 @@ impl StructurallyValidatedDisplayDocument {
         }
         let selected_pages = selected.selected_pages();
         let selected_geometry = selected.selected_page_geometry();
-        if document.pages.len() != selected_pages.len()
-            || selected_pages.len() != selected_geometry.len()
-            || document
-                .pages
+        let selected_page_geometry = if let Some(override_geometry) = page_geometry_override {
+            if override_geometry.len() != document.pages.len()
+                || override_geometry.len() < selected_geometry.len()
+                || override_geometry
+                    .iter()
+                    .zip(&document.pages)
+                    .any(|(geometry, display_page)| {
+                        geometry.page_index() != display_page.page_index
+                            || geometry.width() != display_page.width
+                            || geometry.height() != display_page.height
+                    })
+                || override_geometry
+                    .iter()
+                    .zip(selected_geometry)
+                    .any(|(actual, expected)| {
+                        actual.page_index() != expected.page_index()
+                            || actual.master_id() != expected.master_id()
+                            || actual.width() != expected.width()
+                            || actual.height() != expected.height()
+                    })
+            {
+                return Err(DisplayValidationError::SelectedPageClosure);
+            }
+            override_geometry
+        } else {
+            if document.pages.len() != selected_pages.len()
+                || selected_pages.len() != selected_geometry.len()
+                || document
+                    .pages
+                    .iter()
+                    .zip(selected_pages)
+                    .zip(selected_geometry)
+                    .any(|((display_page, page), geometry)| {
+                        display_page.page_index != page.page_index
+                            || display_page.page_index != geometry.page_index()
+                            || display_page.width != geometry.width()
+                            || display_page.height != geometry.height()
+                    })
+            {
+                return Err(DisplayValidationError::SelectedPageClosure);
+            }
+            selected_geometry
                 .iter()
-                .zip(selected_pages)
-                .zip(selected_geometry)
-                .any(|((display_page, page), geometry)| {
-                    display_page.page_index != page.page_index
-                        || display_page.page_index != geometry.page_index()
-                        || display_page.width != geometry.width()
-                        || display_page.height != geometry.height()
+                .map(|geometry| ValidatedDisplayPageGeometry {
+                    page_index: geometry.page_index(),
+                    master_id: geometry.master_id().clone(),
+                    width: geometry.width(),
+                    height: geometry.height(),
                 })
-        {
-            return Err(DisplayValidationError::SelectedPageClosure);
-        }
+                .collect()
+        };
         let selected_generated = selected.selected_pass().generated_text();
         validate_selected_text_buffers(&document.text_buffers, selected_generated, parsed_store)?;
         if document.pages.is_empty() {
@@ -2918,15 +3971,7 @@ impl StructurallyValidatedDisplayDocument {
         }
         Ok(Self {
             document,
-            selected_page_geometry: selected_geometry
-                .iter()
-                .map(|geometry| ValidatedDisplayPageGeometry {
-                    page_index: geometry.page_index(),
-                    master_id: geometry.master_id().clone(),
-                    width: geometry.width(),
-                    height: geometry.height(),
-                })
-                .collect(),
+            selected_page_geometry,
         })
     }
     pub const fn document(&self) -> &DisplayDocument {
@@ -3116,6 +4161,359 @@ impl ValidatedDisplayDocument {
         DisplayListBuilderOwner::new().issue(selected, text_map, font_instances, pages, config)
     }
 
+    /// Paint the immutable `table-1` domain. Ordinary body-flow commands are
+    /// retained, while cell text is issued only from the independently
+    /// selected table receipts and may be repeated only by a sealed header
+    /// occurrence.
+    pub fn paint_table_profile(
+        package: &ValidatedStagingStylePackage,
+        selected: &PaginationResult,
+        flow: &FlowTree,
+        tables: &[TableProfilePaintInput<'_>],
+        links: Option<&ValidatedStagingMachineLinkClusters>,
+        config: &EffectiveConfig,
+    ) -> Result<TableProfileDisplay, TableProfileDisplayError> {
+        let parsed = package.package();
+        let selected_epoch = selected.selected_pass().fingerprint_record().layout_epoch();
+        if flow != selected.selected_flow()
+            || flow.epoch() != selected_epoch
+            || selected_epoch.document() != parsed.epoch_identity().document()
+            || selected_epoch.style() != parsed.epoch_identity().style()
+            || !parsed.package().document.footnotes.is_empty()
+        {
+            return Err(TableProfileDisplayError::ParagraphRegistryMismatch);
+        }
+        let body_registry = flow
+            .paragraph_items()
+            .ok_or(TableProfileDisplayError::ParagraphRegistryMismatch)?;
+        let expected_table_owners: Vec<_> = parsed
+            .package()
+            .document
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Table { node_id, .. } => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        if expected_table_owners.len() != tables.len()
+            || tables
+                .iter()
+                .zip(&expected_table_owners)
+                .any(|(input, owner)| {
+                    input.grid.table_owner() != *owner
+                        || input.grid.package_sha256() != package.package_fingerprint().into_bytes()
+                })
+        {
+            return Err(TableProfileDisplayError::TableSetMismatch);
+        }
+        let default_master = parsed
+            .package()
+            .page_masters
+            .masters
+            .iter()
+            .find(|master| master.master_id == parsed.package().page_masters.default_master_id)
+            .ok_or(TableProfileDisplayError::TableSetMismatch)?;
+        validate_table_profile_page_mapping(parsed, selected, tables, default_master.body)
+            .map_err(TableProfileDisplayError::Closure)?;
+
+        let mut closures = Vec::new();
+        let mut table_lines = Vec::new();
+        closures
+            .try_reserve_exact(tables.len())
+            .map_err(|_| TableProfileDisplayError::NumericOverflow)?;
+        table_lines
+            .try_reserve_exact(tables.len())
+            .map_err(|_| TableProfileDisplayError::NumericOverflow)?;
+        for input in tables {
+            if input.paragraph_items.epoch() != selected_epoch {
+                return Err(TableProfileDisplayError::ParagraphRegistryMismatch);
+            }
+            let closure = TableDisplayClosureReceipt::from_selected(
+                selected.final_fingerprint().bytes(),
+                input.grid,
+                input.layout,
+                input.selected,
+                input.page_bodies.to_vec(),
+            )
+            .map_err(TableProfileDisplayError::Closure)?;
+            let mut lines = std::collections::BTreeMap::new();
+            for cell in input.grid.cells() {
+                let cell_lines = derive_table_cell_paint_lines(
+                    parsed,
+                    input.paragraph_items,
+                    input.layout,
+                    input.grid.table_owner(),
+                    cell.cell_owner(),
+                )?;
+                if lines.insert(cell.cell_owner(), cell_lines).is_some() {
+                    return Err(TableProfileDisplayError::CellContentMismatch);
+                }
+            }
+            closures.push(closure);
+            table_lines.push(lines);
+        }
+
+        let mut parsed_spans = Vec::new();
+        let mut generated_spans = Vec::new();
+        for page in selected.selected_pages() {
+            for fragment in &page.fragments {
+                if body_registry.item_count(fragment.owner).is_none() {
+                    continue;
+                }
+                for slice in fragment_shaped_slices(body_registry, fragment)
+                    .map_err(TableProfileDisplayError::Display)?
+                {
+                    push_table_profile_shape_span(
+                        slice.shaped,
+                        &mut parsed_spans,
+                        &mut generated_spans,
+                    );
+                }
+            }
+        }
+        for ((closure, lines), input) in closures.iter().zip(&table_lines).zip(tables) {
+            for record in closure.records() {
+                let cell_lines = lines
+                    .get(&record.cell_node_id)
+                    .ok_or(TableProfileDisplayError::CellContentMismatch)?;
+                let selected_lines = table_selected_cell_lines(cell_lines, record)?;
+                for line in selected_lines {
+                    for slice in paragraph_shaped_slices(
+                        input.paragraph_items,
+                        line.paragraph_owner,
+                        line.item_start,
+                        line.item_end,
+                    )
+                    .map_err(TableProfileDisplayError::Display)?
+                    {
+                        push_table_profile_shape_span(
+                            slice.shaped,
+                            &mut parsed_spans,
+                            &mut generated_spans,
+                        );
+                    }
+                }
+            }
+        }
+        let text_map =
+            DisplayTextMap::from_selected_spans(parsed, selected, &parsed_spans, &generated_spans)
+                .map_err(|_| {
+                    TableProfileDisplayError::Display(
+                        DisplayValidationError::SelectedTextMapMismatch,
+                    )
+                })?;
+
+        let required_page_count = closures
+            .iter()
+            .filter_map(|closure| closure.page_bodies().last())
+            .try_fold(
+                u32::try_from(selected.selected_page_geometry().len())
+                    .map_err(|_| TableProfileDisplayError::NumericOverflow)?,
+                |count, page| {
+                    page.target_page_index()
+                        .checked_add(1)
+                        .map(|table_count| count.max(table_count))
+                        .ok_or(TableProfileDisplayError::NumericOverflow)
+                },
+            )?;
+        if required_page_count == 0 || required_page_count > config.limits().get().max_pages {
+            return Err(TableProfileDisplayError::TableSetMismatch);
+        }
+        let mut selected_page_geometry = Vec::new();
+        selected_page_geometry
+            .try_reserve_exact(required_page_count as usize)
+            .map_err(|_| TableProfileDisplayError::NumericOverflow)?;
+        for page_index in 0..required_page_count {
+            if let Some(geometry) = selected.selected_page_geometry().get(page_index as usize) {
+                selected_page_geometry.push(ValidatedDisplayPageGeometry {
+                    page_index,
+                    master_id: geometry.master_id().clone(),
+                    width: geometry.width(),
+                    height: geometry.height(),
+                });
+            } else {
+                selected_page_geometry.push(ValidatedDisplayPageGeometry {
+                    page_index,
+                    master_id: default_master.master_id.clone(),
+                    width: default_master.width,
+                    height: default_master.height,
+                });
+            }
+        }
+        let mut pages: Vec<_> = selected_page_geometry
+            .iter()
+            .map(|geometry| DisplayPage {
+                page_index: geometry.page_index,
+                width: geometry.width,
+                height: geometry.height,
+                commands: Vec::new(),
+                annotations: Vec::new(),
+            })
+            .collect();
+        let mut used_fonts = std::collections::BTreeMap::new();
+        let mut next_run_id = 0u32;
+
+        for page_plan in selected.selected_pages() {
+            let commands = &mut pages[page_plan.page_index as usize].commands;
+            for fragment in &page_plan.fragments {
+                if body_registry.item_count(fragment.owner).is_none() {
+                    if parsed.document_nodes().node_kind(fragment.owner)
+                        == Some(typaxis_document::DocumentNodeKind::Figure)
+                    {
+                        let image_id = basic_figure_image_id(
+                            &parsed.package().document.blocks,
+                            fragment.owner,
+                        )
+                        .ok_or(TableProfileDisplayError::Display(
+                            DisplayValidationError::UnsupportedReferencePaintDomain,
+                        ))?;
+                        commands.push(DisplayCommand::DrawImage {
+                            image_id,
+                            rect: fragment.bounds,
+                        });
+                    }
+                    continue;
+                }
+                paint_reference_fragment_commands(
+                    parsed,
+                    body_registry,
+                    fragment,
+                    &text_map,
+                    &mut used_fonts,
+                    &mut next_run_id,
+                    commands,
+                )
+                .map_err(TableProfileDisplayError::Display)?;
+            }
+        }
+        let mut painted_command_sets: Vec<Vec<TablePaintCommandObservation>> =
+            (0..closures.len()).map(|_| Vec::new()).collect();
+        for (table_index, ((closure, lines), input)) in
+            closures.iter().zip(&table_lines).zip(tables).enumerate()
+        {
+            for record in closure.records() {
+                let page = pages
+                    .get_mut(record.page_index as usize)
+                    .ok_or(TableProfileDisplayError::TableSetMismatch)?;
+                let cell_lines = lines
+                    .get(&record.cell_node_id)
+                    .ok_or(TableProfileDisplayError::CellContentMismatch)?;
+                let command_start = page.commands.len();
+                for line in table_selected_cell_lines(cell_lines, record)? {
+                    paint_table_cell_line_commands(
+                        parsed,
+                        input.paragraph_items,
+                        &text_map,
+                        record,
+                        line,
+                        &mut used_fonts,
+                        &mut next_run_id,
+                        &mut page.commands,
+                    )?;
+                }
+                for (command_index, command) in page.commands[command_start..].iter().enumerate() {
+                    let page_command_index = command_start
+                        .checked_add(command_index)
+                        .and_then(|value| u32::try_from(value).ok())
+                        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+                    painted_command_sets[table_index].push(TablePaintCommandObservation {
+                        page_index: record.page_index,
+                        page_command_index,
+                        fragment_id: record.fragment_id,
+                        repetition_index: record.repetition_index,
+                        cell_node_id: record.cell_node_id,
+                        command: command.clone(),
+                    });
+                }
+            }
+        }
+        for (closure, commands) in closures.iter_mut().zip(painted_command_sets) {
+            closure
+                .bind_painted_commands(commands, &[])
+                .map_err(TableProfileDisplayError::Closure)?;
+        }
+        if pages.iter().flat_map(|page| &page.commands).any(|command| {
+            matches!(
+                command,
+                DisplayCommand::ClipPath { .. }
+                    | DisplayCommand::FillPath { .. }
+                    | DisplayCommand::StrokePath { .. }
+            )
+        }) {
+            return Err(TableProfileDisplayError::Closure(
+                TableDisplayClosureError::DecorationForbidden,
+            ));
+        }
+
+        if let Some(links) = links {
+            if !links.verifies(package, body_registry) || links.ranges().is_empty() {
+                return Err(TableProfileDisplayError::Link(
+                    StagingMachineLinkDisplayError::ReceiptMismatch,
+                ));
+            }
+            let annotations = derive_staging_machine_link_rectangles(
+                selected,
+                body_registry,
+                links,
+                config.limits().get().max_fragments,
+            )
+            .map_err(TableProfileDisplayError::Link)?;
+            for annotation in annotations {
+                pages
+                    .get_mut(annotation.page_index as usize)
+                    .ok_or(TableProfileDisplayError::Link(
+                        StagingMachineLinkDisplayError::WrongPage(NodeId::new(
+                            annotation.link_node_id,
+                        )),
+                    ))?
+                    .annotations
+                    .push(LinkAnnotation {
+                        target: annotation.target.to_display_target(),
+                        rect: annotation.rect,
+                    });
+            }
+        }
+
+        let mut font_instances = Vec::new();
+        for (expected, (instance, face)) in used_fonts.into_iter().enumerate() {
+            if instance.get()
+                != u32::try_from(expected).map_err(|_| {
+                    TableProfileDisplayError::Display(
+                        DisplayValidationError::NonDenseFontInstanceId,
+                    )
+                })?
+            {
+                return Err(TableProfileDisplayError::Display(
+                    DisplayValidationError::NonDenseFontInstanceId,
+                ));
+            }
+            font_instances.push(DisplayFontInstance {
+                font_instance_id: instance,
+                font_face_id: face,
+            });
+        }
+        let document = DisplayDocument {
+            source_layout: DisplaySourceLayout::from_selected_pagination(selected),
+            text_buffers: text_map.buffers().to_vec(),
+            font_instances,
+            destinations: destinations_from_selected_pagination(selected)
+                .map_err(TableProfileDisplayError::Display)?,
+            pages,
+        };
+        let structural = StructurallyValidatedDisplayDocument::from_verified_table_profile(
+            document,
+            selected,
+            config,
+            selected_page_geometry,
+        )
+        .map_err(TableProfileDisplayError::Display)?;
+        Ok(TableProfileDisplay {
+            trusted: ValidatedDisplayDocument { structural },
+            tables: closures,
+        })
+    }
+
     /// Safe reference painter for the complete domain owned by
     /// `ReferencePaginator`: blank documents and top-level empty paragraphs
     /// containing only direct anchors.
@@ -3230,6 +4628,428 @@ fn basic_figure_image_id(blocks: &[Block], owner: NodeId) -> Option<ImageResourc
     None
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TableCellTextAlign {
+    Start,
+    End,
+    Center,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TableCellPaintLine {
+    paragraph_owner: NodeId,
+    item_start: u32,
+    item_end: u32,
+    fragment_block_offset: i64,
+    fragment_block_size: PositiveLength,
+    paint_block_offset: i64,
+    line_height: PositiveLength,
+    inline_start: NonNegativeLength,
+    inline_size: PositiveLength,
+    text_align: TableCellTextAlign,
+}
+
+fn derive_table_cell_paint_lines(
+    package: &ValidatedParsedPackage,
+    registry: &ValidatedParagraphItemRegistry,
+    layout: &TableRowBandLayoutReceipt,
+    table_owner: NodeId,
+    cell_owner: NodeId,
+) -> Result<Vec<TableCellPaintLine>, TableProfileDisplayError> {
+    let table = package
+        .package()
+        .document
+        .blocks
+        .iter()
+        .find(|block| matches!(block, Block::Table { node_id, .. } if *node_id == table_owner))
+        .ok_or(TableProfileDisplayError::TableSetMismatch)?;
+    let Block::Table { head, body, .. } = table else {
+        return Err(TableProfileDisplayError::TableSetMismatch);
+    };
+    let cell = head
+        .iter()
+        .chain(body)
+        .flat_map(|row| &row.cells)
+        .find(|cell| cell.node_id == cell_owner)
+        .ok_or(TableProfileDisplayError::CellContentMismatch)?;
+    let measured = layout
+        .cell(cell_owner)
+        .ok_or(TableProfileDisplayError::CellContentMismatch)?;
+    let mut lines = Vec::new();
+    let mut block_offset = 0i64;
+    for block in &cell.blocks {
+        let Block::Paragraph { node_id, .. } = block else {
+            return Err(TableProfileDisplayError::CellContentMismatch);
+        };
+        let Some(paragraph_break) = registry.paragraph_break(*node_id) else {
+            continue;
+        };
+        let computed = package
+            .cascade_style(*node_id)
+            .map_err(|_| TableProfileDisplayError::CellContentMismatch)?;
+        let properties = computed.computed().properties();
+        let line_height = table_positive_display_length(properties.get("line_height"))?;
+        let space_before = table_nonnegative_display_length(properties.get("space_before"))?;
+        let space_after = table_nonnegative_display_length(properties.get("space_after"))?;
+        let inline_start = table_nonnegative_display_length(properties.get("start_indent"))?;
+        let inline_end = table_nonnegative_display_length(properties.get("end_indent"))?;
+        let inline_size = measured
+            .frame_inline_size()
+            .get()
+            .checked_sub(inline_start.get())
+            .and_then(|value| value.checked_sub(inline_end.get()))
+            .and_then(PositiveLength::new)
+            .ok_or(TableProfileDisplayError::CellContentMismatch)?;
+        let text_align = match properties.get("text_align") {
+            None => TableCellTextAlign::Start,
+            Some(StyleValue::Keyword(value)) if value == "start" => TableCellTextAlign::Start,
+            Some(StyleValue::Keyword(value)) if value == "end" => TableCellTextAlign::End,
+            Some(StyleValue::Keyword(value)) if value == "center" => TableCellTextAlign::Center,
+            _ => return Err(TableProfileDisplayError::CellContentMismatch),
+        };
+        let mut item_start = 0u32;
+        for (line_index, line) in paragraph_break.lines.iter().enumerate() {
+            if line.item_index <= item_start {
+                return Err(TableProfileDisplayError::CellContentMismatch);
+            }
+            let before = if line_index == 0 {
+                space_before.get().raw()
+            } else {
+                0
+            };
+            let after = if line_index + 1 == paragraph_break.lines.len() {
+                space_after.get().raw()
+            } else {
+                0
+            };
+            let fragment_size = line_height
+                .get()
+                .raw()
+                .checked_add(before)
+                .and_then(|value| value.checked_add(after))
+                .and_then(Length::from_raw)
+                .and_then(PositiveLength::new)
+                .ok_or(TableProfileDisplayError::NumericOverflow)?;
+            let paint_block_offset = block_offset
+                .checked_add(before)
+                .ok_or(TableProfileDisplayError::NumericOverflow)?;
+            lines.push(TableCellPaintLine {
+                paragraph_owner: *node_id,
+                item_start,
+                item_end: line.item_index,
+                fragment_block_offset: block_offset,
+                fragment_block_size: fragment_size,
+                paint_block_offset,
+                line_height,
+                inline_start,
+                inline_size,
+                text_align,
+            });
+            block_offset = block_offset
+                .checked_add(fragment_size.get().raw())
+                .ok_or(TableProfileDisplayError::NumericOverflow)?;
+            item_start = line.item_index;
+        }
+        if item_start
+            != registry
+                .item_count(*node_id)
+                .ok_or(TableProfileDisplayError::ParagraphRegistryMismatch)?
+        {
+            return Err(TableProfileDisplayError::CellContentMismatch);
+        }
+    }
+    if lines.len() != measured.fragment_block_sizes().len()
+        || lines
+            .iter()
+            .zip(measured.fragment_block_sizes())
+            .any(|(line, measured)| line.fragment_block_size != *measured)
+    {
+        return Err(TableProfileDisplayError::CellContentMismatch);
+    }
+    Ok(lines)
+}
+
+fn table_positive_display_length(
+    value: Option<&StyleValue>,
+) -> Result<PositiveLength, TableProfileDisplayError> {
+    match value {
+        Some(StyleValue::Length(value)) => {
+            PositiveLength::new(*value).ok_or(TableProfileDisplayError::CellContentMismatch)
+        }
+        _ => Err(TableProfileDisplayError::CellContentMismatch),
+    }
+}
+
+fn table_nonnegative_display_length(
+    value: Option<&StyleValue>,
+) -> Result<NonNegativeLength, TableProfileDisplayError> {
+    match value {
+        Some(StyleValue::Length(value)) => {
+            NonNegativeLength::new(*value).ok_or(TableProfileDisplayError::CellContentMismatch)
+        }
+        None => Ok(NonNegativeLength::ZERO),
+        Some(_) => Err(TableProfileDisplayError::CellContentMismatch),
+    }
+}
+
+fn table_selected_cell_lines<'a>(
+    lines: &'a [TableCellPaintLine],
+    record: &TablePaintCellObservation,
+) -> Result<&'a [TableCellPaintLine], TableProfileDisplayError> {
+    let start = usize::try_from(record.content_fragment_start)
+        .map_err(|_| TableProfileDisplayError::NumericOverflow)?;
+    let end = usize::try_from(record.content_fragment_end)
+        .map_err(|_| TableProfileDisplayError::NumericOverflow)?;
+    let selected = lines
+        .get(start..end)
+        .ok_or(TableProfileDisplayError::CellContentMismatch)?;
+    let vertical_extent = record
+        .vertical_offset_after
+        .checked_sub(record.vertical_offset_before)
+        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+    if vertical_extent != record.rect.height {
+        return Err(TableProfileDisplayError::CellContentMismatch);
+    }
+    if let (Some(first), Some(last)) = (selected.first(), selected.last()) {
+        let last_end = last
+            .fragment_block_offset
+            .checked_add(last.fragment_block_size.get().raw())
+            .ok_or(TableProfileDisplayError::NumericOverflow)?;
+        if first.fragment_block_offset < record.vertical_offset_before
+            || last_end > record.vertical_offset_after
+        {
+            return Err(TableProfileDisplayError::CellContentMismatch);
+        }
+    }
+    Ok(selected)
+}
+
+fn push_table_profile_shape_span(
+    shaped: ShapedSlice,
+    parsed: &mut Vec<TextSpan>,
+    generated: &mut Vec<GeneratedTextSpan>,
+) {
+    match shaped.source() {
+        ShapeSourceSpan::Parsed(span) => parsed.push(span),
+        ShapeSourceSpan::Generated(provenance) => generated.push(provenance.text_span()),
+    }
+}
+
+fn paint_reference_fragment_commands(
+    package: &ValidatedParsedPackage,
+    registry: &ValidatedParagraphItemRegistry,
+    fragment: &typaxis_pagination::PlacedFragment,
+    text_map: &DisplayTextMap,
+    used_fonts: &mut std::collections::BTreeMap<FontInstanceId, FontFaceId>,
+    next_run_id: &mut u32,
+    commands: &mut Vec<DisplayCommand>,
+) -> Result<(), DisplayValidationError> {
+    let logical = fragment_shaped_slices(registry, fragment)?;
+    if logical.is_empty() {
+        return Ok(());
+    }
+    let levels: Vec<_> = logical
+        .iter()
+        .map(|slice| slice.shaped.bidi_level())
+        .collect();
+    let classes: Vec<_> = logical.iter().map(|slice| slice.class).collect();
+    let paragraph_level = registry
+        .paragraph_level(fragment.owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let after_l1 = reset_line_bidi_levels(paragraph_level, &levels, &classes)
+        .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let mut logical = reference_final_line_reshape(registry, fragment.owner, logical, &after_l1)?;
+    justify_reference_line(registry, fragment, &mut logical)?;
+    let order = reorder_line_l2(&after_l1)
+        .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let mut x = fragment.bounds.x();
+    for logical_index in order.visual_to_logical() {
+        let line_slice = logical
+            .get(*logical_index as usize)
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        let run = registry
+            .runs(fragment.owner)
+            .and_then(|runs| runs.get(line_slice.shaped.paragraph_run_index().get() as usize))
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        let command = paint_shaped_slice(
+            package,
+            text_map,
+            run,
+            line_slice.shaped,
+            after_l1.logical_levels()[*logical_index as usize],
+            DisplayGlyphRunId::new(*next_run_id),
+            Point {
+                x,
+                y: fragment.bounds.y(),
+            },
+        )?;
+        *next_run_id = next_run_id
+            .checked_add(1)
+            .ok_or(DisplayValidationError::NonDenseGlyphRunId)?;
+        register_table_profile_command_font(package, run, &command, used_fonts)?;
+        x = x
+            .checked_add(line_slice.advance)
+            .ok_or(DisplayValidationError::NumericOutOfRange)?;
+        commands.push(command);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_table_cell_line_commands(
+    package: &ValidatedParsedPackage,
+    registry: &ValidatedParagraphItemRegistry,
+    text_map: &DisplayTextMap,
+    record: &TablePaintCellObservation,
+    line: &TableCellPaintLine,
+    used_fonts: &mut std::collections::BTreeMap<FontInstanceId, FontFaceId>,
+    next_run_id: &mut u32,
+    commands: &mut Vec<DisplayCommand>,
+) -> Result<(), TableProfileDisplayError> {
+    let logical = paragraph_shaped_slices(
+        registry,
+        line.paragraph_owner,
+        line.item_start,
+        line.item_end,
+    )
+    .map_err(TableProfileDisplayError::Display)?;
+    if logical.is_empty() {
+        return Ok(());
+    }
+    let levels: Vec<_> = logical
+        .iter()
+        .map(|slice| slice.shaped.bidi_level())
+        .collect();
+    let classes: Vec<_> = logical.iter().map(|slice| slice.class).collect();
+    let paragraph_level = registry
+        .paragraph_level(line.paragraph_owner)
+        .ok_or(TableProfileDisplayError::ParagraphRegistryMismatch)?;
+    let after_l1 = reset_line_bidi_levels(paragraph_level, &levels, &classes)
+        .map_err(|_| TableProfileDisplayError::CellBidiMismatch)?;
+    let mut logical =
+        reference_final_line_reshape(registry, line.paragraph_owner, logical, &after_l1)
+            .map_err(TableProfileDisplayError::Display)?;
+    let item_count = registry
+        .item_count(line.paragraph_owner)
+        .ok_or(TableProfileDisplayError::ParagraphRegistryMismatch)?;
+    let unadjusted = logical
+        .iter()
+        .try_fold(Length::ZERO, |total, slice| {
+            total.checked_add(slice.advance)
+        })
+        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+    if line.item_end != item_count || unadjusted.raw() > line.inline_size.get().raw() {
+        let adjustment = line
+            .inline_size
+            .get()
+            .checked_sub(unadjusted)
+            .ok_or(TableProfileDisplayError::NumericOverflow)?;
+        distribute_justification(&mut logical, adjustment)
+            .map_err(TableProfileDisplayError::Display)?;
+    }
+    let natural = logical
+        .iter()
+        .try_fold(Length::ZERO, |total, slice| {
+            total.checked_add(slice.advance)
+        })
+        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+    let remaining = line
+        .inline_size
+        .get()
+        .checked_sub(natural)
+        .filter(|value| value.raw() >= 0)
+        .ok_or(TableProfileDisplayError::CellInlineOverflow)?;
+    let start_on_right = paragraph_level.get() % 2 == 1;
+    let alignment_offset = match line.text_align {
+        TableCellTextAlign::Center => Length::from_raw(remaining.raw() / 2)
+            .ok_or(TableProfileDisplayError::NumericOverflow)?,
+        TableCellTextAlign::Start if start_on_right => remaining,
+        TableCellTextAlign::End if !start_on_right => remaining,
+        _ => Length::ZERO,
+    };
+    let order =
+        reorder_line_l2(&after_l1).map_err(|_| TableProfileDisplayError::CellBidiMismatch)?;
+    let x = record
+        .rect
+        .x
+        .checked_add(line.inline_start.get().raw())
+        .and_then(|value| value.checked_add(alignment_offset.raw()))
+        .and_then(Length::from_raw)
+        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+    let y = record
+        .rect
+        .y
+        .checked_add(line.paint_block_offset)
+        .and_then(|value| value.checked_sub(record.vertical_offset_before))
+        .and_then(Length::from_raw)
+        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+    let line_bottom = y
+        .raw()
+        .checked_add(line.line_height.get().raw())
+        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+    let record_bottom = record
+        .rect
+        .y
+        .checked_add(record.rect.height)
+        .ok_or(TableProfileDisplayError::NumericOverflow)?;
+    if y.raw() < record.rect.y || line_bottom > record_bottom {
+        return Err(TableProfileDisplayError::CellPaintBoundsMismatch);
+    }
+    let mut x = x;
+    for logical_index in order.visual_to_logical() {
+        let slice = logical
+            .get(*logical_index as usize)
+            .ok_or(TableProfileDisplayError::CellBidiMismatch)?;
+        let run = registry
+            .runs(line.paragraph_owner)
+            .and_then(|runs| runs.get(slice.shaped.paragraph_run_index().get() as usize))
+            .ok_or(TableProfileDisplayError::ParagraphRegistryMismatch)?;
+        let command = paint_shaped_slice(
+            package,
+            text_map,
+            run,
+            slice.shaped,
+            after_l1.logical_levels()[*logical_index as usize],
+            DisplayGlyphRunId::new(*next_run_id),
+            Point { x, y },
+        )
+        .map_err(TableProfileDisplayError::Display)?;
+        *next_run_id = next_run_id
+            .checked_add(1)
+            .ok_or(TableProfileDisplayError::NumericOverflow)?;
+        register_table_profile_command_font(package, run, &command, used_fonts)
+            .map_err(TableProfileDisplayError::Display)?;
+        x = x
+            .checked_add(slice.advance)
+            .ok_or(TableProfileDisplayError::NumericOverflow)?;
+        commands.push(command);
+    }
+    Ok(())
+}
+
+fn register_table_profile_command_font(
+    package: &ValidatedParsedPackage,
+    run: &ValidatedGlyphRun,
+    command: &DisplayCommand,
+    used_fonts: &mut std::collections::BTreeMap<FontInstanceId, FontFaceId>,
+) -> Result<(), DisplayValidationError> {
+    let instance = command_font(command)?;
+    let face = run.font_face_id();
+    if package
+        .package()
+        .resources
+        .font_faces
+        .iter()
+        .all(|declaration| declaration.font_face_id != face)
+        || used_fonts
+            .insert(instance, face)
+            .is_some_and(|previous| previous != face)
+    {
+        return Err(DisplayValidationError::UnknownFontInstance);
+    }
+    Ok(())
+}
+
 fn fragment_shaped_slices(
     registry: &ValidatedParagraphItemRegistry,
     fragment: &typaxis_pagination::PlacedFragment,
@@ -3247,6 +5067,21 @@ fn fragment_shaped_slices(
     } else {
         item_count
     };
+    if start >= end || end > item_count {
+        return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+    }
+    paragraph_shaped_slices(registry, owner, start, end)
+}
+
+fn paragraph_shaped_slices(
+    registry: &ValidatedParagraphItemRegistry,
+    owner: NodeId,
+    start: u32,
+    end: u32,
+) -> Result<Vec<LinePaintSlice>, DisplayValidationError> {
+    let item_count = registry
+        .item_count(owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
     if start >= end || end > item_count {
         return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
     }
@@ -3272,6 +5107,7 @@ fn fragment_shaped_slices(
                     priority: 0,
                 });
             }
+            ParagraphItem::Glue { .. } if item_is_line_terminal(item, items) => {}
             ParagraphItem::Glue {
                 natural,
                 stretch,
@@ -4144,6 +5980,102 @@ mod tests {
             ResourceLimits::default(),
         )
         .unwrap()
+    }
+
+    fn table_paint_record_fixture() -> TablePaintCellObservation {
+        TablePaintCellObservation {
+            kind: TablePaintOccurrenceKind::Header,
+            page_index: 1,
+            fragment_id: 9,
+            source_fragment_id: Some(3),
+            repetition_index: Some(1),
+            row_node_id: NodeId::new(2),
+            logical_row_ordinal: 0,
+            row_fragment_ordinal: 0,
+            cell_node_id: NodeId::new(3),
+            flow_id: FlowId::new(1),
+            column_ordinal: 0,
+            colspan: 1,
+            rowspan: 1,
+            rect: TablePaintRect {
+                x: 10,
+                y: 20,
+                width: 30,
+                height: 40,
+            },
+            content_fragment_start: 0,
+            content_fragment_end: 2,
+            vertical_offset_before: 0,
+            vertical_offset_after: 40,
+        }
+    }
+
+    #[test]
+    fn table_display_closure_rejects_missing_extra_wrong_cell_page_repetition_and_rect() {
+        let expected = table_paint_record_fixture();
+        assert_eq!(
+            validate_table_display_records(std::slice::from_ref(&expected), &[]),
+            Err(TableDisplayClosureError::MissingCell)
+        );
+        assert_eq!(
+            validate_table_display_records(
+                std::slice::from_ref(&expected),
+                &[expected.clone(), expected.clone()],
+            ),
+            Err(TableDisplayClosureError::ExtraCell)
+        );
+
+        let mut wrong = expected.clone();
+        wrong.page_index = 2;
+        assert_eq!(
+            validate_table_display_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TableDisplayClosureError::WrongPage)
+        );
+        let mut wrong = expected.clone();
+        wrong.repetition_index = Some(2);
+        assert_eq!(
+            validate_table_display_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TableDisplayClosureError::WrongRepetition)
+        );
+        let mut wrong = expected.clone();
+        wrong.cell_node_id = NodeId::new(4);
+        assert_eq!(
+            validate_table_display_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TableDisplayClosureError::WrongCell)
+        );
+        let mut wrong = expected.clone();
+        wrong.rect.x += 1;
+        assert_eq!(
+            validate_table_display_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TableDisplayClosureError::WrongRectangle)
+        );
+        let mut wrong = expected.clone();
+        wrong.content_fragment_end += 1;
+        assert_eq!(
+            validate_table_display_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TableDisplayClosureError::WrongContentRange)
+        );
+        let mut wrong = expected.clone();
+        wrong.fragment_id += 1;
+        assert_eq!(
+            validate_table_display_records(std::slice::from_ref(&expected), &[wrong]),
+            Err(TableDisplayClosureError::NonCanonicalOrder)
+        );
+    }
+
+    #[test]
+    fn table_display_closure_enforces_fixed_zero_decoration_policy() {
+        assert_eq!(reject_table_decorations(&[]), Ok(()));
+        for decoration in [
+            TableDecorationObservation::Background,
+            TableDecorationObservation::Border,
+            TableDecorationObservation::BorderSpacing,
+        ] {
+            assert_eq!(
+                reject_table_decorations(&[decoration]),
+                Err(TableDisplayClosureError::DecorationForbidden)
+            );
+        }
     }
 
     #[test]

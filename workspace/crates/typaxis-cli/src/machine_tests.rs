@@ -90,6 +90,10 @@ impl TestJson {
     fn is_string(&self) -> bool {
         matches!(self, Self::String(_))
     }
+
+    fn has_member(&self, key: &str) -> bool {
+        matches!(self, Self::Object(values) if values.contains_key(key))
+    }
 }
 
 impl Index<&str> for TestJson {
@@ -445,13 +449,14 @@ fn build_options(job: &Path, artifacts: &Path, expected: &TestJson) -> BuildPack
         .expect("fixture profile is a string")
         .parse()
         .expect("fixture profile is registered");
+    let emit_trace = expected_visible(expected).contains("trace");
     BuildPackageOptions {
         package: job.join("document-package.json"),
         package_root: Some(job.to_path_buf()),
         profile,
         output: artifacts.join("output.pdf").into_os_string(),
-        trace: None,
-        trace_text: false,
+        trace: emit_trace.then(|| artifacts.join("trace.json")),
+        trace_text: emit_trace,
         manifest: Some(artifacts.join("manifest.json")),
         diagnostics: Some(artifacts.join("diagnostics.json")),
         force: false,
@@ -652,7 +657,7 @@ fn run_build_fixture(relative: &str) -> FixtureRun {
     run
 }
 
-fn assert_success_fixture(relative: &str) {
+fn assert_success_fixture(relative: &str) -> FixtureRun {
     let (tree, job, artifacts, expected) = copy_fixture(relative, "success");
     let check_diagnostics = artifacts.join("check-diagnostics.json");
     fs::create_dir_all(&artifacts).unwrap();
@@ -692,6 +697,7 @@ fn assert_success_fixture(relative: &str) {
     assert!(fs::read(run.artifacts.join("output.pdf"))
         .unwrap()
         .starts_with(b"%PDF-"));
+    run
 }
 
 #[test]
@@ -710,12 +716,12 @@ fn machine_capabilities_snapshot_is_exact_and_commands_are_public() {
 }
 
 #[test]
-fn capabilities_preserve_m1_and_publish_the_closed_m2_profile() {
+fn capabilities_preserve_older_profiles_and_publish_the_closed_table_profile() {
     let capabilities = read_json(&fixture_root("capabilities.json"));
     let profiles = capabilities["machine_input"]["profiles"]
         .as_array()
         .unwrap();
-    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles.len(), 3);
     assert_eq!(
         capabilities["machine_input"]["default_profile"],
         "typaxis.machine-pdf/paragraph-1"
@@ -775,6 +781,115 @@ fn matrix_m2_basic_combined() {
 #[test]
 fn matrix_m2_basic_old_contract() {
     run_build_fixture("invalid/basic-document-1-old-contract");
+}
+
+#[test]
+fn machine_table_basic_profile_rejects_table() {
+    run_build_fixture("invalid/basic-document-1-table");
+}
+
+#[test]
+fn machine_table_paragraph_profile_rejects_table() {
+    run_build_fixture("invalid/paragraph-1-table");
+}
+
+#[test]
+fn machine_table_only() {
+    let run = assert_success_fixture("profiles/table-1/only");
+    let trace = read_json(&run.artifacts.join("trace.json"));
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    assert_eq!(trace["table_layouts"].as_array().unwrap().len(), 1);
+    assert_eq!(manifest["table_layouts"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        fs::read_to_string(run.artifacts.join("trace.json"))
+            .unwrap()
+            .split("\"table_layouts\":")
+            .nth(1),
+        fs::read_to_string(run.artifacts.join("manifest.json"))
+            .unwrap()
+            .split("\"table_layouts\":")
+            .nth(1),
+    );
+}
+
+#[test]
+fn machine_table_combined() {
+    let run = assert_success_fixture("profiles/table-1/combined");
+    let trace = read_json(&run.artifacts.join("trace.json"));
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    let trace_tables = trace["table_layouts"].as_array().unwrap();
+    let manifest_tables = manifest["table_layouts"].as_array().unwrap();
+    assert_eq!(trace_tables.len(), 1);
+    assert_eq!(manifest_tables.len(), 1);
+    let table = &manifest_tables[0];
+    assert_eq!(table["page_count"], 2);
+    assert_eq!(table["target_page_start"], 1);
+    let headers = table["header_occurrences"].as_array().unwrap();
+    assert_eq!(headers.len(), 2);
+    assert_eq!(headers[0]["repetition_index"], 0);
+    assert_eq!(headers[0]["target_page_index"], 1);
+    assert_eq!(headers[1]["repetition_index"], 1);
+    assert_eq!(headers[1]["target_page_index"], 2);
+    assert_eq!(
+        trace_tables[0]["selected_layout_sha256"].as_str(),
+        table["selected_layout_sha256"].as_str()
+    );
+    assert_eq!(
+        trace_tables[0]["flow_registry_sha256"].as_str(),
+        table["flow_registry_sha256"].as_str()
+    );
+}
+
+#[test]
+fn machine_table_policy_rejections() {
+    for fixture in [
+        "invalid/table-1-decoration",
+        "invalid/table-1-inapplicable-style",
+        "invalid/table-1-old-contract",
+    ] {
+        run_build_fixture(fixture);
+    }
+}
+
+#[test]
+fn machine_table_profile_retains_basic_only_behavior_without_table_facts() {
+    let (tree, job, artifacts, expected) =
+        copy_fixture("profiles/basic-document-1/combined", "table-basic-only");
+    fs::create_dir_all(&artifacts).unwrap();
+    let mut options = build_options(&job, &artifacts, &expected);
+    options.profile = MachinePdfProfileId::TABLE_1;
+    options.trace = Some(artifacts.join("trace.json"));
+    options.trace_text = true;
+    run_build_package(options).unwrap();
+    let trace = read_json(&artifacts.join("trace.json"));
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert!(trace["table_layouts"].as_array().unwrap().is_empty());
+    assert!(manifest["table_layouts"].as_array().unwrap().is_empty());
+    assert_eq!(
+        manifest["input_profile"],
+        MachinePdfProfileId::TABLE_1.as_str()
+    );
+    drop(tree);
+}
+
+#[test]
+fn machine_older_profile_artifacts_do_not_gain_table_projection_members() {
+    for fixture in [
+        "profiles/paragraph-1/combined",
+        "profiles/basic-document-1/combined",
+    ] {
+        let (tree, job, artifacts, expected) = copy_fixture(fixture, "old-no-table-facts");
+        fs::create_dir_all(&artifacts).unwrap();
+        let mut options = build_options(&job, &artifacts, &expected);
+        options.trace = Some(artifacts.join("trace.json"));
+        options.trace_text = true;
+        run_build_package(options).unwrap();
+        let trace = read_json(&artifacts.join("trace.json"));
+        let manifest = read_json(&artifacts.join("manifest.json"));
+        assert!(!trace.has_member("table_layouts"));
+        assert!(!manifest.has_member("table_layouts"));
+        drop(tree);
+    }
 }
 
 #[test]

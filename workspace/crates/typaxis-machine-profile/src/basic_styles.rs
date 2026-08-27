@@ -11,17 +11,25 @@ use typaxis_syntax::machine_profile_boundary::{
 use typaxis_syntax::ValidatedStagingStylePackage;
 
 pub const BASIC_DOCUMENT_PROFILE_ID: &str = "typaxis.machine-pdf/basic-document-1";
+pub const TABLE_PROFILE_ID: &str = "typaxis.machine-pdf/table-1";
 
 /// Closed style component of the public basic-document descriptor. The
 /// historical `STAGING` constant remains for focused MI2 slice tests only.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BasicDocumentStyleDescriptor;
+pub struct BasicDocumentStyleDescriptor {
+    table: bool,
+}
 
 impl BasicDocumentStyleDescriptor {
-    pub const STAGING: Self = Self;
+    pub const STAGING: Self = Self { table: false };
+    pub const TABLE_1: Self = Self { table: true };
 
     pub const fn profile_id(self) -> &'static str {
-        BASIC_DOCUMENT_PROFILE_ID
+        if self.table {
+            TABLE_PROFILE_ID
+        } else {
+            BASIC_DOCUMENT_PROFILE_ID
+        }
     }
 
     pub const fn registry_version(self) -> &'static str {
@@ -34,6 +42,10 @@ impl BasicDocumentStyleDescriptor {
 
     pub const fn accepts(self, block: BasicStyleBlockKind, property: BasicStyleProperty) -> bool {
         property.applies_to(block)
+    }
+
+    pub const fn accepts_table(self, property: BasicStyleProperty) -> bool {
+        self.table && property.applies_to_table()
     }
 }
 
@@ -74,10 +86,18 @@ impl BasicDocumentStylePreflightReceipt {
     }
 
     pub fn verifies(&self, package: &ValidatedStagingStylePackage) -> bool {
+        self.verifies_for(package, BasicDocumentStyleDescriptor::STAGING)
+    }
+
+    pub fn verifies_for(
+        &self,
+        package: &ValidatedStagingStylePackage,
+        descriptor: BasicDocumentStyleDescriptor,
+    ) -> bool {
         self.package == package.package_fingerprint().into_bytes()
             && self.document == package.package().epoch_identity().document()
             && self.style == package.package().epoch_identity().style()
-            && self.profile_id == BASIC_DOCUMENT_PROFILE_ID
+            && self.profile_id == descriptor.profile_id()
             && self.registry_version == BASIC_BLOCK_STYLE_REGISTRY_VERSION
     }
 }
@@ -101,6 +121,9 @@ impl BasicDocumentStylePreflight {
     pub const STAGING: Self = Self {
         descriptor: BasicDocumentStyleDescriptor::STAGING,
     };
+    pub const TABLE_1: Self = Self {
+        descriptor: BasicDocumentStyleDescriptor::TABLE_1,
+    };
 
     pub fn run(
         self,
@@ -118,9 +141,14 @@ impl BasicDocumentStylePreflight {
             let block = BasicStyleBlockKind::from_str(selector);
             for (ordinal, declaration) in rule.declarations.iter().enumerate() {
                 let property = BasicStyleProperty::from_str(&declaration.name);
-                if block.is_some_and(|block| {
-                    property.is_some_and(|property| self.descriptor.accepts(block, property))
-                }) {
+                let accepted = property.is_some_and(|property| {
+                    if selector == "table" {
+                        self.descriptor.accepts_table(property)
+                    } else {
+                        block.is_some_and(|block| self.descriptor.accepts(block, property))
+                    }
+                });
+                if accepted {
                     continue;
                 }
                 violation_count = violation_count.saturating_add(1);

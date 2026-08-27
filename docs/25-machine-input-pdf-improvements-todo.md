@@ -1481,7 +1481,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-04 Table Display/PDF closureとprofileを公開する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-03
 - Design inputs: docs/25 §8 M3、§13.3 table
 - Primary files:
@@ -1517,6 +1517,12 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf table --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_table --locked`
   - `python3 tools/verify_machine_profile.py --repository . --matrix samples/machine-package/matrices/m3-table.json --runs 2 --require-external-tools`
+- Implementation notes (2026-08-27, Linux):
+  - immutable public `typaxis.machine-pdf/table-1` descriptorをcurrent `typaxis.contract/1.2`へ追加し、default `paragraph-1`と既存2 profileの受理集合を変更しなかった。table profileはraw 1.0/1.1を`P1103`、older profileのtableをpre-resourceで拒否し、tableなしのcomplete M2 packageもsupersetとして受理する。
+  - selected grid/row/cell/header receiptからpage、table、header-before-body、row fragment、cell origin順のexact rectangleとglyph commandを生成した。Display closureとfrozen PDF graph/serialized-byte receiptをactual page command indexまで再照合し、missing/extra/wrong-cell/wrong-page/wrong-repetition、重複・unclaimed intersecting command、path decorationをpublication前の`I9190`へ閉じた。
+  - trace/manifestのconditional `table_layouts`は同じcanonical selected factsを共有し、resolved fixed/fraction columns、pre-residual share、signed residual/recipient、cell FlowId/span/cursor/vertical offset、rowspan continuation、row/header block offsetとtarget pageを保持する。table profileのbuilt artifactだけmemberを必須とし、旧profile artifact bytesへ空memberを追加しない。
+  - `profiles/table-1/only`とcomplete M2併用`combined`、older-profile/old-contract/decoration/inapplicable-style negative、bidirectional capability coverageを`m3-table.json`へ登録した。combinedはfixed/fraction、colspan、rowspan、multi-page header repeat、PNG/font/link/list/page breakを同時に通し、Poppler text、全page MuPDF raster、page count、zero path decorationを独立検査する。
+  - milestone指定3 Cargo test、locked workspace all-target check/test、workspace clippy `-D warnings`、`python3 schemas/validate.py`、PDF differential unit tests、format/diff check、指定の2-run external/reproducibility gateはlocal exit 0だった。current alias/versioned 1.2 DocumentPackage SchemaはともにSHA-256 `de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままである。
 - Non-goals:
   - footnote、advanced frames
 

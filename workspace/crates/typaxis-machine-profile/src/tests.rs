@@ -351,6 +351,55 @@ fn descriptor_is_a_closed_exhaustive_paragraph_1_contract() {
 }
 
 #[test]
+fn descriptor_is_a_closed_basic_plus_table_contract() {
+    let descriptor = MachineProfileDescriptor::TABLE_1;
+    let basic = MachineProfileDescriptor::BASIC_DOCUMENT_1;
+    let blocks = [
+        MachineBlockKind::Figure,
+        MachineBlockKind::Heading,
+        MachineBlockKind::List,
+        MachineBlockKind::PageBreak,
+        MachineBlockKind::Paragraph,
+        MachineBlockKind::Table,
+    ];
+    assert_eq!(descriptor.id(), MachinePdfProfileId::TABLE_1);
+    assert_eq!(descriptor.accepted_blocks(), &blocks);
+    assert!(descriptor.rejected_blocks().is_empty());
+    assert_eq!(descriptor.style_block_types(), &blocks);
+    assert_eq!(descriptor.accepted_style_selectors(), &blocks);
+    assert!(descriptor.rejected_style_selectors().is_empty());
+    assert_eq!(descriptor.accepted_inlines(), basic.accepted_inlines());
+    assert_eq!(descriptor.rejected_inlines(), basic.rejected_inlines());
+    assert_eq!(
+        descriptor.accepted_reference_formats(),
+        basic.accepted_reference_formats()
+    );
+    assert_eq!(
+        descriptor.rejected_reference_formats(),
+        basic.rejected_reference_formats()
+    );
+    assert_eq!(
+        descriptor.accepted_style_properties(),
+        basic.accepted_style_properties()
+    );
+    assert_eq!(
+        descriptor.rejected_style_properties(),
+        basic.rejected_style_properties()
+    );
+    assert_eq!(
+        descriptor.accepted_image_formats(),
+        basic.accepted_image_formats()
+    );
+    assert_eq!(descriptor.pdf_features(), basic.pdf_features());
+    assert_eq!(
+        descriptor.unsupported_pdf_features(),
+        basic.unsupported_pdf_features()
+    );
+    assert!(!descriptor.footnotes().definitions());
+    assert!(!descriptor.footnotes().references());
+}
+
+#[test]
 fn forced_page_break_descriptor_is_private_closed_and_non_painting() {
     let descriptor = BasicDocumentForcedPageBreakDescriptor::STAGING;
     assert_eq!(descriptor.profile_id(), BASIC_DOCUMENT_PROFILE_ID);
@@ -428,6 +477,25 @@ fn capabilities_are_the_exact_canonical_descriptor_projection() {
         "\"style_selectors\":[\"heading\",\"paragraph\"],",
         "\"unsupported_pdf_features\":[\"heading-semantics\",\"link-annotations\",\"outlines\",\"tagged-pdf\"]}"
     );
+    let table_1 = concat!(
+        "{",
+        "\"available\":true,",
+        "\"blocks\":[\"figure\",\"heading\",\"list\",\"page_break\",\"paragraph\",\"table\"],",
+        "\"font_formats\":[\"sfnt-truetype-glyf\",\"ttc-truetype-glyf\"],",
+        "\"footnotes\":false,",
+        "\"id\":\"typaxis.machine-pdf/table-1\",",
+        "\"image_formats\":[\"png\"],",
+        "\"inlines\":{\"kinds\":[\"anchor\",\"hard_break\",\"link\",\"reference\",\"soft_break\",\"text\"],\"reference_formats\":[\"page\"]},",
+        "\"page_master\":{\"count\":1,\"optional_frames\":[],\"selection_rules\":false},",
+        "\"page_values\":[\"auto\"],",
+        "\"pdf_features\":[\"link-annotations\",\"named-destinations\",\"png-xobjects\",\"text-extraction\"],",
+        "\"source_closure\":\"entry_only\",",
+        "\"source_count\":{\"maximum\":1,\"minimum\":1},",
+        "\"style_block_types\":[\"figure\",\"heading\",\"list\",\"page_break\",\"paragraph\",\"table\"],",
+        "\"style_properties\":[\"end_indent\",\"font_family\",\"font_size\",\"keep_caption\",\"keep_with_next\",\"line_height\",\"page\",\"space_after\",\"space_before\",\"start_indent\",\"text_align\",\"width\"],",
+        "\"style_selectors\":[\"figure\",\"heading\",\"list\",\"page_break\",\"paragraph\",\"table\"],",
+        "\"unsupported_pdf_features\":[\"heading-semantics\",\"outlines\",\"tagged-pdf\"]}"
+    );
     assert!(encoded.starts_with(concat!(
         "{\"contract\":\"typaxis.contract/1.2\",",
         "\"engine\":{\"name\":\"typaxis\",\"version\":\"0.1.0\"},",
@@ -436,7 +504,8 @@ fn capabilities_are_the_exact_canonical_descriptor_projection() {
         "\"default_profile\":\"typaxis.machine-pdf/paragraph-1\",",
         "\"document_package_contracts\":[\"typaxis.contract/1.0\",\"typaxis.contract/1.1\",\"typaxis.contract/1.2\"],"
     )));
-    assert!(encoded.ends_with(&format!("{paragraph_1}]}}}}")));
+    assert!(encoded.contains(&format!("{paragraph_1},")));
+    assert!(encoded.ends_with(&format!("{table_1}]}}}}")));
     assert_eq!(
         encoded,
         include_str!("../../../../samples/machine-package/capabilities.json")
@@ -1422,6 +1491,14 @@ fn basic_document_styles_positive_descriptor_issues_package_bound_receipt() {
     assert!(receipt.verifies(&package));
     assert_eq!(receipt.registry_version(), descriptor_registry_version());
     assert!(diagnostics.diagnostics().is_empty());
+
+    let mut budget = MachineDiagnosticBudget::new();
+    let mut lender = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+    let table_receipt = BasicDocumentStylePreflight::TABLE_1
+        .run(&package, &mut lender)
+        .unwrap();
+    assert!(!table_receipt.verifies(&package));
+    assert!(table_receipt.verifies_for(&package, BasicDocumentStyleDescriptor::TABLE_1));
 }
 
 fn descriptor_registry_version() -> &'static str {

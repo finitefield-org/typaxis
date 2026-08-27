@@ -99,6 +99,34 @@ class PdfDifferentialTests(unittest.TestCase):
                     pdfinfo=inspector,
                 )
 
+    def test_raster_differential_visits_every_reported_page(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            temporary = Path(raw)
+            pdf = temporary / "input.pdf"
+            pdf.write_bytes(b"pdf")
+            visited = temporary / "visited.txt"
+            renderer = executable(
+                temporary / "mutool",
+                "from pathlib import Path\n"
+                f"payload = {PNG!r}\n"
+                "import sys\n"
+                "Path(sys.argv[sys.argv.index('-o') + 1]).write_bytes(payload)\n"
+                f"with Path({str(visited)!r}).open('a', encoding='utf-8') as output:\n"
+                "    output.write(sys.argv[-1] + '\\n')",
+            )
+            extractor = executable(temporary / "pdftotext", "print('all pages')")
+            inspector = executable(temporary / "pdfinfo", "print('Pages: 3')")
+            result = differential.verify_pdf_differential(
+                [pdf],
+                expected_text="all pages",
+                expected_pages=3,
+                mutool=renderer,
+                pdftotext=extractor,
+                pdfinfo=inspector,
+            )
+            self.assertEqual(result.page_count, 3)
+            self.assertEqual(visited.read_text("utf-8").splitlines(), ["1", "2", "3"])
+
 
 if __name__ == "__main__":
     unittest.main()

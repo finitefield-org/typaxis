@@ -3,10 +3,12 @@
 This directory is the runnable public machine-profile fixture bundle.
 `profiles/paragraph-1` contains blank 1.0/1.1/1.2 packages and the frozen
 paragraph combined package. `profiles/basic-document-1/combined` is the
-contract 1.2 all-advertised package for the public basic profile. `invalid/`
-and `scenarios/` contain typed failure expectations. The matrices bind every
-expectation exactly once to the profile closure tests; `m2-basic.json` is also
-the basic-document release-verifier input.
+contract 1.2 all-advertised package for the public basic profile.
+`profiles/table-1/only` and `profiles/table-1/combined` cover the table-only and
+complete M2-plus-table domains. `invalid/` and `scenarios/` contain typed
+failure expectations. The matrices bind every expectation exactly once to the
+profile closure tests; `m2-basic.json` and `m3-table.json` are the corresponding
+public release-verifier inputs.
 
 ## Run the combined fixture
 
@@ -56,8 +58,8 @@ workspace/target/debug/typaxis capabilities --format json
 ```
 
 Its bytes MUST equal `samples/machine-package/capabilities.json`, advertise
-exactly `basic-document-1` and `paragraph-1` in canonical order, retain
-`paragraph-1` as the default, and validate against
+exactly `basic-document-1`, `paragraph-1`, and `table-1` in canonical order,
+retain `paragraph-1` as the default, and validate against
 `schemas/machine-capabilities.schema.json`.
 
 The focused MI2-03 slice fixture is under
@@ -108,6 +110,17 @@ cover empty/unpainted links, bad schemes and targets before layout, package
 receipt substitution, exact rectangle/object limits, every annotation closure
 tamper, and deterministic double build.
 
+The public MI3-04 fixtures are under `profiles/table-1/`. `only` fixes the
+single-page table baseline. `combined` uses every M2 feature plus fixed and
+fraction columns, colspan/rowspan, a split body row, and a repeated header over
+three final PDF pages. Its trace and manifest contain byte-identical selected
+table facts, while Display/PDF closure binds each retained cell glyph command
+and rejects path decoration. Poppler-normalized combined text is exactly
+`Basic document internal external First item Second entry PNG caption Header A
+Header B alpha beta Header A delta Header B gamma`. Older-profile and table-style
+rejections live under `invalid/`; `matrices/m3-table.json` registers the full
+public table gate.
+
 ## Regenerate hashes and expectations
 
 The bundle is generated, not hand-rehashed. Edit the generator inputs and run:
@@ -127,14 +140,17 @@ updating the bytes that own it.
 
 ## Release and host evidence
 
-The exact current-host gate is:
+The exact current-host table gate is:
 
 ```text
 python3 tools/verify_machine_profile.py \
   --repository . \
-  --matrix samples/machine-package/matrices/m2-basic.json \
+  --matrix samples/machine-package/matrices/m3-table.json \
   --runs 2 --require-external-tools
 ```
+
+The frozen basic-document compatibility gate uses
+`--matrix samples/machine-package/matrices/m2-basic.json` with the same options.
 
 MuPDF `mutool` and Poppler `pdfinfo`/`pdftotext` are required. On success the
 only per-host evidence writer atomically creates

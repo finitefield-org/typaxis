@@ -44,4 +44,4 @@
 
 - [ADR-0027: Machine DocumentPackage ingestion and immutable PDF profile](ADR-0027-machine-document-package-ingestion.md) — M1 targetとしてAccepted・実装済み。contract 1.1、public CLI E2E、macOS/Linux evidenceをMI1-17で公開済み。
 - [ADR-0028: Basic document machine-PDF profile](ADR-0028-basic-document-profile.md) — M2 targetとしてAccepted。contract 1.2と`basic-document-1`はMI2-08で公開済み。
-- [ADR-0029: Table machine-PDF profile](ADR-0029-table-profile.md) — M3 table targetとしてAccepted。current contract 1.2を再利用し、MI3-04まではcontract-defined onlyの非公開target。
+- [ADR-0029: Table machine-PDF profile](ADR-0029-table-profile.md) — M3 table targetとしてAccepted。current contract 1.2を変更せず、`table-1`はMI3-04で公開済み。

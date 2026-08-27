@@ -94,6 +94,7 @@
       "enum": [
         "typaxis.machine-pdf/basic-document-1",
         "typaxis.machine-pdf/paragraph-1",
+        "typaxis.machine-pdf/table-1",
         "typaxis.reference-source/1"
       ]
     },
@@ -153,6 +154,12 @@
           "$ref": "#/$defs/output_record"
         }
       ]
+    },
+    "table_layouts": {
+      "type": "array",
+      "items": {
+        "$ref": "machine-table-manifest.schema.json"
+      }
     }
   },
   "$defs": {
@@ -480,6 +487,34 @@
       "if": {
         "properties": {
           "input_profile": {
+            "const": "typaxis.machine-pdf/table-1"
+          },
+          "status": {
+            "const": "built"
+          }
+        },
+        "required": [
+          "input_profile",
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "table_layouts"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "table_layouts"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
             "const": "typaxis.reference-source/1"
           }
         }
@@ -498,7 +533,8 @@
           "input_profile": {
             "enum": [
               "typaxis.machine-pdf/basic-document-1",
-              "typaxis.machine-pdf/paragraph-1"
+              "typaxis.machine-pdf/paragraph-1",
+              "typaxis.machine-pdf/table-1"
             ]
           },
           "status": {

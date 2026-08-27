@@ -70,7 +70,9 @@ impl HostCapabilityDescriptor {
 
     pub const fn profile_available(self, profile: MachinePdfProfileId) -> bool {
         match profile {
-            MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Paragraph1 => {
+            MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Paragraph1
+            | MachinePdfProfileId::Table1 => {
                 self.atomic_file_publish
                     && self.contained_package_open
                     && self.contained_resource_open
@@ -105,6 +107,7 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
     let profiles = [
         MachineProfileDescriptor::BASIC_DOCUMENT_1,
         MachineProfileDescriptor::PARAGRAPH_1,
+        MachineProfileDescriptor::TABLE_1,
     ];
     let mut output = String::with_capacity(3_200);
     output.push_str("{\"contract\":");

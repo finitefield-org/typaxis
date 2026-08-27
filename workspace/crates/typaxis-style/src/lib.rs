@@ -144,6 +144,9 @@ impl StyleSheet {
         self.validate_contract(true)?;
         for rule in &self.rules {
             let block_type = rule.selector.split('.').next().unwrap_or_default();
+            if block_type != "table" && BasicStyleBlockKind::from_str(block_type).is_none() {
+                return Err(StyleValidationError::InapplicableProperty);
+            }
             for declaration in &rule.declarations {
                 let property = BasicStyleProperty::from_str(&declaration.name)
                     .ok_or(StyleValidationError::UnknownProperty)?;
@@ -785,10 +788,16 @@ impl StyleSheet {
         block_type: &str,
         classes: &[String],
     ) -> Result<ComputedStyle, StyleValidationError> {
-        self.validate_basic_document_styles()?;
-        BasicStyleBlockKind::from_str(block_type).ok_or(StyleValidationError::InvalidSelector(
-            SelectorError::InvalidBlockType,
-        ))?;
+        // The cascade consumer is shared with `table-1`. Profile preflight
+        // remains the authority which prevents a basic-document job from
+        // introducing a table selector; accepting that selector here lets
+        // ordinary M2 descendants be styled in a table-profile sheet.
+        self.validate_table_document_styles()?;
+        if block_type != "table" && BasicStyleBlockKind::from_str(block_type).is_none() {
+            return Err(StyleValidationError::InvalidSelector(
+                SelectorError::InvalidBlockType,
+            ));
+        }
         self.cascade_validated(block_type, classes)
     }
 
@@ -801,7 +810,7 @@ impl StyleSheet {
         classes: &[String],
         parent: Option<&ComputedMachineBlockStyle>,
     ) -> Result<ComputedMachineBlockStyle, StyleValidationError> {
-        self.validate_basic_document_styles()?;
+        self.validate_table_document_styles()?;
         let computed = self.cascade_validated(block.as_str(), classes)?;
         close_machine_block_style(&computed, parent)
     }

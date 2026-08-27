@@ -120,25 +120,33 @@ def verify_pdf_differential(
                     f"page count differs: expected {expected_pages}, observed {page_count}"
                 )
 
-            output = temporary / f"render-{index}.png"
-            _run(
-                [
-                    renderer,
-                    "draw",
-                    "-q",
-                    "-F",
-                    "png",
-                    "-r",
-                    "72",
-                    "-o",
-                    str(output),
-                    str(pdf),
-                    "1",
-                ]
-            )
-            rendered = output.read_bytes()
-            _png_dimensions(rendered)
-            render_hashes.append(hashlib.sha256(rendered).hexdigest())
+            rendered_document = hashlib.sha256()
+            rendered_document.update(page_count.to_bytes(4, "big"))
+            for page_number in range(1, page_count + 1):
+                output = temporary / f"render-{index}-{page_number}.png"
+                _run(
+                    [
+                        renderer,
+                        "draw",
+                        "-q",
+                        "-F",
+                        "png",
+                        "-r",
+                        "72",
+                        "-o",
+                        str(output),
+                        str(pdf),
+                        str(page_number),
+                    ]
+                )
+                rendered = output.read_bytes()
+                width, height = _png_dimensions(rendered)
+                rendered_document.update(page_number.to_bytes(4, "big"))
+                rendered_document.update(width.to_bytes(4, "big"))
+                rendered_document.update(height.to_bytes(4, "big"))
+                rendered_document.update(len(rendered).to_bytes(8, "big"))
+                rendered_document.update(rendered)
+            render_hashes.append(rendered_document.hexdigest())
 
             extracted = _run([extractor, "-enc", "UTF-8", str(pdf), "-"])
             normalized = _normalized_text(extracted)

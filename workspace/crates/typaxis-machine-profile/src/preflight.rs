@@ -31,6 +31,7 @@ const MISSING_TEXT_FONT_MESSAGE: &str =
     "text-producing content requires a declared machine PDF font";
 const HOST_UNAVAILABLE_MESSAGE: &str = "required compiled host capability is unavailable";
 pub const BASIC_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.basic-profile-receipt/1";
+pub const TABLE_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.table-profile-receipt/1";
 
 /// Failure returned before PACKAGE admission when a compiled host primitive is
 /// unavailable. The emitted `I9110` is fatal and therefore terminates the
@@ -253,6 +254,7 @@ pub struct MachinePdfPreflight {
 impl MachinePdfPreflight {
     pub const BASIC_DOCUMENT_1: Self = Self::new(MachineProfileDescriptor::BASIC_DOCUMENT_1);
     pub const PARAGRAPH_1: Self = Self::new(MachineProfileDescriptor::PARAGRAPH_1);
+    pub const TABLE_1: Self = Self::new(MachineProfileDescriptor::TABLE_1);
 
     pub const fn new(descriptor: MachineProfileDescriptor) -> Self {
         Self { descriptor }
@@ -280,6 +282,9 @@ impl MachinePdfPreflight {
             first_code: None,
         };
         self.inspect_source_closure(package, &mut violations)?;
+        if self.descriptor.id() == MachinePdfProfileId::TABLE_1 {
+            self.inspect_table_domain(package, &mut violations)?;
+        }
         let first_text_node = self.inspect_document(package, &mut violations)?;
         self.inspect_styles(package, &mut violations)?;
         self.inspect_page_masters(package, &mut violations)?;
@@ -365,6 +370,34 @@ impl MachinePdfPreflight {
             }
         }
         Ok(first_text_node)
+    }
+
+    fn inspect_table_domain(
+        self,
+        package: &ValidatedMachinePackage,
+        violations: &mut ViolationEmitter<'_, '_, '_>,
+    ) -> Result<(), MachinePdfPreflightFailure> {
+        let blocks = &package.package().package().document.blocks;
+        for block in blocks {
+            if let Block::Table { head, body, .. } = block {
+                for row in head.iter().chain(body) {
+                    for cell in &row.cells {
+                        for block in &cell.blocks {
+                            match block {
+                                Block::Paragraph { children, .. } => {
+                                    inspect_table_cell_inlines(children, violations)?;
+                                }
+                                _ => violations.content(block_node_id(block), None)?,
+                            }
+                            reject_nested_tables(block, violations)?;
+                        }
+                    }
+                }
+            } else {
+                reject_nested_tables(block, violations)?;
+            }
+        }
+        Ok(())
     }
 
     fn inspect_block(
@@ -506,7 +539,12 @@ fn profile_receipt_fingerprint(
 ) -> [u8; 32] {
     let epoch = package.package().epoch_identity();
     let mut bytes = Vec::with_capacity(192);
-    bytes.extend_from_slice(BASIC_PROFILE_RECEIPT_ALGORITHM.as_bytes());
+    let algorithm = if profile == MachinePdfProfileId::TABLE_1 {
+        TABLE_PROFILE_RECEIPT_ALGORITHM
+    } else {
+        BASIC_PROFILE_RECEIPT_ALGORITHM
+    };
+    bytes.extend_from_slice(algorithm.as_bytes());
     bytes.push(0);
     bytes.extend_from_slice(package.contract().as_str().as_bytes());
     bytes.push(0);
@@ -572,6 +610,70 @@ fn push_inline_children<'a>(stack: &mut Vec<WorkItem<'a>>, inline: &'a Inline) {
         | Inline::SoftBreak { .. }
         | Inline::HardBreak { .. } => {}
     }
+}
+
+fn inspect_table_cell_inlines(
+    inlines: &[Inline],
+    violations: &mut ViolationEmitter<'_, '_, '_>,
+) -> Result<(), MachinePdfPreflightFailure> {
+    for inline in inlines {
+        match inline {
+            Inline::Text { .. } | Inline::SoftBreak { .. } | Inline::HardBreak { .. } => {}
+            Inline::Emphasis {
+                node_id, children, ..
+            }
+            | Inline::Strong {
+                node_id, children, ..
+            }
+            | Inline::Link {
+                node_id, children, ..
+            } => {
+                violations.content(*node_id, None)?;
+                inspect_table_cell_inlines(children, violations)?;
+            }
+            Inline::Anchor { node_id, .. }
+            | Inline::Reference { node_id, .. }
+            | Inline::FootnoteReference { node_id, .. } => {
+                violations.content(*node_id, None)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_nested_tables(
+    block: &Block,
+    violations: &mut ViolationEmitter<'_, '_, '_>,
+) -> Result<(), MachinePdfPreflightFailure> {
+    match block {
+        Block::Table {
+            node_id,
+            head,
+            body,
+            ..
+        } => {
+            violations.content(*node_id, None)?;
+            for row in head.iter().chain(body) {
+                for cell in &row.cells {
+                    for child in &cell.blocks {
+                        reject_nested_tables(child, violations)?;
+                    }
+                }
+            }
+        }
+        Block::List { items, .. } => {
+            for child in items.iter().flat_map(|item| &item.blocks) {
+                reject_nested_tables(child, violations)?;
+            }
+        }
+        Block::Figure { caption, .. } => {
+            for child in caption {
+                reject_nested_tables(child, violations)?;
+            }
+        }
+        Block::Paragraph { .. } | Block::Heading { .. } | Block::PageBreak { .. } => {}
+    }
+    Ok(())
 }
 
 fn block_kind(block: &Block) -> MachineBlockKind {
