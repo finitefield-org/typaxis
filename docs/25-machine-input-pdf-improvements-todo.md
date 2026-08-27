@@ -1560,7 +1560,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-06 Footnote discovery、reservation、bounded reflowを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-05
 - Design inputs: docs/25 §13.3 footnote steps 1-5
 - Primary files:
@@ -1584,6 +1584,11 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination footnote_reflow --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout footnote_registry --locked`
+- Implementation notes (2026-08-27, Linux):
+  - private `footnote-1` preflightでtyped body reference preorder、reference/definition/unreferenced closure、definitionのclosed paragraph/heading-inline subset、single bounded master geometryを再導出し、package/body registry/LayoutEpochへbindしたprofile receiptを発行する。canonical FootnoteId catalog順の独立dense `FootnoteFlowId`、definition owner/block owners、positive measured fragment extents、terminalを持つregistryをworker登録順と無関係に構築し、domain-separated JCS/SHA-256 receiptへ閉じた。
+  - page evaluatorはincoming carry reservationをevaluation 0 seedにし、全reference occurrenceをdocument logical orderで保持しつつnew definitionだけをfirst-reference順へcandidate-local assignmentする。separatorと全active minimumを先取りして残余をordered greatest-prefixで配分し、trailing minimumが共存できない場合はそのreference直前のpersistent body-cut requestで再評価する。legal cutをbody evaluatorが守れないindivisible keepは`L5100`とし、carry cursorはbody continuationと別型でstrictに進める。
+  - body candidate/continuation、全discovery、ordered assignment、各before/after cursor・selected fragment・carry、exact reservation、body cutを含むcomplete tupleの連続一致だけがconvergence receiptを発行する。evaluation 0はuncharged、1..=Mだけを実行し、oscillationまたはunstable Mはmax+1 callback前にfatal `G6002`となる。candidate fragment chargeはconvergence後だけstateへatomic commitし、wrong order/reservation/cut、stale/replayed receipt、cross-page occurrence replayはselected stateを変更せず拒否する。
+  - focused registry/reflow tests、locked workspace all-target tests、workspace clippy `-D warnings`、`python3 schemas/validate.py`、cargo format、whitespace/diff checkをlocalで成功させた。zero/one/multiple/same-page・later-page repeat、catalog-vs-first-reference order、split/carry、movable/unsplittable boundary、oscillation、exact/max+1 reflow/fragment limits、missing/empty/unreferenced definition、master geometry、receipt tamper/replayを含む。public profile/Display/PDF surfaceとcurrent/versioned 1.2 Schema bytesは変更せず、両SchemaのSHA-256は`de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままである。
 - Non-goals:
   - footnote continuation paint
 

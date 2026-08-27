@@ -2,25 +2,30 @@
 
 use core::cmp::Ordering;
 use core::num::{NonZeroU16, NonZeroU32};
+use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
-    sha256, AnchorId, BidiLevel, DocumentFingerprint, FootnoteId, GeneratedBufferKey,
-    ImageResourceId, Length, MasterId, NodeId, NonNegativeLength, PageName, Point, PositiveLength,
-    Rect, StyleFingerprint, ValidatedResourceLimits,
+    push_jcs_string, sha256, AnchorId, BidiLevel, DocumentFingerprint, FootnoteId,
+    GeneratedBufferKey, ImageResourceId, Length, MasterId, NodeId, NonNegativeLength, PageName,
+    Point, PositiveLength, Rect, StyleFingerprint, ValidatedResourceLimits,
 };
 use typaxis_document::{
-    Block, ColumnSizing, DocumentNodeKind, Inline, ListItem, TableCell, TableColumn, TableRow,
+    Block, ColumnSizing, DocumentNodeKind, FootnoteDefinition, Inline, ListItem, ReferenceFormat,
+    TableCell, TableColumn, TableRow,
 };
 pub use typaxis_layout_contract::{
-    flow_registry_fingerprint_from_jcs, multi_flow_selected_state_fingerprint_from_jcs,
-    table_selected_layout_fingerprint_from_jcs, FlowContentKind, FlowId, FlowOwnerKind,
-    FlowRegistryFingerprint, FlowTerminal, LayoutEpoch, LayoutEpochError, LayoutTextStyleError,
-    MachineGlyphCoverage, MachineStyleFontPreparationError, MachineTextSiteSource,
-    MultiFlowSelectedStateFingerprint, PreparedMachineStyleFonts, PreparedMachineTextSite,
-    ResolvedLayoutTextStyle, ResolvedTableColumn, ResolvedTableColumnInput,
-    ShapeFontSelectionError, ShapeFontSelectionReceipt, TableGridFingerprint,
-    TableGridReceiptError, TableGridReceiptInput, TableSection, TableSelectedLayoutFingerprint,
-    TableVerticalAlignment, ValidatedTableCellBinding, ValidatedTableGridReceipt,
-    ValidatedTableRowBinding,
+    flow_registry_fingerprint_from_jcs, footnote_flow_registry_fingerprint_from_jcs,
+    footnote_page_evaluation_fingerprint_from_jcs, footnote_profile_fingerprint_from_jcs,
+    multi_flow_selected_state_fingerprint_from_jcs, table_selected_layout_fingerprint_from_jcs,
+    FlowContentKind, FlowId, FlowOwnerKind, FlowRegistryFingerprint, FlowTerminal,
+    FootnoteFlowBinding, FootnoteFlowId, FootnoteFlowRegistryFingerprint, FootnoteFlowTerminal,
+    FootnotePageEvaluationFingerprint, FootnoteProfileFingerprint, LayoutEpoch, LayoutEpochError,
+    LayoutTextStyleError, MachineGlyphCoverage, MachineStyleFontPreparationError,
+    MachineTextSiteSource, MultiFlowSelectedStateFingerprint, PreparedMachineStyleFonts,
+    PreparedMachineTextSite, ResolvedLayoutTextStyle, ResolvedTableColumn,
+    ResolvedTableColumnInput, ShapeFontSelectionError, ShapeFontSelectionReceipt,
+    TableGridFingerprint, TableGridReceiptError, TableGridReceiptInput, TableSection,
+    TableSelectedLayoutFingerprint, TableVerticalAlignment, ValidatedTableCellBinding,
+    ValidatedTableGridReceipt, ValidatedTableRowBinding,
 };
 use typaxis_linebreak::ValidatedParagraphItemRegistry;
 use typaxis_resource_admission::{AdmittedImageMediaKind, AdmittedResourceLedger};
@@ -859,6 +864,920 @@ fn nonnegative_raw(raw: i64) -> Result<NonNegativeLength, StagingMachineListLayo
     Length::from_raw(raw)
         .and_then(NonNegativeLength::new)
         .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)
+}
+
+pub const STAGING_FOOTNOTE_PROFILE_ID: &str = "typaxis.machine-pdf/footnote-1";
+pub const FOOTNOTE_SEPARATOR_BAND_RAW: i64 = 65_536;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StagingFootnoteRegistryError {
+    PackageEpochMismatch,
+    AstNodeLimit,
+    UnsupportedBodyDomain(NodeId),
+    UnsupportedDefinitionContent(NodeId),
+    EmptyDefinition(FootnoteId),
+    UnreferencedDefinition(FootnoteId),
+    MissingDefinition(FootnoteId),
+    UnknownDefinition(FootnoteId),
+    DuplicateDefinition(FootnoteId),
+    WrongDefinitionOwner(FootnoteId),
+    WrongProfileReceipt,
+    InvalidFootnoteMaster,
+    EmptyDefinitionFragments(FootnoteId),
+    IncompleteDefinitionFragments(FootnoteId),
+    FragmentLimit,
+    NonDenseFootnoteFlow,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingFootnoteReferenceRecord {
+    reference_owner: NodeId,
+    footnote_id: FootnoteId,
+    logical_ordinal: u32,
+}
+
+impl StagingFootnoteReferenceRecord {
+    pub const fn reference_owner(&self) -> NodeId {
+        self.reference_owner
+    }
+
+    pub const fn footnote_id(&self) -> &FootnoteId {
+        &self.footnote_id
+    }
+
+    pub const fn logical_ordinal(&self) -> u32 {
+        self.logical_ordinal
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingFootnoteDefinitionRecord {
+    footnote_id: FootnoteId,
+    definition_owner: NodeId,
+    catalog_ordinal: u32,
+    block_owners: Vec<NodeId>,
+}
+
+impl StagingFootnoteDefinitionRecord {
+    pub const fn footnote_id(&self) -> &FootnoteId {
+        &self.footnote_id
+    }
+
+    pub const fn definition_owner(&self) -> NodeId {
+        self.definition_owner
+    }
+
+    /// One-based marker/catalog ordinal. This is intentionally independent of
+    /// the zero-based page assignment ordinal used by pagination.
+    pub const fn catalog_ordinal(&self) -> u32 {
+        self.catalog_ordinal
+    }
+
+    pub fn block_owners(&self) -> &[NodeId] {
+        &self.block_owners
+    }
+}
+
+/// Package/epoch-bound proof of the private footnote profile's definition and
+/// reference closure plus its fixed maximum footnote frame.
+#[derive(Debug)]
+pub struct StagingFootnoteProfilePreflightReceipt {
+    package: DocumentFingerprint,
+    epoch: LayoutEpoch,
+    body_flow_registry: FlowRegistryFingerprint,
+    master_id: MasterId,
+    body_frame: Rect,
+    maximum_footnote_frame: Rect,
+    definitions: Vec<StagingFootnoteDefinitionRecord>,
+    references: Vec<StagingFootnoteReferenceRecord>,
+    fingerprint: FootnoteProfileFingerprint,
+    canonical_jcs: String,
+}
+
+impl StagingFootnoteProfilePreflightReceipt {
+    pub const fn package_fingerprint(&self) -> DocumentFingerprint {
+        self.package
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub const fn body_flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.body_flow_registry
+    }
+
+    pub const fn master_id(&self) -> &MasterId {
+        &self.master_id
+    }
+
+    pub const fn body_frame(&self) -> Rect {
+        self.body_frame
+    }
+
+    pub const fn maximum_footnote_frame(&self) -> Rect {
+        self.maximum_footnote_frame
+    }
+
+    pub fn definitions(&self) -> &[StagingFootnoteDefinitionRecord] {
+        &self.definitions
+    }
+
+    pub fn references(&self) -> &[StagingFootnoteReferenceRecord] {
+        &self.references
+    }
+
+    pub const fn fingerprint(&self) -> FootnoteProfileFingerprint {
+        self.fingerprint
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+/// Private MI3-06 preflight. Public profile dispatch remains unchanged; this
+/// consumes only the already validated 1.2 typed package and rederives every
+/// footnote-specific closure fact before any FootnoteFlowId is allocated.
+pub fn preflight_staging_footnote_profile(
+    package: &ValidatedParsedPackage,
+    epoch: LayoutEpoch,
+    body_flow_registry: FlowRegistryFingerprint,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingFootnoteProfilePreflightReceipt, StagingFootnoteRegistryError> {
+    if epoch.document() != package.epoch_identity().document()
+        || epoch.style() != package.epoch_identity().style()
+    {
+        return Err(StagingFootnoteRegistryError::PackageEpochMismatch);
+    }
+    if u64::try_from(package.document_nodes().node_count())
+        .map_err(|_| StagingFootnoteRegistryError::AstNodeLimit)?
+        > limits.get().max_ast_nodes
+    {
+        return Err(StagingFootnoteRegistryError::AstNodeLimit);
+    }
+
+    let catalog: BTreeMap<_, _> = package
+        .package()
+        .document
+        .footnotes
+        .iter()
+        .map(|definition| (definition.footnote_id.clone(), definition))
+        .collect();
+    if catalog.len() != package.package().document.footnotes.len() {
+        return Err(StagingFootnoteRegistryError::AstNodeLimit);
+    }
+
+    let mut references = Vec::new();
+    references
+        .try_reserve_exact(package.document_nodes().footnote_reference_targets().len())
+        .map_err(|_| StagingFootnoteRegistryError::AllocationFailure)?;
+    for block in &package.package().document.blocks {
+        collect_body_footnote_references(package, block, &catalog, &mut references)?;
+    }
+    for (index, reference) in references.iter_mut().enumerate() {
+        reference.logical_ordinal =
+            u32::try_from(index).map_err(|_| StagingFootnoteRegistryError::AstNodeLimit)?;
+    }
+
+    let referenced: BTreeSet<_> = references
+        .iter()
+        .map(|reference| reference.footnote_id.clone())
+        .collect();
+    let mut definitions = Vec::new();
+    definitions
+        .try_reserve_exact(package.package().document.footnotes.len())
+        .map_err(|_| StagingFootnoteRegistryError::AllocationFailure)?;
+    for (index, definition) in package.package().document.footnotes.iter().enumerate() {
+        if !referenced.contains(&definition.footnote_id) {
+            return Err(StagingFootnoteRegistryError::UnreferencedDefinition(
+                definition.footnote_id.clone(),
+            ));
+        }
+        let block_owners = validate_footnote_definition(package, definition)?;
+        let catalog_ordinal = u32::try_from(index)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(StagingFootnoteRegistryError::AstNodeLimit)?;
+        definitions.push(StagingFootnoteDefinitionRecord {
+            footnote_id: definition.footnote_id.clone(),
+            definition_owner: definition.node_id,
+            catalog_ordinal,
+            block_owners,
+        });
+    }
+
+    let masters = &package.package().page_masters;
+    let [master] = masters.masters.as_slice() else {
+        return Err(StagingFootnoteRegistryError::InvalidFootnoteMaster);
+    };
+    if masters.default_master_id != master.master_id
+        || !masters.selection_rules.is_empty()
+        || master.header.is_some()
+        || master.footer.is_some()
+    {
+        return Err(StagingFootnoteRegistryError::InvalidFootnoteMaster);
+    }
+    let maximum_footnote_frame = master
+        .footnote
+        .ok_or(StagingFootnoteRegistryError::InvalidFootnoteMaster)?;
+    validate_footnote_master_geometry(master.body, maximum_footnote_frame)?;
+
+    let canonical_jcs = encode_footnote_profile_preflight(
+        package.epoch_identity().document(),
+        epoch,
+        body_flow_registry,
+        &master.master_id,
+        master.body,
+        maximum_footnote_frame,
+        &definitions,
+        &references,
+    );
+    let fingerprint = footnote_profile_fingerprint_from_jcs(&canonical_jcs);
+    Ok(StagingFootnoteProfilePreflightReceipt {
+        package: package.epoch_identity().document(),
+        epoch,
+        body_flow_registry,
+        master_id: master.master_id.clone(),
+        body_frame: master.body,
+        maximum_footnote_frame,
+        definitions,
+        references,
+        fingerprint,
+        canonical_jcs,
+    })
+}
+
+fn collect_body_footnote_references(
+    package: &ValidatedParsedPackage,
+    block: &Block,
+    catalog: &BTreeMap<FootnoteId, &FootnoteDefinition>,
+    references: &mut Vec<StagingFootnoteReferenceRecord>,
+) -> Result<(), StagingFootnoteRegistryError> {
+    match block {
+        Block::Paragraph { children, .. } | Block::Heading { children, .. } => {
+            collect_inline_footnote_references(package, children, catalog, references)
+        }
+        Block::List { items, .. } => {
+            for nested in items.iter().flat_map(|item| &item.blocks) {
+                collect_body_footnote_references(package, nested, catalog, references)?;
+            }
+            Ok(())
+        }
+        Block::Figure { caption, .. } => {
+            for nested in caption {
+                collect_body_footnote_references(package, nested, catalog, references)?;
+            }
+            Ok(())
+        }
+        Block::PageBreak { .. } => Ok(()),
+        Block::Table { node_id, .. } => Err(StagingFootnoteRegistryError::UnsupportedBodyDomain(
+            *node_id,
+        )),
+    }
+}
+
+fn collect_inline_footnote_references(
+    package: &ValidatedParsedPackage,
+    inlines: &[Inline],
+    catalog: &BTreeMap<FootnoteId, &FootnoteDefinition>,
+    references: &mut Vec<StagingFootnoteReferenceRecord>,
+) -> Result<(), StagingFootnoteRegistryError> {
+    for inline in inlines {
+        match inline {
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => {
+                collect_inline_footnote_references(package, children, catalog, references)?;
+            }
+            Inline::FootnoteReference {
+                node_id,
+                footnote_id,
+                ..
+            } => {
+                if package.document_nodes().node_kind(*node_id)
+                    != Some(DocumentNodeKind::FootnoteReference)
+                {
+                    return Err(StagingFootnoteRegistryError::UnsupportedBodyDomain(
+                        *node_id,
+                    ));
+                }
+                if !catalog.contains_key(footnote_id) {
+                    return Err(StagingFootnoteRegistryError::MissingDefinition(
+                        footnote_id.clone(),
+                    ));
+                }
+                references
+                    .try_reserve(1)
+                    .map_err(|_| StagingFootnoteRegistryError::AllocationFailure)?;
+                references.push(StagingFootnoteReferenceRecord {
+                    reference_owner: *node_id,
+                    footnote_id: footnote_id.clone(),
+                    logical_ordinal: 0,
+                });
+            }
+            Inline::Text { .. }
+            | Inline::Anchor { .. }
+            | Inline::Reference { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::HardBreak { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_footnote_definition(
+    package: &ValidatedParsedPackage,
+    definition: &FootnoteDefinition,
+) -> Result<Vec<NodeId>, StagingFootnoteRegistryError> {
+    if package.document_nodes().node_kind(definition.node_id)
+        != Some(DocumentNodeKind::FootnoteDefinition)
+    {
+        return Err(StagingFootnoteRegistryError::UnsupportedDefinitionContent(
+            definition.node_id,
+        ));
+    }
+    if definition.blocks.is_empty() {
+        return Err(StagingFootnoteRegistryError::EmptyDefinition(
+            definition.footnote_id.clone(),
+        ));
+    }
+    let mut block_owners = Vec::new();
+    block_owners
+        .try_reserve_exact(definition.blocks.len())
+        .map_err(|_| StagingFootnoteRegistryError::AllocationFailure)?;
+    let mut text_producing = false;
+    for block in &definition.blocks {
+        let (owner, children) = match block {
+            Block::Paragraph {
+                node_id, children, ..
+            }
+            | Block::Heading {
+                node_id, children, ..
+            } => (*node_id, children.as_slice()),
+            _ => {
+                return Err(StagingFootnoteRegistryError::UnsupportedDefinitionContent(
+                    definition.node_id,
+                ))
+            }
+        };
+        block_owners.push(owner);
+        validate_footnote_definition_inlines(children, false, &mut text_producing)?;
+    }
+    if !text_producing {
+        return Err(StagingFootnoteRegistryError::EmptyDefinition(
+            definition.footnote_id.clone(),
+        ));
+    }
+    Ok(block_owners)
+}
+
+fn validate_footnote_definition_inlines(
+    inlines: &[Inline],
+    inside_link: bool,
+    text_producing: &mut bool,
+) -> Result<(), StagingFootnoteRegistryError> {
+    for inline in inlines {
+        match inline {
+            Inline::Text { text_span, .. } => {
+                if text_span.start_byte() < text_span.end_byte() {
+                    *text_producing = true;
+                }
+            }
+            Inline::Reference {
+                format: ReferenceFormat::Page,
+                ..
+            } => {
+                *text_producing = true;
+            }
+            Inline::Link {
+                node_id, children, ..
+            } if !inside_link => {
+                let mut link_text_producing = false;
+                validate_footnote_definition_inlines(children, true, &mut link_text_producing)
+                    .map_err(|_| {
+                        StagingFootnoteRegistryError::UnsupportedDefinitionContent(*node_id)
+                    })?;
+                if !link_text_producing {
+                    return Err(StagingFootnoteRegistryError::UnsupportedDefinitionContent(
+                        *node_id,
+                    ));
+                }
+                *text_producing = true;
+            }
+            Inline::Anchor { .. } | Inline::SoftBreak { .. } | Inline::HardBreak { .. } => {}
+            Inline::Emphasis { node_id, .. }
+            | Inline::Strong { node_id, .. }
+            | Inline::Link { node_id, .. }
+            | Inline::Reference { node_id, .. }
+            | Inline::FootnoteReference { node_id, .. } => {
+                return Err(StagingFootnoteRegistryError::UnsupportedDefinitionContent(
+                    *node_id,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_footnote_master_geometry(
+    body: Rect,
+    footnote: Rect,
+) -> Result<(), StagingFootnoteRegistryError> {
+    let body_end = body
+        .y()
+        .checked_add(body.height().get())
+        .ok_or(StagingFootnoteRegistryError::ArithmeticOverflow)?;
+    let footnote_end = footnote
+        .y()
+        .checked_add(footnote.height().get())
+        .ok_or(StagingFootnoteRegistryError::ArithmeticOverflow)?;
+    if footnote.x() != body.x()
+        || footnote.width() != body.width()
+        || footnote_end != body_end
+        || footnote.height().get().raw() >= body.height().get().raw()
+    {
+        return Err(StagingFootnoteRegistryError::InvalidFootnoteMaster);
+    }
+    Ok(())
+}
+
+/// Worker measurement for one definition in strict flow order. Every extent
+/// is one positive indivisible fragment; the first extent includes the
+/// definition marker, its fixed font-size glue, and the kept first line.
+#[derive(Debug)]
+pub struct ValidatedStagingFootnoteDefinitionLayout {
+    profile: FootnoteProfileFingerprint,
+    footnote_id: FootnoteId,
+    definition_owner: NodeId,
+    fragment_extents: Vec<PositiveLength>,
+}
+
+impl ValidatedStagingFootnoteDefinitionLayout {
+    pub const fn footnote_id(&self) -> &FootnoteId {
+        &self.footnote_id
+    }
+
+    pub const fn definition_owner(&self) -> NodeId {
+        self.definition_owner
+    }
+
+    pub fn fragment_extents(&self) -> &[PositiveLength] {
+        &self.fragment_extents
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingFootnoteFlow {
+    binding: FootnoteFlowBinding,
+    catalog_ordinal: u32,
+    block_owners: Vec<NodeId>,
+    fragment_extents: Vec<PositiveLength>,
+}
+
+impl StagingFootnoteFlow {
+    pub const fn binding(&self) -> &FootnoteFlowBinding {
+        &self.binding
+    }
+
+    pub const fn catalog_ordinal(&self) -> u32 {
+        self.catalog_ordinal
+    }
+
+    pub fn block_owners(&self) -> &[NodeId] {
+        &self.block_owners
+    }
+
+    pub fn fragment_extents(&self) -> &[PositiveLength] {
+        &self.fragment_extents
+    }
+}
+
+#[derive(Debug)]
+pub struct StagingFootnoteFlowRegistryReceipt {
+    package: DocumentFingerprint,
+    epoch: LayoutEpoch,
+    profile: FootnoteProfileFingerprint,
+    body_flow_registry: FlowRegistryFingerprint,
+    fingerprint: FootnoteFlowRegistryFingerprint,
+    flow_count: u32,
+}
+
+impl StagingFootnoteFlowRegistryReceipt {
+    pub const fn package_fingerprint(&self) -> DocumentFingerprint {
+        self.package
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub const fn profile_fingerprint(&self) -> FootnoteProfileFingerprint {
+        self.profile
+    }
+
+    pub const fn body_flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.body_flow_registry
+    }
+
+    pub const fn fingerprint(&self) -> FootnoteFlowRegistryFingerprint {
+        self.fingerprint
+    }
+
+    pub const fn flow_count(&self) -> u32 {
+        self.flow_count
+    }
+}
+
+/// Canonical definition-flow registry. Worker registration order is discarded
+/// and every lookup table is projected from the validated, fingerprinted
+/// vectors rather than included as authority.
+#[derive(Debug)]
+pub struct StagingFootnoteFlowRegistry {
+    receipt: StagingFootnoteFlowRegistryReceipt,
+    master_id: MasterId,
+    body_frame: Rect,
+    maximum_footnote_frame: Rect,
+    flows: Vec<StagingFootnoteFlow>,
+    references: Vec<StagingFootnoteReferenceRecord>,
+    flow_by_footnote: BTreeMap<FootnoteId, usize>,
+    reference_by_owner: BTreeMap<NodeId, usize>,
+    canonical_jcs: String,
+}
+
+impl StagingFootnoteFlowRegistry {
+    pub const fn receipt(&self) -> &StagingFootnoteFlowRegistryReceipt {
+        &self.receipt
+    }
+
+    pub const fn master_id(&self) -> &MasterId {
+        &self.master_id
+    }
+
+    pub const fn body_frame(&self) -> Rect {
+        self.body_frame
+    }
+
+    pub const fn maximum_footnote_frame(&self) -> Rect {
+        self.maximum_footnote_frame
+    }
+
+    pub fn flows(&self) -> &[StagingFootnoteFlow] {
+        &self.flows
+    }
+
+    pub fn flow(&self, flow_id: FootnoteFlowId) -> Option<&StagingFootnoteFlow> {
+        self.flows
+            .get(flow_id.get() as usize)
+            .filter(|flow| flow.binding.flow_id() == flow_id)
+    }
+
+    pub fn flow_by_footnote_id(&self, footnote_id: &FootnoteId) -> Option<&StagingFootnoteFlow> {
+        self.flow_by_footnote
+            .get(footnote_id)
+            .and_then(|index| self.flows.get(*index))
+    }
+
+    pub fn references(&self) -> &[StagingFootnoteReferenceRecord] {
+        &self.references
+    }
+
+    pub fn reference(&self, reference_owner: NodeId) -> Option<&StagingFootnoteReferenceRecord> {
+        self.reference_by_owner
+            .get(&reference_owner)
+            .and_then(|index| self.references.get(*index))
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+/// Mutable worker-registration phase for measured definition fragments.
+pub struct StagingFootnoteFlowRegistryBuilder<'a> {
+    preflight: &'a StagingFootnoteProfilePreflightReceipt,
+    registrations: Vec<(FootnoteId, ValidatedStagingFootnoteDefinitionLayout)>,
+    registered_fragment_count: u64,
+    max_fragments: u64,
+}
+
+impl<'a> StagingFootnoteFlowRegistryBuilder<'a> {
+    pub fn new(
+        preflight: &'a StagingFootnoteProfilePreflightReceipt,
+        limits: &ValidatedResourceLimits,
+    ) -> Self {
+        Self {
+            preflight,
+            registrations: Vec::new(),
+            registered_fragment_count: 0,
+            max_fragments: limits.get().max_fragments,
+        }
+    }
+
+    pub fn expected_definition_ids(&self) -> impl ExactSizeIterator<Item = &FootnoteId> {
+        self.preflight
+            .definitions
+            .iter()
+            .map(|definition| &definition.footnote_id)
+    }
+
+    pub fn issue_definition(
+        &self,
+        footnote_id: &FootnoteId,
+        fragment_extents: Vec<PositiveLength>,
+    ) -> Result<ValidatedStagingFootnoteDefinitionLayout, StagingFootnoteRegistryError> {
+        let definition = self
+            .preflight
+            .definitions
+            .iter()
+            .find(|definition| &definition.footnote_id == footnote_id)
+            .ok_or_else(|| StagingFootnoteRegistryError::UnknownDefinition(footnote_id.clone()))?;
+        if fragment_extents.is_empty() {
+            return Err(StagingFootnoteRegistryError::EmptyDefinitionFragments(
+                footnote_id.clone(),
+            ));
+        }
+        if fragment_extents.len() < definition.block_owners.len() {
+            return Err(StagingFootnoteRegistryError::IncompleteDefinitionFragments(
+                footnote_id.clone(),
+            ));
+        }
+        if u64::try_from(fragment_extents.len())
+            .map_err(|_| StagingFootnoteRegistryError::FragmentLimit)?
+            > self.max_fragments
+        {
+            return Err(StagingFootnoteRegistryError::FragmentLimit);
+        }
+        Ok(ValidatedStagingFootnoteDefinitionLayout {
+            profile: self.preflight.fingerprint,
+            footnote_id: footnote_id.clone(),
+            definition_owner: definition.definition_owner,
+            fragment_extents,
+        })
+    }
+
+    pub fn register(
+        &mut self,
+        definition: ValidatedStagingFootnoteDefinitionLayout,
+    ) -> Result<(), StagingFootnoteRegistryError> {
+        let footnote_id = definition.footnote_id.clone();
+        self.register_for(footnote_id, definition)
+    }
+
+    pub fn register_for(
+        &mut self,
+        registered_id: FootnoteId,
+        definition: ValidatedStagingFootnoteDefinitionLayout,
+    ) -> Result<(), StagingFootnoteRegistryError> {
+        if definition.profile != self.preflight.fingerprint {
+            return Err(StagingFootnoteRegistryError::WrongProfileReceipt);
+        }
+        let definition_fragment_count = u64::try_from(definition.fragment_extents.len())
+            .map_err(|_| StagingFootnoteRegistryError::FragmentLimit)?;
+        let registered_fragment_count = self
+            .registered_fragment_count
+            .checked_add(definition_fragment_count)
+            .filter(|count| *count <= self.max_fragments)
+            .ok_or(StagingFootnoteRegistryError::FragmentLimit)?;
+        self.registrations
+            .try_reserve(1)
+            .map_err(|_| StagingFootnoteRegistryError::AllocationFailure)?;
+        self.registrations.push((registered_id, definition));
+        self.registered_fragment_count = registered_fragment_count;
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<StagingFootnoteFlowRegistry, StagingFootnoteRegistryError> {
+        self.registrations
+            .sort_by(|left, right| left.0.cmp(&right.0));
+        if let Some(pair) = self
+            .registrations
+            .windows(2)
+            .find(|pair| pair[0].0 == pair[1].0)
+        {
+            return Err(StagingFootnoteRegistryError::DuplicateDefinition(
+                pair[1].0.clone(),
+            ));
+        }
+        let expected: BTreeSet<_> = self
+            .preflight
+            .definitions
+            .iter()
+            .map(|definition| definition.footnote_id.clone())
+            .collect();
+        if let Some((extra, _)) = self
+            .registrations
+            .iter()
+            .find(|(registered, _)| !expected.contains(registered))
+        {
+            return Err(StagingFootnoteRegistryError::UnknownDefinition(
+                extra.clone(),
+            ));
+        }
+        let mut registered: BTreeMap<_, _> = self.registrations.into_iter().collect();
+        let mut flows = Vec::new();
+        flows
+            .try_reserve_exact(self.preflight.definitions.len())
+            .map_err(|_| StagingFootnoteRegistryError::AllocationFailure)?;
+        for (index, expected) in self.preflight.definitions.iter().enumerate() {
+            let measured = registered.remove(&expected.footnote_id).ok_or_else(|| {
+                StagingFootnoteRegistryError::MissingDefinition(expected.footnote_id.clone())
+            })?;
+            if measured.footnote_id != expected.footnote_id
+                || measured.definition_owner != expected.definition_owner
+            {
+                return Err(StagingFootnoteRegistryError::WrongDefinitionOwner(
+                    expected.footnote_id.clone(),
+                ));
+            }
+            let flow_id = FootnoteFlowId::new(
+                u32::try_from(index)
+                    .map_err(|_| StagingFootnoteRegistryError::NonDenseFootnoteFlow)?,
+            );
+            let terminal = FootnoteFlowTerminal::new(
+                u32::try_from(measured.fragment_extents.len())
+                    .map_err(|_| StagingFootnoteRegistryError::FragmentLimit)?,
+            );
+            flows.push(StagingFootnoteFlow {
+                binding: FootnoteFlowBinding::new(
+                    expected.footnote_id.clone(),
+                    flow_id,
+                    expected.definition_owner,
+                    terminal,
+                ),
+                catalog_ordinal: expected.catalog_ordinal,
+                block_owners: expected.block_owners.clone(),
+                fragment_extents: measured.fragment_extents,
+            });
+        }
+        if let Some((extra, _)) = registered.first_key_value() {
+            return Err(StagingFootnoteRegistryError::UnknownDefinition(
+                extra.clone(),
+            ));
+        }
+
+        let canonical_jcs = encode_footnote_flow_registry(self.preflight, &flows);
+        let fingerprint = footnote_flow_registry_fingerprint_from_jcs(&canonical_jcs);
+        let flow_count = u32::try_from(flows.len())
+            .map_err(|_| StagingFootnoteRegistryError::NonDenseFootnoteFlow)?;
+        let flow_by_footnote = flows
+            .iter()
+            .enumerate()
+            .map(|(index, flow)| (flow.binding.footnote_id().clone(), index))
+            .collect();
+        let reference_by_owner = self
+            .preflight
+            .references
+            .iter()
+            .enumerate()
+            .map(|(index, reference)| (reference.reference_owner, index))
+            .collect();
+        Ok(StagingFootnoteFlowRegistry {
+            receipt: StagingFootnoteFlowRegistryReceipt {
+                package: self.preflight.package,
+                epoch: self.preflight.epoch,
+                profile: self.preflight.fingerprint,
+                body_flow_registry: self.preflight.body_flow_registry,
+                fingerprint,
+                flow_count,
+            },
+            master_id: self.preflight.master_id.clone(),
+            body_frame: self.preflight.body_frame,
+            maximum_footnote_frame: self.preflight.maximum_footnote_frame,
+            flows,
+            references: self.preflight.references.clone(),
+            flow_by_footnote,
+            reference_by_owner,
+            canonical_jcs,
+        })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_footnote_profile_preflight(
+    package: DocumentFingerprint,
+    epoch: LayoutEpoch,
+    body_flow_registry: FlowRegistryFingerprint,
+    master_id: &MasterId,
+    body_frame: Rect,
+    maximum_footnote_frame: Rect,
+    definitions: &[StagingFootnoteDefinitionRecord],
+    references: &[StagingFootnoteReferenceRecord],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, FootnoteProfileFingerprint::ALGORITHM_ID);
+    output.push_str(",\"body_flow_registry_sha256\":");
+    push_hash_hex_jcs(&mut output, body_flow_registry.bytes());
+    output.push_str(",\"body_frame\":");
+    encode_footnote_rect(&mut output, body_frame);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"definitions\":[");
+    for (index, definition) in definitions.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"block_owners\":[");
+        for (block_index, owner) in definition.block_owners.iter().enumerate() {
+            if block_index != 0 {
+                output.push(',');
+            }
+            output.push_str(&owner.get().to_string());
+        }
+        output.push_str("],\"catalog_ordinal\":");
+        output.push_str(&definition.catalog_ordinal.to_string());
+        output.push_str(",\"definition_owner\":");
+        output.push_str(&definition.definition_owner.get().to_string());
+        output.push_str(",\"footnote_id\":");
+        push_jcs_string(&mut output, definition.footnote_id.as_str());
+        output.push('}');
+    }
+    output.push_str("],\"layout_epoch\":");
+    push_layout_epoch_jcs(&mut output, epoch);
+    output.push_str(",\"master_id\":");
+    push_jcs_string(&mut output, master_id.as_str());
+    output.push_str(",\"maximum_footnote_frame\":");
+    encode_footnote_rect(&mut output, maximum_footnote_frame);
+    output.push_str(",\"package_sha256\":");
+    push_hash_hex_jcs(&mut output, package.bytes());
+    output.push_str(",\"profile\":");
+    push_jcs_string(&mut output, STAGING_FOOTNOTE_PROFILE_ID);
+    output.push_str(",\"references\":[");
+    for (index, reference) in references.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"footnote_id\":");
+        push_jcs_string(&mut output, reference.footnote_id.as_str());
+        output.push_str(",\"logical_ordinal\":");
+        output.push_str(&reference.logical_ordinal.to_string());
+        output.push_str(",\"reference_owner\":");
+        output.push_str(&reference.reference_owner.get().to_string());
+        output.push('}');
+    }
+    output.push_str("]}");
+    output
+}
+
+fn encode_footnote_flow_registry(
+    preflight: &StagingFootnoteProfilePreflightReceipt,
+    flows: &[StagingFootnoteFlow],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, FootnoteFlowRegistryFingerprint::ALGORITHM_ID);
+    output.push_str(",\"body_flow_registry_sha256\":");
+    push_hash_hex_jcs(&mut output, preflight.body_flow_registry.bytes());
+    output.push_str(",\"flows\":[");
+    for (index, flow) in flows.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"block_owners\":[");
+        for (block_index, owner) in flow.block_owners.iter().enumerate() {
+            if block_index != 0 {
+                output.push(',');
+            }
+            output.push_str(&owner.get().to_string());
+        }
+        output.push_str("],\"catalog_ordinal\":");
+        output.push_str(&flow.catalog_ordinal.to_string());
+        output.push_str(",\"definition_owner\":");
+        output.push_str(&flow.binding.definition_owner().get().to_string());
+        output.push_str(",\"flow_id\":");
+        output.push_str(&flow.binding.flow_id().get().to_string());
+        output.push_str(",\"footnote_id\":");
+        push_jcs_string(&mut output, flow.binding.footnote_id().as_str());
+        output.push_str(",\"fragment_extents\":[");
+        for (fragment_index, extent) in flow.fragment_extents.iter().enumerate() {
+            if fragment_index != 0 {
+                output.push(',');
+            }
+            output.push_str(&extent.get().raw().to_string());
+        }
+        output.push_str("],\"terminal\":");
+        output.push_str(&flow.binding.terminal().fragment_count().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"layout_epoch\":");
+    push_layout_epoch_jcs(&mut output, preflight.epoch);
+    output.push_str(",\"package_sha256\":");
+    push_hash_hex_jcs(&mut output, preflight.package.bytes());
+    output.push_str(",\"profile_receipt_sha256\":");
+    push_hash_hex_jcs(&mut output, preflight.fingerprint.bytes());
+    output.push('}');
+    output
+}
+
+fn encode_footnote_rect(output: &mut String, rect: Rect) {
+    output.push_str("{\"height\":");
+    output.push_str(&rect.height().get().raw().to_string());
+    output.push_str(",\"width\":");
+    output.push_str(&rect.width().get().raw().to_string());
+    output.push_str(",\"x\":");
+    output.push_str(&rect.x().raw().to_string());
+    output.push_str(",\"y\":");
+    output.push_str(&rect.y().raw().to_string());
+    output.push('}');
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -5603,6 +6522,354 @@ mod tests {
     }
     fn paragraph_package(seed: u8) -> ValidatedParsedPackage {
         parsed_reference_package(seed, "paragraph\nparagraph")
+    }
+
+    fn staging_footnote_wire(
+        reference_ids: &[&str],
+        definitions: &[(&str, bool)],
+        footnote_y: i64,
+        footnote_height: i64,
+    ) -> wire::WireDocumentPackage {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let mut next_node_id = 2u32;
+        let body_children = reference_ids
+            .iter()
+            .map(|footnote_id| {
+                let node_id = next_node_id;
+                next_node_id += 1;
+                wire::WireInline::FootnoteReference {
+                    node_id,
+                    span,
+                    footnote_id: (*footnote_id).to_owned(),
+                }
+            })
+            .collect();
+        let mut footnotes = Vec::new();
+        for (footnote_id, productive) in definitions {
+            let definition_node = next_node_id;
+            let paragraph_node = next_node_id + 1;
+            let inline_node = next_node_id + 2;
+            next_node_id += 3;
+            let child = if *productive {
+                wire::WireInline::Reference {
+                    node_id: inline_node,
+                    span,
+                    target: "target".to_owned(),
+                    format: wire::WireReferenceFormat::Page,
+                }
+            } else {
+                wire::WireInline::SoftBreak {
+                    node_id: inline_node,
+                    span,
+                }
+            };
+            footnotes.push(wire::WireFootnote {
+                footnote_id: (*footnote_id).to_owned(),
+                node_id: definition_node,
+                span,
+                blocks: vec![wire::WireBlock::Paragraph {
+                    node_id: paragraph_node,
+                    span,
+                    classes: Vec::new(),
+                    children: vec![child],
+                }],
+            });
+        }
+        wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_2,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "footnote-input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![wire::WireBlock::Heading {
+                    node_id: 1,
+                    span,
+                    classes: Vec::new(),
+                    level: 1,
+                    anchor_id: Some("target".to_owned()),
+                    children: body_children,
+                }],
+                footnotes,
+            },
+            style_sheet: wire::WireStyleSheet { rules: Vec::new() },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 200_000,
+                    height: 200_000,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 200_000,
+                        height: 200_000,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: Some(wire::WireRect {
+                        x: 0,
+                        y: footnote_y,
+                        width: 200_000,
+                        height: footnote_height,
+                    }),
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        }
+    }
+
+    fn parse_staging_footnote_wire(
+        package: wire::WireDocumentPackage,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<ValidatedStagingStylePackage, ()> {
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(limits, &schemes).unwrap(),
+            )
+            .map_err(|_| ())
+    }
+
+    fn staging_footnote_epoch(
+        package: &ValidatedParsedPackage,
+        limits: &ValidatedResourceLimits,
+    ) -> LayoutEpoch {
+        let generated = package.materialize_initial_generated_text(limits).unwrap();
+        let generated = package.bind_generated_text(&generated, limits).unwrap();
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, limits)
+            .unwrap()
+            .finish()
+            .unwrap();
+        LayoutEpoch::from_validated_inputs(generated, admitted.token()).unwrap()
+    }
+
+    fn staging_body_registry_fingerprint() -> FlowRegistryFingerprint {
+        flow_registry_fingerprint_from_jcs(
+            "{\"algorithm\":\"typaxis.basic-flow-registry/1\",\"fixture\":true}",
+        )
+    }
+
+    fn footnote_extent(raw: i64) -> PositiveLength {
+        PositiveLength::new(Length::from_raw(raw).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn footnote_registry_is_canonical_across_worker_registration_order() {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let package = parse_staging_footnote_wire(
+            staging_footnote_wire(
+                &["z", "z", "a"],
+                &[("a", true), ("z", true)],
+                100_000,
+                100_000,
+            ),
+            &limits,
+        )
+        .unwrap();
+        let epoch = staging_footnote_epoch(package.package(), &limits);
+        let preflight = preflight_staging_footnote_profile(
+            package.package(),
+            epoch,
+            staging_body_registry_fingerprint(),
+            &limits,
+        )
+        .unwrap();
+        assert_eq!(
+            preflight
+                .definitions()
+                .iter()
+                .map(|definition| (
+                    definition.footnote_id().as_str(),
+                    definition.catalog_ordinal()
+                ))
+                .collect::<Vec<_>>(),
+            vec![("a", 1), ("z", 2)]
+        );
+        assert_eq!(
+            preflight
+                .references()
+                .iter()
+                .map(|reference| (
+                    reference.footnote_id().as_str(),
+                    reference.logical_ordinal()
+                ))
+                .collect::<Vec<_>>(),
+            vec![("z", 0), ("z", 1), ("a", 2)]
+        );
+
+        let build = |reverse: bool| {
+            let mut builder = StagingFootnoteFlowRegistryBuilder::new(&preflight, &limits);
+            let mut ids: Vec<_> = builder.expected_definition_ids().cloned().collect();
+            if reverse {
+                ids.reverse();
+            }
+            for id in ids {
+                let fragments = if id.as_str() == "a" {
+                    vec![footnote_extent(10_000)]
+                } else {
+                    vec![footnote_extent(15_000), footnote_extent(15_000)]
+                };
+                let measured = builder.issue_definition(&id, fragments).unwrap();
+                builder.register(measured).unwrap();
+            }
+            builder.finish().unwrap()
+        };
+        let forward = build(false);
+        let reverse = build(true);
+        assert_eq!(
+            forward.receipt().fingerprint(),
+            reverse.receipt().fingerprint()
+        );
+        assert_eq!(forward.canonical_jcs(), reverse.canonical_jcs());
+        assert_eq!(forward.flows().len(), 2);
+        assert_eq!(forward.flows()[0].binding().footnote_id().as_str(), "a");
+        assert_eq!(
+            forward.flows()[0].binding().flow_id(),
+            FootnoteFlowId::new(0)
+        );
+        assert_eq!(forward.flows()[1].binding().footnote_id().as_str(), "z");
+        assert_eq!(
+            forward.flows()[1].binding().flow_id(),
+            FootnoteFlowId::new(1)
+        );
+        assert_eq!(forward.flows()[1].binding().terminal().fragment_count(), 2);
+    }
+
+    #[test]
+    fn footnote_registry_preflight_rejects_unreferenced_empty_and_missing_definitions() {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let unreferenced = parse_staging_footnote_wire(
+            staging_footnote_wire(&["z"], &[("a", true), ("z", true)], 100_000, 100_000),
+            &limits,
+        )
+        .unwrap();
+        let error = preflight_staging_footnote_profile(
+            unreferenced.package(),
+            staging_footnote_epoch(unreferenced.package(), &limits),
+            staging_body_registry_fingerprint(),
+            &limits,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            StagingFootnoteRegistryError::UnreferencedDefinition(FootnoteId::new("a").unwrap())
+        );
+
+        let empty = parse_staging_footnote_wire(
+            staging_footnote_wire(&["a"], &[("a", false)], 100_000, 100_000),
+            &limits,
+        )
+        .unwrap();
+        assert_eq!(
+            preflight_staging_footnote_profile(
+                empty.package(),
+                staging_footnote_epoch(empty.package(), &limits),
+                staging_body_registry_fingerprint(),
+                &limits,
+            )
+            .unwrap_err(),
+            StagingFootnoteRegistryError::EmptyDefinition(FootnoteId::new("a").unwrap())
+        );
+
+        let missing = staging_footnote_wire(&["a"], &[], 100_000, 100_000);
+        assert!(parse_staging_footnote_wire(missing, &limits).is_err());
+
+        let package = parse_staging_footnote_wire(
+            staging_footnote_wire(&["a", "z"], &[("a", true), ("z", true)], 100_000, 100_000),
+            &limits,
+        )
+        .unwrap();
+        let preflight = preflight_staging_footnote_profile(
+            package.package(),
+            staging_footnote_epoch(package.package(), &limits),
+            staging_body_registry_fingerprint(),
+            &limits,
+        )
+        .unwrap();
+        let mut builder = StagingFootnoteFlowRegistryBuilder::new(&preflight, &limits);
+        let a = FootnoteId::new("a").unwrap();
+        let measured = builder
+            .issue_definition(&a, vec![footnote_extent(10_000)])
+            .unwrap();
+        builder.register(measured).unwrap();
+        assert_eq!(
+            builder.finish().unwrap_err(),
+            StagingFootnoteRegistryError::MissingDefinition(FootnoteId::new("z").unwrap())
+        );
+    }
+
+    #[test]
+    fn footnote_registry_checks_master_geometry_and_fragment_limit_before_allocation() {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let invalid_master = parse_staging_footnote_wire(
+            staging_footnote_wire(&["a"], &[("a", true)], 90_000, 100_000),
+            &limits,
+        )
+        .unwrap();
+        assert_eq!(
+            preflight_staging_footnote_profile(
+                invalid_master.package(),
+                staging_footnote_epoch(invalid_master.package(), &limits),
+                staging_body_registry_fingerprint(),
+                &limits,
+            )
+            .unwrap_err(),
+            StagingFootnoteRegistryError::InvalidFootnoteMaster
+        );
+
+        let package = parse_staging_footnote_wire(
+            staging_footnote_wire(&["a"], &[("a", true)], 100_000, 100_000),
+            &limits,
+        )
+        .unwrap();
+        let preflight = preflight_staging_footnote_profile(
+            package.package(),
+            staging_footnote_epoch(package.package(), &limits),
+            staging_body_registry_fingerprint(),
+            &limits,
+        )
+        .unwrap();
+        let raw_limits = ResourceLimits {
+            max_fragments: 2,
+            ..ResourceLimits::default()
+        };
+        let exact_limits = ValidatedResourceLimits::new(raw_limits).unwrap();
+        let builder = StagingFootnoteFlowRegistryBuilder::new(&preflight, &exact_limits);
+        let a = FootnoteId::new("a").unwrap();
+        assert!(builder
+            .issue_definition(&a, vec![footnote_extent(1), footnote_extent(1)])
+            .is_ok());
+        assert_eq!(
+            builder
+                .issue_definition(
+                    &a,
+                    vec![footnote_extent(1), footnote_extent(1), footnote_extent(1)],
+                )
+                .unwrap_err(),
+            StagingFootnoteRegistryError::FragmentLimit
+        );
     }
 
     fn staging_machine_list_package() -> typaxis_syntax::ValidatedStagingStylePackage {

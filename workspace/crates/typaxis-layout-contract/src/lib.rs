@@ -4,8 +4,8 @@ use core::num::NonZeroU16;
 use std::collections::BTreeSet;
 use typaxis_core::{
     sha256, AdmittedResourceFingerprint, DocumentFingerprint, FontFaceId, FontInstanceId,
-    GeneratedBufferKey, GenerationKind, Length, NodeId, NonNegativeLength, PositiveLength,
-    ReferenceFingerprint, StyleFingerprint, TextSpan, Utf8ByteOffset,
+    FootnoteId, GeneratedBufferKey, GenerationKind, Length, NodeId, NonNegativeLength,
+    PositiveLength, ReferenceFingerprint, StyleFingerprint, TextSpan, Utf8ByteOffset,
 };
 use typaxis_resource_admission::{
     AdmittedFontInstanceRef, AdmittedFontInstanceTable, AdmittedResourceLedgerToken,
@@ -116,6 +116,39 @@ impl FlowId {
     }
 }
 
+/// Dense identity of one footnote-definition flow.
+///
+/// This is deliberately a different nominal type and namespace from
+/// [`FlowId`]. The document body remains `FlowId::DOCUMENT_BODY`; footnote
+/// definitions start at `FootnoteFlowId(0)` in canonical `FootnoteId` order
+/// and can never be confused with a body, list, caption, or table-cell cursor.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FootnoteFlowId(u32);
+
+impl FootnoteFlowId {
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+/// Exclusive terminal fragment ordinal for one measured footnote flow.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FootnoteFlowTerminal(u32);
+
+impl FootnoteFlowTerminal {
+    pub const fn new(fragment_count: u32) -> Self {
+        Self(fragment_count)
+    }
+
+    pub const fn fragment_count(self) -> u32 {
+        self.0
+    }
+}
+
 /// Closed set of implemented flow owners. `TableCell` is private until the
 /// table publication gate; no unknown string is interpreted as a flow kind.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -205,6 +238,18 @@ flow_fingerprint_type!(
     TableSelectedLayoutFingerprint,
     "typaxis.table-selected-layout/1"
 );
+flow_fingerprint_type!(
+    FootnoteProfileFingerprint,
+    "typaxis.footnote-profile-receipt/1"
+);
+flow_fingerprint_type!(
+    FootnoteFlowRegistryFingerprint,
+    "typaxis.footnote-flow-registry/1"
+);
+flow_fingerprint_type!(
+    FootnotePageEvaluationFingerprint,
+    "typaxis.footnote-page-evaluation/1"
+);
 
 pub fn flow_registry_fingerprint_from_jcs(canonical_jcs: &str) -> FlowRegistryFingerprint {
     FlowRegistryFingerprint::from_canonical_jcs(canonical_jcs)
@@ -220,6 +265,65 @@ pub fn table_selected_layout_fingerprint_from_jcs(
     canonical_jcs: &str,
 ) -> TableSelectedLayoutFingerprint {
     TableSelectedLayoutFingerprint::from_canonical_jcs(canonical_jcs)
+}
+
+pub fn footnote_profile_fingerprint_from_jcs(canonical_jcs: &str) -> FootnoteProfileFingerprint {
+    FootnoteProfileFingerprint::from_canonical_jcs(canonical_jcs)
+}
+
+pub fn footnote_flow_registry_fingerprint_from_jcs(
+    canonical_jcs: &str,
+) -> FootnoteFlowRegistryFingerprint {
+    FootnoteFlowRegistryFingerprint::from_canonical_jcs(canonical_jcs)
+}
+
+pub fn footnote_page_evaluation_fingerprint_from_jcs(
+    canonical_jcs: &str,
+) -> FootnotePageEvaluationFingerprint {
+    FootnotePageEvaluationFingerprint::from_canonical_jcs(canonical_jcs)
+}
+
+/// Canonical definition binding shared by layout and pagination receipts.
+/// The constructor is intentionally small: registry admission and dense-ID
+/// validation remain the responsibility of the package-derived layout owner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FootnoteFlowBinding {
+    footnote_id: FootnoteId,
+    flow_id: FootnoteFlowId,
+    definition_owner: NodeId,
+    terminal: FootnoteFlowTerminal,
+}
+
+impl FootnoteFlowBinding {
+    pub const fn new(
+        footnote_id: FootnoteId,
+        flow_id: FootnoteFlowId,
+        definition_owner: NodeId,
+        terminal: FootnoteFlowTerminal,
+    ) -> Self {
+        Self {
+            footnote_id,
+            flow_id,
+            definition_owner,
+            terminal,
+        }
+    }
+
+    pub const fn footnote_id(&self) -> &FootnoteId {
+        &self.footnote_id
+    }
+
+    pub const fn flow_id(&self) -> FootnoteFlowId {
+        self.flow_id
+    }
+
+    pub const fn definition_owner(&self) -> NodeId {
+        self.definition_owner
+    }
+
+    pub const fn terminal(&self) -> FootnoteFlowTerminal {
+        self.terminal
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1647,6 +1751,17 @@ mod tests {
         assert_eq!(FlowContentKind::PageBreak.as_str(), "page_break");
         assert_eq!(FlowContentKind::TableRow.as_str(), "table_row");
         assert_eq!(FlowTerminal::new(3).owner_local_ordinal(), 3);
+        assert_eq!(FootnoteFlowId::new(0).get(), 0);
+        assert_eq!(FootnoteFlowTerminal::new(2).fragment_count(), 2);
+        let binding = FootnoteFlowBinding::new(
+            FootnoteId::new("note").unwrap(),
+            FootnoteFlowId::new(0),
+            NodeId::new(9),
+            FootnoteFlowTerminal::new(2),
+        );
+        assert_eq!(binding.footnote_id().as_str(), "note");
+        assert_eq!(binding.flow_id(), FootnoteFlowId::new(0));
+        assert_eq!(binding.definition_owner(), NodeId::new(9));
 
         let registry = flow_registry_fingerprint_from_jcs(
             "{\"algorithm\":\"typaxis.basic-flow-registry/1\",\"flows\":[]}",
@@ -1658,6 +1773,21 @@ mod tests {
         assert_eq!(
             FlowRegistryFingerprint::ALGORITHM_ID,
             "typaxis.basic-flow-registry/1"
+        );
+        let footnote_profile = footnote_profile_fingerprint_from_jcs(
+            "{\"algorithm\":\"typaxis.footnote-profile-receipt/1\"}",
+        );
+        let footnote_registry = footnote_flow_registry_fingerprint_from_jcs(
+            "{\"algorithm\":\"typaxis.footnote-flow-registry/1\"}",
+        );
+        let footnote_page = footnote_page_evaluation_fingerprint_from_jcs(
+            "{\"algorithm\":\"typaxis.footnote-page-evaluation/1\"}",
+        );
+        assert_ne!(footnote_profile.bytes(), footnote_registry.bytes());
+        assert_ne!(footnote_registry.bytes(), footnote_page.bytes());
+        assert_eq!(
+            FootnoteFlowRegistryFingerprint::ALGORITHM_ID,
+            "typaxis.footnote-flow-registry/1"
         );
     }
 

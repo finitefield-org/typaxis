@@ -74,6 +74,7 @@ pub const T2101: DiagnosticCode = DiagnosticCode(*b"T2101");
 pub const L5100: DiagnosticCode = DiagnosticCode(*b"L5100");
 pub const L5101: DiagnosticCode = DiagnosticCode(*b"L5101");
 pub const L5110: DiagnosticCode = DiagnosticCode(*b"L5110");
+pub const G6002: DiagnosticCode = DiagnosticCode(*b"G6002");
 pub const R7100: DiagnosticCode = DiagnosticCode(*b"R7100");
 pub const I9100: DiagnosticCode = DiagnosticCode(*b"I9100");
 pub const I9101: DiagnosticCode = DiagnosticCode(*b"I9101");
