@@ -56,8 +56,8 @@ use typaxis_text::{
 #[doc(hidden)]
 pub mod machine_profile_boundary {
     pub use typaxis_document::{
-        Block, ColumnBalance, ColumnFill, ColumnLayout, FigurePlacement, FootnoteDefinition,
-        Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
+        Block, ColumnBalance, ColumnFill, ColumnLayout, FigurePlacement, FloatPlacementClass,
+        FootnoteDefinition, Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
     };
     pub use typaxis_document_package as wire;
     pub use typaxis_machine_input::{
@@ -67,9 +67,9 @@ pub mod machine_profile_boundary {
         MAX_HOST_READ_CANDIDATES, MAX_RESOURCE_ROOTS,
     };
     pub use typaxis_style::{
-        BasicBlockStylePropertyDescriptor, BasicStyleBlockKind, BasicStyleProperty, PageMaster,
-        PageMasterRule, PageParity, StyleRule, StyleValue, BASIC_BLOCK_STYLE_PROPERTIES,
-        BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+        BasicBlockStylePropertyDescriptor, BasicStyleBlockKind, BasicStyleProperty,
+        MachineFigureWidth, PageMaster, PageMasterRule, PageParity, StyleRule, StyleValue,
+        BASIC_BLOCK_STYLE_PROPERTIES, BASIC_BLOCK_STYLE_REGISTRY_VERSION,
     };
 
     pub use crate::{

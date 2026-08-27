@@ -1,11 +1,16 @@
 #![forbid(unsafe_code)]
 
 mod advanced_columns;
+mod advanced_float;
 mod advanced_header_footer;
 
 pub use advanced_columns::{
     serialize_staging_columns_pdf, StagingColumnsPdf, StagingColumnsPdfClosureReceipt,
     StagingColumnsPdfError, StagingColumnsPdfPageObservation,
+};
+pub use advanced_float::{
+    serialize_staging_float_pdf, StagingFloatPdf, StagingFloatPdfClosureReceipt,
+    StagingFloatPdfError, StagingFloatPdfObjectUsage, StagingFloatPdfPageObservation,
 };
 pub use advanced_header_footer::{
     serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,

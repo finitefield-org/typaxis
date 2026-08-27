@@ -1786,7 +1786,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-11 Float queue、placement、carryを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-08, MI3-10
 - Design inputs: docs/25 §8 M3、§13.1 future subflows
 - Primary files:
@@ -1822,6 +1822,12 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination floats --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_float --locked`
+- Implementation notes (2026-08-28, Linux):
+  - public/current 1.2を変更せず、MI3-08で予約したprivate `typaxis.contract/1.3` DTO/domain/syntax/three-schema registryを`float-1`専用runnerへ接続した。profile receiptはraw/canonical package、document/style、全effective limits、opaque sessionへbindし、direct-body float、explicit positive width、unsplittable caption、zero spacing/indent/clearance、single full-media master、sequential unbalanced columnsだけをlayout前に受理する。public decoder/profile/help/capability/current Schema aliasは未変更である。
+  - document preorderからFloat/FloatCaptionをbody/list/block-caption flowよりtyped ownershipで分離し、non-null column templateを最後にascending allocationするdense FlowId registryを実装した。style declaration既存charge、semantic node、column templateを同じ`max_ast_nodes`へchecked合算し、caption/list/nested float、wrong owner/depth/package/profile/limits receiptをselected state前に拒否する。
+  - body anchor到達とFIFO enqueueをatomicにし、headだけを`here`、`top`、`bottom`、`next_page`順で評価するchecked schedulerを実装した。placementはfull-column-width exclusion band、zero clearance、source/body/frame/anchor/page/columnへbindし、column境界ではcarryを増やさず、page境界だけでdedicated carryをincrementする。queue/carry exact maxを受理してmax+1前に`G6004`、page/frame/body/placement/carry record exact maxを受理してallocation前に`L5110`とし、forced page break後のlater column placement、trailing-breakのpost-break blank page、duplicate candidate、same-state progressを閉じた。
+  - selected placement/queue/carryからcanonical frame paint ordinalを発行し、Display command、placementごとのdedicated PDF Form XObject usage、actual page box/object observation、advanced trace/manifest projectionまでprofile/flow/selected/paint hashで閉じた。duplicate/missing/wrong page/class/anchor/order/carry/objectとreceipt replayを`I9190` negative testにした。
+  - combined/empty/oversize fixtureはsingle/multiple、here/top deferral、column/page carry、non-floating neutral、exact/max+1、same-toolchain reproducibilityを含む。milestone指定test、affected layout/profile/Display/PDF/manifest tests、private Schema validator、locked workspace all-target check/test、strict clippy、format、Markdown、forbidden-dependency、whitespace/diff checkをlocalで完了した。current aliasとversioned 1.2 DocumentPackage Schemaは同一byteのままで、public 1.3 descriptor/dispatch、G6003/G6004 registry、external PDF/raster、release evidenceはMI3-12に残る。
 - Non-goals:
   - ADRで採択していないCSS相当float behavior
 

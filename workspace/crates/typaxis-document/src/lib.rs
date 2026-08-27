@@ -115,6 +115,35 @@ pub enum FigurePlacement {
     Float,
 }
 
+/// Closed scheduler classes for the contract-1.3 non-wrapping float profile.
+/// The declaration wire chooses only block versus float; this enum records the
+/// deterministic owner-selected candidate/placement class.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum FloatPlacementClass {
+    Here,
+    Top,
+    Bottom,
+    NextPage,
+}
+
+impl FloatPlacementClass {
+    pub const ORDERED: [Self; 4] = [Self::Here, Self::Top, Self::Bottom, Self::NextPage];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Here => "here",
+            Self::Top => "top",
+            Self::Bottom => "bottom",
+            Self::NextPage => "next_page",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FloatClearance {
+    Zero,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PageProgression {
     LeftToRight,

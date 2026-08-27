@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
 mod advanced_columns;
+mod advanced_float;
 mod advanced_header_footer;
 
 pub use advanced_columns::project_staging_columns_manifest;
+pub use advanced_float::project_staging_float_manifest;
 pub use advanced_header_footer::{
     project_staging_header_footer_manifest, StagingAdvancedPaginationManifest,
     StagingAdvancedPaginationManifestError, ADVANCED_PAGINATION_MANIFEST_ALGORITHM,

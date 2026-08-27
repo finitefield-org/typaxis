@@ -8,6 +8,7 @@
 //! into independent lists.
 
 mod advanced_columns;
+mod advanced_float;
 mod advanced_header_footer;
 mod basic_figures;
 mod basic_links;
@@ -25,6 +26,11 @@ pub use advanced_columns::{
     preflight_staging_columns_profile, StagingColumnsPreflightError,
     StagingColumnsPreflightReceipt, StagingColumnsProfileDescriptor, StagingColumnsSessionIdentity,
     COLUMNS_PROFILE_RECEIPT_ALGORITHM, STAGING_COLUMNS_PROFILE_ID,
+};
+pub use advanced_float::{
+    preflight_staging_float_profile, StagingFloatPlacementClass, StagingFloatPreflightError,
+    StagingFloatPreflightReceipt, StagingFloatProfileDescriptor, StagingFloatSessionIdentity,
+    FLOAT_PROFILE_RECEIPT_ALGORITHM, STAGING_FLOAT_PROFILE_ID,
 };
 pub use advanced_header_footer::{
     preflight_staging_header_footer_profile, StagingHeaderFooterPreflightError,

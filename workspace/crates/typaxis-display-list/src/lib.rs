@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod advanced_columns;
+mod advanced_float;
 mod advanced_header_footer;
 
 #[cfg(any(test, feature = "staging-fixtures"))]
@@ -8,6 +9,13 @@ pub use advanced_columns::staging_columns_display_fixture;
 pub use advanced_columns::{
     build_staging_columns_display, StagingColumnPaintCommand, StagingColumnsDisplay,
     StagingColumnsDisplayError, StagingColumnsDisplayPage, StagingColumnsDisplayReceipt,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use advanced_float::staging_float_display_fixture;
+pub use advanced_float::{
+    build_staging_float_display, StagingFloatDisplay, StagingFloatDisplayError,
+    StagingFloatDisplayPage, StagingFloatDisplayReceipt, StagingFloatPaintCommand,
+    StagingFloatPaintCommandKind,
 };
 pub use advanced_header_footer::{
     build_staging_header_footer_display, StagingHeaderFooterDisplay,

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod advanced_columns;
+mod advanced_float;
 mod advanced_header_footer;
 
 #[cfg(any(test, feature = "staging-fixtures"))]
@@ -9,6 +10,14 @@ pub use advanced_columns::{
     paginate_staging_columns, StagingColumnBalanceReceipt, StagingColumnFragment,
     StagingColumnRejectionReceipt, StagingColumnsPaginationError, StagingColumnsSelectedLayout,
     StagingColumnsSelectedLayoutReceipt, StagingColumnsSelectedPage, COLUMN_BALANCE_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use advanced_float::staging_float_selected_fixture;
+pub use advanced_float::{
+    paginate_staging_float, StagingFloatBodyFragment, StagingFloatCandidateDecision,
+    StagingFloatCarry, StagingFloatPaginationError, StagingFloatPlacement, StagingFloatQueueEntry,
+    StagingFloatSelectedLayout, StagingFloatSelectedLayoutReceipt, StagingFloatSelectedPage,
+    FLOAT_QUEUE_ALGORITHM,
 };
 pub use advanced_header_footer::{
     derive_staging_header_footer_body_pages, paginate_staging_header_footer,

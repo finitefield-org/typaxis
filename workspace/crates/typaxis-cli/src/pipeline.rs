@@ -4667,6 +4667,167 @@ pub(crate) fn run_staging_machine_columns(
     })
 }
 
+/// Private MI3-11 vertical runner. It preserves the public 1.2 decoder and
+/// profile dispatch until MI3-12 publishes the complete advanced registry.
+#[derive(Debug)]
+#[cfg(test)]
+pub(crate) struct MachineFloatStagingOutput {
+    pdf: Vec<u8>,
+    projection_jcs: String,
+    trace_jcs: String,
+    manifest_jcs: String,
+    page_count: usize,
+    placement_classes: Vec<String>,
+    carry_counts: Vec<u32>,
+    queue_after_lengths: Vec<usize>,
+    selected_layout_sha256: [u8; 32],
+    paint_closure_sha256: [u8; 32],
+}
+
+#[cfg(test)]
+impl MachineFloatStagingOutput {
+    pub(crate) fn pdf(&self) -> &[u8] {
+        &self.pdf
+    }
+    pub(crate) fn projection_jcs(&self) -> &str {
+        &self.projection_jcs
+    }
+    pub(crate) fn trace_jcs(&self) -> &str {
+        &self.trace_jcs
+    }
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+    pub(crate) const fn page_count(&self) -> usize {
+        self.page_count
+    }
+    pub(crate) fn placement_classes(&self) -> &[String] {
+        &self.placement_classes
+    }
+    pub(crate) fn carry_counts(&self) -> &[u32] {
+        &self.carry_counts
+    }
+    pub(crate) fn queue_after_lengths(&self) -> &[usize] {
+        &self.queue_after_lengths
+    }
+    pub(crate) const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub(crate) const fn paint_closure_sha256(&self) -> [u8; 32] {
+        self.paint_closure_sha256
+    }
+}
+
+#[derive(Debug)]
+#[cfg(test)]
+pub(crate) enum MachineFloatStagingError {
+    Decode(typaxis_document_package::StagingAdvancedDecodeError),
+    Syntax(typaxis_syntax::StagingAdvancedPackageParseError),
+    Profile(typaxis_machine_profile::StagingFloatPreflightError),
+    Layout(typaxis_layout::StagingFloatLayoutError),
+    Pagination(typaxis_pagination::StagingFloatPaginationError),
+    Display(typaxis_display_list::StagingFloatDisplayError),
+    Pdf(typaxis_pdf::StagingFloatPdfError),
+    Manifest(typaxis_manifest::StagingAdvancedPaginationManifestError),
+    InvalidPolicy,
+}
+
+#[cfg(test)]
+impl std::fmt::Display for MachineFloatStagingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Decode(error) => error.fmt(formatter),
+            Self::Syntax(error) => error.fmt(formatter),
+            Self::Profile(error) => error.fmt(formatter),
+            Self::Layout(error) => error.fmt(formatter),
+            Self::Pagination(error) => error.fmt(formatter),
+            Self::Display(error) => error.fmt(formatter),
+            Self::Pdf(error) => error.fmt(formatter),
+            Self::Manifest(error) => error.fmt(formatter),
+            Self::InvalidPolicy => formatter.write_str("invalid staging URI policy"),
+        }
+    }
+}
+
+#[cfg(test)]
+impl std::error::Error for MachineFloatStagingError {}
+
+#[cfg(test)]
+pub(crate) fn run_staging_machine_float(
+    package_bytes: &[u8],
+    source_utf8: String,
+    limits: &ValidatedResourceLimits,
+) -> Result<MachineFloatStagingOutput, MachineFloatStagingError> {
+    let profile_session = typaxis_machine_profile::StagingFloatSessionIdentity::fresh();
+    let decode_policy = typaxis_document_package::DocumentPackageDecodePolicy::new(limits);
+    let decoded = typaxis_document_package::StagingAdvancedDocumentPackageDecoder::new()
+        .decode(package_bytes, &decode_policy)
+        .map_err(MachineFloatStagingError::Decode)?;
+    let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    let syntax_policy = typaxis_syntax::PackageValidationPolicy::new(limits, &allowed_schemes)
+        .map_err(|_| MachineFloatStagingError::InvalidPolicy)?;
+    let package = typaxis_syntax::StagingAdvancedPackageParser::new()
+        .parse(decoded, source_utf8, &syntax_policy)
+        .map_err(MachineFloatStagingError::Syntax)?;
+    let profile = typaxis_machine_profile::preflight_staging_float_profile(
+        &package,
+        limits,
+        &profile_session,
+    )
+    .map_err(MachineFloatStagingError::Profile)?;
+    profile
+        .verify(&package, limits, &profile_session)
+        .map_err(MachineFloatStagingError::Profile)?;
+    let layout =
+        typaxis_layout::layout_staging_float(&package, profile.profile_receipt_sha256(), limits)
+            .map_err(MachineFloatStagingError::Layout)?;
+    layout
+        .verify_receipt(&package, profile.profile_receipt_sha256(), limits)
+        .map_err(MachineFloatStagingError::Layout)?;
+    let selected = typaxis_pagination::paginate_staging_float(&layout, limits)
+        .map_err(MachineFloatStagingError::Pagination)?;
+    let display = typaxis_display_list::build_staging_float_display(&selected)
+        .map_err(MachineFloatStagingError::Display)?;
+    let pdf = typaxis_pdf::serialize_staging_float_pdf(&display, limits)
+        .map_err(MachineFloatStagingError::Pdf)?;
+    let manifest = typaxis_manifest::project_staging_float_manifest(&selected, &display, &pdf)
+        .map_err(MachineFloatStagingError::Manifest)?;
+    let placement_classes = selected
+        .pages()
+        .iter()
+        .flat_map(|page| page.placements())
+        .map(|placement| placement.class().as_str().to_owned())
+        .collect();
+    let carry_counts = selected
+        .pages()
+        .iter()
+        .flat_map(|page| page.carries())
+        .map(|carry| carry.carry_count())
+        .collect();
+    let queue_after_lengths = selected
+        .pages()
+        .iter()
+        .map(|page| page.queue_after().len())
+        .collect();
+    let projection_jcs = manifest.canonical_jcs().to_owned();
+    let projection = manifest.wrapped_artifact_jcs();
+    Ok(MachineFloatStagingOutput {
+        pdf: pdf.bytes().to_vec(),
+        projection_jcs,
+        trace_jcs: projection.clone(),
+        manifest_jcs: projection,
+        page_count: selected.pages().len(),
+        placement_classes,
+        carry_counts,
+        queue_after_lengths,
+        selected_layout_sha256: manifest.selected_layout_sha256(),
+        paint_closure_sha256: manifest.paint_closure_sha256(),
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -7657,6 +7818,352 @@ pub(crate) mod tests {
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
         let first = run_staging_machine_columns(package, String::new(), &limits).unwrap();
         let second = run_staging_machine_columns(package, String::new(), &limits).unwrap();
+        assert_eq!(first.pdf(), second.pdf());
+        assert_eq!(first.projection_jcs(), second.projection_jcs());
+        assert_eq!(first.trace_jcs(), second.trace_jcs());
+        assert_eq!(first.manifest_jcs(), second.manifest_jcs());
+    }
+
+    #[test]
+    fn machine_float_combined_closes_fifo_here_top_carry_display_pdf_and_manifest() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let output = run_staging_machine_float(package, String::new(), &limits).unwrap();
+        assert_eq!(output.page_count(), 3);
+        assert_eq!(
+            output.placement_classes(),
+            ["here", "top", "top", "top", "top"]
+        );
+        assert_eq!(output.carry_counts(), [1, 1, 1, 2]);
+        assert_eq!(output.queue_after_lengths(), [3, 1, 0]);
+        assert_eq!(output.trace_jcs(), output.manifest_jcs());
+        let golden = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/combined/staging-advanced-pagination.json"
+        ));
+        assert_eq!(output.projection_jcs(), golden.trim_end());
+        assert!(output
+            .projection_jcs()
+            .contains("\"profile\":\"typaxis.machine-pdf/float-1\""));
+        assert!(output.projection_jcs().contains("\"class\":\"here\""));
+        assert!(output.projection_jcs().contains("\"carry_count\":2"));
+        assert_ne!(output.selected_layout_sha256(), [0; 32]);
+        assert_ne!(output.paint_closure_sha256(), [0; 32]);
+
+        let pdf = String::from_utf8_lossy(output.pdf());
+        assert_eq!(pdf.matches("/MediaBox").count(), 3);
+        assert_eq!(pdf.matches("/Subtype /Form").count(), 5);
+        assert!(pdf.contains("% typaxis float class=here"));
+        assert!(pdf.contains("% typaxis float class=top"));
+        assert!(!pdf.contains("/BleedBox"));
+        assert!(!pdf.contains("/ArtBox"));
+
+        let public_error = wire::StrictDocumentPackageDecoder::new()
+            .decode(package, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .expect_err("public current decoder must continue rejecting 1.3");
+        assert!(matches!(
+            public_error.typed_error().map(|error| error.kind()),
+            Some(wire::DocumentPackageTypedDecodeErrorKind::UnknownContract)
+        ));
+    }
+
+    #[test]
+    fn machine_float_profile_receipt_rejects_limit_session_and_package_replay() {
+        let package_bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let decode_policy = wire::DocumentPackageDecodePolicy::new(&limits);
+        let decoded = wire::StagingAdvancedDocumentPackageDecoder::new()
+            .decode(package_bytes, &decode_policy)
+            .unwrap();
+        let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>();
+        let syntax_policy =
+            typaxis_syntax::PackageValidationPolicy::new(&limits, &allowed_schemes).unwrap();
+        let package = typaxis_syntax::StagingAdvancedPackageParser::new()
+            .parse(decoded, String::new(), &syntax_policy)
+            .unwrap();
+        let session = typaxis_machine_profile::StagingFloatSessionIdentity::fresh();
+        let receipt =
+            typaxis_machine_profile::preflight_staging_float_profile(&package, &limits, &session)
+                .unwrap();
+        receipt.verify(&package, &limits, &session).unwrap();
+
+        let other_session = typaxis_machine_profile::StagingFloatSessionIdentity::fresh();
+        assert!(matches!(
+            receipt.verify(&package, &limits, &other_session),
+            Err(typaxis_machine_profile::StagingFloatPreflightError::ReceiptMismatch)
+        ));
+
+        let defaults = ResourceLimits::default();
+        let other_limits = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: defaults.max_pages - 1,
+            ..defaults
+        })
+        .unwrap();
+        assert!(matches!(
+            receipt.verify(&package, &other_limits, &session),
+            Err(typaxis_machine_profile::StagingFloatPreflightError::ReceiptMismatch)
+        ));
+
+        let mut reformatted = Vec::with_capacity(package_bytes.len() + 1);
+        reformatted.push(b' ');
+        reformatted.extend_from_slice(package_bytes);
+        let replay = wire::StagingAdvancedDocumentPackageDecoder::new()
+            .decode(&reformatted, &decode_policy)
+            .unwrap();
+        let replay = typaxis_syntax::StagingAdvancedPackageParser::new()
+            .parse(replay, String::new(), &syntax_policy)
+            .unwrap();
+        assert!(matches!(
+            receipt.verify(&replay, &limits, &session),
+            Err(typaxis_machine_profile::StagingFloatPreflightError::ReceiptMismatch)
+        ));
+    }
+
+    #[test]
+    fn machine_float_queue_carry_page_fragment_object_and_output_limits_are_inclusive() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/combined/job/document-package.json"
+        ));
+        let defaults = ResourceLimits::default();
+        let baseline = run_staging_machine_float(
+            package,
+            String::new(),
+            &ValidatedResourceLimits::new(defaults.clone()).unwrap(),
+        )
+        .unwrap();
+        let exact_output_bytes = u64::try_from(baseline.pdf().len()).unwrap();
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_ast_nodes: 44,
+            max_pages: 3,
+            max_fragments: 17,
+            max_float_queue: 4,
+            max_float_carry_pages: 2,
+            max_pdf_objects: 13,
+            max_output_bytes: exact_output_bytes,
+            ..defaults.clone()
+        })
+        .unwrap();
+        run_staging_machine_float(package, String::new(), &exact).unwrap();
+
+        let ast_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_ast_nodes: 43,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_float(package, String::new(), &ast_over),
+            Err(MachineFloatStagingError::Layout(
+                typaxis_layout::StagingFloatLayoutError::AstNodeLimit
+            ))
+        ));
+
+        let queue_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_float_queue: 3,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_float(package, String::new(), &queue_over),
+            Err(MachineFloatStagingError::Pagination(
+                typaxis_pagination::StagingFloatPaginationError::QueueLimit(_)
+            ))
+        ));
+
+        let carry_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_float_carry_pages: 1,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_float(package, String::new(), &carry_over),
+            Err(MachineFloatStagingError::Pagination(
+                typaxis_pagination::StagingFloatPaginationError::CarryLimit(_)
+            ))
+        ));
+
+        let page_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 2,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_float(package, String::new(), &page_over),
+            Err(MachineFloatStagingError::Pagination(
+                typaxis_pagination::StagingFloatPaginationError::PageLimit
+            ))
+        ));
+
+        let fragment_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_fragments: 16,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_float(package, String::new(), &fragment_over),
+            Err(MachineFloatStagingError::Pagination(
+                typaxis_pagination::StagingFloatPaginationError::FragmentLimit
+            ))
+        ));
+
+        let object_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_pdf_objects: 12,
+            ..defaults.clone()
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_float(package, String::new(), &object_over),
+            Err(MachineFloatStagingError::Pdf(
+                typaxis_pdf::StagingFloatPdfError::PageObjectLimit
+            ))
+        ));
+
+        let output_over = ValidatedResourceLimits::new(ResourceLimits {
+            max_output_bytes: exact_output_bytes - 1,
+            ..defaults
+        })
+        .unwrap();
+        assert!(matches!(
+            run_staging_machine_float(package, String::new(), &output_over),
+            Err(MachineFloatStagingError::Pdf(
+                typaxis_pdf::StagingFloatPdfError::OutputLimit
+            ))
+        ));
+    }
+
+    #[test]
+    fn machine_float_oversize_and_wrong_profile_combinations_fail_before_artifacts() {
+        let combined = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/combined/job/document-package.json"
+        ));
+        let oversize = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/oversize/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+
+        let single = oversize.replacen(
+            r#""name": "width", "value": {"kind": "length", "value": 6}"#,
+            r#""name": "width", "value": {"kind": "length", "value": 5}"#,
+            1,
+        );
+        assert_ne!(single, oversize);
+        let single = run_staging_machine_float(single.as_bytes(), String::new(), &limits).unwrap();
+        assert_eq!(single.page_count(), 1);
+        assert_eq!(single.placement_classes(), ["here"]);
+        assert!(single.carry_counts().is_empty());
+        assert_eq!(single.queue_after_lengths(), [0]);
+
+        assert!(matches!(
+            run_staging_machine_float(oversize.as_bytes(), String::new(), &limits),
+            Err(MachineFloatStagingError::Pagination(
+                typaxis_pagination::StagingFloatPaginationError::Oversize(_)
+            ))
+        ));
+
+        let balance = combined.replacen("\"balance\": \"none\"", "\"balance\": \"last_page\"", 1);
+        assert!(matches!(
+            run_staging_machine_float(balance.as_bytes(), String::new(), &limits),
+            Err(MachineFloatStagingError::Profile(
+                typaxis_machine_profile::StagingFloatPreflightError::InvalidGeometry(_)
+            ))
+        ));
+
+        let header = combined.replacen(
+            "\"header\": null",
+            "\"header\": {\"x\": 1, \"y\": 0, \"width\": 12, \"height\": 1}",
+            1,
+        );
+        assert!(matches!(
+            run_staging_machine_float(header.as_bytes(), String::new(), &limits),
+            Err(MachineFloatStagingError::Profile(
+                typaxis_machine_profile::StagingFloatPreflightError::UnsupportedMaster(_)
+            ))
+        ));
+
+        let auto_width = combined.replacen(
+            "\"name\": \"width\", \"value\": {\"kind\": \"length\", \"value\": 4}",
+            "\"name\": \"width\", \"value\": {\"kind\": \"keyword\", \"value\": \"auto\"}",
+            1,
+        );
+        assert!(matches!(
+            run_staging_machine_float(auto_width.as_bytes(), String::new(), &limits),
+            Err(MachineFloatStagingError::Profile(
+                typaxis_machine_profile::StagingFloatPreflightError::UnsupportedStyle
+            ))
+        ));
+
+        let split_caption = combined.replacen(
+            "\"name\": \"keep_caption\", \"value\": {\"kind\": \"boolean\", \"value\": true}",
+            "\"name\": \"keep_caption\", \"value\": {\"kind\": \"boolean\", \"value\": false}",
+            1,
+        );
+        assert!(matches!(
+            run_staging_machine_float(split_caption.as_bytes(), String::new(), &limits),
+            Err(MachineFloatStagingError::Profile(
+                typaxis_machine_profile::StagingFloatPreflightError::UnsupportedStyle
+            ))
+        ));
+
+        let nested = combined.replacen(
+            r#""caption": [{"kind": "paragraph", "node_id": 4, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": ["short"], "children": [{"kind": "text", "node_id": 5, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "text_span": {"text_id": 1, "start_byte": 0, "end_byte": 4}}]}]"#,
+            r#""caption": [{"kind": "figure", "placement": "float", "node_id": 4, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": [], "image_id": 0, "alt": "nested float", "caption": [{"kind": "paragraph", "node_id": 5, "span": {"source_id": 0, "start_byte": 0, "end_byte": 0}, "classes": [], "children": []}]}]"#,
+            1,
+        );
+        assert_ne!(nested, combined);
+        assert!(matches!(
+            run_staging_machine_float(nested.as_bytes(), String::new(), &limits),
+            Err(MachineFloatStagingError::Profile(
+                typaxis_machine_profile::StagingFloatPreflightError::NestedFloat(node)
+            )) if node == typaxis_core::NodeId::new(4)
+        ));
+    }
+
+    #[test]
+    fn machine_float_empty_and_block_figures_keep_neutral_behavior() {
+        let empty = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/empty/job/document-package.json"
+        ));
+        let combined = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let empty = run_staging_machine_float(empty, String::new(), &limits).unwrap();
+        assert_eq!(empty.page_count(), 1);
+        assert!(empty.placement_classes().is_empty());
+        assert!(empty.carry_counts().is_empty());
+        assert!(empty
+            .projection_jcs()
+            .contains("\"float_placements\":[],\"float_queue_after\":[]"));
+
+        let block = combined.replace("\"placement\": \"float\"", "\"placement\": \"block\"");
+        let block = run_staging_machine_float(block.as_bytes(), String::new(), &limits).unwrap();
+        assert!(block.placement_classes().is_empty());
+        assert!(block.carry_counts().is_empty());
+        assert!(!String::from_utf8_lossy(block.pdf()).contains("% typaxis float"));
+    }
+
+    #[test]
+    fn machine_float_same_toolchain_output_is_reproducible() {
+        let package = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/float-1/combined/job/document-package.json"
+        ));
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let first = run_staging_machine_float(package, String::new(), &limits).unwrap();
+        let second = run_staging_machine_float(package, String::new(), &limits).unwrap();
         assert_eq!(first.pdf(), second.pdf());
         assert_eq!(first.projection_jcs(), second.projection_jcs());
         assert_eq!(first.trace_jcs(), second.trace_jcs());

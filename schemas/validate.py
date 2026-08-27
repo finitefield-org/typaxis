@@ -74,6 +74,11 @@ STAGING_COLUMNS_FIXTURE_ROOT = (
     / "staging"
     / "columns-1"
 )
+STAGING_FLOAT_FIXTURE_ROOT = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "float-1"
+)
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
@@ -4955,6 +4960,7 @@ def main() -> int:
         advanced_fixture_roots = (
             ("header/footer", STAGING_HEADER_FOOTER_FIXTURE_ROOT),
             ("columns", STAGING_COLUMNS_FIXTURE_ROOT),
+            ("float", STAGING_FLOAT_FIXTURE_ROOT),
         )
         for fixture_label, fixture_root in advanced_fixture_roots:
             for fixture_name in ("combined", "empty", "oversize"):

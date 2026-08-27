@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod advanced_columns;
+mod advanced_float;
 mod advanced_header_footer;
 
 pub use advanced_columns::{
@@ -12,6 +13,17 @@ pub use advanced_columns::{
 pub use advanced_columns::{
     staging_columns_empty_layout_fixture, staging_columns_layout_fixture,
     staging_columns_oversize_layout_fixture,
+};
+pub use advanced_float::{
+    layout_staging_float, StagingFloatBodyItem, StagingFloatBodyItemKind,
+    StagingFloatColumnTemplate, StagingFloatFlowOwnerKind, StagingFloatFlowRecord,
+    StagingFloatFlowRegistryReceipt, StagingFloatLayout, StagingFloatLayoutError,
+    FLOAT_FLOW_REGISTRY_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use advanced_float::{
+    staging_float_forced_break_layout_fixture, staging_float_layout_fixture,
+    staging_float_oversize_layout_fixture, staging_float_trailing_break_layout_fixture,
 };
 #[cfg(feature = "staging-fixtures")]
 pub use advanced_header_footer::staging_header_footer_page_master_fixture;
