@@ -11,6 +11,7 @@ use typaxis_syntax::machine_profile_boundary::{
 use typaxis_syntax::ValidatedStagingStylePackage;
 
 pub const BASIC_DOCUMENT_PROFILE_ID: &str = "typaxis.machine-pdf/basic-document-1";
+pub const FOOTNOTE_PROFILE_ID: &str = "typaxis.machine-pdf/footnote-1";
 pub const TABLE_PROFILE_ID: &str = "typaxis.machine-pdf/table-1";
 
 /// Closed style component of the public basic-document descriptor. The
@@ -18,15 +19,28 @@ pub const TABLE_PROFILE_ID: &str = "typaxis.machine-pdf/table-1";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BasicDocumentStyleDescriptor {
     table: bool,
+    footnote: bool,
 }
 
 impl BasicDocumentStyleDescriptor {
-    pub const STAGING: Self = Self { table: false };
-    pub const TABLE_1: Self = Self { table: true };
+    pub const STAGING: Self = Self {
+        table: false,
+        footnote: false,
+    };
+    pub const FOOTNOTE_1: Self = Self {
+        table: false,
+        footnote: true,
+    };
+    pub const TABLE_1: Self = Self {
+        table: true,
+        footnote: false,
+    };
 
     pub const fn profile_id(self) -> &'static str {
         if self.table {
             TABLE_PROFILE_ID
+        } else if self.footnote {
+            FOOTNOTE_PROFILE_ID
         } else {
             BASIC_DOCUMENT_PROFILE_ID
         }
@@ -123,6 +137,9 @@ impl BasicDocumentStylePreflight {
     };
     pub const TABLE_1: Self = Self {
         descriptor: BasicDocumentStyleDescriptor::TABLE_1,
+    };
+    pub const FOOTNOTE_1: Self = Self {
+        descriptor: BasicDocumentStyleDescriptor::FOOTNOTE_1,
     };
 
     pub fn run(

@@ -3,28 +3,30 @@
 use typaxis_core::{
     push_generated_buffer_key_jcs, push_jcs_string, sha256, AffineTransform, AnchorId, BidiLevel,
     DisplayGlyphRunId, DisplayTextBufferId, DisplayTextSpan, EffectiveConfig, FontFaceId,
-    FontInstanceId, GeneratedBufferKey, GeneratedTextBufferId, GeneratedTextSpan, ImageResourceId,
-    LayoutStateFingerprint, Length, MasterId, NodeId, NonNegativeLength, Point, PositiveLength,
-    PositiveUnitless16_16, Rect, ReferenceFingerprint, SafeUri, TextBufferId, TextSpan,
-    JSON_SAFE_INTEGER_MAX,
+    FontInstanceId, FootnoteId, GeneratedBufferKey, GeneratedTextBufferId, GeneratedTextSpan,
+    GenerationKind, ImageResourceId, LayoutStateFingerprint, Length, MasterId, NodeId,
+    NonNegativeLength, Point, PositiveLength, PositiveUnitless16_16, Rect, ReferenceFingerprint,
+    SafeUri, TextBufferId, TextSpan, Unitless16_16, JSON_SAFE_INTEGER_MAX,
 };
 use typaxis_document::{Block, Inline};
 use typaxis_font::OriginalGlyphId;
 use typaxis_layout::{
-    FlowId, FlowTree, LayoutEpoch, SelectedTypedBlockStyle, TableRowBandLayoutReceipt,
-    ValidatedTableGridReceipt,
+    FlowId, FlowTree, FootnoteFlowId, LayoutEpoch, SelectedTypedBlockStyle,
+    StagingFootnoteFlowRegistry, TableRowBandLayoutReceipt, ValidatedTableGridReceipt,
+    FOOTNOTE_SEPARATOR_BAND_RAW,
 };
 use typaxis_linebreak::{
     reorder_line_l2, reset_line_bidi_levels, LineBidiClass, LineLevelsAfterL1, ParagraphItem,
-    ShapedSlice, ValidatedParagraphItemRegistry, ValidatedStagingMachineLinkClusterRange,
-    ValidatedStagingMachineLinkClusters,
+    ShapedSlice, StagingMachineLinkClusterKey, ValidatedParagraphItemRegistry,
+    ValidatedStagingMachineLinkClusterRange, ValidatedStagingMachineLinkClusters,
 };
 use typaxis_pagination::{
-    PaginationResult, SelectedTableLayoutReceipt, StagingForcedPageBreakConsumeReceipt,
-    StagingForcedPageBreakSelectedPage, StagingForcedPageBreakSelectedState,
-    StagingMachineFigureCaptionFragment, StagingMachineFigurePlacement,
-    StagingMachineFigureSelectedPage, StagingMachineFigureSelectedState,
-    StagingMachineListSelectedState,
+    PageFrameKind, PaginationResult, SelectedTableLayoutReceipt,
+    StagingForcedPageBreakConsumeReceipt, StagingForcedPageBreakSelectedPage,
+    StagingForcedPageBreakSelectedState, StagingMachineFigureCaptionFragment,
+    StagingMachineFigurePlacement, StagingMachineFigureSelectedPage,
+    StagingMachineFigureSelectedState, StagingMachineListSelectedState,
+    ValidatedFootnoteSelectedLayout,
 };
 use typaxis_shaping::{ShapeSourceSpan, ValidatedGlyphRun};
 use typaxis_style::{BasicStyleBlockKind, StyleValue};
@@ -1396,6 +1398,136 @@ fn derive_staging_machine_link_rectangles(
     Ok(rectangles)
 }
 
+struct FootnoteMachineLinkCollector<'a> {
+    links: &'a ValidatedStagingMachineLinkClusters,
+    seen_clusters: std::collections::BTreeSet<StagingMachineLinkClusterKey>,
+    unions: std::collections::BTreeMap<(NodeId, u32, u32), Rect>,
+    max_rectangles: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FootnoteMachineLinkClusterObservation {
+    paragraph_owner: NodeId,
+    shaped: ShapedSlice,
+    page_index: u32,
+    line_ordinal: u32,
+    x: Length,
+    line_bounds: Rect,
+    advance: Length,
+}
+
+impl<'a> FootnoteMachineLinkCollector<'a> {
+    fn new(links: &'a ValidatedStagingMachineLinkClusters, max_rectangles: u64) -> Self {
+        Self {
+            links,
+            seen_clusters: std::collections::BTreeSet::new(),
+            unions: std::collections::BTreeMap::new(),
+            max_rectangles,
+        }
+    }
+
+    fn observe(
+        &mut self,
+        observation: FootnoteMachineLinkClusterObservation,
+    ) -> Result<(), StagingMachineLinkDisplayError> {
+        let FootnoteMachineLinkClusterObservation {
+            paragraph_owner,
+            shaped,
+            page_index,
+            line_ordinal,
+            x,
+            line_bounds,
+            advance,
+        } = observation;
+        let Some((range, cluster)) = self.links.range_for_shaped(paragraph_owner, shaped) else {
+            return Ok(());
+        };
+        if !self.seen_clusters.insert(cluster) {
+            return Err(StagingMachineLinkDisplayError::DuplicatePaintedCluster(
+                range.link_node(),
+            ));
+        }
+        let width = PositiveLength::new(advance).ok_or(
+            StagingMachineLinkDisplayError::ZeroAreaPaintedCluster(range.link_node()),
+        )?;
+        let rect = Rect::new(x, line_bounds.y(), width, line_bounds.height());
+        let key = (range.link_node(), page_index, line_ordinal);
+        if !self.unions.contains_key(&key)
+            && u64::try_from(self.unions.len()).unwrap_or(u64::MAX) >= self.max_rectangles
+        {
+            return Err(StagingMachineLinkDisplayError::RectangleLimit);
+        }
+        match self.unions.entry(key) {
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let union = union_staging_machine_link_rect(*entry.get(), rect)
+                    .ok_or(StagingMachineLinkDisplayError::NumericOverflow)?;
+                entry.insert(union);
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(rect);
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(
+        self,
+    ) -> Result<Vec<StagingMachineLinkDisplayRectangle>, StagingMachineLinkDisplayError> {
+        let expected: std::collections::BTreeSet<_> = self
+            .links
+            .ranges()
+            .iter()
+            .flat_map(|range| range.clusters().iter().copied())
+            .collect();
+        if self.seen_clusters != expected {
+            let owner = self
+                .links
+                .ranges()
+                .iter()
+                .find(|range| {
+                    range
+                        .clusters()
+                        .iter()
+                        .any(|cluster| !self.seen_clusters.contains(cluster))
+                })
+                .map(ValidatedStagingMachineLinkClusterRange::link_node)
+                .unwrap_or(NodeId::new(0));
+            return Err(StagingMachineLinkDisplayError::MissingPaintedCluster(owner));
+        }
+        let mut rectangles = Vec::new();
+        rectangles
+            .try_reserve_exact(self.unions.len())
+            .map_err(|_| StagingMachineLinkDisplayError::NumericOverflow)?;
+        for ((link_node, page_index, line_ordinal), rect) in self.unions {
+            let range = self
+                .links
+                .ranges()
+                .iter()
+                .find(|range| range.link_node() == link_node)
+                .ok_or(StagingMachineLinkDisplayError::ReceiptMismatch)?;
+            rectangles.push(StagingMachineLinkDisplayRectangle {
+                link_node_id: link_node.get(),
+                paragraph_node_id: range.paragraph_node().get(),
+                page_index,
+                line_ordinal,
+                rect,
+                target: StagingMachineLinkDisplayTarget::from_validated(range.target()),
+            });
+        }
+        for range in self.links.ranges() {
+            if rectangles
+                .iter()
+                .all(|rectangle| rectangle.link_node_id != range.link_node().get())
+            {
+                return Err(StagingMachineLinkDisplayError::MissingPaintedCluster(
+                    range.link_node(),
+                ));
+            }
+        }
+        Ok(rectangles)
+    }
+}
+
 fn union_staging_machine_link_rect(left: Rect, right: Rect) -> Option<Rect> {
     let min_x = left.x().raw().min(right.x().raw());
     let min_y = left.y().raw().min(right.y().raw());
@@ -2742,6 +2874,304 @@ fn validate_table_display_records(
 
 /// Receipt-only inputs for one table in the public `table-1` painter. Every
 /// reference is reclosed before paint; the constructor itself grants no trust.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FootnotePaintCommandKind {
+    ReferenceMarker,
+    Separator,
+    Definition,
+}
+
+/// Exact Display command retained for PDF-side footnote observation. Body
+/// commands remain covered by the ordinary selected-layout fingerprint; every
+/// separator and definition command is additionally bound here.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FootnotePaintCommandObservation {
+    page_index: u32,
+    page_command_index: u32,
+    kind: FootnotePaintCommandKind,
+    assignment_ordinal: Option<u32>,
+    flow_id: Option<FootnoteFlowId>,
+    footnote_id: Option<FootnoteId>,
+    fragment_ordinal: Option<u32>,
+    reference_owner: Option<NodeId>,
+    command: DisplayCommand,
+}
+
+impl FootnotePaintCommandObservation {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn page_command_index(&self) -> u32 {
+        self.page_command_index
+    }
+    pub const fn kind(&self) -> FootnotePaintCommandKind {
+        self.kind
+    }
+    pub const fn assignment_ordinal(&self) -> Option<u32> {
+        self.assignment_ordinal
+    }
+    pub const fn flow_id(&self) -> Option<FootnoteFlowId> {
+        self.flow_id
+    }
+    pub const fn footnote_id(&self) -> Option<&FootnoteId> {
+        self.footnote_id.as_ref()
+    }
+    pub const fn fragment_ordinal(&self) -> Option<u32> {
+        self.fragment_ordinal
+    }
+    pub const fn reference_owner(&self) -> Option<NodeId> {
+        self.reference_owner
+    }
+    pub const fn command(&self) -> &DisplayCommand {
+        &self.command
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FootnotePaintReferenceObservation {
+    footnote_id: FootnoteId,
+    reference_owner: NodeId,
+}
+
+impl FootnotePaintReferenceObservation {
+    pub const fn footnote_id(&self) -> &FootnoteId {
+        &self.footnote_id
+    }
+    pub const fn reference_owner(&self) -> NodeId {
+        self.reference_owner
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FootnotePaintFlowObservation {
+    footnote_id: FootnoteId,
+    assignment_ordinal: u32,
+    flow_id: FootnoteFlowId,
+    before_fragment: u32,
+    after_fragment: u32,
+    incoming_source_page: Option<u32>,
+    carries_out: bool,
+}
+
+impl FootnotePaintFlowObservation {
+    pub const fn footnote_id(&self) -> &FootnoteId {
+        &self.footnote_id
+    }
+    pub const fn assignment_ordinal(&self) -> u32 {
+        self.assignment_ordinal
+    }
+    pub const fn flow_id(&self) -> FootnoteFlowId {
+        self.flow_id
+    }
+    pub const fn before_fragment(&self) -> u32 {
+        self.before_fragment
+    }
+    pub const fn after_fragment(&self) -> u32 {
+        self.after_fragment
+    }
+    pub const fn incoming_source_page(&self) -> Option<u32> {
+        self.incoming_source_page
+    }
+    pub const fn carries_out(&self) -> bool {
+        self.carries_out
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FootnotePaintPageObservation {
+    page_index: u32,
+    body_continuation_position: u32,
+    body_continuation_terminal: bool,
+    body_fingerprint: LayoutStateFingerprint,
+    body_command_count: u32,
+    evaluation_count: u32,
+    reservation: NonNegativeLength,
+    ordered_footnote_ids: Vec<FootnoteId>,
+    references: Vec<FootnotePaintReferenceObservation>,
+    flows: Vec<FootnotePaintFlowObservation>,
+}
+
+impl FootnotePaintPageObservation {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn body_continuation_position(&self) -> u32 {
+        self.body_continuation_position
+    }
+    pub const fn body_continuation_terminal(&self) -> bool {
+        self.body_continuation_terminal
+    }
+    pub const fn body_fingerprint(&self) -> LayoutStateFingerprint {
+        self.body_fingerprint
+    }
+    pub const fn body_command_count(&self) -> u32 {
+        self.body_command_count
+    }
+    pub const fn evaluation_count(&self) -> u32 {
+        self.evaluation_count
+    }
+    pub const fn reservation(&self) -> NonNegativeLength {
+        self.reservation
+    }
+    pub fn ordered_footnote_ids(&self) -> &[FootnoteId] {
+        &self.ordered_footnote_ids
+    }
+    pub fn references(&self) -> &[FootnotePaintReferenceObservation] {
+        &self.references
+    }
+    pub fn flows(&self) -> &[FootnotePaintFlowObservation] {
+        &self.flows
+    }
+}
+
+/// MI3-07 paint closure derived from the selected body and dedicated
+/// definition-flow receipts. It is intentionally retained by the PDF graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FootnoteDisplayClosureReceipt {
+    profile_sha256: [u8; 32],
+    registry_sha256: [u8; 32],
+    selected_layout_sha256: [u8; 32],
+    body_layout_sha256: [u8; 32],
+    pages: Vec<FootnotePaintPageObservation>,
+    commands: Vec<FootnotePaintCommandObservation>,
+    canonical_jcs: String,
+}
+
+impl FootnoteDisplayClosureReceipt {
+    pub const fn profile_sha256(&self) -> [u8; 32] {
+        self.profile_sha256
+    }
+    pub const fn registry_sha256(&self) -> [u8; 32] {
+        self.registry_sha256
+    }
+    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub const fn body_layout_sha256(&self) -> [u8; 32] {
+        self.body_layout_sha256
+    }
+    pub fn pages(&self) -> &[FootnotePaintPageObservation] {
+        &self.pages
+    }
+    pub fn commands(&self) -> &[FootnotePaintCommandObservation] {
+        &self.commands
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub fn fingerprint(&self) -> [u8; 32] {
+        sha256(self.canonical_jcs.as_bytes())
+    }
+
+    /// Fixed serializer-bound closure fixture; unavailable in production
+    /// builds. Its commands are opaque because PDF receipt tests exercise the
+    /// already-validated Display-to-byte binding rather than Display paint
+    /// validation itself.
+    #[cfg(feature = "staging-fixtures")]
+    #[doc(hidden)]
+    pub fn serializer_pdf_test_fixture() -> Self {
+        let footnote_id = FootnoteId::new("a").unwrap();
+        let flow_id = FootnoteFlowId::new(0);
+        let reference_owner = NodeId::new(1);
+        let mut value = Self {
+            profile_sha256: [1; 32],
+            registry_sha256: [2; 32],
+            selected_layout_sha256: [3; 32],
+            body_layout_sha256: [4; 32],
+            pages: vec![FootnotePaintPageObservation {
+                page_index: 0,
+                body_continuation_position: 1,
+                body_continuation_terminal: true,
+                body_fingerprint: LayoutStateFingerprint::from_untrusted_bytes([5; 32]),
+                body_command_count: 1,
+                evaluation_count: 2,
+                reservation: NonNegativeLength::new(Length::from_raw(1).unwrap()).unwrap(),
+                ordered_footnote_ids: vec![footnote_id.clone()],
+                references: vec![FootnotePaintReferenceObservation {
+                    footnote_id: footnote_id.clone(),
+                    reference_owner,
+                }],
+                flows: vec![FootnotePaintFlowObservation {
+                    footnote_id: footnote_id.clone(),
+                    assignment_ordinal: 0,
+                    flow_id,
+                    before_fragment: 0,
+                    after_fragment: 1,
+                    incoming_source_page: None,
+                    carries_out: false,
+                }],
+            }],
+            commands: vec![
+                FootnotePaintCommandObservation {
+                    page_index: 0,
+                    page_command_index: 0,
+                    kind: FootnotePaintCommandKind::ReferenceMarker,
+                    assignment_ordinal: None,
+                    flow_id: None,
+                    footnote_id: Some(footnote_id.clone()),
+                    fragment_ordinal: None,
+                    reference_owner: Some(reference_owner),
+                    command: DisplayCommand::Save,
+                },
+                FootnotePaintCommandObservation {
+                    page_index: 0,
+                    page_command_index: 1,
+                    kind: FootnotePaintCommandKind::Separator,
+                    assignment_ordinal: None,
+                    flow_id: None,
+                    footnote_id: None,
+                    fragment_ordinal: None,
+                    reference_owner: None,
+                    command: DisplayCommand::Restore,
+                },
+                FootnotePaintCommandObservation {
+                    page_index: 0,
+                    page_command_index: 2,
+                    kind: FootnotePaintCommandKind::Definition,
+                    assignment_ordinal: Some(0),
+                    flow_id: Some(flow_id),
+                    footnote_id: Some(footnote_id),
+                    fragment_ordinal: Some(0),
+                    reference_owner: None,
+                    command: DisplayCommand::Save,
+                },
+            ],
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_footnote_display_closure(&value);
+        value
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FootnoteProfileDisplayError {
+    SelectedLayoutMismatch,
+    RegistryMismatch,
+    DefinitionFragmentMismatch,
+    DefinitionPaintOrder,
+    SeparatorMismatch,
+    Link(StagingMachineLinkDisplayError),
+    NumericOverflow,
+    Display(DisplayValidationError),
+}
+
+pub struct FootnoteProfileDisplay {
+    trusted: ValidatedDisplayDocument,
+    closure: FootnoteDisplayClosureReceipt,
+}
+
+impl FootnoteProfileDisplay {
+    pub const fn validated_document(&self) -> &ValidatedDisplayDocument {
+        &self.trusted
+    }
+    pub const fn closure(&self) -> &FootnoteDisplayClosureReceipt {
+        &self.closure
+    }
+    pub fn into_parts(self) -> (ValidatedDisplayDocument, FootnoteDisplayClosureReceipt) {
+        (self.trusted, self.closure)
+    }
+}
+
 pub struct TableProfilePaintInput<'a> {
     grid: &'a ValidatedTableGridReceipt,
     layout: &'a TableRowBandLayoutReceipt,
@@ -3330,6 +3760,433 @@ fn table_display_command_sha256(command: &DisplayCommand) -> [u8; 32] {
     sha256(output.as_bytes())
 }
 
+fn footnote_display_command_sha256(command: &DisplayCommand) -> [u8; 32] {
+    if matches!(command, DisplayCommand::DrawGlyphRun { .. }) {
+        return table_display_command_sha256(command);
+    }
+    let mut output = String::new();
+    match command {
+        DisplayCommand::StrokePath {
+            path,
+            paint,
+            stroke,
+        } => {
+            output.push_str("{\"dash\":{");
+            output.push_str("\"array\":[");
+            for (index, value) in stroke.dash.array().iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str(&value.get().raw().to_string());
+            }
+            output.push_str("],\"phase\":");
+            output.push_str(&stroke.dash.phase().get().raw().to_string());
+            output.push_str("},\"line_cap\":");
+            push_jcs_string(
+                &mut output,
+                match stroke.line_cap {
+                    LineCap::Butt => "butt",
+                    LineCap::Round => "round",
+                    LineCap::Square => "square",
+                },
+            );
+            output.push_str(",\"line_join\":");
+            push_jcs_string(
+                &mut output,
+                match stroke.line_join {
+                    LineJoin::Miter => "miter",
+                    LineJoin::Round => "round",
+                    LineJoin::Bevel => "bevel",
+                },
+            );
+            output.push_str(",\"miter_limit\":");
+            output.push_str(&stroke.miter_limit.get().raw().to_string());
+            output.push_str(",\"operation\":\"stroke_path\",\"paint\":");
+            encode_table_display_paint(&mut output, *paint);
+            output.push_str(",\"path\":[");
+            for (index, verb) in path.verbs().iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                match verb {
+                    PathVerb::MoveTo(point) => {
+                        output.push_str("{\"operation\":\"move_to\",\"x\":");
+                        output.push_str(&point.x.raw().to_string());
+                        output.push_str(",\"y\":");
+                        output.push_str(&point.y.raw().to_string());
+                        output.push('}');
+                    }
+                    PathVerb::LineTo(point) => {
+                        output.push_str("{\"operation\":\"line_to\",\"x\":");
+                        output.push_str(&point.x.raw().to_string());
+                        output.push_str(",\"y\":");
+                        output.push_str(&point.y.raw().to_string());
+                        output.push('}');
+                    }
+                    PathVerb::CurveTo(first, second, third) => {
+                        output.push_str("{\"operation\":\"curve_to\",\"x1\":");
+                        output.push_str(&first.x.raw().to_string());
+                        output.push_str(",\"x2\":");
+                        output.push_str(&second.x.raw().to_string());
+                        output.push_str(",\"x3\":");
+                        output.push_str(&third.x.raw().to_string());
+                        output.push_str(",\"y1\":");
+                        output.push_str(&first.y.raw().to_string());
+                        output.push_str(",\"y2\":");
+                        output.push_str(&second.y.raw().to_string());
+                        output.push_str(",\"y3\":");
+                        output.push_str(&third.y.raw().to_string());
+                        output.push('}');
+                    }
+                    PathVerb::Close => output.push_str("{\"operation\":\"close\"}"),
+                }
+            }
+            output.push_str("],\"width\":");
+            output.push_str(&stroke.width.get().raw().to_string());
+            output.push('}');
+        }
+        _ => output.push_str("{\"operation\":\"forbidden\"}"),
+    }
+    sha256(output.as_bytes())
+}
+
+fn encode_footnote_display_closure(value: &FootnoteDisplayClosureReceipt) -> String {
+    let mut output = String::from("{\"algorithm\":\"typaxis.footnote-paint-closure/1\"");
+    output.push_str(",\"body_layout_sha256\":");
+    push_table_display_hex(&mut output, value.body_layout_sha256);
+    output.push_str(",\"commands\":[");
+    for (index, command) in value.commands.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"assignment_ordinal\":");
+        match command.assignment_ordinal {
+            Some(value) => output.push_str(&value.to_string()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"command_sha256\":");
+        push_table_display_hex(
+            &mut output,
+            footnote_display_command_sha256(&command.command),
+        );
+        output.push_str(",\"flow_id\":");
+        match command.flow_id {
+            Some(value) => output.push_str(&value.get().to_string()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"footnote_id\":");
+        match &command.footnote_id {
+            Some(value) => push_jcs_string(&mut output, value.as_str()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"fragment_ordinal\":");
+        match command.fragment_ordinal {
+            Some(value) => output.push_str(&value.to_string()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"kind\":");
+        push_jcs_string(
+            &mut output,
+            match command.kind {
+                FootnotePaintCommandKind::ReferenceMarker => "reference_marker",
+                FootnotePaintCommandKind::Separator => "separator",
+                FootnotePaintCommandKind::Definition => "definition",
+            },
+        );
+        output.push_str(",\"page_command_index\":");
+        output.push_str(&command.page_command_index.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&command.page_index.to_string());
+        output.push_str(",\"reference_owner\":");
+        match command.reference_owner {
+            Some(value) => output.push_str(&value.get().to_string()),
+            None => output.push_str("null"),
+        }
+        output.push('}');
+    }
+    output.push_str("],\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"body_command_count\":");
+        output.push_str(&page.body_command_count.to_string());
+        output.push_str(",\"body_continuation_position\":");
+        output.push_str(&page.body_continuation_position.to_string());
+        output.push_str(",\"body_continuation_terminal\":");
+        output.push_str(if page.body_continuation_terminal {
+            "true"
+        } else {
+            "false"
+        });
+        output.push_str(",\"body_fingerprint\":");
+        push_table_display_hex(&mut output, page.body_fingerprint.bytes());
+        output.push_str(",\"evaluation_count\":");
+        output.push_str(&page.evaluation_count.to_string());
+        output.push_str(",\"flows\":[");
+        for (flow_index, flow) in page.flows.iter().enumerate() {
+            if flow_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"after_fragment\":");
+            output.push_str(&flow.after_fragment.to_string());
+            output.push_str(",\"assignment_ordinal\":");
+            output.push_str(&flow.assignment_ordinal.to_string());
+            output.push_str(",\"before_fragment\":");
+            output.push_str(&flow.before_fragment.to_string());
+            output.push_str(",\"carries_out\":");
+            output.push_str(if flow.carries_out { "true" } else { "false" });
+            output.push_str(",\"flow_id\":");
+            output.push_str(&flow.flow_id.get().to_string());
+            output.push_str(",\"footnote_id\":");
+            push_jcs_string(&mut output, flow.footnote_id.as_str());
+            output.push_str(",\"incoming_source_page\":");
+            match flow.incoming_source_page {
+                Some(value) => output.push_str(&value.to_string()),
+                None => output.push_str("null"),
+            }
+            output.push('}');
+        }
+        output.push_str("],\"ordered_footnote_ids\":[");
+        for (footnote_index, footnote_id) in page.ordered_footnote_ids.iter().enumerate() {
+            if footnote_index > 0 {
+                output.push(',');
+            }
+            push_jcs_string(&mut output, footnote_id.as_str());
+        }
+        output.push_str("],\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push_str(",\"references\":[");
+        for (reference_index, reference) in page.references.iter().enumerate() {
+            if reference_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"footnote_id\":");
+            push_jcs_string(&mut output, reference.footnote_id.as_str());
+            output.push_str(",\"reference_owner\":");
+            output.push_str(&reference.reference_owner.get().to_string());
+            output.push('}');
+        }
+        output.push(']');
+        output.push_str(",\"reservation\":");
+        output.push_str(&page.reservation.get().raw().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"profile_sha256\":");
+    push_table_display_hex(&mut output, value.profile_sha256);
+    output.push_str(",\"registry_sha256\":");
+    push_table_display_hex(&mut output, value.registry_sha256);
+    output.push_str(",\"selected_layout_sha256\":");
+    push_table_display_hex(&mut output, value.selected_layout_sha256);
+    output.push('}');
+    output
+}
+
+fn validate_footnote_display_closure(
+    display: &ValidatedDisplayDocument,
+    closure: &FootnoteDisplayClosureReceipt,
+) -> Result<(), FootnoteProfileDisplayError> {
+    if closure.pages.len() != display.document().pages.len()
+        || closure.canonical_jcs != encode_footnote_display_closure(closure)
+    {
+        return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+    }
+    let mut claimed = std::collections::BTreeSet::new();
+    let mut previous = None;
+    for observation in &closure.commands {
+        let key = (observation.page_index, observation.page_command_index);
+        if previous.is_some_and(|previous| previous >= key) || !claimed.insert(key) {
+            return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+        }
+        previous = Some(key);
+        let command = display
+            .document()
+            .pages
+            .get(observation.page_index as usize)
+            .and_then(|page| page.commands.get(observation.page_command_index as usize))
+            .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?;
+        if command != &observation.command {
+            return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+        }
+        match observation.kind {
+            FootnotePaintCommandKind::ReferenceMarker
+                if observation.assignment_ordinal.is_none()
+                    && observation.flow_id.is_none()
+                    && observation.footnote_id.is_some()
+                    && observation.fragment_ordinal.is_none()
+                    && observation.reference_owner.is_some()
+                    && matches!(command, DisplayCommand::DrawGlyphRun { .. }) => {}
+            FootnotePaintCommandKind::Separator
+                if observation.assignment_ordinal.is_none()
+                    && observation.flow_id.is_none()
+                    && observation.footnote_id.is_none()
+                    && observation.fragment_ordinal.is_none()
+                    && observation.reference_owner.is_none()
+                    && matches!(command, DisplayCommand::StrokePath { .. }) => {}
+            FootnotePaintCommandKind::Definition
+                if observation.assignment_ordinal.is_some()
+                    && observation.flow_id.is_some()
+                    && observation.footnote_id.is_some()
+                    && observation.fragment_ordinal.is_some()
+                    && observation.reference_owner.is_none()
+                    && matches!(command, DisplayCommand::DrawGlyphRun { .. }) => {}
+            _ => return Err(FootnoteProfileDisplayError::DefinitionPaintOrder),
+        }
+    }
+    for page in &display.document().pages {
+        for (index, command) in page.commands.iter().enumerate() {
+            if matches!(command, DisplayCommand::StrokePath { .. })
+                && !claimed.contains(&(
+                    page.page_index,
+                    u32::try_from(index)
+                        .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?,
+                ))
+            {
+                return Err(FootnoteProfileDisplayError::SeparatorMismatch);
+            }
+        }
+    }
+    for (index, page) in closure.pages.iter().enumerate() {
+        let display_page = display
+            .document()
+            .pages
+            .get(index)
+            .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?;
+        let body_command_count = usize::try_from(page.body_command_count)
+            .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+        let flow_ids: std::collections::BTreeSet<_> =
+            page.flows.iter().map(|flow| flow.flow_id).collect();
+        let footnote_ids: std::collections::BTreeSet<_> =
+            page.flows.iter().map(|flow| &flow.footnote_id).collect();
+        if page.page_index as usize != index
+            || display_page.page_index != page.page_index
+            || body_command_count > display_page.commands.len()
+            || (page.reservation == NonNegativeLength::ZERO) != page.flows.is_empty()
+            || page.ordered_footnote_ids.len() != page.flows.len()
+            || flow_ids.len() != page.flows.len()
+            || footnote_ids.len() != page.flows.len()
+            || page
+                .flows
+                .windows(2)
+                .any(|pair| pair[0].assignment_ordinal >= pair[1].assignment_ordinal)
+            || page
+                .ordered_footnote_ids
+                .iter()
+                .zip(&page.flows)
+                .any(|(footnote_id, flow)| footnote_id != &flow.footnote_id)
+        {
+            return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+        }
+        let page_commands: Vec<_> = closure
+            .commands
+            .iter()
+            .filter(|command| command.page_index == page.page_index)
+            .collect();
+        let mut observed_references = std::collections::BTreeMap::new();
+        for command in page_commands
+            .iter()
+            .filter(|command| command.kind == FootnotePaintCommandKind::ReferenceMarker)
+        {
+            let owner = command
+                .reference_owner
+                .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?;
+            let footnote_id = command
+                .footnote_id
+                .as_ref()
+                .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?;
+            if command.page_command_index >= page.body_command_count
+                || observed_references.insert(owner, footnote_id).is_some()
+            {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            }
+        }
+        let expected_references: std::collections::BTreeMap<_, _> = page
+            .references
+            .iter()
+            .map(|reference| (reference.reference_owner, &reference.footnote_id))
+            .collect();
+        if observed_references != expected_references
+            || expected_references.len() != page.references.len()
+        {
+            return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+        }
+        let separators: Vec<_> = page_commands
+            .iter()
+            .filter(|command| command.kind == FootnotePaintCommandKind::Separator)
+            .collect();
+        if separators.len() != usize::from(!page.flows.is_empty()) {
+            return Err(FootnoteProfileDisplayError::SeparatorMismatch);
+        }
+        if page.flows.is_empty() {
+            if body_command_count != display_page.commands.len()
+                || page_commands
+                    .iter()
+                    .any(|command| command.kind == FootnotePaintCommandKind::Definition)
+            {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            }
+            continue;
+        }
+        if separators[0].page_command_index != page.body_command_count {
+            return Err(FootnoteProfileDisplayError::SeparatorMismatch);
+        }
+        let definition_commands: Vec<_> = page_commands
+            .iter()
+            .filter(|command| command.kind == FootnotePaintCommandKind::Definition)
+            .collect();
+        if definition_commands
+            .iter()
+            .any(|command| command.page_command_index <= page.body_command_count)
+        {
+            return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+        }
+        let mut previous_definition = None;
+        for observation in definition_commands {
+            let flow_index = page
+                .flows
+                .iter()
+                .position(|flow| {
+                    observation.assignment_ordinal == Some(flow.assignment_ordinal)
+                        && observation.flow_id == Some(flow.flow_id)
+                        && observation.footnote_id.as_ref() == Some(&flow.footnote_id)
+                        && observation.fragment_ordinal.is_some_and(|fragment| {
+                            fragment >= flow.before_fragment && fragment < flow.after_fragment
+                        })
+                })
+                .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?;
+            let fragment_ordinal = observation
+                .fragment_ordinal
+                .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?;
+            let key = (flow_index, fragment_ordinal);
+            if previous_definition.is_some_and(|previous| previous > key) {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            }
+            previous_definition = Some(key);
+        }
+        for command_index in body_command_count + 1..display_page.commands.len() {
+            let command_index = u32::try_from(command_index)
+                .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+            let Some(observation) = page_commands.iter().find(|observation| {
+                observation.page_command_index == command_index
+                    && observation.kind == FootnotePaintCommandKind::Definition
+            }) else {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            };
+            if page.flows.iter().all(|flow| {
+                observation.assignment_ordinal != Some(flow.assignment_ordinal)
+                    || observation.flow_id != Some(flow.flow_id)
+                    || observation.footnote_id.as_ref() != Some(&flow.footnote_id)
+                    || observation.fragment_ordinal.map_or(true, |fragment| {
+                        fragment < flow.before_fragment || fragment >= flow.after_fragment
+                    })
+            }) {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn encode_table_display_paint(output: &mut String, paint: Paint) {
     match paint {
         Paint::Gray(value) => {
@@ -3731,6 +4588,7 @@ impl StructurallyValidatedDisplayDocument {
             config,
             Some(&package.package().text_store),
             None,
+            None,
         )
     }
 
@@ -3739,7 +4597,24 @@ impl StructurallyValidatedDisplayDocument {
         selected: &PaginationResult,
         config: &EffectiveConfig,
     ) -> Result<Self, DisplayValidationError> {
-        Self::validate(document, selected, config, None, None)
+        Self::validate(document, selected, config, None, None, None)
+    }
+
+    fn from_verified_footnote_profile(
+        document: DisplayDocument,
+        selected: &PaginationResult,
+        config: &EffectiveConfig,
+        expected_destinations: &[NamedDestination],
+        selected_page_geometry: Vec<ValidatedDisplayPageGeometry>,
+    ) -> Result<Self, DisplayValidationError> {
+        Self::validate(
+            document,
+            selected,
+            config,
+            None,
+            Some(selected_page_geometry),
+            Some(expected_destinations),
+        )
     }
 
     fn from_verified_table_profile(
@@ -3754,6 +4629,7 @@ impl StructurallyValidatedDisplayDocument {
             config,
             None,
             Some(selected_page_geometry),
+            None,
         )
     }
 
@@ -3763,6 +4639,7 @@ impl StructurallyValidatedDisplayDocument {
         config: &EffectiveConfig,
         parsed_store: Option<&TextStore>,
         page_geometry_override: Option<Vec<ValidatedDisplayPageGeometry>>,
+        destination_override: Option<&[NamedDestination]>,
     ) -> Result<Self, DisplayValidationError> {
         if !document.source_layout.matches_selected(selected) {
             return Err(DisplayValidationError::SelectedLayoutMismatch);
@@ -3878,7 +4755,11 @@ impl StructurallyValidatedDisplayDocument {
                 return Err(DisplayValidationError::DestinationOutOfBounds);
             }
         }
-        if document.destinations != destinations_from_selected_pagination(selected)? {
+        let expected_destinations = match destination_override {
+            Some(destinations) => destinations.to_vec(),
+            None => destinations_from_selected_pagination(selected)?,
+        };
+        if document.destinations != expected_destinations {
             return Err(DisplayValidationError::SelectedDestinationMismatch);
         }
         let mut used_font_instances = std::collections::BTreeSet::new();
@@ -3995,6 +4876,269 @@ impl StructurallyValidatedDisplayDocument {
 pub struct ValidatedDisplayDocument {
     structural: StructurallyValidatedDisplayDocument,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FootnoteTextAlign {
+    Start,
+    End,
+    Center,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FootnoteDefinitionPaintLine {
+    owner: NodeId,
+    line_ordinal: u32,
+    start_item: u32,
+    end_item: u32,
+    extent: PositiveLength,
+    line_height: PositiveLength,
+    space_before: NonNegativeLength,
+    physical_left_inset: NonNegativeLength,
+    inline_size: PositiveLength,
+    text_align: FootnoteTextAlign,
+    marker_owner: Option<NodeId>,
+    marker_gap: Option<PositiveLength>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FootnoteDefinitionPaintFragment {
+    extent: PositiveLength,
+    lines: Vec<FootnoteDefinitionPaintLine>,
+}
+
+fn footnote_definition_block_anchors(
+    package: &ValidatedParsedPackage,
+    block_owner: NodeId,
+) -> Result<Vec<AnchorId>, FootnoteProfileDisplayError> {
+    let nodes = package.document_nodes();
+    if !matches!(
+        nodes.node_kind(block_owner),
+        Some(typaxis_document::DocumentNodeKind::Paragraph)
+            | Some(typaxis_document::DocumentNodeKind::Heading)
+    ) {
+        return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+    }
+    let block_path = nodes
+        .node_path(block_owner)
+        .ok_or(FootnoteProfileDisplayError::SelectedLayoutMismatch)?;
+    Ok(nodes
+        .anchors()
+        .filter(|(_, anchor_owner)| {
+            nodes
+                .node_path(*anchor_owner)
+                .is_some_and(|path| path.starts_with(block_path))
+        })
+        .map(|(anchor_id, _)| anchor_id.clone())
+        .collect())
+}
+
+fn footnote_definition_paint_lines(
+    package: &ValidatedParsedPackage,
+    registry: &StagingFootnoteFlowRegistry,
+    paragraph_items: &ValidatedParagraphItemRegistry,
+) -> Result<Vec<Vec<FootnoteDefinitionPaintFragment>>, FootnoteProfileDisplayError> {
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(registry.flows().len())
+        .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+    for flow in registry.flows() {
+        let mut lines = Vec::new();
+        let mut marker_count = 0u32;
+        for owner in flow.block_owners() {
+            let computed = package
+                .cascade_style(*owner)
+                .map_err(|_| FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+            let line_height = match computed.computed().properties().get("line_height") {
+                Some(StyleValue::Length(value)) => PositiveLength::new(*value),
+                _ => None,
+            }
+            .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+            let font_size = match computed.computed().properties().get("font_size") {
+                Some(StyleValue::Length(value)) => PositiveLength::new(*value),
+                _ => None,
+            }
+            .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+            let space_before = display_nonnegative_style_length(
+                computed.computed().properties().get("space_before"),
+            )?;
+            let space_after = display_nonnegative_style_length(
+                computed.computed().properties().get("space_after"),
+            )?;
+            let start_indent = display_nonnegative_style_length(
+                computed.computed().properties().get("start_indent"),
+            )?;
+            let end_indent = display_nonnegative_style_length(
+                computed.computed().properties().get("end_indent"),
+            )?;
+            let inline_size = registry
+                .maximum_footnote_frame()
+                .width()
+                .get()
+                .checked_sub(start_indent.get())
+                .and_then(|value| value.checked_sub(end_indent.get()))
+                .and_then(PositiveLength::new)
+                .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+            let paragraph_level = paragraph_items
+                .paragraph_level(*owner)
+                .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+            let physical_left_inset = if paragraph_level.get() % 2 == 1 {
+                end_indent
+            } else {
+                start_indent
+            };
+            let text_align = match computed.computed().properties().get("text_align") {
+                Some(StyleValue::Keyword(value)) if value == "start" => FootnoteTextAlign::Start,
+                Some(StyleValue::Keyword(value)) if value == "end" => FootnoteTextAlign::End,
+                Some(StyleValue::Keyword(value)) if value == "center" => FootnoteTextAlign::Center,
+                _ => return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch),
+            };
+            let ranges: Vec<(u32, u32)> =
+                if let Some(result) = paragraph_items.paragraph_break(*owner) {
+                    let mut previous = 0u32;
+                    let mut ranges = Vec::new();
+                    ranges
+                        .try_reserve_exact(result.lines.len())
+                        .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+                    for line in &result.lines {
+                        if line.item_index <= previous {
+                            return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+                        }
+                        ranges.push((previous, line.item_index));
+                        previous = line.item_index;
+                    }
+                    if previous
+                        != paragraph_items
+                            .item_count(*owner)
+                            .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?
+                    {
+                        return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+                    }
+                    ranges
+                } else if paragraph_items.item_count(*owner) == Some(1) {
+                    vec![(0, 1)]
+                } else {
+                    return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+                };
+            for (line_index, (start_item, end_item)) in ranges.iter().copied().enumerate() {
+                let mut expected = line_height.get();
+                if line_index == 0 {
+                    expected = expected
+                        .checked_add(space_before.get())
+                        .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                }
+                if line_index + 1 == ranges.len() {
+                    expected = expected
+                        .checked_add(space_after.get())
+                        .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                }
+                let extent = PositiveLength::new(expected)
+                    .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+                let shaped = paragraph_shaped_slices(paragraph_items, *owner, start_item, end_item)
+                    .map_err(FootnoteProfileDisplayError::Display)?;
+                let contains_marker = shaped.iter().any(|slice| {
+                    matches!(
+                        slice.shaped.source(),
+                        ShapeSourceSpan::Generated(provenance)
+                            if provenance.buffer_key().owner() == flow.binding().definition_owner()
+                                && provenance.buffer_key().generation_kind()
+                                    == GenerationKind::FootnoteMarker
+                    )
+                });
+                if contains_marker {
+                    marker_count = marker_count
+                        .checked_add(1)
+                        .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                }
+                let line_ordinal = u32::try_from(lines.len())
+                    .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+                lines.push(FootnoteDefinitionPaintLine {
+                    owner: *owner,
+                    line_ordinal,
+                    start_item,
+                    end_item,
+                    extent,
+                    line_height,
+                    space_before: if line_index == 0 {
+                        space_before
+                    } else {
+                        NonNegativeLength::ZERO
+                    },
+                    physical_left_inset,
+                    inline_size,
+                    text_align,
+                    marker_owner: contains_marker.then_some(flow.binding().definition_owner()),
+                    marker_gap: contains_marker.then_some(font_size),
+                });
+            }
+        }
+        if marker_count != 1 || flow.fragment_extents().len() != flow.fragment_line_counts().len() {
+            return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+        }
+        let mut fragments = Vec::new();
+        fragments
+            .try_reserve_exact(flow.fragment_extents().len())
+            .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+        let mut line_cursor = 0usize;
+        for (extent, line_count) in flow
+            .fragment_extents()
+            .iter()
+            .copied()
+            .zip(flow.fragment_line_counts().iter())
+        {
+            let line_count = usize::try_from(line_count.get())
+                .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+            let line_end = line_cursor
+                .checked_add(line_count)
+                .filter(|end| *end <= lines.len())
+                .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+            let measured = lines[line_cursor..line_end]
+                .iter()
+                .try_fold(Length::ZERO, |total, line| {
+                    total.checked_add(line.extent.get())
+                })
+                .and_then(PositiveLength::new)
+                .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+            if measured != extent {
+                return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+            }
+            fragments.push(FootnoteDefinitionPaintFragment {
+                extent,
+                lines: lines[line_cursor..line_end].to_vec(),
+            });
+            line_cursor = line_end;
+        }
+        if line_cursor != lines.len() {
+            return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+        }
+        if fragments.first().map_or(true, |fragment| {
+            fragment
+                .lines
+                .iter()
+                .all(|line| line.marker_owner.is_none())
+        }) || fragments.iter().skip(1).any(|fragment| {
+            fragment
+                .lines
+                .iter()
+                .any(|line| line.marker_owner.is_some())
+        }) {
+            return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+        }
+        output.push(fragments);
+    }
+    Ok(output)
+}
+
+fn display_nonnegative_style_length(
+    value: Option<&StyleValue>,
+) -> Result<NonNegativeLength, FootnoteProfileDisplayError> {
+    match value {
+        Some(StyleValue::Length(value)) => NonNegativeLength::new(*value)
+            .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch),
+        None => Ok(NonNegativeLength::ZERO),
+        Some(_) => Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch),
+    }
+}
+
 impl ValidatedDisplayDocument {
     /// Paints selected paragraph fragments from the exact paragraph-item
     /// registry retained by the canonical flow. Each drawing command covers
@@ -4159,6 +5303,617 @@ impl ValidatedDisplayDocument {
             });
         }
         DisplayListBuilderOwner::new().issue(selected, text_map, font_instances, pages, config)
+    }
+
+    /// Paints the public `footnote-1` profile from the immutable body and
+    /// dedicated definition-flow receipts. Coordinates and command order are
+    /// derived here; callers cannot supply a separator or definition page.
+    pub fn paint_footnote_profile(
+        package: &ValidatedStagingStylePackage,
+        selected: &PaginationResult,
+        flow: &FlowTree,
+        footnote_registry: &StagingFootnoteFlowRegistry,
+        footnote_selected: &ValidatedFootnoteSelectedLayout,
+        links: Option<&ValidatedStagingMachineLinkClusters>,
+        config: &EffectiveConfig,
+    ) -> Result<FootnoteProfileDisplay, FootnoteProfileDisplayError> {
+        let parsed = package.package();
+        let epoch = selected.selected_pass().fingerprint_record().layout_epoch();
+        if flow != selected.selected_flow()
+            || flow.epoch() != epoch
+            || epoch != footnote_selected.epoch()
+            || epoch != footnote_registry.receipt().epoch()
+            || epoch.document() != parsed.epoch_identity().document()
+            || epoch.style() != parsed.epoch_identity().style()
+            || selected.final_fingerprint() != footnote_selected.body_layout_fingerprint()
+            || footnote_selected.profile_fingerprint()
+                != footnote_registry.receipt().profile_fingerprint()
+            || footnote_selected.registry_fingerprint() != footnote_registry.receipt().fingerprint()
+            || footnote_selected.pages().len() != selected.selected_pages().len()
+            || footnote_selected.master_id() != footnote_registry.master_id()
+            || footnote_selected.body_frame() != footnote_registry.body_frame()
+            || footnote_selected.maximum_footnote_frame()
+                != footnote_registry.maximum_footnote_frame()
+        {
+            return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+        }
+        let paragraph_items = flow
+            .paragraph_items()
+            .ok_or(FootnoteProfileDisplayError::RegistryMismatch)?;
+        if paragraph_items.epoch() != epoch {
+            return Err(FootnoteProfileDisplayError::RegistryMismatch);
+        }
+        let definition_lines =
+            footnote_definition_paint_lines(parsed, footnote_registry, paragraph_items)?;
+        let link_usage = package.preflight_footnote_link_usage().map_err(|_| {
+            FootnoteProfileDisplayError::Link(StagingMachineLinkDisplayError::ReceiptMismatch)
+        })?;
+        let mut link_collector = match (link_usage.links().is_empty(), links) {
+            (true, None) => None,
+            (false, Some(links))
+                if links.verifies(package, paragraph_items)
+                    && links.usage_sha256() == link_usage.usage_sha256() =>
+            {
+                Some(FootnoteMachineLinkCollector::new(
+                    links,
+                    config.limits().get().max_fragments,
+                ))
+            }
+            _ => {
+                return Err(FootnoteProfileDisplayError::Link(
+                    StagingMachineLinkDisplayError::ReceiptMismatch,
+                ))
+            }
+        };
+
+        let mut parsed_spans = Vec::new();
+        let mut generated_spans = Vec::new();
+        for page in selected.selected_pages() {
+            for fragment in &page.fragments {
+                if paragraph_items.item_count(fragment.owner).is_some() {
+                    append_display_source_spans(
+                        fragment_shaped_slices(paragraph_items, fragment)
+                            .map_err(FootnoteProfileDisplayError::Display)?,
+                        &mut parsed_spans,
+                        &mut generated_spans,
+                    );
+                }
+            }
+        }
+        for page in footnote_selected.pages() {
+            for flow in page.flows() {
+                let line_set = definition_lines
+                    .get(flow.assignment().flow_id().get() as usize)
+                    .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+                for fragment in flow.fragments() {
+                    let definition_fragment = line_set
+                        .get(fragment.fragment_ordinal() as usize)
+                        .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+                    for line in &definition_fragment.lines {
+                        append_display_source_spans(
+                            paragraph_shaped_slices(
+                                paragraph_items,
+                                line.owner,
+                                line.start_item,
+                                line.end_item,
+                            )
+                            .map_err(FootnoteProfileDisplayError::Display)?,
+                            &mut parsed_spans,
+                            &mut generated_spans,
+                        );
+                    }
+                }
+            }
+        }
+        let text_map =
+            DisplayTextMap::from_selected_spans(parsed, selected, &parsed_spans, &generated_spans)
+                .map_err(|_| {
+                    FootnoteProfileDisplayError::Display(
+                        DisplayValidationError::SelectedTextMapMismatch,
+                    )
+                })?;
+        let mut destinations = destinations_from_selected_pagination(selected)
+            .map_err(FootnoteProfileDisplayError::Display)?;
+        let destination_ids: std::collections::BTreeSet<_> = destinations
+            .iter()
+            .map(|destination| destination.anchor_id.clone())
+            .collect();
+        if destination_ids.len() != destinations.len() {
+            return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+        }
+
+        let body_end = footnote_selected
+            .body_frame()
+            .y()
+            .checked_add(footnote_selected.body_frame().height().get())
+            .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+        let separator_center_offset =
+            Length::from_raw(16_384).ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+        let separator_width = Length::from_raw(32_768)
+            .and_then(PositiveLength::new)
+            .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+        let separator_band = Length::from_raw(FOOTNOTE_SEPARATOR_BAND_RAW)
+            .and_then(PositiveLength::new)
+            .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+        let miter_limit = PositiveUnitless16_16::new(Unitless16_16::from_raw(4 * 65_536))
+            .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+        let empty_dash = DashPattern::new(Vec::new(), NonNegativeLength::ZERO)
+            .map_err(|_| FootnoteProfileDisplayError::SeparatorMismatch)?;
+
+        let mut used_fonts = std::collections::BTreeMap::new();
+        let mut next_run_id = 0u32;
+        let mut pages = Vec::new();
+        let mut page_geometries = Vec::new();
+        let mut page_observations = Vec::new();
+        let mut command_observations = Vec::new();
+        let base_geometry = selected
+            .selected_page_geometry()
+            .last()
+            .ok_or(FootnoteProfileDisplayError::SelectedLayoutMismatch)?;
+        pages
+            .try_reserve_exact(footnote_selected.pages().len())
+            .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+        page_geometries
+            .try_reserve_exact(footnote_selected.pages().len())
+            .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+        for (page_ordinal, footnote_page) in footnote_selected.pages().iter().enumerate() {
+            let page_index = u32::try_from(page_ordinal)
+                .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+            if page_index != footnote_page.page_index() {
+                return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+            }
+            let (body_fragments, page_width, page_height) =
+                match selected.selected_pages().get(page_ordinal) {
+                    Some(page_plan) => {
+                        let geometry = selected
+                            .selected_page_geometry()
+                            .get(page_ordinal)
+                            .ok_or(FootnoteProfileDisplayError::SelectedLayoutMismatch)?;
+                        let expected_frame_count =
+                            if footnote_page.reservation() == NonNegativeLength::ZERO {
+                                1
+                            } else {
+                                2
+                            };
+                        let expected_footnote_y = footnote_selected
+                            .body_frame()
+                            .y()
+                            .checked_add(footnote_selected.body_frame().height().get())
+                            .and_then(|end| end.checked_sub(footnote_page.reservation().get()));
+                        if page_plan.page_index != page_index
+                            || page_plan.master_id != *footnote_selected.master_id()
+                            || geometry.page_index() != page_index
+                            || geometry.master_id() != footnote_selected.master_id()
+                            || page_plan.frames.len() != expected_frame_count
+                            || page_plan.frames.first().map_or(true, |frame| {
+                                frame.kind != PageFrameKind::Body
+                                    || frame.column_index != 0
+                                    || frame.bounds != footnote_selected.body_frame()
+                            })
+                            || (expected_frame_count == 2
+                                && page_plan.frames.get(1).map_or(true, |frame| {
+                                    frame.kind != PageFrameKind::Footnote
+                                        || frame.column_index != 0
+                                        || Some(frame.bounds.y()) != expected_footnote_y
+                                        || frame.bounds.x()
+                                            != footnote_selected.maximum_footnote_frame().x()
+                                        || frame.bounds.width()
+                                            != footnote_selected.maximum_footnote_frame().width()
+                                        || frame.bounds.height().get()
+                                            != footnote_page.reservation().get()
+                                }))
+                        {
+                            return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+                        }
+                        (
+                            page_plan.fragments.as_slice(),
+                            geometry.width(),
+                            geometry.height(),
+                        )
+                    }
+                    None => {
+                        if !footnote_page.discovery().is_empty()
+                            || !footnote_page.body_continuation().is_terminal()
+                            || base_geometry.master_id() != footnote_selected.master_id()
+                        {
+                            return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+                        }
+                        (&[][..], base_geometry.width(), base_geometry.height())
+                    }
+                };
+            page_geometries.push(ValidatedDisplayPageGeometry {
+                page_index,
+                master_id: footnote_selected.master_id().clone(),
+                width: page_width,
+                height: page_height,
+            });
+            let mut commands = Vec::new();
+            let mut body_markers = Vec::new();
+            for fragment in body_fragments {
+                if paragraph_items.item_count(fragment.owner).is_none() {
+                    if parsed.document_nodes().node_kind(fragment.owner)
+                        == Some(typaxis_document::DocumentNodeKind::Figure)
+                    {
+                        let image_id = basic_figure_image_id(
+                            &parsed.package().document.blocks,
+                            fragment.owner,
+                        )
+                        .ok_or(FootnoteProfileDisplayError::Display(
+                            DisplayValidationError::UnsupportedReferencePaintDomain,
+                        ))?;
+                        commands.push(DisplayCommand::DrawImage {
+                            image_id,
+                            rect: fragment.bounds,
+                        });
+                    }
+                    continue;
+                }
+                let (start, end) = fragment_item_range(paragraph_items, fragment)
+                    .map_err(FootnoteProfileDisplayError::Display)?;
+                paint_reference_item_range(
+                    parsed,
+                    &text_map,
+                    paragraph_items,
+                    fragment.owner,
+                    start,
+                    end,
+                    fragment.bounds,
+                    fragment.bounds.width(),
+                    FootnoteTextAlign::Start,
+                    None,
+                    page_index,
+                    fragment.owner_local_ordinal,
+                    &mut body_markers,
+                    link_collector.as_mut(),
+                    &mut used_fonts,
+                    &mut next_run_id,
+                    &mut commands,
+                )
+                .map_err(FootnoteProfileDisplayError::Display)?;
+            }
+
+            let references: Vec<_> = footnote_page
+                .discovery()
+                .iter()
+                .map(|occurrence| FootnotePaintReferenceObservation {
+                    footnote_id: occurrence.footnote_id().clone(),
+                    reference_owner: occurrence.reference_owner(),
+                })
+                .collect();
+            let mut reference_by_owner: std::collections::BTreeMap<_, _> = references
+                .iter()
+                .map(|reference| (reference.reference_owner, reference.footnote_id.clone()))
+                .collect();
+            if body_markers.len() != references.len()
+                || reference_by_owner.len() != references.len()
+            {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            }
+            for (command_index, reference_owner) in body_markers.iter().copied() {
+                let footnote_id = reference_by_owner
+                    .remove(&reference_owner)
+                    .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?;
+                let command = commands
+                    .get(command_index as usize)
+                    .filter(|command| matches!(command, DisplayCommand::DrawGlyphRun { .. }))
+                    .ok_or(FootnoteProfileDisplayError::DefinitionPaintOrder)?
+                    .clone();
+                command_observations.push(FootnotePaintCommandObservation {
+                    page_index,
+                    page_command_index: command_index,
+                    kind: FootnotePaintCommandKind::ReferenceMarker,
+                    assignment_ordinal: None,
+                    flow_id: None,
+                    footnote_id: Some(footnote_id),
+                    fragment_ordinal: None,
+                    reference_owner: Some(reference_owner),
+                    command,
+                });
+            }
+            if !reference_by_owner.is_empty() {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            }
+            let body_command_count = u32::try_from(commands.len())
+                .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+
+            let ordered_ids: Vec<_> = footnote_page
+                .ordered_footnotes()
+                .iter()
+                .map(|assignment| assignment.footnote_id().clone())
+                .collect();
+            if footnote_page.flows().len() != footnote_page.ordered_footnotes().len()
+                || footnote_page
+                    .flows()
+                    .iter()
+                    .zip(footnote_page.ordered_footnotes())
+                    .any(|(flow, assignment)| flow.assignment() != assignment)
+                || (footnote_page.flows().is_empty()
+                    != (footnote_page.reservation() == NonNegativeLength::ZERO))
+            {
+                return Err(FootnoteProfileDisplayError::DefinitionPaintOrder);
+            }
+
+            let mut flow_observations = Vec::new();
+            if !footnote_page.flows().is_empty() {
+                let actual_start = body_end
+                    .checked_sub(footnote_page.reservation().get())
+                    .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                let separator_y = actual_start
+                    .checked_add(separator_center_offset)
+                    .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                let separator_end_x = footnote_selected
+                    .maximum_footnote_frame()
+                    .x()
+                    .checked_add(footnote_selected.maximum_footnote_frame().width().get())
+                    .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                let separator = DisplayCommand::StrokePath {
+                    path: Path::new(vec![
+                        PathVerb::MoveTo(Point {
+                            x: footnote_selected.maximum_footnote_frame().x(),
+                            y: separator_y,
+                        }),
+                        PathVerb::LineTo(Point {
+                            x: separator_end_x,
+                            y: separator_y,
+                        }),
+                    ])
+                    .map_err(|_| FootnoteProfileDisplayError::SeparatorMismatch)?,
+                    paint: Paint::Gray(0),
+                    stroke: StrokeStyle {
+                        width: separator_width,
+                        line_cap: LineCap::Butt,
+                        line_join: LineJoin::Miter,
+                        miter_limit,
+                        dash: empty_dash.clone(),
+                    },
+                };
+                let separator_index = u32::try_from(commands.len())
+                    .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?;
+                commands.push(separator.clone());
+                command_observations.push(FootnotePaintCommandObservation {
+                    page_index,
+                    page_command_index: separator_index,
+                    kind: FootnotePaintCommandKind::Separator,
+                    assignment_ordinal: None,
+                    flow_id: None,
+                    footnote_id: None,
+                    fragment_ordinal: None,
+                    reference_owner: None,
+                    command: separator,
+                });
+
+                let mut y = actual_start
+                    .checked_add(separator_band.get())
+                    .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                for selected_flow in footnote_page.flows() {
+                    let assignment = selected_flow.assignment();
+                    let registered = footnote_registry
+                        .flow(assignment.flow_id())
+                        .filter(|registered| {
+                            registered.binding().footnote_id() == assignment.footnote_id()
+                        })
+                        .ok_or(FootnoteProfileDisplayError::RegistryMismatch)?;
+                    let line_set = definition_lines
+                        .get(assignment.flow_id().get() as usize)
+                        .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+                    for selected_fragment in selected_flow.fragments() {
+                        let ordinal = selected_fragment.fragment_ordinal();
+                        let definition_fragment = line_set
+                            .get(ordinal as usize)
+                            .filter(|fragment| fragment.extent == selected_fragment.block_extent())
+                            .ok_or(FootnoteProfileDisplayError::DefinitionFragmentMismatch)?;
+                        if registered.fragment_extents().get(ordinal as usize)
+                            != Some(&selected_fragment.block_extent())
+                        {
+                            return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+                        }
+                        let fragment_start_y = y;
+                        for line in &definition_fragment.lines {
+                            let origin_y = y
+                                .checked_add(line.space_before.get())
+                                .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                            let bounds = Rect::new(
+                                footnote_selected
+                                    .maximum_footnote_frame()
+                                    .x()
+                                    .checked_add(line.physical_left_inset.get())
+                                    .ok_or(FootnoteProfileDisplayError::NumericOverflow)?,
+                                origin_y,
+                                line.inline_size,
+                                line.line_height,
+                            );
+                            if line.start_item == 0 {
+                                for anchor_id in
+                                    footnote_definition_block_anchors(parsed, line.owner)?
+                                {
+                                    let expected = NamedDestination {
+                                        anchor_id: anchor_id.clone(),
+                                        page_index,
+                                        view: DestinationView::Xyz {
+                                            point: Point {
+                                                x: bounds.x(),
+                                                y: bounds.y(),
+                                            },
+                                        },
+                                    };
+                                    if !destination_ids.contains(&anchor_id)
+                                        || destinations
+                                            .iter()
+                                            .find(|destination| destination.anchor_id == anchor_id)
+                                            != Some(&expected)
+                                    {
+                                        return Err(
+                                            FootnoteProfileDisplayError::SelectedLayoutMismatch,
+                                        );
+                                    }
+                                }
+                            }
+                            let justification_inline_size = if let Some(gap) = line.marker_gap {
+                                bounds
+                                    .width()
+                                    .get()
+                                    .checked_sub(gap.get())
+                                    .and_then(PositiveLength::new)
+                                    .ok_or(
+                                        FootnoteProfileDisplayError::DefinitionFragmentMismatch,
+                                    )?
+                            } else {
+                                bounds.width()
+                            };
+                            let command_start = commands.len();
+                            let marker_count = paint_reference_item_range(
+                                parsed,
+                                &text_map,
+                                paragraph_items,
+                                line.owner,
+                                line.start_item,
+                                line.end_item,
+                                bounds,
+                                justification_inline_size,
+                                line.text_align,
+                                line.marker_owner.zip(line.marker_gap),
+                                page_index,
+                                line.line_ordinal,
+                                &mut body_markers,
+                                link_collector.as_mut(),
+                                &mut used_fonts,
+                                &mut next_run_id,
+                                &mut commands,
+                            )
+                            .map_err(FootnoteProfileDisplayError::Display)?;
+                            if marker_count != u32::from(line.marker_owner.is_some()) {
+                                return Err(
+                                    FootnoteProfileDisplayError::DefinitionFragmentMismatch,
+                                );
+                            }
+                            for (command_index, command) in
+                                commands.iter().enumerate().skip(command_start)
+                            {
+                                command_observations.push(FootnotePaintCommandObservation {
+                                    page_index,
+                                    page_command_index: u32::try_from(command_index).map_err(
+                                        |_| FootnoteProfileDisplayError::NumericOverflow,
+                                    )?,
+                                    kind: FootnotePaintCommandKind::Definition,
+                                    assignment_ordinal: Some(assignment.assignment_ordinal()),
+                                    flow_id: Some(assignment.flow_id()),
+                                    footnote_id: Some(assignment.footnote_id().clone()),
+                                    fragment_ordinal: Some(ordinal),
+                                    reference_owner: None,
+                                    command: command.clone(),
+                                });
+                            }
+                            y = y
+                                .checked_add(line.extent.get())
+                                .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+                        }
+                        if y.checked_sub(fragment_start_y)
+                            != Some(selected_fragment.block_extent().get())
+                        {
+                            return Err(FootnoteProfileDisplayError::DefinitionFragmentMismatch);
+                        }
+                    }
+                    flow_observations.push(FootnotePaintFlowObservation {
+                        footnote_id: assignment.footnote_id().clone(),
+                        assignment_ordinal: assignment.assignment_ordinal(),
+                        flow_id: assignment.flow_id(),
+                        before_fragment: selected_flow.before_cursor().next_fragment_ordinal(),
+                        after_fragment: selected_flow.after_cursor().next_fragment_ordinal(),
+                        incoming_source_page: selected_flow.incoming_source_page(),
+                        carries_out: selected_flow.carries_out(),
+                    });
+                }
+                if y != body_end {
+                    return Err(FootnoteProfileDisplayError::SeparatorMismatch);
+                }
+            }
+            page_observations.push(FootnotePaintPageObservation {
+                page_index,
+                body_continuation_position: footnote_page.body_continuation().next_flow_position(),
+                body_continuation_terminal: footnote_page.body_continuation().is_terminal(),
+                body_fingerprint: footnote_page.body_fingerprint(),
+                body_command_count,
+                evaluation_count: footnote_page.evaluation_count(),
+                reservation: footnote_page.reservation(),
+                ordered_footnote_ids: ordered_ids,
+                references,
+                flows: flow_observations,
+            });
+            pages.push(DisplayPage {
+                page_index,
+                width: page_width,
+                height: page_height,
+                commands,
+                annotations: Vec::new(),
+            });
+        }
+        if let Some(collector) = link_collector {
+            for annotation in collector
+                .finish()
+                .map_err(FootnoteProfileDisplayError::Link)?
+            {
+                pages
+                    .get_mut(annotation.page_index as usize)
+                    .ok_or(FootnoteProfileDisplayError::Link(
+                        StagingMachineLinkDisplayError::WrongPage(NodeId::new(
+                            annotation.link_node_id,
+                        )),
+                    ))?
+                    .annotations
+                    .push(LinkAnnotation {
+                        target: annotation.target.to_display_target(),
+                        rect: annotation.rect,
+                    });
+            }
+        }
+        destinations.sort_by(|left, right| left.anchor_id.cmp(&right.anchor_id));
+        if destinations.len() != parsed.document_nodes().anchors().len()
+            || destinations
+                .windows(2)
+                .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
+        {
+            return Err(FootnoteProfileDisplayError::SelectedLayoutMismatch);
+        }
+        let mut font_instances = Vec::new();
+        for (expected, (instance, face)) in used_fonts.into_iter().enumerate() {
+            if instance.get()
+                != u32::try_from(expected)
+                    .map_err(|_| FootnoteProfileDisplayError::NumericOverflow)?
+            {
+                return Err(FootnoteProfileDisplayError::Display(
+                    DisplayValidationError::NonDenseFontInstanceId,
+                ));
+            }
+            font_instances.push(DisplayFontInstance {
+                font_instance_id: instance,
+                font_face_id: face,
+            });
+        }
+        let trusted = DisplayListBuilderOwner::new()
+            .issue_footnote(
+                selected,
+                text_map,
+                FootnoteDisplayIssue {
+                    font_instances,
+                    destinations,
+                    pages,
+                    selected_page_geometry: page_geometries,
+                },
+                config,
+            )
+            .map_err(FootnoteProfileDisplayError::Display)?;
+        let mut closure = FootnoteDisplayClosureReceipt {
+            profile_sha256: footnote_selected.profile_fingerprint().bytes(),
+            registry_sha256: footnote_selected.registry_fingerprint().bytes(),
+            selected_layout_sha256: footnote_selected.fingerprint().bytes(),
+            body_layout_sha256: footnote_selected.body_layout_fingerprint().bytes(),
+            pages: page_observations,
+            commands: command_observations,
+            canonical_jcs: String::new(),
+        };
+        closure.canonical_jcs = encode_footnote_display_closure(&closure);
+        validate_footnote_display_closure(&trusted, &closure)?;
+        Ok(FootnoteProfileDisplay { trusted, closure })
     }
 
     /// Paint the immutable `table-1` domain. Ordinary body-flow commands are
@@ -5073,6 +6828,219 @@ fn fragment_shaped_slices(
     paragraph_shaped_slices(registry, owner, start, end)
 }
 
+fn fragment_item_range(
+    registry: &ValidatedParagraphItemRegistry,
+    fragment: &typaxis_pagination::PlacedFragment,
+) -> Result<(u32, u32), DisplayValidationError> {
+    let owner = fragment.owner;
+    if fragment.start.owner() != owner {
+        return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+    }
+    let item_count = registry
+        .item_count(owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let start = fragment.start.owner_local_boundary();
+    let end = if fragment.end.owner() == owner {
+        fragment.end.owner_local_boundary()
+    } else {
+        item_count
+    };
+    if start >= end || end > item_count {
+        return Err(DisplayValidationError::UnsupportedReferencePaintDomain);
+    }
+    Ok((start, end))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_reference_item_range(
+    package: &ValidatedParsedPackage,
+    text_map: &DisplayTextMap,
+    registry: &ValidatedParagraphItemRegistry,
+    owner: NodeId,
+    start: u32,
+    end: u32,
+    bounds: Rect,
+    justification_inline_size: PositiveLength,
+    text_align: FootnoteTextAlign,
+    definition_marker: Option<(NodeId, PositiveLength)>,
+    page_index: u32,
+    line_ordinal: u32,
+    body_markers: &mut Vec<(u32, NodeId)>,
+    mut link_collector: Option<&mut FootnoteMachineLinkCollector<'_>>,
+    used_fonts: &mut std::collections::BTreeMap<FontInstanceId, FontFaceId>,
+    next_run_id: &mut u32,
+    commands: &mut Vec<DisplayCommand>,
+) -> Result<u32, DisplayValidationError> {
+    let mut logical = paragraph_shaped_slices(registry, owner, start, end)?;
+    if logical.is_empty() {
+        return Ok(0);
+    }
+    let levels: Vec<_> = logical
+        .iter()
+        .map(|slice| slice.shaped.bidi_level())
+        .collect();
+    let classes: Vec<_> = logical.iter().map(|slice| slice.class).collect();
+    let paragraph_level = registry
+        .paragraph_level(owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let after_l1 = reset_line_bidi_levels(paragraph_level, &levels, &classes)
+        .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    logical = reference_final_line_reshape(registry, owner, logical, &after_l1)?;
+    justify_reference_item_range(
+        registry,
+        owner,
+        end,
+        justification_inline_size,
+        &mut logical,
+    )?;
+    let natural = logical
+        .iter()
+        .try_fold(Length::ZERO, |total, slice| {
+            total.checked_add(slice.advance)
+        })
+        .ok_or(DisplayValidationError::NumericOutOfRange)?;
+    let remaining = justification_inline_size
+        .get()
+        .checked_sub(natural)
+        .filter(|remaining| remaining.raw() >= 0)
+        .ok_or(DisplayValidationError::NumericOutOfRange)?;
+    let start_on_right = paragraph_level.get() % 2 == 1;
+    let alignment_offset = match text_align {
+        FootnoteTextAlign::Center if start_on_right => Length::from_raw(
+            remaining
+                .raw()
+                .checked_add(1)
+                .ok_or(DisplayValidationError::NumericOutOfRange)?
+                / 2,
+        )
+        .ok_or(DisplayValidationError::NumericOutOfRange)?,
+        FootnoteTextAlign::Center => Length::from_raw(remaining.raw() / 2)
+            .ok_or(DisplayValidationError::NumericOutOfRange)?,
+        FootnoteTextAlign::Start if start_on_right => remaining,
+        FootnoteTextAlign::End if !start_on_right => remaining,
+        _ => Length::ZERO,
+    };
+    let order = reorder_line_l2(&after_l1)
+        .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?;
+    let definition_marker_visual_bounds = definition_marker.and_then(|(marker_owner, gap)| {
+        footnote_marker_visual_bounds(
+            order.visual_to_logical().iter().map(|logical_index| {
+                logical.get(*logical_index as usize).is_some_and(|slice| {
+                    shaped_slice_is_footnote_marker(slice.shaped, marker_owner)
+                })
+            }),
+            gap,
+        )
+    });
+    let mut x = bounds
+        .x()
+        .checked_add(alignment_offset)
+        .ok_or(DisplayValidationError::NumericOutOfRange)?;
+    let mut body_marker_owners = std::collections::BTreeSet::new();
+    for (visual_index, logical_index) in order.visual_to_logical().iter().enumerate() {
+        let line_slice = logical
+            .get(*logical_index as usize)
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        let shaped = line_slice.shaped;
+        if start_on_right
+            && definition_marker_visual_bounds.is_some_and(|(first, _, _)| visual_index == first)
+        {
+            let gap = definition_marker_visual_bounds
+                .map(|(_, _, gap)| gap.get())
+                .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+            x = x
+                .checked_add(gap)
+                .ok_or(DisplayValidationError::NumericOutOfRange)?;
+        }
+        let runs = registry
+            .runs(owner)
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        let run = runs
+            .get(shaped.paragraph_run_index().get() as usize)
+            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        let command = paint_shaped_slice(
+            package,
+            text_map,
+            run,
+            shaped,
+            after_l1.logical_levels()[*logical_index as usize],
+            DisplayGlyphRunId::new(*next_run_id),
+            Point { x, y: bounds.y() },
+        )?;
+        if let Some(collector) = link_collector.as_deref_mut() {
+            collector
+                .observe(FootnoteMachineLinkClusterObservation {
+                    paragraph_owner: owner,
+                    shaped,
+                    page_index,
+                    line_ordinal,
+                    x,
+                    line_bounds: bounds,
+                    advance: line_slice.advance,
+                })
+                .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?;
+        }
+        *next_run_id = next_run_id
+            .checked_add(1)
+            .ok_or(DisplayValidationError::NonDenseGlyphRunId)?;
+        register_table_profile_command_font(package, run, &command, used_fonts)?;
+        x = x
+            .checked_add(line_slice.advance)
+            .ok_or(DisplayValidationError::NumericOutOfRange)?;
+        if let ShapeSourceSpan::Generated(provenance) = shaped.source() {
+            if provenance.buffer_key().generation_kind() == GenerationKind::FootnoteMarker {
+                if definition_marker
+                    .is_some_and(|(marker_owner, _)| marker_owner == shaped.site_owner())
+                {
+                    if !start_on_right
+                        && definition_marker_visual_bounds
+                            .is_some_and(|(_, last, _)| visual_index == last)
+                    {
+                        let gap = definition_marker
+                            .map(|(_, gap)| gap.get())
+                            .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                        x = x
+                            .checked_add(gap)
+                            .ok_or(DisplayValidationError::NumericOutOfRange)?;
+                    }
+                } else if body_marker_owners.insert(shaped.site_owner()) {
+                    body_markers.push((
+                        u32::try_from(commands.len())
+                            .map_err(|_| DisplayValidationError::NumericOutOfRange)?,
+                        shaped.site_owner(),
+                    ));
+                }
+            }
+        }
+        commands.push(command);
+    }
+    Ok(u32::from(definition_marker_visual_bounds.is_some()))
+}
+
+fn footnote_marker_visual_bounds(
+    marker_clusters: impl IntoIterator<Item = bool>,
+    gap: PositiveLength,
+) -> Option<(usize, usize, PositiveLength)> {
+    let mut first = None;
+    let mut last = None;
+    for (visual_index, is_marker) in marker_clusters.into_iter().enumerate() {
+        if is_marker {
+            first.get_or_insert(visual_index);
+            last = Some(visual_index);
+        }
+    }
+    Some((first?, last?, gap))
+}
+
+fn shaped_slice_is_footnote_marker(shaped: ShapedSlice, marker_owner: NodeId) -> bool {
+    shaped.site_owner() == marker_owner
+        && matches!(
+            shaped.source(),
+            ShapeSourceSpan::Generated(provenance)
+                if provenance.buffer_key().generation_kind() == GenerationKind::FootnoteMarker
+        )
+}
+
 fn paragraph_shaped_slices(
     registry: &ValidatedParagraphItemRegistry,
     owner: NodeId,
@@ -5148,6 +7116,19 @@ fn paragraph_shaped_slices(
     Ok(output)
 }
 
+fn append_display_source_spans(
+    slices: Vec<LinePaintSlice>,
+    parsed: &mut Vec<TextSpan>,
+    generated: &mut Vec<GeneratedTextSpan>,
+) {
+    for slice in slices {
+        match slice.shaped.source() {
+            ShapeSourceSpan::Parsed(span) => parsed.push(span),
+            ShapeSourceSpan::Generated(provenance) => generated.push(provenance.text_span()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LinePaintSlice {
     class: LineBidiClass,
@@ -5205,6 +7186,25 @@ fn justify_reference_line(
     } else {
         item_count
     };
+    justify_reference_item_range(
+        registry,
+        fragment.owner,
+        end,
+        fragment.bounds.width(),
+        logical,
+    )
+}
+
+fn justify_reference_item_range(
+    registry: &ValidatedParagraphItemRegistry,
+    owner: NodeId,
+    end: u32,
+    inline_size: PositiveLength,
+    logical: &mut [LinePaintSlice],
+) -> Result<(), DisplayValidationError> {
+    let item_count = registry
+        .item_count(owner)
+        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
     // The terminal paragraph line runs through the justification stage with
     // an explicit no-adjust policy. Other lines consume available Glue by
     // ascending priority and retain deterministic logical-order rounding.
@@ -5217,9 +7217,7 @@ fn justify_reference_line(
             total.checked_add(slice.advance)
         })
         .ok_or(DisplayValidationError::NumericOutOfRange)?;
-    let delta = fragment
-        .bounds
-        .width()
+    let delta = inline_size
         .get()
         .checked_sub(natural)
         .ok_or(DisplayValidationError::NumericOutOfRange)?;
@@ -5426,6 +7424,13 @@ fn reference_paint_domain_is_supported(
 pub struct DisplayListBuilderOwner {
     _private: (),
 }
+struct FootnoteDisplayIssue {
+    font_instances: Vec<DisplayFontInstance>,
+    destinations: Vec<NamedDestination>,
+    pages: Vec<DisplayPage>,
+    selected_page_geometry: Vec<ValidatedDisplayPageGeometry>,
+}
+
 impl DisplayListBuilderOwner {
     #[allow(dead_code)] // reserved for the in-crate reference paint builder
     fn new() -> Self {
@@ -5918,6 +7923,40 @@ impl DisplayListBuilderOwner {
         )?;
         Ok(ValidatedDisplayDocument { structural })
     }
+
+    fn issue_footnote(
+        &self,
+        selected: &PaginationResult,
+        text_map: DisplayTextMap,
+        issue: FootnoteDisplayIssue,
+        config: &EffectiveConfig,
+    ) -> Result<ValidatedDisplayDocument, DisplayValidationError> {
+        let FootnoteDisplayIssue {
+            font_instances,
+            destinations,
+            pages,
+            selected_page_geometry,
+        } = issue;
+        let source_layout = text_map.source_layout;
+        if !source_layout.matches_selected(selected) {
+            return Err(DisplayValidationError::SelectedTextMapMismatch);
+        }
+        let document = DisplayDocument {
+            source_layout,
+            text_buffers: text_map.contents.buffers,
+            font_instances,
+            destinations: destinations.clone(),
+            pages,
+        };
+        let structural = StructurallyValidatedDisplayDocument::from_verified_footnote_profile(
+            document,
+            selected,
+            config,
+            &destinations,
+            selected_page_geometry,
+        )?;
+        Ok(ValidatedDisplayDocument { structural })
+    }
 }
 
 fn validate_remapped_span(
@@ -6076,6 +8115,19 @@ mod tests {
                 Err(TableDisplayClosureError::DecorationForbidden)
             );
         }
+    }
+
+    #[test]
+    fn footnote_definition_marker_clusters_form_one_site_and_one_gap() {
+        let gap = PositiveLength::new(Length::from_raw(65_536).unwrap()).unwrap();
+        assert_eq!(
+            footnote_marker_visual_bounds([false, true, true, false], gap),
+            Some((1, 2, gap))
+        );
+        assert_eq!(
+            footnote_marker_visual_bounds([false, false, false], gap),
+            None
+        );
     }
 
     #[test]

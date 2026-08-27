@@ -1350,6 +1350,13 @@ fn machine_link_descriptor_is_closed_without_broadening_paragraph_1() {
     );
     assert!(!descriptor.permits_nested_links());
     assert!(!descriptor.permits_raw_pdf_actions());
+    assert!(!descriptor.permits_footnote_definitions());
+    let footnote = BasicDocumentLinkDescriptor::FOOTNOTE_1;
+    assert_eq!(
+        footnote.profile_id(),
+        MachinePdfProfileId::FOOTNOTE_1.as_str()
+    );
+    assert!(footnote.permits_footnote_definitions());
     assert!(!MachineProfileDescriptor::PARAGRAPH_1.accepts_inline(MachineInlineKind::Link));
 }
 
@@ -1375,6 +1382,14 @@ fn machine_link_receipt_binds_internal_anchor_to_its_exact_package() {
         target.internal_anchor_id().map(|anchor| anchor.as_str()),
         Some("target")
     );
+
+    let footnote_receipt = BasicDocumentLinkPreflight::FOOTNOTE_1.run(&first).unwrap();
+    assert_eq!(
+        footnote_receipt.profile_id(),
+        MachinePdfProfileId::FOOTNOTE_1.as_str()
+    );
+    assert!(footnote_receipt.verifies_for(&first, BasicDocumentLinkDescriptor::FOOTNOTE_1));
+    assert!(!footnote_receipt.verifies(&first));
 }
 
 fn run_basic_style_preflight(

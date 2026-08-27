@@ -19,13 +19,11 @@ DocumentPackage input parsing recognizes exactly `typaxis.contract/1.0`,
 `typaxis.contract/1.1`, and `typaxis.contract/1.2`. The default
 `typaxis.machine-pdf/paragraph-1` profile accepts all three identifiers while
 retaining its frozen semantic subset. Explicit
-`typaxis.machine-pdf/basic-document-1` and `typaxis.machine-pdf/table-1` require
-raw contract 1.2; a 1.0 or 1.1 package is rejected at `/contract` and is never
-upgraded by synthesizing additive style or table semantics. Unknown identifiers
-never fall back to the current contract or newest profile. ADR-0030's
-`typaxis.machine-pdf/footnote-1` target likewise fixes raw contract 1.2, but is
-not publicly selectable until MI3-07; before that gate its ID is an unknown
-profile usage error rather than a partially accepted contract path.
+`typaxis.machine-pdf/basic-document-1`, `typaxis.machine-pdf/footnote-1`, and
+`typaxis.machine-pdf/table-1` require raw contract 1.2; a 1.0 or 1.1 package is
+rejected at `/contract` and is never upgraded by synthesizing additive style,
+footnote, or table semantics. Unknown identifiers never fall back to the
+current contract or newest profile.
 
 Raw configuration input recognizes the same closed contract set. A raw 1.0
 configuration receives defaults for fields added after 1.0. Semantically equal
@@ -40,10 +38,9 @@ Contract 1.2 adds the closed style-property names `space_before`,
 adopted by [ADR-0028](../adr/ADR-0028-basic-document-profile.md). The publication
 exposes the immutable `basic-document-1` profile, and MI3-04 subsequently
 published the immutable `table-1` profile on the unchanged 1.2 table wire.
-ADR-0030 defines the future immutable `footnote-1` profile using the unchanged
-1.2 definition/reference/page-master-footnote wire, but MI3-05 publishes no
-descriptor or artifact support. `paragraph-1` remains the default and no older
-profile is broadened.
+MI3-07 published ADR-0030's immutable `footnote-1` profile using the unchanged
+1.2 definition/reference/page-master-footnote wire and conditional artifact
+facts. `paragraph-1` remains the default and no older profile is broadened.
 
 The contract remains a draft until the repository has a matching release tag
 for the design-package release. An incompatible change to field meaning,

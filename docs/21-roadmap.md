@@ -15,13 +15,14 @@
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| bounded reference TSF pipeline | Yes, current 1.1 | Yes, reference subset | Yes | No |
-| DocumentPackage portable Schema and `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual validator/export | Yes, package round trip | Yes, M1 host gate |
+| bounded reference TSF pipeline | Yes, current 1.2 | Yes, reference subset | Yes | No |
+| DocumentPackage portable Schema and `dump-ast` export | Yes, current 1.2 plus frozen 1.0/1.1 input | Yes: independent registries and shared export | Yes, package round trip | Yes, M1 host gate |
 | MI0-01 macOS baseline | Yes | Completed | blank reference smoke only | Not a machine release gate |
 | MI0-02 machine ingestion architecture | Yes, ADR-0027 | Yes: owner graph and sealed receipts | Yes, through M1 commands | Not a standalone release gate |
 | M1 `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined fixture | Yes |
-| contract 1.1 generated artifacts | Yes | Yes, current output | Yes | Yes, M1 host gate |
-| M2-M5 rich machine profiles | No: decision-gate ADR pending | No | No | No |
+| contract 1.2 generated artifacts | Yes | Yes, current output with frozen 1.0/1.1 input | Yes | Yes |
+| M2 `basic-document-1` and M3 `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined fixtures | Yes, profile gates |
+| remaining advanced M3-M5 profiles | No: decision-gate ADR pending | No | No | No |
 
 現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2E、producer guide、再現性・external PDF gate、同一revision/source/artifactのmacOS/Linux actual evidence集約は完了した。GitHub Actionsは使用していない。
 
@@ -35,7 +36,7 @@
 6. MI1-15〜MI1-16: non-public orchestrationとinternal E2E fixture closure。
 7. MI1-17: public command registration、producer docs、documented-host/reproducibility gate、actual two-host evidence aggregation。
 
-M2以降のprofile ID、page-break blank-page policy、table split policy、math/vector/book publicationは各decision-gate ADRがAcceptedになるまでcontract-definedへ昇格しない。M1の`paragraph-1`を拡張して代用しない。
+未採択のprofile ID、advanced page/table/footnote policy、math/vector/book publicationは各decision-gate ADRがAcceptedになるまでcontract-definedへ昇格しない。公開済み`paragraph-1`、`basic-document-1`、`table-1`、`footnote-1`を拡張して代用しない。
 
 ## Existing reference capability history (not completion status)
 

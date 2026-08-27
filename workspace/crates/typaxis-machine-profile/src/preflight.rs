@@ -31,6 +31,7 @@ const MISSING_TEXT_FONT_MESSAGE: &str =
     "text-producing content requires a declared machine PDF font";
 const HOST_UNAVAILABLE_MESSAGE: &str = "required compiled host capability is unavailable";
 pub const BASIC_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.basic-profile-receipt/1";
+pub const FOOTNOTE_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.footnote-profile-receipt/1";
 pub const TABLE_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.table-profile-receipt/1";
 
 /// Failure returned before PACKAGE admission when a compiled host primitive is
@@ -253,6 +254,7 @@ pub struct MachinePdfPreflight {
 
 impl MachinePdfPreflight {
     pub const BASIC_DOCUMENT_1: Self = Self::new(MachineProfileDescriptor::BASIC_DOCUMENT_1);
+    pub const FOOTNOTE_1: Self = Self::new(MachineProfileDescriptor::FOOTNOTE_1);
     pub const PARAGRAPH_1: Self = Self::new(MachineProfileDescriptor::PARAGRAPH_1);
     pub const TABLE_1: Self = Self::new(MachineProfileDescriptor::TABLE_1);
 
@@ -284,6 +286,9 @@ impl MachinePdfPreflight {
         self.inspect_source_closure(package, &mut violations)?;
         if self.descriptor.id() == MachinePdfProfileId::TABLE_1 {
             self.inspect_table_domain(package, &mut violations)?;
+        }
+        if self.descriptor.id() == MachinePdfProfileId::FOOTNOTE_1 {
+            self.inspect_footnote_domain(package, &mut violations)?;
         }
         let first_text_node = self.inspect_document(package, &mut violations)?;
         self.inspect_styles(package, &mut violations)?;
@@ -400,6 +405,44 @@ impl MachinePdfPreflight {
         Ok(())
     }
 
+    fn inspect_footnote_domain(
+        self,
+        package: &ValidatedMachinePackage,
+        violations: &mut ViolationEmitter<'_, '_, '_>,
+    ) -> Result<(), MachinePdfPreflightFailure> {
+        let document = &package.package().package().document;
+        let mut referenced = std::collections::BTreeSet::new();
+        for block in &document.blocks {
+            collect_footnote_body_targets(block, &mut referenced);
+        }
+        for definition in &document.footnotes {
+            let mut text_producing = false;
+            let definition_invalid =
+                definition.blocks.is_empty() || !referenced.contains(&definition.footnote_id);
+            for block in &definition.blocks {
+                let children = match block {
+                    Block::Paragraph { children, .. } | Block::Heading { children, .. } => {
+                        children.as_slice()
+                    }
+                    _ => {
+                        violations.content(block_node_id(block), None)?;
+                        continue;
+                    }
+                };
+                inspect_footnote_definition_inlines(
+                    children,
+                    false,
+                    &mut text_producing,
+                    violations,
+                )?;
+            }
+            if definition_invalid || !text_producing {
+                violations.content(definition.node_id, None)?;
+            }
+        }
+        Ok(())
+    }
+
     fn inspect_block(
         self,
         block: &Block,
@@ -503,6 +546,11 @@ impl MachinePdfPreflight {
                     violations.master(master)?;
                 }
             }
+            if self.descriptor.id() == MachinePdfProfileId::FOOTNOTE_1
+                && !valid_footnote_master_geometry(master)
+            {
+                violations.master(master)?;
+            }
             while next_rule < rules.len() && rules[next_rule].master_id == master.master_id {
                 violations.master_rule(rules[next_rule])?;
                 next_rule += 1;
@@ -539,10 +587,12 @@ fn profile_receipt_fingerprint(
 ) -> [u8; 32] {
     let epoch = package.package().epoch_identity();
     let mut bytes = Vec::with_capacity(192);
-    let algorithm = if profile == MachinePdfProfileId::TABLE_1 {
-        TABLE_PROFILE_RECEIPT_ALGORITHM
-    } else {
-        BASIC_PROFILE_RECEIPT_ALGORITHM
+    let algorithm = match profile {
+        MachinePdfProfileId::Footnote1 => FOOTNOTE_PROFILE_RECEIPT_ALGORITHM,
+        MachinePdfProfileId::Table1 => TABLE_PROFILE_RECEIPT_ALGORITHM,
+        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Paragraph1 => {
+            BASIC_PROFILE_RECEIPT_ALGORITHM
+        }
     };
     bytes.extend_from_slice(algorithm.as_bytes());
     bytes.push(0);
@@ -639,6 +689,138 @@ fn inspect_table_cell_inlines(
         }
     }
     Ok(())
+}
+
+fn collect_footnote_body_targets(
+    block: &Block,
+    targets: &mut std::collections::BTreeSet<typaxis_core::FootnoteId>,
+) {
+    match block {
+        Block::Paragraph { children, .. } | Block::Heading { children, .. } => {
+            collect_footnote_inline_targets(children, targets)
+        }
+        Block::List { items, .. } => {
+            for child in items.iter().flat_map(|item| &item.blocks) {
+                collect_footnote_body_targets(child, targets);
+            }
+        }
+        Block::Table { head, body, .. } => {
+            for child in head
+                .iter()
+                .chain(body)
+                .flat_map(|row| &row.cells)
+                .flat_map(|cell| &cell.blocks)
+            {
+                collect_footnote_body_targets(child, targets);
+            }
+        }
+        Block::Figure { caption, .. } => {
+            for child in caption {
+                collect_footnote_body_targets(child, targets);
+            }
+        }
+        Block::PageBreak { .. } => {}
+    }
+}
+
+fn collect_footnote_inline_targets(
+    inlines: &[Inline],
+    targets: &mut std::collections::BTreeSet<typaxis_core::FootnoteId>,
+) {
+    for inline in inlines {
+        match inline {
+            Inline::FootnoteReference { footnote_id, .. } => {
+                targets.insert(footnote_id.clone());
+            }
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => collect_footnote_inline_targets(children, targets),
+            Inline::Text { .. }
+            | Inline::Anchor { .. }
+            | Inline::Reference { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::HardBreak { .. } => {}
+        }
+    }
+}
+
+fn inspect_footnote_definition_inlines(
+    inlines: &[Inline],
+    inside_link: bool,
+    text_producing: &mut bool,
+    violations: &mut ViolationEmitter<'_, '_, '_>,
+) -> Result<(), MachinePdfPreflightFailure> {
+    for inline in inlines {
+        match inline {
+            Inline::Text {
+                node_id, text_span, ..
+            } => {
+                if text_span.start_byte() < text_span.end_byte() {
+                    *text_producing = true;
+                } else {
+                    let _ = node_id;
+                }
+            }
+            Inline::Reference {
+                format: ReferenceFormat::Page,
+                ..
+            } => *text_producing = true,
+            Inline::Link {
+                node_id, children, ..
+            } if !inside_link => {
+                let mut link_text = false;
+                inspect_footnote_definition_inlines(children, true, &mut link_text, violations)?;
+                if link_text {
+                    *text_producing = true;
+                } else {
+                    violations.content(*node_id, None)?;
+                }
+            }
+            Inline::Anchor { .. } | Inline::SoftBreak { .. } | Inline::HardBreak { .. } => {}
+            Inline::Emphasis { children, .. } | Inline::Strong { children, .. } => {
+                // The profile descriptor emits the canonical rejection for
+                // these globally unsupported inline kinds. Continue only to
+                // avoid a redundant definition-level "empty" diagnostic.
+                inspect_footnote_definition_inlines(
+                    children,
+                    inside_link,
+                    text_producing,
+                    violations,
+                )?;
+            }
+            Inline::Link {
+                node_id, children, ..
+            } => {
+                // Link is otherwise part of the M2 inline set, so nesting is
+                // the footnote-context violation owned by this inspection.
+                violations.content(*node_id, None)?;
+                inspect_footnote_definition_inlines(children, true, text_producing, violations)?;
+            }
+            Inline::Reference { .. } => {
+                // The descriptor emits the canonical format rejection.
+            }
+            Inline::FootnoteReference { node_id, .. } => {
+                violations.content(*node_id, None)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn valid_footnote_master_geometry(master: &PageMaster) -> bool {
+    let Some(footnote) = master.footnote else {
+        return false;
+    };
+    let Some(body_end) = master.body.y().checked_add(master.body.height().get()) else {
+        return false;
+    };
+    let Some(footnote_end) = footnote.y().checked_add(footnote.height().get()) else {
+        return false;
+    };
+    footnote.x() == master.body.x()
+        && footnote.width() == master.body.width()
+        && footnote_end == body_end
+        && footnote.height().get().raw() < master.body.height().get().raw()
 }
 
 fn reject_nested_tables(

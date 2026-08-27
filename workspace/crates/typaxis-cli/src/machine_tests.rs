@@ -716,12 +716,12 @@ fn machine_capabilities_snapshot_is_exact_and_commands_are_public() {
 }
 
 #[test]
-fn capabilities_preserve_older_profiles_and_publish_the_closed_table_profile() {
+fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
     let capabilities = read_json(&fixture_root("capabilities.json"));
     let profiles = capabilities["machine_input"]["profiles"]
         .as_array()
         .unwrap();
-    assert_eq!(profiles.len(), 3);
+    assert_eq!(profiles.len(), 4);
     assert_eq!(
         capabilities["machine_input"]["default_profile"],
         "typaxis.machine-pdf/paragraph-1"
@@ -742,6 +742,16 @@ fn capabilities_preserve_older_profiles_and_publish_the_closed_table_profile() {
     assert_eq!(json_strings(&profile["image_formats"]), Vec::<&str>::new());
     assert!(!profile["footnotes"].as_bool().unwrap());
     assert!(!profile["page_master"]["selection_rules"].as_bool().unwrap());
+    let footnote = profiles
+        .iter()
+        .find(|profile| profile["id"] == MachinePdfProfileId::FOOTNOTE_1.as_str())
+        .expect("footnote-1 is advertised");
+    assert!(footnote["footnotes"].as_bool().unwrap());
+    assert_eq!(
+        json_strings(&footnote["page_master"]["optional_frames"]),
+        ["footnote"]
+    );
+    assert!(json_strings(&footnote["inlines"]["kinds"]).contains(&"footnote_reference"));
     for future in [
         "list",
         "figure",
@@ -873,6 +883,192 @@ fn machine_table_profile_retains_basic_only_behavior_without_table_facts() {
 }
 
 #[test]
+fn machine_footnote_zero() {
+    let run = assert_success_fixture("profiles/footnote-1/zero");
+    let trace = read_json(&run.artifacts.join("trace.json"));
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    for facts in [&trace["footnote_layout"], &manifest["footnote_layout"]] {
+        assert_eq!(facts["algorithm"], "typaxis.footnote-manifest/1");
+        let pages = facts["pages"].as_array().unwrap();
+        assert_eq!(pages.len(), 2);
+        for page in pages {
+            assert!(page["ordered_footnote_ids"].as_array().unwrap().is_empty());
+            assert!(page["flows"].as_array().unwrap().is_empty());
+            assert_eq!(page["reservation"], 0);
+        }
+    }
+    let selected_pass = trace["passes"].as_array().unwrap().last().unwrap();
+    for page in selected_pass["state"]["pages"].as_array().unwrap() {
+        assert!(page["footnote_ids"].as_array().unwrap().is_empty());
+        let frames = page["frames"].as_array().unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0]["kind"], "body");
+    }
+}
+
+#[test]
+fn machine_footnote_combined() {
+    let run = assert_success_fixture("profiles/footnote-1/combined");
+    let trace = read_json(&run.artifacts.join("trace.json"));
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    let trace_facts = &trace["footnote_layout"];
+    let manifest_facts = &manifest["footnote_layout"];
+    assert_eq!(trace_facts["algorithm"], "typaxis.footnote-manifest/1");
+    assert_eq!(manifest_facts["algorithm"], "typaxis.footnote-manifest/1");
+    assert_eq!(
+        trace_facts["body_layout_sha256"].as_str(),
+        trace["result"]["final_fingerprint"].as_str()
+    );
+    assert_eq!(
+        manifest_facts["body_layout_sha256"].as_str(),
+        manifest["layout"]["final_fingerprint"].as_str()
+    );
+    for member in [
+        "body_layout_sha256",
+        "paint_sha256",
+        "profile_sha256",
+        "registry_sha256",
+        "selected_layout_sha256",
+    ] {
+        assert_eq!(
+            trace_facts[member].as_str(),
+            manifest_facts[member].as_str()
+        );
+    }
+    let pages = manifest_facts["pages"].as_array().unwrap();
+    assert_eq!(pages.len(), 3);
+    let trace_pages = trace_facts["pages"].as_array().unwrap();
+    let selected_pages = trace["passes"].as_array().unwrap().last().unwrap()["state"]["pages"]
+        .as_array()
+        .unwrap();
+    assert_eq!(trace_pages.len(), pages.len());
+    assert_eq!(selected_pages.len(), pages.len());
+    let mut prior_body_position = None;
+    for ((manifest_page, trace_page), selected_page) in
+        pages.iter().zip(trace_pages).zip(selected_pages)
+    {
+        assert_eq!(
+            manifest_page["body_continuation_position"].as_i64(),
+            trace_page["body_continuation_position"].as_i64()
+        );
+        assert_eq!(
+            manifest_page["body_continuation_terminal"].as_bool(),
+            trace_page["body_continuation_terminal"].as_bool()
+        );
+        let body_position = manifest_page["body_continuation_position"]
+            .as_i64()
+            .unwrap();
+        if let Some(prior) = prior_body_position {
+            assert!(body_position >= prior);
+        }
+        prior_body_position = Some(body_position);
+
+        let reservation = manifest_page["reservation"].as_i64().unwrap();
+        let frames = selected_page["frames"].as_array().unwrap();
+        assert_eq!(frames[0]["kind"], "body");
+        if reservation == 0 {
+            assert_eq!(frames.len(), 1);
+        } else {
+            assert_eq!(frames.len(), 2);
+            assert_eq!(frames[1]["kind"], "footnote");
+            assert_eq!(frames[1]["bounds"]["height"].as_i64(), Some(reservation));
+            assert_eq!(
+                frames[1]["bounds"]["x"].as_i64(),
+                frames[0]["bounds"]["x"].as_i64()
+            );
+            assert_eq!(
+                frames[1]["bounds"]["width"].as_i64(),
+                frames[0]["bounds"]["width"].as_i64()
+            );
+            assert_eq!(
+                frames[1]["bounds"]["y"].as_i64().unwrap()
+                    + frames[1]["bounds"]["height"].as_i64().unwrap(),
+                frames[0]["bounds"]["y"].as_i64().unwrap()
+                    + frames[0]["bounds"]["height"].as_i64().unwrap()
+            );
+        }
+    }
+    assert!(pages.last().unwrap()["body_continuation_terminal"]
+        .as_bool()
+        .unwrap());
+    assert_eq!(json_strings(&pages[0]["ordered_footnote_ids"]), ["z", "a"]);
+    assert_eq!(pages[0]["flows"].as_array().unwrap().len(), 2);
+    assert!(pages[0]["flows"][0]["carries_out"].as_bool().unwrap());
+    assert_eq!(pages[0]["flows"][0]["before_fragment"], 0);
+    assert_eq!(pages[0]["flows"][0]["after_fragment"], 1);
+    assert_eq!(json_strings(&pages[1]["ordered_footnote_ids"]), ["z"]);
+    assert_eq!(pages[1]["flows"].as_array().unwrap().len(), 1);
+    assert_eq!(pages[1]["flows"][0]["incoming_source_page"], 0);
+    assert_eq!(pages[1]["flows"][0]["before_fragment"], 1);
+    assert_eq!(pages[1]["flows"][0]["after_fragment"], 3);
+    assert!(pages[1]["flows"][0]["carries_out"].as_bool().unwrap());
+    assert_eq!(json_strings(&pages[2]["ordered_footnote_ids"]), ["z"]);
+    assert_eq!(pages[2]["flows"].as_array().unwrap().len(), 1);
+    assert_eq!(pages[2]["flows"][0]["incoming_source_page"], 1);
+    assert_eq!(pages[2]["flows"][0]["before_fragment"], 3);
+    assert_eq!(pages[2]["flows"][0]["after_fragment"], 4);
+    assert!(!pages[2]["flows"][0]["carries_out"].as_bool().unwrap());
+    let selected_pass = trace["passes"].as_array().unwrap().last().unwrap();
+    assert_eq!(
+        json_strings(&selected_pass["state"]["pages"][0]["footnote_ids"]),
+        ["a", "z"]
+    );
+    assert_eq!(
+        json_strings(&selected_pass["state"]["pages"][1]["footnote_ids"]),
+        ["z"]
+    );
+    assert_eq!(
+        json_strings(&selected_pass["state"]["pages"][2]["footnote_ids"]),
+        ["z"]
+    );
+    assert!(!trace.has_member("table_layouts"));
+    assert!(!manifest.has_member("table_layouts"));
+    let pdf = fs::read(run.artifacts.join("output.pdf")).unwrap();
+    assert!(pdf
+        .windows(b"/Annots".len())
+        .any(|bytes| bytes == b"/Annots"));
+    assert!(pdf
+        .windows(b"6E6F74652D61".len())
+        .any(|bytes| bytes == b"6E6F74652D61"));
+}
+
+#[test]
+fn machine_footnote_rejects_a_marker_only_first_line() {
+    let (tree, job, artifacts, expected) =
+        copy_fixture("profiles/footnote-1/combined", "marker-only-line");
+    fs::create_dir_all(&artifacts).unwrap();
+    let package_path = job.join("document-package.json");
+    let package = fs::read_to_string(&package_path).unwrap();
+    let anchor = concat!(
+        "{\"anchor_id\":\"note-a\",\"kind\":\"anchor\",\"node_id\":30,",
+        "\"span\":{\"end_byte\":0,\"source_id\":0,\"start_byte\":0}}"
+    );
+    let hard_break = concat!(
+        "{\"kind\":\"hard_break\",\"node_id\":30,",
+        "\"span\":{\"end_byte\":0,\"source_id\":0,\"start_byte\":0}}"
+    );
+    let mutated = package.replacen(anchor, hard_break, 1).replacen(
+        "\"target\":{\"anchor_id\":\"note-a\",\"kind\":\"internal\"}",
+        "\"target\":{\"kind\":\"uri\",\"uri\":\"https://example.test/note\"}",
+        1,
+    );
+    assert_ne!(mutated, package);
+    fs::write(&package_path, mutated).unwrap();
+
+    let error = run_build_package(build_options(&job, &artifacts, &expected)).unwrap_err();
+    assert_eq!(error.kind, FailureKind::Input);
+    assert!(error.message.contains("L5100:"));
+    assert!(error.message.contains("marker and first source content"));
+    assert!(!artifacts.join("output.pdf").exists());
+    drop(tree);
+}
+
+#[test]
+fn machine_footnote_old_contract_rejected() {
+    run_build_fixture("invalid/footnote-1-old-contract");
+}
+
+#[test]
 fn machine_older_profile_artifacts_do_not_gain_table_projection_members() {
     for fixture in [
         "profiles/paragraph-1/combined",
@@ -888,6 +1084,8 @@ fn machine_older_profile_artifacts_do_not_gain_table_projection_members() {
         let manifest = read_json(&artifacts.join("manifest.json"));
         assert!(!trace.has_member("table_layouts"));
         assert!(!manifest.has_member("table_layouts"));
+        assert!(!trace.has_member("footnote_layout"));
+        assert!(!manifest.has_member("footnote_layout"));
         drop(tree);
     }
 }

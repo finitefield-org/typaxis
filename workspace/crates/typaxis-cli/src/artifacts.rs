@@ -5,7 +5,7 @@ use typaxis_core::{
 };
 use typaxis_document_package::{CanonicalJcsStats, DocumentPackageEncoder, JcsEncodeError};
 use typaxis_layout::{FlowPosition, FlowTree, LayoutEpoch};
-use typaxis_manifest::StagingTableLayoutFacts;
+use typaxis_manifest::{StagingFootnoteLayoutFacts, StagingTableLayoutFacts};
 use typaxis_pagination::{
     ConvergenceStatus, InitialPaginationState, PageFrameKind, PagePlan, PaginationResult,
     PlacedAnchor, ResolvedReference,
@@ -103,8 +103,11 @@ pub fn reference_layout_trace_json(
         pagination,
         max_layout_passes,
         include_trace_text,
-        None,
-        None,
+        LayoutTraceProfileProjection {
+            machine_binding: None,
+            table_layouts: None,
+            footnote_layout: None,
+        },
     )
 }
 
@@ -112,6 +115,7 @@ pub struct MachineTraceBinding<'a> {
     capability: &'a typaxis_machine_profile::MachinePdfPreflightReceipt,
     flow_registry_sha256: Option<[u8; 32]>,
     table_layouts: &'a [StagingTableLayoutFacts],
+    footnote_layout: Option<&'a StagingFootnoteLayoutFacts>,
 }
 
 impl<'a> MachineTraceBinding<'a> {
@@ -119,11 +123,13 @@ impl<'a> MachineTraceBinding<'a> {
         capability: &'a typaxis_machine_profile::MachinePdfPreflightReceipt,
         flow_registry_sha256: Option<[u8; 32]>,
         table_layouts: &'a [StagingTableLayoutFacts],
+        footnote_layout: Option<&'a StagingFootnoteLayoutFacts>,
     ) -> Self {
         Self {
             capability,
             flow_registry_sha256,
             table_layouts,
+            footnote_layout,
         }
     }
 }
@@ -139,18 +145,35 @@ pub fn machine_layout_trace_json(
     let table_layouts = (binding.capability.profile()
         == typaxis_core::MachinePdfProfileId::TABLE_1)
         .then_some(binding.table_layouts);
+    let footnote_layout = match (binding.capability.profile(), binding.footnote_layout) {
+        (typaxis_core::MachinePdfProfileId::Footnote1, Some(facts)) => Some(facts),
+        (typaxis_core::MachinePdfProfileId::Footnote1, None) => {
+            return Err("footnote trace facts are required for the footnote profile")
+        }
+        (_, Some(_)) => return Err("footnote trace facts require the footnote profile"),
+        (_, None) => None,
+    };
     layout_trace_json(
         flow,
         initial,
         pagination,
         max_layout_passes,
         include_trace_text,
-        Some((
-            binding.capability.profile_receipt_sha256(),
-            binding.flow_registry_sha256,
-        )),
-        table_layouts,
+        LayoutTraceProfileProjection {
+            machine_binding: Some((
+                binding.capability.profile_receipt_sha256(),
+                binding.flow_registry_sha256,
+            )),
+            table_layouts,
+            footnote_layout,
+        },
     )
+}
+
+struct LayoutTraceProfileProjection<'a> {
+    machine_binding: Option<([u8; 32], Option<[u8; 32]>)>,
+    table_layouts: Option<&'a [StagingTableLayoutFacts]>,
+    footnote_layout: Option<&'a StagingFootnoteLayoutFacts>,
 }
 
 fn layout_trace_json(
@@ -159,9 +182,13 @@ fn layout_trace_json(
     pagination: &PaginationResult,
     max_layout_passes: u16,
     include_trace_text: bool,
-    machine_binding: Option<([u8; 32], Option<[u8; 32]>)>,
-    table_layouts: Option<&[StagingTableLayoutFacts]>,
+    projection: LayoutTraceProfileProjection<'_>,
 ) -> Result<String, &'static str> {
+    let LayoutTraceProfileProjection {
+        machine_binding,
+        table_layouts,
+        footnote_layout,
+    } = projection;
     let contains_trace_text = !initial.generated_text().buffers().is_empty()
         || pagination
             .passes()
@@ -170,12 +197,18 @@ fn layout_trace_json(
     ensure_requested_trace_text_is_representable(include_trace_text, contains_trace_text)?;
     if pagination.passes().iter().any(|pass| {
         pass.pages().iter().any(|page| {
-            !page.footnote_ids.is_empty()
+            (!page.footnote_ids.is_empty() && footnote_layout.is_none())
                 || !page.float_decisions.is_empty()
                 || !page.column_decisions.is_empty()
         })
     }) {
         return Err("the reference trace encoder received unsupported layout content");
+    }
+    if footnote_layout.is_some_and(|facts| {
+        facts.body_layout_sha256() != pagination.final_fingerprint().bytes()
+            || facts.pages().len() != pagination.selected_pages().len()
+    }) {
+        return Err("footnote trace facts do not match selected pagination");
     }
     let mut json = String::from("{\"contract\":");
     push_jcs_string(&mut json, CONTRACT);
@@ -187,6 +220,10 @@ fn layout_trace_json(
             Some(value) => push_hex(&mut json, value),
             None => json.push_str("null"),
         }
+    }
+    if let Some(footnote_layout) = footnote_layout {
+        json.push_str(",\"footnote_layout\":");
+        json.push_str(footnote_layout.canonical_jcs());
     }
     json.push_str(",\"initial_fingerprint\":");
     push_hex(&mut json, initial.fingerprint().bytes());
@@ -252,7 +289,7 @@ fn layout_trace_json(
         json.push_str(",\"pages\":[");
         for (page_index, page) in pass.pages().iter().enumerate() {
             comma(&mut json, page_index);
-            push_reference_trace_page_plan(&mut json, page)?;
+            push_reference_trace_page_plan(&mut json, page, footnote_layout.is_some())?;
         }
         json.push_str("],\"placed_anchors\":[");
         for (anchor_index, anchor) in pass.placed_anchors().enumerate() {
@@ -373,16 +410,23 @@ fn ensure_reference_page_shape(page: &PagePlan) -> Result<(), &'static str> {
     }
 }
 
-fn push_reference_trace_page_plan(json: &mut String, page: &PagePlan) -> Result<(), &'static str> {
-    if !page.footnote_ids.is_empty()
+fn push_reference_trace_page_plan(
+    json: &mut String,
+    page: &PagePlan,
+    allow_footnotes: bool,
+) -> Result<(), &'static str> {
+    if (!allow_footnotes && !page.footnote_ids.is_empty())
         || !page.float_decisions.is_empty()
         || !page.column_decisions.is_empty()
     {
         return Err("the reference trace encoder received unsupported page content");
     }
-    json.push_str(
-        "{\"column_decisions\":[],\"float_decisions\":[],\"footnote_ids\":[],\"fragments\":[",
-    );
+    json.push_str("{\"column_decisions\":[],\"float_decisions\":[],\"footnote_ids\":[");
+    for (index, footnote_id) in page.footnote_ids.iter().enumerate() {
+        comma(json, index);
+        push_jcs_string(json, footnote_id.as_str());
+    }
+    json.push_str("],\"fragments\":[");
     push_fragments(json, &page.fragments);
     json.push_str("],\"frames\":[");
     push_frames(json, &page.frames);

@@ -4903,6 +4903,7 @@ def main() -> int:
             "machine-forced-page-break-manifest.schema.json",
             "machine-forced-page-break-trace.schema.json",
             "machine-figure-manifest.schema.json",
+            "machine-footnote-manifest.schema.json",
             "machine-link-manifest.schema.json",
             "machine-list-manifest.schema.json",
             "machine-profile-evidence.schema.json",

@@ -19,7 +19,8 @@ The complete grammar is emitted by `typaxis help build-package`,
 `typaxis help check-package`, and `typaxis help capabilities`. `build` continues
 to accept bounded reference TSF; it never sniffs JSON or switches to machine
 mode. The public profiles are `typaxis.machine-pdf/paragraph-1`,
-`typaxis.machine-pdf/basic-document-1`, and `typaxis.machine-pdf/table-1`.
+`typaxis.machine-pdf/basic-document-1`, `typaxis.machine-pdf/footnote-1`, and
+`typaxis.machine-pdf/table-1`.
 `paragraph-1` remains the default when `--profile` is omitted; Typaxis never
 infers a profile from package contents.
 
@@ -44,7 +45,7 @@ then opened relative to one contained root using no-follow, stable-read host
 admission. Symlinks, non-regular files, root escapes, read mutation, and declared
 length/hash mismatches fail closed.
 
-Source and resource roots are intentionally separate. All three public profiles
+Source and resource roots are intentionally separate. All four public profiles
 accept exactly one source declaration, `SourceId` 0, with entry-only closure. Its URI is resolved
 only beneath the package root. Font resources are resolved only from explicit
 `--resource-root DIR` values and configured resource roots; a package root is
@@ -133,6 +134,28 @@ before publication. The combined fixture renders three pages and extracts
 exactly `Basic document internal external First item Second entry PNG caption
 Header A Header B alpha beta Header A delta Header B gamma`.
 
+### `footnote-1`
+
+`typaxis.machine-pdf/footnote-1` requires raw contract 1.2, inherits the
+complete `basic-document-1` domain, and adds body/list-item/caption footnote
+references plus Document-owned paragraph/heading definitions. Tables and
+nested footnotes remain rejected. Definitions use the existing M2 inline/style
+subset, including anchors, page references, breaks, and non-nested links; every
+definition must be referenced and text-producing.
+
+Marker numbers are one-based canonical FootnoteId catalog ordinals, while page
+assignment and paint use selected first-reference order. A repeated reference
+repaints only its marker. The fixed `allow` split policy carries unfinished
+definition cursors independently of the body cursor, including onto carry-only
+pages. Each nonempty footnote page has an exact reservation and one fixed black
+0.5 pt full-width separator; empty footnote pages reserve and paint nothing.
+Successful trace and manifest artifacts contain identical `footnote_layout`
+facts binding body/selected/paint hashes, evaluation counts, ordered IDs,
+FootnoteFlowIds, fragment cursors, reservations, and carry edges. The combined
+fixture renders three pages and extracts exactly `Basic document internal
+external First item Second entry Z first Z second A note A tail PNG caption Z
+third Z fourth Z fifth`.
+
 ## Checking and building
 
 Example validation:
@@ -161,6 +184,16 @@ For a contract 1.2 table package, select the table profile explicitly:
 typaxis check-package job/document-package.json \
   --package-root job \
   --profile typaxis.machine-pdf/table-1 \
+  --resource-root job \
+  --emit-diagnostics check-diagnostics.json
+```
+
+For a contract 1.2 footnote package, select the footnote profile explicitly:
+
+```text
+typaxis check-package job/document-package.json \
+  --package-root job \
+  --profile typaxis.machine-pdf/footnote-1 \
   --resource-root job \
   --emit-diagnostics check-diagnostics.json
 ```
@@ -241,10 +274,11 @@ the profile preflight receipt hash. `inputs` contains only successfully
 admitted companion sources; the package is not duplicated there. `fonts` and
 `images` contain only reached resource-admission facts. `layout` appears only
 after layout selection and repeats the matching profile receipt hash. For
-`basic-document-1` and `table-1`, it additionally binds the canonical all-flow
-registry hash. A successful `table-1` trace and built manifest both contain the
-same canonical `table_layouts` projection; older profiles omit that member so
-their artifact bytes remain frozen.
+`basic-document-1`, `footnote-1`, and `table-1`, it additionally binds the
+canonical all-flow registry hash. Successful `table-1` artifacts contain the
+same canonical `table_layouts` projection, while successful `footnote-1`
+artifacts contain the same canonical `footnote_layout` projection. Other
+profiles omit those conditional members so their artifact bytes remain frozen.
 Receipt/profile/package/session substitution is an internal `I9190` failure,
 not a producer-recoverable fallback. A built manifest binds the file/stdout sink, PDF bytes,
 SHA-256, page count, and object count. A failed manifest has `output: null` and
@@ -289,6 +323,16 @@ The public table release gate is:
 python3 tools/verify_machine_profile.py \
   --repository . \
   --matrix samples/machine-package/matrices/m3-table.json \
+  --runs 2 \
+  --require-external-tools
+```
+
+The public footnote release gate is:
+
+```text
+python3 tools/verify_machine_profile.py \
+  --repository . \
+  --matrix samples/machine-package/matrices/m3-footnote.json \
   --runs 2 \
   --require-external-tools
 ```

@@ -19,19 +19,20 @@ use typaxis_diagnostics::{
 };
 use typaxis_document::GeneratedSiteTarget;
 use typaxis_layout::{
-    footnote_page_evaluation_fingerprint_from_jcs, multi_flow_selected_state_fingerprint_from_jcs,
-    table_selected_layout_fingerprint_from_jcs, Continuation, DiscoveredAnchor, FlowContentKind,
-    FlowCursor, FlowId, FlowPosition, FlowRegistryFingerprint, FlowTree, FootnoteFlowId,
-    FootnoteFlowRegistryFingerprint, FootnotePageEvaluationFingerprint, FootnoteProfileFingerprint,
-    FragmentError, FragmentRequest, FragmentWorkBudget, Fragmenter, LayoutEpoch,
-    MultiFlowSelectedStateFingerprint, PageContext, ProductionFlowIr, ProductionFlowPosition,
-    ReferenceFragmenter, ResolvedPageSelection, StagingFigureKeepPolicy,
-    StagingFigureOversizePolicy, StagingFootnoteFlowRegistry, StagingForcedPageBreakLayoutReceipt,
-    StagingMachineListLayoutReceipt, TableCellLayoutReceipt, TableRowBandLayoutReceipt,
-    TableRowBandReceipt, TableSection, TableSelectedLayoutFingerprint, ValidatedFigureLayout,
-    FOOTNOTE_SEPARATOR_BAND_RAW,
+    footnote_page_evaluation_fingerprint_from_jcs, footnote_selected_layout_fingerprint_from_jcs,
+    multi_flow_selected_state_fingerprint_from_jcs, table_selected_layout_fingerprint_from_jcs,
+    Continuation, DiscoveredAnchor, FlowContentKind, FlowCursor, FlowId, FlowPosition,
+    FlowRegistryFingerprint, FlowTree, FootnoteFlowId, FootnoteFlowRegistryFingerprint,
+    FootnotePageEvaluationFingerprint, FootnoteProfileFingerprint,
+    FootnoteSelectedLayoutFingerprint, FragmentDraft, FragmentError, FragmentRequest,
+    FragmentWorkBudget, Fragmenter, LayoutEpoch, MultiFlowSelectedStateFingerprint, PageContext,
+    ProductionFlowIr, ProductionFlowPosition, ReferenceFragmenter, ResolvedPageSelection,
+    StagingFigureKeepPolicy, StagingFigureOversizePolicy, StagingFootnoteFlowRegistry,
+    StagingForcedPageBreakLayoutReceipt, StagingMachineListLayoutReceipt, TableCellLayoutReceipt,
+    TableRowBandLayoutReceipt, TableRowBandReceipt, TableSection, TableSelectedLayoutFingerprint,
+    ValidatedFigureLayout, FOOTNOTE_SEPARATOR_BAND_RAW,
 };
-use typaxis_style::PageMasterSet;
+use typaxis_style::{PageMasterSet, StyleValue};
 use typaxis_syntax::{PackagePaginationContext, ValidatedParsedPackage};
 use typaxis_text::{
     GeneratedBufferDraft, GeneratedProvenance, GeneratedTextStore, GeneratedTextStoreError,
@@ -4636,10 +4637,16 @@ pub enum StagingFootnotePaginationError {
     NonCanonicalReferenceOrder(NodeId),
     MissingDefinition(FootnoteId),
     InvalidFootnoteCursor(FootnoteFlowId),
+    BodyOversize,
     DefinitionOversize(FootnoteId),
+    PageLimit,
     FragmentLimit,
     ReflowLimit,
     ReflowOscillation,
+    IncompleteSelectedLayout,
+    DuplicateDefinitionPaint(FootnoteId),
+    MissingDefinitionPaint(FootnoteId),
+    WrongPageCarry(FootnoteFlowId),
     ArithmeticOverflow,
     AllocationFailure,
 }
@@ -4647,7 +4654,7 @@ pub enum StagingFootnotePaginationError {
 impl StagingFootnotePaginationError {
     pub const fn diagnostic_code(&self) -> DiagnosticCode {
         match self {
-            Self::DefinitionOversize(_) => L5100,
+            Self::BodyOversize | Self::DefinitionOversize(_) => L5100,
             Self::FragmentLimit => L5110,
             Self::ReflowLimit | Self::ReflowOscillation => G6002,
             Self::RegistryMismatch
@@ -4660,6 +4667,11 @@ impl StagingFootnotePaginationError {
             | Self::NonCanonicalReferenceOrder(_)
             | Self::MissingDefinition(_)
             | Self::InvalidFootnoteCursor(_)
+            | Self::PageLimit
+            | Self::IncompleteSelectedLayout
+            | Self::DuplicateDefinitionPaint(_)
+            | Self::MissingDefinitionPaint(_)
+            | Self::WrongPageCarry(_)
             | Self::ArithmeticOverflow
             | Self::AllocationFailure => I9190,
         }
@@ -4710,6 +4722,7 @@ pub struct StagingFootnoteBodyCandidate {
     applied_reservation: NonNegativeLength,
     applied_body_cut_before_reference_owner: Option<NodeId>,
     available_body_block_size: PositiveLength,
+    selected_body_fragment_count: u64,
     reference_owners: Vec<NodeId>,
 }
 
@@ -4745,6 +4758,28 @@ impl StagingFootnoteBodyCandidate {
             applied_reservation,
             applied_body_cut_before_reference_owner,
             available_body_block_size,
+            selected_body_fragment_count: 0,
+            reference_owners,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_body_fragments(
+        body_fingerprint: LayoutStateFingerprint,
+        continuation: StagingFootnoteBodyContinuation,
+        applied_reservation: NonNegativeLength,
+        applied_body_cut_before_reference_owner: Option<NodeId>,
+        available_body_block_size: PositiveLength,
+        selected_body_fragment_count: u64,
+        reference_owners: Vec<NodeId>,
+    ) -> Self {
+        Self {
+            body_fingerprint,
+            continuation,
+            applied_reservation,
+            applied_body_cut_before_reference_owner,
+            available_body_block_size,
+            selected_body_fragment_count,
             reference_owners,
         }
     }
@@ -5104,6 +5139,7 @@ pub struct StagingFootnoteSelectedPageReceipt {
     epoch: LayoutEpoch,
     global_pass: u16,
     page_index: u32,
+    body_page_start: LayoutStateFingerprint,
     evaluation_count: u32,
     body_fingerprint: LayoutStateFingerprint,
     body_continuation: StagingFootnoteBodyContinuation,
@@ -5118,6 +5154,10 @@ pub struct StagingFootnoteSelectedPageReceipt {
 impl StagingFootnoteSelectedPageReceipt {
     pub const fn page_index(&self) -> u32 {
         self.page_index
+    }
+
+    pub const fn body_page_start(&self) -> LayoutStateFingerprint {
+        self.body_page_start
     }
 
     pub const fn global_pass(&self) -> u16 {
@@ -5338,7 +5378,8 @@ impl StagingFootnotePaginationState {
         }
         let selected_record_count = self
             .selected_record_count
-            .checked_add(receipt.final_evaluation.selected_record_count)
+            .checked_add(receipt.final_candidate.selected_body_fragment_count)
+            .and_then(|count| count.checked_add(receipt.final_evaluation.selected_record_count))
             .filter(|count| *count <= self.max_fragments)
             .ok_or(StagingFootnotePaginationError::FragmentLimit)?;
         self.assignments
@@ -5354,6 +5395,7 @@ impl StagingFootnotePaginationState {
             epoch: self.epoch,
             global_pass: self.global_pass,
             page_index: receipt.page_index,
+            body_page_start: receipt.body_page_start,
             evaluation_count: receipt.evaluation_count(),
             body_fingerprint: receipt.final_candidate.body_fingerprint,
             body_continuation: receipt.final_candidate.continuation,
@@ -5408,6 +5450,289 @@ impl StagingFootnotePaginationState {
             .ok()
             .and_then(|index| self.carries.get(index))
     }
+
+    /// Seals the complete selected document only after all body references
+    /// and every dedicated definition cursor have reached their independent
+    /// terminals. Page receipts are consumed, preventing omission or replay
+    /// between pagination and Display construction.
+    pub fn finish(
+        self,
+        registry: &StagingFootnoteFlowRegistry,
+        body_layout_fingerprint: LayoutStateFingerprint,
+        pages: Vec<StagingFootnoteSelectedPageReceipt>,
+    ) -> Result<ValidatedFootnoteSelectedLayout, StagingFootnotePaginationError> {
+        validate_footnote_registry_state(registry, &self)?;
+        if !self.carries.is_empty()
+            || usize::try_from(self.next_page_index).ok() != Some(pages.len())
+            || self.seen_reference_owners.len() != registry.references().len()
+            || registry.references().iter().any(|reference| {
+                !self
+                    .seen_reference_owners
+                    .contains(&reference.reference_owner())
+            })
+            || self.assignments.len() != registry.flows().len()
+            || pages.iter().enumerate().any(|(index, page)| {
+                usize::try_from(page.page_index).ok() != Some(index)
+                    || page.profile != self.profile
+                    || page.registry != self.registry
+                    || page.epoch != self.epoch
+                    || self.selected_page_fingerprints.get(index)
+                        != Some(&page.evaluation_fingerprint)
+            })
+            || !pages
+                .last()
+                .is_some_and(|page| page.body_continuation.is_terminal())
+        {
+            return Err(StagingFootnotePaginationError::IncompleteSelectedLayout);
+        }
+        for (expected, assignment) in self.assignments.iter().enumerate() {
+            let expected = u32::try_from(expected)
+                .map_err(|_| StagingFootnotePaginationError::ArithmeticOverflow)?;
+            let registered = registry.flow(assignment.flow_id).ok_or(
+                StagingFootnotePaginationError::InvalidFootnoteCursor(assignment.flow_id),
+            )?;
+            if assignment.assignment_ordinal != expected
+                || assignment.footnote_id != *registered.binding().footnote_id()
+                || registry
+                    .reference(assignment.first_reference_owner)
+                    .map_or(true, |reference| {
+                        reference.footnote_id() != &assignment.footnote_id
+                    })
+            {
+                return Err(StagingFootnotePaginationError::IncompleteSelectedLayout);
+            }
+        }
+
+        let mut next_fragment = vec![0u32; registry.flows().len()];
+        let mut last_source_page = vec![None; registry.flows().len()];
+        let mut previous_body_position = None;
+        let mut previous_carry_progress = false;
+        let mut body_terminal = false;
+        for page in &pages {
+            for assignment in &page.ordered_footnotes {
+                let matching_flow_count = page
+                    .flows
+                    .iter()
+                    .filter(|flow| flow.assignment == *assignment)
+                    .count();
+                if matching_flow_count == 0 {
+                    return Err(StagingFootnotePaginationError::MissingDefinitionPaint(
+                        assignment.footnote_id.clone(),
+                    ));
+                }
+                if matching_flow_count > 1 {
+                    return Err(StagingFootnotePaginationError::DuplicateDefinitionPaint(
+                        assignment.footnote_id.clone(),
+                    ));
+                }
+            }
+            if page.flows.len() != page.ordered_footnotes.len()
+                || page
+                    .flows
+                    .iter()
+                    .zip(&page.ordered_footnotes)
+                    .any(|(flow, assignment)| &flow.assignment != assignment)
+                || page.flows.windows(2).any(|pair| {
+                    pair[0].assignment.assignment_ordinal >= pair[1].assignment.assignment_ordinal
+                })
+            {
+                return Err(StagingFootnotePaginationError::IncompleteSelectedLayout);
+            }
+            let body_position = page.body_continuation.next_flow_position();
+            let carry_progress = page.flows.iter().any(|flow| {
+                flow.incoming_source_page.is_some()
+                    && flow.after_cursor.next_fragment_ordinal
+                        > flow.before_cursor.next_fragment_ordinal
+            });
+            if body_terminal {
+                if !page.body_continuation.is_terminal()
+                    || previous_body_position != Some(body_position)
+                    || !carry_progress
+                {
+                    return Err(StagingFootnotePaginationError::IncompleteSelectedLayout);
+                }
+            } else if let Some(previous) = previous_body_position {
+                if body_position < previous
+                    || (body_position == previous
+                        && !carry_progress
+                        && !(page.body_continuation.is_terminal() && previous_carry_progress))
+                {
+                    return Err(StagingFootnotePaginationError::IncompleteSelectedLayout);
+                }
+            }
+            body_terminal = page.body_continuation.is_terminal();
+            previous_body_position = Some(body_position);
+            previous_carry_progress = carry_progress;
+            for flow in &page.flows {
+                let flow_index = usize::try_from(flow.assignment.flow_id.get())
+                    .map_err(|_| StagingFootnotePaginationError::ArithmeticOverflow)?;
+                let registered = registry
+                    .flow(flow.assignment.flow_id)
+                    .filter(|registered| {
+                        registered.binding().footnote_id() == &flow.assignment.footnote_id
+                    })
+                    .ok_or_else(|| {
+                        StagingFootnotePaginationError::MissingDefinitionPaint(
+                            flow.assignment.footnote_id.clone(),
+                        )
+                    })?;
+                let expected = next_fragment.get_mut(flow_index).ok_or(
+                    StagingFootnotePaginationError::InvalidFootnoteCursor(flow.assignment.flow_id),
+                )?;
+                let assignment_index = usize::try_from(flow.assignment.assignment_ordinal)
+                    .map_err(|_| StagingFootnotePaginationError::ArithmeticOverflow)?;
+                if flow.before_cursor.next_fragment_ordinal != *expected
+                    || flow.before_cursor.flow_id != flow.assignment.flow_id
+                    || flow.after_cursor.flow_id != flow.assignment.flow_id
+                    || flow.fragments.is_empty()
+                    || self.assignments.get(assignment_index) != Some(&flow.assignment)
+                    || flow.incoming_source_page != last_source_page[flow_index]
+                    || flow
+                        .incoming_source_page
+                        .is_some_and(|source| source.checked_add(1) != Some(page.page_index))
+                    || (*expected == 0
+                        && page.discovery.iter().all(|occurrence| {
+                            occurrence.reference_owner != flow.assignment.first_reference_owner
+                                || occurrence.footnote_id != flow.assignment.footnote_id
+                        }))
+                {
+                    return Err(StagingFootnotePaginationError::WrongPageCarry(
+                        flow.assignment.flow_id,
+                    ));
+                }
+                for fragment in &flow.fragments {
+                    if fragment.fragment_ordinal != *expected {
+                        return Err(StagingFootnotePaginationError::DuplicateDefinitionPaint(
+                            flow.assignment.footnote_id.clone(),
+                        ));
+                    }
+                    let expected_extent = registered
+                        .fragment_extents()
+                        .get(*expected as usize)
+                        .ok_or_else(|| {
+                            StagingFootnotePaginationError::DuplicateDefinitionPaint(
+                                flow.assignment.footnote_id.clone(),
+                            )
+                        })?;
+                    if expected_extent != &fragment.block_extent {
+                        return Err(StagingFootnotePaginationError::StateMismatch);
+                    }
+                    *expected = expected
+                        .checked_add(1)
+                        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+                }
+                if flow.after_cursor.next_fragment_ordinal != *expected
+                    || flow.carries_out
+                        != (*expected < registered.binding().terminal().fragment_count())
+                {
+                    return Err(StagingFootnotePaginationError::WrongPageCarry(
+                        flow.assignment.flow_id,
+                    ));
+                }
+                last_source_page[flow_index] = Some(page.page_index);
+            }
+        }
+        for (index, flow) in registry.flows().iter().enumerate() {
+            if next_fragment[index] != flow.binding().terminal().fragment_count() {
+                return Err(StagingFootnotePaginationError::MissingDefinitionPaint(
+                    flow.binding().footnote_id().clone(),
+                ));
+            }
+        }
+
+        let canonical_jcs = encode_footnote_selected_layout(
+            registry,
+            body_layout_fingerprint,
+            &pages,
+            &self.assignments,
+        );
+        let fingerprint = footnote_selected_layout_fingerprint_from_jcs(&canonical_jcs);
+        Ok(ValidatedFootnoteSelectedLayout {
+            profile: self.profile,
+            registry: self.registry,
+            epoch: self.epoch,
+            body_layout_fingerprint,
+            master_id: registry.master_id().clone(),
+            body_frame: registry.body_frame(),
+            maximum_footnote_frame: registry.maximum_footnote_frame(),
+            assignments: self.assignments,
+            pages,
+            fingerprint,
+            canonical_jcs,
+        })
+    }
+}
+
+/// Immutable ADR-0030 selected-state closure shared by Display, trace,
+/// manifest, and PDF validation.
+#[derive(Debug)]
+pub struct ValidatedFootnoteSelectedLayout {
+    profile: FootnoteProfileFingerprint,
+    registry: FootnoteFlowRegistryFingerprint,
+    epoch: LayoutEpoch,
+    body_layout_fingerprint: LayoutStateFingerprint,
+    master_id: MasterId,
+    body_frame: Rect,
+    maximum_footnote_frame: Rect,
+    assignments: Vec<StagingFootnoteAssignment>,
+    pages: Vec<StagingFootnoteSelectedPageReceipt>,
+    fingerprint: FootnoteSelectedLayoutFingerprint,
+    canonical_jcs: String,
+}
+
+impl ValidatedFootnoteSelectedLayout {
+    pub const fn profile_fingerprint(&self) -> FootnoteProfileFingerprint {
+        self.profile
+    }
+    pub const fn registry_fingerprint(&self) -> FootnoteFlowRegistryFingerprint {
+        self.registry
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn body_layout_fingerprint(&self) -> LayoutStateFingerprint {
+        self.body_layout_fingerprint
+    }
+    pub const fn master_id(&self) -> &MasterId {
+        &self.master_id
+    }
+    pub const fn body_frame(&self) -> Rect {
+        self.body_frame
+    }
+    pub const fn maximum_footnote_frame(&self) -> Rect {
+        self.maximum_footnote_frame
+    }
+    pub fn assignments(&self) -> &[StagingFootnoteAssignment] {
+        &self.assignments
+    }
+    pub fn pages(&self) -> &[StagingFootnoteSelectedPageReceipt] {
+        &self.pages
+    }
+    pub const fn fingerprint(&self) -> FootnoteSelectedLayoutFingerprint {
+        self.fingerprint
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn footnote_body_start_fingerprint(
+    body_layout: LayoutStateFingerprint,
+    page_index: u32,
+    start: &FlowPosition,
+) -> LayoutStateFingerprint {
+    let mut jcs = String::from(
+        "{\"algorithm\":\"typaxis.footnote-body-page-start/1\",\"body_layout_sha256\":",
+    );
+    push_hex(&mut jcs, body_layout.bytes());
+    jcs.push_str(",\"flow_ordinal\":");
+    jcs.push_str(&start.global_flow_ordinal().to_string());
+    jcs.push_str(",\"owner_node_id\":");
+    jcs.push_str(&start.owner().get().to_string());
+    jcs.push_str(",\"page_index\":");
+    jcs.push_str(&page_index.to_string());
+    jcs.push('}');
+    LayoutStateFingerprint::from_untrusted_bytes(sha256(jcs.as_bytes()))
 }
 
 /// Runs evaluation zero plus at most the configured inclusive number of
@@ -5640,7 +5965,8 @@ fn derive_footnote_evaluation(
         .or(candidate.applied_body_cut_before_reference_owner);
     let prospective = state
         .selected_record_count
-        .checked_add(fragmented.selected_record_count)
+        .checked_add(candidate.selected_body_fragment_count)
+        .and_then(|count| count.checked_add(fragmented.selected_record_count))
         .filter(|count| *count <= state.max_fragments)
         .ok_or(StagingFootnotePaginationError::FragmentLimit)?;
     let _ = prospective;
@@ -5923,6 +6249,33 @@ fn available_body_block_size(
         .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)
 }
 
+fn selected_footnote_frame(
+    maximum_frame: Rect,
+    reservation: NonNegativeLength,
+) -> Result<Option<Rect>, StagingFootnotePaginationError> {
+    if reservation == NonNegativeLength::ZERO {
+        return Ok(None);
+    }
+    let height = PositiveLength::new(reservation.get())
+        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+    if height.get().raw() > maximum_frame.height().get().raw() {
+        return Err(StagingFootnotePaginationError::StateMismatch);
+    }
+    let block_end = maximum_frame
+        .y()
+        .checked_add(maximum_frame.height().get())
+        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+    let y = block_end
+        .checked_sub(height.get())
+        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+    Ok(Some(Rect::new(
+        maximum_frame.x(),
+        y,
+        maximum_frame.width(),
+        height,
+    )))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn encode_footnote_evaluation(
     registry: &StagingFootnoteFlowRegistry,
@@ -5947,6 +6300,8 @@ fn encode_footnote_evaluation(
         Some(owner) => output.push_str(&owner.get().to_string()),
         None => output.push_str("null"),
     }
+    output.push_str(",\"body_fragment_count\":");
+    output.push_str(&candidate.selected_body_fragment_count.to_string());
     output.push_str(",\"body_page_start_sha256\":");
     push_hex(&mut output, body_page_start.bytes());
     output.push_str(",\"body_registry_sha256\":");
@@ -6067,6 +6422,104 @@ fn encode_footnote_body_continuation(
     } else {
         "false"
     });
+    output.push('}');
+}
+
+fn encode_footnote_selected_layout(
+    registry: &StagingFootnoteFlowRegistry,
+    body_layout_fingerprint: LayoutStateFingerprint,
+    pages: &[StagingFootnoteSelectedPageReceipt],
+    assignments: &[StagingFootnoteAssignment],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, FootnoteSelectedLayoutFingerprint::ALGORITHM_ID);
+    output.push_str(",\"assignments\":[");
+    for (index, assignment) in assignments.iter().enumerate() {
+        comma(&mut output, index);
+        encode_footnote_assignment(&mut output, assignment);
+    }
+    output.push_str("],\"body_frame\":");
+    encode_selected_footnote_rect(&mut output, registry.body_frame());
+    output.push_str(",\"body_layout_sha256\":");
+    push_hex(&mut output, body_layout_fingerprint.bytes());
+    output.push_str(",\"footnote_registry_sha256\":");
+    push_hex(&mut output, registry.receipt().fingerprint().bytes());
+    output.push_str(",\"layout_epoch\":");
+    encode_layout_epoch(&mut output, registry.receipt().epoch());
+    output.push_str(",\"master_id\":");
+    push_jcs_string(&mut output, registry.master_id().as_str());
+    output.push_str(",\"maximum_footnote_frame\":");
+    encode_selected_footnote_rect(&mut output, registry.maximum_footnote_frame());
+    output.push_str(",\"package_sha256\":");
+    push_hex(
+        &mut output,
+        registry.receipt().package_fingerprint().bytes(),
+    );
+    output.push_str(",\"pages\":[");
+    for (index, page) in pages.iter().enumerate() {
+        comma(&mut output, index);
+        output.push_str("{\"body_continuation\":");
+        encode_footnote_body_continuation(&mut output, page.body_continuation);
+        output.push_str(",\"body_cut_before_reference_owner\":");
+        match page.body_cut_before_reference_owner {
+            Some(owner) => output.push_str(&owner.get().to_string()),
+            None => output.push_str("null"),
+        }
+        output.push_str(",\"body_fingerprint\":");
+        push_hex(&mut output, page.body_fingerprint.bytes());
+        output.push_str(",\"body_page_start_sha256\":");
+        push_hex(&mut output, page.body_page_start.bytes());
+        output.push_str(",\"discovery\":[");
+        for (discovery_index, occurrence) in page.discovery.iter().enumerate() {
+            comma(&mut output, discovery_index);
+            output.push_str("{\"document_logical_ordinal\":");
+            output.push_str(&occurrence.document_logical_ordinal.to_string());
+            output.push_str(",\"footnote_id\":");
+            push_jcs_string(&mut output, occurrence.footnote_id.as_str());
+            output.push_str(",\"reference_owner\":");
+            output.push_str(&occurrence.reference_owner.get().to_string());
+            output.push('}');
+        }
+        output.push_str("],\"evaluation_count\":");
+        output.push_str(&page.evaluation_count.to_string());
+        output.push_str(",\"evaluation_sha256\":");
+        push_hex(&mut output, page.evaluation_fingerprint.bytes());
+        output.push_str(",\"flows\":[");
+        for (flow_index, flow) in page.flows.iter().enumerate() {
+            comma(&mut output, flow_index);
+            encode_footnote_flow_evaluation(&mut output, flow, page.page_index);
+        }
+        output.push_str("],\"global_pass\":");
+        output.push_str(&page.global_pass.to_string());
+        output.push_str(",\"ordered_footnotes\":[");
+        for (assignment_index, assignment) in page.ordered_footnotes.iter().enumerate() {
+            comma(&mut output, assignment_index);
+            encode_footnote_assignment(&mut output, assignment);
+        }
+        output.push_str("],\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push_str(",\"reservation\":");
+        output.push_str(&page.reservation.get().raw().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"profile\":\"typaxis.machine-pdf/footnote-1\",\"profile_receipt_sha256\":");
+    push_hex(
+        &mut output,
+        registry.receipt().profile_fingerprint().bytes(),
+    );
+    output.push('}');
+    output
+}
+
+fn encode_selected_footnote_rect(output: &mut String, rect: Rect) {
+    output.push_str("{\"height\":");
+    output.push_str(&rect.height().get().raw().to_string());
+    output.push_str(",\"width\":");
+    output.push_str(&rect.width().get().raw().to_string());
+    output.push_str(",\"x\":");
+    output.push_str(&rect.x().raw().to_string());
+    output.push_str(",\"y\":");
+    output.push_str(&rect.y().raw().to_string());
     output.push('}');
 }
 
@@ -6324,7 +6777,10 @@ struct PageBudgetSummary {
     resolved_references: Vec<ResolvedReference>,
     placed_anchors: Vec<PlacedAnchor>,
     continuation: Option<Continuation>,
+    next_page_start: Option<FlowPosition>,
     fragmenter_invoked: bool,
+    footnote_evaluation: Option<FootnotePageEvaluationFingerprint>,
+    footnote_cursor_progress: bool,
     next_fragment_cursor: FlowPosition,
     fragmentation_exhausted: bool,
     lookback_search_issued: bool,
@@ -6565,7 +7021,10 @@ impl PassMaterializationPermit<'_> {
             resolved_references: Vec::new(),
             placed_anchors: Vec::new(),
             continuation: None,
+            next_page_start: None,
             fragmenter_invoked: false,
+            footnote_evaluation: None,
+            footnote_cursor_progress: false,
             next_fragment_cursor: page.page_start().clone(),
             fragmentation_exhausted: false,
             lookback_search_issued: false,
@@ -6612,6 +7071,8 @@ impl PassMaterializationPermit<'_> {
                 self.pagination_exhausted = true;
             }
         }
+        let mut active = active;
+        active.next_page_start = self.expected_page_start.clone();
         self.pages.push(active);
         Ok(())
     }
@@ -6655,9 +7116,13 @@ impl PassMaterializationPermit<'_> {
         {
             return Err(FragmentError::InvalidPageContext);
         }
+        let allows_footnotes = active
+            .frames
+            .iter()
+            .any(|frame| frame.kind == PageFrameKind::Footnote);
         let result = fragmenter.fragment(request, self)?;
         result.validate_progress(request)?;
-        if !result.discovered_footnotes.is_empty() {
+        if !result.discovered_footnotes.is_empty() && !allows_footnotes {
             return Err(FragmentError::UnsupportedFlowDomain);
         }
         let active = self
@@ -6747,6 +7212,258 @@ impl PassMaterializationPermit<'_> {
             discovered_footnotes,
             placed_anchors,
         })
+    }
+
+    fn record_footnote_body_candidate(
+        &mut self,
+        flow: &FlowTree,
+        candidate: &EvaluatedFootnoteBodyPage,
+        body_frame: Rect,
+        footnote_ids: &[FootnoteId],
+    ) -> Result<Vec<PlacedFragment>, PaginationError> {
+        let active = self
+            .active_page
+            .as_ref()
+            .ok_or(PaginationError::InvalidWorkPermit)?;
+        if active.fragmenter_invoked
+            || active.next_fragment_cursor != active.page_start
+            || candidate.continuation.epoch() != self.layout_epoch
+            || !flow.contains_position(candidate.continuation.position())
+            || active.frames.iter().all(|frame| {
+                frame.kind != PageFrameKind::Body
+                    || frame.column_index != 0
+                    || frame.bounds != body_frame
+            })
+            || candidate
+                .fragments
+                .windows(2)
+                .any(|pair| pair[0].end() != pair[1].start())
+            || candidate.fragments.iter().any(|fragment| {
+                !flow.contains_position(fragment.start())
+                    || !flow.contains_position(fragment.end())
+                    || !rect_contains(body_frame, fragment.bounds())
+            })
+        {
+            return Err(PaginationError::InvalidWorkPermit);
+        }
+        let fragment_count = u64::try_from(candidate.fragments.len())
+            .map_err(|_| PaginationError::ArithmeticOverflow)?;
+        self.remaining_fragments = self
+            .remaining_fragments
+            .checked_sub(fragment_count)
+            .ok_or(PaginationError::ResourceLimit)?;
+
+        let mut placed = Vec::new();
+        placed
+            .try_reserve_exact(candidate.fragments.len())
+            .map_err(|_| PaginationError::ResourceLimit)?;
+        for fragment in &candidate.fragments {
+            let owner = fragment.start().owner();
+            let ordinal = self.next_fragment_ordinal.entry(owner).or_insert(0);
+            placed.push(PlacedFragment {
+                start: fragment.start().clone(),
+                end: fragment.end().clone(),
+                owner,
+                owner_local_ordinal: *ordinal,
+                frame_kind: PageFrameKind::Body,
+                column_index: 0,
+                bounds: fragment.bounds(),
+            });
+            *ordinal = ordinal
+                .checked_add(1)
+                .ok_or(PaginationError::ArithmeticOverflow)?;
+        }
+        let active = self
+            .active_page
+            .as_mut()
+            .ok_or(PaginationError::InvalidWorkPermit)?;
+        active.consumed_fragment_count = active
+            .consumed_fragment_count
+            .checked_add(fragment_count)
+            .ok_or(PaginationError::ArithmeticOverflow)?;
+        active.fragments.extend(placed.iter().cloned());
+        for footnote_id in footnote_ids {
+            active.footnote_ids.insert(footnote_id.clone());
+        }
+        let mut anchors = candidate.anchors.clone();
+        anchors.sort_by(|left, right| left.anchor_id.cmp(&right.anchor_id));
+        if anchors
+            .windows(2)
+            .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
+            || active.placed_anchors.iter().any(|existing| {
+                anchors
+                    .iter()
+                    .any(|anchor| &anchor.anchor_id == existing.anchor_id())
+            })
+        {
+            return Err(PaginationError::InvalidWorkPermit);
+        }
+        let placed_anchors = anchors
+            .iter()
+            .map(|anchor| {
+                PlacedAnchor::new(
+                    anchor,
+                    active.page_index,
+                    PageFrameKind::Body,
+                    0,
+                    body_frame,
+                )
+            })
+            .collect::<Result<Vec<_>, FragmentError>>()
+            .map_err(reference_fragment_error)?;
+        active.placed_anchors.extend(placed_anchors);
+        active
+            .placed_anchors
+            .sort_by(|left, right| left.anchor_id.cmp(&right.anchor_id));
+        active.continuation = Some(if candidate.terminal {
+            Continuation::Exhausted(Box::new(candidate.continuation.clone()))
+        } else {
+            Continuation::More(Box::new(candidate.continuation.clone()))
+        });
+        active.next_fragment_cursor = candidate.continuation.position().clone();
+        active.fragmentation_exhausted = candidate.terminal;
+        active.fragmenter_invoked = true;
+        Ok(placed)
+    }
+
+    fn record_footnote_definition_anchors(
+        &mut self,
+        anchors: Vec<DiscoveredAnchor>,
+        frame: Rect,
+    ) -> Result<(), PaginationError> {
+        let active = self
+            .active_page
+            .as_mut()
+            .ok_or(PaginationError::InvalidWorkPermit)?;
+        if active.frames.iter().all(|candidate| {
+            candidate.kind != PageFrameKind::Footnote
+                || candidate.column_index != 0
+                || candidate.bounds != frame
+        }) {
+            return Err(PaginationError::InvalidWorkPermit);
+        }
+        let mut anchors = anchors;
+        anchors.sort_by(|left, right| left.anchor_id.cmp(&right.anchor_id));
+        if anchors
+            .windows(2)
+            .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
+            || active.placed_anchors.iter().any(|existing| {
+                anchors
+                    .iter()
+                    .any(|anchor| &anchor.anchor_id == existing.anchor_id())
+            })
+        {
+            return Err(PaginationError::InvalidWorkPermit);
+        }
+        let placed = anchors
+            .iter()
+            .map(|anchor| {
+                PlacedAnchor::new(anchor, active.page_index, PageFrameKind::Footnote, 0, frame)
+            })
+            .collect::<Result<Vec<_>, FragmentError>>()
+            .map_err(reference_fragment_error)?;
+        active.placed_anchors.extend(placed);
+        active
+            .placed_anchors
+            .sort_by(|left, right| left.anchor_id.cmp(&right.anchor_id));
+        Ok(())
+    }
+
+    fn record_footnote_frame(
+        &mut self,
+        maximum_frame: Rect,
+        frame: &PageFramePlan,
+    ) -> Result<(), PaginationError> {
+        let active = self
+            .active_page
+            .as_mut()
+            .ok_or(PaginationError::InvalidWorkPermit)?;
+        let maximum_end = maximum_frame
+            .y()
+            .checked_add(maximum_frame.height().get())
+            .ok_or(PaginationError::ArithmeticOverflow)?;
+        let frame_end = frame
+            .bounds
+            .y()
+            .checked_add(frame.bounds.height().get())
+            .ok_or(PaginationError::ArithmeticOverflow)?;
+        if frame.kind != PageFrameKind::Footnote
+            || frame.column_index != 0
+            || frame.bounds.x() != maximum_frame.x()
+            || frame.bounds.width() != maximum_frame.width()
+            || frame_end != maximum_end
+            || !rect_contains(maximum_frame, frame.bounds)
+            || active
+                .frames
+                .iter()
+                .any(|existing| existing.kind == PageFrameKind::Footnote)
+        {
+            return Err(PaginationError::InvalidWorkPermit);
+        }
+        validate_rect(frame.bounds)?;
+        active.frames.push(frame.clone());
+        Ok(())
+    }
+
+    fn finish_footnote_page(
+        &mut self,
+        page: &PagePlan,
+        selected: &StagingFootnoteSelectedPageReceipt,
+        has_more_pages: bool,
+    ) -> Result<(), PaginationError> {
+        let mut active = self
+            .active_page
+            .take()
+            .ok_or(PaginationError::InvalidWorkPermit)?;
+        let page_reflows = self
+            .budget
+            .footnote_reflows
+            .get(&(self.pass_index, active.page_index))
+            .copied()
+            .unwrap_or(0);
+        let expected_reflows = u16::try_from(selected.evaluation_count().saturating_sub(1))
+            .map_err(|_| PaginationError::ArithmeticOverflow)?;
+        let expected_ids: BTreeSet<_> = selected
+            .flows()
+            .iter()
+            .map(|flow| flow.assignment().footnote_id().clone())
+            .collect();
+        if !active.matches(page)
+            || selected.page_index() != active.page_index
+            || selected.global_pass() != self.pass_index
+            || page_reflows != expected_reflows
+            || active.footnote_ids != expected_ids
+            || active.lookback_search_issued != active.lookback_search_completed
+        {
+            return Err(PaginationError::InvalidWorkPermit);
+        }
+        let footnote_record_count = selected_page_footnote_record_count(selected)?;
+        self.remaining_fragments = self
+            .remaining_fragments
+            .checked_sub(footnote_record_count)
+            .ok_or(PaginationError::ResourceLimit)?;
+        active.footnote_evaluation = Some(selected.evaluation_fingerprint());
+        active.footnote_cursor_progress = selected.flows().iter().any(|flow| {
+            flow.after_cursor().next_fragment_ordinal()
+                > flow.before_cursor().next_fragment_ordinal()
+        });
+        if has_more_pages {
+            if active.next_fragment_cursor == active.page_start && !active.footnote_cursor_progress
+            {
+                return Err(PaginationError::NoProgress);
+            }
+            self.expected_page_start = Some(active.next_fragment_cursor.clone());
+            active.next_page_start = self.expected_page_start.clone();
+        } else {
+            if !selected.body_continuation().is_terminal() {
+                return Err(PaginationError::InvalidWorkPermit);
+            }
+            self.expected_page_start = None;
+            self.pagination_exhausted = true;
+            active.next_page_start = None;
+        }
+        self.pages.push(active);
+        Ok(())
     }
     /// Finalizes a float that was enqueued and then dequeued by fragment work.
     /// The exact decision becomes part of the page materialization receipt.
@@ -6947,6 +7664,24 @@ impl PassMaterializationPermit<'_> {
         Ok(PassMaterializationReceipt { summary })
     }
 }
+
+fn selected_page_footnote_record_count(
+    selected: &StagingFootnoteSelectedPageReceipt,
+) -> Result<u64, PaginationError> {
+    if selected.flows().is_empty() {
+        return Ok(0);
+    }
+    let assignments =
+        u64::try_from(selected.flows().len()).map_err(|_| PaginationError::ArithmeticOverflow)?;
+    let fragments = selected.flows().iter().try_fold(0u64, |count, flow| {
+        count.checked_add(u64::try_from(flow.fragments().len()).ok()?)
+    });
+    assignments
+        .checked_add(1)
+        .and_then(|count| count.checked_add(fragments?))
+        .ok_or(PaginationError::ArithmeticOverflow)
+}
+
 impl FragmentWorkBudget for PassMaterializationPermit<'_> {
     fn consume_fragments(&mut self, count: u64) -> Result<(), FragmentError> {
         let active = self
@@ -7741,21 +8476,28 @@ fn validate_materialization_chain(flow: &FlowTree, pages: &[PageBudgetSummary]) 
         if !page.fragmenter_invoked {
             return false;
         }
+        let actual_next = pages.get(index + 1).map(|next| &next.page_start);
+        if page.next_page_start.as_ref() != actual_next {
+            return false;
+        }
         match page.continuation.as_ref() {
             Some(Continuation::More(cursor)) => {
                 if cursor.epoch() != flow.epoch()
-                    || cursor.is_end()
                     || !flow.contains_position(cursor.position())
-                    || pages.get(index + 1).map(|next| &next.page_start) != Some(cursor.position())
+                    || actual_next != Some(cursor.position())
+                    || (cursor.is_end() && page.footnote_evaluation.is_none())
+                    || (cursor.position() == &page.page_start && !page.footnote_cursor_progress)
                 {
                     return false;
                 }
             }
             Some(Continuation::Exhausted(cursor)) => {
-                if index + 1 != pages.len()
-                    || cursor.epoch() != flow.epoch()
+                if cursor.epoch() != flow.epoch()
                     || !cursor.is_end()
                     || cursor.position() != terminal_position
+                    || (index + 1 != pages.len()
+                        && (!page.footnote_cursor_progress
+                            || actual_next != Some(cursor.position())))
                 {
                     return false;
                 }
@@ -8845,6 +9587,7 @@ pub enum PaginationError {
     PackageEpochMismatch,
     UnsupportedReferenceTransition,
     InvalidInitialReferenceSeed,
+    Footnote(StagingFootnotePaginationError),
 }
 
 pub trait Paginator {
@@ -8854,6 +9597,558 @@ pub trait Paginator {
         pass_provider: &P,
         fragmenter: &F,
     ) -> Result<PaginationOutcome, PaginationError>;
+}
+
+#[derive(Debug)]
+struct EvaluatedFootnoteBodyPage {
+    fragments: Vec<FragmentDraft>,
+    continuation: FlowCursor,
+    terminal: bool,
+    reference_owners: Vec<NodeId>,
+    anchors: Vec<DiscoveredAnchor>,
+    fingerprint: LayoutStateFingerprint,
+}
+
+struct FootnoteCandidateFragmentBudget {
+    remaining_fragments: u64,
+}
+
+impl FragmentWorkBudget for FootnoteCandidateFragmentBudget {
+    fn consume_fragments(&mut self, count: u64) -> Result<(), FragmentError> {
+        self.remaining_fragments = self
+            .remaining_fragments
+            .checked_sub(count)
+            .ok_or(FragmentError::ResourceLimit)?;
+        Ok(())
+    }
+
+    fn consume_footnote_reflow(&mut self, _page_index: u32) -> Result<(), FragmentError> {
+        Err(FragmentError::UnsupportedFlowDomain)
+    }
+
+    fn consume_column_candidate(&mut self, _container: NodeId) -> Result<(), FragmentError> {
+        Err(FragmentError::UnsupportedFlowDomain)
+    }
+
+    fn enqueue_float(
+        &mut self,
+        _owner: NodeId,
+        _owner_local_ordinal: u32,
+    ) -> Result<(), FragmentError> {
+        Err(FragmentError::UnsupportedFlowDomain)
+    }
+
+    fn dequeue_float(
+        &mut self,
+        _owner: NodeId,
+        _owner_local_ordinal: u32,
+    ) -> Result<(), FragmentError> {
+        Err(FragmentError::UnsupportedFlowDomain)
+    }
+
+    fn consume_float_carry(
+        &mut self,
+        _owner: NodeId,
+        _owner_local_ordinal: u32,
+    ) -> Result<(), FragmentError> {
+        Err(FragmentError::UnsupportedFlowDomain)
+    }
+}
+
+/// Joint result from the publication-only footnote paginator. The ordinary
+/// body result and dedicated definition state share one selected global pass.
+pub struct FootnotePaginationOutcome {
+    outcome: PaginationOutcome,
+    registry: StagingFootnoteFlowRegistry,
+    selected: ValidatedFootnoteSelectedLayout,
+}
+
+impl FootnotePaginationOutcome {
+    pub const fn outcome(&self) -> &PaginationOutcome {
+        &self.outcome
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        PaginationOutcome,
+        StagingFootnoteFlowRegistry,
+        ValidatedFootnoteSelectedLayout,
+    ) {
+        (self.outcome, self.registry, self.selected)
+    }
+}
+
+fn map_footnote_materialization_error(error: StagingFootnotePaginationError) -> PaginationError {
+    PaginationError::Footnote(error)
+}
+
+fn map_pagination_to_footnote_error(error: PaginationError) -> StagingFootnotePaginationError {
+    match error {
+        PaginationError::ResourceLimit => StagingFootnotePaginationError::FragmentLimit,
+        PaginationError::PageLimit => StagingFootnotePaginationError::PageLimit,
+        PaginationError::ArithmeticOverflow => StagingFootnotePaginationError::ArithmeticOverflow,
+        PaginationError::Footnote(error) => error,
+        PaginationError::InvalidWorkPermit => StagingFootnotePaginationError::StateMismatch,
+        _ => StagingFootnotePaginationError::InvalidBodyCandidate,
+    }
+}
+
+fn map_pagination_page_to_footnote_error(error: PaginationError) -> StagingFootnotePaginationError {
+    match error {
+        PaginationError::ResourceLimit | PaginationError::PageLimit => {
+            StagingFootnotePaginationError::PageLimit
+        }
+        error => map_pagination_to_footnote_error(error),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_footnote_body_page(
+    flow: &FlowTree,
+    fragmenter: &ReferenceFragmenter<'_>,
+    page: &PageContext,
+    page_start: &FlowCursor,
+    body_frame: Rect,
+    evaluation: &StagingFootnotePageEvaluationRequest,
+    pass_seed: LayoutStateFingerprint,
+    remaining_fragments: u64,
+    allow_held_body: bool,
+) -> Result<EvaluatedFootnoteBodyPage, StagingFootnotePaginationError> {
+    if page.page_index() != evaluation.page_index()
+        || page.master_id() != evaluation.master_id()
+        || page.page_start() != page_start.position()
+        || available_body_block_size(body_frame, evaluation.applied_reservation())?
+            != evaluation.available_body_block_size()
+    {
+        return Err(StagingFootnotePaginationError::InvalidBodyCandidate);
+    }
+    let mut fragments = Vec::new();
+    let mut continuation = page_start.clone();
+    let mut terminal = page_start.is_end();
+    if !terminal {
+        let mut budget = FootnoteCandidateFragmentBudget {
+            remaining_fragments,
+        };
+        let mut cursor = page_start.clone();
+        let mut bootstrap = page.page_index() == 0
+            && flow.positions().first() == Some(cursor.position())
+            && flow.positions().len() > 1;
+        loop {
+            let request = FragmentRequest::new(
+                flow,
+                &cursor,
+                body_frame,
+                evaluation.applied_reservation(),
+                page.clone(),
+            )
+            .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?;
+            let result = match fragmenter.fragment(&request, &mut budget) {
+                Ok(result) => result,
+                Err(FragmentError::Unplaceable)
+                    if allow_held_body
+                        && fragments.is_empty()
+                        && evaluation.applied_reservation() != NonNegativeLength::ZERO =>
+                {
+                    // A carry may consume enough of this page to hold the
+                    // body, but it must not hide an intrinsically oversize
+                    // body line/keep until a later resource limit becomes
+                    // primary. Probe the same cursor against the complete
+                    // empty body frame before issuing a carry-only page.
+                    let full_body_request = FragmentRequest::new(
+                        flow,
+                        &cursor,
+                        body_frame,
+                        NonNegativeLength::ZERO,
+                        page.clone(),
+                    )
+                    .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?;
+                    let mut full_body_budget = FootnoteCandidateFragmentBudget {
+                        remaining_fragments,
+                    };
+                    match fragmenter.fragment(&full_body_request, &mut full_body_budget) {
+                        Ok(result) => result
+                            .validate_progress(&full_body_request)
+                            .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?,
+                        Err(FragmentError::Unplaceable) => {
+                            return Err(StagingFootnotePaginationError::BodyOversize)
+                        }
+                        Err(FragmentError::ResourceLimit) => {
+                            return Err(StagingFootnotePaginationError::FragmentLimit)
+                        }
+                        Err(FragmentError::ArithmeticOverflow) => {
+                            return Err(StagingFootnotePaginationError::ArithmeticOverflow)
+                        }
+                        Err(_) => return Err(StagingFootnotePaginationError::BodyEvaluationFailed),
+                    }
+                    // Incoming carries own composite progress for a carry-only
+                    // page. Hold the independently typed body cursor here;
+                    // the body Fragmenter must never issue a same-position
+                    // `More` continuation itself.
+                    continuation = page_start.clone();
+                    terminal = false;
+                    break;
+                }
+                Err(error) => {
+                    return Err(match error {
+                        FragmentError::ResourceLimit => {
+                            StagingFootnotePaginationError::FragmentLimit
+                        }
+                        FragmentError::ArithmeticOverflow => {
+                            StagingFootnotePaginationError::ArithmeticOverflow
+                        }
+                        FragmentError::Unplaceable => StagingFootnotePaginationError::BodyOversize,
+                        _ => StagingFootnotePaginationError::BodyEvaluationFailed,
+                    });
+                }
+            };
+            result
+                .validate_progress(&request)
+                .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?;
+            fragments.extend(result.fragments);
+            match result.continuation {
+                Continuation::More(next)
+                    if bootstrap
+                        && fragmenter.ends_with_forced_break()
+                        && flow.positions().len() == 3 =>
+                {
+                    continuation = *next;
+                    terminal = false;
+                    break;
+                }
+                Continuation::More(next) if bootstrap => {
+                    cursor = *next;
+                    bootstrap = false;
+                }
+                Continuation::More(next) => {
+                    continuation = *next;
+                    terminal = false;
+                    break;
+                }
+                Continuation::Exhausted(end) => {
+                    continuation = *end;
+                    terminal = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if let Some(cut_owner) = evaluation.body_cut_before_reference_owner() {
+        let cut_index = fragmenter
+            .legal_cut_index_before_reference(&fragments, cut_owner)
+            .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?;
+        if let Some(cut_index) = cut_index {
+            let cut_position = fragments[cut_index].start().clone();
+            fragments.truncate(cut_index);
+            continuation = fragmenter
+                .cursor_for_position(&cut_position)
+                .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?;
+            terminal = false;
+        }
+    }
+
+    let mut reference_owners = Vec::new();
+    let mut anchors = Vec::new();
+    for fragment in &fragments {
+        reference_owners.extend(
+            fragmenter
+                .footnote_reference_owners_between(fragment.start(), fragment.end())
+                .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?,
+        );
+        anchors.extend(
+            fragmenter
+                .anchors_between(fragment.start(), fragment.end())
+                .map_err(|_| StagingFootnotePaginationError::InvalidBodyCandidate)?,
+        );
+    }
+    anchors.sort_by(|left, right| left.anchor_id.cmp(&right.anchor_id));
+    if anchors
+        .windows(2)
+        .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
+    {
+        return Err(StagingFootnotePaginationError::InvalidBodyCandidate);
+    }
+    let fingerprint = encode_evaluated_footnote_body_fingerprint(
+        pass_seed,
+        page.page_index(),
+        evaluation,
+        &fragments,
+        &continuation,
+        terminal,
+        &reference_owners,
+    )?;
+    Ok(EvaluatedFootnoteBodyPage {
+        fragments,
+        continuation,
+        terminal,
+        reference_owners,
+        anchors,
+        fingerprint,
+    })
+}
+
+fn encode_evaluated_footnote_body_fingerprint(
+    pass_seed: LayoutStateFingerprint,
+    page_index: u32,
+    evaluation: &StagingFootnotePageEvaluationRequest,
+    fragments: &[FragmentDraft],
+    continuation: &FlowCursor,
+    terminal: bool,
+    reference_owners: &[NodeId],
+) -> Result<LayoutStateFingerprint, StagingFootnotePaginationError> {
+    let mut output = String::from(
+        "{\"algorithm\":\"typaxis.footnote-body-candidate/1\",\"body_cut_before_reference_owner\":",
+    );
+    match evaluation.body_cut_before_reference_owner() {
+        Some(owner) => output.push_str(&owner.get().to_string()),
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"continuation\":{");
+    output.push_str("\"flow_ordinal\":");
+    output.push_str(&continuation.position().global_flow_ordinal().to_string());
+    output.push_str(",\"terminal\":");
+    output.push_str(if terminal { "true" } else { "false" });
+    output.push_str("},\"fragments\":[");
+    for (index, fragment) in fragments.iter().enumerate() {
+        comma(&mut output, index);
+        output.push_str("{\"bounds\":");
+        encode_selected_footnote_rect(&mut output, fragment.bounds());
+        output.push_str(",\"end\":");
+        output.push_str(&fragment.end().global_flow_ordinal().to_string());
+        output.push_str(",\"owner\":");
+        output.push_str(&fragment.start().owner().get().to_string());
+        output.push_str(",\"start\":");
+        output.push_str(&fragment.start().global_flow_ordinal().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"page_index\":");
+    output.push_str(&page_index.to_string());
+    output.push_str(",\"pass_seed_sha256\":");
+    push_hex(&mut output, pass_seed.bytes());
+    output.push_str(",\"reference_owners\":[");
+    for (index, owner) in reference_owners.iter().enumerate() {
+        comma(&mut output, index);
+        output.push_str(&owner.get().to_string());
+    }
+    output.push_str("],\"reservation\":");
+    output.push_str(&evaluation.applied_reservation().get().raw().to_string());
+    output.push('}');
+    Ok(LayoutStateFingerprint::from_untrusted_bytes(sha256(
+        output.as_bytes(),
+    )))
+}
+
+fn selected_footnote_definition_anchors(
+    package: &ValidatedParsedPackage,
+    flow: &FlowTree,
+    registry: &StagingFootnoteFlowRegistry,
+    selected: &StagingFootnoteSelectedPageReceipt,
+) -> Result<Vec<DiscoveredAnchor>, StagingFootnotePaginationError> {
+    if selected.flows().is_empty() {
+        if selected.reservation() != NonNegativeLength::ZERO {
+            return Err(StagingFootnotePaginationError::StateMismatch);
+        }
+        return Ok(Vec::new());
+    }
+    let paragraph_items = flow
+        .paragraph_items()
+        .ok_or(StagingFootnotePaginationError::RegistryMismatch)?;
+    let body_end = registry
+        .body_frame()
+        .y()
+        .checked_add(registry.body_frame().height().get())
+        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+    let actual_start = body_end
+        .checked_sub(selected.reservation().get())
+        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+    let separator = Length::from_raw(FOOTNOTE_SEPARATOR_BAND_RAW)
+        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+    let mut y = actual_start
+        .checked_add(separator)
+        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+    let mut anchors = Vec::new();
+    for selected_flow in selected.flows() {
+        let registered = registry
+            .flow(selected_flow.assignment().flow_id())
+            .filter(|registered| {
+                registered.binding().footnote_id() == selected_flow.assignment().footnote_id()
+            })
+            .ok_or(StagingFootnotePaginationError::RegistryMismatch)?;
+        let mut lines = Vec::new();
+        for owner in registered.block_owners() {
+            let computed = package
+                .cascade_style(*owner)
+                .map_err(|_| StagingFootnotePaginationError::StateMismatch)?;
+            let line_height = match computed.computed().properties().get("line_height") {
+                Some(StyleValue::Length(value)) => PositiveLength::new(*value),
+                _ => None,
+            }
+            .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let space_before = match computed.computed().properties().get("space_before") {
+                Some(StyleValue::Length(value)) => NonNegativeLength::new(*value),
+                None => Some(NonNegativeLength::ZERO),
+                Some(_) => None,
+            }
+            .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let space_after = match computed.computed().properties().get("space_after") {
+                Some(StyleValue::Length(value)) => NonNegativeLength::new(*value),
+                None => Some(NonNegativeLength::ZERO),
+                Some(_) => None,
+            }
+            .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let start_indent = match computed.computed().properties().get("start_indent") {
+                Some(StyleValue::Length(value)) => NonNegativeLength::new(*value),
+                None => Some(NonNegativeLength::ZERO),
+                Some(_) => None,
+            }
+            .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let end_indent = match computed.computed().properties().get("end_indent") {
+                Some(StyleValue::Length(value)) => NonNegativeLength::new(*value),
+                None => Some(NonNegativeLength::ZERO),
+                Some(_) => None,
+            }
+            .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            registry
+                .maximum_footnote_frame()
+                .width()
+                .get()
+                .checked_sub(start_indent.get())
+                .and_then(|value| value.checked_sub(end_indent.get()))
+                .and_then(PositiveLength::new)
+                .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let paragraph_level = paragraph_items
+                .paragraph_level(*owner)
+                .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let physical_left_inset = if paragraph_level.get() % 2 == 1 {
+                end_indent
+            } else {
+                start_indent
+            };
+            let line_count = paragraph_items
+                .paragraph_break(*owner)
+                .map(|result| result.lines.len())
+                .unwrap_or(1)
+                .max(1);
+            for line_index in 0..line_count {
+                let mut extent = line_height.get();
+                if line_index == 0 {
+                    extent = extent
+                        .checked_add(space_before.get())
+                        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+                }
+                if line_index + 1 == line_count {
+                    extent = extent
+                        .checked_add(space_after.get())
+                        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+                }
+                lines.push((
+                    *owner,
+                    line_index == 0,
+                    PositiveLength::new(extent)
+                        .ok_or(StagingFootnotePaginationError::StateMismatch)?,
+                    if line_index == 0 {
+                        space_before
+                    } else {
+                        NonNegativeLength::ZERO
+                    },
+                    physical_left_inset,
+                ));
+            }
+        }
+        if registered.fragment_extents().len() != registered.fragment_line_counts().len() {
+            return Err(StagingFootnotePaginationError::StateMismatch);
+        }
+        let mut fragment_line_ranges = Vec::new();
+        fragment_line_ranges
+            .try_reserve_exact(registered.fragment_line_counts().len())
+            .map_err(|_| StagingFootnotePaginationError::AllocationFailure)?;
+        let mut line_cursor = 0usize;
+        for (extent, line_count) in registered
+            .fragment_extents()
+            .iter()
+            .copied()
+            .zip(registered.fragment_line_counts())
+        {
+            let line_count = usize::try_from(line_count.get())
+                .map_err(|_| StagingFootnotePaginationError::ArithmeticOverflow)?;
+            let line_end = line_cursor
+                .checked_add(line_count)
+                .filter(|end| *end <= lines.len())
+                .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let measured = lines[line_cursor..line_end]
+                .iter()
+                .try_fold(Length::ZERO, |total, (_, _, line_extent, _, _)| {
+                    total.checked_add(line_extent.get())
+                })
+                .and_then(PositiveLength::new)
+                .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+            if measured != extent {
+                return Err(StagingFootnotePaginationError::StateMismatch);
+            }
+            fragment_line_ranges.push((line_cursor, line_end));
+            line_cursor = line_end;
+        }
+        if line_cursor != lines.len() {
+            return Err(StagingFootnotePaginationError::StateMismatch);
+        }
+        for fragment in selected_flow.fragments() {
+            let (line_start, line_end) = *fragment_line_ranges
+                .get(fragment.fragment_ordinal() as usize)
+                .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+            let fragment_start_y = y;
+            for (owner, first_line, line_extent, space_before, physical_left_inset) in
+                &lines[line_start..line_end]
+            {
+                if *first_line {
+                    let anchor_y = y
+                        .checked_add(space_before.get())
+                        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+                    let relative_y = anchor_y
+                        .checked_sub(actual_start)
+                        .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+                    let nodes = package.document_nodes();
+                    let block_path = nodes
+                        .node_path(*owner)
+                        .ok_or(StagingFootnotePaginationError::StateMismatch)?;
+                    anchors.extend(
+                        nodes
+                            .anchors()
+                            .filter(|(_, anchor_owner)| {
+                                nodes
+                                    .node_path(*anchor_owner)
+                                    .is_some_and(|path| path.starts_with(block_path))
+                            })
+                            .map(|(anchor_id, anchor_owner)| DiscoveredAnchor {
+                                anchor_id: anchor_id.clone(),
+                                owner_node: anchor_owner,
+                                position_in_frame: Point {
+                                    x: physical_left_inset.get(),
+                                    y: relative_y,
+                                },
+                            }),
+                    );
+                }
+                y = y
+                    .checked_add(line_extent.get())
+                    .ok_or(StagingFootnotePaginationError::ArithmeticOverflow)?;
+            }
+            if y.checked_sub(fragment_start_y) != Some(fragment.block_extent().get()) {
+                return Err(StagingFootnotePaginationError::StateMismatch);
+            }
+        }
+    }
+    if y != body_end {
+        return Err(StagingFootnotePaginationError::StateMismatch);
+    }
+    anchors.sort_by(|left, right| left.anchor_id.cmp(&right.anchor_id));
+    if anchors
+        .windows(2)
+        .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
+    {
+        return Err(StagingFootnotePaginationError::StateMismatch);
+    }
+    Ok(anchors)
 }
 
 /// Deterministic pagination owner for the reference layout domain: blank
@@ -8924,13 +10219,14 @@ impl ReferencePaginator {
             if pass_flow.epoch() != pass_input.layout_epoch() {
                 return Err(PaginationError::InvalidPreparedLayout);
             }
-            let fragmenter = if package.package().document.blocks.iter().all(|block| {
-                matches!(
-                    block,
-                    typaxis_document::Block::Paragraph { .. }
-                        | typaxis_document::Block::Heading { .. }
-                )
-            }) {
+            let fragmenter = if package.package().document.footnotes.is_empty()
+                && package.package().document.blocks.iter().all(|block| {
+                    matches!(
+                        block,
+                        typaxis_document::Block::Paragraph { .. }
+                            | typaxis_document::Block::Heading { .. }
+                    )
+                }) {
                 ReferenceFragmenter::for_paragraphs(package, &pass_flow)
             } else {
                 ReferenceFragmenter::for_basic_document(package, &pass_flow)
@@ -8971,6 +10267,304 @@ impl ReferencePaginator {
         PaginationOutcome::new(passes, status, &input, budget.finish())
     }
 
+    /// Runs global reference convergence and ADR-0030 page-local footnote
+    /// convergence as one materialized state machine. Each pass receives the
+    /// registry derived from that pass's exact generated-text epoch.
+    pub fn paginate_footnote_with_reflow(
+        &self,
+        package: &ValidatedParsedPackage,
+        initial_flow: &FlowTree,
+        initial_registry: StagingFootnoteFlowRegistry,
+        limits: &ValidatedResourceLimits,
+        strict: bool,
+        mut reflow: impl FnMut(
+            &GeneratedTextStore,
+            LayoutEpoch,
+        )
+            -> Result<(FlowTree, StagingFootnoteFlowRegistry), PaginationError>,
+    ) -> Result<FootnotePaginationOutcome, PaginationError> {
+        if initial_registry.receipt().epoch() != initial_flow.epoch() {
+            return Err(PaginationError::InvalidPreparedLayout);
+        }
+        let initial_state = InitialPaginationState::new(initial_flow, package, limits)?;
+        let package_context = package.pagination_context();
+        let options = PaginationOptions::from_limits(limits, strict);
+        let mut input = PaginationInput::new(initial_state, &package_context, options)?;
+        let mut budget = input.take_work_budget()?;
+        let mut passes: Vec<LayoutPass> = Vec::new();
+        let mut footnote_passes: Vec<
+            Option<(StagingFootnoteFlowRegistry, ValidatedFootnoteSelectedLayout)>,
+        > = Vec::new();
+        let mut initial_registry = Some(initial_registry);
+
+        let status = loop {
+            let pass_index =
+                u16::try_from(passes.len()).map_err(|_| PaginationError::PassIndexOverflow)?;
+            let pass_input = if let Some(previous) = passes.last() {
+                LayoutPassInput::transitioned(previous.transition_references(package, limits)?)
+            } else {
+                LayoutPassInput::initial(&input)
+            };
+            let (pass_flow, registry) = if pass_index == 0 {
+                (
+                    initial_flow.clone(),
+                    initial_registry
+                        .take()
+                        .ok_or(PaginationError::InvalidPreparedLayout)?,
+                )
+            } else {
+                reflow(pass_input.generated_text(), pass_input.layout_epoch())?
+            };
+            if pass_flow.epoch() != pass_input.layout_epoch()
+                || registry.receipt().epoch() != pass_flow.epoch()
+                || registry.receipt().package_fingerprint() != package.epoch_identity().document()
+            {
+                return Err(PaginationError::InvalidPreparedLayout);
+            }
+            let fragmenter = ReferenceFragmenter::for_footnote_body(package, &pass_flow)
+                .map_err(reference_fragment_error)?;
+            let input_fingerprint = pass_input.fingerprint();
+            let generated_text = pass_input.generated_text().clone();
+            let mut permit = budget.begin_pass(pass_index, pass_input)?;
+            let (pages, state, selected_pages) = Self::materialize_footnote_pass(
+                package,
+                &pass_flow,
+                &fragmenter,
+                &registry,
+                input_fingerprint,
+                &package_context,
+                &mut permit,
+                limits,
+            )
+            .map_err(map_footnote_materialization_error)?;
+            let materialization = permit.finish(&pass_flow, &pages)?;
+            let pass = LayoutPass::new(
+                materialization,
+                input_fingerprint,
+                &pass_flow,
+                pages,
+                generated_text,
+            )?;
+            let selected = state
+                .finish(&registry, pass.output_fingerprint(), selected_pages)
+                .map_err(map_footnote_materialization_error)?;
+            passes.push(pass);
+            footnote_passes.push(Some((registry, selected)));
+
+            if let Some(termination) = observed_termination(&passes) {
+                break match termination {
+                    ObservedTermination::Stable => ConvergenceStatus::Converged,
+                    ObservedTermination::Cycle(cycle_start_state) => {
+                        ConvergenceStatus::CycleFallback { cycle_start_state }
+                    }
+                };
+            }
+            if passes.len() == usize::from(options.max_layout_passes) {
+                break ConvergenceStatus::MaxPassFallback;
+            }
+        };
+
+        let outcome = PaginationOutcome::new(passes, status, &input, budget.finish())?;
+        let selected_index = usize::from(outcome.result().selected_state().pass_index());
+        let (registry, selected) = footnote_passes
+            .get_mut(selected_index)
+            .and_then(Option::take)
+            .ok_or(PaginationError::InvalidPreparedLayout)?;
+        if selected.body_layout_fingerprint() != outcome.result().final_fingerprint()
+            || selected.pages().len() != outcome.result().selected_pages().len()
+        {
+            return Err(PaginationError::InvalidPreparedLayout);
+        }
+        Ok(FootnotePaginationOutcome {
+            outcome,
+            registry,
+            selected,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn materialize_footnote_pass(
+        package: &ValidatedParsedPackage,
+        flow: &FlowTree,
+        fragmenter: &ReferenceFragmenter<'_>,
+        registry: &StagingFootnoteFlowRegistry,
+        pass_seed: LayoutStateFingerprint,
+        package_context: &PackagePaginationContext,
+        permit: &mut PassMaterializationPermit<'_>,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<
+        (
+            Vec<PagePlan>,
+            StagingFootnotePaginationState,
+            Vec<StagingFootnoteSelectedPageReceipt>,
+        ),
+        StagingFootnotePaginationError,
+    > {
+        let mut state = StagingFootnotePaginationState::new(registry, permit.pass_index, limits);
+        let mut cursor = FlowCursor::document_start(flow);
+        let mut pages = Vec::new();
+        let mut selected_pages = Vec::new();
+
+        loop {
+            let page_index = state.next_page_index();
+            let page_start = cursor.clone();
+            let selection = if page_start.is_end() {
+                ResolvedPageSelection::for_footnote_terminal_carry(flow, &page_start, package)
+            } else {
+                ResolvedPageSelection::new(flow, &page_start, package)
+            }
+            .map_err(|_| StagingFootnotePaginationError::InvalidPageInput)?;
+            let page = PageContext::select(page_index, &selection, package_context)
+                .map_err(|_| StagingFootnotePaginationError::InvalidPageInput)?;
+            if page.master_id() != registry.master_id() {
+                return Err(StagingFootnotePaginationError::RegistryMismatch);
+            }
+            let body_frame = PageFramePlan {
+                kind: PageFrameKind::Body,
+                column_index: 0,
+                bounds: registry.body_frame(),
+            };
+            let mut frames = vec![body_frame.clone()];
+            permit
+                .begin_page(&page, &page_start, &frames)
+                .map_err(map_pagination_page_to_footnote_error)?;
+            let body_page_start =
+                footnote_body_start_fingerprint(pass_seed, page_index, page_start.position());
+            let page_input = StagingFootnotePageInput::new(page_index, body_page_start);
+            let mut final_body = None;
+            let allow_held_body = !state.carries().is_empty();
+            let convergence =
+                evaluate_staging_footnote_page(registry, &state, page_input, |request| {
+                    if request.evaluation_index() != 0 {
+                        permit
+                            .consume_footnote_reflow(page_index)
+                            .map_err(|_| StagingFootnotePaginationError::ReflowLimit)?;
+                    }
+                    let evaluated = evaluate_footnote_body_page(
+                        flow,
+                        fragmenter,
+                        &page,
+                        &page_start,
+                        body_frame.bounds,
+                        request,
+                        pass_seed,
+                        permit.remaining_fragments,
+                        allow_held_body,
+                    )?;
+                    let body_fragment_count = u64::try_from(evaluated.fragments.len())
+                        .map_err(|_| StagingFootnotePaginationError::ArithmeticOverflow)?;
+                    let candidate = StagingFootnoteBodyCandidate::new_with_body_fragments(
+                        evaluated.fingerprint,
+                        if evaluated.terminal {
+                            StagingFootnoteBodyContinuation::exhausted(
+                                u32::try_from(
+                                    evaluated.continuation.position().global_flow_ordinal(),
+                                )
+                                .map_err(|_| StagingFootnotePaginationError::ArithmeticOverflow)?,
+                            )
+                        } else {
+                            StagingFootnoteBodyContinuation::more(
+                                u32::try_from(
+                                    evaluated.continuation.position().global_flow_ordinal(),
+                                )
+                                .map_err(|_| StagingFootnotePaginationError::ArithmeticOverflow)?,
+                            )
+                        },
+                        request.applied_reservation(),
+                        request.body_cut_before_reference_owner(),
+                        request.available_body_block_size(),
+                        body_fragment_count,
+                        evaluated.reference_owners.clone(),
+                    );
+                    final_body = Some(evaluated);
+                    Ok(candidate)
+                })?;
+            let body = final_body.ok_or(StagingFootnotePaginationError::BodyEvaluationFailed)?;
+            let selected = state.commit_page(registry, &convergence)?;
+            if body.fingerprint != selected.body_fingerprint()
+                || body.terminal != selected.body_continuation().is_terminal()
+                || body.continuation.position().global_flow_ordinal()
+                    != u64::from(selected.body_continuation().next_flow_position())
+            {
+                return Err(StagingFootnotePaginationError::StateMismatch);
+            }
+            let mut footnote_ids: Vec<_> = selected
+                .flows()
+                .iter()
+                .map(|flow| flow.assignment().footnote_id().clone())
+                .collect();
+            footnote_ids.sort();
+            if footnote_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(StagingFootnotePaginationError::StateMismatch);
+            }
+            let placed = permit
+                .record_footnote_body_candidate(flow, &body, body_frame.bounds, &footnote_ids)
+                .map_err(map_pagination_to_footnote_error)?;
+            let footnote_frame =
+                selected_footnote_frame(registry.maximum_footnote_frame(), selected.reservation())?
+                    .map(|bounds| PageFramePlan {
+                        kind: PageFrameKind::Footnote,
+                        column_index: 0,
+                        bounds,
+                    });
+            if let Some(frame) = footnote_frame.as_ref() {
+                permit
+                    .record_footnote_frame(registry.maximum_footnote_frame(), frame)
+                    .map_err(map_pagination_to_footnote_error)?;
+                frames.push(frame.clone());
+            }
+            let definition_anchors =
+                selected_footnote_definition_anchors(package, flow, registry, &selected)?;
+            match (footnote_frame.as_ref(), definition_anchors.is_empty()) {
+                (Some(frame), _) => permit
+                    .record_footnote_definition_anchors(definition_anchors, frame.bounds)
+                    .map_err(map_pagination_to_footnote_error)?,
+                (None, true) => {}
+                (None, false) => return Err(StagingFootnotePaginationError::StateMismatch),
+            }
+            let plan = PagePlan {
+                page_index,
+                master_id: page.master_id().clone(),
+                frames,
+                fragments: placed,
+                footnote_ids,
+                float_decisions: Vec::new(),
+                column_decisions: Vec::new(),
+                resolved_references: Vec::new(),
+            };
+            let has_more_pages = !body.terminal || !state.carries().is_empty();
+            if has_more_pages
+                && body.continuation.position() == page_start.position()
+                && selected.flows().is_empty()
+            {
+                let footnote_id = selected
+                    .body_cut_before_reference_owner()
+                    .and_then(|owner| registry.reference(owner))
+                    .map(|reference| reference.footnote_id().clone())
+                    .or_else(|| {
+                        selected
+                            .discovery()
+                            .first()
+                            .map(|occurrence| occurrence.footnote_id().clone())
+                    })
+                    .ok_or(StagingFootnotePaginationError::BodyEvaluationFailed)?;
+                return Err(StagingFootnotePaginationError::DefinitionOversize(
+                    footnote_id,
+                ));
+            }
+            permit
+                .finish_footnote_page(&plan, &selected, has_more_pages)
+                .map_err(map_pagination_to_footnote_error)?;
+            cursor = body.continuation;
+            pages.push(plan);
+            selected_pages.push(selected);
+            if !has_more_pages {
+                break;
+            }
+        }
+        Ok((pages, state, selected_pages))
+    }
+
     fn materialize_pass(
         package: &ValidatedParsedPackage,
         flow: &FlowTree,
@@ -8996,11 +10590,12 @@ impl ReferencePaginator {
                 column_index: 0,
                 bounds: page.selected_master().body,
             };
-            permit.begin_page(&page, &page_start, std::slice::from_ref(&body_frame))?;
+            let frames = vec![body_frame.clone()];
+            permit.begin_page(&page, &page_start, &frames)?;
             let mut plan = PagePlan {
                 page_index: page.page_index(),
                 master_id: page.master_id().clone(),
-                frames: vec![body_frame.clone()],
+                frames,
                 fragments: Vec::new(),
                 footnote_ids: Vec::new(),
                 float_decisions: Vec::new(),
@@ -9514,7 +11109,7 @@ mod tests {
     }
 
     #[test]
-    fn footnote_reflow_incoming_carry_seeds_evaluation_zero_and_advances_separately() {
+    fn footnote_reflow_footnote_carry_seeds_evaluation_zero_and_advances_separately() {
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
         let registry = footnote_reflow_registry(&limits);
         let (mut state, _) = footnote_reflow_converged_page(
@@ -9544,6 +11139,173 @@ mod tests {
         );
         assert!(state.carries().is_empty());
         assert_eq!(state.assignments().len(), 2);
+    }
+
+    #[test]
+    fn footnote_carry_only_page_holds_body_cursor_until_definition_progress_completes() {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let registry = footnote_reflow_registry(&limits);
+        let mut state = StagingFootnotePaginationState::new(&registry, 0, &limits);
+        let first =
+            evaluate_staging_footnote_page(&registry, &state, footnote_page_input(0), |request| {
+                Ok(footnote_body_candidate(
+                    request,
+                    1,
+                    vec![NodeId::new(2), NodeId::new(3), NodeId::new(4)],
+                ))
+            })
+            .unwrap();
+        let first = state.commit_page(&registry, &first).unwrap();
+        assert_eq!(state.carries().len(), 1);
+
+        let carry_only =
+            evaluate_staging_footnote_page(&registry, &state, footnote_page_input(1), |request| {
+                Ok(footnote_body_candidate(request, 2, Vec::new()))
+            })
+            .unwrap();
+        let carry_only = state.commit_page(&registry, &carry_only).unwrap();
+        assert_eq!(
+            carry_only.body_continuation().next_flow_position(),
+            first.body_continuation().next_flow_position()
+        );
+        assert!(!carry_only.body_continuation().is_terminal());
+        assert!(state.carries().is_empty());
+
+        let resumed =
+            evaluate_staging_footnote_page(&registry, &state, footnote_page_input(2), |request| {
+                let mut candidate = footnote_body_candidate(request, 3, Vec::new());
+                candidate.continuation = StagingFootnoteBodyContinuation::exhausted(8);
+                Ok(candidate)
+            })
+            .unwrap();
+        let resumed = state.commit_page(&registry, &resumed).unwrap();
+        let selected = state
+            .finish(
+                &registry,
+                LayoutStateFingerprint::from_untrusted_bytes([44; 32]),
+                vec![first, carry_only, resumed],
+            )
+            .unwrap();
+        assert_eq!(selected.pages().len(), 3);
+        assert_eq!(
+            selected.pages()[0].body_continuation().next_flow_position(),
+            selected.pages()[1].body_continuation().next_flow_position()
+        );
+        assert!(selected.pages()[2].body_continuation().is_terminal());
+    }
+
+    fn complete_footnote_carry_fixture() -> (
+        StagingFootnoteFlowRegistry,
+        StagingFootnotePaginationState,
+        Vec<StagingFootnoteSelectedPageReceipt>,
+    ) {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let registry = footnote_reflow_registry(&limits);
+        let mut state = StagingFootnotePaginationState::new(&registry, 0, &limits);
+        let first =
+            evaluate_staging_footnote_page(&registry, &state, footnote_page_input(0), |request| {
+                Ok(footnote_body_candidate(
+                    request,
+                    1,
+                    vec![NodeId::new(2), NodeId::new(3), NodeId::new(4)],
+                ))
+            })
+            .unwrap();
+        let first = state.commit_page(&registry, &first).unwrap();
+        assert_eq!(state.carries().len(), 1);
+
+        let second =
+            evaluate_staging_footnote_page(&registry, &state, footnote_page_input(1), |request| {
+                let mut candidate = footnote_body_candidate(request, 2, Vec::new());
+                candidate.continuation = StagingFootnoteBodyContinuation::exhausted(8);
+                Ok(candidate)
+            })
+            .unwrap();
+        let second = state.commit_page(&registry, &second).unwrap();
+        assert!(state.carries().is_empty());
+        (registry, state, vec![first, second])
+    }
+
+    #[test]
+    fn footnote_carry_finish_binds_complete_definition_paint_and_page_edges() {
+        let (registry, state, pages) = complete_footnote_carry_fixture();
+        let selected = state
+            .finish(
+                &registry,
+                LayoutStateFingerprint::from_untrusted_bytes([44; 32]),
+                pages,
+            )
+            .unwrap();
+        assert_eq!(selected.pages().len(), 2);
+        assert_eq!(selected.assignments().len(), 2);
+        assert!(selected
+            .canonical_jcs()
+            .contains("\"incoming_source_page\":0"));
+    }
+
+    #[test]
+    fn footnote_carry_finish_rejects_missing_duplicate_and_wrong_page_paint() {
+        let (registry, state, mut pages) = complete_footnote_carry_fixture();
+        pages[1].flows.clear();
+        assert_eq!(
+            state
+                .finish(
+                    &registry,
+                    LayoutStateFingerprint::from_untrusted_bytes([44; 32]),
+                    pages,
+                )
+                .unwrap_err(),
+            StagingFootnotePaginationError::MissingDefinitionPaint(FootnoteId::new("z").unwrap())
+        );
+
+        let (registry, state, mut pages) = complete_footnote_carry_fixture();
+        pages[1].flows[0].fragments[0].fragment_ordinal = 0;
+        assert_eq!(
+            state
+                .finish(
+                    &registry,
+                    LayoutStateFingerprint::from_untrusted_bytes([44; 32]),
+                    pages,
+                )
+                .unwrap_err(),
+            StagingFootnotePaginationError::DuplicateDefinitionPaint(FootnoteId::new("z").unwrap())
+        );
+
+        let (registry, state, mut pages) = complete_footnote_carry_fixture();
+        pages[1].flows[0].incoming_source_page = None;
+        assert_eq!(
+            state
+                .finish(
+                    &registry,
+                    LayoutStateFingerprint::from_untrusted_bytes([44; 32]),
+                    pages,
+                )
+                .unwrap_err(),
+            StagingFootnotePaginationError::WrongPageCarry(FootnoteFlowId::new(1))
+        );
+    }
+
+    #[test]
+    fn footnote_carry_finish_rejects_an_empty_page_after_all_progress_is_terminal() {
+        let (registry, mut state, mut pages) = complete_footnote_carry_fixture();
+        let extra =
+            evaluate_staging_footnote_page(&registry, &state, footnote_page_input(2), |request| {
+                let mut candidate = footnote_body_candidate(request, 3, Vec::new());
+                candidate.continuation = StagingFootnoteBodyContinuation::exhausted(8);
+                Ok(candidate)
+            })
+            .unwrap();
+        pages.push(state.commit_page(&registry, &extra).unwrap());
+        assert_eq!(
+            state
+                .finish(
+                    &registry,
+                    LayoutStateFingerprint::from_untrusted_bytes([44; 32]),
+                    pages,
+                )
+                .unwrap_err(),
+            StagingFootnotePaginationError::IncompleteSelectedLayout
+        );
     }
 
     #[test]
@@ -11873,7 +13635,10 @@ mod tests {
                     resolved_references: vec![],
                     placed_anchors: vec![],
                     continuation: None,
+                    next_page_start: None,
                     fragmenter_invoked: false,
+                    footnote_evaluation: None,
+                    footnote_cursor_progress: false,
                     next_fragment_cursor: wrong_flow.positions()[0].clone(),
                     fragmentation_exhausted: false,
                     lookback_search_issued: false,

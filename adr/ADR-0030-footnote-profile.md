@@ -16,6 +16,12 @@ publication gate.
 | public CLI E2E | No: public commands reject the profile ID |
 | release-supported | No: the publication gate is MI3-07 |
 
+Implementation update (2026-08-28): MI3-06 implemented the private
+discovery/reflow slice and MI3-07 closed the publication gate. `footnote-1` is
+now a public, implemented, release-supported profile. The table above and the
+“before MI3-07” statements below intentionally preserve the decision-time
+state against which the gate was evaluated.
+
 ## Context
 
 The immutable `paragraph-1`, `basic-document-1`, and `table-1` profiles all

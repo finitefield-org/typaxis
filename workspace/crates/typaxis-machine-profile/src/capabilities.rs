@@ -71,6 +71,7 @@ impl HostCapabilityDescriptor {
     pub const fn profile_available(self, profile: MachinePdfProfileId) -> bool {
         match profile {
             MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Footnote1
             | MachinePdfProfileId::Paragraph1
             | MachinePdfProfileId::Table1 => {
                 self.atomic_file_publish
@@ -106,6 +107,7 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
     let default_profile = MachineProfileDescriptor::PARAGRAPH_1;
     let profiles = [
         MachineProfileDescriptor::BASIC_DOCUMENT_1,
+        MachineProfileDescriptor::FOOTNOTE_1,
         MachineProfileDescriptor::PARAGRAPH_1,
         MachineProfileDescriptor::TABLE_1,
     ];

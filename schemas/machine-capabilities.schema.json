@@ -121,10 +121,11 @@
         },
         "profiles": {
           "type": "array",
-          "minItems": 3,
-          "maxItems": 3,
+          "minItems": 4,
+          "maxItems": 4,
           "prefixItems": [
             {"$ref": "#/$defs/basic_profile"},
+            {"$ref": "#/$defs/footnote_profile"},
             {"$ref": "#/$defs/paragraph_profile"},
             {"$ref": "#/$defs/table_profile"}
           ],
@@ -263,6 +264,57 @@
         "style_block_types": {"const": ["figure", "heading", "list", "page_break", "paragraph", "table"]},
         "style_properties": {"const": ["end_indent", "font_family", "font_size", "keep_caption", "keep_with_next", "line_height", "page", "space_after", "space_before", "start_indent", "text_align", "width"]},
         "style_selectors": {"const": ["figure", "heading", "list", "page_break", "paragraph", "table"]},
+        "unsupported_pdf_features": {"const": ["heading-semantics", "outlines", "tagged-pdf"]}
+      }
+    },
+    "footnote_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available", "blocks", "font_formats", "footnotes", "id",
+        "image_formats", "inlines", "page_master", "page_values",
+        "pdf_features", "source_closure", "source_count",
+        "style_block_types", "style_properties", "style_selectors",
+        "unsupported_pdf_features"
+      ],
+      "properties": {
+        "available": {"type": "boolean"},
+        "blocks": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "font_formats": {"const": ["sfnt-truetype-glyf", "ttc-truetype-glyf"]},
+        "footnotes": {"const": true},
+        "id": {"const": "typaxis.machine-pdf/footnote-1"},
+        "image_formats": {"const": ["png"]},
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kinds", "reference_formats"],
+          "properties": {
+            "kinds": {"const": ["anchor", "footnote_reference", "hard_break", "link", "reference", "soft_break", "text"]},
+            "reference_formats": {"const": ["page"]}
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "optional_frames", "selection_rules"],
+          "properties": {
+            "count": {"const": 1},
+            "optional_frames": {"const": ["footnote"]},
+            "selection_rules": {"const": false}
+          }
+        },
+        "page_values": {"const": ["auto"]},
+        "pdf_features": {"const": ["link-annotations", "named-destinations", "png-xobjects", "text-extraction"]},
+        "source_closure": {"const": "entry_only"},
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum", "minimum"],
+          "properties": {"maximum": {"const": 1}, "minimum": {"const": 1}}
+        },
+        "style_block_types": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "style_properties": {"const": ["end_indent", "font_family", "font_size", "keep_caption", "keep_with_next", "line_height", "page", "space_after", "space_before", "start_indent", "text_align", "width"]},
+        "style_selectors": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
         "unsupported_pdf_features": {"const": ["heading-semantics", "outlines", "tagged-pdf"]}
       }
     },

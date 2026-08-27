@@ -5,10 +5,12 @@ This directory is the runnable public machine-profile fixture bundle.
 paragraph combined package. `profiles/basic-document-1/combined` is the
 contract 1.2 all-advertised package for the public basic profile.
 `profiles/table-1/only` and `profiles/table-1/combined` cover the table-only and
-complete M2-plus-table domains. `invalid/` and `scenarios/` contain typed
+complete M2-plus-table domains. `profiles/footnote-1/zero` and
+`profiles/footnote-1/combined` cover empty assignment and complete
+M2-plus-footnote domains. `invalid/` and `scenarios/` contain typed
 failure expectations. The matrices bind every expectation exactly once to the
-profile closure tests; `m2-basic.json` and `m3-table.json` are the corresponding
-public release-verifier inputs.
+profile closure tests; `m2-basic.json`, `m3-table.json`, and
+`m3-footnote.json` are the corresponding public release-verifier inputs.
 
 ## Run the combined fixture
 
@@ -58,7 +60,7 @@ workspace/target/debug/typaxis capabilities --format json
 ```
 
 Its bytes MUST equal `samples/machine-package/capabilities.json`, advertise
-exactly `basic-document-1`, `paragraph-1`, and `table-1` in canonical order,
+exactly `basic-document-1`, `footnote-1`, `paragraph-1`, and `table-1` in canonical order,
 retain `paragraph-1` as the default, and validate against
 `schemas/machine-capabilities.schema.json`.
 
@@ -121,6 +123,18 @@ Header B alpha beta Header A delta Header B gamma`. Older-profile and table-styl
 rejections live under `invalid/`; `matrices/m3-table.json` registers the full
 public table gate.
 
+The public MI3-07 fixtures are under `profiles/footnote-1/`. `zero` proves
+that a Footnote master with no references reserves and paints nothing.
+`combined` uses every M2 feature plus catalog order distinct from
+first-reference order, repeated references, paragraph/heading definitions,
+definition anchor/page-reference/break/internal-link content, two dedicated
+carry edges, and a final carry-only page. Its trace and manifest contain
+byte-identical selected footnote facts, while Display/PDF closure binds body
+markers, one separator per nonempty page, definition glyphs, named
+destinations, and annotations. Poppler-normalized combined text is exactly
+`Basic document internal external First item Second entry Z first A note A
+tail PNG caption Z second Z third Z fourth Z fifth`.
+
 ## Regenerate hashes and expectations
 
 The bundle is generated, not hand-rehashed. Edit the generator inputs and run:
@@ -140,7 +154,17 @@ updating the bytes that own it.
 
 ## Release and host evidence
 
-The exact current-host table gate is:
+The exact current-host footnote gate is:
+
+```text
+python3 tools/verify_machine_profile.py \
+  --repository . \
+  --matrix samples/machine-package/matrices/m3-footnote.json \
+  --runs 2 --require-external-tools
+```
+
+The table gate uses `--matrix samples/machine-package/matrices/m3-table.json`
+with the same options:
 
 ```text
 python3 tools/verify_machine_profile.py \

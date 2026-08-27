@@ -663,16 +663,108 @@ impl BoundedReferenceParagraphFactory {
         line_shape_exhaustion: LineShapeExhaustion,
         limits: &ValidatedResourceLimits,
     ) -> Result<CanonicalParagraph, BreakError> {
+        self.build_internal(
+            generated_text,
+            paragraph_node,
+            epoch,
+            shaped_text,
+            space_glue,
+            line_shapes,
+            line_shape_exhaustion,
+            limits,
+            false,
+        )
+    }
+
+    /// Footnote-profile paragraph factory. This is the only entry point that
+    /// admits definition-owned paragraphs and their generated definition
+    /// marker; the frozen ordinary factory continues to search body content
+    /// only.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_with_footnotes(
+        &self,
+        generated_text: PackageGeneratedTextBinding<'_>,
+        paragraph_node: NodeId,
+        epoch: LayoutEpoch,
+        shaped_text: &[ParagraphShapedText<'_>],
+        space_glue: ReferenceSpaceGlue,
+        line_shapes: &[LineShape],
+        line_shape_exhaustion: LineShapeExhaustion,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<CanonicalParagraph, BreakError> {
+        self.build_internal(
+            generated_text,
+            paragraph_node,
+            epoch,
+            shaped_text,
+            space_glue,
+            line_shapes,
+            line_shape_exhaustion,
+            limits,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_internal(
+        &self,
+        generated_text: PackageGeneratedTextBinding<'_>,
+        paragraph_node: NodeId,
+        epoch: LayoutEpoch,
+        shaped_text: &[ParagraphShapedText<'_>],
+        space_glue: ReferenceSpaceGlue,
+        line_shapes: &[LineShape],
+        line_shape_exhaustion: LineShapeExhaustion,
+        limits: &ValidatedResourceLimits,
+        allow_footnotes: bool,
+    ) -> Result<CanonicalParagraph, BreakError> {
         validate_factory_owner(generated_text, paragraph_node, epoch)?;
         if line_shapes.is_empty() {
             return Err(BreakError::EmptyLineShapes);
         }
 
-        let paragraph =
-            find_paragraph_block(&generated_text.package().package().document, paragraph_node)
-                .ok_or(BreakError::InvalidParagraphOwner)?;
+        let paragraph = find_paragraph_block(
+            &generated_text.package().package().document,
+            paragraph_node,
+            allow_footnotes,
+        )
+        .ok_or(BreakError::InvalidParagraphOwner)?;
+        let definition_marker = allow_footnotes
+            .then(|| {
+                generated_text
+                    .generated_text()
+                    .buffers()
+                    .iter()
+                    .find_map(|buffer| {
+                        let key = buffer.key();
+                        if key.generation_kind() != GenerationKind::FootnoteMarker
+                            || generated_text
+                                .package()
+                                .document_nodes()
+                                .node_kind(key.owner())
+                                != Some(DocumentNodeKind::FootnoteDefinition)
+                        {
+                            return None;
+                        }
+                        let end = u32::try_from(buffer.utf8().len()).ok()?;
+                        let provenance = generated_text
+                            .generated_text()
+                            .provenance(
+                                key,
+                                typaxis_core::Utf8ByteOffset::new(0),
+                                typaxis_core::Utf8ByteOffset::new(end),
+                            )
+                            .ok()?;
+                        generated_text
+                            .bind_generated_shape_text(provenance)
+                            .ok()
+                            .filter(|receipt| receipt.style_owner() == paragraph_node)
+                            .map(|_| key)
+                    })
+            })
+            .flatten();
         let mut expected_elements = Vec::new();
-        collect_paragraph_elements(paragraph, &mut expected_elements)?;
+        collect_paragraph_elements(paragraph, definition_marker, &mut expected_elements)?;
         let expected_site_count = expected_elements
             .iter()
             .filter(|element| matches!(element, ExpectedParagraphElement::Text(_)))
@@ -758,11 +850,13 @@ impl BoundedReferenceParagraphFactory {
         let mut paragraph_byte_cursor = 0usize;
         let mut unicode_break_index = 0usize;
         let mut shaped_sites = shaped_text.iter();
+        let mut definition_prefix_needs_source = definition_marker.is_some();
         for (element_index, element) in expected_elements.iter().enumerate() {
             let ExpectedParagraphElement::Text(_) = element else {
                 let ExpectedParagraphElement::ExplicitBreak { node_id, mut kind } = *element else {
                     unreachable!()
                 };
+                kind = protect_definition_marker_prefix_break(kind, definition_prefix_needs_source);
                 if element_index
                     .checked_add(1)
                     .is_some_and(|index| index == expected_elements.len())
@@ -807,6 +901,13 @@ impl BoundedReferenceParagraphFactory {
                 });
                 continue;
             };
+            let is_definition_marker = matches!(
+                element,
+                ExpectedParagraphElement::Text(ExpectedParagraphTextSite::Generated {
+                    key,
+                    ..
+                }) if Some(*key) == definition_marker
+            );
             let shaped = shaped_sites
                 .next()
                 .ok_or(BreakError::ParagraphTextSiteMismatch)?;
@@ -882,6 +983,13 @@ impl BoundedReferenceParagraphFactory {
                     {
                         boundary_kind = BreakKind::Prohibited;
                     }
+                    // ADR-0030 makes the definition marker and the first
+                    // source line one indivisible unit. Unicode data for a
+                    // generated decimal marker must never introduce a legal
+                    // break before the marker gap and first source cluster.
+                    if is_definition_marker {
+                        boundary_kind = BreakKind::Prohibited;
+                    }
                     items.push(ParagraphItem::Penalty {
                         width: Length::ZERO,
                         cost: if boundary_kind == BreakKind::Allowed {
@@ -897,6 +1005,9 @@ impl BoundedReferenceParagraphFactory {
                             generated_text,
                         )?,
                     });
+                    if !is_definition_marker && slice.derived_width().get() > Length::ZERO {
+                        definition_prefix_needs_source = false;
+                    }
                 }
                 paragraph_run_index = paragraph_run_index
                     .checked_add(1)
@@ -988,6 +1099,17 @@ impl BoundedReferenceParagraphFactory {
     }
 }
 
+const fn protect_definition_marker_prefix_break(
+    kind: BreakKind,
+    definition_prefix_needs_source: bool,
+) -> BreakKind {
+    if definition_prefix_needs_source && matches!(kind, BreakKind::Allowed) {
+        BreakKind::Prohibited
+    } else {
+        kind
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ExpectedParagraphTextSite {
     Parsed {
@@ -1027,14 +1149,21 @@ fn validate_factory_owner(
     Ok(())
 }
 
-fn find_paragraph_block(document: &typaxis_document::Document, owner: NodeId) -> Option<&Block> {
-    let mut pending: Vec<&Block> = document
-        .footnotes
-        .iter()
-        .rev()
-        .flat_map(|footnote| footnote.blocks.iter().rev())
-        .chain(document.blocks.iter().rev())
-        .collect();
+fn find_paragraph_block(
+    document: &typaxis_document::Document,
+    owner: NodeId,
+    allow_footnotes: bool,
+) -> Option<&Block> {
+    let mut pending: Vec<&Block> = document.blocks.iter().rev().collect();
+    if allow_footnotes {
+        pending.extend(
+            document
+                .footnotes
+                .iter()
+                .rev()
+                .flat_map(|footnote| footnote.blocks.iter().rev()),
+        );
+    }
     while let Some(block) = pending.pop() {
         if matches!(
             block,
@@ -1065,12 +1194,21 @@ fn find_paragraph_block(document: &typaxis_document::Document, owner: NodeId) ->
 
 fn collect_paragraph_elements(
     paragraph: &Block,
+    definition_marker: Option<GeneratedBufferKey>,
     output: &mut Vec<ExpectedParagraphElement>,
 ) -> Result<(), BreakError> {
     let children = match paragraph {
         Block::Paragraph { children, .. } | Block::Heading { children, .. } => children,
         _ => return Err(BreakError::InvalidParagraphOwner),
     };
+    if let Some(key) = definition_marker {
+        output.push(ExpectedParagraphElement::Text(
+            ExpectedParagraphTextSite::Generated {
+                owner: key.owner(),
+                key,
+            },
+        ));
+    }
     let mut pending: Vec<&Inline> = children.iter().rev().collect();
     while let Some(inline) = pending.pop() {
         match inline {
@@ -1825,7 +1963,7 @@ impl ValidatedParagraphItemRegistry {
         epoch: LayoutEpoch,
         breaks: &[ValidatedParagraphBreak],
     ) -> Result<Self, BreakError> {
-        Self::from_breaks_internal(package, epoch, breaks, false)
+        Self::from_breaks_internal(package, epoch, breaks, false, false)
     }
 
     /// Combines validated nonempty paragraph breaks with canonical empty
@@ -1836,7 +1974,18 @@ impl ValidatedParagraphItemRegistry {
         epoch: LayoutEpoch,
         breaks: &[ValidatedParagraphBreak],
     ) -> Result<Self, BreakError> {
-        Self::from_breaks_internal(package, epoch, breaks, true)
+        Self::from_breaks_internal(package, epoch, breaks, true, false)
+    }
+
+    /// Complete paragraph registry for the footnote profile. Definition
+    /// paragraphs remain available to the dedicated FootnoteFlow registry,
+    /// while the body FlowTree explicitly excludes them.
+    pub fn from_breaks_with_footnotes_allowing_empty(
+        package: &ValidatedParsedPackage,
+        epoch: LayoutEpoch,
+        breaks: &[ValidatedParagraphBreak],
+    ) -> Result<Self, BreakError> {
+        Self::from_breaks_internal(package, epoch, breaks, true, true)
     }
 
     fn from_breaks_internal(
@@ -1844,12 +1993,21 @@ impl ValidatedParagraphItemRegistry {
         epoch: LayoutEpoch,
         breaks: &[ValidatedParagraphBreak],
         allow_empty: bool,
+        include_footnotes: bool,
     ) -> Result<Self, BreakError> {
         validate_package_epoch(package, epoch)?;
-        if !package.package().document.footnotes.is_empty() {
+        if !include_footnotes && !package.package().document.footnotes.is_empty() {
             return Err(BreakError::UnsupportedFlowDomain);
         }
-        let expected = main_paragraph_nodes(&package.package().document.blocks);
+        let document = &package.package().document;
+        let expected = if include_footnotes {
+            all_paragraph_blocks(document)
+                .into_iter()
+                .map(block_node_id)
+                .collect()
+        } else {
+            main_paragraph_nodes(&document.blocks)
+        };
         let mut item_sequences = std::collections::BTreeMap::new();
         for receipt in breaks {
             if receipt.epoch != epoch
@@ -1875,7 +2033,12 @@ impl ValidatedParagraphItemRegistry {
             }
         }
         if allow_empty {
-            for block in main_paragraph_blocks(&package.package().document.blocks) {
+            let empty_candidates = if include_footnotes {
+                all_paragraph_blocks(document)
+            } else {
+                main_paragraph_blocks(&document.blocks)
+            };
+            for block in empty_candidates {
                 let node = block_node_id(block);
                 if !item_sequences.contains_key(&node) && paragraph_has_empty_content(block) {
                     item_sequences.insert(node, ParagraphItemSequence::EmptyContent);
@@ -1966,6 +2129,83 @@ impl ValidatedParagraphItemRegistry {
             };
             (*node, count)
         })
+    }
+
+    /// Finds the first canonical item carrying one generated site. This is
+    /// used to bind inline footnote discovery to exact selected line ranges;
+    /// the returned index is not a caller-supplied layout coordinate.
+    pub fn generated_site_first_item_index(
+        &self,
+        paragraph_node: NodeId,
+        site_owner: NodeId,
+        generation_kind: GenerationKind,
+    ) -> Option<u32> {
+        self.items(paragraph_node)?
+            .iter()
+            .enumerate()
+            .find(|(_, item)| {
+                item_provenances(item).into_iter().any(|provenance| {
+                    matches!(
+                        provenance,
+                        ItemProvenance::Generated(value)
+                            if value.buffer_key().owner() == site_owner
+                                && value.buffer_key().generation_kind() == generation_kind
+                    )
+                })
+            })
+            .and_then(|(index, _)| u32::try_from(index).ok())
+    }
+
+    /// Proves that a generated marker's first selected line also contains a
+    /// distinct positive-width shaped cluster. Footnote definitions use this
+    /// to reject an authored leading hard break that would strand the marker
+    /// on a marker-only line, contrary to the marker/first-source-line keep.
+    pub fn generated_site_first_line_has_other_shaped_content(
+        &self,
+        paragraph_node: NodeId,
+        site_owner: NodeId,
+        generation_kind: GenerationKind,
+    ) -> bool {
+        let Some(ParagraphItemSequence::Items { items, result, .. }) =
+            self.item_sequences.get(&paragraph_node)
+        else {
+            return false;
+        };
+        let Some(first_line) = result.lines.first() else {
+            return false;
+        };
+        let first_line_end = first_line.item_index as usize;
+        if first_line_end == 0 || first_line_end > items.len() {
+            return false;
+        }
+        let marker_is_on_first_line = items[..first_line_end].iter().any(|item| {
+            item_provenances(item).into_iter().any(|provenance| {
+                matches!(
+                    provenance,
+                    ItemProvenance::Generated(value)
+                        if value.buffer_key().owner() == site_owner
+                            && value.buffer_key().generation_kind() == generation_kind
+                )
+            })
+        });
+        marker_is_on_first_line
+            && items[..first_line_end].iter().any(|item| {
+                let shaped = match item {
+                    ParagraphItem::Box { shaped, .. } | ParagraphItem::Glue { shaped, .. } => {
+                        Some(*shaped)
+                    }
+                    _ => None,
+                };
+                shaped.is_some_and(|shaped| {
+                    shaped.derived_width().get() > Length::ZERO
+                        && !matches!(
+                            shaped.source(),
+                            ShapeSourceSpan::Generated(value)
+                                if value.buffer_key().owner() == site_owner
+                                    && value.buffer_key().generation_kind() == generation_kind
+                        )
+                })
+            })
     }
 }
 
@@ -3217,6 +3457,15 @@ fn main_paragraph_nodes(blocks: &[Block]) -> std::collections::BTreeSet<NodeId> 
         .collect()
 }
 
+fn all_paragraph_blocks(document: &typaxis_document::Document) -> Vec<&Block> {
+    document
+        .footnotes
+        .iter()
+        .flat_map(|definition| main_paragraph_blocks(&definition.blocks))
+        .chain(main_paragraph_blocks(&document.blocks))
+        .collect()
+}
+
 const fn block_node_id(block: &Block) -> NodeId {
     match block {
         Block::Paragraph { node_id, .. }
@@ -4141,7 +4390,7 @@ mod tests {
             ],
         };
         let mut elements = Vec::new();
-        collect_paragraph_elements(&paragraph, &mut elements).unwrap();
+        collect_paragraph_elements(&paragraph, None, &mut elements).unwrap();
         assert_eq!(
             elements,
             vec![
@@ -4154,6 +4403,22 @@ mod tests {
                     kind: BreakKind::Mandatory,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn definition_marker_prefix_prohibits_only_optional_breaks_before_source() {
+        assert_eq!(
+            protect_definition_marker_prefix_break(BreakKind::Allowed, true),
+            BreakKind::Prohibited
+        );
+        assert_eq!(
+            protect_definition_marker_prefix_break(BreakKind::Mandatory, true),
+            BreakKind::Mandatory
+        );
+        assert_eq!(
+            protect_definition_marker_prefix_break(BreakKind::Allowed, false),
+            BreakKind::Allowed
         );
     }
 

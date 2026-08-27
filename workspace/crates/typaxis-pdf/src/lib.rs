@@ -10,7 +10,8 @@ use typaxis_core::{
 };
 use typaxis_display_list::{
     ClusterExtraction, DestinationView, DisplayCommand, DisplayGlyph, DisplayPage, FillRule,
-    LineCap, LineJoin, LinkAnnotation, LinkTarget, NamedDestination, Paint, Path, PathVerb,
+    FootnoteDisplayClosureReceipt, FootnotePaintCommandKind, FootnoteProfileDisplay, LineCap,
+    LineJoin, LinkAnnotation, LinkTarget, NamedDestination, Paint, Path, PathVerb,
     StagingForcedPageBreakDisplay, StagingMachineBlockStyleDisplay,
     StagingMachineFigureDisplayFacts, StagingMachineLinkDisplayFacts,
     StagingMachineLinkDisplayRectangle, StagingMachineLinkDisplayTarget, StagingMachineListDisplay,
@@ -23,6 +24,161 @@ use typaxis_resources::{
 };
 
 pub const TABLE_PDF_CLOSURE_ALGORITHM: &str = "typaxis.table-pdf-closure/1";
+pub const FOOTNOTE_PDF_CLOSURE_ALGORITHM: &str = "typaxis.footnote-pdf-closure/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FootnotePdfClosureError {
+    DisplayStateMismatch,
+    PageClosure,
+    CommandClosure,
+    PdfReceiptMismatch,
+}
+
+/// Serializer-bound MI3-07 receipt. Exact separator and definition commands
+/// remain available through the retained Display closure; this receipt binds
+/// that closure to the one emitted byte stream.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FootnotePdfClosureReceipt {
+    display_sha256: [u8; 32],
+    selected_layout_sha256: [u8; 32],
+    body_layout_sha256: [u8; 32],
+    pdf_sha256: [u8; 32],
+    pdf_byte_length: u64,
+    page_count: u32,
+    object_count: u32,
+    reference_marker_count: u32,
+    separator_count: u32,
+    definition_command_count: u32,
+    canonical_jcs: String,
+}
+
+impl FootnotePdfClosureReceipt {
+    pub fn from_serialized(
+        display: &FootnoteDisplayClosureReceipt,
+        graph: &FrozenPdfGraph,
+        receipt: &VerifiedPdfBytesReceipt,
+    ) -> Result<Self, FootnotePdfClosureError> {
+        if graph.footnote_closure() != Some(display)
+            || graph.selected_layout_fingerprint().bytes() != display.body_layout_sha256()
+            || receipt.selected_layout_fingerprint() != graph.selected_layout_fingerprint()
+            || receipt.footnote_display_sha256() != Some(display.fingerprint())
+        {
+            return Err(FootnotePdfClosureError::DisplayStateMismatch);
+        }
+        let display_page_count = u32::try_from(display.pages().len())
+            .map_err(|_| FootnotePdfClosureError::PageClosure)?;
+        if graph.page_count() != display_page_count || receipt.page_count() != graph.page_count() {
+            return Err(FootnotePdfClosureError::PageClosure);
+        }
+        if receipt.object_count() != graph.object_count()
+            || receipt.byte_length() == 0
+            || sha256(receipt.bytes()) != receipt.content_hash()
+        {
+            return Err(FootnotePdfClosureError::PdfReceiptMismatch);
+        }
+        let separator_count = u32::try_from(
+            display
+                .commands()
+                .iter()
+                .filter(|command| command.kind() == FootnotePaintCommandKind::Separator)
+                .count(),
+        )
+        .map_err(|_| FootnotePdfClosureError::CommandClosure)?;
+        let reference_marker_count = u32::try_from(
+            display
+                .commands()
+                .iter()
+                .filter(|command| command.kind() == FootnotePaintCommandKind::ReferenceMarker)
+                .count(),
+        )
+        .map_err(|_| FootnotePdfClosureError::CommandClosure)?;
+        let definition_command_count = u32::try_from(
+            display
+                .commands()
+                .iter()
+                .filter(|command| command.kind() == FootnotePaintCommandKind::Definition)
+                .count(),
+        )
+        .map_err(|_| FootnotePdfClosureError::CommandClosure)?;
+        let mut value = Self {
+            display_sha256: display.fingerprint(),
+            selected_layout_sha256: display.selected_layout_sha256(),
+            body_layout_sha256: display.body_layout_sha256(),
+            pdf_sha256: receipt.content_hash(),
+            pdf_byte_length: receipt.byte_length(),
+            page_count: receipt.page_count(),
+            object_count: receipt.object_count(),
+            reference_marker_count,
+            separator_count,
+            definition_command_count,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_footnote_pdf_closure(&value);
+        Ok(value)
+    }
+
+    pub const fn display_sha256(&self) -> [u8; 32] {
+        self.display_sha256
+    }
+    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub const fn body_layout_sha256(&self) -> [u8; 32] {
+        self.body_layout_sha256
+    }
+    pub const fn pdf_sha256(&self) -> [u8; 32] {
+        self.pdf_sha256
+    }
+    pub const fn separator_count(&self) -> u32 {
+        self.separator_count
+    }
+    pub const fn reference_marker_count(&self) -> u32 {
+        self.reference_marker_count
+    }
+    pub const fn definition_command_count(&self) -> u32 {
+        self.definition_command_count
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn encode_footnote_pdf_closure(value: &FootnotePdfClosureReceipt) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, FOOTNOTE_PDF_CLOSURE_ALGORITHM);
+    output.push_str(",\"body_layout_sha256\":");
+    push_pdf_hex(&mut output, value.body_layout_sha256);
+    output.push_str(",\"definition_command_count\":");
+    output.push_str(&value.definition_command_count.to_string());
+    output.push_str(",\"display_sha256\":");
+    push_pdf_hex(&mut output, value.display_sha256);
+    output.push_str(",\"object_count\":");
+    output.push_str(&value.object_count.to_string());
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"pdf_byte_length\":");
+    output.push_str(&value.pdf_byte_length.to_string());
+    output.push_str(",\"pdf_sha256\":");
+    push_pdf_hex(&mut output, value.pdf_sha256);
+    output.push_str(",\"reference_marker_count\":");
+    output.push_str(&value.reference_marker_count.to_string());
+    output.push_str(",\"selected_layout_sha256\":");
+    push_pdf_hex(&mut output, value.selected_layout_sha256);
+    output.push_str(",\"separator_count\":");
+    output.push_str(&value.separator_count.to_string());
+    output.push('}');
+    output
+}
+
+fn push_pdf_hex(output: &mut String, bytes: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push('"');
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output.push('"');
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TablePdfDecorationObservation {
@@ -2101,6 +2257,7 @@ pub enum PdfError {
     InvalidDestinationClosure,
     InvalidAnnotationClosure,
     TableClosure,
+    FootnoteClosure,
     DirectValueDepth,
     PageTreeDepth,
     ContentStream,
@@ -2258,6 +2415,7 @@ pub struct FrozenPdfGraph {
     font_bindings: Vec<PdfResourceBinding<FontInstanceId>>,
     image_bindings: Vec<PdfResourceBinding<ImageResourceId>>,
     table_closures: Vec<TableDisplayClosureReceipt>,
+    footnote_closure: Option<FootnoteDisplayClosureReceipt>,
 }
 impl FrozenPdfGraph {
     pub const fn selected_layout_fingerprint(&self) -> LayoutStateFingerprint {
@@ -2285,6 +2443,9 @@ impl FrozenPdfGraph {
     pub fn table_closures(&self) -> &[TableDisplayClosureReceipt] {
         &self.table_closures
     }
+    pub const fn footnote_closure(&self) -> Option<&FootnoteDisplayClosureReceipt> {
+        self.footnote_closure.as_ref()
+    }
 }
 
 /// Bytes emitted by the crate-owned PDF serializer and bound to the exact
@@ -2303,6 +2464,7 @@ pub struct VerifiedPdfBytesReceipt {
     bytes: Vec<u8>,
     sha256: [u8; 32],
     selected_layout_fingerprint: LayoutStateFingerprint,
+    footnote_display_sha256: Option<[u8; 32]>,
     page_count: u32,
     object_count: u32,
     stream_compression: PdfStreamCompression,
@@ -2358,6 +2520,9 @@ impl VerifiedPdfBytesReceipt {
     }
     pub const fn selected_layout_fingerprint(&self) -> LayoutStateFingerprint {
         self.selected_layout_fingerprint
+    }
+    pub const fn footnote_display_sha256(&self) -> Option<[u8; 32]> {
+        self.footnote_display_sha256
     }
     pub const fn page_count(&self) -> u32 {
         self.page_count
@@ -2504,6 +2669,9 @@ impl VerifiedPdfSerializerReceiptOwner {
             bytes,
             sha256: digest,
             selected_layout_fingerprint: graph.selected_layout_fingerprint(),
+            footnote_display_sha256: graph
+                .footnote_closure()
+                .map(FootnoteDisplayClosureReceipt::fingerprint),
             page_count: graph.page_count(),
             object_count: graph.object_count(),
             stream_compression,
@@ -2696,8 +2864,111 @@ fn validate_table_display_graph_closure(
     Ok(())
 }
 
+fn validate_footnote_display_graph_closure(
+    display: &ValidatedDisplayDocument,
+    closure: &FootnoteDisplayClosureReceipt,
+) -> Result<(), PdfError> {
+    if display
+        .document()
+        .source_layout()
+        .state_fingerprint()
+        .bytes()
+        != closure.body_layout_sha256()
+        || display.document().pages.len() != closure.pages().len()
+    {
+        return Err(PdfError::FootnoteClosure);
+    }
+    let mut claimed = BTreeSet::new();
+    for observation in closure.commands() {
+        let page = display
+            .document()
+            .pages
+            .get(observation.page_index() as usize)
+            .filter(|page| page.page_index == observation.page_index())
+            .ok_or(PdfError::FootnoteClosure)?;
+        let command = page
+            .commands
+            .get(observation.page_command_index() as usize)
+            .ok_or(PdfError::FootnoteClosure)?;
+        if command != observation.command()
+            || !claimed.insert((observation.page_index(), observation.page_command_index()))
+        {
+            return Err(PdfError::FootnoteClosure);
+        }
+    }
+    for (page, facts) in display.document().pages.iter().zip(closure.pages()) {
+        let body_command_count =
+            usize::try_from(facts.body_command_count()).map_err(|_| PdfError::FootnoteClosure)?;
+        if page.page_index != facts.page_index() || body_command_count > page.commands.len() {
+            return Err(PdfError::FootnoteClosure);
+        }
+        let references: Vec<_> = closure
+            .commands()
+            .iter()
+            .filter(|command| {
+                command.page_index() == page.page_index
+                    && command.kind() == FootnotePaintCommandKind::ReferenceMarker
+            })
+            .collect();
+        if references.len() != facts.references().len()
+            || references
+                .iter()
+                .any(|reference| reference.page_command_index() >= facts.body_command_count())
+        {
+            return Err(PdfError::FootnoteClosure);
+        }
+        let separator: Vec<_> = closure
+            .commands()
+            .iter()
+            .filter(|command| {
+                command.page_index() == page.page_index
+                    && command.kind() == FootnotePaintCommandKind::Separator
+            })
+            .collect();
+        if separator.len() != usize::from(facts.reservation().get() != Length::ZERO) {
+            return Err(PdfError::FootnoteClosure);
+        }
+        if let Some(separator) = separator.first() {
+            if separator.page_command_index() != facts.body_command_count() {
+                return Err(PdfError::FootnoteClosure);
+            }
+            for index in separator.page_command_index() as usize + 1..page.commands.len() {
+                let index = u32::try_from(index).map_err(|_| PdfError::FootnoteClosure)?;
+                if !claimed.contains(&(page.page_index, index)) {
+                    return Err(PdfError::FootnoteClosure);
+                }
+            }
+        } else if body_command_count != page.commands.len() {
+            return Err(PdfError::FootnoteClosure);
+        }
+        for (index, command) in page.commands.iter().enumerate() {
+            if matches!(command, DisplayCommand::StrokePath { .. })
+                && !claimed.contains(&(
+                    page.page_index,
+                    u32::try_from(index).map_err(|_| PdfError::FootnoteClosure)?,
+                ))
+            {
+                return Err(PdfError::FootnoteClosure);
+            }
+        }
+    }
+    Ok(())
+}
+
 pub struct PdfBackend;
 impl PdfBackend {
+    pub fn build_footnote_profile(
+        display: FootnoteProfileDisplay,
+        resource_plans: FrozenPdfResourcePlans,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<FrozenPdfGraph, PdfError> {
+        let (display, closure) = display.into_parts();
+        validate_footnote_display_graph_closure(&display, &closure)?;
+        let mut graph = Self::build(display, resource_plans, limits)?;
+        graph.footnote_closure = Some(closure);
+        Ok(graph)
+    }
+
     pub fn build_table_profile(
         display: TableProfileDisplay,
         resource_plans: FrozenPdfResourcePlans,
@@ -2961,6 +3232,7 @@ impl PdfBackend {
             font_bindings,
             image_bindings,
             table_closures: Vec::new(),
+            footnote_closure: None,
         })
     }
 
@@ -5405,6 +5677,7 @@ mod tests {
             font_bindings: vec![],
             image_bindings: vec![],
             table_closures: vec![],
+            footnote_closure: None,
         }
     }
     fn blank_content_graph() -> FrozenPdfGraph {
@@ -5430,6 +5703,77 @@ mod tests {
             )
             .unwrap();
         freeze_for_serialization(builder, root)
+    }
+
+    fn footnote_pdf_receipt_fixture() -> (
+        FootnoteDisplayClosureReceipt,
+        FrozenPdfGraph,
+        VerifiedPdfBytesReceipt,
+    ) {
+        let closure = FootnoteDisplayClosureReceipt::serializer_pdf_test_fixture();
+        let mut graph = blank_content_graph();
+        graph.selected_layout_fingerprint =
+            LayoutStateFingerprint::from_untrusted_bytes(closure.body_layout_sha256());
+        graph.footnote_closure = Some(closure.clone());
+        let bytes = b"%PDF-1.7\nfootnote-closure\n".to_vec();
+        let receipt = VerifiedPdfBytesReceipt {
+            sha256: sha256(&bytes),
+            bytes,
+            selected_layout_fingerprint: graph.selected_layout_fingerprint,
+            footnote_display_sha256: Some(closure.fingerprint()),
+            page_count: graph.page_count,
+            object_count: graph.object_count,
+            stream_compression: PdfStreamCompression::None,
+            config_fingerprint: EffectiveConfigFingerprint::from_untrusted_bytes([7; 32]),
+        };
+        (closure, graph, receipt)
+    }
+
+    #[test]
+    fn footnote_pdf_closure_binds_markers_separator_definitions_and_exact_bytes() {
+        let (closure, graph, receipt) = footnote_pdf_receipt_fixture();
+        let bound = FootnotePdfClosureReceipt::from_serialized(&closure, &graph, &receipt).unwrap();
+        assert_eq!(bound.display_sha256(), closure.fingerprint());
+        assert_eq!(bound.selected_layout_sha256(), [3; 32]);
+        assert_eq!(bound.body_layout_sha256(), [4; 32]);
+        assert_eq!(bound.pdf_sha256(), sha256(receipt.bytes()));
+        assert_eq!(bound.reference_marker_count(), 1);
+        assert_eq!(bound.separator_count(), 1);
+        assert_eq!(bound.definition_command_count(), 1);
+        assert!(bound
+            .canonical_jcs()
+            .contains("\"reference_marker_count\":1"));
+    }
+
+    #[test]
+    fn footnote_pdf_closure_rejects_display_page_and_serializer_tampering() {
+        let (closure, mut graph, receipt) = footnote_pdf_receipt_fixture();
+        graph.footnote_closure = None;
+        assert_eq!(
+            FootnotePdfClosureReceipt::from_serialized(&closure, &graph, &receipt),
+            Err(FootnotePdfClosureError::DisplayStateMismatch)
+        );
+
+        let (closure, graph, mut receipt) = footnote_pdf_receipt_fixture();
+        receipt.footnote_display_sha256 = None;
+        assert_eq!(
+            FootnotePdfClosureReceipt::from_serialized(&closure, &graph, &receipt),
+            Err(FootnotePdfClosureError::DisplayStateMismatch)
+        );
+
+        let (closure, graph, mut receipt) = footnote_pdf_receipt_fixture();
+        receipt.page_count += 1;
+        assert_eq!(
+            FootnotePdfClosureReceipt::from_serialized(&closure, &graph, &receipt),
+            Err(FootnotePdfClosureError::PageClosure)
+        );
+
+        let (closure, graph, mut receipt) = footnote_pdf_receipt_fixture();
+        receipt.sha256 = [9; 32];
+        assert_eq!(
+            FootnotePdfClosureReceipt::from_serialized(&closure, &graph, &receipt),
+            Err(FootnotePdfClosureError::PdfReceiptMismatch)
+        );
     }
     fn valid_graph() -> (UntrustedPdfObjectGraphBuilder, ObjectId) {
         let catalog_id = ObjectId::new(1).unwrap();
@@ -6094,6 +6438,7 @@ mod tests {
             font_bindings: vec![],
             image_bindings: vec![],
             table_closures: vec![],
+            footnote_closure: None,
         };
         let expected = EffectiveConfigFingerprint::from_untrusted_bytes([5; 32]);
         let different = EffectiveConfigFingerprint::from_untrusted_bytes([6; 32]);

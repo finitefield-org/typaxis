@@ -440,6 +440,21 @@ const TABLE_ACCEPTED_BLOCKS: &[MachineBlockKind] = &[
 ];
 const TABLE_STYLE_BLOCK_TYPES: &[MachineBlockKind] = TABLE_ACCEPTED_BLOCKS;
 
+const FOOTNOTE_ACCEPTED_INLINES: &[MachineInlineKind] = &[
+    MachineInlineKind::Anchor,
+    MachineInlineKind::FootnoteReference,
+    MachineInlineKind::HardBreak,
+    MachineInlineKind::Link,
+    MachineInlineKind::Reference,
+    MachineInlineKind::SoftBreak,
+    MachineInlineKind::Text,
+];
+const FOOTNOTE_REJECTED_INLINES: &[MachineInlineKind] =
+    &[MachineInlineKind::Emphasis, MachineInlineKind::Strong];
+const FOOTNOTE_OPTIONAL_FRAMES: &[MachinePageFrame] = &[MachinePageFrame::Footnote];
+const FOOTNOTE_REJECTED_OPTIONAL_FRAMES: &[MachinePageFrame] =
+    &[MachinePageFrame::Footer, MachinePageFrame::Header];
+
 /// Immutable, closed contract for one machine-PDF profile.
 ///
 /// All fields are private and every slice points at static, canonically ordered
@@ -554,6 +569,48 @@ impl MachineProfileDescriptor {
         unsupported_pdf_features: BASIC_UNSUPPORTED_PDF_FEATURES,
     };
 
+    /// Immutable, closed M3 footnote profile adopted by ADR-0030. It contains
+    /// the complete basic-document domain and adds only body references plus
+    /// document-owned paragraph/heading definitions.
+    pub const FOOTNOTE_1: Self = Self {
+        id: MachinePdfProfileId::FOOTNOTE_1,
+        source_closure: MachineSourceClosure::EntryOnly,
+        source_count: SourceCountBounds {
+            minimum: 1,
+            maximum: 1,
+        },
+        accepted_blocks: BASIC_ACCEPTED_BLOCKS,
+        rejected_blocks: BASIC_REJECTED_BLOCKS,
+        accepted_inlines: FOOTNOTE_ACCEPTED_INLINES,
+        rejected_inlines: FOOTNOTE_REJECTED_INLINES,
+        accepted_reference_formats: ACCEPTED_REFERENCE_FORMATS,
+        rejected_reference_formats: REJECTED_REFERENCE_FORMATS,
+        footnotes: FootnoteCapability {
+            definitions: true,
+            references: true,
+        },
+        style_block_types: BASIC_STYLE_BLOCK_TYPES,
+        accepted_style_selectors: BASIC_STYLE_BLOCK_TYPES,
+        rejected_style_selectors: &[MachineBlockKind::Table],
+        accepted_style_properties: BASIC_ACCEPTED_STYLE_PROPERTIES,
+        rejected_style_properties: &[],
+        accepted_page_values: ACCEPTED_PAGE_VALUES,
+        rejected_page_values: REJECTED_PAGE_VALUES,
+        page_master: MachinePageMasterCapability {
+            count: 1,
+            optional_frames: FOOTNOTE_OPTIONAL_FRAMES,
+            rejected_optional_frames: FOOTNOTE_REJECTED_OPTIONAL_FRAMES,
+            selection_rules: false,
+        },
+        accepted_font_formats: ACCEPTED_FONT_FORMATS,
+        rejected_font_formats: REJECTED_FONT_FORMATS,
+        minimum_fonts_for_text: 1,
+        accepted_image_formats: BASIC_ACCEPTED_IMAGE_FORMATS,
+        rejected_image_formats: BASIC_REJECTED_IMAGE_FORMATS,
+        pdf_features: BASIC_PDF_FEATURES,
+        unsupported_pdf_features: BASIC_UNSUPPORTED_PDF_FEATURES,
+    };
+
     /// Immutable, closed M3 table profile adopted by ADR-0029. It contains
     /// the complete basic-document domain and adds only direct-body tables.
     pub const TABLE_1: Self = Self {
@@ -598,6 +655,7 @@ impl MachineProfileDescriptor {
     pub const fn for_id(id: MachinePdfProfileId) -> Self {
         match id {
             MachinePdfProfileId::BasicDocument1 => Self::BASIC_DOCUMENT_1,
+            MachinePdfProfileId::Footnote1 => Self::FOOTNOTE_1,
             MachinePdfProfileId::Paragraph1 => Self::PARAGRAPH_1,
             MachinePdfProfileId::Table1 => Self::TABLE_1,
         }
@@ -720,7 +778,9 @@ impl MachineProfileDescriptor {
     pub(crate) fn accepts_style_selector(self, selector: &str) -> bool {
         let extended = matches!(
             self.id,
-            MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+            MachinePdfProfileId::BasicDocument1
+                | MachinePdfProfileId::Footnote1
+                | MachinePdfProfileId::Table1
         );
         let block = if extended {
             selector.split('.').next().unwrap_or_default()

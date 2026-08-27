@@ -1,15 +1,17 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Read;
+use std::num::NonZeroU32;
 use std::path::{Component, Path};
 
 #[cfg(test)]
 use typaxis_core::ImageResourceId;
 use typaxis_core::{
-    DocumentFingerprint, EffectiveConfig, FontInstanceId, GeneratedBufferKey, GenerationKind,
-    HostAdmissionContext, JsonPointer, Length, MachineInputFingerprint, MachinePdfProfileId,
-    NodeId, NonNegativeLength, PortablePath, PositiveLength, ResolvedDataTables, SourceId,
-    StyleFingerprint, TextSpan, Utf8ByteOffset, ValidatedResourceLimits,
+    DocumentFingerprint, EffectiveConfig, FontInstanceId, FootnoteId, GeneratedBufferKey,
+    GenerationKind, HostAdmissionContext, JsonPointer, Length, MachineInputFingerprint,
+    MachinePdfProfileId, NodeId, NonNegativeLength, PortablePath, PositiveLength,
+    ResolvedDataTables, SourceId, StyleFingerprint, TextSpan, Utf8ByteOffset,
+    ValidatedResourceLimits,
 };
 use typaxis_diagnostics::{
     DiagnosticBuilder, DiagnosticLocation, MachineDiagnosticLender, PublicMachineError, Severity,
@@ -31,10 +33,12 @@ use typaxis_layout::{
     layout_staging_machine_lists, StagingMachineListLayoutInput, TypedBlockLayoutInput,
 };
 use typaxis_layout::{
-    layout_table_grid, layout_table_row_bands, CanonicalFlowIrBuilder, FlowTree, LayoutEpoch,
-    LayoutEpochError, MachineGlyphCoverage, MachineParagraphFlowBuilder, MachineParagraphFlowError,
+    layout_table_grid, layout_table_row_bands, preflight_staging_footnote_profile,
+    CanonicalFlowIrBuilder, FlowRegistryFingerprint, FlowTree, LayoutEpoch, LayoutEpochError,
+    MachineGlyphCoverage, MachineParagraphFlowBuilder, MachineParagraphFlowError,
     MachineStyleFontPreparationError, MachineTextSiteSource, PreparedMachineStyleFonts,
     ProductionFlowIr, ProductionFlowIrBuilder, ShapeFontSelectionReceipt, StagingFigureLayoutError,
+    StagingFootnoteFlowRegistry, StagingFootnoteFlowRegistryBuilder,
     StagingForcedPageBreakLayoutError, StagingMachineListLayoutError, TableCellLayoutInput,
     TableRowBandLayoutReceipt, TypedStyleConsumerError, ValidatedTableGridReceipt,
 };
@@ -52,7 +56,7 @@ use typaxis_machine_profile::{
     BasicDocumentStylePreflightFailure, MachinePdfPreflight, MachinePdfPreflightFailure,
     MachinePdfPreflightReceipt, MachinePdfReceiptMismatch,
 };
-use typaxis_manifest::StagingTableLayoutFacts;
+use typaxis_manifest::{StagingFootnoteLayoutFacts, StagingTableLayoutFacts};
 #[cfg(test)]
 use typaxis_manifest::{
     StagingForcedPageBreakManifestFact, StagingMachineBlockStyleManifestFact,
@@ -70,7 +74,7 @@ use typaxis_pagination::{
     paginate_staging_table, ConvergenceStatus, InitialPaginationState, PaginationError,
     PaginationResult, ReferencePaginator, SelectedTableLayoutReceipt,
     StagingForcedPageBreakPaginationError, StagingMachineFigurePaginationError,
-    StagingMachineListPaginationError, StagingTablePageInput,
+    StagingMachineListPaginationError, StagingTablePageInput, ValidatedFootnoteSelectedLayout,
 };
 use typaxis_resources::{
     AdmittedFontInstanceTable, AdmittedResourceLedger, AdmittedResourceResolver,
@@ -88,13 +92,14 @@ use typaxis_syntax::{
 };
 use typaxis_text::GeneratedTextStore;
 
+use typaxis_pdf::{
+    FootnotePdfClosureReceipt, StagingMachineFigurePdfError, StagingMachineLinkPdfError,
+    TablePdfClosureReceipt,
+};
 #[cfg(test)]
 use typaxis_pdf::{
     PdfBackend, StagingForcedPageBreakPdf, StagingMachineBlockStylePdf, StagingMachineFigurePdf,
     StagingMachineLinkPdf, StagingMachineListPdf,
-};
-use typaxis_pdf::{
-    StagingMachineFigurePdfError, StagingMachineLinkPdfError, TablePdfClosureReceipt,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1481,7 +1486,9 @@ pub(crate) fn preflight_machine_package(
 ) -> Result<MachineCapabilityPreparation, Failure> {
     if matches!(
         profile,
-        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+        MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Footnote1
+            | MachinePdfProfileId::Table1
     ) && package.contract() != typaxis_core::DocumentPackageContractId::V1_2
     {
         emit_current_contract_diagnostic(package, profile, diagnostics)?;
@@ -1492,6 +1499,7 @@ pub(crate) fn preflight_machine_package(
     }
     let preflight = match profile {
         MachinePdfProfileId::BasicDocument1 => MachinePdfPreflight::BASIC_DOCUMENT_1,
+        MachinePdfProfileId::Footnote1 => MachinePdfPreflight::FOOTNOTE_1,
         MachinePdfProfileId::Paragraph1 => MachinePdfPreflight::PARAGRAPH_1,
         MachinePdfProfileId::Table1 => MachinePdfPreflight::TABLE_1,
     };
@@ -1500,7 +1508,9 @@ pub(crate) fn preflight_machine_package(
         .map_err(map_machine_preflight_failure)?;
     if matches!(
         profile,
-        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+        MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Footnote1
+            | MachinePdfProfileId::Table1
     ) {
         let basic = package.basic_document_view().ok_or_else(|| {
             Failure::capability_mismatch("basic-document syntax view was not issued")
@@ -1549,10 +1559,12 @@ fn preflight_basic_document_slices(
     limits: &ValidatedResourceLimits,
     diagnostics: &mut MachineDiagnosticLender<'_>,
 ) -> Result<(), Failure> {
-    let style_preflight = if profile == MachinePdfProfileId::TABLE_1 {
-        BasicDocumentStylePreflight::TABLE_1
-    } else {
-        BasicDocumentStylePreflight::STAGING
+    let style_preflight = match profile {
+        MachinePdfProfileId::Footnote1 => BasicDocumentStylePreflight::FOOTNOTE_1,
+        MachinePdfProfileId::Table1 => BasicDocumentStylePreflight::TABLE_1,
+        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Paragraph1 => {
+            BasicDocumentStylePreflight::STAGING
+        }
     };
     style_preflight.run(package, diagnostics).map_err(|error| {
         Failure::input(format!("L5101: basic style preflight failed: {error:?}"))
@@ -1572,9 +1584,13 @@ fn preflight_basic_document_slices(
         .map_err(|error| {
             Failure::input(format!("L5100: PNG figure preflight failed: {error:?}"))
         })?;
-    BasicDocumentLinkPreflight::STAGING
-        .run(package)
-        .map_err(|error| Failure::input(format!("L5100: link preflight failed: {error:?}")))?;
+    (if profile == MachinePdfProfileId::FOOTNOTE_1 {
+        BasicDocumentLinkPreflight::FOOTNOTE_1
+    } else {
+        BasicDocumentLinkPreflight::STAGING
+    })
+    .run(package)
+    .map_err(|error| Failure::input(format!("L5100: link preflight failed: {error:?}")))?;
     Ok(())
 }
 
@@ -1909,6 +1925,21 @@ impl MachineTableLayoutState {
     }
 }
 
+pub struct MachineFootnoteLayoutState {
+    registry: StagingFootnoteFlowRegistry,
+    selected: ValidatedFootnoteSelectedLayout,
+}
+
+impl MachineFootnoteLayoutState {
+    pub const fn registry(&self) -> &StagingFootnoteFlowRegistry {
+        &self.registry
+    }
+
+    pub const fn selected(&self) -> &ValidatedFootnoteSelectedLayout {
+        &self.selected
+    }
+}
+
 #[allow(dead_code)] // wired to public command dispatch by MI1-15
 pub struct MachineParagraphLayout {
     preparation: MachinePackagePreparation,
@@ -1917,6 +1948,7 @@ pub struct MachineParagraphLayout {
     pagination: PaginationResult,
     flow_registry_sha256: Option<[u8; 32]>,
     tables: Vec<MachineTableLayoutState>,
+    footnotes: Option<MachineFootnoteLayoutState>,
 }
 
 #[allow(dead_code)] // wired to public command dispatch by MI1-15
@@ -1943,6 +1975,10 @@ impl MachineParagraphLayout {
 
     pub fn tables(&self) -> &[MachineTableLayoutState] {
         &self.tables
+    }
+
+    pub const fn footnotes(&self) -> Option<&MachineFootnoteLayoutState> {
+        self.footnotes.as_ref()
     }
 
     pub fn table_manifest_facts(&self) -> Result<Vec<StagingTableLayoutFacts>, Failure> {
@@ -1972,6 +2008,71 @@ impl MachineParagraphLayout {
             );
         }
         Ok(facts)
+    }
+
+    pub fn footnote_manifest_facts(
+        &self,
+        package: &ValidatedMachinePackage,
+        config: &EffectiveConfig,
+    ) -> Result<Option<StagingFootnoteLayoutFacts>, Failure> {
+        let Some(footnotes) = self.footnotes() else {
+            return Ok(None);
+        };
+        if self.preparation.profile() != MachinePdfProfileId::FOOTNOTE_1 {
+            return Err(Failure::internal(
+                "footnote layout exists outside the footnote profile",
+            ));
+        }
+        let footnote_view = package.basic_document_view().ok_or_else(|| {
+            Failure::capability_mismatch("footnote profile syntax view was not retained")
+        })?;
+        let link_receipt = BasicDocumentLinkPreflight::FOOTNOTE_1
+            .run(&footnote_view)
+            .map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "footnote profile link receipt changed after preflight: {error:?}"
+                ))
+            })?;
+        let paragraph_items = self
+            .pagination
+            .selected_flow()
+            .paragraph_items()
+            .ok_or_else(|| {
+                Failure::capability_mismatch("footnote profile layout lacks paragraph clusters")
+            })?;
+        let clusters = if link_receipt.cluster_receipt().links().is_empty() {
+            None
+        } else {
+            Some(
+                ValidatedStagingMachineLinkClusters::from_registry(
+                    &footnote_view,
+                    link_receipt.cluster_receipt(),
+                    paragraph_items,
+                )
+                .map_err(|error| {
+                    Failure::capability_mismatch(format!(
+                        "footnote profile link clusters failed: {error:?}"
+                    ))
+                })?,
+            )
+        };
+        let display = ValidatedDisplayDocument::paint_footnote_profile(
+            &footnote_view,
+            &self.pagination,
+            self.pagination.selected_flow(),
+            footnotes.registry(),
+            footnotes.selected(),
+            clusters.as_ref(),
+            config,
+        )
+        .map_err(|error| {
+            Failure::internal(format!("footnote display fact closure failed: {error:?}"))
+        })?;
+        StagingFootnoteLayoutFacts::from_selected(footnotes.selected(), display.closure())
+            .map(Some)
+            .map_err(|error| {
+                Failure::internal(format!("footnote manifest closure failed: {error:?}"))
+            })
     }
 }
 
@@ -2003,36 +2104,100 @@ pub fn layout_machine_paragraphs(
     let initial = InitialPaginationState::new(&flow, parsed, config.limits())
         .map_err(map_machine_pagination_error)?;
     let mut reflow_failure = None;
-    let outcome = ReferencePaginator::new().paginate_with_reflow(
-        parsed,
-        &flow,
-        config.limits(),
-        false,
-        |store, working_epoch| {
-            let binding = match parsed.bind_generated_text(store, config.limits()) {
-                Ok(binding) => binding,
-                Err(error) => {
-                    reflow_failure = Some(Failure::capability_mismatch(format!(
-                        "machine generated-text reflow mismatch: {error:?}"
-                    )));
-                    return Err(PaginationError::PackageEpochMismatch);
+    let (outcome, footnotes) = if preparation.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+        let body_registry = basic_flow_registry_fingerprint(parsed, &flow, config.limits(), true)?;
+        let registry = build_machine_footnote_registry(parsed, &flow, body_registry, config)?;
+        let outcome = ReferencePaginator::new().paginate_footnote_with_reflow(
+            parsed,
+            &flow,
+            registry,
+            config.limits(),
+            false,
+            |store, working_epoch| {
+                let binding = match parsed.bind_generated_text(store, config.limits()) {
+                    Ok(binding) => binding,
+                    Err(error) => {
+                        reflow_failure = Some(Failure::capability_mismatch(format!(
+                            "machine generated-text reflow mismatch: {error:?}"
+                        )));
+                        return Err(PaginationError::PackageEpochMismatch);
+                    }
+                };
+                let pass_flow =
+                    match build_machine_flow(package, binding, &preparation, working_epoch, config)
+                    {
+                        Ok(flow) => flow,
+                        Err(failure) => {
+                            reflow_failure = Some(failure);
+                            return Err(PaginationError::FatalLayout);
+                        }
+                    };
+                let body_registry = match basic_flow_registry_fingerprint(
+                    parsed,
+                    &pass_flow,
+                    config.limits(),
+                    true,
+                ) {
+                    Ok(registry) => registry,
+                    Err(failure) => {
+                        reflow_failure = Some(failure);
+                        return Err(PaginationError::FatalLayout);
+                    }
+                };
+                match build_machine_footnote_registry(parsed, &pass_flow, body_registry, config) {
+                    Ok(registry) => Ok((pass_flow, registry)),
+                    Err(failure) => {
+                        reflow_failure = Some(failure);
+                        Err(PaginationError::FatalLayout)
+                    }
                 }
-            };
-            match build_machine_flow(package, binding, &preparation, working_epoch, config) {
-                Ok(flow) => Ok(flow),
-                Err(failure) => {
-                    reflow_failure = Some(failure);
-                    Err(PaginationError::FatalLayout)
-                }
+            },
+        );
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(_error) if reflow_failure.is_some() => {
+                return Err(reflow_failure.expect("guarded machine reflow failure"))
             }
-        },
-    );
-    let outcome = match outcome {
-        Ok(outcome) => outcome,
-        Err(_error) if reflow_failure.is_some() => {
-            return Err(reflow_failure.expect("guarded machine reflow failure"))
-        }
-        Err(error) => return Err(map_machine_pagination_error(error)),
+            Err(error) => return Err(map_machine_pagination_error(error)),
+        };
+        let (outcome, registry, selected) = outcome.into_parts();
+        (
+            outcome,
+            Some(MachineFootnoteLayoutState { registry, selected }),
+        )
+    } else {
+        let outcome = ReferencePaginator::new().paginate_with_reflow(
+            parsed,
+            &flow,
+            config.limits(),
+            false,
+            |store, working_epoch| {
+                let binding = match parsed.bind_generated_text(store, config.limits()) {
+                    Ok(binding) => binding,
+                    Err(error) => {
+                        reflow_failure = Some(Failure::capability_mismatch(format!(
+                            "machine generated-text reflow mismatch: {error:?}"
+                        )));
+                        return Err(PaginationError::PackageEpochMismatch);
+                    }
+                };
+                match build_machine_flow(package, binding, &preparation, working_epoch, config) {
+                    Ok(flow) => Ok(flow),
+                    Err(failure) => {
+                        reflow_failure = Some(failure);
+                        Err(PaginationError::FatalLayout)
+                    }
+                }
+            },
+        );
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(_error) if reflow_failure.is_some() => {
+                return Err(reflow_failure.expect("guarded machine reflow failure"))
+            }
+            Err(error) => return Err(map_machine_pagination_error(error)),
+        };
+        (outcome, None)
     };
     if !config.strict() {
         for advisory in outcome.diagnostics() {
@@ -2045,18 +2210,27 @@ pub fn layout_machine_paragraphs(
         }
     }
     let pagination = outcome.into_result();
-    let flow_registry_sha256 = if matches!(
+    let body_flow_registry = if let Some(footnotes) = footnotes.as_ref() {
+        Some(
+            footnotes
+                .registry()
+                .receipt()
+                .body_flow_registry_fingerprint(),
+        )
+    } else if matches!(
         preparation.profile(),
         MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
     ) {
-        Some(basic_flow_registry_sha256(
+        Some(basic_flow_registry_fingerprint(
             parsed,
             pagination.selected_flow(),
             config.limits(),
+            false,
         )?)
     } else {
         None
     };
+    let flow_registry_sha256 = body_flow_registry.map(FlowRegistryFingerprint::bytes);
     let tables = if preparation.profile() == MachinePdfProfileId::TABLE_1 {
         build_machine_table_layouts(package, &preparation, config, &pagination)?
     } else {
@@ -2069,23 +2243,34 @@ pub fn layout_machine_paragraphs(
         pagination,
         flow_registry_sha256,
         tables,
+        footnotes,
     })
 }
 
-fn basic_flow_registry_sha256(
+fn basic_flow_registry_fingerprint(
     package: &ValidatedParsedPackage,
     flow: &FlowTree,
     limits: &ValidatedResourceLimits,
-) -> Result<[u8; 32], Failure> {
+    separate_footnote_flows: bool,
+) -> Result<FlowRegistryFingerprint, Failure> {
     let paragraph_items = flow.paragraph_items().ok_or_else(|| {
         Failure::capability_mismatch("basic-document selected flow lacks paragraph content")
     })?;
-    let mut builder = ProductionFlowIrBuilder::new(package, paragraph_items, flow.epoch(), limits)
-        .map_err(|error| {
-            Failure::capability_mismatch(format!(
-                "basic-document flow registry construction failed: {error:?}"
-            ))
-        })?;
+    let mut builder = if separate_footnote_flows {
+        ProductionFlowIrBuilder::new_for_footnote_body(
+            package,
+            paragraph_items,
+            flow.epoch(),
+            limits,
+        )
+    } else {
+        ProductionFlowIrBuilder::new(package, paragraph_items, flow.epoch(), limits)
+    }
+    .map_err(|error| {
+        Failure::capability_mismatch(format!(
+            "basic-document flow registry construction failed: {error:?}"
+        ))
+    })?;
     let owners: Vec<_> = builder.expected_content_owners().collect();
     for owner in owners {
         let content = builder.issue_content(owner).map_err(|error| {
@@ -2104,7 +2289,7 @@ fn basic_flow_registry_sha256(
             "basic-document flow registry closure failed: {error:?}"
         ))
     })?;
-    Ok(registry.registry().receipt().fingerprint().bytes())
+    Ok(registry.registry().receipt().fingerprint())
 }
 
 fn build_production_flow_ir(
@@ -2133,6 +2318,293 @@ fn build_production_flow_ir(
     builder.finish().map_err(|error| {
         Failure::capability_mismatch(format!("table flow registry closure failed: {error:?}"))
     })
+}
+
+fn build_machine_footnote_registry(
+    package: &ValidatedParsedPackage,
+    flow: &FlowTree,
+    body_flow_registry: FlowRegistryFingerprint,
+    config: &EffectiveConfig,
+) -> Result<StagingFootnoteFlowRegistry, Failure> {
+    let epoch = flow.epoch();
+    let preflight =
+        preflight_staging_footnote_profile(package, epoch, body_flow_registry, config.limits())
+            .map_err(map_machine_footnote_registry_error)?;
+    let paragraph_items = flow
+        .paragraph_items()
+        .ok_or_else(|| Failure::internal("footnote paragraph registry is missing"))?;
+    let mut builder = StagingFootnoteFlowRegistryBuilder::new(&preflight, config.limits());
+    let definition_ids: Vec<FootnoteId> = builder.expected_definition_ids().cloned().collect();
+    for footnote_id in definition_ids {
+        let definition = preflight
+            .definitions()
+            .iter()
+            .find(|definition| definition.footnote_id() == &footnote_id)
+            .ok_or_else(|| Failure::internal("footnote definition disappeared after preflight"))?;
+        let mut fragment_extents: Vec<PositiveLength> = Vec::new();
+        let mut fragment_line_counts: Vec<NonZeroU32> = Vec::new();
+        let mut previous_block_kept = false;
+        let mut marker_seen = false;
+        for owner in definition.block_owners() {
+            let computed = package.cascade_style(*owner).map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "footnote definition style resolution failed: {error:?}"
+                ))
+            })?;
+            let line_height = match computed.computed().properties().get("line_height") {
+                Some(StyleValue::Length(value)) => PositiveLength::new(*value),
+                _ => None,
+            }
+            .ok_or_else(|| {
+                Failure::capability_mismatch(
+                    "L5100: footnote definition requires a positive line_height",
+                )
+            })?;
+            let space_before = table_nonnegative_style_length(
+                computed.computed().properties().get("space_before"),
+            )?;
+            let space_after = table_nonnegative_style_length(
+                computed.computed().properties().get("space_after"),
+            )?;
+            let paragraph_break = paragraph_items.paragraph_break(*owner);
+            let line_count = paragraph_break
+                .map(|result| result.lines.len())
+                .unwrap_or(1)
+                .max(1);
+            let marker_item = paragraph_items.generated_site_first_item_index(
+                *owner,
+                definition.definition_owner(),
+                GenerationKind::FootnoteMarker,
+            );
+            if let Some(marker_item) = marker_item {
+                let first_line_end = paragraph_break
+                    .and_then(|result| result.lines.first())
+                    .map(|line| line.item_index)
+                    .or_else(|| paragraph_items.item_count(*owner))
+                    .ok_or_else(|| Failure::internal("footnote marker paragraph is incomplete"))?;
+                if marker_seen {
+                    return Err(Failure::internal(
+                        "footnote definition marker was shaped more than once",
+                    ));
+                }
+                if !paragraph_items.generated_site_first_line_has_other_shaped_content(
+                    *owner,
+                    definition.definition_owner(),
+                    GenerationKind::FootnoteMarker,
+                ) && !footnote_marker_first_line_has_page_reference(package, *owner)
+                {
+                    return Err(Failure::input(
+                        "L5100: footnote marker and first source content must share one line",
+                    ));
+                }
+                if marker_item >= first_line_end {
+                    return Err(Failure::internal(
+                        "footnote marker is not in the first definition source line",
+                    ));
+                }
+            }
+            fragment_extents
+                .try_reserve(line_count)
+                .map_err(|_| Failure::limit("footnote fragment allocation failed"))?;
+            fragment_line_counts
+                .try_reserve(line_count)
+                .map_err(|_| Failure::limit("footnote fragment allocation failed"))?;
+            for line_index in 0..line_count {
+                let mut extent = line_height.get();
+                if line_index == 0 {
+                    extent = extent
+                        .checked_add(space_before.get())
+                        .ok_or_else(|| Failure::input("L5100: footnote block spacing overflow"))?;
+                }
+                if line_index + 1 == line_count {
+                    extent = extent
+                        .checked_add(space_after.get())
+                        .ok_or_else(|| Failure::input("L5100: footnote block spacing overflow"))?;
+                }
+                let extent = PositiveLength::new(extent).ok_or_else(|| {
+                    Failure::input("L5100: footnote fragment extent is not positive")
+                })?;
+                if line_index == 0 && marker_item.is_some() {
+                    let combined_extent = fragment_extents
+                        .iter()
+                        .try_fold(extent.get(), |total, existing| {
+                            total.checked_add(existing.get())
+                        });
+                    let combined_line_count = fragment_line_counts
+                        .iter()
+                        .try_fold(1u32, |total, existing| total.checked_add(existing.get()));
+                    fragment_extents.clear();
+                    fragment_line_counts.clear();
+                    fragment_extents.push(
+                        combined_extent
+                            .and_then(PositiveLength::new)
+                            .ok_or_else(|| {
+                                Failure::input(
+                                    "L5100: footnote marker-first fragment extent overflow",
+                                )
+                            })?,
+                    );
+                    fragment_line_counts.push(
+                        combined_line_count
+                            .and_then(NonZeroU32::new)
+                            .ok_or_else(|| {
+                                Failure::input(
+                                    "L5100: footnote marker-first fragment line count overflow",
+                                )
+                            })?,
+                    );
+                    marker_seen = true;
+                } else if line_index == 0 && previous_block_kept {
+                    let kept_extent = fragment_extents
+                        .last()
+                        .ok_or_else(|| {
+                            Failure::internal("footnote keep group has no preceding fragment")
+                        })?
+                        .get()
+                        .checked_add(extent.get())
+                        .and_then(PositiveLength::new)
+                        .ok_or_else(|| {
+                            Failure::input("L5100: footnote keep group extent overflow")
+                        })?;
+                    *fragment_extents.last_mut().ok_or_else(|| {
+                        Failure::internal("footnote keep group has no preceding fragment")
+                    })? = kept_extent;
+                    let kept_line_count = fragment_line_counts
+                        .last()
+                        .and_then(|count: &NonZeroU32| count.get().checked_add(1))
+                        .and_then(NonZeroU32::new)
+                        .ok_or_else(|| {
+                            Failure::input("L5100: footnote keep group line count overflow")
+                        })?;
+                    *fragment_line_counts.last_mut().ok_or_else(|| {
+                        Failure::internal("footnote keep group has no preceding fragment")
+                    })? = kept_line_count;
+                } else {
+                    fragment_extents.push(extent);
+                    fragment_line_counts.push(NonZeroU32::MIN);
+                }
+            }
+            previous_block_kept = match computed.computed().properties().get("keep_with_next") {
+                Some(StyleValue::Boolean(value)) => *value,
+                None => false,
+                Some(_) => {
+                    return Err(Failure::input(
+                        "L5100: footnote keep_with_next is not boolean",
+                    ))
+                }
+            };
+        }
+        if !marker_seen {
+            return Err(Failure::internal(
+                "footnote definition marker is missing from its flow",
+            ));
+        }
+        let measured = builder
+            .issue_definition_with_line_counts(&footnote_id, fragment_extents, fragment_line_counts)
+            .map_err(map_machine_footnote_registry_error)?;
+        builder
+            .register(measured)
+            .map_err(map_machine_footnote_registry_error)?;
+    }
+    builder
+        .finish()
+        .map_err(map_machine_footnote_registry_error)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FirstLinePageReferenceScan {
+    Absent,
+    Present,
+    MandatoryBreak,
+}
+
+fn footnote_marker_first_line_has_page_reference(
+    package: &ValidatedParsedPackage,
+    block_owner: NodeId,
+) -> bool {
+    package
+        .package()
+        .document
+        .footnotes
+        .iter()
+        .flat_map(|definition| &definition.blocks)
+        .find_map(|block| match block {
+            Block::Paragraph {
+                node_id, children, ..
+            }
+            | Block::Heading {
+                node_id, children, ..
+            } if *node_id == block_owner => Some(children.as_slice()),
+            _ => None,
+        })
+        .is_some_and(|children| {
+            footnote_first_line_page_reference_scan(children) == FirstLinePageReferenceScan::Present
+        })
+}
+
+fn footnote_first_line_page_reference_scan(inlines: &[Inline]) -> FirstLinePageReferenceScan {
+    for inline in inlines {
+        match inline {
+            Inline::Reference {
+                format: ReferenceFormat::Page,
+                ..
+            } => return FirstLinePageReferenceScan::Present,
+            Inline::HardBreak { .. } => return FirstLinePageReferenceScan::MandatoryBreak,
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => {
+                let nested = footnote_first_line_page_reference_scan(children);
+                if nested != FirstLinePageReferenceScan::Absent {
+                    return nested;
+                }
+            }
+            Inline::Text { .. }
+            | Inline::Anchor { .. }
+            | Inline::Reference { .. }
+            | Inline::FootnoteReference { .. }
+            | Inline::SoftBreak { .. } => {}
+        }
+    }
+    FirstLinePageReferenceScan::Absent
+}
+
+fn map_machine_footnote_registry_error(
+    error: typaxis_layout::StagingFootnoteRegistryError,
+) -> Failure {
+    use typaxis_layout::StagingFootnoteRegistryError as Error;
+    match error {
+        Error::AstNodeLimit | Error::FragmentLimit => Failure::limit(format!(
+            "footnote profile resource limit exceeded: {error:?}"
+        )),
+        Error::MissingDefinition(_)
+        | Error::UnreferencedDefinition(_)
+        | Error::EmptyDefinition(_)
+        | Error::UnsupportedBodyDomain(_)
+        | Error::UnsupportedDefinitionContent(_)
+        | Error::InvalidFootnoteMaster => {
+            Failure::input(format!("L5100: footnote profile rejected input: {error:?}"))
+        }
+        _ => Failure::internal(format!("footnote registry invariant failed: {error:?}")),
+    }
+}
+
+fn map_machine_footnote_pagination_error(
+    error: typaxis_pagination::StagingFootnotePaginationError,
+) -> Failure {
+    use typaxis_pagination::StagingFootnotePaginationError as Error;
+    match error {
+        Error::BodyOversize | Error::DefinitionOversize(_) => {
+            Failure::input(format!("L5100: footnote layout rejected input: {error:?}"))
+        }
+        Error::FragmentLimit => Failure::limit(format!(
+            "L5110: footnote fragment limit exceeded: {error:?}"
+        )),
+        Error::PageLimit => Failure::limit(format!("footnote page limit exceeded: {error:?}")),
+        Error::ReflowLimit | Error::ReflowOscillation => Failure::limit(format!(
+            "G6002: footnote reflow did not converge: {error:?}"
+        )),
+        _ => Failure::internal(format!("footnote pagination invariant failed: {error:?}")),
+    }
 }
 
 fn build_machine_table_layouts(
@@ -2230,8 +2702,11 @@ fn build_machine_table_layouts(
         preparation.admitted(),
         epoch,
         config,
-        ParagraphStyleFonts::Machine(preparation.style_fonts()),
-        Some(&paragraph_widths),
+        ParagraphLayoutOptions {
+            style_fonts: ParagraphStyleFonts::Machine(preparation.style_fonts()),
+            paragraph_widths: Some(&paragraph_widths),
+            include_footnotes: false,
+        },
     )?;
     let paragraph_items =
         ValidatedParagraphItemRegistry::from_breaks_allowing_empty(parsed, epoch, &final_breaks)
@@ -2572,18 +3047,28 @@ fn build_machine_flow(
     }
     let paragraph_breaks =
         layout_machine_paragraphs_for_epoch(package, generated, preparation, epoch, config)?;
-    let paragraph_items = ValidatedParagraphItemRegistry::from_breaks_allowing_empty(
-        parsed,
-        epoch,
-        &paragraph_breaks,
-    )
+    let paragraph_items = if preparation.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+        ValidatedParagraphItemRegistry::from_breaks_with_footnotes_allowing_empty(
+            parsed,
+            epoch,
+            &paragraph_breaks,
+        )
+    } else {
+        ValidatedParagraphItemRegistry::from_breaks_allowing_empty(parsed, epoch, &paragraph_breaks)
+    }
     .map_err(map_machine_break_error)?;
     if matches!(
         preparation.profile(),
-        MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+        MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Footnote1
+            | MachinePdfProfileId::Table1
     ) {
-        let mut flow_builder = CanonicalFlowIrBuilder::new(parsed, &paragraph_items)
-            .map_err(|error| map_machine_flow_error(MachineParagraphFlowError::Flow(error)))?;
+        let mut flow_builder = if preparation.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+            CanonicalFlowIrBuilder::new_for_footnote_body(parsed, &paragraph_items)
+        } else {
+            CanonicalFlowIrBuilder::new(parsed, &paragraph_items)
+        }
+        .map_err(|error| map_machine_flow_error(MachineParagraphFlowError::Flow(error)))?;
         if preparation.profile() == MachinePdfProfileId::TABLE_1 {
             flow_builder.use_separate_table_cell_flows();
         }
@@ -2592,10 +3077,17 @@ fn build_machine_flow(
         } else {
             BTreeMap::new()
         };
+        let footnote_paragraphs = if preparation.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+            footnote_paragraph_owner_set(&parsed.package().document)
+        } else {
+            BTreeMap::new()
+        };
         for (node, kind) in parsed.document_nodes().nodes() {
             match kind {
                 DocumentNodeKind::Paragraph | DocumentNodeKind::Heading => {
-                    if table_cell_paragraphs.contains_key(&node) {
+                    if table_cell_paragraphs.contains_key(&node)
+                        || footnote_paragraphs.contains_key(&node)
+                    {
                         continue;
                     }
                     let item_count = paragraph_items.item_count(node).ok_or_else(|| {
@@ -2650,6 +3142,20 @@ fn build_machine_flow(
         }
     }
     flow_builder.finish(epoch).map_err(map_machine_flow_error)
+}
+
+fn footnote_paragraph_owner_set(
+    document: &typaxis_document::Document,
+) -> BTreeMap<NodeId, typaxis_core::FootnoteId> {
+    let mut owners = BTreeMap::new();
+    for definition in &document.footnotes {
+        for block in &definition.blocks {
+            if let Block::Paragraph { node_id, .. } | Block::Heading { node_id, .. } = block {
+                owners.insert(*node_id, definition.footnote_id.clone());
+            }
+        }
+    }
+    owners
 }
 
 fn table_cell_paragraph_owner_set(blocks: &[Block]) -> BTreeMap<NodeId, NodeId> {
@@ -2708,12 +3214,12 @@ fn map_machine_flow_error(error: MachineParagraphFlowError) -> Failure {
 
 #[allow(dead_code)] // reachable from the MI1-15 command integration
 fn map_machine_pagination_error(error: PaginationError) -> Failure {
-    if error == PaginationError::FatalLayout {
-        Failure::capability_mismatch(
+    match error {
+        PaginationError::Footnote(error) => map_machine_footnote_pagination_error(error),
+        PaginationError::FatalLayout => Failure::capability_mismatch(
             "descriptor-approved content reached an unsupported pagination/layout domain",
-        )
-    } else {
-        map_pagination_error(error)
+        ),
+        error => map_pagination_error(error),
     }
 }
 
@@ -2728,6 +3234,13 @@ enum ParagraphTextSite {
 enum ParagraphStyleFonts<'a> {
     Reference(&'a AdmittedFontInstanceTable),
     Machine(&'a PreparedMachineStyleFonts),
+}
+
+#[derive(Clone, Copy)]
+struct ParagraphLayoutOptions<'a> {
+    style_fonts: ParagraphStyleFonts<'a>,
+    paragraph_widths: Option<&'a BTreeMap<NodeId, PositiveLength>>,
+    include_footnotes: bool,
 }
 
 #[allow(dead_code)] // machine variant is wired to dispatch by MI1-15
@@ -2838,8 +3351,11 @@ fn layout_paragraphs(
         admitted,
         epoch,
         config,
-        ParagraphStyleFonts::Reference(&instances),
-        None,
+        ParagraphLayoutOptions {
+            style_fonts: ParagraphStyleFonts::Reference(&instances),
+            paragraph_widths: None,
+            include_footnotes: false,
+        },
     )
 }
 
@@ -2852,7 +3368,8 @@ fn layout_machine_paragraphs_for_epoch(
     config: &EffectiveConfig,
 ) -> Result<Vec<ValidatedParagraphBreak>, Failure> {
     let parsed = package.package();
-    if !parsed.package().document.footnotes.is_empty()
+    if (preparation.profile() != MachinePdfProfileId::FOOTNOTE_1
+        && !parsed.package().document.footnotes.is_empty())
         || (preparation.profile() == MachinePdfProfileId::PARAGRAPH_1
             && parsed
                 .package()
@@ -2871,8 +3388,11 @@ fn layout_machine_paragraphs_for_epoch(
         preparation.admitted(),
         epoch,
         config,
-        ParagraphStyleFonts::Machine(preparation.style_fonts()),
-        None,
+        ParagraphLayoutOptions {
+            style_fonts: ParagraphStyleFonts::Machine(preparation.style_fonts()),
+            paragraph_widths: None,
+            include_footnotes: preparation.profile() == MachinePdfProfileId::FOOTNOTE_1,
+        },
     )
 }
 
@@ -2882,9 +3402,13 @@ fn layout_paragraphs_with_fonts(
     admitted: &AdmittedResourceLedger,
     epoch: LayoutEpoch,
     config: &EffectiveConfig,
-    style_fonts: ParagraphStyleFonts<'_>,
-    paragraph_widths: Option<&BTreeMap<NodeId, PositiveLength>>,
+    options: ParagraphLayoutOptions<'_>,
 ) -> Result<Vec<ValidatedParagraphBreak>, Failure> {
+    let ParagraphLayoutOptions {
+        style_fonts,
+        paragraph_widths,
+        include_footnotes,
+    } = options;
     let versions = config.data_versions();
     let data_tables =
         ResolvedDataTables::resolve(versions.unicode(), versions.japanese_line_break())
@@ -2899,7 +3423,19 @@ fn layout_paragraphs_with_fonts(
         .ok_or_else(|| Failure::internal("default page master is missing"))?;
     let space_glue = ReferenceSpaceGlue::new(NonNegativeLength::ZERO, NonNegativeLength::ZERO);
     let mut cache = ShapingCache::new(config.limits());
-    let paragraph_blocks = collect_layout_paragraph_blocks(&package.package().document.blocks);
+    let paragraph_blocks = collect_layout_paragraph_blocks(
+        &package.package().document.blocks,
+        if include_footnotes {
+            Some(&package.package().document.footnotes)
+        } else {
+            None
+        },
+    );
+    let footnote_paragraphs = if include_footnotes {
+        footnote_paragraph_owner_set(&package.package().document)
+    } else {
+        BTreeMap::new()
+    };
     let mut breaks = Vec::new();
     breaks
         .try_reserve_exact(paragraph_blocks.len())
@@ -2909,12 +3445,66 @@ fn layout_paragraphs_with_fonts(
             Block::Paragraph { node_id, .. } | Block::Heading { node_id, .. } => *node_id,
             _ => unreachable!("paragraph collection contains only text blocks"),
         };
-        let selected_inline_size = paragraph_widths
-            .and_then(|widths| widths.get(&paragraph_node).copied())
-            .unwrap_or(inline_size);
-        let line_shapes = [LineShape {
+        let selected_inline_size = if let Some(width) =
+            paragraph_widths.and_then(|widths| widths.get(&paragraph_node).copied())
+        {
+            width
+        } else if footnote_paragraphs.contains_key(&paragraph_node) {
+            let computed = package.cascade_style(paragraph_node).map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "footnote definition style resolution failed: {error:?}"
+                ))
+            })?;
+            let start_indent = table_nonnegative_style_length(
+                computed.computed().properties().get("start_indent"),
+            )?;
+            let end_indent =
+                table_nonnegative_style_length(computed.computed().properties().get("end_indent"))?;
+            inline_size
+                .get()
+                .checked_sub(start_indent.get())
+                .and_then(|value| value.checked_sub(end_indent.get()))
+                .and_then(PositiveLength::new)
+                .ok_or_else(|| {
+                    Failure::input("L5100: footnote definition indents exhaust the inline size")
+                })?
+        } else {
+            inline_size
+        };
+        let definition_marker = footnote_definition_marker_key(package, generated, paragraph_node);
+        let mut line_shapes = vec![LineShape {
             inline_size: selected_inline_size,
         }];
+        if definition_marker.is_some() {
+            let computed = package.cascade_style(paragraph_node).map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "footnote definition style resolution failed: {error:?}"
+                ))
+            })?;
+            let gap = match computed.computed().properties().get("font_size") {
+                Some(StyleValue::Length(value)) => *value,
+                _ => {
+                    return Err(Failure::capability_mismatch(
+                        "footnote definition marker requires a positive font_size",
+                    ))
+                }
+            };
+            let first = selected_inline_size
+                .get()
+                .checked_sub(gap)
+                .and_then(PositiveLength::new)
+                .ok_or_else(|| {
+                    Failure::input(
+                        "L5100: footnote marker glue exhausts the definition inline size",
+                    )
+                })?;
+            line_shapes = vec![
+                LineShape { inline_size: first },
+                LineShape {
+                    inline_size: selected_inline_size,
+                },
+            ];
+        }
         if let Some(receipt) = layout_paragraph(
             package,
             generated,
@@ -2927,6 +3517,7 @@ fn layout_paragraphs_with_fonts(
             &line_shapes,
             &mut cache,
             config.limits(),
+            include_footnotes,
         )? {
             breaks.push(receipt);
         }
@@ -2934,7 +3525,10 @@ fn layout_paragraphs_with_fonts(
     Ok(breaks)
 }
 
-fn collect_layout_paragraph_blocks(blocks: &[Block]) -> Vec<&Block> {
+fn collect_layout_paragraph_blocks<'a>(
+    blocks: &'a [Block],
+    footnotes: Option<&'a [typaxis_document::FootnoteDefinition]>,
+) -> Vec<&'a Block> {
     let mut output = Vec::new();
     let mut pending: Vec<&Block> = blocks.iter().rev().collect();
     while let Some(block) = pending.pop() {
@@ -2954,6 +3548,11 @@ fn collect_layout_paragraph_blocks(blocks: &[Block]) -> Vec<&Block> {
             Block::PageBreak { .. } => {}
         }
     }
+    if let Some(footnotes) = footnotes {
+        for definition in footnotes {
+            output.extend(collect_layout_paragraph_blocks(&definition.blocks, None));
+        }
+    }
     output
 }
 
@@ -2970,6 +3569,7 @@ fn layout_paragraph(
     line_shapes: &[LineShape],
     cache: &mut ShapingCache,
     limits: &ValidatedResourceLimits,
+    include_footnotes: bool,
 ) -> Result<Option<ValidatedParagraphBreak>, Failure> {
     let (paragraph_node, children) = match block {
         Block::Paragraph {
@@ -2984,6 +3584,9 @@ fn layout_paragraph(
         }
     };
     let mut sites = Vec::new();
+    if let Some(marker) = footnote_definition_marker_key(package, generated, paragraph_node) {
+        sites.push(ParagraphTextSite::Generated(marker));
+    }
     let mut has_explicit_break = false;
     collect_paragraph_text_sites(children, &mut sites, &mut has_explicit_break);
     if sites.is_empty() && !has_explicit_break {
@@ -3000,8 +3603,8 @@ fn layout_paragraph(
             .map_err(|error| map_paragraph_break_failure(error, style_fonts, "line layout"))
     };
     if sites.is_empty() {
-        let paragraph = factory
-            .build(
+        let paragraph = if include_footnotes {
+            factory.build_with_footnotes(
                 generated,
                 paragraph_node,
                 epoch,
@@ -3011,9 +3614,21 @@ fn layout_paragraph(
                 LineShapeExhaustion::RepeatLast,
                 limits,
             )
-            .map_err(|error| {
-                map_paragraph_break_failure(error, style_fonts, "paragraph construction")
-            })?;
+        } else {
+            factory.build(
+                generated,
+                paragraph_node,
+                epoch,
+                &[],
+                space_glue,
+                line_shapes,
+                LineShapeExhaustion::RepeatLast,
+                limits,
+            )
+        }
+        .map_err(|error| {
+            map_paragraph_break_failure(error, style_fonts, "paragraph construction")
+        })?;
         return break_canonical(&paragraph).map(Some);
     }
     let mut inputs = Vec::new();
@@ -3086,8 +3701,8 @@ fn layout_paragraph(
             None => ParagraphShapedText::empty(input.text_receipt()),
         })
         .collect();
-    let paragraph = factory
-        .build(
+    let paragraph = if include_footnotes {
+        factory.build_with_footnotes(
             generated,
             paragraph_node,
             epoch,
@@ -3097,10 +3712,50 @@ fn layout_paragraph(
             LineShapeExhaustion::RepeatLast,
             limits,
         )
-        .map_err(|error| {
-            map_paragraph_break_failure(error, style_fonts, "paragraph construction")
-        })?;
+    } else {
+        factory.build(
+            generated,
+            paragraph_node,
+            epoch,
+            &shaped,
+            space_glue,
+            line_shapes,
+            LineShapeExhaustion::RepeatLast,
+            limits,
+        )
+    }
+    .map_err(|error| map_paragraph_break_failure(error, style_fonts, "paragraph construction"))?;
     break_canonical(&paragraph).map(Some)
+}
+
+fn footnote_definition_marker_key(
+    package: &ValidatedParsedPackage,
+    generated: typaxis_syntax::PackageGeneratedTextBinding<'_>,
+    paragraph_node: NodeId,
+) -> Option<GeneratedBufferKey> {
+    generated
+        .generated_text()
+        .buffers()
+        .iter()
+        .find_map(|buffer| {
+            let key = buffer.key();
+            if key.generation_kind() != GenerationKind::FootnoteMarker
+                || package.document_nodes().node_kind(key.owner())
+                    != Some(DocumentNodeKind::FootnoteDefinition)
+            {
+                return None;
+            }
+            let end = u32::try_from(buffer.utf8().len()).ok()?;
+            let provenance = generated
+                .generated_text()
+                .provenance(key, Utf8ByteOffset::new(0), Utf8ByteOffset::new(end))
+                .ok()?;
+            generated
+                .bind_generated_shape_text(provenance)
+                .ok()
+                .filter(|receipt| receipt.style_owner() == paragraph_node)
+                .map(|_| key)
+        })
 }
 
 fn collect_paragraph_text_sites(
@@ -3376,6 +4031,70 @@ pub fn build_machine_pdf_graph(
     layout
         .preparation
         .verify(package, receipt, config.limits())?;
+    if layout.preparation.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+        let footnotes = layout
+            .footnotes()
+            .ok_or_else(|| Failure::internal("footnote selected layout is missing"))?;
+        let footnote_view = package.basic_document_view().ok_or_else(|| {
+            Failure::capability_mismatch("footnote profile syntax view was not retained")
+        })?;
+        let link_receipt = BasicDocumentLinkPreflight::FOOTNOTE_1
+            .run(&footnote_view)
+            .map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "footnote profile link receipt changed after preflight: {error:?}"
+                ))
+            })?;
+        let paragraph_items = layout
+            .pagination
+            .selected_flow()
+            .paragraph_items()
+            .ok_or_else(|| {
+                Failure::capability_mismatch("footnote profile layout lacks paragraph clusters")
+            })?;
+        let clusters = if link_receipt.cluster_receipt().links().is_empty() {
+            None
+        } else {
+            Some(
+                ValidatedStagingMachineLinkClusters::from_registry(
+                    &footnote_view,
+                    link_receipt.cluster_receipt(),
+                    paragraph_items,
+                )
+                .map_err(|error| {
+                    Failure::capability_mismatch(format!(
+                        "footnote profile link clusters failed: {error:?}"
+                    ))
+                })?,
+            )
+        };
+        let display = ValidatedDisplayDocument::paint_footnote_profile(
+            &footnote_view,
+            &layout.pagination,
+            layout.pagination.selected_flow(),
+            footnotes.registry(),
+            footnotes.selected(),
+            clusters.as_ref(),
+            config,
+        )
+        .map_err(|error| {
+            Failure::internal(format!("footnote display construction failed: {error:?}"))
+        })?;
+        let plans = ReferenceResourceFinalizer::new()
+            .finalize(ResourceFinalizationInput {
+                display: display.validated_document(),
+                admitted: layout.preparation.admitted(),
+                limits: config.limits(),
+            })
+            .map_err(map_resource_error)?;
+        return typaxis_pdf::PdfBackend::build_footnote_profile(display, plans, config.limits())
+            .map_err(|error| match error {
+                typaxis_pdf::PdfError::ObjectLimit | typaxis_pdf::PdfError::OutputTooLarge => {
+                    Failure::limit(format!("PDF resource limit exceeded: {error:?}"))
+                }
+                _ => Failure::internal(format!("PDF graph construction failed: {error:?}")),
+            });
+    }
     if layout.preparation.profile() == MachinePdfProfileId::TABLE_1 {
         let table_view = package.basic_document_view().ok_or_else(|| {
             Failure::capability_mismatch("table profile syntax view was not retained")
@@ -3550,6 +4269,33 @@ pub fn validate_machine_table_pdf_closure(
     Ok(())
 }
 
+pub fn validate_machine_footnote_pdf_closure(
+    layout: &MachineParagraphLayout,
+    graph: &typaxis_pdf::FrozenPdfGraph,
+    receipt: &typaxis_pdf::VerifiedPdfBytesReceipt,
+) -> Result<(), Failure> {
+    if layout.preparation.profile() != MachinePdfProfileId::FOOTNOTE_1 {
+        return Ok(());
+    }
+    let selected = layout
+        .footnotes()
+        .ok_or_else(|| Failure::internal("footnote selected layout is missing"))?;
+    let closure = graph
+        .footnote_closure()
+        .ok_or_else(|| Failure::internal("footnote Display closure is missing from PDF graph"))?;
+    if closure.selected_layout_sha256() != selected.selected().fingerprint().bytes()
+        || closure.registry_sha256() != selected.registry().receipt().fingerprint().bytes()
+        || closure.body_layout_sha256() != layout.pagination().final_fingerprint().bytes()
+    {
+        return Err(Failure::internal(
+            "footnote PDF closure differs from selected layout",
+        ));
+    }
+    FootnotePdfClosureReceipt::from_serialized(closure, graph, receipt)
+        .map_err(|error| Failure::internal(format!("footnote PDF closure failed: {error:?}")))?;
+    Ok(())
+}
+
 fn map_pagination_error(error: PaginationError) -> Failure {
     match error {
         PaginationError::ResourceLimit | PaginationError::PageLimit => {
@@ -3646,6 +4392,34 @@ pub(crate) mod tests {
             limits,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn footnote_pending_page_reference_counts_only_before_the_first_hard_break() {
+        let span = typaxis_core::SourceSpan::new(
+            SourceId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(0),
+        )
+        .unwrap();
+        let reference = Inline::Reference {
+            node_id: NodeId::new(1),
+            span,
+            target: typaxis_core::AnchorId::new("page").unwrap(),
+            format: ReferenceFormat::Page,
+        };
+        let hard_break = Inline::HardBreak {
+            node_id: NodeId::new(2),
+            span,
+        };
+        assert_eq!(
+            footnote_first_line_page_reference_scan(std::slice::from_ref(&reference)),
+            FirstLinePageReferenceScan::Present
+        );
+        assert_eq!(
+            footnote_first_line_page_reference_scan(&[hard_break, reference]),
+            FirstLinePageReferenceScan::MandatoryBreak
+        );
     }
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]

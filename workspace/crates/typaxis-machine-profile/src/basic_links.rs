@@ -3,7 +3,7 @@ use typaxis_syntax::{
     STAGING_BASIC_LINK_POLICY_VERSION, STAGING_LINK_USAGE_ALGORITHM,
 };
 
-use crate::BASIC_DOCUMENT_PROFILE_ID;
+use crate::basic_styles::{BASIC_DOCUMENT_PROFILE_ID, FOOTNOTE_PROFILE_ID};
 
 pub const BASIC_LINK_POLICY_VERSION: &str = STAGING_BASIC_LINK_POLICY_VERSION;
 pub const BASIC_LINK_USAGE_ALGORITHM: &str = STAGING_LINK_USAGE_ALGORITHM;
@@ -27,13 +27,24 @@ pub enum BasicDocumentEmptyLinkPolicy {
 /// validated effective configuration; this descriptor never accepts a raw
 /// action dictionary, arbitrary PDF destination syntax, or nested links.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BasicDocumentLinkDescriptor;
+pub struct BasicDocumentLinkDescriptor {
+    footnote_definitions: bool,
+}
 
 impl BasicDocumentLinkDescriptor {
-    pub const STAGING: Self = Self;
+    pub const STAGING: Self = Self {
+        footnote_definitions: false,
+    };
+    pub const FOOTNOTE_1: Self = Self {
+        footnote_definitions: true,
+    };
 
     pub const fn profile_id(self) -> &'static str {
-        BASIC_DOCUMENT_PROFILE_ID
+        if self.footnote_definitions {
+            FOOTNOTE_PROFILE_ID
+        } else {
+            BASIC_DOCUMENT_PROFILE_ID
+        }
     }
 
     pub const fn policy_version(self) -> &'static str {
@@ -58,6 +69,10 @@ impl BasicDocumentLinkDescriptor {
 
     pub const fn permits_raw_pdf_actions(self) -> bool {
         false
+    }
+
+    pub const fn permits_footnote_definitions(self) -> bool {
+        self.footnote_definitions
     }
 }
 
@@ -92,8 +107,16 @@ impl BasicDocumentLinkPreflightReceipt {
     }
 
     pub fn verifies(&self, package: &ValidatedStagingStylePackage) -> bool {
+        self.verifies_for(package, BasicDocumentLinkDescriptor::STAGING)
+    }
+
+    pub fn verifies_for(
+        &self,
+        package: &ValidatedStagingStylePackage,
+        descriptor: BasicDocumentLinkDescriptor,
+    ) -> bool {
         self.package == package.package_fingerprint().into_bytes()
-            && self.descriptor == BasicDocumentLinkDescriptor::STAGING
+            && self.descriptor == descriptor
             && self.cluster_receipt.verifies(package)
     }
 }
@@ -107,12 +130,19 @@ impl BasicDocumentLinkPreflight {
     pub const STAGING: Self = Self {
         descriptor: BasicDocumentLinkDescriptor::STAGING,
     };
+    pub const FOOTNOTE_1: Self = Self {
+        descriptor: BasicDocumentLinkDescriptor::FOOTNOTE_1,
+    };
 
     pub fn run(
         self,
         package: &ValidatedStagingStylePackage,
     ) -> Result<BasicDocumentLinkPreflightReceipt, StagingLinkPreflightError> {
-        let cluster_receipt = package.preflight_link_usage()?;
+        let cluster_receipt = if self.descriptor.permits_footnote_definitions() {
+            package.preflight_footnote_link_usage()?
+        } else {
+            package.preflight_link_usage()?
+        };
         Ok(BasicDocumentLinkPreflightReceipt {
             package: package.package_fingerprint().into_bytes(),
             descriptor: self.descriptor,

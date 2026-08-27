@@ -13,11 +13,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use typaxis_core::{
     push_generated_buffer_key_jcs, push_jcs_string, AdmittedResourceFingerprint,
     BuildExecutionContext, BuildExecutionError, EffectiveConfig, EffectiveConfigFingerprint,
-    EngineIdentity, FontFaceId, GeneratedBufferKey, HostPath, ImageResourceId,
+    EngineIdentity, FontFaceId, FootnoteId, GeneratedBufferKey, HostPath, ImageResourceId,
     LayoutStateFingerprint, MachinePdfProfileId, PortablePath, Rect, ReplacePolicy,
     ResolvedDataTables, ShaperIdentity, SourceId, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
 };
 pub use typaxis_core::{OutputSink, PdfStreamCompression};
+use typaxis_display_list::FootnoteDisplayClosureReceipt;
 pub use typaxis_host_admission::HostReadIdentityLedgerToken as PublicationReadLedgerToken;
 use typaxis_host_admission::{HostAdmissionError, HostReadIdentityLedgerToken};
 use typaxis_layout_contract::{ResolvedTableColumnInput, ValidatedTableGridReceipt};
@@ -28,7 +29,7 @@ use typaxis_machine_profile::{MachinePdfPreflightReceipt, MachineProfileDescript
 use typaxis_pagination::{
     ConvergenceStatus, MultiFlowSelectedStateReceipt, MultiFlowTraceFacts, PaginationResult,
     RowspanContinuationReceipt, SelectedTableLayoutReceipt, StagingTableCellFragmentReceipt,
-    StagingTableTraceFacts,
+    StagingTableTraceFacts, ValidatedFootnoteSelectedLayout,
 };
 use typaxis_pdf::{
     PdfStreamWriteFacts, StagingForcedPageBreakPdf, StagingMachineBlockStylePdf,
@@ -60,6 +61,7 @@ pub enum BuildStatus {
 pub enum BuildInputProfile {
     ReferenceSource1,
     MachinePdfBasicDocument1,
+    MachinePdfFootnote1,
     MachinePdfParagraph1,
     MachinePdfTable1,
 }
@@ -69,6 +71,7 @@ impl BuildInputProfile {
         match self {
             Self::ReferenceSource1 => REFERENCE_INPUT_PROFILE,
             Self::MachinePdfBasicDocument1 => MachinePdfProfileId::BASIC_DOCUMENT_1.as_str(),
+            Self::MachinePdfFootnote1 => MachinePdfProfileId::FOOTNOTE_1.as_str(),
             Self::MachinePdfParagraph1 => MachinePdfProfileId::PARAGRAPH_1.as_str(),
             Self::MachinePdfTable1 => MachinePdfProfileId::TABLE_1.as_str(),
         }
@@ -78,6 +81,7 @@ impl BuildInputProfile {
         match self {
             Self::ReferenceSource1 => None,
             Self::MachinePdfBasicDocument1 => Some(MachinePdfProfileId::BASIC_DOCUMENT_1),
+            Self::MachinePdfFootnote1 => Some(MachinePdfProfileId::FOOTNOTE_1),
             Self::MachinePdfParagraph1 => Some(MachinePdfProfileId::PARAGRAPH_1),
             Self::MachinePdfTable1 => Some(MachinePdfProfileId::TABLE_1),
         }
@@ -86,6 +90,7 @@ impl BuildInputProfile {
     fn from_descriptor(descriptor: MachineProfileDescriptor) -> Self {
         match descriptor.id() {
             MachinePdfProfileId::BasicDocument1 => Self::MachinePdfBasicDocument1,
+            MachinePdfProfileId::Footnote1 => Self::MachinePdfFootnote1,
             MachinePdfProfileId::Paragraph1 => Self::MachinePdfParagraph1,
             MachinePdfProfileId::Table1 => Self::MachinePdfTable1,
         }
@@ -146,7 +151,9 @@ impl LayoutRecord {
         flow_registry_sha256: Option<[u8; 32]>,
     ) -> Result<Self, BuildManifestError> {
         match capability.profile() {
-            MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Table1
+            MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Footnote1
+            | MachinePdfProfileId::Table1
                 if flow_registry_sha256.is_none() =>
             {
                 return Err(BuildManifestError::MachineCapabilityMismatch)
@@ -155,6 +162,7 @@ impl LayoutRecord {
                 return Err(BuildManifestError::MachineCapabilityMismatch)
             }
             MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Footnote1
             | MachinePdfProfileId::Paragraph1
             | MachinePdfProfileId::Table1 => {}
         }
@@ -745,6 +753,296 @@ fn staging_table_manifest_cell(
     })
 }
 
+pub const STAGING_FOOTNOTE_MANIFEST_ALGORITHM: &str = "typaxis.footnote-manifest/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingFootnoteManifestError {
+    SelectedStateMismatch,
+    PaintStateMismatch,
+    AllocationFailure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingFootnoteManifestFlowFact {
+    footnote_id: FootnoteId,
+    assignment_ordinal: u32,
+    flow_id: u32,
+    before_fragment: u32,
+    after_fragment: u32,
+    incoming_source_page: Option<u32>,
+    carries_out: bool,
+}
+
+impl StagingFootnoteManifestFlowFact {
+    pub const fn footnote_id(&self) -> &FootnoteId {
+        &self.footnote_id
+    }
+    pub const fn assignment_ordinal(&self) -> u32 {
+        self.assignment_ordinal
+    }
+    pub const fn flow_id(&self) -> u32 {
+        self.flow_id
+    }
+    pub const fn before_fragment(&self) -> u32 {
+        self.before_fragment
+    }
+    pub const fn after_fragment(&self) -> u32 {
+        self.after_fragment
+    }
+    pub const fn incoming_source_page(&self) -> Option<u32> {
+        self.incoming_source_page
+    }
+    pub const fn carries_out(&self) -> bool {
+        self.carries_out
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingFootnoteManifestPageFact {
+    page_index: u32,
+    body_continuation_position: u32,
+    body_continuation_terminal: bool,
+    body_fingerprint: [u8; 32],
+    evaluation_count: u32,
+    reservation: i64,
+    ordered_footnote_ids: Vec<FootnoteId>,
+    flows: Vec<StagingFootnoteManifestFlowFact>,
+}
+
+impl StagingFootnoteManifestPageFact {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn body_continuation_position(&self) -> u32 {
+        self.body_continuation_position
+    }
+    pub const fn body_continuation_terminal(&self) -> bool {
+        self.body_continuation_terminal
+    }
+    pub const fn body_fingerprint(&self) -> [u8; 32] {
+        self.body_fingerprint
+    }
+    pub const fn evaluation_count(&self) -> u32 {
+        self.evaluation_count
+    }
+    pub const fn reservation(&self) -> i64 {
+        self.reservation
+    }
+    pub fn ordered_footnote_ids(&self) -> &[FootnoteId] {
+        &self.ordered_footnote_ids
+    }
+    pub fn flows(&self) -> &[StagingFootnoteManifestFlowFact] {
+        &self.flows
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingFootnoteLayoutFacts {
+    profile_sha256: [u8; 32],
+    registry_sha256: [u8; 32],
+    selected_layout_sha256: [u8; 32],
+    body_layout_sha256: [u8; 32],
+    paint_sha256: [u8; 32],
+    pages: Vec<StagingFootnoteManifestPageFact>,
+    canonical_jcs: String,
+}
+
+impl StagingFootnoteLayoutFacts {
+    pub fn from_selected(
+        selected: &ValidatedFootnoteSelectedLayout,
+        display: &FootnoteDisplayClosureReceipt,
+    ) -> Result<Self, StagingFootnoteManifestError> {
+        if display.profile_sha256() != selected.profile_fingerprint().bytes()
+            || display.registry_sha256() != selected.registry_fingerprint().bytes()
+            || display.selected_layout_sha256() != selected.fingerprint().bytes()
+            || display.body_layout_sha256() != selected.body_layout_fingerprint().bytes()
+            || display.pages().len() != selected.pages().len()
+        {
+            return Err(StagingFootnoteManifestError::SelectedStateMismatch);
+        }
+        let mut pages = Vec::new();
+        pages
+            .try_reserve_exact(selected.pages().len())
+            .map_err(|_| StagingFootnoteManifestError::AllocationFailure)?;
+        for (selected_page, painted_page) in selected.pages().iter().zip(display.pages()) {
+            if selected_page.page_index() != painted_page.page_index()
+                || selected_page.body_continuation().next_flow_position()
+                    != painted_page.body_continuation_position()
+                || selected_page.body_continuation().is_terminal()
+                    != painted_page.body_continuation_terminal()
+                || selected_page.body_fingerprint() != painted_page.body_fingerprint()
+                || selected_page.evaluation_count() != painted_page.evaluation_count()
+                || selected_page.reservation() != painted_page.reservation()
+                || selected_page.flows().len() != painted_page.flows().len()
+            {
+                return Err(StagingFootnoteManifestError::PaintStateMismatch);
+            }
+            let selected_ids: Vec<_> = selected_page
+                .ordered_footnotes()
+                .iter()
+                .map(|assignment| assignment.footnote_id().clone())
+                .collect();
+            if selected_ids != painted_page.ordered_footnote_ids() {
+                return Err(StagingFootnoteManifestError::PaintStateMismatch);
+            }
+            let mut flows = Vec::new();
+            flows
+                .try_reserve_exact(selected_page.flows().len())
+                .map_err(|_| StagingFootnoteManifestError::AllocationFailure)?;
+            for (selected_flow, painted_flow) in
+                selected_page.flows().iter().zip(painted_page.flows())
+            {
+                let assignment = selected_flow.assignment();
+                if assignment.footnote_id() != painted_flow.footnote_id()
+                    || assignment.assignment_ordinal() != painted_flow.assignment_ordinal()
+                    || assignment.flow_id() != painted_flow.flow_id()
+                    || selected_flow.before_cursor().next_fragment_ordinal()
+                        != painted_flow.before_fragment()
+                    || selected_flow.after_cursor().next_fragment_ordinal()
+                        != painted_flow.after_fragment()
+                    || selected_flow.incoming_source_page() != painted_flow.incoming_source_page()
+                    || selected_flow.carries_out() != painted_flow.carries_out()
+                {
+                    return Err(StagingFootnoteManifestError::PaintStateMismatch);
+                }
+                flows.push(StagingFootnoteManifestFlowFact {
+                    footnote_id: assignment.footnote_id().clone(),
+                    assignment_ordinal: assignment.assignment_ordinal(),
+                    flow_id: assignment.flow_id().get(),
+                    before_fragment: selected_flow.before_cursor().next_fragment_ordinal(),
+                    after_fragment: selected_flow.after_cursor().next_fragment_ordinal(),
+                    incoming_source_page: selected_flow.incoming_source_page(),
+                    carries_out: selected_flow.carries_out(),
+                });
+            }
+            pages.push(StagingFootnoteManifestPageFact {
+                page_index: selected_page.page_index(),
+                body_continuation_position: selected_page.body_continuation().next_flow_position(),
+                body_continuation_terminal: selected_page.body_continuation().is_terminal(),
+                body_fingerprint: selected_page.body_fingerprint().bytes(),
+                evaluation_count: selected_page.evaluation_count(),
+                reservation: selected_page.reservation().get().raw(),
+                ordered_footnote_ids: selected_ids,
+                flows,
+            });
+        }
+        let mut facts = Self {
+            profile_sha256: display.profile_sha256(),
+            registry_sha256: display.registry_sha256(),
+            selected_layout_sha256: display.selected_layout_sha256(),
+            body_layout_sha256: display.body_layout_sha256(),
+            paint_sha256: display.fingerprint(),
+            pages,
+            canonical_jcs: String::new(),
+        };
+        facts.canonical_jcs = encode_staging_footnote_layout_facts(&facts);
+        Ok(facts)
+    }
+
+    pub const fn profile_sha256(&self) -> [u8; 32] {
+        self.profile_sha256
+    }
+    pub const fn registry_sha256(&self) -> [u8; 32] {
+        self.registry_sha256
+    }
+    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub const fn body_layout_sha256(&self) -> [u8; 32] {
+        self.body_layout_sha256
+    }
+    pub const fn paint_sha256(&self) -> [u8; 32] {
+        self.paint_sha256
+    }
+    pub fn pages(&self) -> &[StagingFootnoteManifestPageFact] {
+        &self.pages
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn encode_staging_footnote_layout_facts(value: &StagingFootnoteLayoutFacts) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_FOOTNOTE_MANIFEST_ALGORITHM);
+    output.push_str(",\"body_layout_sha256\":");
+    push_manifest_hex(&mut output, value.body_layout_sha256);
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"body_continuation_position\":");
+        output.push_str(&page.body_continuation_position.to_string());
+        output.push_str(",\"body_continuation_terminal\":");
+        output.push_str(if page.body_continuation_terminal {
+            "true"
+        } else {
+            "false"
+        });
+        output.push_str(",\"body_fingerprint\":");
+        push_manifest_hex(&mut output, page.body_fingerprint);
+        output.push_str(",\"evaluation_count\":");
+        output.push_str(&page.evaluation_count.to_string());
+        output.push_str(",\"flows\":[");
+        for (flow_index, flow) in page.flows.iter().enumerate() {
+            if flow_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"after_fragment\":");
+            output.push_str(&flow.after_fragment.to_string());
+            output.push_str(",\"assignment_ordinal\":");
+            output.push_str(&flow.assignment_ordinal.to_string());
+            output.push_str(",\"before_fragment\":");
+            output.push_str(&flow.before_fragment.to_string());
+            output.push_str(",\"carries_out\":");
+            output.push_str(if flow.carries_out { "true" } else { "false" });
+            output.push_str(",\"flow_id\":");
+            output.push_str(&flow.flow_id.to_string());
+            output.push_str(",\"footnote_id\":");
+            push_jcs_string(&mut output, flow.footnote_id.as_str());
+            output.push_str(",\"incoming_source_page\":");
+            match flow.incoming_source_page {
+                Some(value) => output.push_str(&value.to_string()),
+                None => output.push_str("null"),
+            }
+            output.push('}');
+        }
+        output.push_str("],\"ordered_footnote_ids\":[");
+        for (footnote_index, footnote_id) in page.ordered_footnote_ids.iter().enumerate() {
+            if footnote_index > 0 {
+                output.push(',');
+            }
+            push_jcs_string(&mut output, footnote_id.as_str());
+        }
+        output.push_str("],\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push_str(",\"reservation\":");
+        output.push_str(&page.reservation.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"paint_sha256\":");
+    push_manifest_hex(&mut output, value.paint_sha256);
+    output.push_str(",\"profile_sha256\":");
+    push_manifest_hex(&mut output, value.profile_sha256);
+    output.push_str(",\"registry_sha256\":");
+    push_manifest_hex(&mut output, value.registry_sha256);
+    output.push_str(",\"selected_layout_sha256\":");
+    push_manifest_hex(&mut output, value.selected_layout_sha256);
+    output.push('}');
+    output
+}
+
+fn push_manifest_hex(output: &mut String, bytes: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push('"');
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output.push('"');
+}
+
 /// Closed set of selected-layout facts consumed by machine manifest
 /// publication. Grouping these phase-owned values keeps the publication API
 /// explicit without allowing callers to insert manifest records directly.
@@ -752,6 +1050,7 @@ fn staging_table_manifest_cell(
 pub struct StagingMachineLayoutFacts {
     flow_registry_sha256: Option<[u8; 32]>,
     table_layouts: Vec<StagingTableLayoutFacts>,
+    footnote_layout: Option<StagingFootnoteLayoutFacts>,
 }
 
 impl StagingMachineLayoutFacts {
@@ -762,7 +1061,13 @@ impl StagingMachineLayoutFacts {
         Self {
             flow_registry_sha256,
             table_layouts,
+            footnote_layout: None,
         }
+    }
+
+    pub fn with_footnote(mut self, footnote: StagingFootnoteLayoutFacts) -> Self {
+        self.footnote_layout = Some(footnote);
+        self
     }
 
     pub const fn flow_registry_sha256(&self) -> Option<[u8; 32]> {
@@ -773,8 +1078,22 @@ impl StagingMachineLayoutFacts {
         &self.table_layouts
     }
 
-    fn into_parts(self) -> (Option<[u8; 32]>, Vec<StagingTableLayoutFacts>) {
-        (self.flow_registry_sha256, self.table_layouts)
+    pub const fn footnote_layout(&self) -> Option<&StagingFootnoteLayoutFacts> {
+        self.footnote_layout.as_ref()
+    }
+
+    fn into_parts(
+        self,
+    ) -> (
+        Option<[u8; 32]>,
+        Vec<StagingTableLayoutFacts>,
+        Option<StagingFootnoteLayoutFacts>,
+    ) {
+        (
+            self.flow_registry_sha256,
+            self.table_layouts,
+            self.footnote_layout,
+        )
     }
 }
 
@@ -2254,6 +2573,7 @@ pub struct BuildManifest {
     layout: Option<LayoutRecord>,
     output: Option<OutputRecord>,
     table_layouts: Vec<StagingTableLayoutFacts>,
+    footnote_layout: Option<StagingFootnoteLayoutFacts>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3019,7 +3339,13 @@ impl ManifestPublicationContext {
         if self.input_profile.machine_profile() != Some(capability.profile()) {
             return Err(BuildManifestError::InputProfileMismatch);
         }
-        Self::validate_machine_table_layout_facts(package, capability, &layout_facts)?;
+        Self::validate_machine_table_layout_facts(
+            package,
+            capability,
+            pagination,
+            &layout_facts,
+            &pdf,
+        )?;
         let base_page_count = u32::try_from(pagination.selected_pages().len())
             .map_err(|_| BuildManifestError::PageLimit)?;
         let expected_page_count = if capability.profile() == MachinePdfProfileId::TABLE_1 {
@@ -3030,6 +3356,15 @@ impl ManifestPublicationContext {
                 .max()
                 .unwrap_or(base_page_count)
                 .max(base_page_count)
+        } else if capability.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+            u32::try_from(
+                layout_facts
+                    .footnote_layout()
+                    .ok_or(BuildManifestError::MachineCapabilityMismatch)?
+                    .pages()
+                    .len(),
+            )
+            .map_err(|_| BuildManifestError::PageLimit)?
         } else {
             if !layout_facts.table_layouts().is_empty() {
                 return Err(BuildManifestError::MachineCapabilityMismatch);
@@ -3074,8 +3409,32 @@ impl ManifestPublicationContext {
     fn validate_machine_table_layout_facts(
         package: &ValidatedMachinePackage,
         capability: &MachinePdfPreflightReceipt,
+        pagination: &PaginationResult,
         layout_facts: &StagingMachineLayoutFacts,
+        pdf: &VerifiedPdfBytesReceipt,
     ) -> Result<(), BuildManifestError> {
+        if capability.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+            let footnote = layout_facts
+                .footnote_layout()
+                .ok_or(BuildManifestError::MachineCapabilityMismatch)?;
+            return if layout_facts.table_layouts().is_empty()
+                && footnote.body_layout_sha256() == pagination.final_fingerprint().bytes()
+                && pdf.footnote_display_sha256() == Some(footnote.paint_sha256())
+                && footnote.pages().len() == pagination.selected_pages().len()
+                && footnote
+                    .pages()
+                    .iter()
+                    .enumerate()
+                    .all(|(index, page)| page.page_index() as usize == index)
+            {
+                Ok(())
+            } else {
+                Err(BuildManifestError::MachineCapabilityMismatch)
+            };
+        }
+        if layout_facts.footnote_layout().is_some() || pdf.footnote_display_sha256().is_some() {
+            return Err(BuildManifestError::MachineCapabilityMismatch);
+        }
         if capability.profile() != MachinePdfProfileId::TABLE_1 {
             return if layout_facts.table_layouts().is_empty() {
                 Ok(())
@@ -4669,6 +5028,7 @@ impl BuildManifest {
         layout: Option<LayoutRecord>,
         output: Option<OutputRecord>,
         table_layouts: Vec<StagingTableLayoutFacts>,
+        footnote_layout: Option<StagingFootnoteLayoutFacts>,
     ) -> Self {
         Self {
             contract: CONTRACT.to_owned(),
@@ -4687,6 +5047,7 @@ impl BuildManifest {
             layout,
             output,
             table_layouts,
+            footnote_layout,
         }
     }
 
@@ -4738,6 +5099,9 @@ impl BuildManifest {
     pub fn table_layouts(&self) -> &[StagingTableLayoutFacts] {
         &self.table_layouts
     }
+    pub const fn footnote_layout(&self) -> Option<&StagingFootnoteLayoutFacts> {
+        self.footnote_layout.as_ref()
+    }
 
     fn to_canonical_json_bytes(&self) -> Vec<u8> {
         canonical_manifest_json(self).into_bytes()
@@ -4781,6 +5145,7 @@ impl BuildManifest {
             }
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
@@ -4790,6 +5155,7 @@ impl BuildManifest {
                 && self.inputs.len() == 1 => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
@@ -4797,6 +5163,7 @@ impl BuildManifest {
             ) => return Err(BuildManifestError::MachinePackageMismatch),
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
@@ -4804,6 +5171,7 @@ impl BuildManifest {
             ) if package.contract.is_some() == package.canonical_sha256.is_some() => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
@@ -4811,6 +5179,7 @@ impl BuildManifest {
             ) => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
@@ -4842,6 +5211,7 @@ impl BuildManifest {
                     }
                 }
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfTable1 => {
                     let layout = self
                         .layout
@@ -5011,6 +5381,27 @@ impl BuildManifest {
             }
         }
         match (self.input_profile, self.status) {
+            (BuildInputProfile::MachinePdfFootnote1, BuildStatus::Built) => {
+                let footnote = self
+                    .footnote_layout
+                    .as_ref()
+                    .ok_or(BuildManifestError::MachineCapabilityMismatch)?;
+                let output_pages = self
+                    .output
+                    .as_ref()
+                    .map(|output| output.page_count as usize)
+                    .ok_or(BuildManifestError::BuiltRequiresLayoutAndOutput)?;
+                if !self.table_layouts.is_empty()
+                    || footnote.pages().len() != output_pages
+                    || footnote
+                        .pages()
+                        .iter()
+                        .enumerate()
+                        .any(|(index, page)| page.page_index() as usize != index)
+                {
+                    return Err(BuildManifestError::MachineCapabilityMismatch);
+                }
+            }
             (BuildInputProfile::MachinePdfTable1, BuildStatus::Built) => {
                 let output_pages = self
                     .output
@@ -5030,7 +5421,7 @@ impl BuildManifest {
                     return Err(BuildManifestError::MachineCapabilityMismatch);
                 }
             }
-            _ if !self.table_layouts.is_empty() => {
+            _ if !self.table_layouts.is_empty() || self.footnote_layout.is_some() => {
                 return Err(BuildManifestError::MachineCapabilityMismatch)
             }
             _ => {}
@@ -5054,6 +5445,18 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     push_engine_json(&mut json, &manifest.engine);
     push_json_member_name(&mut json, "fonts", false);
     push_fonts_json(&mut json, &manifest.fonts);
+    if manifest.input_profile == BuildInputProfile::MachinePdfFootnote1
+        && manifest.status == BuildStatus::Built
+    {
+        push_json_member_name(&mut json, "footnote_layout", false);
+        json.push_str(
+            manifest
+                .footnote_layout
+                .as_ref()
+                .expect("validated footnote manifest requires layout facts")
+                .canonical_jcs(),
+        );
+    }
     push_json_member_name(&mut json, "images", false);
     push_images_json(&mut json, &manifest.images);
     push_json_member_name(&mut json, "input_profile", false);
@@ -5620,6 +6023,7 @@ fn prepare_built_manifest(
         Some(layout),
         Some(output),
         Vec::new(),
+        None,
     );
     ValidatedBuildManifest::new(
         manifest,
@@ -5641,7 +6045,7 @@ fn prepare_machine_built_manifest(
     }
     let layout = layout_record_for(publication, pagination)?
         .bind_machine_capability(capability, layout_facts.flow_registry_sha256())?;
-    let (_, table_layouts) = layout_facts.into_parts();
+    let (_, table_layouts, footnote_layout) = layout_facts.into_parts();
     let base_page_count = u32::try_from(pagination.selected_pages().len())
         .map_err(|_| BuildManifestError::PageLimit)?;
     let page_count = if capability.profile() == MachinePdfProfileId::TABLE_1 {
@@ -5651,6 +6055,15 @@ fn prepare_machine_built_manifest(
             .max()
             .unwrap_or(base_page_count)
             .max(base_page_count)
+    } else if capability.profile() == MachinePdfProfileId::FOOTNOTE_1 {
+        u32::try_from(
+            footnote_layout
+                .as_ref()
+                .ok_or(BuildManifestError::MachineCapabilityMismatch)?
+                .pages()
+                .len(),
+        )
+        .map_err(|_| BuildManifestError::PageLimit)?
     } else {
         base_page_count
     };
@@ -5681,6 +6094,7 @@ fn prepare_machine_built_manifest(
         Some(layout),
         Some(output),
         table_layouts,
+        footnote_layout,
     );
     let validated = ValidatedBuildManifest::new(
         manifest,
@@ -5736,6 +6150,7 @@ impl ValidatedBuildManifest {
             layout,
             None,
             Vec::new(),
+            None,
         );
         Self::new(
             manifest,
@@ -6136,6 +6551,7 @@ mod tests {
             layout: None,
             output: None,
             table_layouts: Vec::new(),
+            footnote_layout: None,
         }
     }
 

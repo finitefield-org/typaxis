@@ -1594,7 +1594,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-07 Footnote continuation、paint closure、profileを公開する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-06
 - Design inputs: docs/25 §8 M3、§13.3 footnote
 - Primary files:
@@ -1631,6 +1631,11 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf footnote --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_footnote --locked`
   - `python3 tools/verify_machine_profile.py --repository . --matrix samples/machine-package/matrices/m3-footnote.json --runs 2 --require-external-tools`
+- Implementation notes (2026-08-28, Linux):
+  - immutable public `typaxis.machine-pdf/footnote-1` descriptorをcanonical 4-profile registry、CLI help/dispatch、capability Schema/snapshotへ追加した。raw 1.2だけを受理し、complete M2 domainへbody/list-item/caption reference、Document-owned paragraph/heading definition、bounded Footnote frameだけを加える。default `paragraph-1`とolder profileの受理集合は変更していない。
+  - selected layout sealは専用`StagingFootnoteCarryReceipt`のFootnoteFlowId/source/target/next cursorをpageごとに再検証し、body terminalを保持したcarry-only pageを許可する一方、missing/duplicate/wrong-page definition paintと未解決carryを拒否する。Displayはbody reference marker、fixed separator、first-reference順definition fragmentをexact command indexへ閉じ、definition内anchor/page-reference/linkをnamed destination/annotationへ継承する。frozen PDF graphとserialized-byte receiptは同じbody/selected/paint hashとmarker/separator/definition command countを保持する。
+  - conditional `machine-footnote-manifest.schema.json`をcurrent/versioned 1.2 registryへ追加し、built `footnote-1`だけに同一のtrace/manifest `footnote_layout`を必須化した。zero-reference fixtureとcomplete M2 combined fixtureを`m3-footnote.json`へ登録し、combinedはcatalog順`a,z`とfirst-reference順`z,a`、repeat、heading/paragraph、anchor/page-reference/soft・hard break/internal link、2 carry edge、3 page目のcarry-only paintを同時に検査する。older artifactはmember不在を維持する。
+  - 指定3 focused Cargo test、Schema validator、2-run external PDF/raster/text/separator/reproducibility verifier、locked workspace all-target test/check、workspace clippy `-D warnings`、format/diff checkをlocalで成功させた。current alias/versioned 1.2 DocumentPackage SchemaはともにSHA-256 `de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままである。
 - Non-goals:
   - semantic tagging of notes
 

@@ -250,6 +250,10 @@ flow_fingerprint_type!(
     FootnotePageEvaluationFingerprint,
     "typaxis.footnote-page-evaluation/1"
 );
+flow_fingerprint_type!(
+    FootnoteSelectedLayoutFingerprint,
+    "typaxis.footnote-selected-layout/1"
+);
 
 pub fn flow_registry_fingerprint_from_jcs(canonical_jcs: &str) -> FlowRegistryFingerprint {
     FlowRegistryFingerprint::from_canonical_jcs(canonical_jcs)
@@ -281,6 +285,12 @@ pub fn footnote_page_evaluation_fingerprint_from_jcs(
     canonical_jcs: &str,
 ) -> FootnotePageEvaluationFingerprint {
     FootnotePageEvaluationFingerprint::from_canonical_jcs(canonical_jcs)
+}
+
+pub fn footnote_selected_layout_fingerprint_from_jcs(
+    canonical_jcs: &str,
+) -> FootnoteSelectedLayoutFingerprint {
+    FootnoteSelectedLayoutFingerprint::from_canonical_jcs(canonical_jcs)
 }
 
 /// Canonical definition binding shared by layout and pagination receipts.
@@ -1355,9 +1365,22 @@ impl PreparedMachineStyleFonts {
                         .map_err(MachineStyleFontPreparationError::GeneratedText)?
                 }
             };
-            let computed = parsed
-                .cascade_style(text.site_owner())
-                .map_err(MachineStyleFontPreparationError::Style)?;
+            let computed = match parsed.cascade_style(text.site_owner()) {
+                Ok(computed) => computed,
+                Err(PackageStyleError::UnknownStyleOwner)
+                    if text.style_owner() != text.site_owner()
+                        && matches!(
+                            source,
+                            MachineTextSiteSource::Generated(key)
+                                if key.generation_kind() == GenerationKind::FootnoteMarker
+                        ) =>
+                {
+                    parsed
+                        .cascade_footnote_marker_style(text.site_owner())
+                        .map_err(MachineStyleFontPreparationError::Style)?
+                }
+                Err(error) => return Err(MachineStyleFontPreparationError::Style(error)),
+            };
             let resolved = ResolvedLayoutTextStyle::new(parsed, &computed, admitted)
                 .map_err(MachineStyleFontPreparationError::LayoutStyle)?;
             drafts.push((

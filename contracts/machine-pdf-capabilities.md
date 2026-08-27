@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), and [ADR-0030](../adr/ADR-0030-footnote-profile.md). The first three are implemented, public, and release-gated. `footnote-1` is contract-defined only and remains absent from every public runtime and capability-advertisement surface until MI3-07.
+This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), and [ADR-0030](../adr/ADR-0030-footnote-profile.md). All four are implemented, public, and release-gated.
 
 ## Status axes
 
@@ -9,7 +9,7 @@ This document records the normative closed machine-PDF profiles adopted by [ADR-
 | `paragraph-1` | Yes, ADR-0027 | Yes | Yes | Yes |
 | `basic-document-1` | Yes, ADR-0028 | Yes | Yes | Yes |
 | `table-1` | Yes, ADR-0029 | Yes | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
-| `footnote-1` | Yes, ADR-0030 | No, MI3-06/MI3-07 pending | No, unknown profile | No, MI3-07 gate |
+| `footnote-1` | Yes, ADR-0030 | Yes: discovery, reflow, carry, paint, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-07 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -58,7 +58,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns the closed public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, and `TABLE_1` descriptors. ADR-0030 defines `FOOTNOTE_1` as a target, not a current descriptor; only MI3-07 may add it to this owner and the public registry. The implementation must derive all of the following from the descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns the closed public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, `FOOTNOTE_1`, and `TABLE_1` descriptors. The implementation derives all of the following from the descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -241,13 +241,11 @@ Contract 1.2 and current DocumentPackage Schema bytes remain unchanged. A future
 implementation needing a new wire/style field requires a separate contract
 migration and profile rather than changing this profile or contract in place.
 
-## Contract-defined M3 target: `footnote-1`
+## Public M3 profile: `footnote-1`
 
-`typaxis.machine-pdf/footnote-1` is the immutable contract 1.2 target adopted
-by ADR-0030. It is not a current descriptor, public profile, implementation, or
-release claim. Before MI3-07, explicit selection is an unknown-profile usage
-error, the current capability artifact remains unchanged, and
-`paragraph-1` remains the default.
+`typaxis.machine-pdf/footnote-1` is the immutable contract 1.2 profile adopted
+by ADR-0030 and published by MI3-07. It is present in the current descriptor,
+CLI, capability artifact, and release gate; `paragraph-1` remains the default.
 
 The target preserves the complete `basic-document-1` content, style, resource,
 and PDF domain outside its reference/definition/master-region deltas and adds
@@ -339,15 +337,14 @@ reference markers), the single separator, then carry/new definition fragments
 in assignment order. Missing, extra, duplicate, wrong-owner/order/cursor/page/
 reservation/paint facts are `I9190` before publication.
 
-MI3-07 may publish the profile only after bidirectional descriptor/fixture
-coverage; zero/one/multiple/repeat/unreferenced/empty/split/carry/oversize and
-all accepted definition block/inline/style (including link/page-reference)
-closure; exact/max/max+1 gates; receipt and artifact tamper negatives; a
-combined all-footnote-plus-M2 `m3-footnote.json` fixture; external
-PDF/raster/text-order, determinism, and documented-host evidence; and
-old-profile rejection goldens all pass. Contract 1.2 and DocumentPackage
-Schema bytes must remain unchanged. Any needed wire/style field first requires
-a separate migration and new profile.
+MI3-07 closed the publication gate with bidirectional descriptor/fixture
+coverage; zero/one/multiple/repeat/unreferenced/empty/split/multi-page carry,
+carry-only page, oversize, definition heading/paragraph and complete accepted
+inline closure; receipt/paint tamper negatives; the complete-M2
+`m3-footnote.json` fixture; external PDF/raster/text-order, two-run
+determinism, documented-host evidence, and old-profile rejection. Contract
+1.2 and DocumentPackage Schema bytes remain unchanged. Any needed wire/style
+field first requires a separate migration and new profile.
 
 ## Compatible changes
 
@@ -381,13 +378,12 @@ semantics, fixtures, and migration rule before implementation begins.
 ## Contract and release gating
 
 The public capability artifact and current Schema use `typaxis.contract/1.2`.
-Its profile array is exactly `basic-document-1`, then `paragraph-1`, then
-`table-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the
+Its profile array is exactly `basic-document-1`, `footnote-1`, `paragraph-1`,
+then `table-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the
 complete former 1.1 registry and published
 `samples/machine-package/matrices/m2-basic.json`; MI3-04 published the table
 descriptor and `samples/machine-package/matrices/m3-table.json` without
-changing DocumentPackage Schema bytes. ADR-0030 does not change this surface;
-MI3-07 alone may change the array to `basic-document-1`, `footnote-1`,
-`paragraph-1`, `table-1` and add `m3-footnote.json` after its complete gate;
-the default remains `paragraph-1`. Future features may not broaden any public
-profile in place.
+changing DocumentPackage Schema bytes. MI3-07 subsequently published the
+footnote descriptor and `samples/machine-package/matrices/m3-footnote.json`
+on the same wire; the default remains `paragraph-1`. Future features may not
+broaden any public profile in place.

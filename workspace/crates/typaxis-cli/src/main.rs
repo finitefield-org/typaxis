@@ -296,6 +296,7 @@ fn run_build_package_with_host(
         }
     }
     let table_layouts_for_trace = layout.table_manifest_facts()?;
+    let footnote_layout_for_trace = layout.footnote_manifest_facts(&package, &config)?;
     let trace_json = match options.trace.as_ref() {
         Some(_) => match artifacts::machine_layout_trace_json(
             layout.flow(),
@@ -307,6 +308,7 @@ fn run_build_package_with_host(
                 &receipt,
                 layout.flow_registry_sha256(),
                 &table_layouts_for_trace,
+                footnote_layout_for_trace.as_ref(),
             ),
         ) {
             Ok(trace) => Some(trace),
@@ -352,6 +354,7 @@ fn run_build_package_with_host(
                     let pdf = typaxis_pdf::PdfBackend::serialize(graph.clone(), &config)
                         .map_err(map_machine_pdf_error)?;
                     pipeline::validate_machine_table_pdf_closure(&layout, &graph, &pdf)?;
+                    pipeline::validate_machine_footnote_pdf_closure(&layout, &graph, &pdf)?;
                     Ok(pdf)
                 },
             )
@@ -386,6 +389,7 @@ fn run_build_package_with_host(
         &package,
         &receipt,
         &layout,
+        &config,
         pdf,
         trace_json.as_deref(),
         sidecar_read,
@@ -1380,6 +1384,7 @@ fn publish_machine_success(
     package: &ValidatedMachinePackage,
     receipt: &typaxis_machine_profile::MachinePdfPreflightReceipt,
     layout: &pipeline::MachineParagraphLayout,
+    config: &EffectiveConfig,
     pdf: typaxis_pdf::VerifiedPdfBytesReceipt,
     trace_json: Option<&str>,
     sidecar_read: PublicationReadLedgerToken,
@@ -1390,12 +1395,18 @@ fn publish_machine_success(
         Some(publication) => {
             drop(terminal_read);
             let table_layouts = layout.table_manifest_facts()?;
+            let footnote_layout = layout.footnote_manifest_facts(package, config)?;
+            let mut layout_facts =
+                StagingMachineLayoutFacts::new(layout.flow_registry_sha256(), table_layouts);
+            if let Some(footnote_layout) = footnote_layout {
+                layout_facts = layout_facts.with_footnote(footnote_layout);
+            }
             let prepared = match publication.prepare_machine_built(
                 package,
                 receipt,
                 layout.preparation().admitted().token(),
                 layout.pagination(),
-                StagingMachineLayoutFacts::new(layout.flow_registry_sha256(), table_layouts),
+                layout_facts,
                 pdf,
             ) {
                 Ok(prepared) => prepared,

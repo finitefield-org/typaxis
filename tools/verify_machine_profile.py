@@ -58,6 +58,7 @@ REQUIRED_CHECKS = {
 REQUIRED_TOOLS = {"cargo", "mutool", "pdfinfo", "pdftotext", "python", "rustc"}
 PUBLIC_PROFILES = {
     "typaxis.machine-pdf/basic-document-1",
+    "typaxis.machine-pdf/footnote-1",
     "typaxis.machine-pdf/paragraph-1",
     "typaxis.machine-pdf/table-1",
 }
@@ -336,6 +337,7 @@ def _assert_profile_receipt_closure(
         raise MachineProfileError("flow registry differs between trace and manifest")
     if profile in {
         "typaxis.machine-pdf/basic-document-1",
+        "typaxis.machine-pdf/footnote-1",
         "typaxis.machine-pdf/table-1",
     }:
         if not isinstance(manifest_flow, str) or len(manifest_flow) != 64:
@@ -351,6 +353,205 @@ def _assert_profile_receipt_closure(
             raise MachineProfileError("table-1 lacks selected table layout facts")
     elif manifest_tables is not None or trace_tables is not None:
         raise MachineProfileError("an older profile unexpectedly carries table layout facts")
+    manifest_footnotes = manifest.get("footnote_layout")
+    trace_footnotes = trace.get("footnote_layout")
+    if manifest_footnotes != trace_footnotes:
+        raise MachineProfileError("footnote selected state differs between trace and manifest")
+    if profile == "typaxis.machine-pdf/footnote-1":
+        if not isinstance(manifest_footnotes, dict):
+            raise MachineProfileError("footnote-1 lacks selected footnote layout facts")
+    elif manifest_footnotes is not None or trace_footnotes is not None:
+        raise MachineProfileError("an older profile unexpectedly carries footnote layout facts")
+
+
+def _assert_footnote_layout_facts(
+    expected: dict[str, Any], manifest: dict[str, Any], trace: dict[str, Any]
+) -> None:
+    if expected.get("profile") != "typaxis.machine-pdf/footnote-1":
+        return
+    facts = manifest.get("footnote_layout")
+    layout = manifest.get("layout")
+    output = manifest.get("output")
+    pages = facts.get("pages") if isinstance(facts, dict) else None
+    page_count = output.get("page_count") if isinstance(output, dict) else None
+    if (
+        not isinstance(facts, dict)
+        or facts.get("algorithm") != "typaxis.footnote-manifest/1"
+        or not isinstance(layout, dict)
+        or not isinstance(pages, list)
+        or not pages
+        or type(page_count) is not int
+        or len(pages) != page_count
+        or facts.get("body_layout_sha256") != layout.get("final_fingerprint")
+    ):
+        raise MachineProfileError("footnote body/page selected-state closure is incomplete")
+    for key in (
+        "body_layout_sha256",
+        "paint_sha256",
+        "profile_sha256",
+        "registry_sha256",
+        "selected_layout_sha256",
+    ):
+        if not isinstance(facts.get(key), str) or len(facts[key]) != 64:
+            raise MachineProfileError(f"footnote layout lacks a canonical {key} binding")
+
+    selected_state = trace.get("result", {}).get("selected_state")
+    trace_passes = trace.get("passes")
+    if (
+        type(selected_state) is not int
+        or not isinstance(trace_passes, list)
+        or selected_state < 1
+        or selected_state > len(trace_passes)
+    ):
+        raise MachineProfileError("footnote trace lacks its selected body pass")
+    selected_pages = trace_passes[selected_state - 1].get("state", {}).get("pages")
+    if not isinstance(selected_pages, list) or len(selected_pages) != len(pages):
+        raise MachineProfileError("footnote trace/body page counts differ")
+
+    next_assignment = 0
+    flow_state: dict[int, tuple[str, int, int, int, bool]] = {}
+    footnote_flows: dict[str, int] = {}
+    assignment_flows: dict[int, int] = {}
+    previous_body_position = -1
+    previous_body_terminal = False
+    for page_index, page in enumerate(pages):
+        selected_page = selected_pages[page_index]
+        if not isinstance(page, dict) or not isinstance(selected_page, dict):
+            raise MachineProfileError("footnote page fact is not an object")
+        ordered = page.get("ordered_footnote_ids")
+        flows = page.get("flows")
+        reservation = page.get("reservation")
+        body_position = page.get("body_continuation_position")
+        body_terminal = page.get("body_continuation_terminal")
+        if (
+            page.get("page_index") != page_index
+            or type(body_position) is not int
+            or body_position < 0
+            or type(body_terminal) is not bool
+            or body_position < previous_body_position
+            or (previous_body_terminal and body_position != previous_body_position)
+            or not isinstance(page.get("body_fingerprint"), str)
+            or len(page["body_fingerprint"]) != 64
+            or type(page.get("evaluation_count")) is not int
+            or page["evaluation_count"] < 2
+            or not isinstance(ordered, list)
+            or not all(isinstance(item, str) for item in ordered)
+            or len(ordered) != len(set(ordered))
+            or not isinstance(flows, list)
+            or len(flows) != len(ordered)
+            or type(reservation) is not int
+            or reservation < 0
+            or (reservation == 0) != (not flows)
+            or selected_page.get("page_index") != page_index
+        ):
+            raise MachineProfileError("footnote page order/reservation facts are invalid")
+        selected_ids = selected_page.get("footnote_ids")
+        if (
+            not isinstance(selected_ids, list)
+            or selected_ids
+            != sorted(selected_ids, key=lambda item: item.encode("utf-8"))
+            or len(selected_ids) != len(set(selected_ids))
+            or selected_ids
+            != sorted(ordered, key=lambda item: item.encode("utf-8"))
+        ):
+            raise MachineProfileError("footnote trace ID projection is not canonical")
+        frames = selected_page.get("frames")
+        body_entry = (
+            frames[0]
+            if isinstance(frames, list) and frames and isinstance(frames[0], dict)
+            else None
+        )
+        body_frame = body_entry.get("bounds") if isinstance(body_entry, dict) else None
+        if (
+            not isinstance(frames, list)
+            or len(frames) != (1 if reservation == 0 else 2)
+            or not isinstance(body_entry, dict)
+            or body_entry.get("kind") != "body"
+            or not isinstance(body_frame, dict)
+        ):
+            raise MachineProfileError("footnote trace frame set contradicts reservation")
+        if reservation > 0:
+            footnote_entry = frames[1]
+            footnote_frame = (
+                footnote_entry.get("bounds")
+                if isinstance(footnote_entry, dict)
+                else None
+            )
+            if (
+                not isinstance(footnote_entry, dict)
+                or footnote_entry.get("kind") != "footnote"
+                or not isinstance(footnote_frame, dict)
+                or footnote_frame.get("height") != reservation
+                or footnote_frame.get("x") != body_frame.get("x")
+                or footnote_frame.get("width") != body_frame.get("width")
+                or type(footnote_frame.get("y")) is not int
+                or type(body_frame.get("y")) is not int
+                or type(body_frame.get("height")) is not int
+                or footnote_frame["y"] + reservation
+                != body_frame["y"] + body_frame["height"]
+            ):
+                raise MachineProfileError("footnote trace frame geometry is not exact")
+        previous_assignment = -1
+        for footnote_id, flow in zip(ordered, flows):
+            if not isinstance(flow, dict) or flow.get("footnote_id") != footnote_id:
+                raise MachineProfileError("footnote flow/ID paint order differs")
+            flow_id = flow.get("flow_id")
+            assignment = flow.get("assignment_ordinal")
+            before = flow.get("before_fragment")
+            after = flow.get("after_fragment")
+            incoming = flow.get("incoming_source_page")
+            carries = flow.get("carries_out")
+            if (
+                type(flow_id) is not int
+                or flow_id < 0
+                or type(assignment) is not int
+                or assignment <= previous_assignment
+                or type(before) is not int
+                or type(after) is not int
+                or before < 0
+                or after <= before
+                or type(carries) is not bool
+                or (incoming is not None and type(incoming) is not int)
+            ):
+                raise MachineProfileError("footnote cursor/assignment fact is invalid")
+            previous_assignment = assignment
+            prior = flow_state.get(flow_id)
+            if prior is None:
+                if (
+                    incoming is not None
+                    or before != 0
+                    or assignment != next_assignment
+                    or footnote_id in footnote_flows
+                    or assignment in assignment_flows
+                ):
+                    raise MachineProfileError("new footnote assignment is not dense or initial")
+                footnote_flows[footnote_id] = flow_id
+                assignment_flows[assignment] = flow_id
+                next_assignment += 1
+            else:
+                prior_id, prior_assignment, prior_after, prior_page, prior_carries = prior
+                if (
+                    footnote_id != prior_id
+                    or assignment != prior_assignment
+                    or not prior_carries
+                    or incoming != prior_page
+                    or page_index != prior_page + 1
+                    or before != prior_after
+                ):
+                    raise MachineProfileError("footnote carry edge is missing, stale, or reordered")
+            flow_state[flow_id] = (footnote_id, assignment, after, page_index, carries)
+        if [flow.get("assignment_ordinal") for flow in flows] != sorted(
+            flow.get("assignment_ordinal") for flow in flows
+        ):
+            raise MachineProfileError("footnote page assignment order is not canonical")
+        previous_body_position = body_position
+        previous_body_terminal = body_terminal
+    if not previous_body_terminal:
+        raise MachineProfileError("footnote selected state ends before the body terminal")
+    if any(state[4] for state in flow_state.values()):
+        raise MachineProfileError("footnote selected state ends with an unresolved carry")
+    if set(flow_state) != set(range(len(flow_state))):
+        raise MachineProfileError("footnote flow IDs are not dense")
 
 
 def _assert_table_layout_facts(expected: dict[str, Any], manifest: dict[str, Any]) -> None:
@@ -566,6 +767,39 @@ def _assert_table_zero_decoration(
         raise MachineProfileError("MuPDF trace page count differs from the table expectation")
 
 
+def _assert_footnote_separator_paint(
+    expected: dict[str, Any],
+    manifest: dict[str, Any],
+    pdf: Path,
+    *,
+    repository: Path,
+    environment: Mapping[str, str],
+    mutool: str,
+) -> None:
+    if expected.get("profile") != "typaxis.machine-pdf/footnote-1":
+        return
+    facts = manifest.get("footnote_layout")
+    pages = facts.get("pages") if isinstance(facts, dict) else None
+    if not isinstance(pages, list):
+        raise MachineProfileError("footnote separator check lacks selected page facts")
+    expected_separators = sum(
+        1
+        for page in pages
+        if isinstance(page, dict) and isinstance(page.get("flows"), list) and page["flows"]
+    )
+    trace = _run_capture(
+        [mutool, "draw", "-F", "trace", pdf],
+        cwd=repository,
+        environment=environment,
+    )
+    if (
+        trace.count(b"<stroke_path") != expected_separators
+        or b"<fill_path" in trace
+        or b"<clip_path" in trace
+    ):
+        raise MachineProfileError("footnote PDF separator paint count/policy differs")
+
+
 def _verify_fixture(
     repository: Path,
     expected_path: Path,
@@ -627,6 +861,7 @@ def _verify_fixture(
             raise MachineProfileError("machine trace or manifest root is not an object")
         _assert_profile_receipt_closure(expected, manifest, trace)
         _assert_table_layout_facts(expected, manifest)
+        _assert_footnote_layout_facts(expected, manifest, trace)
         run_directories.append(output)
         run_artifacts.append(artifacts)
 
@@ -672,6 +907,14 @@ def _verify_fixture(
     for directory in run_directories:
         _assert_table_zero_decoration(
             expected,
+            directory / "output.pdf",
+            repository=repository,
+            environment=environment,
+            mutool=mutool,
+        )
+        _assert_footnote_separator_paint(
+            expected,
+            _load_json(directory / "manifest.json"),
             directory / "output.pdf",
             repository=repository,
             environment=environment,

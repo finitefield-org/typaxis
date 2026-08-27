@@ -10,15 +10,16 @@ use typaxis_core::{
 };
 use typaxis_document::{
     Block, ColumnSizing, DocumentNodeKind, FootnoteDefinition, Inline, ListItem, ReferenceFormat,
-    TableCell, TableColumn, TableRow,
+    TableCell, TableColumn, TableRow, ValidatedDocumentNodeIndex,
 };
 pub use typaxis_layout_contract::{
     flow_registry_fingerprint_from_jcs, footnote_flow_registry_fingerprint_from_jcs,
     footnote_page_evaluation_fingerprint_from_jcs, footnote_profile_fingerprint_from_jcs,
-    multi_flow_selected_state_fingerprint_from_jcs, table_selected_layout_fingerprint_from_jcs,
-    FlowContentKind, FlowId, FlowOwnerKind, FlowRegistryFingerprint, FlowTerminal,
-    FootnoteFlowBinding, FootnoteFlowId, FootnoteFlowRegistryFingerprint, FootnoteFlowTerminal,
-    FootnotePageEvaluationFingerprint, FootnoteProfileFingerprint, LayoutEpoch, LayoutEpochError,
+    footnote_selected_layout_fingerprint_from_jcs, multi_flow_selected_state_fingerprint_from_jcs,
+    table_selected_layout_fingerprint_from_jcs, FlowContentKind, FlowId, FlowOwnerKind,
+    FlowRegistryFingerprint, FlowTerminal, FootnoteFlowBinding, FootnoteFlowId,
+    FootnoteFlowRegistryFingerprint, FootnoteFlowTerminal, FootnotePageEvaluationFingerprint,
+    FootnoteProfileFingerprint, FootnoteSelectedLayoutFingerprint, LayoutEpoch, LayoutEpochError,
     LayoutTextStyleError, MachineGlyphCoverage, MachineStyleFontPreparationError,
     MachineTextSiteSource, MultiFlowSelectedStateFingerprint, PreparedMachineStyleFonts,
     PreparedMachineTextSite, ResolvedLayoutTextStyle, ResolvedTableColumn,
@@ -1313,6 +1314,7 @@ pub struct ValidatedStagingFootnoteDefinitionLayout {
     footnote_id: FootnoteId,
     definition_owner: NodeId,
     fragment_extents: Vec<PositiveLength>,
+    fragment_line_counts: Vec<NonZeroU32>,
 }
 
 impl ValidatedStagingFootnoteDefinitionLayout {
@@ -1335,6 +1337,7 @@ pub struct StagingFootnoteFlow {
     catalog_ordinal: u32,
     block_owners: Vec<NodeId>,
     fragment_extents: Vec<PositiveLength>,
+    fragment_line_counts: Vec<NonZeroU32>,
 }
 
 impl StagingFootnoteFlow {
@@ -1352,6 +1355,13 @@ impl StagingFootnoteFlow {
 
     pub fn fragment_extents(&self) -> &[PositiveLength] {
         &self.fragment_extents
+    }
+
+    /// Number of consecutive shaped definition lines sealed into each
+    /// indivisible fragment. A count greater than one represents a hard
+    /// `keep_with_next` boundary (or a chain of such boundaries).
+    pub fn fragment_line_counts(&self) -> &[NonZeroU32] {
+        &self.fragment_line_counts
     }
 }
 
@@ -1488,6 +1498,20 @@ impl<'a> StagingFootnoteFlowRegistryBuilder<'a> {
         footnote_id: &FootnoteId,
         fragment_extents: Vec<PositiveLength>,
     ) -> Result<ValidatedStagingFootnoteDefinitionLayout, StagingFootnoteRegistryError> {
+        let mut fragment_line_counts = Vec::new();
+        fragment_line_counts
+            .try_reserve_exact(fragment_extents.len())
+            .map_err(|_| StagingFootnoteRegistryError::AllocationFailure)?;
+        fragment_line_counts.resize(fragment_extents.len(), NonZeroU32::MIN);
+        self.issue_definition_with_line_counts(footnote_id, fragment_extents, fragment_line_counts)
+    }
+
+    pub fn issue_definition_with_line_counts(
+        &self,
+        footnote_id: &FootnoteId,
+        fragment_extents: Vec<PositiveLength>,
+        fragment_line_counts: Vec<NonZeroU32>,
+    ) -> Result<ValidatedStagingFootnoteDefinitionLayout, StagingFootnoteRegistryError> {
         let definition = self
             .preflight
             .definitions
@@ -1499,7 +1523,14 @@ impl<'a> StagingFootnoteFlowRegistryBuilder<'a> {
                 footnote_id.clone(),
             ));
         }
-        if fragment_extents.len() < definition.block_owners.len() {
+        let line_count = fragment_line_counts.iter().try_fold(0u64, |total, count| {
+            total.checked_add(u64::from(count.get()))
+        });
+        if fragment_line_counts.len() != fragment_extents.len()
+            || line_count.map_or(true, |count| {
+                count < u64::try_from(definition.block_owners.len()).unwrap_or(u64::MAX)
+            })
+        {
             return Err(StagingFootnoteRegistryError::IncompleteDefinitionFragments(
                 footnote_id.clone(),
             ));
@@ -1515,6 +1546,7 @@ impl<'a> StagingFootnoteFlowRegistryBuilder<'a> {
             footnote_id: footnote_id.clone(),
             definition_owner: definition.definition_owner,
             fragment_extents,
+            fragment_line_counts,
         })
     }
 
@@ -1610,6 +1642,7 @@ impl<'a> StagingFootnoteFlowRegistryBuilder<'a> {
                 catalog_ordinal: expected.catalog_ordinal,
                 block_owners: expected.block_owners.clone(),
                 fragment_extents: measured.fragment_extents,
+                fragment_line_counts: measured.fragment_line_counts,
             });
         }
         if let Some((extra, _)) = registered.first_key_value() {
@@ -1753,6 +1786,13 @@ fn encode_footnote_flow_registry(
                 output.push(',');
             }
             output.push_str(&extent.get().raw().to_string());
+        }
+        output.push_str("],\"fragment_line_counts\":[");
+        for (fragment_index, count) in flow.fragment_line_counts.iter().enumerate() {
+            if fragment_index != 0 {
+                output.push(',');
+            }
+            output.push_str(&count.get().to_string());
         }
         output.push_str("],\"terminal\":");
         output.push_str(&flow.binding.terminal().fragment_count().to_string());
@@ -2311,9 +2351,10 @@ fn derive_expected_flow_model(
     paragraph_items: &ValidatedParagraphItemRegistry,
     epoch: LayoutEpoch,
     limits: &ValidatedResourceLimits,
+    separate_footnote_flows: bool,
 ) -> Result<ExpectedFlowModel, FlowRegistryError> {
     validate_flow_content_epoch(package, paragraph_items, epoch)?;
-    if !package.package().document.footnotes.is_empty() {
+    if !separate_footnote_flows && !package.package().document.footnotes.is_empty() {
         return Err(FlowRegistryError::UnsupportedFlowDomain);
     }
     let table_shapes =
@@ -2670,7 +2711,32 @@ impl<'a> ValidatedFlowContentRegistryBuilder<'a> {
         epoch: LayoutEpoch,
         limits: &ValidatedResourceLimits,
     ) -> Result<Self, FlowRegistryError> {
-        let model = derive_expected_flow_model(package, paragraph_items, epoch, limits)?;
+        Self::new_internal(package, paragraph_items, epoch, limits, false)
+    }
+
+    pub fn new_for_footnote_body(
+        package: &'a ValidatedParsedPackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+        epoch: LayoutEpoch,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<Self, FlowRegistryError> {
+        Self::new_internal(package, paragraph_items, epoch, limits, true)
+    }
+
+    fn new_internal(
+        package: &'a ValidatedParsedPackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+        epoch: LayoutEpoch,
+        limits: &ValidatedResourceLimits,
+        separate_footnote_flows: bool,
+    ) -> Result<Self, FlowRegistryError> {
+        let model = derive_expected_flow_model(
+            package,
+            paragraph_items,
+            epoch,
+            limits,
+            separate_footnote_flows,
+        )?;
         Ok(Self {
             package,
             paragraph_items,
@@ -4541,6 +4607,22 @@ impl<'a> ProductionFlowIrBuilder<'a> {
         })
     }
 
+    pub fn new_for_footnote_body(
+        package: &'a ValidatedParsedPackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+        epoch: LayoutEpoch,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<Self, FlowRegistryError> {
+        Ok(Self {
+            content: ValidatedFlowContentRegistryBuilder::new_for_footnote_body(
+                package,
+                paragraph_items,
+                epoch,
+                limits,
+            )?,
+        })
+    }
+
     pub fn expected_content_owners(&self) -> impl ExactSizeIterator<Item = NodeId> + '_ {
         self.content.expected_content_owners()
     }
@@ -4849,6 +4931,7 @@ pub struct CanonicalFlowIrBuilder<'a> {
     boundaries: Vec<FlowBoundary>,
     inserted_boundaries: std::collections::BTreeMap<NodeId, u32>,
     separate_table_cell_flows: bool,
+    separate_footnote_flows: bool,
 }
 
 impl<'a> CanonicalFlowIrBuilder<'a> {
@@ -4856,7 +4939,24 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
         package: &'a ValidatedParsedPackage,
         paragraph_items: &'a ValidatedParagraphItemRegistry,
     ) -> Result<Self, FlowTreeError> {
-        if !package.package().document.footnotes.is_empty() {
+        Self::new_internal(package, paragraph_items, false)
+    }
+
+    /// Body-flow issuer for ADR-0030. Definition descendants stay exclusively
+    /// in the dedicated FootnoteFlow registry and can never enter this cursor.
+    pub fn new_for_footnote_body(
+        package: &'a ValidatedParsedPackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+    ) -> Result<Self, FlowTreeError> {
+        Self::new_internal(package, paragraph_items, true)
+    }
+
+    fn new_internal(
+        package: &'a ValidatedParsedPackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+        separate_footnote_flows: bool,
+    ) -> Result<Self, FlowTreeError> {
+        if !separate_footnote_flows && !package.package().document.footnotes.is_empty() {
             return Err(FlowTreeError::UnsupportedFlowDomain);
         }
         if paragraph_items.epoch().document() != package.epoch_identity().document()
@@ -4882,6 +4982,7 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
             }],
             inserted_boundaries: std::collections::BTreeMap::new(),
             separate_table_cell_flows: false,
+            separate_footnote_flows,
         })
     }
 
@@ -4974,6 +5075,14 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
         } else {
             std::collections::BTreeSet::new()
         };
+        let footnote_descendants = if self.separate_footnote_flows {
+            footnote_descendant_owners(
+                &self.package.package().document,
+                self.package.document_nodes(),
+            )
+        } else {
+            std::collections::BTreeSet::new()
+        };
         for (node_id, kind) in self.package.document_nodes().nodes() {
             let mut needs_boundary = matches!(
                 kind,
@@ -4991,6 +5100,9 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
                 )
                 && table_cell_descendants.contains(&node_id)
             {
+                needs_boundary = false;
+            }
+            if self.separate_footnote_flows && footnote_descendants.contains(&node_id) {
                 needs_boundary = false;
             }
             if needs_boundary {
@@ -5018,6 +5130,28 @@ impl<'a> CanonicalFlowIrBuilder<'a> {
             Some(self.paragraph_items.clone()),
         )
     }
+}
+
+fn footnote_descendant_owners(
+    document: &typaxis_document::Document,
+    nodes: &ValidatedDocumentNodeIndex,
+) -> std::collections::BTreeSet<NodeId> {
+    let mut owners = std::collections::BTreeSet::new();
+    for definition in &document.footnotes {
+        let Some(path) = nodes.node_path(definition.node_id) else {
+            continue;
+        };
+        for (owner, _) in nodes.nodes() {
+            if owner == definition.node_id
+                || nodes
+                    .node_path(owner)
+                    .is_some_and(|candidate| candidate.starts_with(path))
+            {
+                owners.insert(owner);
+            }
+        }
+    }
+    owners
 }
 
 fn table_cell_descendant_owners(blocks: &[Block]) -> std::collections::BTreeSet<NodeId> {
@@ -5351,6 +5485,34 @@ impl ResolvedPageSelection {
             document: package_selection.document_fingerprint(),
             style: package_selection.style_fingerprint(),
             page_name: package_selection.page_name().cloned(),
+        })
+    }
+
+    /// Holds the terminal body cursor while a dedicated footnote subflow
+    /// advances on a carry-only page. The footnote profile has exactly one
+    /// default master and no selection rules, so no content style may select a
+    /// different page here.
+    pub fn for_footnote_terminal_carry(
+        flow: &FlowTree,
+        cursor: &FlowCursor,
+        package: &ValidatedParsedPackage,
+    ) -> Result<Self, PageStyleResolutionError> {
+        if cursor.epoch() != flow.epoch()
+            || !cursor.is_end()
+            || flow.positions.last() != Some(cursor.position())
+            || flow.epoch().document() != package.epoch_identity().document()
+            || flow.epoch().style() != package.epoch_identity().style()
+        {
+            return Err(PageStyleResolutionError::InvalidCursor);
+        }
+        Ok(Self {
+            page_start: cursor.position().clone(),
+            flow_owner: cursor.owner_node(),
+            content_owner: flow.root_node,
+            style_owner: flow.root_node,
+            document: flow.epoch().document(),
+            style: flow.epoch().style(),
+            page_name: None,
         })
     }
     pub const fn page_start(&self) -> &FlowPosition {
@@ -5702,12 +5864,20 @@ struct ReferenceAnchorPlacement {
     owner_node: NodeId,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReferenceFootnotePlacement {
+    flow_ordinal: u64,
+    reference_owner: NodeId,
+    footnote_id: FootnoteId,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ReferenceLinePlacement {
     start: usize,
     end: usize,
     height: PositiveLength,
     forced_break: bool,
+    keep_with_next: bool,
 }
 
 fn reference_line_height(
@@ -5730,6 +5900,19 @@ fn reference_line_height(
     }
 }
 
+fn reference_keep_with_next(
+    package: &ValidatedParsedPackage,
+    owner: NodeId,
+) -> Result<bool, FragmentError> {
+    let computed = package
+        .cascade_style(owner)
+        .map_err(|_| FragmentError::InvalidFragmentKey)?;
+    computed
+        .computed()
+        .basic_keep_with_next()
+        .map_err(|_| FragmentError::InvalidFragmentKey)
+}
+
 /// Deterministic reference fragmenter for validated top-level paragraphs and
 /// headings. Line ranges come from the paragraph-break receipts retained by
 /// the canonical FlowTree; callers cannot substitute item counts or breaks.
@@ -5737,9 +5920,11 @@ fn reference_line_height(
 pub struct ReferenceFragmenter<'flow> {
     flow: &'flow FlowTree,
     anchors: Vec<ReferenceAnchorPlacement>,
+    footnotes: Vec<ReferenceFootnotePlacement>,
     lines: Vec<ReferenceLinePlacement>,
     legacy_full_frame: bool,
     basic_document: bool,
+    enforce_keep_with_next: bool,
 }
 
 impl<'flow> ReferenceFragmenter<'flow> {
@@ -5886,6 +6071,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                             .ok_or(FragmentError::ArithmeticOverflow)?,
                         height: line_height,
                         forced_break: false,
+                        keep_with_next: false,
                     });
                     previous_item = line.item_index;
                 }
@@ -5898,6 +6084,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                     end: position_index,
                     height: line_height,
                     forced_break: false,
+                    keep_with_next: false,
                 });
             }
             if let Some(anchor_id) = heading_anchor {
@@ -5950,9 +6137,11 @@ impl<'flow> ReferenceFragmenter<'flow> {
         Ok(Self {
             flow,
             anchors,
+            footnotes: Vec::new(),
             lines,
             legacy_full_frame: false,
             basic_document: false,
+            enforce_keep_with_next: false,
         })
     }
 
@@ -5964,7 +6153,25 @@ impl<'flow> ReferenceFragmenter<'flow> {
         package: &ValidatedParsedPackage,
         flow: &'flow FlowTree,
     ) -> Result<Self, FragmentError> {
-        if !package.package().document.footnotes.is_empty()
+        Self::for_basic_document_internal(package, flow, false)
+    }
+
+    /// Footnote-profile body fragmenter. Definition descendants remain outside
+    /// this cursor, while their anchors stay in the complete FlowTree so the
+    /// pagination owner can place them from selected definition fragments.
+    pub fn for_footnote_body(
+        package: &ValidatedParsedPackage,
+        flow: &'flow FlowTree,
+    ) -> Result<Self, FragmentError> {
+        Self::for_basic_document_internal(package, flow, true)
+    }
+
+    fn for_basic_document_internal(
+        package: &ValidatedParsedPackage,
+        flow: &'flow FlowTree,
+        allow_footnotes: bool,
+    ) -> Result<Self, FragmentError> {
+        if (!allow_footnotes && !package.package().document.footnotes.is_empty())
             || flow.epoch.document() != package.epoch_identity().document()
             || flow.epoch.style() != package.epoch_identity().style()
         {
@@ -5990,6 +6197,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
             .map(|block| (basic_block_node_id(block), block))
             .collect();
         let mut anchors = Vec::new();
+        let mut footnotes = Vec::new();
         let mut lines = Vec::new();
         let mut index = 1usize;
         while index < terminal {
@@ -6048,6 +6256,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                                     .ok_or(FragmentError::ArithmeticOverflow)?,
                                 height,
                                 forced_break: false,
+                                keep_with_next: false,
                             });
                             previous = line.item_index;
                         }
@@ -6060,6 +6269,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                             end: paragraph_end,
                             height,
                             forced_break: false,
+                            keep_with_next: false,
                         });
                     }
                     let block = by_owner
@@ -6074,6 +6284,12 @@ impl<'flow> ReferenceFragmenter<'flow> {
                         } => (anchor_id.as_ref(), children.as_slice()),
                         _ => return Err(FragmentError::InvalidFragmentKey),
                     };
+                    if allow_footnotes && reference_keep_with_next(package, owner)? {
+                        lines
+                            .last_mut()
+                            .ok_or(FragmentError::InvalidFragmentKey)?
+                            .keep_with_next = true;
+                    }
                     if let Some(anchor_id) = heading_anchor {
                         anchors.push(ReferenceAnchorPlacement {
                             flow_ordinal: u64::try_from(index)
@@ -6089,6 +6305,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                         u64::try_from(index).map_err(|_| FragmentError::ArithmeticOverflow)?,
                         &mut anchors,
                     )?;
+                    collect_reference_footnotes(children, owner, index, registry, &mut footnotes)?;
                     index = paragraph_end;
                 }
                 Some(FlowBoundaryKind::ListItem) => {
@@ -6099,6 +6316,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                             .ok_or(FragmentError::ArithmeticOverflow)?,
                         height: basic_boundary_height(package, position.owner(), false)?,
                         forced_break: false,
+                        keep_with_next: false,
                     });
                     index = index
                         .checked_add(1)
@@ -6114,6 +6332,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                             .ok_or(FragmentError::ArithmeticOverflow)?,
                         height: basic_boundary_height(package, position.owner(), forced_break)?,
                         forced_break,
+                        keep_with_next: false,
                     });
                     index = index
                         .checked_add(1)
@@ -6135,6 +6354,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                         )
                         .ok_or(FragmentError::ArithmeticOverflow)?,
                         forced_break: false,
+                        keep_with_next: false,
                     });
                     index = index
                         .checked_add(1)
@@ -6143,30 +6363,189 @@ impl<'flow> ReferenceFragmenter<'flow> {
                 _ => return Err(FragmentError::UnsupportedFlowDomain),
             }
         }
+        if allow_footnotes {
+            for list in basic_list_blocks(&package.package().document.blocks) {
+                let owner = basic_block_node_id(list);
+                if !reference_keep_with_next(package, owner)? {
+                    continue;
+                }
+                let path = package
+                    .document_nodes()
+                    .node_path(owner)
+                    .ok_or(FragmentError::InvalidFragmentKey)?;
+                let last_line = lines
+                    .iter()
+                    .rposition(|line| {
+                        flow.positions
+                            .get(line.start)
+                            .is_some_and(|position| position.block_child_path().starts_with(path))
+                    })
+                    .ok_or(FragmentError::InvalidFragmentKey)?;
+                lines[last_line].keep_with_next = true;
+            }
+        }
         anchors.sort_by(|left, right| {
             (left.flow_ordinal, &left.anchor_id).cmp(&(right.flow_ordinal, &right.anchor_id))
         });
+        let footnote_descendants = if allow_footnotes {
+            footnote_descendant_owners(&package.package().document, package.document_nodes())
+        } else {
+            std::collections::BTreeSet::new()
+        };
+        let expected_body_anchors: std::collections::BTreeMap<_, _> = flow
+            .anchors
+            .iter()
+            .filter(|(_, owner)| !footnote_descendants.contains(owner))
+            .map(|(anchor, owner)| (anchor.clone(), *owner))
+            .collect();
         if anchors
             .windows(2)
             .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
-            || anchors.len() != flow.anchors.len()
-            || anchors
-                .iter()
-                .any(|anchor| flow.anchor_owner(&anchor.anchor_id) != Some(anchor.owner_node))
+            || anchors.len() != expected_body_anchors.len()
+            || anchors.iter().any(|anchor| {
+                expected_body_anchors.get(&anchor.anchor_id) != Some(&anchor.owner_node)
+            })
+        {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+        footnotes.sort_by_key(|placement| (placement.flow_ordinal, placement.reference_owner));
+        if footnotes
+            .windows(2)
+            .any(|pair| pair[0].reference_owner == pair[1].reference_owner)
         {
             return Err(FragmentError::InvalidFragmentKey);
         }
         Ok(Self {
             flow,
             anchors,
+            footnotes: if allow_footnotes {
+                footnotes
+            } else {
+                Vec::new()
+            },
             lines,
             legacy_full_frame: false,
             basic_document: true,
+            enforce_keep_with_next: allow_footnotes,
         })
     }
 
     pub fn ends_with_forced_break(&self) -> bool {
         self.basic_document && matches!(self.lines.last(), Some(line) if line.forced_break)
+    }
+
+    /// Reference owners selected by one exact body range. This projects the
+    /// same item-bound placements used for PagePlan footnote IDs, so MI3's
+    /// page evaluator cannot substitute a package-preorder approximation.
+    pub fn footnote_reference_owners_between(
+        &self,
+        start: &FlowPosition,
+        end: &FlowPosition,
+    ) -> Result<Vec<NodeId>, FragmentError> {
+        if !self.flow.contains_position(start)
+            || !self.flow.contains_position(end)
+            || start.cmp_within_epoch(end)? == Ordering::Greater
+        {
+            return Err(FragmentError::InvalidFragmentRange);
+        }
+        Ok(self
+            .footnotes
+            .iter()
+            .filter(|placement| {
+                placement.flow_ordinal >= start.global_flow_ordinal()
+                    && placement.flow_ordinal < end.global_flow_ordinal()
+            })
+            .map(|placement| placement.reference_owner)
+            .collect())
+    }
+
+    /// Returns the greatest selected-fragment cut before one reference while
+    /// preserving every hard body `keep_with_next` boundary. The input must
+    /// be the contiguous candidate emitted by this fragmenter; callers cannot
+    /// nominate a flow position directly.
+    pub fn legal_cut_index_before_reference(
+        &self,
+        fragments: &[FragmentDraft],
+        reference_owner: NodeId,
+    ) -> Result<Option<usize>, FragmentError> {
+        let Some(mut cut_index) = fragments.iter().position(|fragment| {
+            self.footnote_reference_owners_between(fragment.start(), fragment.end())
+                .is_ok_and(|owners| owners.contains(&reference_owner))
+        }) else {
+            return Ok(None);
+        };
+        if !self.enforce_keep_with_next {
+            return Ok(Some(cut_index));
+        }
+        while cut_index != 0 {
+            let previous = &fragments[cut_index - 1];
+            let current = &fragments[cut_index];
+            if previous.end() != current.start() {
+                return Err(FragmentError::InvalidFragmentRange);
+            }
+            let line = self
+                .lines
+                .iter()
+                .find(|line| {
+                    self.flow.positions.get(line.start) == Some(previous.start())
+                        && self.flow.positions.get(line.end) == Some(previous.end())
+                })
+                .ok_or(FragmentError::InvalidFragmentRange)?;
+            if !line.keep_with_next {
+                break;
+            }
+            cut_index -= 1;
+        }
+        Ok(Some(cut_index))
+    }
+
+    /// Reissues body-anchor discoveries for an exact selected range. This is
+    /// used by the footnote page-local owner after a body-cut candidate has
+    /// discarded trailing fragments.
+    pub fn anchors_between(
+        &self,
+        start: &FlowPosition,
+        end: &FlowPosition,
+    ) -> Result<Vec<DiscoveredAnchor>, FragmentError> {
+        if !self.flow.contains_position(start)
+            || !self.flow.contains_position(end)
+            || start.cmp_within_epoch(end)? == Ordering::Greater
+        {
+            return Err(FragmentError::InvalidFragmentRange);
+        }
+        Ok(self
+            .anchors
+            .iter()
+            .filter(|placement| {
+                placement.flow_ordinal >= start.global_flow_ordinal()
+                    && placement.flow_ordinal < end.global_flow_ordinal()
+            })
+            .map(|placement| DiscoveredAnchor {
+                anchor_id: placement.anchor_id.clone(),
+                owner_node: placement.owner_node,
+                position_in_frame: Point {
+                    x: Length::ZERO,
+                    y: Length::ZERO,
+                },
+            })
+            .collect())
+    }
+
+    /// Issues the typed cursor for one package-derived position retained by
+    /// this fragmenter. Callers cannot supply a cursor location tag.
+    pub fn cursor_for_position(
+        &self,
+        position: &FlowPosition,
+    ) -> Result<FlowCursor, FragmentError> {
+        if !self.flow.contains_position(position) {
+            return Err(FragmentError::UnknownFlowPosition);
+        }
+        let index = usize::try_from(position.global_flow_ordinal())
+            .map_err(|_| FragmentError::UnknownFlowPosition)?;
+        if self.flow.positions.get(index) != Some(position) {
+            return Err(FragmentError::UnknownFlowPosition);
+        }
+        self.cursor_at(index)
     }
 
     fn cursor_at(&self, position_index: usize) -> Result<FlowCursor, FragmentError> {
@@ -6281,7 +6660,7 @@ impl Fragmenter for ReferenceFragmenter<'_> {
             .raw()
             .checked_sub(request.reserved_footnote_height().get().raw())
             .ok_or(FragmentError::ArithmeticOverflow)?;
-        let capacity = if self.legacy_full_frame {
+        let mut capacity = if self.legacy_full_frame {
             self.lines.len()
         } else {
             let mut occupied = 0i64;
@@ -6306,6 +6685,14 @@ impl Fragmenter for ReferenceFragmenter<'_> {
             }
             count
         };
+        if self.enforce_keep_with_next {
+            while capacity != 0
+                && first_line + capacity < self.lines.len()
+                && self.lines[first_line + capacity - 1].keep_with_next
+            {
+                capacity -= 1;
+            }
+        }
         if capacity == 0 {
             return Err(FragmentError::Unplaceable);
         }
@@ -6357,6 +6744,17 @@ impl Fragmenter for ReferenceFragmenter<'_> {
                 },
             })
             .collect();
+        let mut discovered_footnotes: Vec<_> = self
+            .footnotes
+            .iter()
+            .filter(|placement| {
+                placement.flow_ordinal >= current_ordinal
+                    && placement.flow_ordinal < continuation_ordinal
+            })
+            .map(|placement| placement.footnote_id.clone())
+            .collect();
+        discovered_footnotes.sort();
+        discovered_footnotes.dedup();
         Ok(FragmentResult {
             fragments,
             continuation: if continuation_index == terminal {
@@ -6364,10 +6762,62 @@ impl Fragmenter for ReferenceFragmenter<'_> {
             } else {
                 Continuation::More(Box::new(self.cursor_at(continuation_index)?))
             },
-            discovered_footnotes: Vec::new(),
+            discovered_footnotes,
             discovered_anchors,
         })
     }
+}
+
+fn collect_reference_footnotes(
+    inlines: &[Inline],
+    paragraph_owner: NodeId,
+    paragraph_start: usize,
+    registry: &ValidatedParagraphItemRegistry,
+    output: &mut Vec<ReferenceFootnotePlacement>,
+) -> Result<(), FragmentError> {
+    for inline in inlines {
+        match inline {
+            Inline::FootnoteReference {
+                node_id,
+                footnote_id,
+                ..
+            } => {
+                let local = registry
+                    .generated_site_first_item_index(
+                        paragraph_owner,
+                        *node_id,
+                        typaxis_core::GenerationKind::FootnoteMarker,
+                    )
+                    .ok_or(FragmentError::InvalidFragmentKey)?;
+                let flow_ordinal = paragraph_start
+                    .checked_add(
+                        usize::try_from(local).map_err(|_| FragmentError::ArithmeticOverflow)?,
+                    )
+                    .and_then(|value| u64::try_from(value).ok())
+                    .ok_or(FragmentError::ArithmeticOverflow)?;
+                output.push(ReferenceFootnotePlacement {
+                    flow_ordinal,
+                    reference_owner: *node_id,
+                    footnote_id: footnote_id.clone(),
+                });
+            }
+            Inline::Emphasis { children, .. }
+            | Inline::Strong { children, .. }
+            | Inline::Link { children, .. } => collect_reference_footnotes(
+                children,
+                paragraph_owner,
+                paragraph_start,
+                registry,
+                output,
+            )?,
+            Inline::Text { .. }
+            | Inline::Anchor { .. }
+            | Inline::Reference { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::HardBreak { .. } => {}
+        }
+    }
+    Ok(())
 }
 
 fn basic_paragraph_blocks(blocks: &[Block]) -> Vec<&Block> {
@@ -6391,6 +6841,29 @@ fn basic_paragraph_blocks(blocks: &[Block]) -> Vec<&Block> {
         }
     }
     paragraphs
+}
+
+fn basic_list_blocks(blocks: &[Block]) -> Vec<&Block> {
+    let mut lists = Vec::new();
+    let mut pending: Vec<&Block> = blocks.iter().rev().collect();
+    while let Some(block) = pending.pop() {
+        match block {
+            Block::List { items, .. } => {
+                lists.push(block);
+                pending.extend(items.iter().rev().flat_map(|item| item.blocks.iter().rev()));
+            }
+            Block::Figure { caption, .. } => pending.extend(caption.iter().rev()),
+            Block::Table { head, body, .. } => pending.extend(
+                body.iter()
+                    .rev()
+                    .chain(head.iter().rev())
+                    .flat_map(|row| row.cells.iter().rev())
+                    .flat_map(|cell| cell.blocks.iter().rev()),
+            ),
+            Block::Paragraph { .. } | Block::Heading { .. } | Block::PageBreak { .. } => {}
+        }
+    }
+    lists
 }
 
 const fn basic_block_node_id(block: &Block) -> NodeId {
@@ -6726,12 +7199,19 @@ mod tests {
                 ids.reverse();
             }
             for id in ids {
-                let fragments = if id.as_str() == "a" {
-                    vec![footnote_extent(10_000)]
+                let measured = if id.as_str() == "a" {
+                    builder
+                        .issue_definition(&id, vec![footnote_extent(10_000)])
+                        .unwrap()
                 } else {
-                    vec![footnote_extent(15_000), footnote_extent(15_000)]
+                    builder
+                        .issue_definition_with_line_counts(
+                            &id,
+                            vec![footnote_extent(30_000)],
+                            vec![NonZeroU32::new(2).unwrap()],
+                        )
+                        .unwrap()
                 };
-                let measured = builder.issue_definition(&id, fragments).unwrap();
                 builder.register(measured).unwrap();
             }
             builder.finish().unwrap()
@@ -6754,7 +7234,11 @@ mod tests {
             forward.flows()[1].binding().flow_id(),
             FootnoteFlowId::new(1)
         );
-        assert_eq!(forward.flows()[1].binding().terminal().fragment_count(), 2);
+        assert_eq!(forward.flows()[1].binding().terminal().fragment_count(), 1);
+        assert_eq!(forward.flows()[1].fragment_line_counts()[0].get(), 2);
+        assert!(forward
+            .canonical_jcs()
+            .contains("\"fragment_line_counts\":[2]"));
     }
 
     #[test]
@@ -6873,6 +7357,12 @@ mod tests {
     }
 
     fn staging_machine_list_package() -> typaxis_syntax::ValidatedStagingStylePackage {
+        staging_machine_list_package_with_keep(false)
+    }
+
+    fn staging_machine_list_package_with_keep(
+        keep_with_next: bool,
+    ) -> typaxis_syntax::ValidatedStagingStylePackage {
         let span = wire::WireSourceSpan {
             source_id: 0,
             start_byte: 0,
@@ -6884,7 +7374,7 @@ mod tests {
             classes: Vec::new(),
             children: Vec::new(),
         };
-        let declarations = vec![
+        let mut declarations = vec![
             wire::WireDeclaration {
                 name: wire::WireDeclarationName::FontFamily,
                 value: wire::WireStyleValue::FontFamilyList {
@@ -6913,6 +7403,13 @@ mod tests {
                 important: false,
             },
         ];
+        if keep_with_next {
+            declarations.push(wire::WireDeclaration {
+                name: wire::WireDeclarationName::KeepWithNext,
+                value: wire::WireStyleValue::Boolean { value: true },
+                important: false,
+            });
+        }
         let package = wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_1,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
@@ -8808,6 +9305,150 @@ mod tests {
         );
         assert_eq!(insufficient.fragment_calls, 1);
         assert_eq!(insufficient.consumed_fragments, 0);
+    }
+
+    #[test]
+    fn footnote_body_fragmenter_moves_a_kept_last_line_with_the_next_first_line() {
+        let package = parsed_reference_package(21, "paragraph\nparagraph\nparagraph");
+        let flow = empty_paragraph_flow(&package);
+        assert_eq!(flow.positions().len(), 5);
+        let fragmenter = ReferenceFragmenter {
+            flow: &flow,
+            anchors: Vec::new(),
+            footnotes: vec![ReferenceFootnotePlacement {
+                flow_ordinal: 3,
+                reference_owner: NodeId::new(99),
+                footnote_id: FootnoteId::new("kept").unwrap(),
+            }],
+            lines: vec![
+                ReferenceLinePlacement {
+                    start: 1,
+                    end: 2,
+                    height: positive(3),
+                    forced_break: false,
+                    keep_with_next: false,
+                },
+                ReferenceLinePlacement {
+                    start: 2,
+                    end: 3,
+                    height: positive(4),
+                    forced_break: false,
+                    keep_with_next: true,
+                },
+                ReferenceLinePlacement {
+                    start: 3,
+                    end: 4,
+                    height: positive(4),
+                    forced_break: false,
+                    keep_with_next: false,
+                },
+            ],
+            legacy_full_frame: false,
+            basic_document: true,
+            enforce_keep_with_next: true,
+        };
+        let start = fragmenter.cursor_at(1).unwrap();
+        let request = FragmentRequest::new(
+            &flow,
+            &start,
+            frame(),
+            NonNegativeLength::ZERO,
+            page_context(&package, &flow, &start),
+        )
+        .unwrap();
+        let mut budget = CountingBudget::new(3);
+        let first = fragmenter.fragment(&request, &mut budget).unwrap();
+        assert_eq!(first.fragments.len(), 1);
+        assert_eq!(first.fragments[0].start(), &flow.positions()[1]);
+        assert_eq!(first.fragments[0].end(), &flow.positions()[2]);
+        let Continuation::More(next) = first.continuation else {
+            panic!("the protected pair must move to the next body frame");
+        };
+
+        let next_request = FragmentRequest::new(
+            &flow,
+            &next,
+            frame(),
+            NonNegativeLength::ZERO,
+            request.page().clone(),
+        )
+        .unwrap();
+        let second = fragmenter.fragment(&next_request, &mut budget).unwrap();
+        assert_eq!(second.fragments.len(), 2);
+        assert_eq!(second.fragments[0].start(), &flow.positions()[2]);
+        assert_eq!(second.fragments[1].end(), &flow.positions()[4]);
+        assert_eq!(
+            second.continuation,
+            Continuation::Exhausted(Box::new(flow.terminal_cursor()))
+        );
+
+        let candidate = (1..4)
+            .map(|index| {
+                FragmentDraft::new(
+                    flow.positions()[index].clone(),
+                    flow.positions()[index + 1].clone(),
+                    frame(),
+                    0,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            fragmenter
+                .legal_cut_index_before_reference(&candidate, NodeId::new(99))
+                .unwrap(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn footnote_body_fragmenter_applies_list_keep_to_each_lists_last_line() {
+        let staging = staging_machine_list_package_with_keep(true);
+        let package = staging.package();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let generated_store = package.materialize_initial_generated_text(&limits).unwrap();
+        let generated = package
+            .bind_generated_text(&generated_store, &limits)
+            .unwrap();
+        let admitted = AdmittedResourceResolver::new(&package.package().resources, &limits)
+            .unwrap()
+            .finish()
+            .unwrap();
+        let package_epoch =
+            LayoutEpoch::from_validated_inputs(generated, admitted.token()).unwrap();
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package, package_epoch).unwrap();
+        let mut builder =
+            CanonicalFlowIrBuilder::new_for_footnote_body(package, &paragraph_items).unwrap();
+        for (node, kind) in package.document_nodes().nodes() {
+            match kind {
+                DocumentNodeKind::Paragraph | DocumentNodeKind::Heading => {
+                    builder.push_paragraph_item(node, 0).unwrap();
+                }
+                DocumentNodeKind::ListItem => builder.push_list_item(node).unwrap(),
+                DocumentNodeKind::Figure | DocumentNodeKind::PageBreak => {
+                    builder.push_block_item(node).unwrap();
+                }
+                DocumentNodeKind::TableRow => builder.push_table_row(node).unwrap(),
+                _ => {}
+            }
+        }
+        let flow = builder.finish(package_epoch).unwrap();
+        let fragmenter = ReferenceFragmenter::for_footnote_body(package, &flow).unwrap();
+
+        for list_owner in [NodeId::new(1), NodeId::new(4)] {
+            let path = package.document_nodes().node_path(list_owner).unwrap();
+            let last_line = fragmenter
+                .lines
+                .iter()
+                .rposition(|line| {
+                    flow.positions()[line.start]
+                        .block_child_path()
+                        .starts_with(path)
+                })
+                .unwrap();
+            assert!(fragmenter.lines[last_line].keep_with_next);
+        }
     }
 
     fn positive(raw: i64) -> PositiveLength {

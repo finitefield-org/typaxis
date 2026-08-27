@@ -915,8 +915,12 @@ impl<'a> PackageGeneratedTextBinding<'a> {
         if self.package.document_nodes.generated_site(key).is_none() {
             return Err(PackageShapeTextError::UnknownGeneratedSite);
         }
-        let style_owner = shape_style_owner(self.package.document_nodes(), key.owner())
-            .ok_or(PackageShapeTextError::MissingStyleOwner)?;
+        let style_owner = shape_style_owner(
+            &self.package.package.document,
+            self.package.document_nodes(),
+            key.owner(),
+        )
+        .ok_or(PackageShapeTextError::MissingStyleOwner)?;
         let span = provenance.text_span();
         let buffer = self
             .generated_text
@@ -954,6 +958,7 @@ pub enum PackageGeneratedTextError {
     DocumentMismatch,
     UnknownListMarkerSite,
     ListMarkerMismatch,
+    FootnoteMarkerMismatch,
     ListMarkerOverflow,
     TextBufferLimit,
     TextTotalLimit,
@@ -1898,19 +1903,8 @@ impl ValidatedParsedPackage {
         &self,
         limits: &ValidatedResourceLimits,
     ) -> Result<GeneratedTextStore, PackageGeneratedTextError> {
-        let footnote_numbers: BTreeMap<_, _> = self
-            .package
-            .document
-            .footnotes
-            .iter()
-            .enumerate()
-            .map(|(index, footnote)| {
-                let number = index
-                    .checked_add(1)
-                    .ok_or(PackageGeneratedTextError::ArithmeticOverflow)?;
-                Ok((footnote.footnote_id.clone(), number.to_string()))
-            })
-            .collect::<Result<_, PackageGeneratedTextError>>()?;
+        let footnote_markers =
+            canonical_footnote_marker_texts(&self.package.document, &self.document_nodes)?;
         let mut drafts = Vec::new();
         drafts
             .try_reserve_exact(self.document_nodes.generated_sites().len())
@@ -1922,29 +1916,10 @@ impl ValidatedParsedPackage {
                     drafts.push(self.materialize_list_marker(key)?);
                     continue;
                 }
-                GenerationKind::FootnoteMarker => match site.target() {
-                    GeneratedSiteTarget::Footnote(footnote_id) => footnote_numbers
-                        .get(footnote_id)
-                        .cloned()
-                        .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?,
-                    GeneratedSiteTarget::None => {
-                        let footnote_id = self
-                            .package
-                            .document
-                            .footnotes
-                            .iter()
-                            .find(|footnote| footnote.node_id == key.owner())
-                            .map(|footnote| &footnote.footnote_id)
-                            .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?;
-                        footnote_numbers
-                            .get(footnote_id)
-                            .cloned()
-                            .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?
-                    }
-                    GeneratedSiteTarget::Anchor(_) => {
-                        return Err(PackageGeneratedTextError::GeneratedStoreRejected)
-                    }
-                },
+                GenerationKind::FootnoteMarker => footnote_markers
+                    .get(&key)
+                    .cloned()
+                    .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?,
                 GenerationKind::PageReference
                 | GenerationKind::Counter
                 | GenerationKind::Discretionary => String::new(),
@@ -1971,6 +1946,8 @@ impl ValidatedParsedPackage {
             return Err(PackageGeneratedTextError::DocumentMismatch);
         }
         let list_markers = canonical_list_marker_texts(&self.package.document)?;
+        let footnote_markers =
+            canonical_footnote_marker_texts(&self.package.document, &self.document_nodes)?;
         let limits = limits.get();
         let mut total = 0u64;
         for buffer in self.package.text_store.buffers() {
@@ -1988,6 +1965,11 @@ impl ValidatedParsedPackage {
                     != Some(buffer.utf8())
             {
                 return Err(PackageGeneratedTextError::ListMarkerMismatch);
+            }
+            if buffer.key().generation_kind() == GenerationKind::FootnoteMarker
+                && footnote_markers.get(&buffer.key()).map(String::as_str) != Some(buffer.utf8())
+            {
+                return Err(PackageGeneratedTextError::FootnoteMarkerMismatch);
             }
             let bytes = u64::try_from(buffer.utf8().len())
                 .map_err(|_| PackageGeneratedTextError::ArithmeticOverflow)?;
@@ -2035,8 +2017,38 @@ impl ValidatedParsedPackage {
         })
     }
     pub fn cascade_style(&self, owner: NodeId) -> Result<PackageComputedStyle, PackageStyleError> {
+        self.cascade_style_for_owner(owner, owner)
+    }
+
+    /// Resolves the style of the first text-producing definition block while
+    /// retaining the definition NodeId as the generated marker's site owner.
+    /// Ordinary style lookup deliberately continues to reject definition
+    /// containers.
+    pub fn cascade_footnote_marker_style(
+        &self,
+        definition_owner: NodeId,
+    ) -> Result<PackageComputedStyle, PackageStyleError> {
+        if self.document_nodes.node_kind(definition_owner)
+            != Some(DocumentNodeKind::FootnoteDefinition)
+        {
+            return Err(PackageStyleError::UnknownStyleOwner);
+        }
+        let style_owner = shape_style_owner(
+            &self.package.document,
+            &self.document_nodes,
+            definition_owner,
+        )
+        .ok_or(PackageStyleError::UnknownStyleOwner)?;
+        self.cascade_style_for_owner(definition_owner, style_owner)
+    }
+
+    fn cascade_style_for_owner(
+        &self,
+        site_owner: NodeId,
+        lookup_owner: NodeId,
+    ) -> Result<PackageComputedStyle, PackageStyleError> {
         let (style_owner, block_type, classes) =
-            find_styleable_block(&self.package.document, owner)
+            find_styleable_block(&self.package.document, lookup_owner)
                 .ok_or(PackageStyleError::UnknownStyleOwner)?;
         let computed = if self.extended_style_contract {
             self.package
@@ -2047,7 +2059,7 @@ impl ValidatedParsedPackage {
         }
         .map_err(PackageStyleError::InvalidStyle)?;
         Ok(PackageComputedStyle {
-            owner,
+            owner: site_owner,
             style_owner,
             document: self.epoch_identity.document(),
             style: self.epoch_identity.style(),
@@ -2061,6 +2073,15 @@ impl ValidatedParsedPackage {
     ) -> Option<Vec<PackageParagraphTextSite>> {
         paragraph_inline_children(&self.package.document, paragraph_owner).map(|children| {
             let mut sites = Vec::new();
+            sites.extend(self.document_nodes.generated_sites().filter_map(|site| {
+                let key = site.key();
+                (key.generation_kind() == GenerationKind::FootnoteMarker
+                    && self.document_nodes.node_kind(key.owner())
+                        == Some(DocumentNodeKind::FootnoteDefinition)
+                    && shape_style_owner(&self.package.document, &self.document_nodes, key.owner())
+                        == Some(paragraph_owner))
+                .then_some(PackageParagraphTextSite::Generated(key))
+            }));
             collect_shape_text_site_identities(children, &mut sites);
             sites
         })
@@ -3118,6 +3139,22 @@ impl ValidatedStagingStylePackage {
     pub fn preflight_link_usage(
         &self,
     ) -> Result<ValidatedStagingLinkUsageReceipt, StagingLinkPreflightError> {
+        self.preflight_link_usage_internal(false)
+    }
+
+    /// Footnote-profile variant: definition paragraphs/headings are an
+    /// admitted painted container, while table-cell links remain outside this
+    /// profile's composition boundary.
+    pub fn preflight_footnote_link_usage(
+        &self,
+    ) -> Result<ValidatedStagingLinkUsageReceipt, StagingLinkPreflightError> {
+        self.preflight_link_usage_internal(true)
+    }
+
+    fn preflight_link_usage_internal(
+        &self,
+        accept_footnote_links: bool,
+    ) -> Result<ValidatedStagingLinkUsageReceipt, StagingLinkPreflightError> {
         let nodes = self.package.document_nodes();
         let mut anchors = Vec::new();
         anchors
@@ -3140,7 +3177,12 @@ impl ValidatedStagingStylePackage {
             &mut links,
         )?;
         for footnote in &self.package.package().document.footnotes {
-            collect_staging_links_from_blocks(&footnote.blocks, false, nodes, &mut links)?;
+            collect_staging_links_from_blocks(
+                &footnote.blocks,
+                accept_footnote_links,
+                nodes,
+                &mut links,
+            )?;
         }
         links.sort_by_key(ValidatedStagingLink::owner);
         if links.windows(2).any(|pair| pair[0].owner == pair[1].owner) {
@@ -5775,6 +5817,49 @@ fn canonical_list_marker_texts(
     Ok(markers)
 }
 
+fn canonical_footnote_marker_texts(
+    document: &Document,
+    nodes: &ValidatedDocumentNodeIndex,
+) -> Result<BTreeMap<GeneratedBufferKey, String>, PackageGeneratedTextError> {
+    let catalog: BTreeMap<_, _> = document
+        .footnotes
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| {
+            let ordinal = index
+                .checked_add(1)
+                .ok_or(PackageGeneratedTextError::ArithmeticOverflow)?;
+            Ok((definition.footnote_id.clone(), ordinal.to_string()))
+        })
+        .collect::<Result<_, PackageGeneratedTextError>>()?;
+    let definitions: BTreeMap<_, _> = document
+        .footnotes
+        .iter()
+        .map(|definition| (definition.node_id, &definition.footnote_id))
+        .collect();
+    nodes
+        .generated_sites()
+        .filter(|site| site.key().generation_kind() == GenerationKind::FootnoteMarker)
+        .map(|site| {
+            let footnote_id = match site.target() {
+                GeneratedSiteTarget::Footnote(footnote_id) => footnote_id,
+                GeneratedSiteTarget::None => definitions
+                    .get(&site.key().owner())
+                    .copied()
+                    .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?,
+                GeneratedSiteTarget::Anchor(_) => {
+                    return Err(PackageGeneratedTextError::GeneratedStoreRejected)
+                }
+            };
+            let marker = catalog
+                .get(footnote_id)
+                .cloned()
+                .ok_or(PackageGeneratedTextError::GeneratedStoreRejected)?;
+            Ok((site.key(), marker))
+        })
+        .collect()
+}
+
 fn find_styleable_block(
     document: &Document,
     owner: NodeId,
@@ -6128,21 +6213,28 @@ fn text_span_contains(container: TextSpan, requested: TextSpan) -> bool {
         && requested.end_byte().get() <= container.end_byte().get()
 }
 
-fn shape_style_owner(index: &ValidatedDocumentNodeIndex, site_owner: NodeId) -> Option<NodeId> {
+fn shape_style_owner(
+    document: &Document,
+    index: &ValidatedDocumentNodeIndex,
+    site_owner: NodeId,
+) -> Option<NodeId> {
     let site_path = index.node_path(site_owner)?;
     if index.node_kind(site_owner) == Some(DocumentNodeKind::FootnoteDefinition) {
-        return index
-            .nodes()
-            .filter(|(candidate, kind)| {
-                matches!(
-                    kind,
-                    DocumentNodeKind::Paragraph | DocumentNodeKind::Heading
-                ) && index.node_path(*candidate).is_some_and(|path| {
-                    path.starts_with(site_path) && styleable_block_produces_text(index, path)
+        return document
+            .footnotes
+            .iter()
+            .find(|definition| definition.node_id == site_owner)
+            .and_then(|definition| {
+                definition.blocks.iter().find_map(|block| match block {
+                    Block::Paragraph {
+                        node_id, children, ..
+                    }
+                    | Block::Heading {
+                        node_id, children, ..
+                    } if definition_inlines_produce_text(children) => Some(*node_id),
+                    _ => None,
                 })
-            })
-            .min_by(|(left, _), (right, _)| index.node_path(*left).cmp(&index.node_path(*right)))
-            .map(|(owner, _)| owner);
+            });
     }
     index
         .nodes()
@@ -6163,17 +6255,17 @@ fn shape_style_owner(index: &ValidatedDocumentNodeIndex, site_owner: NodeId) -> 
         .map(|(owner, _)| owner)
 }
 
-fn styleable_block_produces_text(index: &ValidatedDocumentNodeIndex, block_path: &[u32]) -> bool {
-    index.nodes().any(|(candidate, kind)| {
-        matches!(
-            kind,
-            DocumentNodeKind::Text
-                | DocumentNodeKind::Reference
-                | DocumentNodeKind::FootnoteReference
-                | DocumentNodeKind::SoftBreak
-        ) && index
-            .node_path(candidate)
-            .is_some_and(|path| path.starts_with(block_path) && path.len() > block_path.len())
+fn definition_inlines_produce_text(inlines: &[Inline]) -> bool {
+    inlines.iter().any(|inline| match inline {
+        Inline::Text { text_span, .. } => text_span.start_byte() < text_span.end_byte(),
+        Inline::Reference { .. } => true,
+        Inline::Emphasis { children, .. }
+        | Inline::Strong { children, .. }
+        | Inline::Link { children, .. } => definition_inlines_produce_text(children),
+        Inline::Anchor { .. }
+        | Inline::FootnoteReference { .. }
+        | Inline::SoftBreak { .. }
+        | Inline::HardBreak { .. } => false,
     })
 }
 
@@ -8540,20 +8632,74 @@ mod tests {
             Utf8ByteOffset::new(0),
         )
         .unwrap();
-        let mut package = empty_package_with_source();
+        let text_range =
+            Utf8ByteRange::new(Utf8ByteOffset::new(0), Utf8ByteOffset::new(1)).unwrap();
+        let text_store = TextStore::new(vec![TextBuffer::new(
+            TextBufferId::new(0),
+            "x".to_owned(),
+            vec![TextMapSegment {
+                text_range,
+                kind: TextMapKind::Inserted,
+                source_span: None,
+            }],
+            1,
+        )
+        .unwrap()])
+        .unwrap();
+        let mut package = empty_package(
+            SourceCatalog::new(vec![SourceRecord::new(
+                SourceId::new(0),
+                PortablePath::new("input.tsf").unwrap(),
+                String::new(),
+            )
+            .unwrap()])
+            .unwrap(),
+            text_store,
+        );
         package.document.footnotes.push(FootnoteDefinition {
             footnote_id: FootnoteId::new("note").unwrap(),
             node_id: NodeId::new(1),
             span,
-            blocks: vec![Block::Paragraph {
-                node_id: NodeId::new(2),
-                span,
-                classes: vec![],
-                children: vec![Inline::SoftBreak {
-                    node_id: NodeId::new(3),
+            blocks: vec![
+                Block::Paragraph {
+                    node_id: NodeId::new(2),
                     span,
-                }],
-            }],
+                    classes: vec![],
+                    children: vec![
+                        Inline::SoftBreak {
+                            node_id: NodeId::new(3),
+                            span,
+                        },
+                        Inline::Text {
+                            node_id: NodeId::new(4),
+                            span,
+                            text_span: TextSpan::new(
+                                TextBufferId::new(0),
+                                Utf8ByteOffset::new(0),
+                                Utf8ByteOffset::new(0),
+                            )
+                            .unwrap(),
+                        },
+                    ],
+                },
+                Block::Heading {
+                    node_id: NodeId::new(5),
+                    span,
+                    classes: vec![],
+                    level: HeadingLevel::new(2).unwrap(),
+                    anchor_id: None,
+                    children: vec![Inline::Text {
+                        node_id: NodeId::new(6),
+                        span,
+                        text_span: TextSpan::new(
+                            TextBufferId::new(0),
+                            Utf8ByteOffset::new(0),
+                            Utf8ByteOffset::new(1),
+                        )
+                        .unwrap(),
+                    }],
+                },
+            ],
         });
         let package = validate(package).unwrap();
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
@@ -8578,7 +8724,41 @@ mod tests {
         let binding = package.bind_generated_text(&generated, &limits).unwrap();
         let receipt = binding.bind_generated_shape_text(provenance).unwrap();
         assert_eq!(receipt.site_owner(), NodeId::new(1));
-        assert_eq!(receipt.style_owner(), NodeId::new(2));
+        assert_eq!(receipt.style_owner(), NodeId::new(5));
+        assert!(package
+            .paragraph_shape_text_sites(NodeId::new(2))
+            .unwrap()
+            .iter()
+            .all(|site| !matches!(
+                site,
+                PackageParagraphTextSite::Generated(key)
+                    if key.generation_kind() == GenerationKind::FootnoteMarker
+            )));
+        assert!(matches!(
+            package
+                .paragraph_shape_text_sites(NodeId::new(5))
+                .unwrap()
+                .first(),
+            Some(PackageParagraphTextSite::Generated(key))
+                if key.generation_kind() == GenerationKind::FootnoteMarker
+        ));
+
+        let wrong = GeneratedTextStore::new(
+            vec![
+                GeneratedBufferDraft::new(package.document_nodes(), marker, "2".to_owned())
+                    .unwrap(),
+                GeneratedBufferDraft::new(package.document_nodes(), discretionary, " ".to_owned())
+                    .unwrap(),
+            ],
+            package.document_nodes(),
+            &limits,
+            &package.package().text_store,
+        )
+        .unwrap();
+        assert_eq!(
+            package.bind_generated_text(&wrong, &limits),
+            Err(PackageGeneratedTextError::FootnoteMarkerMismatch)
+        );
     }
 
     #[test]

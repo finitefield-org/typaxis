@@ -65,6 +65,7 @@
     "profile": {
       "enum": [
         "typaxis.machine-pdf/basic-document-1",
+        "typaxis.machine-pdf/footnote-1",
         "typaxis.machine-pdf/paragraph-1",
         "typaxis.machine-pdf/table-1"
       ]

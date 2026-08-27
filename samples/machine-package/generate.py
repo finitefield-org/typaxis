@@ -15,6 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 PROFILE = "typaxis.machine-pdf/paragraph-1"
 BASIC_PROFILE = "typaxis.machine-pdf/basic-document-1"
+FOOTNOTE_PROFILE = "typaxis.machine-pdf/footnote-1"
 TABLE_PROFILE = "typaxis.machine-pdf/table-1"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 PHRASE = "Typaxis machine input"
@@ -167,6 +168,50 @@ def source_record(source: bytes, uri: str = "sources/blank.json", source_id: int
 
 def span(start: int = 0, end: int = 0) -> dict[str, int]:
     return {"source_id": 0, "start_byte": start, "end_byte": end}
+
+
+def renumber_document_nodes(package: dict[str, Any]) -> None:
+    """Assign canonical semantic-preorder NodeIds below the Document root."""
+    next_node_id = 1
+
+    def issue(value: dict[str, Any]) -> None:
+        nonlocal next_node_id
+        value["node_id"] = next_node_id
+        next_node_id += 1
+
+    def visit_inline(inline: dict[str, Any]) -> None:
+        issue(inline)
+        for child in inline.get("children", []):
+            visit_inline(child)
+
+    def visit_block(block: dict[str, Any]) -> None:
+        issue(block)
+        kind = block["kind"]
+        if kind in {"paragraph", "heading"}:
+            for child in block["children"]:
+                visit_inline(child)
+        elif kind == "list":
+            for item in block["items"]:
+                issue(item)
+                for child in item["blocks"]:
+                    visit_block(child)
+        elif kind == "figure":
+            for child in block["caption"]:
+                visit_block(child)
+        elif kind == "table":
+            for row in [*block["head"], *block["body"]]:
+                issue(row)
+                for cell in row["cells"]:
+                    issue(cell)
+                    for child in cell["blocks"]:
+                        visit_block(child)
+
+    for block in package["document"]["blocks"]:
+        visit_block(block)
+    for definition in package["document"]["footnotes"]:
+        issue(definition)
+        for block in definition["blocks"]:
+            visit_block(block)
 
 
 def base_package(
@@ -606,6 +651,207 @@ def basic_document_combined_package(
     return package
 
 
+def add_footnote_frame(package: dict[str, Any]) -> None:
+    master = package["page_masters"]["masters"][0]
+    body = master["body"]
+    footnote_height = 2_200_000
+    master["footnote"] = {
+        "x": body["x"],
+        "y": body["y"] + body["height"] - footnote_height,
+        "width": body["width"],
+        "height": footnote_height,
+    }
+
+
+def footnote_document_zero_package(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    """Complete M2 body with the footnote frame but no reference occurrence."""
+    package = basic_document_combined_package(ttf, ttc, png)
+    add_footnote_frame(package)
+    return package
+
+
+def footnote_document_combined_package(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    """Complete M2 body plus catalog-order, repeat, split, and carry coverage."""
+    package = basic_document_combined_package(ttf, ttc, png)
+    add_footnote_frame(package)
+    package["style_sheet"]["rules"].append(
+        {
+            "style_id": "footnote-heading-keep",
+            "extends": None,
+            "selector": "heading.footnote-keep",
+            "source_order": 5,
+            "declarations": [
+                {
+                    "name": "keep_with_next",
+                    "value": {"kind": "boolean", "value": True},
+                    "important": False,
+                }
+            ],
+        }
+    )
+    package["style_sheet"]["rules"].append(
+        {
+            "style_id": "footnote-small",
+            "extends": None,
+            "selector": "paragraph.footnote-small",
+            "source_order": 6,
+            "declarations": [
+                {
+                    "name": name,
+                    "value": {"kind": "length", "value": value},
+                    "important": False,
+                }
+                for name, value in [
+                    ("font_size", 65_536),
+                    ("line_height", 65_536),
+                    ("space_before", 0),
+                    ("space_after", 0),
+                ]
+            ],
+        }
+    )
+
+    def footnote_reference(node_id: int, footnote_id: str) -> dict[str, Any]:
+        return {
+            "kind": "footnote_reference",
+            "node_id": node_id,
+            "span": span(),
+            "footnote_id": footnote_id,
+        }
+
+    # First-reference order is z, a; the definition catalog below is a, z.
+    package["document"]["blocks"][0]["children"].append(
+        footnote_reference(25, "z")
+    )
+    package["document"]["blocks"][3]["items"][0]["blocks"][0][
+        "children"
+    ].append(footnote_reference(26, "a"))
+    package["document"]["blocks"][5]["caption"][0]["children"].append(
+        footnote_reference(27, "z")
+    )
+
+    note_texts = [
+        "A note",
+        "Z first",
+        "Z second",
+        "Z third",
+        "Z fourth",
+        "Z fifth",
+        "A tail",
+    ]
+    first_text_id = len(package["text_buffers"])
+    package["text_buffers"].extend(
+        {
+            "text_id": first_text_id + ordinal,
+            "utf8": value,
+            "mappings": [
+                {
+                    "text_range": {
+                        "start_byte": 0,
+                        "end_byte": len(value.encode("utf-8")),
+                    },
+                    "kind": "inserted",
+                    "source_span": None,
+                }
+            ],
+        }
+        for ordinal, value in enumerate(note_texts)
+    )
+
+    def note_text(node_id: int, ordinal: int) -> dict[str, Any]:
+        value = note_texts[ordinal]
+        return {
+            "kind": "text",
+            "node_id": node_id,
+            "span": span(),
+            "text_span": {
+                "text_id": first_text_id + ordinal,
+                "start_byte": 0,
+                "end_byte": len(value.encode("utf-8")),
+            },
+        }
+
+    package["document"]["footnotes"] = [
+        {
+            "footnote_id": "a",
+            "node_id": 28,
+            "span": span(),
+            "blocks": [
+                {
+                    "kind": "paragraph",
+                    "node_id": 29,
+                    "span": span(),
+                    "classes": ["footnote-small"],
+                    "children": [
+                        {
+                            "kind": "anchor",
+                            "node_id": 30,
+                            "span": span(),
+                            "anchor_id": "note-a",
+                        },
+                        {
+                            "kind": "link",
+                            "node_id": 31,
+                            "span": span(),
+                            "target": {
+                                "kind": "internal",
+                                "anchor_id": "note-a",
+                            },
+                            "children": [note_text(32, 0)],
+                        },
+                        {"kind": "soft_break", "node_id": 33, "span": span()},
+                        {
+                            "kind": "reference",
+                            "node_id": 34,
+                            "span": span(),
+                            "target": "top",
+                            "format": "page",
+                        },
+                        note_text(46, 6),
+                    ],
+                }
+            ],
+        },
+        {
+            "footnote_id": "z",
+            "node_id": 35,
+            "span": span(),
+            "blocks": [
+                {
+                    "kind": "heading",
+                    "node_id": 36,
+                    "span": span(),
+                    "classes": ["footnote-keep"],
+                    "level": 2,
+                    "anchor_id": None,
+                    "children": [note_text(37, 1)],
+                },
+                {
+                    "kind": "paragraph",
+                    "node_id": 38,
+                    "span": span(),
+                    "classes": [],
+                    "children": [
+                        note_text(39, 2),
+                        {"kind": "hard_break", "node_id": 40, "span": span()},
+                        note_text(41, 3),
+                        {"kind": "hard_break", "node_id": 42, "span": span()},
+                        note_text(43, 4),
+                        {"kind": "hard_break", "node_id": 44, "span": span()},
+                        note_text(45, 5),
+                    ],
+                }
+            ],
+        },
+    ]
+    renumber_document_nodes(package)
+    return package
+
+
 def table_document_combined_package(
     ttf: bytes, ttc: bytes, png: bytes
 ) -> dict[str, Any]:
@@ -940,6 +1186,14 @@ TABLE_ADVERTISED_COVERAGE = sorted(
         "block:table",
         "style_block_type:table",
         "style_selector:table",
+    ]
+)
+
+FOOTNOTE_ADVERTISED_COVERAGE = sorted(
+    [
+        *BASIC_ADVERTISED_COVERAGE,
+        "inline:footnote_reference",
+        "page_frame:footnote",
     ]
 )
 
@@ -1304,6 +1558,81 @@ def main() -> None:
         expected,
         sources={"input.tsf": b""},
         resources={"body.ttf": ttf, "collection.ttc": ttc, "figure.data": png},
+    )
+
+    footnote_zero = footnote_document_zero_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "footnote-1.zero",
+        contract="typaxis.contract/1.2",
+        text="Basic document internal external First item Second entry PNG caption",
+        profile=FOOTNOTE_PROFILE,
+    )
+    expected["arguments"] = table_arguments(FOOTNOTE_PROFILE)
+    expected["expected"]["page_count"] = 2
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["expected"]["visible_artifacts"].append("trace")
+    expected["expected"]["visible_artifacts"].sort()
+    expected["resource_hashes"] = [
+        {"bytes": len(ttf), "sha256": sha256(ttf), "uri": "body.ttf"},
+        {"bytes": len(ttc), "sha256": sha256(ttc), "uri": "collection.ttc"},
+        {"bytes": len(png), "sha256": sha256(png), "uri": "figure.data"},
+    ]
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/footnote-1/zero",
+        jcs(footnote_zero),
+        expected,
+        sources={"input.tsf": b""},
+        resources={"body.ttf": ttf, "collection.ttc": ttc, "figure.data": png},
+    )
+
+    footnote_combined = footnote_document_combined_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "footnote-1.combined",
+        contract="typaxis.contract/1.2",
+        text=(
+            "Basic document internal external First item Second entry "
+            "Z first Z second A note A tail PNG caption Z third Z fourth Z fifth"
+        ),
+        profile=FOOTNOTE_PROFILE,
+    )
+    expected["arguments"] = table_arguments(FOOTNOTE_PROFILE)
+    expected["advertised_item_coverage"] = FOOTNOTE_ADVERTISED_COVERAGE
+    expected["expected"]["page_count"] = 3
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["expected"]["visible_artifacts"].append("trace")
+    expected["expected"]["visible_artifacts"].sort()
+    expected["resource_hashes"] = [
+        {"bytes": len(ttf), "sha256": sha256(ttf), "uri": "body.ttf"},
+        {"bytes": len(ttc), "sha256": sha256(ttc), "uri": "collection.ttc"},
+        {"bytes": len(png), "sha256": sha256(png), "uri": "figure.data"},
+    ]
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/footnote-1/combined",
+        jcs(footnote_combined),
+        expected,
+        sources={"input.tsf": b""},
+        resources={"body.ttf": ttf, "collection.ttc": ttc, "figure.data": png},
+    )
+
+    old_footnote_contract = base_package(
+        contract="typaxis.contract/1.1", source=b"", master_id="old-footnote"
+    )
+    old_footnote_contract["sources"][0]["uri"] = "input.tsf"
+    expected = invalid_outcome(
+        "footnote-1.old-contract-rejected",
+        "P1103",
+        location="json:/contract",
+        package_progress="validated",
+        sources_progress="admitted",
+        source_read=True,
+        contract="typaxis.contract/1.1",
+        profile=FOOTNOTE_PROFILE,
+    )
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "invalid/footnote-1-old-contract",
+        jcs(old_footnote_contract),
+        expected,
+        sources={"input.tsf": b""},
     )
 
     table_resources = {
@@ -1914,6 +2243,40 @@ def main() -> None:
         "verification_commands": m2_matrix["verification_commands"],
     }
     (ROOT / "matrices/m3-table.json").write_bytes(jcs(m3_matrix))
+
+    footnote_rows = [
+        (
+            "m3-footnote-zero",
+            ["footnote-1.zero"],
+            "machine_tests::machine_footnote_zero",
+        ),
+        (
+            "m3-footnote-combined",
+            ["footnote-1.combined"],
+            "machine_tests::machine_footnote_combined",
+        ),
+        (
+            "m3-footnote-old-contract",
+            ["footnote-1.old-contract-rejected"],
+            "machine_tests::machine_footnote_old_contract_rejected",
+        ),
+    ]
+    footnote_matrix = {
+        "contract": "typaxis.machine-fixture-matrix/1",
+        "fixtures": [
+            {"expected": fixtures[fixture_id], "fixture_id": fixture_id}
+            for fixture_id in sorted(
+                {item for _, ids, _ in footnote_rows for item in ids}
+            )
+        ],
+        "profile": FOOTNOTE_PROFILE,
+        "rows": [
+            {"fixture_ids": ids, "id": row_id, "test": test}
+            for row_id, ids, test in footnote_rows
+        ],
+        "verification_commands": m2_matrix["verification_commands"],
+    }
+    (ROOT / "matrices/m3-footnote.json").write_bytes(jcs(footnote_matrix))
 
 
 if __name__ == "__main__":

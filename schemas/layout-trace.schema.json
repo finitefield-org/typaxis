@@ -14,6 +14,7 @@
         {"type": "null"}
       ]
     },
+    "footnote_layout": {"$ref": "machine-footnote-manifest.schema.json"},
     "max_layout_passes": {"type": "integer", "minimum": 1, "maximum": 65535},
     "initial_state": {"$ref": "#/$defs/initial_pagination_state_record"},
     "initial_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},

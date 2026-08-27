@@ -715,6 +715,20 @@ impl ComputedStyle {
         }
     }
 
+    /// Resolves the closed basic-document next-block keep into its typed
+    /// boolean domain. Pagination consumers do not inspect declaration names
+    /// or reinterpret raw style values.
+    pub fn basic_keep_with_next(&self) -> Result<bool, StyleValidationError> {
+        match self
+            .properties
+            .get(BasicStyleProperty::KeepWithNext.as_str())
+        {
+            None => Ok(false),
+            Some(StyleValue::Boolean(value)) => Ok(*value),
+            Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
+        }
+    }
+
     /// Resolves the computed `page` property. Absence and `auto` both mean no named page.
     pub fn page_name(&self) -> Result<Option<PageName>, StyleValidationError> {
         match self.properties.get("page") {
@@ -766,7 +780,7 @@ fn close_machine_block_style(
         end_indent: nonnegative(BasicStyleProperty::EndIndent.as_str())?,
         text_align,
         width: computed.basic_figure_width()?,
-        keep_with_next: boolean(BasicStyleProperty::KeepWithNext.as_str(), false)?,
+        keep_with_next: computed.basic_keep_with_next()?,
         keep_caption: boolean(BasicStyleProperty::KeepCaption.as_str(), true)?,
     })
 }

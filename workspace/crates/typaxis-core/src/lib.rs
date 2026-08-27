@@ -146,6 +146,7 @@ impl std::str::FromStr for DocumentPackageContractId {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachinePdfProfileId {
     BasicDocument1,
+    Footnote1,
     Paragraph1,
     Table1,
 }
@@ -153,6 +154,7 @@ pub enum MachinePdfProfileId {
 impl MachinePdfProfileId {
     pub const PARAGRAPH_1: Self = Self::Paragraph1;
     pub const BASIC_DOCUMENT_1: Self = Self::BasicDocument1;
+    pub const FOOTNOTE_1: Self = Self::Footnote1;
     pub const TABLE_1: Self = Self::Table1;
     /// The CLI default remains the frozen paragraph profile after the 1.2
     /// contract migration. A wider profile is always an explicit request.
@@ -161,6 +163,7 @@ impl MachinePdfProfileId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BasicDocument1 => "typaxis.machine-pdf/basic-document-1",
+            Self::Footnote1 => "typaxis.machine-pdf/footnote-1",
             Self::Paragraph1 => "typaxis.machine-pdf/paragraph-1",
             Self::Table1 => "typaxis.machine-pdf/table-1",
         }
@@ -196,6 +199,7 @@ impl std::str::FromStr for MachinePdfProfileId {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "typaxis.machine-pdf/basic-document-1" => Ok(Self::BasicDocument1),
+            "typaxis.machine-pdf/footnote-1" => Ok(Self::Footnote1),
             "typaxis.machine-pdf/paragraph-1" => Ok(Self::Paragraph1),
             "typaxis.machine-pdf/table-1" => Ok(Self::Table1),
             _ => Err(UnknownMachinePdfProfileId),
