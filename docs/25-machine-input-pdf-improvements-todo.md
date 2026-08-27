@@ -1641,7 +1641,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-08 Advanced pagination ADRとprofile分割を採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-08
 - Design inputs: docs/25 §7 page master/writing mode、§8 M3、§13.1 subflows
 - Primary files:
@@ -1670,6 +1670,13 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - empty/oversize状態からのterminal遷移が定義される。
 - Verification:
   - `rg -n "header|footer|column|balance|float|carry|oversize|progress|profile" adr contracts/machine-pdf-capabilities.md`
+- Implementation notes (2026-08-28, Linux):
+  - 次の空き番号`ADR-0031`をAccepted targetとして登録し、new `typaxis.contract/1.3` / `https://schemas.typaxis.invalid/1.3/document-package.schema.json`とimmutable `header-footer-1`、`columns-1`、`float-1`を固定した。MI3-08はcurrent 1.2 Schema/Rust/public CLI bytesを変更せず、MI3-09〜11をcrate-private staging、MI3-12だけをatomic publication gateとした。
+  - unified optional profileのheader/footer × columns × floatで最低8 presence/absence fixtureが必要になる案を退け、3 profile/3 all-advertised combined fixtureへ分割した。float profileだけはcolumn-boundary closureのためunbalanced sequential columnsを含み、header/footer + column/float、balance + float、table/footnote + advancedのcompositionをclosed rejectionにした。
+  - contract 1.3 wireへrequired horizontal-tb/LTR、trim、nullable master-owned header/footer content、nullable count/gap/sequential/balance column layout、required Figure block/float placementを採択した。marginはtrim/bodyからchecked導出し、MediaBox/CropBox/TrimBox、singleまたはcanonical first/left/right selection、region repetition、exact last-column residual、bounded final balance、FIFO here/top/bottom/next-page float carryを一意にした。
+  - header/footer/column/floatのtyped Flow owner/parentとdense allocation、selected frame/queue/carry order、empty/oversize terminalを固定した。既存`max_style_rules`、`max_ast_nodes`/nesting、`max_pages`、`max_fragments`、`max_column_balance_candidates`、`max_float_queue`、`max_float_carry_pages`へworkをmapし、inclusive max、balance `G6003`、float `G6004`、receipt/progress `I9190`を採択した。
+  - MI3-12 migration tableはdefault `paragraph-1`を維持し、paragraphは従来contract + neutral 1.3、basic/table/footnoteはraw 1.2 + frozen semanticsのexact neutral 1.3、新3 profileはraw 1.3-onlyとした。これによりold profileの意味を広げずcurrent `dump-ast -> build-package`を保つ。full registry検査後にcontract/Schema alias、serializer/decoder/`dump-ast`、config、diagnostics、capability、trace/manifest、dispatch/help、fixture、private-runner removalを同一change setで切り替える。
+  - milestone指定`rg`、changed Markdownのlocal link/table/invariant-order check、`python3 schemas/validate.py`、locked workspace all-target check/test、clippy `-D warnings`、cargo format、whitespace/diff checkはlocal exit 0だった。MI3-08はSchema file/Rust/public surfaceを変更せず、current aliasとversioned 1.2 DocumentPackage SchemaはともにSHA-256 `de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままである。
 - Non-goals:
   - vertical/RTL writing modeをADRが明示採択しない限り実装済みにすること
 

@@ -49,3 +49,29 @@ path policy, or PDF resource ownership requires a new major value; a
 backward-compatible additive wire change requires a new minor value. Editorial
 changes that do not alter observable contract meaning do not increment the
 value. A new shape must never be published under a frozen identifier.
+
+## Adopted 1.3 migration target
+
+[ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md) reserves the next
+minor identifier `typaxis.contract/1.3` and DocumentPackage Schema `$id`
+`https://schemas.typaxis.invalid/1.3/document-package.schema.json`. Contract
+1.3 adds explicit horizontal/LTR page progression, trim, master-owned
+header/footer content, column layout, and Figure `block`/`float` placement.
+Those additions are contract-defined but are not current or public at ADR
+adoption. MI3-09 through MI3-11 use crate-private staging; MI3-12 alone may
+freeze `schemas/1.3/` and switch current aliases and encoders.
+
+MI3-12 must switch the contract enum/decoder, serializer, `dump-ast`, normalized
+config, diagnostics, trace, manifest, capabilities, top-level Schema aliases,
+profile dispatch, and public help in one repository change set. Before that
+gate, public input 1.3 is `P1103`, all canonical output remains 1.2, and the
+public profile/default set is unchanged.
+
+After the gate, `paragraph-1` accepts raw 1.0 through 1.3 only for its frozen
+semantic subset. `basic-document-1`, `table-1`, and `footnote-1` accept raw
+1.2 and the exact neutral 1.3 encoding of the same frozen semantics; any
+custom trim, page-region content, column layout, or floating Figure remains a
+profile error. The new `header-footer-1`, `columns-1`, and `float-1` profiles
+require raw 1.3. All canonical output then uses 1.3, while 1.0, 1.1, and 1.2
+registries remain independent and frozen. The default remains
+`typaxis.machine-pdf/paragraph-1`; no raw contract or profile falls forward.

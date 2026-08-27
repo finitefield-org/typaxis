@@ -11,15 +11,19 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | `typaxis.machine-pdf/basic-document-1` | Yes, ADR-0028 immutable M2 profile | Yes: canonical multi-flow, typed block-style, list, forced-page-break, PNG figure, and link annotation/named-destination pipeline | Yes, combined PDF/sidecars | Yes |
 | `typaxis.machine-pdf/table-1` | Yes, ADR-0029 immutable M3 profile on contract 1.2 | Yes: resolved grid/cell flows, row fragmentation/header repetition, and Display/PDF closure | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
 | `typaxis.machine-pdf/footnote-1` | Yes, ADR-0030 immutable M3 profile on contract 1.2 | Yes: first-reference reflow, dedicated carry, Display/PDF, and trace/manifest closure | Yes, combined PDF/sidecars | Yes, MI3-07 gate |
+| `typaxis.machine-pdf/header-footer-1` | Yes, ADR-0031 target on contract 1.3 | No | No; public ID rejected | No, MI3-12 gate |
+| `typaxis.machine-pdf/columns-1` | Yes, ADR-0031 target on contract 1.3 | No | No; public ID rejected | No, MI3-12 gate |
+| `typaxis.machine-pdf/float-1` | Yes, ADR-0031 target on contract 1.3 | No | No; public ID rejected | No, MI3-12 gate |
 | generated contract 1.2 artifacts | Yes | Yes: config/trace/diagnostics/manifest/package/capabilities/evidence | Yes | Yes |
 | contract 1.2 publication | Yes, ADR-0028 migration table | Yes: current aliases plus the complete independent `schemas/1.2/` registry; former 1.1 is frozen | Yes | Yes |
+| contract 1.3 advanced-pagination target | Yes, ADR-0031 | No: private implementation starts at MI3-09 | No; current aliases remain 1.2 | No, MI3-12 gate |
 
 `Contract-defined` does not imply that a Rust owner exists, the current `build` accepts DocumentPackage JSON, public CLI E2E passes, or a release supports the feature.
 
 | Contract | Rust | JSON | Docs | Validator |
 |---|---|---|---|---|
 | product/CLI identity | `typaxis_core::PRODUCT_NAME` / Cargo `[[bin]]` | manifest `engine.name` | docs/19 | exact name/bin/Schema checks |
-| wire ID | current `typaxis_core::CONTRACT` is 1.2; typed DocumentPackage input IDs are 1.0/1.1/1.2 | current roots use 1.2; complete 1.0 and 1.1 registries are frozen separately | contract-version, ADR-0027, ADR-0028, ADR-0029, ADR-0030 | independent frozen 1.0/1.1 and current/versioned 1.2 registries, compatibility hashes, no cross-registration, and unchanged 1.2 table/footnote wire bytes |
+| wire ID | current `typaxis_core::CONTRACT` is 1.2; typed public DocumentPackage input IDs are 1.0/1.1/1.2; ADR-0031 reserves non-current 1.3 | current roots use 1.2; complete 1.0 and 1.1 registries are frozen separately; 1.3 is a target registry only | contract-version, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0031 | independent frozen 1.0/1.1 and current/versioned 1.2 registries now; MI3-12 must validate/freeze independent 1.3 before atomically switching aliases |
 | source/text/local map range | `SourceSpan` / `TextSpan` / `Utf8ByteRange` | common + document package | docs/03 | bounds/boundary/coverage |
 | generated/Display text ownership | `GeneratedBufferKey` / `GeneratedTextStore` / `DisplayTextMap` / `DisplayDocument.text_buffers` | display text buffers/spans | docs/05,09,11 | canonical key allocation + disjoint internal IDs + selected-bound stable dense remap + artifact-owned text table |
 | validated parser output | sealed `Parser` / `ValidatedParsedPackage` / `ParseOutcome` / `AdvisoryDiagnostic` | N/A (in-process) | docs/01,03 | source-driven owner + no feature promotion + compile-fail boundary + error-or-fatal/value exclusion |
@@ -27,11 +31,12 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | URI admission | `SafeUri` | typed URI fields | docs/03,15,18 | scheme/control/whitespace/length |
 | length and transform | `Length` / `AffineTransform` | common defs | docs/24 | numeric/type checks |
 | parser package | `ParsedPackage` | document root | docs/03,04 | Rust token + Schema |
-| machine package ingestion | stable-byte admission, strict decoder, sealed source validation, and session-bound receipts are implemented; `WireDocumentPackage` remains untrusted | 1.0/1.1/1.2 DocumentPackage input; current output is 1.2 | ADR-0027, ADR-0028, docs/02,19,25,26, contracts/phase-ownership | independent Schema/semantic validation, Rust receipt tests, public positive/negative package-command E2E |
-| machine PDF capability | exact public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, `FOOTNOTE_1`, and `TABLE_1` descriptors with matching preflight receipts | current 1.2 capability Schema and canonical four-profile fixture | contracts/machine-pdf-capabilities, ADR-0027, ADR-0028, ADR-0029, ADR-0030, docs/26 | bidirectional descriptor/fixture closure, compatibility/default goldens, public combined E2E, external PDF and cross-checkout reproducibility gates |
+| machine package ingestion | stable-byte admission, strict decoder, sealed source validation, and session-bound receipts are implemented; `WireDocumentPackage` remains untrusted | public 1.0/1.1/1.2 DocumentPackage input and current 1.2 output; target 1.3 adds trim/region/column/placement members but remains public-rejected | ADR-0027, ADR-0028, ADR-0031, docs/02,19,25,26, contracts/phase-ownership | current independent Schema/semantic validation and public E2E; future full 1.3 registry/typed round trip must land atomically at MI3-12 |
+| machine PDF capability | exact public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, `FOOTNOTE_1`, and `TABLE_1` descriptors with matching preflight receipts; three ADR-0031 descriptor identities are reserved only | current 1.2 capability Schema and canonical four-profile fixture; future 1.3 adds conditional advanced descriptor members | contracts/machine-pdf-capabilities, ADR-0027, ADR-0028, ADR-0029, ADR-0030, ADR-0031, docs/26 | current bidirectional descriptor/fixture closure and release gates; future three combined fixtures/default/old-descriptor freeze at MI3-12 |
 | basic-document profile | MI2-02 multi-flow owners, MI2-03 typed block-style receipts/consumers, MI2-04 syntax-owned marker/list receipts, MI2-05 forced-boundary receipts, MI2-06 admitted-PNG/figure-placement/DrawImage/XObject receipts, and MI2-07 package-bound link/cluster/rectangle/annotation receipts | current 1.2 DocumentPackage plus versioned multi-flow and selected block-style/list/forced-break/PNG-figure/link facts | ADR-0028, contracts/machine-pdf-capabilities, docs/25,26 | combined all-advertised fixture, typed closure, deterministic PDF goldens, exact limits, receipt swaps, and tamper negatives |
 | table profile | MI3-02/MI3-03 resolved columns/grid, canonical cell FlowIds, row bands/fragments, rowspan continuation, and header repetition; MI3-04 exact Display-command and frozen-PDF graph closure | unchanged current 1.2 `table`/fixed/fraction/head/body/colspan/rowspan wire plus conditional table trace/manifest facts; no table-specific style field | ADR-0029, contracts/machine-pdf-capabilities, docs/10,25,26 | public `m3-table.json` table-only/combined coverage, exact limits, receipt and command tamper negatives, zero-decoration PDF/raster, reproducibility, and old-profile rejection gate |
 | footnote profile | canonical FootnoteFlowIds, first-reference discovery, exact reservation/evaluation/convergence, dedicated carry-only pages, selected layout, definition-anchor/link paint, and Display/PDF closure | unchanged current 1.2 definition/reference/page-master-footnote wire plus conditional `machine-footnote-manifest` facts in trace/build manifest; no footnote-specific style field | ADR-0030, contracts/machine-pdf-capabilities, docs/04,08,09,10,25,26 | public `m3-footnote.json`: zero and combined M2, catalog-vs-first-reference order, repeat/split/multi-page carry, receipt/paint tamper, PDF/raster/text order, reproducibility, and old-profile rejection |
+| advanced-pagination targets | contract-defined owners for checked master/trim/page boxes, page-region repetition, exact column frames, bounded final balance, FIFO float placement/carry, selected/paint closure, and atomic 1.3 publication; no public Rust owner yet | target 1.3 required horizontal/LTR, trim, region-content, column-layout and Figure-placement members plus conditional `machine-advanced-pagination-manifest`; no current Schema bytes change at MI3-08 | ADR-0031, contracts/machine-pdf-capabilities, contracts/phase-ownership, docs/10,25 | MI3-09/10/11 private slice gates, then MI3-12 zero/combined bidirectional fixtures, G6003/G6004 exact/max+1, tamper, PDF-box/raster, reproducibility, old-profile rejection, and documented-host gates |
 | canonical lists | current document list type plus package-bound marker-usage, item-flow layout, selected fragment, Display/PDF, and manifest receipts | ordered/start relation plus versioned 1.2 selected list facts | docs/04, ADR-0028, docs/25 | ordered positive start + checked item index, unordered null/U+2022, marker buffer/aggregate max+1, widest-column LTR/RTL placement, nested child-frame indent, marker orphan and missing/extra/wrong-item closure |
 | forced page breaks | current typed `PageBreak` plus package/epoch/FlowId-bound layout boundary and exact consume receipt | versioned 1.2 selected forced-break cursor/page facts | ADR-0028, docs/09, docs/25 | start/middle/consecutive/trailing blank policy, `N + 1` pages, exact/max+1 page limit, stale-cursor and break-paint closure; `paragraph-1` remains closed |
 | non-floating PNG figures | decoder-only `AdmittedImageMediaKind::Png`, package-bound Figure/caption usage, `ValidatedFigureLayout`, selected placement, one-DrawImage Display, finalized image/soft-mask plans, and graph/serializer-bound XObject facts | current 1.2 Figure plus versioned `machine-figure-manifest`; image declarations have no caller-authoritative media field | ADR-0028, docs/07,13,25 | opaque-suffix stable-read admission, full bounded decode, pixel/aspect dimensions, caption split/keep/terminal oversize, bad hash/non-PNG/invalid dimensions/pixel limit, missing/extra/wrong IDs and XObjects, publication failure, deterministic double build; `paragraph-1` remains closed |
@@ -51,8 +56,8 @@ The evidence matrix below does not by itself report delivery completion. Machine
 | resource finalization | `ResourceCollector` / `FrozenPdfResourcePlans` | build records | docs/13 | selected epoch/ledger bind + usage union + admitted identity + typed indirect-object blueprint |
 | PDF stream | `PdfStreamObject` | N/A | docs/14 | reserved-key source invariant |
 | frozen PDF graph | untrusted builder / `FrozenPdfGraph` | N/A | docs/14,15 | full object preflight + font-role/page/annotation allocation + root/reference/page/destination/annotation/depth closure |
-| limits | `ResourceLimits` / `MachineInputLimitBounds` | config and capability Schemas | docs/03,07,09,10,18,19,25 | exact field set + package-byte/JSON-depth default/maximum identity + inclusive max semantics + iterative nesting precheck + `I9100`/`I9101` mapping; ADR-0030 maps footnote AST/text/fragment/reflow work to existing limits only |
-| effective config/build manifest | `EffectiveConfig` / `BuildInputProfile` / `PackageInputRecord` / publication contexts | config + build Schema | docs/16,19,25 | precedence/canonical JCS hash + raw 1.0/1.1/1.2 normalization + reference/machine input conditional + profile/flow receipt closure + package byte limit + terminal publication |
+| limits | `ResourceLimits` / `MachineInputLimitBounds` | config and capability Schemas | docs/03,07,09,10,18,19,25 | exact field set + package-byte/JSON-depth default/maximum identity + inclusive max semantics + iterative nesting precheck + `I9100`/`I9101`; ADR-0030 maps footnote work and ADR-0031 maps master/region/frame/balance/queue/carry work to existing limits, with target G6003/G6004 before max+1 |
+| effective config/build manifest | `EffectiveConfig` / `BuildInputProfile` / `PackageInputRecord` / publication contexts | current config/build Schema; target 1.3 conditional `advanced_pagination` | docs/16,19,25, ADR-0031 | current raw 1.0/1.1/1.2 normalization and terminal publication; MI3-12 atomically adds raw/current 1.3, advanced profile/flow/selected/paint closure, and forbids the new member for old profiles |
 | data/shaper/engine identity | `ResolvedDataTables` / `ShaperIdentity` / `EngineIdentity` | config/manifest identity facts | docs/05,16 | known table/shaper registry selection + build-issued engine facts; ShaperIdentity alone is not an actual-use capability |
 | diagnostics | `DiagnosticCode` / `DiagnosticLocation` / `AdvisoryDiagnostic` | diagnostic pattern/severity + tagged nullable location union | docs/17,25 | exact category/severity, package JSON/source locations, located notes, canonical encoding, and outcome rules |
 | machine host evidence | clean-built public binary + verifier-owned canonical evidence writer | machine-profile-evidence Schema | docs/25,26, sample README | exact check/tool/artifact sets, revision/source/fixture binding, Linux/macOS missing/failed/stale/cross-host mismatch rejection |
@@ -115,3 +120,38 @@ through trace, manifest, and PDF; focused limit and receipt-tamper tests passed;
 and old-profile rejection, external PDF/raster/text-order, reproducibility, and
 documented-host gates passed. Publication left contract 1.2 DocumentPackage
 Schema bytes and the `paragraph-1` default unchanged.
+
+## M3 advanced-pagination contract/profile migration matrix
+
+ADR-0031 fixes the target mapping now; MI3-12 alone may move the “after”
+column into public code. MI3-08 does not create or modify Schema files.
+
+| Raw DocumentPackage contract | Profile | After MI3-08 / before MI3-12 | After the MI3-12 gate |
+|---|---|---|---|
+| 1.0 / 1.1 / 1.2 | omitted or `paragraph-1` | current frozen paragraph behavior; output is 1.2 | accepted with the same paragraph semantics; canonical output is 1.3 |
+| neutral 1.3 paragraph subset | omitted or `paragraph-1` | public `P1103` because 1.3 is non-current | accepted only with full-media trim, null auxiliary content/columns, horizontal/LTR, and no Figure |
+| non-neutral 1.3 advanced wire | omitted or `paragraph-1` | public `P1103` | `L5100`/`L5101`; default selection never upgrades a profile |
+| 1.2 | `basic-document-1`, `table-1`, or `footnote-1` | accepted by the matching current profile | unchanged accepted semantic set; canonical output is current 1.3 |
+| neutral 1.3 | `basic-document-1`, `table-1`, or `footnote-1` | public `P1103` because 1.3 is non-current | accepted as compatibility input with full-media trim, null region/columns, block Figures, and unchanged auxiliary-frame rules |
+| non-neutral 1.3 | `basic-document-1`, `table-1`, or `footnote-1` | public `P1103` | `L5100`/`L5101`; no advanced feature is ignored, synthesized, or downgraded |
+| 1.0 / 1.1 | `basic-document-1`, `table-1`, or `footnote-1` | existing old-contract rejection | `P1103` at `/contract`; typed 1.2 semantics are not synthesized |
+| 1.3 | matching `header-footer-1`, `columns-1`, or `float-1` | profile is unknown usage exit 2 and contract is public `P1103` | accepted only for ADR-0031's profile-specific closed domain |
+| 1.0 / 1.1 / 1.2 | any advanced profile | profile is unknown usage exit 2 | `P1103` at `/contract`; old packages are not upgraded into advanced pagination |
+| unknown | any | `P1103` or unknown-profile usage | same; no newest-contract/profile fallback |
+
+The default remains `typaxis.machine-pdf/paragraph-1`. At MI3-12,
+`document_package_contracts` becomes exactly 1.0/1.1/1.2/1.3 and the canonical
+profile order becomes `basic-document-1`, `columns-1`, `float-1`,
+`footnote-1`, `header-footer-1`, `paragraph-1`, `table-1`. Existing profile
+descriptor objects and table/footnote-specific projections omit
+`advanced_pagination`; built new profiles require the identical canonical
+selected record in trace and manifest. Neutral-1.3 compatibility preserves
+the current-encoder `dump-ast -> build-package` path without expanding any old
+profile's semantic domain.
+
+The publication transaction validates the complete independent 1.3 registry,
+then switches the current contract constant, Schema aliases, serializer,
+decoder, `dump-ast`, normalized config, diagnostics, capability, trace,
+manifest, public dispatch/help, and fixtures in one change set. It removes all
+private runners in that same gate. The frozen 1.0, 1.1, and 1.2 registries are
+never populated with 1.3 definitions.

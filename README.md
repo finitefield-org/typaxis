@@ -1,18 +1,20 @@
 # typaxis
 
-Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はProfile 1.1の現行契約と、凍結した1.0 input互換契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。M1 machine inputの公開範囲は[producer guide](docs/26-machine-input-cli.md)、M2以降の不足機能は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
+Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はcurrent contract 1.2、凍結した1.0/1.1 input互換契約、非公開の1.3 targetを記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。公開machine inputの範囲は[producer guide](docs/26-machine-input-cli.md)、M2以降の計画と状態は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
 
 ## 現行inputとmachine delivery status
 
-`typaxis build INPUT`、`check`、`dump-ast`、`dump-layout`のINPUTはbounded **reference TSF**のままであり、content sniffingはしない。公開`build-package`と`check-package`は1.0/1.1 DocumentPackage JSONをsealed ingestionへ通し、`capabilities --format json`はcompiled M1 descriptorを出力する。supported reference TSFについては`dump-ast --format json -> build-package` round tripを提供する。
+`typaxis build INPUT`、`check`、`dump-ast`、`dump-layout`のINPUTはbounded **reference TSF**のままであり、content sniffingはしない。公開`build-package`と`check-package`は1.0/1.1/1.2 DocumentPackage JSONをsealed ingestionへ通し、`capabilities --format json`はcompiled four-profile descriptorを出力する。supported reference TSFについては`dump-ast --format json -> build-package` round tripを提供する。
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| bounded reference TSF build | Yes, current 1.1 | Yes, reference subset | Yes | No |
-| portable DocumentPackage validation/export | Yes, current 1.1 plus frozen 1.0 input | Yes: dual Schema/validator/export | Yes, through package commands | Yes, M1 host gate |
+| bounded reference TSF build | Yes, current 1.2 | Yes, reference subset | Yes | No |
+| portable DocumentPackage validation/export | Yes, current 1.2 plus frozen 1.0/1.1 input | Yes: independent Schema registries/validator/export | Yes, through package commands | Yes |
 | sealed DocumentPackage ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, [capability contract](contracts/machine-pdf-capabilities.md) | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
-| contract 1.1 generated artifacts | Yes | Yes | Yes | Yes, M1 host gate |
+| `basic-document-1` / `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
+| contract 1.2 generated artifacts | Yes | Yes | Yes | Yes |
+| contract 1.3 advanced-pagination profiles | Yes, ADR-0031 target | No | No; current remains 1.2 | No, MI3-12 gate |
 
 `Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。M1は、明示的に管理するLinux・macOS hostで同一revision/source/artifactのactual evidenceを生成・集約して`Release-supported`となった。GitHub Actionsは使用していない。
 

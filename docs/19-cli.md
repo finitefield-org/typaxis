@@ -23,10 +23,12 @@ typaxis list-fonts --font-dir DIR
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| current `build` reference TSF | Yes, current 1.1 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage Schema / `dump-ast` export | Yes, current 1.1 plus frozen 1.0 input | Yes | Yes, package round trip | Yes, M1 host gate |
+| current `build` reference TSF | Yes, current 1.2 | Yes, bounded reference subset | Yes | No |
+| DocumentPackage Schema / `dump-ast` export | Yes, current 1.2 plus frozen 1.0/1.1 input | Yes | Yes, package round trip | Yes |
 | sealed machine package commands | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed profile | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
+| `basic-document-1` / `table-1` / `footnote-1` | Yes, closed profiles | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
+| contract 1.3 advanced-pagination profiles | Yes, ADR-0031 target | No | No; public IDs rejected | No, MI3-12 gate |
 
 `Contract-defined`やoffline Schema validationはcommand registrationを意味しない。上表のpublic E2Eはclean-built binaryのpositive/negative fixtureで確認済みであり、M1 release statusは同一source/artifactに対するLinux/macOS actual-host evidenceの集約で閉じた。
 

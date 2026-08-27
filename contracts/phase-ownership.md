@@ -2,7 +2,7 @@
 
 ## Implemented public machine-input ownership
 
-The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md) and [ADR-0029](../adr/ADR-0029-table-profile.md). Public package commands and local host evidence cover all three immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
+The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), and [ADR-0030](../adr/ADR-0030-footnote-profile.md). Public package commands and local host evidence cover all four immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -13,7 +13,7 @@ The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machi
 | strict JSON lexical preflight, caller-constructible `WireDocumentPackage`, decoder-issued `DecodedDocumentPackage`, JSON location index, and package JCS hash | `typaxis-document-package` | portable decode/export only; never issue host or trusted syntax authority |
 | raw PACKAGE receipt, decoded binding, exact single companion-source set, read budgets, and monotonic machine-input progress | `typaxis-machine-input` | issue `AdmittedMachinePackage`; reject cross-session raw/decoded/source receipt substitution |
 | DTO lowering, actual source/TextMap/AST/style/master/resource validation, entry-only closure, and trusted package issuance | sealed `typaxis-syntax::DocumentPackageParser` | issue `ValidatedMachinePackage { ValidatedParsedPackage, provenance }`; no public DTO promotion path |
-| immutable `paragraph-1` / `basic-document-1` / `table-1` descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
+| immutable `paragraph-1` / `basic-document-1` / `footnote-1` / `table-1` descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
 | all safe declared resource candidates before capability preflight | `typaxis-host-admission::HostReadIdentityLedger`, populated by machine orchestration | prevent requested diagnostics/manifest/PDF targets from aliasing existing or missing input candidates without opening resource bytes |
 | logical font/image binding, bytes-derived metadata, partial progress, and complete resource ledger | `typaxis-resource-admission` using generic host receipts | capability-success path only; layout/finalization receives complete ledger, failed manifest may receive sealed progress |
 | typed phase diagnostic code/category/subject and command-wide 256-record budget | originating phase plus `typaxis-diagnostics` materializer | map subjects through package JSON/source indexes; stderr and canonical sidecar read the same typed diagnostic, never parse `Debug` strings |
@@ -101,6 +101,35 @@ Marker catalog order and first-reference assignment order are intentionally
 different identities. A downstream phase cannot renumber markers from layout,
 derive reservation from coordinates, merge carry into the body cursor, or use
 trace/manifest JSON as a receipt.
+
+## Contract-defined M3 advanced-pagination ownership
+
+These rows are the target ownership adopted by
+[ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). They are not
+implemented or public at adoption. MI3-09 through MI3-11 may issue only
+crate-private staging receipts, and MI3-12 is the sole owner of the public 1.3
+migration and descriptor registration.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| closed `header-footer-1`, `columns-1`, and `float-1` domains and their immutable profile-receipt fingerprints | `typaxis-machine-profile` advanced descriptor/preflight owner | derive the target capability entries, typed contract-1.3 preflight, rejection matrix, and one combined fixture per profile |
+| independent 1.3 DTO/decoder/encoder and complete versioned Schema registry | `typaxis-document-package` version-dispatch owner plus Schema integration owner | keep staging isolated from current 1.2; populate every required neutral field by typed conversion and publish all current aliases only at MI3-12 |
+| horizontal/LTR master shape, checked trim/body/margin relation, first/left/right selection, and PDF page boxes | page-master geometry/selection owner | issue selected MasterId and MediaBox/CropBox/TrimBox receipts; Display/PDF cannot infer boxes from paint bounds |
+| page-region NodeIds/content closure and dense header/footer repetition | syntax index then canonical flow-registry and pagination owners | allocate one MasterId-bound source FlowId per present region, re-evaluate it independently on selected pages, and reject split/carry or body-cursor substitution |
+| checked column count/gap partition, last-column residual, and Column FlowIds | column-frame registry owner | issue exact left-to-right frame geometry and source-body before/after cursors without caller or worker ordering |
+| `typaxis.column-balance-candidates/1` input, strictly increasing target sequence, candidate permits, and selected final target | pagination balance-budget owner | allow candidate exactly at `max_column_balance_candidates`; emit `G6003` on candidate oscillation or before max+1 and expose only the selected candidate |
+| Figure anchor consumption, FIFO queue identity, finite here/top/bottom decisions, and next-page carry | float queue owner under pagination | issue `typaxis.float-queue/1`; keep Float FlowId/caption progress separate from body and emit `G6004` before queue/carry max+1 |
+| selected master/boxes, canonical header/body-column/footer frames, repetitions, balance, float placements/carries, and terminal closure | advanced selected-layout owner | issue `typaxis.advanced-pagination-selected-layout/1`; reject missing/extra/reordered/same-position facts as `I9190` |
+| exact frame/float Display commands and reopened PDF page-box/command observations | Display owner then PDF graph/serializer owners | issue `typaxis.advanced-pagination-paint-closure/1` bound to the selected layout rather than coordinate-sorted or caller-authored observations |
+| byte-identical conditional `advanced_pagination` trace/manifest projection | manifest owned-facts owner | require the member for built advanced profiles after MI3-12, forbid it for old profiles, and serialize no discarded candidate or uncommitted queue state |
+| current-contract switch, public profile registration, private-runner removal, and `m3-all.json` publication | MI3-12 integration gate | atomically expose 1.3 only after independent Schema, exact-limit, tamper, PDF, reproducibility, and documented-host closure |
+
+The target progress suffix is `ResourcesAdmitted ->
+AdvancedFlowRegistryValidated -> AdvancedPaginationSelected -> DisplayClosed ->
+PdfGraphFrozen`. A column frame is a view over the body source cursor; a page
+region and Float FlowId have their own terminals. Parent edges express typed
+ownership and nesting, never permission to flatten those cursors into the body
+continuation.
 
 ## Shared base ownership (originating in contract 1.0)
 

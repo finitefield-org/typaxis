@@ -13,6 +13,7 @@
 | `typaxis.machine-pdf/footnote-1` | Yes, ADR-0030 | Yes: discovery/reflow, dedicated carry, Display/PDF, trace/manifest closure | Yes, zero and combined PDF/sidecars | Yes, MI3-07 gate |
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: current aliases plus complete independent nineteen-schema versioned registry | Yes | Yes |
+| contract 1.3 advanced-pagination registry | Yes, ADR-0031 target | No Schema files at MI3-08; private staging begins MI3-09 | No; current aliases remain 1.2 | No, MI3-12 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`

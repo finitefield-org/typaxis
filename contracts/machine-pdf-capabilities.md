@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), and [ADR-0030](../adr/ADR-0030-footnote-profile.md). All four are implemented, public, and release-gated.
+This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). The first four are implemented, public, and release-gated. ADR-0031's three profiles are contract-defined targets only until MI3-12.
 
 ## Status axes
 
@@ -10,6 +10,9 @@ This document records the normative closed machine-PDF profiles adopted by [ADR-
 | `basic-document-1` | Yes, ADR-0028 | Yes | Yes | Yes |
 | `table-1` | Yes, ADR-0029 | Yes | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
 | `footnote-1` | Yes, ADR-0030 | Yes: discovery, reflow, carry, paint, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-07 gate |
+| `header-footer-1` | Yes, ADR-0031 on target contract 1.3 | No | No; public profile ID is rejected | No, MI3-12 gate |
+| `columns-1` | Yes, ADR-0031 on target contract 1.3 | No | No; public profile ID is rejected | No, MI3-12 gate |
+| `float-1` | Yes, ADR-0031 on target contract 1.3 | No | No; public profile ID is rejected | No, MI3-12 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -58,7 +61,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns the closed public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, `FOOTNOTE_1`, and `TABLE_1` descriptors. The implementation derives all of the following from the descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns the closed public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, `FOOTNOTE_1`, and `TABLE_1` descriptors. ADR-0031 reserves three future descriptors but does not permit their public constants or dispatch before MI3-12. The implementation derives all of the following from the registered descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -346,6 +349,97 @@ determinism, documented-host evidence, and old-profile rejection. Contract
 1.2 and DocumentPackage Schema bytes remain unchanged. Any needed wire/style
 field first requires a separate migration and new profile.
 
+## Contract-defined M3 advanced-pagination profiles
+
+ADR-0031 reserves `typaxis.contract/1.3` and these immutable target profiles:
+
+| Full profile ID | Additional closed domain | Publication gate |
+| --- | --- | --- |
+| `typaxis.machine-pdf/header-footer-1` | custom TrimBox, static master-owned header/footer content, and canonical single or first/left/right selection | MI3-12 |
+| `typaxis.machine-pdf/columns-1` | exact left-to-right sequential columns and bounded final-page balance | MI3-12 |
+| `typaxis.machine-pdf/float-1` | FIFO nonwrapping direct-body Figure floats across sequential columns/pages, without balance | MI3-12 |
+
+All three inherit the complete `basic-document-1` semantic domain on raw
+contract 1.3. They reject tables, footnotes, and each feature belonging to a
+different row. The float profile includes unbalanced sequential columns only
+because column-boundary queue behavior is part of its required closure. A
+neutral package is accepted, but every profile must have a zero-feature
+fixture and a complete all-advertised combined fixture before publication.
+
+Contract 1.3 adds required `writing_mode = horizontal-tb` and
+`page_progression = ltr` to `page_masters`; required `trim`, nullable
+`header_content`, nullable `footer_content`, and nullable `column_layout` to
+each master; and required Figure `placement = block|float`. Page-region content
+owns a NodeId/SourceSpan and contains only paragraph/heading blocks with
+text/soft-break/hard-break inlines. A non-null region requires its existing
+rectangle. Portable 1.3 can retain a legacy geometry-only rectangle, but every
+advanced profile rejects it and requires exact rectangle/content nullity. A
+non-null column layout has count 2 through 65,535,
+nonnegative gap, `fill = sequential`, and profile-selected `balance =
+last_page|none`. Count one is represented only by null. Margins are derived
+from trim/body and are never authored.
+
+The common direction/box policy is physical horizontal LTR. `/MediaBox` is the
+selected width/height, `/CropBox` equals MediaBox, and `/TrimBox` is the
+checked top-left-to-PDF conversion of trim; BleedBox, ArtBox, Rotate, and
+UserUnit are absent. Body lies inside trim. Header and footer share the body
+inline bounds, occupy only the corresponding trim margin, and never overlap
+body. Custom trim is accepted only by `header-footer-1`; the other profiles
+require trim equal to media.
+
+`header-footer-1` accepts either one default master with no rule, or exactly
+three first/left/right masters. In the latter form, the default is right and
+the only rules are dense source-order first (`first=true`, `parity=any`) then
+left (`first=null`, `parity=even`); named pages and footnote frames remain
+absent. Each present region has one MasterId-bound source FlowId, restarts from
+source start on every selected page, and receives a per-master/kind dense
+repetition index. It must reach terminal in one frame. Empty is transparent;
+oversize is one `L5100` without carry or retry.
+
+`columns-1` partitions body width with checked `(count-1)*gap`, equal floor
+widths, and the entire residual on the last physical column. Nonfinal pages
+fill full-height frames by ascending column index. On a nonempty terminal page,
+balance starts from `ceil(selected_extent/count)` and evaluates strictly
+increasing equal-height targets derived from typed positive rejection deficits.
+Candidate exactly at `max_column_balance_candidates` can win; `G6003` is
+issued on a repeated candidate fingerprint or before max+1. Empty trailing
+columns carry the exact terminal cursor and never issue same-position `More`.
+
+`float-1` accepts only a direct-body Figure `placement=float`. Anchor identity
+is body FlowId/FlowPosition/Figure NodeId; enqueue atomically consumes that
+body boundary. The unsplittable image-plus-caption must fit the minimum column
+width and an empty full-height column before enqueue. FIFO head candidates are
+`here`, `top`, `bottom`, then `next_page`; they create a full-column-width,
+zero-clearance exclusion band and never side-wrap, bypass, reorder, drop,
+scale, clip, or fall back to block. Queue length equal to `max_float_queue` and
+carry count equal to `max_float_carry_pages` are accepted; `G6004` is issued
+before max+1 enqueue/crossing. Body advance, terminal float placement, or a
+bounded page crossing must advance every composite pagination step.
+
+The target capability entry adds `advanced_pagination` only to the new
+descriptor objects. It records horizontal-tb/LTR, CropBox/MediaBox/TrimBox,
+custom-trim support, single versus first/left/right selection, nullable/1..65535
+column range, `forbidden|last_page|none` balance, header/footer support, and the
+ordered float candidate classes. Existing descriptor objects omit the member
+and remain byte-frozen.
+
+A built advanced artifact requires the same canonical
+`advanced_pagination` record in trace and manifest. It binds profile/flow/
+selected-layout/paint hashes; dense selected page/master/PDF-box/margin/frame
+facts; optional balance result; and FIFO queue-before/placement/carry/
+queue-after facts. Old profiles forbid that member. Display and PDF owners
+reopen exact frame commands and actual page dictionaries; presentation JSON
+cannot issue a receipt.
+
+At ADR adoption none of this target is recognized by public input, help, or
+capabilities. Public raw 1.3 is `P1103` and the new profile IDs are usage
+errors. MI3-12 must atomically validate/freeze the independent 1.3 registry,
+switch every current encoder/Schema/config/artifact identity, register all
+three descriptors and normal dispatch, add `G6003`/`G6004`, require the
+conditional trace/manifest member, remove private runners, and publish
+`m3-all.json`. The default remains `paragraph-1`; full migration details are
+normative in ADR-0031 and docs/22.
+
 ## Compatible changes
 
 The following changes are compatible with the same profile ID when they preserve observable semantics and existing fixtures:
@@ -370,10 +464,11 @@ The following changes are incompatible and require a new profile ID or an explic
 - treating a host-availability difference as a different semantic interpretation of the same profile.
 
 `paragraph-1` is never broadened in place. M2 is governed by ADR-0028; the M3
-table and footnote slices are governed by ADR-0029 and ADR-0030 respectively.
-Other M3 and later capabilities require their own decision-gate ADR fixing a
-new profile ID, closed domain, limits, fallback/oversize behavior, publication
-semantics, fixtures, and migration rule before implementation begins.
+table, footnote, and advanced-pagination slices are governed by ADR-0029,
+ADR-0030, and ADR-0031 respectively. Other later capabilities require their
+own decision-gate ADR fixing a new profile ID, closed domain, limits,
+fallback/oversize behavior, publication semantics, fixtures, and migration
+rule before implementation begins.
 
 ## Contract and release gating
 
@@ -387,3 +482,14 @@ changing DocumentPackage Schema bytes. MI3-07 subsequently published the
 footnote descriptor and `samples/machine-package/matrices/m3-footnote.json`
 on the same wire; the default remains `paragraph-1`. Future features may not
 broaden any public profile in place.
+
+ADR-0031's contract 1.3 and three profile IDs are target facts only. Until
+MI3-12, they are absent from the public capability artifact and current Schema.
+At MI3-12 the profile array becomes byte ordered `basic-document-1`,
+`columns-1`, `float-1`, `footnote-1`, `header-footer-1`, `paragraph-1`,
+`table-1`, while the default remains `paragraph-1`. `paragraph-1` accepts the
+neutral 1.3 semantic subset; the other old profiles accept raw 1.2 plus only
+the exact neutral 1.3 encoding of their frozen behavior; and the new profiles
+are raw-1.3-only. Neutral means full-media trim, null page-region content and
+columns, block Figure placement, and the profile's unchanged auxiliary-frame
+rules.
