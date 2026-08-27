@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), and [ADR-0029](../adr/ADR-0029-table-profile.md). All three current profiles are implemented, public, and release-gated. `table-1` was published by MI3-04 without broadening either older profile or changing the default.
+This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), and [ADR-0030](../adr/ADR-0030-footnote-profile.md). The first three are implemented, public, and release-gated. `footnote-1` is contract-defined only and remains absent from every public runtime and capability-advertisement surface until MI3-07.
 
 ## Status axes
 
@@ -9,6 +9,7 @@ This document records the normative closed machine-PDF profiles adopted by [ADR-
 | `paragraph-1` | Yes, ADR-0027 | Yes | Yes | Yes |
 | `basic-document-1` | Yes, ADR-0028 | Yes | Yes | Yes |
 | `table-1` | Yes, ADR-0029 | Yes | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
+| `footnote-1` | Yes, ADR-0030 | No, MI3-06/MI3-07 pending | No, unknown profile | No, MI3-07 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -57,7 +58,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns the closed `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, and `TABLE_1` descriptors. The implementation must derive all of the following from those descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns the closed public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, and `TABLE_1` descriptors. ADR-0030 defines `FOOTNOTE_1` as a target, not a current descriptor; only MI3-07 may add it to this owner and the public registry. The implementation must derive all of the following from the descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -240,6 +241,114 @@ Contract 1.2 and current DocumentPackage Schema bytes remain unchanged. A future
 implementation needing a new wire/style field requires a separate contract
 migration and profile rather than changing this profile or contract in place.
 
+## Contract-defined M3 target: `footnote-1`
+
+`typaxis.machine-pdf/footnote-1` is the immutable contract 1.2 target adopted
+by ADR-0030. It is not a current descriptor, public profile, implementation, or
+release claim. Before MI3-07, explicit selection is an unknown-profile usage
+error, the current capability artifact remains unchanged, and
+`paragraph-1` remains the default.
+
+The target preserves the complete `basic-document-1` content, style, resource,
+and PDF domain outside its reference/definition/master-region deltas and adds
+`footnote_reference` to body/list-item/caption paragraphs and headings.
+It does not compose with `table-1`. Definitions remain in the canonical
+Document-owned FootnoteId-sorted catalog and contain one or more paragraph or
+heading blocks using the M2 inline subset except nested footnote references.
+Each definition must contain positive text-producing content, resolve from at
+least one reference, and have no unsupported block/inline/style policy.
+Duplicate/missing targets are `P1102`; an unreferenced or empty definition is
+`L5100` before flow allocation.
+
+Marker numbering is the one-based canonical definition-catalog ordinal, not
+first-reference order. Reference and definition sites use the same shortest
+ASCII decimal bytes with no punctuation or whitespace. Every repeated
+reference paints its own marker but the definition is assigned and painted
+once. A reference marker uses its enclosing paragraph/heading style. The
+definition marker uses its definition NodeId and first text-producing
+paragraph/heading style, is kept with the first line, and is not repeated on a
+continuation. Its first content glyph follows the marker advance plus exactly
+one computed `font_size` of layout glue; reference markers add no implicit
+spacing or baseline shift.
+
+The sole master has no header/footer/rules and has a non-null footnote maximum
+region sharing the body's inline bounds and block end, with a positive height
+strictly smaller than the body. A page reservation is zero when it has no note
+fragment/carry. Otherwise it is the exact checked sum of a fixed 1 pt separator
+band and selected definition fragment extents, at most the master region, and
+is subtracted from the body block end. The separator is one full-width black
+0.5 pt butt-cap/miter-join solid `StrokePath`, wholly inside that band. No
+authored marker, separator, split, continuation, or note-style field exists in
+contract 1.2; attempting one is `P1102` rather than a default.
+
+Per selected state, incoming continuations precede newly discovered IDs in
+their global first-assignment order. New IDs are discovered from selected body
+FlowPosition and typed inline order, deduplicated at first occurrence, and
+materialized in page-local first-reference order. Already assigned completed
+IDs are not assigned again; candidate ordinals commit only on convergence, so
+discarded evaluations cannot leave a gap. The fixed split policy is `allow`:
+after reserving one legal minimum-progress fragment for every active carry/new
+definition,
+remaining capacity is distributed in that order by greatest legal prefix while
+preserving later minima. A trailing new reference that cannot reserve its
+minimum moves only through a legal body break; incoming carry is never dropped.
+Failure to fit the required body line/keep and definition minimum in otherwise
+empty maximum frames is terminal `L5100`, with no clipping, forced cut, keep
+relaxation, or reordered priority.
+
+Every unfinished definition has a dedicated FootnoteFlowId/source-page/
+next-page/cursor carry independent of the body cursor. Each carried cursor must
+strictly advance on its next page. A carry-only page holds the body cursor in a
+composite page receipt instead of issuing same-position body `More`. Repeated
+reference, definition split, and carry therefore have one result: marker sites
+may repeat, logical definition content may not, and a page may repeat an ID
+only through continuation across different pages. The ID-sorted layout-trace
+`page.footnote_ids` projection is retained, while selected receipts separately
+preserve first-reference/paint order and assignment ordinals.
+
+Evaluation zero is the uncharged initial body fragmentation. Each later body
+fragmentation using the preceding reservation, including a confirmation
+evaluation whose reservation is unchanged, consumes one existing
+`max_footnote_reflows_per_page` unit for the global-pass/page pair. The
+`typaxis.footnote-page-evaluation/1` fingerprint binds the body candidate,
+ordered footnote set, every before/after continuation and selected fragment,
+and exact reservation plus package/profile/epoch/page identity. Only two
+consecutive identical complete tuples are `converged`; a non-adjacent repeat is
+an oscillation. With inclusive maximum `M`, evaluations zero through `M` may
+run, convergence on `M` succeeds, and an unstable `M` fails with `G6002` before
+evaluation `M + 1` starts. Page-local cycle/fallback selection is forbidden.
+
+Definitions and every reference occurrence retain their existing semantic
+`max_ast_nodes` units (`P1120`) without a second profile charge. Marker buffers
+reuse `max_text_buffer_bytes`/`max_text_bytes` (`T2100`/`T2101`). Each page-local
+assignment/carry occurrence, nonempty-page separator record, and selected
+definition fragment uses the existing per-state `max_fragments` budget
+(`L5110`); markers do not double-charge their containing fragments. Candidate
+permits are bounded before allocation, discarded evaluations cannot issue
+persistent IDs, and only the converged candidate commits its count. Footnote
+carry remains bounded by strict cursor progress, `max_fragments`, and
+`max_pages`; float/column/PDF limits are not repurposed.
+
+Successful artifacts must bind `typaxis.footnote-profile-receipt/1` through
+`typaxis.footnote-flow-registry/1`, discovery, fragmentation, reservation,
+bounded evaluation, convergence and carry receipts,
+`typaxis.footnote-selected-layout/1`, and
+`typaxis.footnote-paint-closure/1` to the same body state, Display/PDF
+observations, trace, and manifest. Paint order is selected body (including
+reference markers), the single separator, then carry/new definition fragments
+in assignment order. Missing, extra, duplicate, wrong-owner/order/cursor/page/
+reservation/paint facts are `I9190` before publication.
+
+MI3-07 may publish the profile only after bidirectional descriptor/fixture
+coverage; zero/one/multiple/repeat/unreferenced/empty/split/carry/oversize and
+all accepted definition block/inline/style (including link/page-reference)
+closure; exact/max/max+1 gates; receipt and artifact tamper negatives; a
+combined all-footnote-plus-M2 `m3-footnote.json` fixture; external
+PDF/raster/text-order, determinism, and documented-host evidence; and
+old-profile rejection goldens all pass. Contract 1.2 and DocumentPackage
+Schema bytes must remain unchanged. Any needed wire/style field first requires
+a separate migration and new profile.
+
 ## Compatible changes
 
 The following changes are compatible with the same profile ID when they preserve observable semantics and existing fixtures:
@@ -263,8 +372,22 @@ The following changes are incompatible and require a new profile ID or an explic
 - changing diagnostic code/location/primary-order meaning in a way that alters producer control flow;
 - treating a host-availability difference as a different semantic interpretation of the same profile.
 
-`paragraph-1` is never broadened in place. M2 is governed by ADR-0028; M3 and later capabilities require their own decision-gate ADR fixing a new profile ID, closed domain, limits, fallback/oversize behavior, publication semantics, fixtures, and migration rule before implementation begins.
+`paragraph-1` is never broadened in place. M2 is governed by ADR-0028; the M3
+table and footnote slices are governed by ADR-0029 and ADR-0030 respectively.
+Other M3 and later capabilities require their own decision-gate ADR fixing a
+new profile ID, closed domain, limits, fallback/oversize behavior, publication
+semantics, fixtures, and migration rule before implementation begins.
 
 ## Contract and release gating
 
-The public capability artifact and current Schema use `typaxis.contract/1.2`. Its profile array is exactly `basic-document-1`, then `paragraph-1`, then `table-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the complete former 1.1 registry and published `samples/machine-package/matrices/m2-basic.json`; MI3-04 published the table descriptor and `samples/machine-package/matrices/m3-table.json` without changing DocumentPackage Schema bytes. Future features may not broaden any public profile in place.
+The public capability artifact and current Schema use `typaxis.contract/1.2`.
+Its profile array is exactly `basic-document-1`, then `paragraph-1`, then
+`table-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the
+complete former 1.1 registry and published
+`samples/machine-package/matrices/m2-basic.json`; MI3-04 published the table
+descriptor and `samples/machine-package/matrices/m3-table.json` without
+changing DocumentPackage Schema bytes. ADR-0030 does not change this surface;
+MI3-07 alone may change the array to `basic-document-1`, `footnote-1`,
+`paragraph-1`, `table-1` and add `m3-footnote.json` after its complete gate;
+the default remains `paragraph-1`. Future features may not broaden any public
+profile in place.

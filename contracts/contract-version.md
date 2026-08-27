@@ -22,7 +22,10 @@ retaining its frozen semantic subset. Explicit
 `typaxis.machine-pdf/basic-document-1` and `typaxis.machine-pdf/table-1` require
 raw contract 1.2; a 1.0 or 1.1 package is rejected at `/contract` and is never
 upgraded by synthesizing additive style or table semantics. Unknown identifiers
-never fall back to the current contract or newest profile.
+never fall back to the current contract or newest profile. ADR-0030's
+`typaxis.machine-pdf/footnote-1` target likewise fixes raw contract 1.2, but is
+not publicly selectable until MI3-07; before that gate its ID is an unknown
+profile usage error rather than a partially accepted contract path.
 
 Raw configuration input recognizes the same closed contract set. A raw 1.0
 configuration receives defaults for fields added after 1.0. Semantically equal
@@ -37,7 +40,10 @@ Contract 1.2 adds the closed style-property names `space_before`,
 adopted by [ADR-0028](../adr/ADR-0028-basic-document-profile.md). The publication
 exposes the immutable `basic-document-1` profile, and MI3-04 subsequently
 published the immutable `table-1` profile on the unchanged 1.2 table wire.
-`paragraph-1` remains the default and neither older profile is broadened.
+ADR-0030 defines the future immutable `footnote-1` profile using the unchanged
+1.2 definition/reference/page-master-footnote wire, but MI3-05 publishes no
+descriptor or artifact support. `paragraph-1` remains the default and no older
+profile is broadened.
 
 The contract remains a draft until the repository has a matching release tag
 for the design-package release. An incompatible change to field meaning,

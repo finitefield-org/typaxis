@@ -76,6 +76,34 @@ LayoutSelected -> DisplayClosed -> PdfGraphFrozen`. Trace or manifest JSON is
 never an authority for reconstructing a grid, repetition, command, or PDF
 observation.
 
+## Contract-defined M3 footnote ownership
+
+These rows are the target ownership adopted by
+[ADR-0030](../adr/ADR-0030-footnote-profile.md). They are not implemented or
+public at MI3-05. MI3-06 may exercise them only through crate-private staging;
+MI3-07 must close the complete chain before adding `footnote-1` to public
+capabilities.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| closed `footnote-1` domain; catalog-ordinal marker, fixed separator, `allow` split, frame, and convergence policies; `typaxis.footnote-profile-receipt/1` | future `typaxis-machine-profile` footnote descriptor/preflight owner | MI3-07 derives public capability, typed preflight, and fixture coverage from one descriptor; until then no public descriptor or recognized selector exists |
+| definition/reference/unreferenced closure and one FootnoteFlowId per canonical FootnoteId-owned definition | syntax profile preflight then canonical flow-registry owner | reject missing/duplicate/unreferenced/empty/nested definitions before allocation; issue `typaxis.footnote-flow-registry/1` independent of caller and first-reference order |
+| initial marker ordinal/bytes and reference/definition style ownership | validated-package generated-text owner | bind every reference site and one definition site to the same catalog-derived ASCII decimal marker without pagination-dependent renumbering |
+| selected body reference occurrences, page-local first-reference deduplication, and dense global assignment ordinals | page footnote discovery owner under pagination | place incoming carry before new assignments; repeated references remain observed but cannot clone an assignment |
+| minimum-first definition fragmentation, exact reservation, fixed separator geometry, and reduced body frame | footnote layout/reservation owner | issue candidate-scoped fragmentation/reservation receipts without reconstructing geometry from paint or trace |
+| `typaxis.footnote-page-evaluation/1` tuple, inclusive reflow consumption, consecutive equality, oscillation/exhaustion outcome | pagination work-budget and convergence owner | issue a converged page only; refuse `G6002` before max+1 and prevent any unmaterialized page from reaching Display/PDF |
+| FootnoteFlowId/source-page/next-page/strictly advancing cursor carry | dedicated footnote carry owner | transport unfinished definitions independently of the body cursor; reject missing/duplicate/reordered/nonadvancing carry as `I9190` |
+| body/reference, separator, definition fragment, and carry selected-state closure | selected-footnote-layout owner | issue `typaxis.footnote-selected-layout/1` covering every reference marker and every referenced definition's logical content exactly once |
+| canonical separator and marker/definition commands | footnote Display owner | issue `typaxis.footnote-paint-closure/1`; body paints first, then one separator and ordered note fragments; no caller-authored coordinates or inferred continuation text |
+| retained footnote commands/observations and selected trace/manifest projection | PDF graph/serializer and manifest owned-facts owners | bind body fingerprint, ordered assignments, reservation, evaluation count, fragments, carries, and paint hashes; the ID-sorted page projection alone is not authority |
+
+The target progress suffix is `ResourcesAdmitted -> FootnoteFlowRegistryValidated
+-> PageFootnoteConverged -> LayoutSelected -> DisplayClosed -> PdfGraphFrozen`.
+Marker catalog order and first-reference assignment order are intentionally
+different identities. A downstream phase cannot renumber markers from layout,
+derive reservation from coordinates, merge carry into the body cursor, or use
+trace/manifest JSON as a receipt.
+
 ## Shared base ownership (originating in contract 1.0)
 
 | Data or decision | Sole owner | Downstream use |

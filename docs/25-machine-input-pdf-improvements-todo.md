@@ -1528,7 +1528,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-05 Footnote profile ADRとbounded reflow policyを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-08
 - Design inputs: docs/25 §8 M3、§13.1、§13.3 footnote
 - Primary files:
@@ -1549,6 +1549,11 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - unsupported policyをpreflightで識別できる。
 - Verification:
   - `rg -n "first-reference|reservation|converged|max_ast_nodes|max_fragments|max_footnote_reflows_per_page|continuation|unreferenced" adr contracts/machine-pdf-capabilities.md`
+- Implementation notes (2026-08-27, Linux):
+  - repositoryで次に空いていた`ADR-0030`をAcceptedとし、immutable target `typaxis.machine-pdf/footnote-1`をunchanged `typaxis.contract/1.2`上へ固定した。complete M2 content/style/resource/PDF domainにbody/list-item/captionのreferenceと、paragraph/headingだけのDocument-owned definitionを加える。tableとのcomposition、nested footnote、authored note policyは拒否し、MI3-07まではpublic descriptor/help/capabilityへ登録しない。
+  - markerはcanonical FootnoteId UTF-8 byte順definition catalogの1-based shortest ASCII decimal、page assignment/paintはselected first-reference順として分離した。duplicate referenceはmarkerだけを繰り返し、definitionはexactly once logical content、unreferenced/empty definitionは`L5100`とした。body block-endとinline boundsを共有するbounded master region、1 pt band内のfull-width black 0.5 pt separator、`allow` split、minimum-first capacity allocation、dedicated strictly advancing FootnoteFlowId carry、body/definition keepとterminal oversizeを固定した。
+  - evaluation 0をuncharged initial body fragmentation、以後を既存`max_footnote_reflows_per_page`へ1 unitずつmapし、body fingerprint/ordered set/全continuation/exact reservationの連続完全一致だけをconvergedとした。max回目は実行可能、不安定またはoscillationはmax+1開始前の`G6002`とする。definition/referenceは既存`max_ast_nodes` (`P1120`)、marker bytesは既存text limits (`T2100`/`T2101`)、page assignment/carry・separator・definition fragmentは既存`max_fragments` (`L5110`)へmapし、profile/flow/discovery/reservation/evaluation/convergence/carry/selected/Display/PDF/trace/manifest receipt chainとMI3-07 gateを採択した。
+  - milestone指定の`rg` gate、Markdown link/table check、`python3 schemas/validate.py`、locked workspace all-target tests、workspace all-target clippy `-D warnings`、cargo format、whitespace/diff checkはlocal exit 0だった。current aliasとversioned 1.2 DocumentPackage SchemaはいずれもSHA-256 `de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままで、MI3-05はSchema bytesやpublic profile surfaceを変更していない。
 - Non-goals:
   - sidenote/endnote
   - footnote内footnote
