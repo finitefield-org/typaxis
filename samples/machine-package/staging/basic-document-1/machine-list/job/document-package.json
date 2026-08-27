@@ -1,0 +1,188 @@
+{
+  "contract": "typaxis.contract/1.2",
+  "coordinate_unit": "pdf_point_1_65536",
+  "document": {
+    "blocks": [
+      {
+        "classes": [],
+        "items": [
+          {
+            "blocks": [
+              {
+                "children": [],
+                "classes": [],
+                "kind": "paragraph",
+                "node_id": 3,
+                "span": {
+                  "end_byte": 0,
+                  "source_id": 0,
+                  "start_byte": 0
+                }
+              },
+              {
+                "classes": [],
+                "items": [
+                  {
+                    "blocks": [
+                      {
+                        "children": [],
+                        "classes": [],
+                        "kind": "paragraph",
+                        "node_id": 6,
+                        "span": {
+                          "end_byte": 0,
+                          "source_id": 0,
+                          "start_byte": 0
+                        }
+                      }
+                    ],
+                    "node_id": 5,
+                    "span": {
+                      "end_byte": 0,
+                      "source_id": 0,
+                      "start_byte": 0
+                    }
+                  }
+                ],
+                "kind": "list",
+                "node_id": 4,
+                "ordered": false,
+                "span": {
+                  "end_byte": 0,
+                  "source_id": 0,
+                  "start_byte": 0
+                },
+                "start": null
+              }
+            ],
+            "node_id": 2,
+            "span": {
+              "end_byte": 0,
+              "source_id": 0,
+              "start_byte": 0
+            }
+          },
+          {
+            "blocks": [
+              {
+                "children": [],
+                "classes": [],
+                "kind": "paragraph",
+                "node_id": 8,
+                "span": {
+                  "end_byte": 0,
+                  "source_id": 0,
+                  "start_byte": 0
+                }
+              }
+            ],
+            "node_id": 7,
+            "span": {
+              "end_byte": 0,
+              "source_id": 0,
+              "start_byte": 0
+            }
+          }
+        ],
+        "kind": "list",
+        "node_id": 1,
+        "ordered": true,
+        "span": {
+          "end_byte": 0,
+          "source_id": 0,
+          "start_byte": 0
+        },
+        "start": 9
+      }
+    ],
+    "footnotes": [],
+    "node_id": 0
+  },
+  "page_masters": {
+    "default_master_id": "default",
+    "masters": [
+      {
+        "body": {
+          "height": 100,
+          "width": 100,
+          "x": 0,
+          "y": 0
+        },
+        "footer": null,
+        "footnote": null,
+        "header": null,
+        "height": 100,
+        "master_id": "default",
+        "width": 100
+      }
+    ],
+    "selection_rules": []
+  },
+  "resources": {
+    "font_faces": [],
+    "images": []
+  },
+  "sources": [
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_id": 0,
+      "uri": "input.tsf",
+      "utf8_byte_length": 0
+    }
+  ],
+  "style_sheet": {
+    "rules": [
+      {
+        "declarations": [
+          {
+            "important": false,
+            "name": "font_family",
+            "value": {
+              "families": [
+                "Fixture"
+              ],
+              "kind": "font_family_list"
+            }
+          },
+          {
+            "important": false,
+            "name": "font_size",
+            "value": {
+              "kind": "length",
+              "value": 10
+            }
+          },
+          {
+            "important": false,
+            "name": "line_height",
+            "value": {
+              "kind": "length",
+              "value": 12
+            }
+          },
+          {
+            "important": false,
+            "name": "start_indent",
+            "value": {
+              "kind": "length",
+              "value": 5
+            }
+          },
+          {
+            "important": false,
+            "name": "end_indent",
+            "value": {
+              "kind": "length",
+              "value": 3
+            }
+          }
+        ],
+        "extends": null,
+        "selector": "list",
+        "source_order": 0,
+        "style_id": "machine-list"
+      }
+    ]
+  },
+  "text_buffers": []
+}

@@ -1,0 +1,22 @@
+{
+  "algorithm": "typaxis.machine-block-style-manifest/1",
+  "available_inline_size": 81,
+  "block_kind": "paragraph",
+  "contract": "typaxis.contract/1.2",
+  "effective_space_after": 6,
+  "effective_space_before": 0,
+  "end_indent": 10,
+  "frame_inline_size": 101,
+  "keep_caption": true,
+  "keep_with_next": true,
+  "logical_end_alignment_space": 31,
+  "logical_start_alignment_space": 30,
+  "owner_node_id": 1,
+  "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "page_break_before": true,
+  "paint_inline_size": 20,
+  "paint_left_inset": 40,
+  "pdf_observation_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "registry_version": "typaxis.basic-block-style-registry/1",
+  "start_indent": 10
+}

@@ -25,12 +25,44 @@ except ImportError as error:  # pragma: no cover - dependency guidance
 
 SCHEMA_DIR = Path(__file__).resolve().parent
 FROZEN_SCHEMA_DIR = SCHEMA_DIR / "1.0"
+PREVIOUS_SCHEMA_DIR = SCHEMA_DIR / "1.1"
+STAGING_SCHEMA_DIR = SCHEMA_DIR / "1.2"
 REPOSITORY_ROOT = SCHEMA_DIR.parent
 MINIMAL_DIR = REPOSITORY_ROOT / "samples" / "minimal"
 CONFORMANCE_DIR = REPOSITORY_ROOT / "samples" / "conformance"
 COMPATIBILITY_DIR = REPOSITORY_ROOT / "samples" / "compatibility"
 INVALID_DIR = REPOSITORY_ROOT / "samples" / "invalid"
 MACHINE_FIXTURE_DIR = REPOSITORY_ROOT / "samples" / "machine-package"
+STAGING_STYLE_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "basic-document-1"
+    / "machine-block-styles"
+)
+STAGING_LIST_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "basic-document-1"
+    / "machine-list"
+)
+STAGING_PAGE_BREAK_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "basic-document-1"
+    / "machine-page-break"
+)
+STAGING_FIGURE_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "basic-document-1"
+    / "machine-figure"
+)
+STAGING_LINK_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "basic-document-1"
+    / "machine-link"
+)
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
@@ -45,6 +77,19 @@ FROZEN_SCHEMA_SHA256 = {
     "document-package.schema.json": "2976bba8247b5cc2db5220356c942d9b14b36a5b4a201d60296b1c46c9dc17d4",
     "layout-trace.schema.json": "00ad4bb4e9fc427db7219d4fef1492e432b735dad909764125a952ddd195b1b2",
     "package-config.schema.json": "8b9450a52c050e893b76e548fb219f95f6492939c50856d8536a298ded6fc145",
+}
+PREVIOUS_SCHEMA_SHA256 = {
+    "build-manifest.schema.json": "4ebcc6cb0f25e7cd82a7905cdca37990cd60e013009da7fbcbd999201c0f60b3",
+    "common.schema.json": "223d524c21f6aafa444944e4445816dba6edcb51099ecad6953176970c387f7a",
+    "diagnostics.schema.json": "c53510cbe8474328344268e4e838043e8e62258a88a29cd4c4c81b654eb525c1",
+    "display-list.schema.json": "90e14174ce464bb5a3e63f6d34aa96a4f3ee6c659bbb0ba8d587d99eac0e7d8b",
+    "document-package.schema.json": "e573dff00f252bb723ea29e2faadf9a7a47d2248cbcc5756f439ed7935ccaa6c",
+    "layout-trace.schema.json": "f70448b5fda23d3b743079e1a4477f79c6dbdb98d33021eee3e7c75aa49eb8a9",
+    "machine-capabilities.schema.json": "7ce8f98e2193f1d81f256b44458737ecdec3aaccdc92c2df62b77e204bb14dea",
+    "machine-fixture-expectation.schema.json": "f0de1ea48b4de1110ff483c40593a6c132ade4af183c81150401519cf610f7c8",
+    "machine-fixture-matrix.schema.json": "1e306b97e3f8dd506633973787cbeb76f424893f86702d8d8c3b42960e7e6cff",
+    "machine-profile-evidence.schema.json": "eb3609a6b197c3d9b0cc4550d245085e5a630f8043f111de6609405467462c83",
+    "package-config.schema.json": "f5c5c85a7e50f01d316a5bf4b298680f75ba57bbb92c0ec059479ec618475e16",
 }
 
 POSITIVE_FIXTURES = {
@@ -2869,6 +2914,8 @@ def cross_artifact_rule_ids(
             "selected_state",
             "final_fingerprint",
             "fallback_policy",
+            "flow_registry_sha256",
+            "profile_receipt_sha256",
         )
     }
     if manifest.get("layout") != expected_layout:
@@ -3542,17 +3589,910 @@ def load_schema_registry(
     return schemas, validators, reference_count
 
 
-def machine_advertised_items(capabilities: dict[str, Any]) -> list[str]:
+def validate_staging_multi_flow_bundle(
+    trace: dict[str, Any], manifest: dict[str, Any]
+) -> None:
+    positions = trace.get("flow_positions")
+    if not isinstance(positions, list) or not positions:
+        raise ValidationFailure("1.2 staging trace has no flow positions")
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    previous_flow = -1
+    epoch = positions[0].get("epoch") if isinstance(positions[0], dict) else None
+    for position in positions:
+        if not isinstance(position, dict):
+            raise ValidationFailure("1.2 staging flow position is not an object")
+        flow_id = position.get("flow_id")
+        if type(flow_id) is not int or flow_id < previous_flow:
+            raise ValidationFailure("1.2 staging flow positions are not in flow order")
+        previous_flow = flow_id
+        if position.get("epoch") != epoch:
+            raise ValidationFailure("1.2 staging flow positions mix layout epochs")
+        grouped.setdefault(flow_id, []).append(position)
+    if list(grouped) != list(range(len(grouped))):
+        raise ValidationFailure("1.2 staging FlowIds are not dense")
+
+    derived_flows: list[dict[str, Any]] = []
+    for flow_id, flow_positions in grouped.items():
+        if [position.get("flow_local_ordinal") for position in flow_positions] != list(
+            range(len(flow_positions))
+        ):
+            raise ValidationFailure("1.2 staging flow ordinals are not dense")
+        terminals = [position for position in flow_positions if position.get("terminal") is True]
+        if len(terminals) != 1 or terminals[0] is not flow_positions[-1]:
+            raise ValidationFailure("1.2 staging flow lacks one final terminal")
+        owner_node_id = flow_positions[0].get("owner_node_id")
+        parent_flow_id = flow_positions[0].get("parent_flow_id")
+        if any(
+            position.get("owner_node_id") != owner_node_id
+            or position.get("parent_flow_id") != parent_flow_id
+            for position in flow_positions
+        ):
+            raise ValidationFailure("1.2 staging flow relation changes within a flow")
+        if flow_id == 0:
+            if owner_node_id != 0 or parent_flow_id is not None:
+                raise ValidationFailure("1.2 staging body flow relation is invalid")
+        elif type(parent_flow_id) is not int or not 0 <= parent_flow_id < flow_id:
+            raise ValidationFailure("1.2 staging child flow parent is not earlier")
+        derived_flows.append(
+            {
+                "flow_id": flow_id,
+                "owner_node_id": owner_node_id,
+                "parent_flow_id": parent_flow_id,
+                "terminal": terminals[0]["flow_local_ordinal"],
+            }
+        )
+
+    for position in positions:
+        child_flow_id = position.get("child_flow_id")
+        if child_flow_id is None:
+            continue
+        flow_id = position["flow_id"]
+        if (
+            type(child_flow_id) is not int
+            or child_flow_id <= flow_id
+            or child_flow_id >= len(derived_flows)
+            or derived_flows[child_flow_id]["parent_flow_id"] != flow_id
+            or derived_flows[child_flow_id]["owner_node_id"]
+            != position.get("content_owner_node_id")
+        ):
+            raise ValidationFailure("1.2 staging child flow edge is invalid")
+
+    if manifest.get("flows") != derived_flows:
+        raise ValidationFailure("1.2 staging manifest does not cover exact flow terminals")
+    if manifest.get("flow_registry_sha256") != trace.get("flow_registry_sha256"):
+        raise ValidationFailure("1.2 staging registry hashes differ")
+    if manifest.get("selected_state_sha256") != trace.get("selected_state_sha256"):
+        raise ValidationFailure("1.2 staging selected-state hashes differ")
+
+
+def validate_staging_machine_list_bundle(
+    package: dict[str, Any], selected: dict[str, Any], expectation: dict[str, Any]
+) -> None:
+    """Close the MI2-04 fixture across package semantics and selected facts."""
+
+    if expectation != {
+        "contract": "typaxis.contract/1.2",
+        "profile": "typaxis.machine-pdf/basic-document-1",
+        "policy_version": "typaxis.basic-list-policy/1",
+        "scenarios": {
+            "deterministic_double_build": True,
+            "empty_painted_item": "L5100",
+            "exact_marker_buffer_bytes": 3,
+            "marker_buffer_max_plus_one": 2,
+            "marker_overflow": "L5100",
+            "nested": True,
+            "page_split": True,
+            "single": True,
+            "tamper": ["missing_item", "extra_item", "wrong_item"],
+        },
+    }:
+        raise ValidationFailure("MI2-04 scenario expectation drifted")
+    if selected.get("policy_version") != expectation["policy_version"]:
+        raise ValidationFailure("MI2-04 list policy differs between expectation and facts")
+
+    list_style: dict[str, Any] | None = None
+    for rule in package.get("style_sheet", {}).get("rules", []):
+        if rule.get("selector") == "list":
+            if list_style is not None:
+                raise ValidationFailure("MI2-04 fixture has an ambiguous list style")
+            list_style = {
+                declaration.get("name"): declaration.get("value", {}).get("value")
+                for declaration in rule.get("declarations", [])
+            }
+    if list_style is None:
+        raise ValidationFailure("MI2-04 fixture has no exact list style")
+    expected_font_size = list_style.get("font_size")
+    expected_start_indent = list_style.get("start_indent")
+    expected_end_indent = list_style.get("end_indent")
+    if any(
+        type(value) is not int or value < 0
+        for value in (expected_font_size, expected_start_indent, expected_end_indent)
+    ) or expected_font_size == 0:
+        raise ValidationFailure("MI2-04 fixture list geometry style is incomplete")
+
+    lists: dict[int, dict[str, Any]] = {}
+    expected_items: dict[int, dict[str, Any]] = {}
+    pending: list[tuple[dict[str, Any], int | None]] = [
+        (block, None)
+        for block in reversed(package.get("document", {}).get("blocks", []))
+    ]
+    while pending:
+        block, containing_item = pending.pop()
+        kind = block.get("kind")
+        if kind == "list":
+            list_node_id = block.get("node_id")
+            if type(list_node_id) is not int or list_node_id in lists:
+                raise ValidationFailure("MI2-04 fixture has a duplicate or invalid list owner")
+            ordered = block.get("ordered")
+            start = block.get("start")
+            if type(ordered) is not bool or (ordered and type(start) is not int):
+                raise ValidationFailure("MI2-04 fixture has an invalid closed list kind")
+            if not ordered and start is not None:
+                raise ValidationFailure("MI2-04 unordered list has a start value")
+            items = block.get("items")
+            if not isinstance(items, list) or not items:
+                raise ValidationFailure("MI2-04 fixture has an empty list")
+            lists[list_node_id] = {"containing_item": containing_item}
+            for item_index, item in enumerate(items):
+                item_node_id = item.get("node_id")
+                if type(item_node_id) is not int or item_node_id in expected_items:
+                    raise ValidationFailure(
+                        "MI2-04 fixture has a duplicate or invalid list-item owner"
+                    )
+                if ordered:
+                    marker_value = start + item_index
+                    if marker_value > 4_294_967_295:
+                        raise ValidationFailure("MI2-04 fixture ordered marker overflows u32")
+                    marker_utf8 = f"{marker_value}."
+                else:
+                    marker_utf8 = "\u2022"
+                expected_items[item_node_id] = {
+                    "item_index": item_index,
+                    "list_node_id": list_node_id,
+                    "marker_utf8": marker_utf8,
+                }
+            for item in reversed(items):
+                item_node_id = item["node_id"]
+                pending.extend(
+                    (child, item_node_id)
+                    for child in reversed(item.get("blocks", []))
+                )
+        elif kind == "figure":
+            pending.extend(
+                (child, containing_item)
+                for child in reversed(block.get("caption", []))
+            )
+        elif kind == "table":
+            rows = [*block.get("head", []), *block.get("body", [])]
+            table_blocks = [
+                child
+                for row in rows
+                for cell in row.get("cells", [])
+                for child in cell.get("blocks", [])
+            ]
+            pending.extend(
+                (child, containing_item) for child in reversed(table_blocks)
+            )
+
+    observed_items = selected.get("items")
+    observed_lists = selected.get("list_flows")
+    if not isinstance(observed_items, list) or not isinstance(observed_lists, list):
+        raise ValidationFailure("MI2-04 selected facts omit list closure")
+    if [item.get("item_node_id") for item in observed_items] != sorted(expected_items):
+        raise ValidationFailure("MI2-04 selected items are missing, extra, or noncanonical")
+    if [item.get("list_node_id") for item in observed_lists] != sorted(lists):
+        raise ValidationFailure("MI2-04 selected list facts are missing, extra, or noncanonical")
+
+    observed_by_item = {item["item_node_id"]: item for item in observed_items}
+    observed_by_list = {item["list_node_id"]: item for item in observed_lists}
+    if len(observed_by_item) != len(observed_items) or len(observed_by_list) != len(observed_lists):
+        raise ValidationFailure("MI2-04 selected facts contain duplicate owners")
+
+    item_flow_ids = [item.get("item_flow_id") for item in observed_items]
+    if item_flow_ids != list(range(1, len(observed_items) + 1)):
+        raise ValidationFailure("MI2-04 list-item FlowIds are not dense and canonical")
+
+    all_fragments: list[int] = []
+    previous_page = -1
+    for item_node_id in sorted(expected_items):
+        expected = expected_items[item_node_id]
+        item = observed_by_item[item_node_id]
+        for field in ("item_index", "list_node_id", "marker_utf8"):
+            if item.get(field) != expected[field]:
+                raise ValidationFailure(
+                    f"MI2-04 selected item has wrong derived {field}: {item_node_id}"
+                )
+        marker_key = item.get("marker_key")
+        if marker_key != {
+            "generation_kind": "list_marker",
+            "owner": item_node_id,
+            "owner_local_ordinal": 0,
+        }:
+            raise ValidationFailure("MI2-04 marker key is not item-bound and canonical")
+        list_fact = observed_by_list[expected["list_node_id"]]
+        if item.get("list_flow_id") != list_fact.get("list_flow_id"):
+            raise ValidationFailure("MI2-04 item/list FlowId closure is broken")
+        if item.get("marker_column_width") != list_fact.get("marker_column_width"):
+            raise ValidationFailure("MI2-04 item/list marker-column closure is broken")
+        if item.get("content_inline_size") != list_fact.get("item_frame_inline_size"):
+            raise ValidationFailure("MI2-04 item/list inline-size closure is broken")
+        expected_marker_left = (
+            list_fact["start_indent"]
+            + list_fact["marker_column_width"]
+            - item["marker_inline_size"]
+        )
+        if item.get("marker_physical_left") != expected_marker_left:
+            raise ValidationFailure("MI2-04 marker is not end-aligned in the widest column")
+        expected_content_left = (
+            list_fact["start_indent"]
+            + list_fact["marker_column_width"]
+            + list_fact["marker_gap"]
+        )
+        if item.get("content_physical_left") != expected_content_left:
+            raise ValidationFailure("MI2-04 marker gap/content placement is not exact")
+        fragments = item.get("fragment_ids")
+        if (
+            not isinstance(fragments, list)
+            or not fragments
+            or fragments[0] != item.get("marker_fragment_id")
+            or item.get("marker_fragment_id") != item.get("first_line_fragment_id")
+        ):
+            raise ValidationFailure("MI2-04 marker and first painted line are orphaned")
+        if fragments != sorted(set(fragments)):
+            raise ValidationFailure("MI2-04 item fragments are not strictly ordered")
+        all_fragments.extend(fragments)
+        page_index = item.get("page_index")
+        if type(page_index) is not int or page_index < previous_page:
+            raise ValidationFailure("MI2-04 item pages are not canonical")
+        previous_page = page_index
+        if page_index >= selected.get("page_count", 0):
+            raise ValidationFailure("MI2-04 item page is outside the selected page count")
+
+    if all_fragments != list(range(len(all_fragments))):
+        raise ValidationFailure("MI2-04 fragment IDs are not globally dense")
+    if selected.get("page_count") != previous_page + 1:
+        raise ValidationFailure("MI2-04 selected page count does not close page-split facts")
+
+    marker_widths: dict[int, list[int]] = {list_node_id: [] for list_node_id in lists}
+    for item in observed_items:
+        marker_widths[item["list_node_id"]].append(item["marker_inline_size"])
+    for list_node_id in sorted(lists):
+        list_fact = observed_by_list[list_node_id]
+        if list_fact.get("marker_column_width") != max(marker_widths[list_node_id]):
+            raise ValidationFailure("MI2-04 marker column is not the widest marker")
+        if (
+            list_fact.get("marker_gap") != expected_font_size
+            or list_fact.get("start_indent") != expected_start_indent
+            or list_fact.get("end_indent") != expected_end_indent
+        ):
+            raise ValidationFailure("MI2-04 list geometry does not match computed style")
+        containing_item = lists[list_node_id]["containing_item"]
+        containing_frame_inline_size = (
+            package["page_masters"]["masters"][0]["body"]["width"]
+            if containing_item is None
+            else observed_by_item[containing_item]["content_inline_size"]
+        )
+        if (
+            list_fact["start_indent"]
+            + list_fact["marker_column_width"]
+            + list_fact["marker_gap"]
+            + list_fact["item_frame_inline_size"]
+            + list_fact["end_indent"]
+            != containing_frame_inline_size
+        ):
+            raise ValidationFailure("MI2-04 list frame does not close its containing flow")
+        expected_list_flow = (
+            0 if containing_item is None else observed_by_item[containing_item]["item_flow_id"]
+        )
+        if list_fact.get("list_flow_id") != expected_list_flow:
+            raise ValidationFailure("MI2-04 nested list is not bound to its parent item flow")
+
+
+def validate_staging_forced_page_break_bundle(
+    package: dict[str, Any],
+    trace: dict[str, Any],
+    selected: dict[str, Any],
+    expectation: dict[str, Any],
+) -> None:
+    """Close the MI2-05 forced-boundary, cursor, and blank-page fixture."""
+
+    if expectation != {
+        "contract": "typaxis.contract/1.2",
+        "profile": "typaxis.machine-pdf/basic-document-1",
+        "policy_version": "typaxis.basic-forced-page-break-policy/1",
+        "scenarios": {
+            "blank_page_indexes": [0, 2, 4],
+            "consecutive": True,
+            "cursor_tamper": "I9190",
+            "deterministic_double_build": True,
+            "leading": True,
+            "max_pages": 5,
+            "max_plus_one": "limit",
+            "middle": True,
+            "painted_content_owners": [2, 5],
+            "trailing": True,
+        },
+    }:
+        raise ValidationFailure("MI2-05 scenario expectation drifted")
+    if selected.get("policy_version") != expectation["policy_version"]:
+        raise ValidationFailure("MI2-05 blank-page policy differs between fixture and facts")
+    for field in (
+        "break_usage_sha256",
+        "flow_registry_sha256",
+        "forced_page_breaks",
+        "page_count",
+        "pages",
+        "policy_version",
+    ):
+        if trace.get(field) != selected.get(field):
+            raise ValidationFailure(f"MI2-05 trace/manifest {field} closure is broken")
+
+    blocks = package.get("document", {}).get("blocks", [])
+    if not isinstance(blocks, list):
+        raise ValidationFailure("MI2-05 document blocks are missing")
+    break_owners: list[int] = []
+    expected_before_ordinals: list[int] = []
+    for flow_local_ordinal, block in enumerate(blocks):
+        if block.get("kind") == "page_break":
+            owner = block.get("node_id")
+            if type(owner) is not int:
+                raise ValidationFailure("MI2-05 break owner is invalid")
+            break_owners.append(owner)
+            expected_before_ordinals.append(flow_local_ordinal)
+
+    receipts = selected.get("forced_page_breaks")
+    if not isinstance(receipts, list) or not receipts:
+        raise ValidationFailure("MI2-05 selected facts omit forced page breaks")
+    if [receipt.get("break_node_id") for receipt in receipts] != break_owners:
+        raise ValidationFailure("MI2-05 break coverage is missing, extra, or noncanonical")
+    if len(set(break_owners)) != len(break_owners):
+        raise ValidationFailure("MI2-05 fixture has duplicate break owners")
+
+    for index, (receipt, before_ordinal) in enumerate(
+        zip(receipts, expected_before_ordinals, strict=True)
+    ):
+        before = receipt.get("before_cursor")
+        after = receipt.get("after_cursor")
+        if receipt.get("document_ordinal") != index:
+            raise ValidationFailure("MI2-05 break document ordinals are not dense")
+        if receipt.get("produced_page_index") != index + 1:
+            raise ValidationFailure("MI2-05 break did not produce exactly one next page")
+        if before != {"flow_id": 0, "flow_local_ordinal": before_ordinal}:
+            raise ValidationFailure("MI2-05 pre-break cursor is not flow-bound")
+        if after != {"flow_id": 0, "flow_local_ordinal": before_ordinal + 1}:
+            raise ValidationFailure("MI2-05 break cursor did not advance exactly once")
+
+    pages = selected.get("pages")
+    page_count = selected.get("page_count")
+    if page_count != len(receipts) + 1 or not isinstance(pages, list):
+        raise ValidationFailure("MI2-05 N-break to N+1-page policy is broken")
+    if len(pages) != page_count:
+        raise ValidationFailure("MI2-05 PDF page count does not close selected pages")
+    if [page.get("page_index") for page in pages] != list(range(page_count)):
+        raise ValidationFailure("MI2-05 page indexes are not dense")
+    for page in pages:
+        painted = page.get("painted_content_count")
+        if type(painted) is not int or painted < 0:
+            raise ValidationFailure("MI2-05 painted-content count is invalid")
+        if page.get("is_blank") is not (painted == 0):
+            raise ValidationFailure("MI2-05 blank page is inconsistent with painted content")
+    blank_pages = [page["page_index"] for page in pages if page["is_blank"]]
+    if blank_pages != expectation["scenarios"]["blank_page_indexes"]:
+        raise ValidationFailure("MI2-05 leading/consecutive/trailing blank pages drifted")
+    if page_count != expectation["scenarios"]["max_pages"]:
+        raise ValidationFailure("MI2-05 exact max-pages fixture drifted")
+
+
+def validate_staging_machine_figure_bundle(
+    package: dict[str, Any],
+    selected: dict[str, Any],
+    expectation: dict[str, Any],
+    png_bytes: bytes,
+) -> None:
+    """Close MI2-06 from declared image identity through PDF XObject facts."""
+
+    if expectation != {
+        "contract": "typaxis.contract/1.2",
+        "profile": "typaxis.machine-pdf/basic-document-1",
+        "policy_version": "typaxis.basic-png-figure-policy/1",
+        "scenarios": {
+            "bad_hash": "resource_hash_mismatch",
+            "caption_block_sizes": [15, 15],
+            "caption_keep": True,
+            "caption_split": True,
+            "deterministic_double_build": True,
+            "image_xobject_count": 2,
+            "initial_consumed_block_size": 50,
+            "invalid_dimensions": "invalid_metadata",
+            "non_png": "invalid_metadata",
+            "oversize": "terminal_once",
+            "pixel_limit": "resource_limit",
+            "publication_failure": "no_success",
+            "wrong_image_id": "draw_image_closure",
+        },
+    }:
+        raise ValidationFailure("MI2-06 scenario expectation drifted")
+    if (
+        selected.get("contract") != expectation["contract"]
+        or selected.get("profile") != expectation["profile"]
+        or selected.get("policy_version") != expectation["policy_version"]
+    ):
+        raise ValidationFailure("MI2-06 contract/profile/policy closure drifted")
+
+    declarations = package.get("resources", {}).get("images")
+    if not isinstance(declarations, list) or len(declarations) != 1:
+        raise ValidationFailure("MI2-06 fixture must declare exactly one image")
+    declaration = declarations[0]
+    if set(declaration) != {"expected_sha256", "image_id", "uri"}:
+        raise ValidationFailure("MI2-06 image declaration gained a media assertion")
+    if declaration.get("uri", "").lower().endswith(".png"):
+        raise ValidationFailure("MI2-06 fixture accidentally permits suffix inference")
+    if hashlib.sha256(png_bytes).hexdigest() != declaration.get("expected_sha256"):
+        raise ValidationFailure("MI2-06 admitted PNG hash does not match its declaration")
+    if (
+        len(png_bytes) < 29
+        or png_bytes[:8] != b"\x89PNG\r\n\x1a\n"
+        or int.from_bytes(png_bytes[8:12], "big") != 13
+        or png_bytes[12:16] != b"IHDR"
+    ):
+        raise ValidationFailure("MI2-06 fixture payload is not a PNG IHDR")
+    pixel_width = int.from_bytes(png_bytes[16:20], "big")
+    pixel_height = int.from_bytes(png_bytes[20:24], "big")
+    bit_depth = png_bytes[24]
+    color_type = png_bytes[25]
+    if pixel_width == 0 or pixel_height == 0:
+        raise ValidationFailure("MI2-06 fixture PNG dimensions are invalid")
+    decoded_bytes_per_pixel = {
+        (0, 1): 2,
+        (0, 2): 2,
+        (0, 4): 2,
+        (0, 8): 2,
+        (0, 16): 4,
+        (2, 8): 4,
+        (2, 16): 8,
+        (3, 1): 4,
+        (3, 2): 4,
+        (3, 4): 4,
+        (3, 8): 4,
+        (4, 8): 2,
+        (4, 16): 4,
+        (6, 8): 4,
+        (6, 16): 8,
+    }.get((color_type, bit_depth))
+    if decoded_bytes_per_pixel is None:
+        raise ValidationFailure("MI2-06 fixture PNG pixel format is unsupported")
+    decoded_bytes = pixel_width * pixel_height * decoded_bytes_per_pixel
+
+    blocks = package.get("document", {}).get("blocks")
+    if not isinstance(blocks, list):
+        raise ValidationFailure("MI2-06 document blocks are missing")
+    source_figures = [
+        (ordinal, block)
+        for ordinal, block in enumerate(blocks)
+        if isinstance(block, dict) and block.get("kind") == "figure"
+    ]
+    figures = selected.get("figures")
+    if len(source_figures) != 1 or not isinstance(figures, list) or len(figures) != 1:
+        raise ValidationFailure("MI2-06 source/selected figure closure is not exact")
+    document_ordinal, source_figure = source_figures[0]
+    figure = figures[0]
+    caption = source_figure.get("caption")
+    if not isinstance(caption, list) or any(
+        block.get("kind") not in {"paragraph", "heading"}
+        for block in caption
+        if isinstance(block, dict)
+    ):
+        raise ValidationFailure("MI2-06 caption escaped the closed block subflow")
+    caption_owners = [block.get("node_id") for block in caption]
+    if any(type(owner) is not int for owner in caption_owners):
+        raise ValidationFailure("MI2-06 caption owner is invalid")
+
+    figure_rules = [
+        rule
+        for rule in package.get("style_sheet", {}).get("rules", [])
+        if rule.get("selector") == "figure"
+    ]
+    if len(figure_rules) != 1:
+        raise ValidationFailure("MI2-06 fixture has no single computed figure style")
+    style = {
+        declaration.get("name"): declaration.get("value", {}).get("value")
+        for declaration in figure_rules[0].get("declarations", [])
+    }
+    width = style.get("width")
+    start_indent = style.get("start_indent", 0)
+    end_indent = style.get("end_indent", 0)
+    keep_caption = style.get("keep_caption", True)
+    if (
+        type(width) is not int
+        or width <= 0
+        or type(start_indent) is not int
+        or start_indent < 0
+        or type(end_indent) is not int
+        or end_indent < 0
+        or type(keep_caption) is not bool
+    ):
+        raise ValidationFailure("MI2-06 computed width/indent/keep style is invalid")
+
+    masters = package.get("page_masters", {}).get("masters")
+    if not isinstance(masters, list) or len(masters) != 1:
+        raise ValidationFailure("MI2-06 fixture must use one non-optional page master")
+    master = masters[0]
+    body = master.get("body")
+    if not isinstance(body, dict) or selected.get("body") != body:
+        raise ValidationFailure("MI2-06 selected body does not match the page master")
+    if width + start_indent + end_indent > body.get("width", -1):
+        raise ValidationFailure("MI2-06 computed figure width exceeds its body")
+
+    quotient, remainder = divmod(width * pixel_height, pixel_width)
+    if remainder * 2 > pixel_width or (
+        remainder * 2 == pixel_width and quotient % 2 == 1
+    ):
+        quotient += 1
+    expected_height = quotient
+    if expected_height <= 0:
+        raise ValidationFailure("MI2-06 aspect-ratio rounding produced no height")
+    expected_rect = {
+        "height": expected_height,
+        "width": width,
+        "x": body["x"] + start_indent,
+        "y": body["y"] + expectation["scenarios"]["initial_consumed_block_size"],
+    }
+    expected_figure_fields = {
+        "admitted_byte_length": len(png_bytes),
+        "admitted_sha256": declaration["expected_sha256"],
+        "alt": source_figure.get("alt"),
+        "attested_media_kind": "png",
+        "decoded_bytes": decoded_bytes,
+        "document_ordinal": document_ordinal,
+        "draw_image_count": 1,
+        "effective_space_before": 0,
+        "figure_flow_id": 0,
+        "figure_node_id": source_figure.get("node_id"),
+        "image_id": declaration.get("image_id"),
+        "keep_policy": (
+            "keep_image_and_caption" if keep_caption else "allow_caption_split"
+        ),
+        "moved_to_fresh_page": False,
+        "oversize_policy": "terminal_once",
+        "page_index": 0,
+        "pixel_height": pixel_height,
+        "pixel_width": pixel_width,
+        "rect": expected_rect,
+    }
+    for field, expected in expected_figure_fields.items():
+        if figure.get(field) != expected:
+            raise ValidationFailure(f"MI2-06 figure {field} is not source/admission-bound")
+    caption_flow_id = figure.get("caption_flow_id")
+    if type(caption_flow_id) is not int or caption_flow_id <= 0:
+        raise ValidationFailure("MI2-06 caption FlowId is not a child flow")
+
+    used = expectation["scenarios"]["initial_consumed_block_size"] + expected_height
+    page_index = 0
+    expected_fragments: list[dict[str, Any]] = []
+    page_counts = [{"caption_block_count": 0, "figure_count": 1, "page_index": 0}]
+    caption_sizes = expectation["scenarios"]["caption_block_sizes"]
+    if len(caption_sizes) != len(caption_owners):
+        raise ValidationFailure("MI2-06 caption measurement closure drifted")
+    for owner, block_size in zip(caption_owners, caption_sizes, strict=True):
+        if block_size > body["height"]:
+            raise ValidationFailure("MI2-06 checked fixture unexpectedly oversizes a caption")
+        if used + block_size > body["height"]:
+            page_index += 1
+            used = 0
+            page_counts.append(
+                {"caption_block_count": 0, "figure_count": 0, "page_index": page_index}
+            )
+        expected_fragments.append(
+            {
+                "caption_flow_id": caption_flow_id,
+                "caption_node_id": owner,
+                "page_index": page_index,
+                "rect": {
+                    "height": block_size,
+                    "width": body["width"],
+                    "x": body["x"],
+                    "y": body["y"] + used,
+                },
+            }
+        )
+        used += block_size
+        page_counts[page_index]["caption_block_count"] += 1
+    if figure.get("caption_fragments") != expected_fragments:
+        raise ValidationFailure("MI2-06 caption FlowId/owner/page geometry closure is broken")
+    if selected.get("pages") != page_counts or selected.get("page_count") != len(page_counts):
+        raise ValidationFailure("MI2-06 selected/PDF page closure is broken")
+    if (
+        selected.get("page_width") != master.get("width")
+        or selected.get("page_height") != master.get("height")
+        or selected.get("master_id") != master.get("master_id")
+    ):
+        raise ValidationFailure("MI2-06 selected page geometry is not master-bound")
+
+    package_digest = hashlib.sha256(jcs_bytes(package)).hexdigest()
+    if selected.get("package_sha256") != package_digest:
+        raise ValidationFailure("MI2-06 package fingerprint does not bind canonical bytes")
+    if selected.get("layout_state_sha256") != selected.get("selected_state_sha256"):
+        raise ValidationFailure("MI2-06 selected/display layout state closure is broken")
+    expected_xobjects = [
+        {"image_id": declaration["image_id"], "resource_name": "/Im0"}
+    ]
+    if selected.get("image_xobjects") != expected_xobjects:
+        raise ValidationFailure("MI2-06 logical image/PDF resource-name closure is broken")
+    if selected.get("image_xobject_count") != expectation["scenarios"][
+        "image_xobject_count"
+    ]:
+        raise ValidationFailure("MI2-06 serialized image-XObject count drifted")
+    if selected["image_xobject_count"] < len(expected_xobjects):
+        raise ValidationFailure("MI2-06 serialized image-XObject closure is incomplete")
+
+
+def validate_staging_machine_link_bundle(
+    package: dict[str, Any],
+    selected: dict[str, Any],
+    expectation: dict[str, Any],
+    font_bytes: bytes,
+) -> None:
+    """Close MI2-07 from package link children through serialized annotations."""
+
+    expected_expectation = {
+        "contract": "typaxis.contract/1.2",
+        "profile": "typaxis.machine-pdf/basic-document-1",
+        "policy_version": "typaxis.basic-link-policy/1",
+        "scenarios": {
+            "annotation_count": 3,
+            "annotation_closure": [
+                "missing",
+                "extra",
+                "wrong_page",
+                "wrong_target",
+            ],
+            "bad_target": "preflight",
+            "bad_uri": "preflight",
+            "destination_count": 1,
+            "deterministic_double_build": True,
+            "empty_children": "preflight",
+            "exact_rectangle_limit": 3,
+            "external_uri": "https://example.test/Path?Q=1",
+            "internal_anchor": "target",
+            "public_rejected": True,
+            "rectangle_tamper": "closure",
+            "unpainted_children": "preflight",
+            "wrapped_external_rectangles": 2,
+        },
+    }
+    if expectation != expected_expectation:
+        raise ValidationFailure("MI2-07 scenario expectation drifted")
+    if (
+        selected.get("contract") != expectation["contract"]
+        or selected.get("profile") != expectation["profile"]
+        or selected.get("policy_version") != expectation["policy_version"]
+    ):
+        raise ValidationFailure("MI2-07 contract/profile/policy closure drifted")
+
+    font_faces = package.get("resources", {}).get("font_faces")
+    if not isinstance(font_faces, list) or len(font_faces) != 1:
+        raise ValidationFailure("MI2-07 fixture must declare exactly one font")
+    font_face = font_faces[0]
+    if font_face.get("uri") != "body.ttf":
+        raise ValidationFailure("MI2-07 font resource path drifted")
+    if hashlib.sha256(font_bytes).hexdigest() != font_face.get("expected_sha256"):
+        raise ValidationFailure("MI2-07 admitted font hash does not match its declaration")
+
+    blocks = package.get("document", {}).get("blocks")
+    if (
+        not isinstance(blocks, list)
+        or len(blocks) != 1
+        or blocks[0].get("kind") != "paragraph"
+    ):
+        raise ValidationFailure("MI2-07 fixture escaped its closed paragraph domain")
+    paragraph = blocks[0]
+    paragraph_owner = paragraph.get("node_id")
+    children = paragraph.get("children")
+    if not isinstance(children, list):
+        raise ValidationFailure("MI2-07 paragraph children are missing")
+    source_anchors = {
+        child.get("anchor_id"): child.get("node_id")
+        for child in children
+        if isinstance(child, dict) and child.get("kind") == "anchor"
+    }
+    if source_anchors != {expectation["scenarios"]["internal_anchor"]: 2}:
+        raise ValidationFailure("MI2-07 source anchor registry is missing or duplicated")
+    source_links = [
+        child
+        for child in children
+        if isinstance(child, dict) and child.get("kind") == "link"
+    ]
+    selected_links = selected.get("links")
+    if (
+        len(source_links) != 2
+        or not isinstance(selected_links, list)
+        or len(selected_links) != len(source_links)
+    ):
+        raise ValidationFailure("MI2-07 source/selected link closure is not exact")
+    if [link.get("link_node_id") for link in selected_links] != sorted(
+        link.get("node_id") for link in source_links
+    ):
+        raise ValidationFailure("MI2-07 links are missing, extra, or noncanonical")
+
+    pages = selected.get("pages")
+    page_count = selected.get("page_count")
+    if (
+        not isinstance(pages, list)
+        or type(page_count) is not int
+        or page_count != len(pages)
+        or [page.get("page_index") for page in pages] != list(range(page_count))
+    ):
+        raise ValidationFailure("MI2-07 selected/PDF page closure is broken")
+    page_by_index = {page["page_index"]: page for page in pages}
+    object_count = selected.get("object_count")
+    if type(object_count) is not int or object_count <= 0:
+        raise ValidationFailure("MI2-07 PDF object count is invalid")
+
+    annotation_ids: list[int] = []
+    annotations_per_page = [0] * page_count
+    prior_logical_end = 0
+    for source_link, link in zip(source_links, selected_links, strict=True):
+        owner = source_link.get("node_id")
+        if (
+            link.get("link_node_id") != owner
+            or link.get("paragraph_node_id") != paragraph_owner
+        ):
+            raise ValidationFailure("MI2-07 link owner/paragraph binding drifted")
+        link_children = source_link.get("children")
+        if not isinstance(link_children, list) or not link_children:
+            raise ValidationFailure("MI2-07 accepted an empty link")
+        painted_ranges = [
+            child.get("text_span")
+            for child in link_children
+            if isinstance(child, dict)
+            and child.get("kind") == "text"
+            and isinstance(child.get("text_span"), dict)
+            and child["text_span"].get("end_byte", 0)
+            > child["text_span"].get("start_byte", 0)
+        ]
+        if not painted_ranges:
+            raise ValidationFailure("MI2-07 accepted an unpainted link")
+        expected_cluster_count = sum(
+            span["end_byte"] - span["start_byte"] for span in painted_ranges
+        )
+        logical_start = link.get("logical_cluster_start")
+        logical_end = link.get("logical_cluster_end")
+        logical_count = link.get("logical_cluster_count")
+        if (
+            logical_start != prior_logical_end
+            or logical_count != expected_cluster_count
+            or logical_end != logical_start + logical_count
+        ):
+            raise ValidationFailure("MI2-07 logical cluster range is not exact and contiguous")
+        prior_logical_end = logical_end
+
+        source_target = source_link.get("target")
+        target = link.get("target")
+        if not isinstance(source_target, dict) or not isinstance(target, dict):
+            raise ValidationFailure("MI2-07 link target is missing")
+        if source_target.get("kind") == "internal":
+            anchor_id = source_target.get("anchor_id")
+            expected_target = {
+                "anchor_id": anchor_id,
+                "anchor_owner_node_id": source_anchors.get(anchor_id),
+                "kind": "internal",
+            }
+            if target != expected_target:
+                raise ValidationFailure("MI2-07 internal target is not anchor-registry-bound")
+        elif source_target.get("kind") == "uri":
+            raw_uri = source_target.get("uri")
+            if not isinstance(raw_uri, str) or ":" not in raw_uri:
+                raise ValidationFailure("MI2-07 external target is not a URI")
+            scheme, remainder = raw_uri.split(":", 1)
+            normalized = f"{scheme.lower()}:{remainder}"
+            if scheme.lower() not in {"http", "https", "mailto", "tel"}:
+                raise ValidationFailure("MI2-07 external target bypassed the scheme allowlist")
+            if target != {"kind": "external", "uri": normalized}:
+                raise ValidationFailure("MI2-07 raw URI escaped SafeUri normalization")
+        else:
+            raise ValidationFailure("MI2-07 source link target kind is unsupported")
+
+        rectangles = link.get("rectangles")
+        if not isinstance(rectangles, list) or not rectangles:
+            raise ValidationFailure("MI2-07 link has no selected annotation rectangle")
+        rectangle_order = [
+            (rectangle.get("page_index"), rectangle.get("line_ordinal"))
+            for rectangle in rectangles
+        ]
+        if rectangle_order != sorted(rectangle_order) or len(set(rectangle_order)) != len(
+            rectangle_order
+        ):
+            raise ValidationFailure("MI2-07 rectangle order is noncanonical or duplicated")
+        for rectangle in rectangles:
+            page_index = rectangle.get("page_index")
+            page = page_by_index.get(page_index)
+            rect = rectangle.get("rect")
+            object_id = rectangle.get("annotation_object_id")
+            if page is None or not isinstance(rect, dict):
+                raise ValidationFailure("MI2-07 annotation refers to the wrong page")
+            if type(object_id) is not int or not 0 < object_id <= object_count:
+                raise ValidationFailure("MI2-07 annotation object binding is invalid")
+            annotation_ids.append(object_id)
+            annotations_per_page[page_index] += 1
+            x = rect.get("x")
+            y = rect.get("y")
+            width = rect.get("width")
+            height = rect.get("height")
+            if (
+                any(type(value) is not int for value in (x, y, width, height))
+                or x < 0
+                or y < 0
+                or width <= 0
+                or height <= 0
+                or x + width > page.get("width", -1)
+                or y + height > page.get("height", -1)
+            ):
+                raise ValidationFailure("MI2-07 annotation rectangle is empty or out of bounds")
+
+    if len(annotation_ids) != len(set(annotation_ids)):
+        raise ValidationFailure("MI2-07 annotation objects are duplicated")
+    annotation_count = len(annotation_ids)
+    if (
+        selected.get("annotation_count") != annotation_count
+        or [page.get("annotation_count") for page in pages] != annotations_per_page
+        or annotation_count != expectation["scenarios"]["annotation_count"]
+        or annotation_count != expectation["scenarios"]["exact_rectangle_limit"]
+    ):
+        raise ValidationFailure("MI2-07 annotation count closure drifted")
+
+    destinations = selected.get("destinations")
+    expected_destinations = [
+        {"anchor_id": anchor_id, "owner_node_id": owner}
+        for anchor_id, owner in sorted(source_anchors.items(), key=lambda item: utf8_sort_key(item[0]))
+    ]
+    if not isinstance(destinations, list) or len(destinations) != len(expected_destinations):
+        raise ValidationFailure("MI2-07 named destination closure is not exact")
+    for destination, expected in zip(destinations, expected_destinations, strict=True):
+        if {
+            "anchor_id": destination.get("anchor_id"),
+            "owner_node_id": destination.get("owner_node_id"),
+        } != expected:
+            raise ValidationFailure("MI2-07 named destination owner is wrong-package or stale")
+        page = page_by_index.get(destination.get("page_index"))
+        point = destination.get("point")
+        if (
+            page is None
+            or not isinstance(point, dict)
+            or not 0 <= point.get("x", -1) <= page.get("width", -1)
+            or not 0 <= point.get("y", -1) <= page.get("height", -1)
+        ):
+            raise ValidationFailure("MI2-07 named destination is outside its selected page")
+    if (
+        selected.get("destination_count") != len(destinations)
+        or len(destinations) != expectation["scenarios"]["destination_count"]
+    ):
+        raise ValidationFailure("MI2-07 destination count closure drifted")
+    if (
+        len(selected_links[1]["rectangles"])
+        != expectation["scenarios"]["wrapped_external_rectangles"]
+    ):
+        raise ValidationFailure("MI2-07 wrapped external link rectangle coverage drifted")
+    if selected_links[1]["target"].get("uri") != expectation["scenarios"]["external_uri"]:
+        raise ValidationFailure("MI2-07 expected normalized URI drifted")
+    if selected.get("package_sha256") != hashlib.sha256(jcs_bytes(package)).hexdigest():
+        raise ValidationFailure("MI2-07 package fingerprint does not bind canonical bytes")
+
+
+def machine_advertised_items(
+    capabilities: dict[str, Any], profile_id: str
+) -> list[str]:
     profiles = capabilities["machine_input"]["profiles"]
-    if len(profiles) != 1:
-        raise ValidationFailure("machine capabilities must contain exactly one M1 profile")
-    profile = profiles[0]
+    matches = [profile for profile in profiles if profile.get("id") == profile_id]
+    if len(matches) != 1:
+        raise ValidationFailure(f"machine capabilities do not contain one {profile_id} profile")
+    profile = matches[0]
     items = {
         "source_closure:entry_only",
         "page_master:default",
     }
     items.update(f"block:{item}" for item in profile["blocks"])
     items.update(f"font_format:{item}" for item in profile["font_formats"])
+    items.update(f"image_format:{item}" for item in profile["image_formats"])
     items.update(f"inline:{item}" for item in profile["inlines"]["kinds"])
     items.update(
         f"reference_format:{item}" for item in profile["inlines"]["reference_formats"]
@@ -3568,19 +4508,29 @@ def machine_advertised_items(capabilities: dict[str, Any]) -> list[str]:
 def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[str]:
     items = {"source_closure:entry_only", "page_master:default"}
     saw_anchor = False
+    saw_figure = False
+    saw_link = False
     saw_text = False
     stack = list(reversed(package["document"]["blocks"]))
     while stack:
         node = stack.pop()
         kind = node.get("kind")
-        if kind in {"heading", "paragraph"}:
+        if kind in {"figure", "heading", "list", "page_break", "paragraph"}:
             items.add(f"block:{kind}")
-        if kind in {"anchor", "hard_break", "reference", "soft_break", "text"}:
+        if kind in {"anchor", "hard_break", "link", "reference", "soft_break", "text"}:
             items.add(f"inline:{kind}")
         if kind == "anchor":
             saw_anchor = True
         if kind == "text":
             saw_text = True
+        if kind == "figure":
+            saw_figure = True
+            stack.extend(reversed(node.get("caption", [])))
+        if kind == "list":
+            for item in reversed(node.get("items", [])):
+                stack.extend(reversed(item.get("blocks", [])))
+        if kind == "link":
+            saw_link = True
         if kind == "reference":
             items.add(f"reference_format:{node['format']}")
         children = node.get("children")
@@ -3590,6 +4540,8 @@ def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[
         items.add("pdf_feature:named-destinations")
     if saw_text:
         items.add("pdf_feature:text-extraction")
+    if saw_link:
+        items.add("pdf_feature:link-annotations")
 
     for rule in package["style_sheet"]["rules"]:
         selector = rule["selector"].split(".", 1)[0]
@@ -3611,6 +4563,13 @@ def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[
             items.add("font_format:sfnt-truetype-glyf")
         else:
             raise ValidationFailure(f"combined fixture font has an unknown container: {face['uri']}")
+    for image in package["resources"]["images"]:
+        payload = (fixture_root / image["uri"]).read_bytes()
+        if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValidationFailure(f"combined fixture image is not PNG: {image['uri']}")
+        items.add("image_format:png")
+        if saw_figure:
+            items.add("pdf_feature:png-xobjects")
     return sorted(items, key=utf8_sort_key)
 
 
@@ -3682,20 +4641,37 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             if package_value["contract"] != instance["contract"]:
                 raise ValidationFailure(f"{path}: expected contract differs from PACKAGE")
 
-    advertised = machine_advertised_items(capabilities)
-    combined_path, combined = expectations["paragraph-1.combined"]
-    if combined["advertised_item_coverage"] != advertised:
-        raise ValidationFailure("combined fixture does not cover the exact advertised descriptor")
-    combined_package = load_json(combined_path.parent / combined["package"])
-    observed_items = combined_fixture_items(combined_package, combined_path.parent / "job")
-    if observed_items != advertised:
-        raise ValidationFailure(
-            "combined PACKAGE coverage differs from capabilities: "
-            f"missing={sorted(set(advertised) - set(observed_items))}, "
-            f"extra={sorted(set(observed_items) - set(advertised))}"
+    combined_profiles = (
+        (
+            "typaxis.machine-pdf/paragraph-1",
+            "paragraph-1.combined",
+            "Typaxis machine input",
+        ),
+        (
+            "typaxis.machine-pdf/basic-document-1",
+            "basic-document-1.combined",
+            "Basic document internal external First item Second entry PNG caption",
+        ),
+    )
+    for profile_id, fixture_id, expected_text in combined_profiles:
+        advertised = machine_advertised_items(capabilities, profile_id)
+        combined_path, combined = expectations[fixture_id]
+        if combined["advertised_item_coverage"] != advertised:
+            raise ValidationFailure(
+                f"{fixture_id} does not cover the exact advertised descriptor"
+            )
+        combined_package = load_json(combined_path.parent / combined["package"])
+        observed_items = combined_fixture_items(
+            combined_package, combined_path.parent / "job"
         )
-    if combined["expected"]["normalized_extracted_text"] != "Typaxis machine input":
-        raise ValidationFailure("combined normalized extracted text is not fixed")
+        if observed_items != advertised:
+            raise ValidationFailure(
+                f"{fixture_id} PACKAGE coverage differs from capabilities: "
+                f"missing={sorted(set(advertised) - set(observed_items))}, "
+                f"extra={sorted(set(observed_items) - set(advertised))}"
+            )
+        if combined["expected"]["normalized_extracted_text"] != expected_text:
+            raise ValidationFailure(f"{fixture_id} normalized extracted text is not fixed")
 
     machine_test_source = (
         REPOSITORY_ROOT / "workspace/crates/typaxis-cli/src/machine_tests.rs"
@@ -3789,6 +4765,10 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             "machine_tests::matrix_21_unknown_profile",
             ("usage.unknown-profile",),
         ),
+        "m1-decoder-22": (
+            "machine_tests::matrix_22_blank_1_2",
+            ("paragraph-1.blank-1.2",),
+        ),
     }
 
     listed_paths: set[Path] = set()
@@ -3862,7 +4842,33 @@ def main() -> int:
         frozen_schemas, frozen_validators, frozen_reference_count = load_schema_registry(
             FROZEN_SCHEMA_DIR, "1.0"
         )
-        schemas, validators, reference_count = load_schema_registry(SCHEMA_DIR, "1.1")
+        previous_schemas, previous_validators, previous_reference_count = load_schema_registry(
+            PREVIOUS_SCHEMA_DIR, "1.1"
+        )
+        schemas, validators, reference_count = load_schema_registry(SCHEMA_DIR, "1.2")
+        staging_schemas, staging_validators, staging_reference_count = load_schema_registry(
+            STAGING_SCHEMA_DIR, "1.2"
+        )
+        if set(staging_schemas) != {
+            "build-manifest.schema.json",
+            "common.schema.json",
+            "diagnostics.schema.json",
+            "display-list.schema.json",
+            "document-package.schema.json",
+            "layout-trace.schema.json",
+            "machine-capabilities.schema.json",
+            "machine-block-style-manifest.schema.json",
+            "machine-fixture-expectation.schema.json",
+            "machine-fixture-matrix.schema.json",
+            "machine-forced-page-break-manifest.schema.json",
+            "machine-forced-page-break-trace.schema.json",
+            "machine-figure-manifest.schema.json",
+            "machine-link-manifest.schema.json",
+            "machine-list-manifest.schema.json",
+            "machine-profile-evidence.schema.json",
+            "package-config.schema.json",
+        }:
+            raise ValidationFailure("the versioned 1.2 registry has a missing or extra schema")
         if set(frozen_schemas) != set(FROZEN_SCHEMA_SHA256):
             raise ValidationFailure("the frozen 1.0 registry has a missing or extra schema")
         for filename, expected_digest in FROZEN_SCHEMA_SHA256.items():
@@ -3873,11 +4879,668 @@ def main() -> int:
                 raise ValidationFailure(
                     f"the frozen 1.0 schema bytes changed: {filename}"
                 )
+        if set(previous_schemas) != set(PREVIOUS_SCHEMA_SHA256):
+            raise ValidationFailure("the frozen 1.1 registry has a missing or extra schema")
+        for filename, expected_digest in PREVIOUS_SCHEMA_SHA256.items():
+            observed_digest = hashlib.sha256(
+                (PREVIOUS_SCHEMA_DIR / filename).read_bytes()
+            ).hexdigest()
+            if observed_digest != expected_digest:
+                raise ValidationFailure(
+                    f"the frozen 1.1 schema bytes changed: {filename}"
+                )
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         minimal_document = load_json(MINIMAL_DIR / "document-package.json")
         minimal_display = load_json(MINIMAL_DIR / "display-list.json")
         minimal_trace = load_json(MINIMAL_DIR / "layout-trace.json")
         minimal_manifest = load_json(MINIMAL_DIR / "build-manifest.json")
+        staging_epoch = {
+            "admitted_resources_sha256": "1" * 64,
+            "document_sha256": "2" * 64,
+            "resolved_input_sha256": "3" * 64,
+            "style_page_master_sha256": "4" * 64,
+        }
+        staging_trace = {
+            "algorithm": "typaxis.multi-flow-trace-facts/1",
+            "contract": "typaxis.contract/1.2",
+            "flow_positions": [
+                {
+                    "block_child_path": [0],
+                    "child_flow_id": None,
+                    "content_kind": "paragraph",
+                    "content_owner_node_id": 1,
+                    "epoch": staging_epoch,
+                    "flow_id": 0,
+                    "flow_local_ordinal": 0,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 0,
+                    "parent_flow_id": None,
+                    "terminal": False,
+                },
+                {
+                    "block_child_path": [1, 0],
+                    "child_flow_id": 1,
+                    "content_kind": "list_item",
+                    "content_owner_node_id": 3,
+                    "epoch": staging_epoch,
+                    "flow_id": 0,
+                    "flow_local_ordinal": 1,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 0,
+                    "parent_flow_id": None,
+                    "terminal": False,
+                },
+                {
+                    "block_child_path": [2],
+                    "child_flow_id": None,
+                    "content_kind": "page_break",
+                    "content_owner_node_id": 8,
+                    "epoch": staging_epoch,
+                    "flow_id": 0,
+                    "flow_local_ordinal": 2,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 0,
+                    "parent_flow_id": None,
+                    "terminal": False,
+                },
+                {
+                    "block_child_path": [],
+                    "child_flow_id": None,
+                    "content_kind": None,
+                    "content_owner_node_id": None,
+                    "epoch": staging_epoch,
+                    "flow_id": 0,
+                    "flow_local_ordinal": 3,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 0,
+                    "parent_flow_id": None,
+                    "terminal": True,
+                },
+                {
+                    "block_child_path": [1, 0, 0],
+                    "child_flow_id": None,
+                    "content_kind": "paragraph",
+                    "content_owner_node_id": 4,
+                    "epoch": staging_epoch,
+                    "flow_id": 1,
+                    "flow_local_ordinal": 0,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 3,
+                    "parent_flow_id": 0,
+                    "terminal": False,
+                },
+                {
+                    "block_child_path": [1, 0, 1, 0],
+                    "child_flow_id": 2,
+                    "content_kind": "list_item",
+                    "content_owner_node_id": 6,
+                    "epoch": staging_epoch,
+                    "flow_id": 1,
+                    "flow_local_ordinal": 1,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 3,
+                    "parent_flow_id": 0,
+                    "terminal": False,
+                },
+                {
+                    "block_child_path": [1, 0],
+                    "child_flow_id": None,
+                    "content_kind": None,
+                    "content_owner_node_id": None,
+                    "epoch": staging_epoch,
+                    "flow_id": 1,
+                    "flow_local_ordinal": 2,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 3,
+                    "parent_flow_id": 0,
+                    "terminal": True,
+                },
+                {
+                    "block_child_path": [1, 0, 1, 0, 0],
+                    "child_flow_id": None,
+                    "content_kind": "paragraph",
+                    "content_owner_node_id": 7,
+                    "epoch": staging_epoch,
+                    "flow_id": 2,
+                    "flow_local_ordinal": 0,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 6,
+                    "parent_flow_id": 1,
+                    "terminal": False,
+                },
+                {
+                    "block_child_path": [1, 0, 1, 0],
+                    "child_flow_id": None,
+                    "content_kind": None,
+                    "content_owner_node_id": None,
+                    "epoch": staging_epoch,
+                    "flow_id": 2,
+                    "flow_local_ordinal": 1,
+                    "owner_local_boundary": 0,
+                    "owner_node_id": 6,
+                    "parent_flow_id": 1,
+                    "terminal": True,
+                },
+            ],
+            "flow_registry_sha256": "5" * 64,
+            "selected_state_sha256": "6" * 64,
+        }
+        staging_manifest = {
+            "contract": "typaxis.contract/1.2",
+            "flow_registry_sha256": "5" * 64,
+            "flows": [
+                {
+                    "flow_id": 0,
+                    "owner_node_id": 0,
+                    "parent_flow_id": None,
+                    "terminal": 3,
+                },
+                {
+                    "flow_id": 1,
+                    "owner_node_id": 3,
+                    "parent_flow_id": 0,
+                    "terminal": 2,
+                },
+                {
+                    "flow_id": 2,
+                    "owner_node_id": 6,
+                    "parent_flow_id": 1,
+                    "terminal": 1,
+                },
+            ],
+            "selected_state_sha256": "6" * 64,
+        }
+        staging_style_document = load_json(
+            STAGING_STYLE_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        staging_style_selected = load_json(
+            STAGING_STYLE_FIXTURE_DIR / "staging-selected-state.json"
+        )
+        staging_style_expectation = load_json(
+            STAGING_STYLE_FIXTURE_DIR / "staging-expectation.json"
+        )
+        staging_list_document = load_json(
+            STAGING_LIST_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        staging_list_selected = load_json(
+            STAGING_LIST_FIXTURE_DIR / "staging-selected-state.json"
+        )
+        staging_list_expectation = load_json(
+            STAGING_LIST_FIXTURE_DIR / "staging-expectation.json"
+        )
+        staging_page_break_document = load_json(
+            STAGING_PAGE_BREAK_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        staging_page_break_selected = load_json(
+            STAGING_PAGE_BREAK_FIXTURE_DIR / "staging-selected-state.json"
+        )
+        staging_page_break_trace = load_json(
+            STAGING_PAGE_BREAK_FIXTURE_DIR / "staging-trace.json"
+        )
+        staging_page_break_expectation = load_json(
+            STAGING_PAGE_BREAK_FIXTURE_DIR / "staging-expectation.json"
+        )
+        staging_figure_document = load_json(
+            STAGING_FIGURE_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        staging_figure_selected = load_json(
+            STAGING_FIGURE_FIXTURE_DIR / "staging-selected-state.json"
+        )
+        staging_figure_expectation = load_json(
+            STAGING_FIGURE_FIXTURE_DIR / "staging-expectation.json"
+        )
+        staging_figure_png_hex = (
+            STAGING_FIGURE_FIXTURE_DIR / "job" / "figure.data.hex"
+        ).read_text(encoding="ascii").strip()
+        try:
+            staging_figure_png = bytes.fromhex(staging_figure_png_hex)
+        except ValueError as error:
+            raise ValidationFailure("MI2-06 PNG fixture hex is invalid") from error
+        if staging_figure_png.hex() != staging_figure_png_hex:
+            raise ValidationFailure("MI2-06 PNG fixture hex is not canonical lowercase")
+        staging_link_document = load_json(
+            STAGING_LINK_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        staging_link_selected = load_json(
+            STAGING_LINK_FIXTURE_DIR / "staging-selected-state.json"
+        )
+        staging_link_expectation = load_json(
+            STAGING_LINK_FIXTURE_DIR / "staging-expectation.json"
+        )
+        staging_link_font_hex = (
+            STAGING_LINK_FIXTURE_DIR / "job" / "body.ttf.hex"
+        ).read_text(encoding="ascii").strip()
+        try:
+            staging_link_font = bytes.fromhex(staging_link_font_hex)
+        except ValueError as error:
+            raise ValidationFailure("MI2-07 font fixture hex is invalid") from error
+        if staging_link_font.hex() != staging_link_font_hex:
+            raise ValidationFailure("MI2-07 font fixture hex is not canonical lowercase")
+        validate_staging_multi_flow_bundle(staging_trace, staging_manifest)
+        style_document_errors = schema_errors(
+            staging_validators["document-package.schema.json"], staging_style_document
+        )
+        if style_document_errors:
+            raise ValidationFailure(
+                "versioned 1.2 DocumentPackage rejected typed block styles: "
+                + " | ".join(style_document_errors)
+            )
+        if not schema_errors(
+            previous_validators["document-package.schema.json"], staging_style_document
+        ):
+            raise ValidationFailure(
+                "frozen 1.1 DocumentPackage Schema accepted contract 1.2 styles"
+            )
+        selected_errors = schema_errors(
+            staging_validators["machine-block-style-manifest.schema.json"],
+            staging_style_selected,
+        )
+        if selected_errors:
+            raise ValidationFailure(
+                "versioned 1.2 typed-style selected state was rejected: "
+                + " | ".join(selected_errors)
+            )
+
+        list_document_errors = schema_errors(
+            staging_validators["document-package.schema.json"], staging_list_document
+        )
+        if list_document_errors:
+            raise ValidationFailure(
+                "versioned 1.2 DocumentPackage rejected machine lists: "
+                + " | ".join(list_document_errors)
+            )
+        if not schema_errors(
+            previous_validators["document-package.schema.json"], staging_list_document
+        ):
+            raise ValidationFailure(
+                "frozen 1.1 DocumentPackage Schema accepted the MI2-04 package"
+            )
+        list_selected_errors = schema_errors(
+            staging_validators["machine-list-manifest.schema.json"],
+            staging_list_selected,
+        )
+        if list_selected_errors:
+            raise ValidationFailure(
+                "versioned 1.2 machine-list selected state was rejected: "
+                + " | ".join(list_selected_errors)
+            )
+        if (
+            STAGING_LIST_FIXTURE_DIR / "staging-selected-state.json"
+        ).read_bytes().rstrip(b"\n") != jcs_bytes(staging_list_selected):
+            raise ValidationFailure("MI2-04 selected-state golden is not canonical JCS")
+        validate_staging_machine_list_bundle(
+            staging_list_document, staging_list_selected, staging_list_expectation
+        )
+
+        wrong_marker_owner = copy.deepcopy(staging_list_selected)
+        wrong_marker_owner["items"][0]["marker_key"]["owner"] = 7
+        try:
+            validate_staging_machine_list_bundle(
+                staging_list_document, wrong_marker_owner, staging_list_expectation
+            )
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure("MI2-04 semantic validator accepted a wrong marker owner")
+
+        orphan_marker = copy.deepcopy(staging_list_selected)
+        orphan_marker["items"][0]["first_line_fragment_id"] = 1
+        try:
+            validate_staging_machine_list_bundle(
+                staging_list_document, orphan_marker, staging_list_expectation
+            )
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure("MI2-04 semantic validator accepted a marker orphan")
+
+        page_break_document_errors = schema_errors(
+            staging_validators["document-package.schema.json"],
+            staging_page_break_document,
+        )
+        if page_break_document_errors:
+            raise ValidationFailure(
+                "versioned 1.2 DocumentPackage rejected forced page breaks: "
+                + " | ".join(page_break_document_errors)
+            )
+        if not schema_errors(
+            previous_validators["document-package.schema.json"], staging_page_break_document
+        ):
+            raise ValidationFailure(
+                "frozen 1.1 DocumentPackage Schema accepted the MI2-05 package"
+            )
+        page_break_selected_errors = schema_errors(
+            staging_validators["machine-forced-page-break-manifest.schema.json"],
+            staging_page_break_selected,
+        )
+        if page_break_selected_errors:
+            raise ValidationFailure(
+                "versioned 1.2 forced-page-break selected state was rejected: "
+                + " | ".join(page_break_selected_errors)
+            )
+        page_break_trace_errors = schema_errors(
+            staging_validators["machine-forced-page-break-trace.schema.json"],
+            staging_page_break_trace,
+        )
+        if page_break_trace_errors:
+            raise ValidationFailure(
+                "versioned 1.2 forced-page-break trace was rejected: "
+                + " | ".join(page_break_trace_errors)
+            )
+        if (
+            STAGING_PAGE_BREAK_FIXTURE_DIR / "staging-selected-state.json"
+        ).read_bytes().rstrip(b"\n") != jcs_bytes(staging_page_break_selected):
+            raise ValidationFailure("MI2-05 selected-state golden is not canonical JCS")
+        if (
+            STAGING_PAGE_BREAK_FIXTURE_DIR / "staging-trace.json"
+        ).read_bytes().rstrip(b"\n") != jcs_bytes(staging_page_break_trace):
+            raise ValidationFailure("MI2-05 trace golden is not canonical JCS")
+        validate_staging_forced_page_break_bundle(
+            staging_page_break_document,
+            staging_page_break_trace,
+            staging_page_break_selected,
+            staging_page_break_expectation,
+        )
+
+        stale_cursor = copy.deepcopy(staging_page_break_selected)
+        stale_cursor["forced_page_breaks"][0]["after_cursor"] = copy.deepcopy(
+            stale_cursor["forced_page_breaks"][0]["before_cursor"]
+        )
+        try:
+            validate_staging_forced_page_break_bundle(
+                staging_page_break_document,
+                staging_page_break_trace,
+                stale_cursor,
+                staging_page_break_expectation,
+            )
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure("MI2-05 semantic validator accepted a stale cursor")
+
+        figure_document_errors = schema_errors(
+            staging_validators["document-package.schema.json"], staging_figure_document
+        )
+        if figure_document_errors:
+            raise ValidationFailure(
+                "versioned 1.2 DocumentPackage rejected the PNG figure: "
+                + " | ".join(figure_document_errors)
+            )
+        if not schema_errors(
+            previous_validators["document-package.schema.json"], staging_figure_document
+        ):
+            raise ValidationFailure(
+                "frozen 1.1 DocumentPackage Schema accepted the MI2-06 package"
+            )
+        figure_selected_errors = schema_errors(
+            staging_validators["machine-figure-manifest.schema.json"],
+            staging_figure_selected,
+        )
+        if figure_selected_errors:
+            raise ValidationFailure(
+                "versioned 1.2 machine-figure selected state was rejected: "
+                + " | ".join(figure_selected_errors)
+            )
+        if not schema_errors(
+            previous_validators["build-manifest.schema.json"], staging_figure_selected
+        ):
+            raise ValidationFailure(
+                "frozen 1.1 manifest Schema accepted MI2-06 versioned facts"
+            )
+        if (
+            STAGING_FIGURE_FIXTURE_DIR / "staging-selected-state.json"
+        ).read_bytes().rstrip(b"\n") != jcs_bytes(staging_figure_selected):
+            raise ValidationFailure("MI2-06 selected-state golden is not canonical JCS")
+        validate_staging_machine_figure_bundle(
+            staging_figure_document,
+            staging_figure_selected,
+            staging_figure_expectation,
+            staging_figure_png,
+        )
+
+        declared_media = copy.deepcopy(staging_figure_document)
+        declared_media["resources"]["images"][0]["media_kind"] = "png"
+        if not schema_errors(
+            staging_validators["document-package.schema.json"], declared_media
+        ):
+            raise ValidationFailure("MI2-06 Schema accepted caller-declared image media")
+
+        for label, mutate in (
+            (
+                "missing",
+                lambda facts: facts.__setitem__("image_xobjects", []),
+            ),
+            (
+                "extra",
+                lambda facts: facts["image_xobjects"].append(
+                    {"image_id": 1, "resource_name": "/Im1"}
+                ),
+            ),
+            (
+                "wrong",
+                lambda facts: facts["image_xobjects"][0].__setitem__("image_id", 1),
+            ),
+        ):
+            tampered_xobject = copy.deepcopy(staging_figure_selected)
+            mutate(tampered_xobject)
+            try:
+                validate_staging_machine_figure_bundle(
+                    staging_figure_document,
+                    tampered_xobject,
+                    staging_figure_expectation,
+                    staging_figure_png,
+                )
+            except ValidationFailure:
+                pass
+            else:
+                raise ValidationFailure(
+                    f"MI2-06 semantic validator accepted {label} image-XObject closure"
+                )
+
+        link_document_errors = schema_errors(
+            staging_validators["document-package.schema.json"], staging_link_document
+        )
+        if link_document_errors:
+            raise ValidationFailure(
+                "versioned 1.2 DocumentPackage rejected machine links: "
+                + " | ".join(link_document_errors)
+            )
+        if not schema_errors(
+            previous_validators["document-package.schema.json"], staging_link_document
+        ):
+            raise ValidationFailure(
+                "frozen 1.1 DocumentPackage Schema accepted the MI2-07 package"
+            )
+        link_selected_errors = schema_errors(
+            staging_validators["machine-link-manifest.schema.json"],
+            staging_link_selected,
+        )
+        if link_selected_errors:
+            raise ValidationFailure(
+                "versioned 1.2 machine-link selected state was rejected: "
+                + " | ".join(link_selected_errors)
+            )
+        if not schema_errors(
+            previous_validators["build-manifest.schema.json"], staging_link_selected
+        ):
+            raise ValidationFailure(
+                "frozen 1.1 manifest Schema accepted MI2-07 versioned facts"
+            )
+        if (
+            STAGING_LINK_FIXTURE_DIR / "staging-selected-state.json"
+        ).read_bytes().rstrip(b"\n") != jcs_bytes(staging_link_selected):
+            raise ValidationFailure("MI2-07 selected-state golden is not canonical JCS")
+        validate_staging_machine_link_bundle(
+            staging_link_document,
+            staging_link_selected,
+            staging_link_expectation,
+            staging_link_font,
+        )
+
+        link_tampers = (
+            ("missing", lambda facts: facts["links"][0]["rectangles"].clear()),
+            (
+                "extra",
+                lambda facts: facts["links"][0]["rectangles"].append(
+                    copy.deepcopy(facts["links"][0]["rectangles"][0])
+                ),
+            ),
+            (
+                "wrong page",
+                lambda facts: facts["links"][0]["rectangles"][0].__setitem__(
+                    "page_index", 1
+                ),
+            ),
+            (
+                "wrong target",
+                lambda facts: facts["links"][0]["target"].__setitem__(
+                    "anchor_id", "other"
+                ),
+            ),
+            (
+                "rectangle",
+                lambda facts: facts["links"][0]["rectangles"][0]["rect"].__setitem__(
+                    "x", facts["pages"][0]["width"]
+                ),
+            ),
+        )
+        for label, mutate in link_tampers:
+            tampered_link = copy.deepcopy(staging_link_selected)
+            mutate(tampered_link)
+            try:
+                validate_staging_machine_link_bundle(
+                    staging_link_document,
+                    tampered_link,
+                    staging_link_expectation,
+                    staging_link_font,
+                )
+            except ValidationFailure:
+                pass
+            else:
+                raise ValidationFailure(
+                    f"MI2-07 semantic validator accepted {label} annotation closure tamper"
+                )
+
+        expected_properties = {
+            "space_before",
+            "space_after",
+            "start_indent",
+            "end_indent",
+            "text_align",
+            "width",
+            "keep_with_next",
+            "keep_caption",
+        }
+        coverage = staging_style_expectation.get("property_coverage", [])
+        covered_properties = {row.get("property") for row in coverage}
+        if len(coverage) != 8 or covered_properties != expected_properties:
+            raise ValidationFailure(
+                "MI2-03 property coverage is missing, duplicated, or advertises an unused property"
+            )
+        for row in coverage:
+            if any(not row.get(axis) for axis in ("consumer", "display", "pdf", "manifest")):
+                raise ValidationFailure(
+                    f"MI2-03 property lacks a complete observation chain: {row.get('property')}"
+                )
+        scenarios = staging_style_expectation.get("scenarios", {})
+        if scenarios.get("minimum") != 0 or scenarios.get("exact_max") != JSON_SAFE_INTEGER_MAX:
+            raise ValidationFailure("MI2-03 exact length boundary fixtures drifted")
+        if scenarios.get("max_plus_one") != JSON_SAFE_INTEGER_MAX + 1:
+            raise ValidationFailure("MI2-03 max+1 fixture drifted")
+        if scenarios.get("unused_advertised_property") is not False:
+            raise ValidationFailure("MI2-03 claims an unused advertised property")
+        if scenarios.get("page_split") is not True or not scenarios.get(
+            "pdf_content_observation"
+        ):
+            raise ValidationFailure("MI2-03 page-split/PDF observation fixture is incomplete")
+
+        declarations = staging_style_document["style_sheet"]["rules"][0]["declarations"]
+        by_name = {declaration["name"]: declaration for declaration in declarations}
+        if by_name["space_before"]["value"]["value"] != 0:
+            raise ValidationFailure("MI2-03 minimum length declaration drifted")
+        if by_name["space_after"]["value"]["value"] != JSON_SAFE_INTEGER_MAX:
+            raise ValidationFailure("MI2-03 maximum length declaration drifted")
+        if staging_style_document["style_sheet"]["rules"][1]["extends"] != "paragraph-base":
+            raise ValidationFailure("MI2-03 extends/override fixture drifted")
+
+        invalid_max = copy.deepcopy(staging_style_document)
+        invalid_max["style_sheet"]["rules"][0]["declarations"][1]["value"][
+            "value"
+        ] = JSON_SAFE_INTEGER_MAX + 1
+        if not schema_errors(
+            staging_validators["document-package.schema.json"], invalid_max
+        ):
+            raise ValidationFailure("versioned 1.2 Schema accepted typed length max+1")
+        invalid_tag = copy.deepcopy(staging_style_document)
+        invalid_tag["style_sheet"]["rules"][0]["declarations"][0]["value"][
+            "kind"
+        ] = "integer"
+        if not schema_errors(
+            staging_validators["document-package.schema.json"], invalid_tag
+        ):
+            raise ValidationFailure("versioned 1.2 Schema accepted a wrong property tag")
+        invalid_unknown = copy.deepcopy(staging_style_document)
+        invalid_unknown["style_sheet"]["rules"][0]["declarations"][0][
+            "name"
+        ] = "future_property"
+        if not schema_errors(
+            staging_validators["document-package.schema.json"], invalid_unknown
+        ):
+            raise ValidationFailure("versioned 1.2 Schema accepted an unknown property")
+
+        source_bytes = (STAGING_STYLE_FIXTURE_DIR / "job" / "input.tsf").read_bytes()
+        source_declaration = staging_style_document["sources"][0]
+        if (
+            len(source_bytes) != source_declaration["utf8_byte_length"]
+            or hashlib.sha256(source_bytes).hexdigest() != source_declaration["sha256"]
+        ):
+            raise ValidationFailure("MI2-03 companion source bytes do not match the package")
+        list_source_bytes = (STAGING_LIST_FIXTURE_DIR / "job" / "input.tsf").read_bytes()
+        list_source_declaration = staging_list_document["sources"][0]
+        if (
+            len(list_source_bytes) != list_source_declaration["utf8_byte_length"]
+            or hashlib.sha256(list_source_bytes).hexdigest()
+            != list_source_declaration["sha256"]
+        ):
+            raise ValidationFailure("MI2-04 companion source bytes do not match the package")
+        page_break_source_bytes = (
+            STAGING_PAGE_BREAK_FIXTURE_DIR / "job" / "input.tsf"
+        ).read_bytes()
+        page_break_source_declaration = staging_page_break_document["sources"][0]
+        if (
+            len(page_break_source_bytes)
+            != page_break_source_declaration["utf8_byte_length"]
+            or hashlib.sha256(page_break_source_bytes).hexdigest()
+            != page_break_source_declaration["sha256"]
+        ):
+            raise ValidationFailure("MI2-05 companion source bytes do not match the package")
+        figure_source_bytes = (
+            STAGING_FIGURE_FIXTURE_DIR / "job" / "input.tsf"
+        ).read_bytes()
+        figure_source_declaration = staging_figure_document["sources"][0]
+        if (
+            len(figure_source_bytes)
+            != figure_source_declaration["utf8_byte_length"]
+            or hashlib.sha256(figure_source_bytes).hexdigest()
+            != figure_source_declaration["sha256"]
+        ):
+            raise ValidationFailure("MI2-06 companion source bytes do not match the package")
+        if (
+            STAGING_FIGURE_FIXTURE_DIR / "job" / "document-package.json"
+        ).read_bytes().rstrip(b"\n") != jcs_bytes(staging_figure_document):
+            raise ValidationFailure("MI2-06 DocumentPackage fixture is not canonical JCS")
+        link_source_bytes = (STAGING_LINK_FIXTURE_DIR / "job" / "input.tsf").read_bytes()
+        link_source_declaration = staging_link_document["sources"][0]
+        if (
+            len(link_source_bytes) != link_source_declaration["utf8_byte_length"]
+            or hashlib.sha256(link_source_bytes).hexdigest()
+            != link_source_declaration["sha256"]
+        ):
+            raise ValidationFailure("MI2-07 companion source bytes do not match the package")
+        if (
+            STAGING_LINK_FIXTURE_DIR / "job" / "document-package.json"
+        ).read_bytes().rstrip(b"\n") != jcs_bytes(staging_link_document):
+            raise ValidationFailure("MI2-07 DocumentPackage fixture is not canonical JCS")
         jcs_golden_count = validate_jcs_golden(effective_config)
         machine_expectation_count, machine_matrix_count = validate_machine_fixture_bundle(
             validators
@@ -3900,7 +5563,7 @@ def main() -> int:
         if not schema_errors(
             validators["document-package.schema.json"], compatibility_document
         ):
-            raise ValidationFailure("the 1.0 DocumentPackage was registered as current 1.1")
+            raise ValidationFailure("the 1.0 DocumentPackage was registered as current 1.2")
         compatibility_jcs = jcs_bytes(compatibility_document)
         if (
             compatibility_document.get("contract") != "typaxis.contract/1.0"
@@ -4132,6 +5795,7 @@ def main() -> int:
             "bytes": 1,
             "canonical_sha256": None,
             "contract": None,
+            "profile_receipt_sha256": None,
             "sha256": "0" * 64,
             "uri": "document-package.json",
         }
@@ -4139,6 +5803,7 @@ def main() -> int:
             **raw_package_input,
             "canonical_sha256": "1" * 64,
             "contract": "typaxis.contract/1.0",
+            "profile_receipt_sha256": "2" * 64,
         }
         half_decoded_package_input = {
             **raw_package_input,
@@ -4264,6 +5929,7 @@ def main() -> int:
                 "uri": "image.bin",
                 "bytes": 1,
                 "sha256": "0" * 64,
+                "attested_media_kind": "png",
                 "pixel_width": 1,
                 "pixel_height": 1,
                 "decoded_bytes": 1,
@@ -4288,8 +5954,9 @@ def main() -> int:
 
         print(
             "validated "
-            f"{len(frozen_schemas)} frozen 1.0 and {len(schemas)} current 1.1 schemas, "
-            f"{frozen_reference_count + reference_count} refs, "
+            f"{len(frozen_schemas)} frozen 1.0, {len(previous_schemas)} frozen 1.1, "
+            f"{len(schemas)} current 1.2 aliases, and {len(staging_schemas)} versioned 1.2 schemas, "
+            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count} refs, "
             f"{len(POSITIVE_FIXTURES)} artifact and "
             f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
             f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "

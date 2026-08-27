@@ -14,12 +14,16 @@ mod model;
 mod preflight;
 
 pub use decode::{
-    DecodedDocumentPackage, DocumentPackageDecodeError, DocumentPackageDecodeErrorClass,
-    DocumentPackageDecodeLimit, DocumentPackageDecodeLocation, DocumentPackageDecodePolicy,
-    DocumentPackageDecodePrimary, DocumentPackageTypedDecodeError,
-    DocumentPackageTypedDecodeErrorKind, StrictDocumentPackageDecoder,
+    DecodedDocumentPackage, DecodedStagingStyleDocumentPackage, DocumentPackageDecodeError,
+    DocumentPackageDecodeErrorClass, DocumentPackageDecodeLimit, DocumentPackageDecodeLocation,
+    DocumentPackageDecodePolicy, DocumentPackageDecodePrimary, DocumentPackageTypedDecodeError,
+    DocumentPackageTypedDecodeErrorKind, StagingStyleDocumentPackageDecoder,
+    StrictDocumentPackageDecoder,
 };
-pub use encoder::{CanonicalJcsStats, DocumentPackageEncoder, JcsCountHashSink, JcsEncodeError};
+pub use encoder::{
+    CanonicalJcsStats, DocumentPackageEncoder, JcsCountHashSink, JcsEncodeError,
+    StagingStyleDocumentPackageEncoder,
+};
 pub use error::*;
 pub use jcs::{
     CanonicalDocumentPackageHash, CanonicalDocumentPackageJcsSha256, RawDocumentPackageHash,

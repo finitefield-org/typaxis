@@ -1,25 +1,3732 @@
 #![forbid(unsafe_code)]
 
 use core::cmp::Ordering;
-use core::num::NonZeroU32;
+use core::num::{NonZeroU16, NonZeroU32};
 use typaxis_core::{
-    AnchorId, DocumentFingerprint, FootnoteId, Length, MasterId, NodeId, NonNegativeLength,
-    PageName, Point, PositiveLength, Rect, StyleFingerprint,
+    sha256, AnchorId, BidiLevel, DocumentFingerprint, FootnoteId, GeneratedBufferKey,
+    ImageResourceId, Length, MasterId, NodeId, NonNegativeLength, PageName, Point, PositiveLength,
+    Rect, StyleFingerprint, ValidatedResourceLimits,
 };
-use typaxis_document::{Block, DocumentNodeKind, Inline};
+use typaxis_document::{
+    Block, ColumnSizing, DocumentNodeKind, Inline, ListItem, TableCell, TableColumn, TableRow,
+};
 pub use typaxis_layout_contract::{
-    LayoutEpoch, LayoutEpochError, LayoutTextStyleError, MachineGlyphCoverage,
-    MachineStyleFontPreparationError, MachineTextSiteSource, PreparedMachineStyleFonts,
-    PreparedMachineTextSite, ResolvedLayoutTextStyle, ShapeFontSelectionError,
-    ShapeFontSelectionReceipt,
+    flow_registry_fingerprint_from_jcs, multi_flow_selected_state_fingerprint_from_jcs,
+    table_selected_layout_fingerprint_from_jcs, FlowContentKind, FlowId, FlowOwnerKind,
+    FlowRegistryFingerprint, FlowTerminal, LayoutEpoch, LayoutEpochError, LayoutTextStyleError,
+    MachineGlyphCoverage, MachineStyleFontPreparationError, MachineTextSiteSource,
+    MultiFlowSelectedStateFingerprint, PreparedMachineStyleFonts, PreparedMachineTextSite,
+    ResolvedLayoutTextStyle, ResolvedTableColumn, ResolvedTableColumnInput,
+    ShapeFontSelectionError, ShapeFontSelectionReceipt, TableGridFingerprint,
+    TableGridReceiptError, TableGridReceiptInput, TableSection, TableSelectedLayoutFingerprint,
+    TableVerticalAlignment, ValidatedTableCellBinding, ValidatedTableGridReceipt,
+    ValidatedTableRowBinding,
 };
 use typaxis_linebreak::ValidatedParagraphItemRegistry;
+use typaxis_resource_admission::{AdmittedImageMediaKind, AdmittedResourceLedger};
 use typaxis_style::{
-    PageMaster, PageMasterValidationError, PageSelectionContext, PageSelectionError, StyleValue,
+    BasicStyleBlockKind, MachineFigureWidth, MachineTextAlign, PageMaster,
+    PageMasterValidationError, PageSelectionContext, PageSelectionError, StyleValue,
+    TABLE_BLOCK_STYLE_REGISTRY_VERSION,
 };
 use typaxis_syntax::{
-    PackagePaginationContext, PackageStyleError, ValidatedMachinePackage, ValidatedParsedPackage,
+    MachineBlockComputedStyleReceipt, MachineTableComputedStyleReceipt,
+    PackageGeneratedTextBinding, PackagePaginationContext, PackageStyleError,
+    ValidatedMachinePackage, ValidatedParsedPackage, ValidatedStagingFigureUsageReceipt,
+    ValidatedStagingForcedPageBreakUsageReceipt, ValidatedStagingListMarkerUsageReceipt,
+    ValidatedStagingStylePackage, STAGING_BASIC_FIGURE_POLICY_VERSION,
+    STAGING_BASIC_LIST_POLICY_VERSION, STAGING_FORCED_PAGE_BREAK_POLICY_VERSION,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypedStyleConsumerError {
+    ArithmeticOverflow,
+    IndentsExhaustInlineSize,
+    ContentExceedsInlineSize,
+    FigureWidthRequired,
+    BlockExceedsEmptyFrame,
+}
+
+/// Typed geometry and pagination context for one staging block. Every length
+/// has crossed the fixed-point constructors before this value can be built.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TypedBlockLayoutInput {
+    frame_inline_size: PositiveLength,
+    intrinsic_inline_size: PositiveLength,
+    intrinsic_block_size: PositiveLength,
+    remaining_block_size: PositiveLength,
+    empty_frame_block_size: PositiveLength,
+    previous_space_after: NonNegativeLength,
+    at_frame_start: bool,
+    at_flow_end: bool,
+    base_direction: BidiLevel,
+}
+
+impl TypedBlockLayoutInput {
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new(
+        frame_inline_size: PositiveLength,
+        intrinsic_inline_size: PositiveLength,
+        intrinsic_block_size: PositiveLength,
+        remaining_block_size: PositiveLength,
+        empty_frame_block_size: PositiveLength,
+        previous_space_after: NonNegativeLength,
+        at_frame_start: bool,
+        at_flow_end: bool,
+        base_direction: BidiLevel,
+    ) -> Self {
+        Self {
+            frame_inline_size,
+            intrinsic_inline_size,
+            intrinsic_block_size,
+            remaining_block_size,
+            empty_frame_block_size,
+            previous_space_after,
+            at_frame_start,
+            at_flow_end,
+            base_direction,
+        }
+    }
+}
+
+/// Selected typed observation handed to Display. It records the effective
+/// spacing suppression/page split plus exact logical and physical placement;
+/// no downstream stage needs the originating declaration names.
+#[derive(Debug, Eq, PartialEq)]
+pub struct SelectedTypedBlockStyle {
+    owner: NodeId,
+    package_sha256: [u8; 32],
+    registry_version: &'static str,
+    block_kind: BasicStyleBlockKind,
+    frame_inline_size: PositiveLength,
+    available_inline_size: PositiveLength,
+    content_inline_size: PositiveLength,
+    start_indent: NonNegativeLength,
+    end_indent: NonNegativeLength,
+    logical_start_alignment_space: NonNegativeLength,
+    logical_end_alignment_space: NonNegativeLength,
+    physical_left_inset: NonNegativeLength,
+    effective_space_before: NonNegativeLength,
+    effective_space_after: NonNegativeLength,
+    page_break_before: bool,
+    keep_with_next: bool,
+    keep_caption: bool,
+}
+
+impl SelectedTypedBlockStyle {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn registry_version(&self) -> &'static str {
+        self.registry_version
+    }
+    pub const fn block_kind(&self) -> BasicStyleBlockKind {
+        self.block_kind
+    }
+    pub const fn frame_inline_size(&self) -> PositiveLength {
+        self.frame_inline_size
+    }
+    pub const fn available_inline_size(&self) -> PositiveLength {
+        self.available_inline_size
+    }
+    pub const fn content_inline_size(&self) -> PositiveLength {
+        self.content_inline_size
+    }
+    pub const fn start_indent(&self) -> NonNegativeLength {
+        self.start_indent
+    }
+    pub const fn end_indent(&self) -> NonNegativeLength {
+        self.end_indent
+    }
+    pub const fn logical_start_alignment_space(&self) -> NonNegativeLength {
+        self.logical_start_alignment_space
+    }
+    pub const fn logical_end_alignment_space(&self) -> NonNegativeLength {
+        self.logical_end_alignment_space
+    }
+    pub const fn physical_left_inset(&self) -> NonNegativeLength {
+        self.physical_left_inset
+    }
+    pub const fn effective_space_before(&self) -> NonNegativeLength {
+        self.effective_space_before
+    }
+    pub const fn effective_space_after(&self) -> NonNegativeLength {
+        self.effective_space_after
+    }
+    pub const fn page_break_before(&self) -> bool {
+        self.page_break_before
+    }
+    pub const fn keep_with_next(&self) -> bool {
+        self.keep_with_next
+    }
+    pub const fn keep_caption(&self) -> bool {
+        self.keep_caption
+    }
+}
+
+pub fn consume_typed_block_style(
+    receipt: &MachineBlockComputedStyleReceipt,
+    input: TypedBlockLayoutInput,
+) -> Result<SelectedTypedBlockStyle, TypedStyleConsumerError> {
+    let style = receipt.computed();
+    let after_start = input
+        .frame_inline_size
+        .get()
+        .checked_sub(style.start_indent().get())
+        .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?;
+    let available = after_start
+        .checked_sub(style.end_indent().get())
+        .and_then(PositiveLength::new)
+        .ok_or(TypedStyleConsumerError::IndentsExhaustInlineSize)?;
+    let content = if receipt.block_kind() == BasicStyleBlockKind::Figure {
+        match style.width() {
+            MachineFigureWidth::Auto => return Err(TypedStyleConsumerError::FigureWidthRequired),
+            MachineFigureWidth::Length(width) => width,
+        }
+    } else {
+        input.intrinsic_inline_size
+    };
+    let residual = available
+        .get()
+        .checked_sub(content.get())
+        .ok_or(TypedStyleConsumerError::ContentExceedsInlineSize)?;
+    let alignment = if matches!(
+        receipt.block_kind(),
+        BasicStyleBlockKind::Paragraph | BasicStyleBlockKind::Heading
+    ) {
+        style.text_align()
+    } else {
+        MachineTextAlign::Start
+    };
+    let logical_start_raw = match alignment {
+        MachineTextAlign::Start => 0,
+        MachineTextAlign::End => residual.raw(),
+        MachineTextAlign::Center => residual.raw() / 2,
+    };
+    let logical_start_alignment_space = NonNegativeLength::new(
+        Length::from_raw(logical_start_raw).ok_or(TypedStyleConsumerError::ArithmeticOverflow)?,
+    )
+    .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?;
+    let logical_end_alignment_space = NonNegativeLength::new(
+        residual
+            .checked_sub(logical_start_alignment_space.get())
+            .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?,
+    )
+    .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?;
+    let physical_left = if input.base_direction.is_rtl() {
+        style
+            .end_indent()
+            .get()
+            .checked_add(logical_end_alignment_space.get())
+    } else {
+        style
+            .start_indent()
+            .get()
+            .checked_add(logical_start_alignment_space.get())
+    }
+    .and_then(NonNegativeLength::new)
+    .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?;
+
+    if input.intrinsic_block_size.get().raw() > input.empty_frame_block_size.get().raw() {
+        return Err(TypedStyleConsumerError::BlockExceedsEmptyFrame);
+    }
+    let requested_before = if input.at_frame_start {
+        NonNegativeLength::ZERO
+    } else {
+        NonNegativeLength::new(
+            input
+                .previous_space_after
+                .get()
+                .checked_add(style.space_before().get())
+                .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?,
+        )
+        .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?
+    };
+    let requested_height = requested_before
+        .get()
+        .checked_add(input.intrinsic_block_size.get())
+        .ok_or(TypedStyleConsumerError::ArithmeticOverflow)?;
+    let page_break_before = requested_height.raw() > input.remaining_block_size.get().raw();
+    let effective_space_before = if page_break_before {
+        NonNegativeLength::ZERO
+    } else {
+        requested_before
+    };
+    let effective_space_after = if input.at_flow_end {
+        NonNegativeLength::ZERO
+    } else {
+        style.space_after()
+    };
+
+    Ok(SelectedTypedBlockStyle {
+        owner: receipt.owner(),
+        package_sha256: receipt.package_fingerprint().into_bytes(),
+        registry_version: receipt.registry_version(),
+        block_kind: receipt.block_kind(),
+        frame_inline_size: input.frame_inline_size,
+        available_inline_size: available,
+        content_inline_size: content,
+        start_indent: style.start_indent(),
+        end_indent: style.end_indent(),
+        logical_start_alignment_space,
+        logical_end_alignment_space,
+        physical_left_inset: physical_left,
+        effective_space_before,
+        effective_space_after,
+        page_break_before,
+        keep_with_next: style.keep_with_next(),
+        keep_caption: style.keep_caption(),
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingListItemPaintInput {
+    item_owner: NodeId,
+    marker_key: GeneratedBufferKey,
+    marker_inline_size: PositiveLength,
+    first_line_inline_size: Option<PositiveLength>,
+    first_line_block_size: Option<PositiveLength>,
+    painted_block_size: Option<PositiveLength>,
+}
+
+impl StagingListItemPaintInput {
+    pub const fn painted(
+        item_owner: NodeId,
+        marker_inline_size: PositiveLength,
+        first_line_inline_size: PositiveLength,
+        first_line_block_size: PositiveLength,
+        painted_block_size: PositiveLength,
+    ) -> Self {
+        Self {
+            item_owner,
+            marker_key: GeneratedBufferKey::new(
+                item_owner,
+                typaxis_core::GenerationKind::ListMarker,
+                0,
+            ),
+            marker_inline_size,
+            first_line_inline_size: Some(first_line_inline_size),
+            first_line_block_size: Some(first_line_block_size),
+            painted_block_size: Some(painted_block_size),
+        }
+    }
+
+    pub const fn empty(item_owner: NodeId, marker_inline_size: PositiveLength) -> Self {
+        Self {
+            item_owner,
+            marker_key: GeneratedBufferKey::new(
+                item_owner,
+                typaxis_core::GenerationKind::ListMarker,
+                0,
+            ),
+            marker_inline_size,
+            first_line_inline_size: None,
+            first_line_block_size: None,
+            painted_block_size: None,
+        }
+    }
+
+    pub const fn item_owner(&self) -> NodeId {
+        self.item_owner
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListLayoutInput {
+    frame_inline_size: PositiveLength,
+    base_direction: BidiLevel,
+    items: Vec<StagingListItemPaintInput>,
+}
+
+impl StagingMachineListLayoutInput {
+    pub fn new(
+        frame_inline_size: PositiveLength,
+        base_direction: BidiLevel,
+        items: Vec<StagingListItemPaintInput>,
+    ) -> Self {
+        Self {
+            frame_inline_size,
+            base_direction,
+            items,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineListLayoutError {
+    PreflightMismatch,
+    GeneratedTextMismatch,
+    FlowRegistryMismatch,
+    MissingMeasurement(NodeId),
+    ExtraMeasurement(NodeId),
+    DuplicateMeasurement(NodeId),
+    EmptyPaintedItem(NodeId),
+    InvalidMeasurement(NodeId),
+    MissingItemFlow(NodeId),
+    WrongItemFlow(NodeId),
+    MissingListStyle(NodeId),
+    IndentsExhaustInlineSize(NodeId),
+    MarkerColumnExhaustsInlineSize(NodeId),
+    FirstLineExceedsInlineSize(NodeId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListLayoutList {
+    list_owner: NodeId,
+    list_flow_id: FlowId,
+    marker_column_width: PositiveLength,
+    marker_gap: PositiveLength,
+    start_indent: NonNegativeLength,
+    end_indent: NonNegativeLength,
+    item_frame_inline_size: PositiveLength,
+}
+
+impl StagingMachineListLayoutList {
+    pub const fn list_owner(&self) -> NodeId {
+        self.list_owner
+    }
+    pub const fn list_flow_id(&self) -> FlowId {
+        self.list_flow_id
+    }
+    pub const fn marker_column_width(&self) -> PositiveLength {
+        self.marker_column_width
+    }
+    pub const fn marker_gap(&self) -> PositiveLength {
+        self.marker_gap
+    }
+    pub const fn start_indent(&self) -> NonNegativeLength {
+        self.start_indent
+    }
+    pub const fn end_indent(&self) -> NonNegativeLength {
+        self.end_indent
+    }
+    pub const fn item_frame_inline_size(&self) -> PositiveLength {
+        self.item_frame_inline_size
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListLayoutItem {
+    list_owner: NodeId,
+    item_owner: NodeId,
+    item_index: u32,
+    list_flow_id: FlowId,
+    item_flow_id: FlowId,
+    marker_key: GeneratedBufferKey,
+    marker_utf8: String,
+    marker_inline_size: PositiveLength,
+    marker_column_width: PositiveLength,
+    marker_logical_start: NonNegativeLength,
+    marker_physical_left: NonNegativeLength,
+    content_logical_start: NonNegativeLength,
+    content_physical_left: NonNegativeLength,
+    content_inline_size: PositiveLength,
+    first_line_inline_size: PositiveLength,
+    first_line_block_size: PositiveLength,
+    keep_group_block_size: PositiveLength,
+    painted_block_size: PositiveLength,
+}
+
+impl StagingMachineListLayoutItem {
+    pub const fn list_owner(&self) -> NodeId {
+        self.list_owner
+    }
+    pub const fn item_owner(&self) -> NodeId {
+        self.item_owner
+    }
+    pub const fn item_index(&self) -> u32 {
+        self.item_index
+    }
+    pub const fn list_flow_id(&self) -> FlowId {
+        self.list_flow_id
+    }
+    pub const fn item_flow_id(&self) -> FlowId {
+        self.item_flow_id
+    }
+    pub const fn marker_key(&self) -> GeneratedBufferKey {
+        self.marker_key
+    }
+    pub fn marker_utf8(&self) -> &str {
+        &self.marker_utf8
+    }
+    pub const fn marker_inline_size(&self) -> PositiveLength {
+        self.marker_inline_size
+    }
+    pub const fn marker_column_width(&self) -> PositiveLength {
+        self.marker_column_width
+    }
+    pub const fn marker_logical_start(&self) -> NonNegativeLength {
+        self.marker_logical_start
+    }
+    pub const fn marker_physical_left(&self) -> NonNegativeLength {
+        self.marker_physical_left
+    }
+    pub const fn content_logical_start(&self) -> NonNegativeLength {
+        self.content_logical_start
+    }
+    pub const fn content_physical_left(&self) -> NonNegativeLength {
+        self.content_physical_left
+    }
+    pub const fn content_inline_size(&self) -> PositiveLength {
+        self.content_inline_size
+    }
+    pub const fn first_line_inline_size(&self) -> PositiveLength {
+        self.first_line_inline_size
+    }
+    pub const fn first_line_block_size(&self) -> PositiveLength {
+        self.first_line_block_size
+    }
+    pub const fn keep_group_block_size(&self) -> PositiveLength {
+        self.keep_group_block_size
+    }
+    pub const fn painted_block_size(&self) -> PositiveLength {
+        self.painted_block_size
+    }
+}
+
+/// Complete list geometry bound to canonical generated markers and MI2-02's
+/// independent item-flow registry.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineListLayoutReceipt {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    marker_usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    frame_inline_size: PositiveLength,
+    base_direction: BidiLevel,
+    lists: Vec<StagingMachineListLayoutList>,
+    items: Vec<StagingMachineListLayoutItem>,
+}
+
+impl StagingMachineListLayoutReceipt {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+    pub const fn marker_usage_sha256(&self) -> [u8; 32] {
+        self.marker_usage_sha256
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub const fn frame_inline_size(&self) -> PositiveLength {
+        self.frame_inline_size
+    }
+    pub const fn base_direction(&self) -> BidiLevel {
+        self.base_direction
+    }
+    pub fn lists(&self) -> &[StagingMachineListLayoutList] {
+        &self.lists
+    }
+    pub fn items(&self) -> &[StagingMachineListLayoutItem] {
+        &self.items
+    }
+}
+
+pub fn layout_staging_machine_lists(
+    package: &ValidatedStagingStylePackage,
+    preflight: &ValidatedStagingListMarkerUsageReceipt,
+    generated: PackageGeneratedTextBinding<'_>,
+    ir: &ProductionFlowIr,
+    mut input: StagingMachineListLayoutInput,
+) -> Result<StagingMachineListLayoutReceipt, StagingMachineListLayoutError> {
+    if !preflight.verifies(package)
+        || preflight.policy_version() != STAGING_BASIC_LIST_POLICY_VERSION
+    {
+        return Err(StagingMachineListLayoutError::PreflightMismatch);
+    }
+    if generated.package().epoch_identity() != package.package().epoch_identity()
+        || !preflight.verifies_generated_text(generated)
+    {
+        return Err(StagingMachineListLayoutError::GeneratedTextMismatch);
+    }
+    let epoch = ir.registry().receipt().epoch();
+    if epoch.document() != package.package().epoch_identity().document()
+        || epoch.style() != package.package().epoch_identity().style()
+        || epoch.references() != generated.generated_text().reference_fingerprint()
+    {
+        return Err(StagingMachineListLayoutError::FlowRegistryMismatch);
+    }
+
+    input
+        .items
+        .sort_by_key(|measurement| measurement.item_owner);
+    if let Some(pair) = input
+        .items
+        .windows(2)
+        .find(|pair| pair[0].item_owner == pair[1].item_owner)
+    {
+        return Err(StagingMachineListLayoutError::DuplicateMeasurement(
+            pair[1].item_owner,
+        ));
+    }
+    let expected: std::collections::BTreeSet<_> = preflight
+        .markers()
+        .iter()
+        .map(|marker| marker.item_owner())
+        .collect();
+    if let Some(measurement) = input
+        .items
+        .iter()
+        .find(|measurement| !expected.contains(&measurement.item_owner))
+    {
+        return Err(StagingMachineListLayoutError::ExtraMeasurement(
+            measurement.item_owner,
+        ));
+    }
+    let mut measurements: std::collections::BTreeMap<_, _> = input
+        .items
+        .into_iter()
+        .map(|measurement| (measurement.item_owner, measurement))
+        .collect();
+
+    let mut list_markers = std::collections::BTreeMap::<NodeId, Vec<NodeId>>::new();
+    let mut item_list_owners = std::collections::BTreeMap::new();
+    for marker in preflight.markers() {
+        list_markers
+            .entry(marker.list_owner())
+            .or_default()
+            .push(marker.item_owner());
+        item_list_owners.insert(marker.item_owner(), marker.list_owner());
+    }
+    let mut lists = Vec::new();
+    lists
+        .try_reserve_exact(list_markers.len())
+        .map_err(|_| StagingMachineListLayoutError::AllocationFailure)?;
+    let mut list_geometry =
+        std::collections::BTreeMap::<NodeId, StagingMachineListLayoutList>::new();
+    for (list_owner, item_owners) in &list_markers {
+        let style = package
+            .compute_list_style(*list_owner)
+            .map_err(|_| StagingMachineListLayoutError::MissingListStyle(*list_owner))?;
+        let marker_column_raw = item_owners
+            .iter()
+            .map(|owner| {
+                measurements
+                    .get(owner)
+                    .map(|measurement| measurement.marker_inline_size.get().raw())
+                    .ok_or(StagingMachineListLayoutError::MissingMeasurement(*owner))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .max()
+            .ok_or(StagingMachineListLayoutError::MissingMeasurement(
+                *list_owner,
+            ))?;
+        let marker_column_width = positive_raw(marker_column_raw)?;
+        let list_flow_id = item_owners
+            .first()
+            .and_then(|owner| list_item_flow_record(ir, *owner))
+            .map(|record| record.flow_id())
+            .ok_or(StagingMachineListLayoutError::MissingItemFlow(*list_owner))?;
+        if item_owners.iter().any(|owner| {
+            list_item_flow_record(ir, *owner).map(|record| record.flow_id()) != Some(list_flow_id)
+        }) {
+            return Err(StagingMachineListLayoutError::WrongItemFlow(*list_owner));
+        }
+        let containing_frame = if list_flow_id == FlowId::DOCUMENT_BODY {
+            input.frame_inline_size
+        } else {
+            let parent_item = ir
+                .content_registry()
+                .contents()
+                .iter()
+                .find(|record| {
+                    record.content().kind() == FlowContentKind::ListItem
+                        && record.child_flow_id() == Some(list_flow_id)
+                })
+                .map(|record| record.content().owner())
+                .ok_or(StagingMachineListLayoutError::WrongItemFlow(*list_owner))?;
+            let parent_list = item_list_owners
+                .get(&parent_item)
+                .and_then(|owner| list_geometry.get(owner))
+                .ok_or(StagingMachineListLayoutError::WrongItemFlow(*list_owner))?;
+            parent_list.item_frame_inline_size
+        };
+        let block = style.computed().block();
+        let after_indents = containing_frame
+            .get()
+            .checked_sub(block.start_indent().get())
+            .and_then(|value| value.checked_sub(block.end_indent().get()))
+            .ok_or(StagingMachineListLayoutError::IndentsExhaustInlineSize(
+                *list_owner,
+            ))?;
+        let marker_gap = style.computed().font_size();
+        let item_frame = after_indents
+            .checked_sub(marker_column_width.get())
+            .and_then(|value| value.checked_sub(marker_gap.get()))
+            .and_then(PositiveLength::new)
+            .ok_or(StagingMachineListLayoutError::MarkerColumnExhaustsInlineSize(*list_owner))?;
+        let fact = StagingMachineListLayoutList {
+            list_owner: *list_owner,
+            list_flow_id,
+            marker_column_width,
+            marker_gap,
+            start_indent: block.start_indent(),
+            end_indent: block.end_indent(),
+            item_frame_inline_size: item_frame,
+        };
+        list_geometry.insert(*list_owner, fact.clone());
+        lists.push(fact);
+    }
+
+    let mut items = Vec::new();
+    items
+        .try_reserve_exact(preflight.markers().len())
+        .map_err(|_| StagingMachineListLayoutError::AllocationFailure)?;
+    for marker in preflight.markers() {
+        let measurement = measurements.remove(&marker.item_owner()).ok_or(
+            StagingMachineListLayoutError::MissingMeasurement(marker.item_owner()),
+        )?;
+        if measurement.marker_key != marker.key() {
+            return Err(StagingMachineListLayoutError::InvalidMeasurement(
+                marker.item_owner(),
+            ));
+        }
+        let (Some(first_line_inline_size), Some(first_line_block_size), Some(painted_block_size)) = (
+            measurement.first_line_inline_size,
+            measurement.first_line_block_size,
+            measurement.painted_block_size,
+        ) else {
+            return Err(StagingMachineListLayoutError::EmptyPaintedItem(
+                marker.item_owner(),
+            ));
+        };
+        if painted_block_size.get().raw() < first_line_block_size.get().raw() {
+            return Err(StagingMachineListLayoutError::InvalidMeasurement(
+                marker.item_owner(),
+            ));
+        }
+        let list = list_geometry.get(&marker.list_owner()).ok_or(
+            StagingMachineListLayoutError::MissingListStyle(marker.list_owner()),
+        )?;
+        if first_line_inline_size.get().raw() > list.item_frame_inline_size.get().raw()
+            || measurement.marker_inline_size.get().raw() > list.marker_column_width.get().raw()
+        {
+            return Err(StagingMachineListLayoutError::FirstLineExceedsInlineSize(
+                marker.item_owner(),
+            ));
+        }
+        let marker_logical_start_raw = list
+            .start_indent
+            .get()
+            .raw()
+            .checked_add(
+                list.marker_column_width
+                    .get()
+                    .raw()
+                    .checked_sub(measurement.marker_inline_size.get().raw())
+                    .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)?,
+            )
+            .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)?;
+        let content_logical_start_raw = list
+            .start_indent
+            .get()
+            .raw()
+            .checked_add(list.marker_column_width.get().raw())
+            .and_then(|value| value.checked_add(list.marker_gap.get().raw()))
+            .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)?;
+        let (marker_physical_left_raw, content_physical_left_raw) = if input.base_direction.is_rtl()
+        {
+            (
+                input
+                    .frame_inline_size
+                    .get()
+                    .raw()
+                    .checked_sub(marker_logical_start_raw)
+                    .and_then(|value| value.checked_sub(measurement.marker_inline_size.get().raw()))
+                    .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)?,
+                input
+                    .frame_inline_size
+                    .get()
+                    .raw()
+                    .checked_sub(content_logical_start_raw)
+                    .and_then(|value| value.checked_sub(list.item_frame_inline_size.get().raw()))
+                    .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)?,
+            )
+        } else {
+            (marker_logical_start_raw, content_logical_start_raw)
+        };
+        let flow_record = list_item_flow_record(ir, marker.item_owner()).ok_or(
+            StagingMachineListLayoutError::MissingItemFlow(marker.item_owner()),
+        )?;
+        if flow_record.flow_id() != list.list_flow_id {
+            return Err(StagingMachineListLayoutError::WrongItemFlow(
+                marker.item_owner(),
+            ));
+        }
+        let item_flow_id =
+            flow_record
+                .child_flow_id()
+                .ok_or(StagingMachineListLayoutError::MissingItemFlow(
+                    marker.item_owner(),
+                ))?;
+        let marker_line_height = package
+            .compute_list_style(marker.list_owner())
+            .map_err(|_| StagingMachineListLayoutError::MissingListStyle(marker.list_owner()))?
+            .computed()
+            .line_height();
+        let keep_group_block_size = positive_raw(
+            marker_line_height
+                .get()
+                .raw()
+                .max(first_line_block_size.get().raw()),
+        )?;
+        let painted_block_size = positive_raw(
+            painted_block_size
+                .get()
+                .raw()
+                .max(keep_group_block_size.get().raw()),
+        )?;
+        items.push(StagingMachineListLayoutItem {
+            list_owner: marker.list_owner(),
+            item_owner: marker.item_owner(),
+            item_index: marker.item_index(),
+            list_flow_id: list.list_flow_id,
+            item_flow_id,
+            marker_key: marker.key(),
+            marker_utf8: generated_marker_utf8(generated, marker.key())
+                .ok_or(StagingMachineListLayoutError::GeneratedTextMismatch)?
+                .to_owned(),
+            marker_inline_size: measurement.marker_inline_size,
+            marker_column_width: list.marker_column_width,
+            marker_logical_start: nonnegative_raw(marker_logical_start_raw)?,
+            marker_physical_left: nonnegative_raw(marker_physical_left_raw)?,
+            content_logical_start: nonnegative_raw(content_logical_start_raw)?,
+            content_physical_left: nonnegative_raw(content_physical_left_raw)?,
+            content_inline_size: list.item_frame_inline_size,
+            first_line_inline_size,
+            first_line_block_size,
+            keep_group_block_size,
+            painted_block_size,
+        });
+    }
+    if let Some((owner, _)) = measurements.first_key_value() {
+        return Err(StagingMachineListLayoutError::ExtraMeasurement(*owner));
+    }
+    Ok(StagingMachineListLayoutReceipt {
+        package_sha256: package.package_fingerprint().into_bytes(),
+        epoch,
+        flow_registry: ir.registry().receipt().fingerprint(),
+        marker_usage_sha256: preflight.marker_usage_sha256(),
+        policy_version: preflight.policy_version(),
+        frame_inline_size: input.frame_inline_size,
+        base_direction: input.base_direction,
+        lists,
+        items,
+    })
+}
+
+fn list_item_flow_record(
+    ir: &ProductionFlowIr,
+    owner: NodeId,
+) -> Option<&ValidatedFlowContentRecord> {
+    ir.content_registry().contents().iter().find(|record| {
+        record.content().owner() == owner && record.content().kind() == FlowContentKind::ListItem
+    })
+}
+
+fn generated_marker_utf8(
+    generated: PackageGeneratedTextBinding<'_>,
+    key: GeneratedBufferKey,
+) -> Option<&str> {
+    generated
+        .generated_text()
+        .buffers()
+        .iter()
+        .find(|buffer| buffer.key() == key)
+        .map(|buffer| buffer.utf8())
+}
+
+fn positive_raw(raw: i64) -> Result<PositiveLength, StagingMachineListLayoutError> {
+    Length::from_raw(raw)
+        .and_then(PositiveLength::new)
+        .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)
+}
+
+fn nonnegative_raw(raw: i64) -> Result<NonNegativeLength, StagingMachineListLayoutError> {
+    Length::from_raw(raw)
+        .and_then(NonNegativeLength::new)
+        .ok_or(StagingMachineListLayoutError::ArithmeticOverflow)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FlowRegistryError {
+    UnsupportedFlowDomain,
+    UnknownOwner(NodeId),
+    InvalidOwnerKind(NodeId),
+    PackageEpochMismatch,
+    ParagraphRegistryMismatch,
+    MissingParagraphContent(NodeId),
+    InvalidTableGrid(NodeId),
+    MissingContent(NodeId),
+    ExtraContent(NodeId),
+    WrongContentKind {
+        owner: NodeId,
+        expected: FlowContentKind,
+        actual: FlowContentKind,
+    },
+    WrongOwner {
+        registered: NodeId,
+        actual: NodeId,
+    },
+    WrongParent(FlowId),
+    WrongEpoch(NodeId),
+    WrongTerminal(FlowId),
+    NonDenseFlowId,
+    AstNodeLimit,
+    FlowDepthLimit,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TableGridLayoutError {
+    PackageEpochMismatch,
+    WrongStyleReceipt,
+    FlowRegistryMismatch,
+    TableNotFound(NodeId),
+    UnsupportedTablePlacement(NodeId),
+    UnsupportedCellContent(NodeId),
+    WrongOwner(NodeId),
+    EmptyColumns(NodeId),
+    EmptyRows(NodeId),
+    AstNodeLimit,
+    ColumnArithmetic,
+    GridOutOfRange(NodeId),
+    GridOverlap(NodeId),
+    GridHole(NodeId),
+    RowspanOutOfRange(NodeId),
+    MissingCellFlow(NodeId),
+    WrongCellFlow(NodeId),
+    Receipt(TableGridReceiptError),
+    AllocationFailure,
+}
+
+#[derive(Debug)]
+struct ValidatedFlowContentReceipt {
+    owner: NodeId,
+    epoch: LayoutEpoch,
+    boundary_count: u32,
+}
+
+#[derive(Debug)]
+pub struct ValidatedParagraphFlowContent(ValidatedFlowContentReceipt);
+
+#[derive(Debug)]
+pub struct ValidatedListItemFlowContent(ValidatedFlowContentReceipt);
+
+#[derive(Debug)]
+pub struct ValidatedFigureCaptionFlowContent(ValidatedFlowContentReceipt);
+
+#[derive(Debug)]
+pub struct ValidatedPageBreakFlowContent(ValidatedFlowContentReceipt);
+
+#[derive(Debug)]
+pub struct ValidatedTableRowFlowContent(ValidatedFlowContentReceipt);
+
+/// A worker-produced content receipt. `TableRow` is the private M3 addition;
+/// footnotes and later domains still cannot enter as an unrecognized string or
+/// a generic block.
+#[derive(Debug)]
+pub enum ValidatedFlowContent {
+    Paragraph(ValidatedParagraphFlowContent),
+    ListItem(ValidatedListItemFlowContent),
+    FigureCaption(ValidatedFigureCaptionFlowContent),
+    PageBreak(ValidatedPageBreakFlowContent),
+    TableRow(ValidatedTableRowFlowContent),
+}
+
+impl ValidatedFlowContent {
+    pub fn for_node(
+        package: &ValidatedParsedPackage,
+        paragraph_items: &ValidatedParagraphItemRegistry,
+        owner: NodeId,
+        epoch: LayoutEpoch,
+    ) -> Result<Self, FlowRegistryError> {
+        validate_flow_content_epoch(package, paragraph_items, epoch)?;
+        let receipt = match package.document_nodes().node_kind(owner) {
+            Some(DocumentNodeKind::Paragraph | DocumentNodeKind::Heading) => {
+                let boundary_count = paragraph_items
+                    .item_count(owner)
+                    .ok_or(FlowRegistryError::MissingParagraphContent(owner))?;
+                return Ok(Self::Paragraph(ValidatedParagraphFlowContent(
+                    ValidatedFlowContentReceipt {
+                        owner,
+                        epoch,
+                        boundary_count,
+                    },
+                )));
+            }
+            Some(DocumentNodeKind::ListItem) => ValidatedFlowContentReceipt {
+                owner,
+                epoch,
+                boundary_count: 1,
+            },
+            Some(DocumentNodeKind::Figure) => ValidatedFlowContentReceipt {
+                owner,
+                epoch,
+                boundary_count: 1,
+            },
+            Some(DocumentNodeKind::PageBreak) => ValidatedFlowContentReceipt {
+                owner,
+                epoch,
+                boundary_count: 1,
+            },
+            Some(DocumentNodeKind::TableRow) => ValidatedFlowContentReceipt {
+                owner,
+                epoch,
+                boundary_count: 1,
+            },
+            Some(_) => return Err(FlowRegistryError::InvalidOwnerKind(owner)),
+            None => return Err(FlowRegistryError::UnknownOwner(owner)),
+        };
+        Ok(match package.document_nodes().node_kind(owner) {
+            Some(DocumentNodeKind::ListItem) => {
+                Self::ListItem(ValidatedListItemFlowContent(receipt))
+            }
+            Some(DocumentNodeKind::Figure) => {
+                Self::FigureCaption(ValidatedFigureCaptionFlowContent(receipt))
+            }
+            Some(DocumentNodeKind::PageBreak) => {
+                Self::PageBreak(ValidatedPageBreakFlowContent(receipt))
+            }
+            Some(DocumentNodeKind::TableRow) => {
+                Self::TableRow(ValidatedTableRowFlowContent(receipt))
+            }
+            _ => return Err(FlowRegistryError::InvalidOwnerKind(owner)),
+        })
+    }
+
+    pub const fn kind(&self) -> FlowContentKind {
+        match self {
+            Self::Paragraph(_) => FlowContentKind::Paragraph,
+            Self::ListItem(_) => FlowContentKind::ListItem,
+            Self::FigureCaption(_) => FlowContentKind::FigureCaption,
+            Self::PageBreak(_) => FlowContentKind::PageBreak,
+            Self::TableRow(_) => FlowContentKind::TableRow,
+        }
+    }
+
+    pub const fn owner(&self) -> NodeId {
+        self.receipt().owner
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.receipt().epoch
+    }
+
+    pub const fn boundary_count(&self) -> u32 {
+        self.receipt().boundary_count
+    }
+
+    const fn receipt(&self) -> &ValidatedFlowContentReceipt {
+        match self {
+            Self::Paragraph(value) => &value.0,
+            Self::ListItem(value) => &value.0,
+            Self::FigureCaption(value) => &value.0,
+            Self::PageBreak(value) => &value.0,
+            Self::TableRow(value) => &value.0,
+        }
+    }
+}
+
+fn validate_flow_content_epoch(
+    package: &ValidatedParsedPackage,
+    paragraph_items: &ValidatedParagraphItemRegistry,
+    epoch: LayoutEpoch,
+) -> Result<(), FlowRegistryError> {
+    if paragraph_items.epoch() != epoch {
+        return Err(FlowRegistryError::ParagraphRegistryMismatch);
+    }
+    if epoch.document() != package.epoch_identity().document()
+        || epoch.style() != package.epoch_identity().style()
+    {
+        return Err(FlowRegistryError::PackageEpochMismatch);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpectedFlowContent {
+    owner: NodeId,
+    block_child_path: Vec<u32>,
+    flow_id: FlowId,
+    kind: FlowContentKind,
+    boundary_count: u32,
+    child_flow_ids: Vec<FlowId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpectedFlow {
+    flow_id: FlowId,
+    owner_node_id: NodeId,
+    owner_kind: FlowOwnerKind,
+    parent_flow_id: Option<FlowId>,
+    depth: u32,
+    terminal: FlowTerminal,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExpectedFlowModel {
+    flows: Vec<ExpectedFlow>,
+    contents: Vec<ExpectedFlowContent>,
+    node_count: u64,
+    max_depth: u32,
+}
+
+enum PendingFlowNode<'a> {
+    Block {
+        flow_id: FlowId,
+        block: &'a Block,
+    },
+    ListItem {
+        parent_flow_id: FlowId,
+        item: &'a ListItem,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ValidatedTableCellShape {
+    cell_owner: NodeId,
+    row_owner: NodeId,
+    section: TableSection,
+    row_ordinal: u32,
+    column_ordinal: u32,
+    colspan: NonZeroU16,
+    rowspan: NonZeroU16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ValidatedTableRowShape {
+    row_owner: NodeId,
+    section: TableSection,
+    row_ordinal: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ValidatedTableShape {
+    table_owner: NodeId,
+    rows: Vec<ValidatedTableRowShape>,
+    cells: Vec<ValidatedTableCellShape>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ValidatedTableProfileShapes {
+    effective_node_count: u64,
+    tables: Vec<ValidatedTableShape>,
+}
+
+impl ValidatedTableProfileShapes {
+    fn table(&self, owner: NodeId) -> Option<&ValidatedTableShape> {
+        self.tables.iter().find(|table| table.table_owner == owner)
+    }
+}
+
+/// Validates the complete private table domain before any cell FlowId or cell
+/// content work is allocated. The first pass charges every NodeId-less column;
+/// only after that inclusive limit succeeds are one-dimensional grid vectors
+/// constructed.
+fn prevalidate_table_profile(
+    package: &ValidatedParsedPackage,
+    limits: &ValidatedResourceLimits,
+) -> Result<ValidatedTableProfileShapes, TableGridLayoutError> {
+    let mut column_count = 0u64;
+    for block in &package.package().document.blocks {
+        count_table_columns(block, true, &mut column_count)?;
+    }
+    let semantic_node_count = u64::try_from(package.document_nodes().node_count())
+        .map_err(|_| TableGridLayoutError::AstNodeLimit)?;
+    let effective_node_count = semantic_node_count
+        .checked_add(column_count)
+        .ok_or(TableGridLayoutError::AstNodeLimit)?;
+    if effective_node_count > limits.get().max_ast_nodes {
+        return Err(TableGridLayoutError::AstNodeLimit);
+    }
+
+    let table_count = package
+        .package()
+        .document
+        .blocks
+        .iter()
+        .filter(|block| matches!(block, Block::Table { .. }))
+        .count();
+    let mut tables = Vec::new();
+    tables
+        .try_reserve_exact(table_count)
+        .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+    for block in &package.package().document.blocks {
+        let Block::Table {
+            node_id,
+            columns,
+            head,
+            body,
+            ..
+        } = block
+        else {
+            continue;
+        };
+        if package.document_nodes().node_kind(*node_id) != Some(DocumentNodeKind::Table) {
+            return Err(TableGridLayoutError::WrongOwner(*node_id));
+        }
+        if columns.is_empty() {
+            return Err(TableGridLayoutError::EmptyColumns(*node_id));
+        }
+        if head.is_empty() && body.is_empty() {
+            return Err(TableGridLayoutError::EmptyRows(*node_id));
+        }
+        let mut rows = Vec::new();
+        rows.try_reserve_exact(head.len().saturating_add(body.len()))
+            .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+        let mut cells = Vec::new();
+        let cell_count = head
+            .iter()
+            .chain(body)
+            .try_fold(0usize, |total, row| total.checked_add(row.cells.len()))
+            .ok_or(TableGridLayoutError::AstNodeLimit)?;
+        cells
+            .try_reserve_exact(cell_count)
+            .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+        validate_table_section_shape(
+            package,
+            *node_id,
+            TableSection::Head,
+            head,
+            columns.len(),
+            &mut rows,
+            &mut cells,
+        )?;
+        validate_table_section_shape(
+            package,
+            *node_id,
+            TableSection::Body,
+            body,
+            columns.len(),
+            &mut rows,
+            &mut cells,
+        )?;
+        tables.push(ValidatedTableShape {
+            table_owner: *node_id,
+            rows,
+            cells,
+        });
+    }
+    Ok(ValidatedTableProfileShapes {
+        effective_node_count,
+        tables,
+    })
+}
+
+fn count_table_columns(
+    block: &Block,
+    document_body: bool,
+    total: &mut u64,
+) -> Result<(), TableGridLayoutError> {
+    match block {
+        Block::Table {
+            node_id,
+            columns,
+            head,
+            body,
+            ..
+        } => {
+            if !document_body {
+                return Err(TableGridLayoutError::UnsupportedTablePlacement(*node_id));
+            }
+            *total = total
+                .checked_add(
+                    u64::try_from(columns.len()).map_err(|_| TableGridLayoutError::AstNodeLimit)?,
+                )
+                .ok_or(TableGridLayoutError::AstNodeLimit)?;
+            for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                for nested in &cell.blocks {
+                    let Block::Paragraph { children, .. } = nested else {
+                        return Err(TableGridLayoutError::UnsupportedCellContent(cell.node_id));
+                    };
+                    if children.iter().any(|inline| {
+                        !matches!(
+                            inline,
+                            Inline::Text { .. }
+                                | Inline::SoftBreak { .. }
+                                | Inline::HardBreak { .. }
+                        )
+                    }) {
+                        return Err(TableGridLayoutError::UnsupportedCellContent(cell.node_id));
+                    }
+                }
+            }
+            Ok(())
+        }
+        Block::List { items, .. } => {
+            for nested in items.iter().flat_map(|item| &item.blocks) {
+                count_table_columns(nested, false, total)?;
+            }
+            Ok(())
+        }
+        Block::Figure { caption, .. } => {
+            for nested in caption {
+                count_table_columns(nested, false, total)?;
+            }
+            Ok(())
+        }
+        Block::Paragraph { .. } | Block::Heading { .. } | Block::PageBreak { .. } => Ok(()),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_table_section_shape(
+    package: &ValidatedParsedPackage,
+    table_owner: NodeId,
+    section: TableSection,
+    section_rows: &[TableRow],
+    column_count: usize,
+    rows: &mut Vec<ValidatedTableRowShape>,
+    cells: &mut Vec<ValidatedTableCellShape>,
+) -> Result<(), TableGridLayoutError> {
+    if section_rows.is_empty() {
+        return Ok(());
+    }
+    let section_row_count =
+        u32::try_from(section_rows.len()).map_err(|_| TableGridLayoutError::AstNodeLimit)?;
+    let mut remaining = Vec::new();
+    remaining
+        .try_reserve_exact(column_count)
+        .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+    remaining.resize(column_count, 0u16);
+    for (row_index, row) in section_rows.iter().enumerate() {
+        let row_ordinal =
+            u32::try_from(row_index).map_err(|_| TableGridLayoutError::AstNodeLimit)?;
+        if package.document_nodes().node_kind(row.node_id) != Some(DocumentNodeKind::TableRow) {
+            return Err(TableGridLayoutError::WrongOwner(row.node_id));
+        }
+        rows.push(ValidatedTableRowShape {
+            row_owner: row.node_id,
+            section,
+            row_ordinal,
+        });
+        for cell in &row.cells {
+            if package.document_nodes().node_kind(cell.node_id) != Some(DocumentNodeKind::TableCell)
+            {
+                return Err(TableGridLayoutError::WrongOwner(cell.node_id));
+            }
+            let Some(origin) = remaining.iter().position(|value| *value == 0) else {
+                return Err(TableGridLayoutError::GridOutOfRange(cell.node_id));
+            };
+            let end = origin
+                .checked_add(usize::from(cell.colspan.get()))
+                .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+            if end > column_count {
+                return Err(TableGridLayoutError::GridOutOfRange(cell.node_id));
+            }
+            if remaining[origin..end].iter().any(|value| *value != 0) {
+                return Err(TableGridLayoutError::GridOverlap(cell.node_id));
+            }
+            let end_row = row_ordinal
+                .checked_add(u32::from(cell.rowspan.get()))
+                .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+            if end_row > section_row_count {
+                return Err(TableGridLayoutError::RowspanOutOfRange(cell.node_id));
+            }
+            for value in &mut remaining[origin..end] {
+                *value = cell.rowspan.get();
+            }
+            cells.push(ValidatedTableCellShape {
+                cell_owner: cell.node_id,
+                row_owner: row.node_id,
+                section,
+                row_ordinal,
+                column_ordinal: u32::try_from(origin)
+                    .map_err(|_| TableGridLayoutError::AstNodeLimit)?,
+                colspan: cell.colspan,
+                rowspan: cell.rowspan,
+            });
+        }
+        if remaining.contains(&0) {
+            return Err(TableGridLayoutError::GridHole(row.node_id));
+        }
+        for value in &mut remaining {
+            *value -= 1;
+        }
+    }
+    if remaining.iter().any(|value| *value != 0) {
+        return Err(TableGridLayoutError::RowspanOutOfRange(table_owner));
+    }
+    Ok(())
+}
+
+fn table_profile_flow_error(error: TableGridLayoutError) -> FlowRegistryError {
+    match error {
+        TableGridLayoutError::AstNodeLimit => FlowRegistryError::AstNodeLimit,
+        TableGridLayoutError::ColumnArithmetic => FlowRegistryError::ArithmeticOverflow,
+        TableGridLayoutError::AllocationFailure => FlowRegistryError::AllocationFailure,
+        TableGridLayoutError::UnsupportedTablePlacement(_)
+        | TableGridLayoutError::UnsupportedCellContent(_) => {
+            FlowRegistryError::UnsupportedFlowDomain
+        }
+        TableGridLayoutError::EmptyColumns(owner)
+        | TableGridLayoutError::EmptyRows(owner)
+        | TableGridLayoutError::WrongOwner(owner)
+        | TableGridLayoutError::GridOutOfRange(owner)
+        | TableGridLayoutError::GridOverlap(owner)
+        | TableGridLayoutError::GridHole(owner)
+        | TableGridLayoutError::RowspanOutOfRange(owner) => {
+            FlowRegistryError::InvalidTableGrid(owner)
+        }
+        _ => FlowRegistryError::UnsupportedFlowDomain,
+    }
+}
+
+fn derive_expected_flow_model(
+    package: &ValidatedParsedPackage,
+    paragraph_items: &ValidatedParagraphItemRegistry,
+    epoch: LayoutEpoch,
+    limits: &ValidatedResourceLimits,
+) -> Result<ExpectedFlowModel, FlowRegistryError> {
+    validate_flow_content_epoch(package, paragraph_items, epoch)?;
+    if !package.package().document.footnotes.is_empty() {
+        return Err(FlowRegistryError::UnsupportedFlowDomain);
+    }
+    let table_shapes =
+        prevalidate_table_profile(package, limits).map_err(table_profile_flow_error)?;
+    let node_count = table_shapes.effective_node_count;
+    let root = package.package().document.node_id;
+    if root != NodeId::new(0)
+        || package.document_nodes().node_kind(root) != Some(DocumentNodeKind::Document)
+        || package.document_nodes().node_path(root) != Some([].as_slice())
+    {
+        return Err(FlowRegistryError::UnknownOwner(root));
+    }
+    if limits.get().max_ast_nesting_depth < 1 {
+        return Err(FlowRegistryError::FlowDepthLimit);
+    }
+
+    let mut flows = Vec::new();
+    flows
+        .try_reserve_exact(1)
+        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+    flows.push(ExpectedFlow {
+        flow_id: FlowId::DOCUMENT_BODY,
+        owner_node_id: root,
+        owner_kind: FlowOwnerKind::DocumentBody,
+        parent_flow_id: None,
+        depth: 1,
+        terminal: FlowTerminal::new(0),
+    });
+    let mut contents = Vec::new();
+    let mut pending = Vec::new();
+    pending
+        .try_reserve_exact(package.package().document.blocks.len())
+        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+    pending.extend(package.package().document.blocks.iter().rev().map(|block| {
+        PendingFlowNode::Block {
+            flow_id: FlowId::DOCUMENT_BODY,
+            block,
+        }
+    }));
+
+    let mut max_depth = 1u32;
+    while let Some(next) = pending.pop() {
+        match next {
+            PendingFlowNode::Block { flow_id, block } => match block {
+                Block::Paragraph { node_id, .. } | Block::Heading { node_id, .. } => {
+                    let boundary_count = paragraph_items
+                        .item_count(*node_id)
+                        .ok_or(FlowRegistryError::MissingParagraphContent(*node_id))?;
+                    push_expected_content(
+                        package,
+                        &mut flows,
+                        &mut contents,
+                        limits,
+                        *node_id,
+                        flow_id,
+                        FlowContentKind::Paragraph,
+                        boundary_count,
+                        Vec::new(),
+                    )?;
+                }
+                Block::List { items, .. } => {
+                    pending
+                        .try_reserve(items.len())
+                        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+                    pending.extend(items.iter().rev().map(|item| PendingFlowNode::ListItem {
+                        parent_flow_id: flow_id,
+                        item,
+                    }));
+                }
+                Block::Figure {
+                    node_id, caption, ..
+                } => {
+                    let child_flow_id = allocate_expected_flow(
+                        &mut flows,
+                        limits,
+                        node_count,
+                        *node_id,
+                        FlowOwnerKind::FigureCaption,
+                        flow_id,
+                    )?;
+                    max_depth = max_depth.max(flows[child_flow_id.get() as usize].depth);
+                    push_expected_content(
+                        package,
+                        &mut flows,
+                        &mut contents,
+                        limits,
+                        *node_id,
+                        flow_id,
+                        FlowContentKind::FigureCaption,
+                        1,
+                        vec![child_flow_id],
+                    )?;
+                    pending
+                        .try_reserve(caption.len())
+                        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+                    pending.extend(caption.iter().rev().map(|block| PendingFlowNode::Block {
+                        flow_id: child_flow_id,
+                        block,
+                    }));
+                }
+                Block::PageBreak { node_id, .. } => {
+                    push_expected_content(
+                        package,
+                        &mut flows,
+                        &mut contents,
+                        limits,
+                        *node_id,
+                        flow_id,
+                        FlowContentKind::PageBreak,
+                        1,
+                        Vec::new(),
+                    )?;
+                }
+                Block::Table {
+                    node_id,
+                    head,
+                    body,
+                    ..
+                } => {
+                    if flow_id != FlowId::DOCUMENT_BODY {
+                        return Err(FlowRegistryError::UnsupportedFlowDomain);
+                    }
+                    let shape = table_shapes
+                        .table(*node_id)
+                        .ok_or(FlowRegistryError::InvalidTableGrid(*node_id))?;
+                    let ast_cells: Vec<&TableCell> =
+                        head.iter().chain(body).flat_map(|row| &row.cells).collect();
+                    if ast_cells.len() != shape.cells.len()
+                        || ast_cells
+                            .iter()
+                            .zip(&shape.cells)
+                            .any(|(cell, expected)| cell.node_id != expected.cell_owner)
+                    {
+                        return Err(FlowRegistryError::InvalidTableGrid(*node_id));
+                    }
+                    let mut cell_flows = Vec::new();
+                    cell_flows
+                        .try_reserve_exact(ast_cells.len())
+                        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+                    for cell in &ast_cells {
+                        let child_flow_id = allocate_expected_flow(
+                            &mut flows,
+                            limits,
+                            node_count,
+                            cell.node_id,
+                            FlowOwnerKind::TableCell,
+                            flow_id,
+                        )?;
+                        max_depth = max_depth.max(flows[child_flow_id.get() as usize].depth);
+                        cell_flows.push(child_flow_id);
+                    }
+
+                    let mut cell_offset = 0usize;
+                    for row in head.iter().chain(body) {
+                        let end = cell_offset
+                            .checked_add(row.cells.len())
+                            .ok_or(FlowRegistryError::ArithmeticOverflow)?;
+                        let mut row_cell_flows = Vec::new();
+                        row_cell_flows
+                            .try_reserve_exact(row.cells.len())
+                            .map_err(|_| FlowRegistryError::AllocationFailure)?;
+                        row_cell_flows.extend_from_slice(&cell_flows[cell_offset..end]);
+                        push_expected_content(
+                            package,
+                            &mut flows,
+                            &mut contents,
+                            limits,
+                            row.node_id,
+                            flow_id,
+                            FlowContentKind::TableRow,
+                            1,
+                            row_cell_flows,
+                        )?;
+                        cell_offset = end;
+                    }
+                    if cell_offset != cell_flows.len() {
+                        return Err(FlowRegistryError::InvalidTableGrid(*node_id));
+                    }
+
+                    let additional = ast_cells.iter().try_fold(0usize, |total, cell| {
+                        total
+                            .checked_add(cell.blocks.len())
+                            .ok_or(FlowRegistryError::ArithmeticOverflow)
+                    })?;
+                    pending
+                        .try_reserve(additional)
+                        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+                    for (cell, child_flow_id) in ast_cells.iter().zip(&cell_flows).rev() {
+                        pending.extend(cell.blocks.iter().rev().map(|block| {
+                            PendingFlowNode::Block {
+                                flow_id: *child_flow_id,
+                                block,
+                            }
+                        }));
+                    }
+                }
+            },
+            PendingFlowNode::ListItem {
+                parent_flow_id,
+                item,
+            } => {
+                let child_flow_id = allocate_expected_flow(
+                    &mut flows,
+                    limits,
+                    node_count,
+                    item.node_id,
+                    FlowOwnerKind::ListItem,
+                    parent_flow_id,
+                )?;
+                max_depth = max_depth.max(flows[child_flow_id.get() as usize].depth);
+                push_expected_content(
+                    package,
+                    &mut flows,
+                    &mut contents,
+                    limits,
+                    item.node_id,
+                    parent_flow_id,
+                    FlowContentKind::ListItem,
+                    1,
+                    vec![child_flow_id],
+                )?;
+                pending
+                    .try_reserve(item.blocks.len())
+                    .map_err(|_| FlowRegistryError::AllocationFailure)?;
+                pending.extend(
+                    item.blocks
+                        .iter()
+                        .rev()
+                        .map(|block| PendingFlowNode::Block {
+                            flow_id: child_flow_id,
+                            block,
+                        }),
+                );
+            }
+        }
+    }
+    if u64::try_from(flows.len()).map_err(|_| FlowRegistryError::AstNodeLimit)? > node_count
+        || max_depth > limits.get().max_ast_nesting_depth
+    {
+        return Err(FlowRegistryError::FlowDepthLimit);
+    }
+    Ok(ExpectedFlowModel {
+        flows,
+        contents,
+        node_count,
+        max_depth,
+    })
+}
+
+fn allocate_expected_flow(
+    flows: &mut Vec<ExpectedFlow>,
+    limits: &ValidatedResourceLimits,
+    admitted_node_count: u64,
+    owner_node_id: NodeId,
+    owner_kind: FlowOwnerKind,
+    parent_flow_id: FlowId,
+) -> Result<FlowId, FlowRegistryError> {
+    let next_count = u64::try_from(flows.len())
+        .map_err(|_| FlowRegistryError::AstNodeLimit)?
+        .checked_add(1)
+        .ok_or(FlowRegistryError::AstNodeLimit)?;
+    if next_count > limits.get().max_ast_nodes || next_count > admitted_node_count {
+        return Err(FlowRegistryError::AstNodeLimit);
+    }
+    let parent = flows
+        .get(parent_flow_id.get() as usize)
+        .ok_or(FlowRegistryError::WrongParent(parent_flow_id))?;
+    let depth = parent
+        .depth
+        .checked_add(1)
+        .ok_or(FlowRegistryError::FlowDepthLimit)?;
+    if depth > limits.get().max_ast_nesting_depth {
+        return Err(FlowRegistryError::FlowDepthLimit);
+    }
+    let flow_id =
+        FlowId::new(u32::try_from(flows.len()).map_err(|_| FlowRegistryError::AstNodeLimit)?);
+    flows
+        .try_reserve(1)
+        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+    flows.push(ExpectedFlow {
+        flow_id,
+        owner_node_id,
+        owner_kind,
+        parent_flow_id: Some(parent_flow_id),
+        depth,
+        terminal: FlowTerminal::new(0),
+    });
+    Ok(flow_id)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_expected_content(
+    package: &ValidatedParsedPackage,
+    flows: &mut [ExpectedFlow],
+    contents: &mut Vec<ExpectedFlowContent>,
+    limits: &ValidatedResourceLimits,
+    owner: NodeId,
+    flow_id: FlowId,
+    kind: FlowContentKind,
+    boundary_count: u32,
+    child_flow_ids: Vec<FlowId>,
+) -> Result<(), FlowRegistryError> {
+    let next_count = u64::try_from(contents.len())
+        .map_err(|_| FlowRegistryError::AstNodeLimit)?
+        .checked_add(1)
+        .ok_or(FlowRegistryError::AstNodeLimit)?;
+    if next_count > limits.get().max_ast_nodes {
+        return Err(FlowRegistryError::AstNodeLimit);
+    }
+    let flow = flows
+        .get_mut(flow_id.get() as usize)
+        .ok_or(FlowRegistryError::WrongParent(flow_id))?;
+    let next_terminal = flow
+        .terminal
+        .owner_local_ordinal()
+        .checked_add(boundary_count)
+        .ok_or(FlowRegistryError::ArithmeticOverflow)?;
+    let block_child_path = package
+        .document_nodes()
+        .node_path(owner)
+        .ok_or(FlowRegistryError::UnknownOwner(owner))?
+        .to_vec();
+    contents
+        .try_reserve(1)
+        .map_err(|_| FlowRegistryError::AllocationFailure)?;
+    contents.push(ExpectedFlowContent {
+        owner,
+        block_child_path,
+        flow_id,
+        kind,
+        boundary_count,
+        child_flow_ids,
+    });
+    flow.terminal = FlowTerminal::new(next_terminal);
+    Ok(())
+}
+
+/// Mutable, untrusted registration stage. `finish` discards insertion order
+/// and compares every receipt with the package-derived canonical model.
+pub struct ValidatedFlowContentRegistryBuilder<'a> {
+    package: &'a ValidatedParsedPackage,
+    paragraph_items: &'a ValidatedParagraphItemRegistry,
+    epoch: LayoutEpoch,
+    model: ExpectedFlowModel,
+    registrations: Vec<(NodeId, ValidatedFlowContent)>,
+    max_ast_nodes: u64,
+    max_ast_nesting_depth: u32,
+}
+
+impl<'a> ValidatedFlowContentRegistryBuilder<'a> {
+    pub fn new(
+        package: &'a ValidatedParsedPackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+        epoch: LayoutEpoch,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<Self, FlowRegistryError> {
+        let model = derive_expected_flow_model(package, paragraph_items, epoch, limits)?;
+        Ok(Self {
+            package,
+            paragraph_items,
+            epoch,
+            model,
+            registrations: Vec::new(),
+            max_ast_nodes: limits.get().max_ast_nodes,
+            max_ast_nesting_depth: limits.get().max_ast_nesting_depth,
+        })
+    }
+
+    pub fn expected_content_owners(&self) -> impl ExactSizeIterator<Item = NodeId> + '_ {
+        self.model.contents.iter().map(|content| content.owner)
+    }
+
+    pub fn issue_content(&self, owner: NodeId) -> Result<ValidatedFlowContent, FlowRegistryError> {
+        ValidatedFlowContent::for_node(self.package, self.paragraph_items, owner, self.epoch)
+    }
+
+    pub fn register(&mut self, content: ValidatedFlowContent) -> Result<(), FlowRegistryError> {
+        let owner = content.owner();
+        self.register_for(owner, content)
+    }
+
+    pub fn register_for(
+        &mut self,
+        registered_owner: NodeId,
+        content: ValidatedFlowContent,
+    ) -> Result<(), FlowRegistryError> {
+        let next_count = u64::try_from(self.registrations.len())
+            .map_err(|_| FlowRegistryError::AstNodeLimit)?
+            .checked_add(1)
+            .ok_or(FlowRegistryError::AstNodeLimit)?;
+        if next_count > self.max_ast_nodes {
+            return Err(FlowRegistryError::AstNodeLimit);
+        }
+        self.registrations
+            .try_reserve(1)
+            .map_err(|_| FlowRegistryError::AllocationFailure)?;
+        self.registrations.push((registered_owner, content));
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<ValidatedFlowContentRegistry, FlowRegistryError> {
+        validate_flow_content_epoch(self.package, self.paragraph_items, self.epoch)?;
+        if self.model.node_count > self.max_ast_nodes
+            || u64::try_from(self.model.flows.len()).map_err(|_| FlowRegistryError::AstNodeLimit)?
+                > self.model.node_count
+        {
+            return Err(FlowRegistryError::AstNodeLimit);
+        }
+        if self.model.max_depth > self.max_ast_nesting_depth {
+            return Err(FlowRegistryError::FlowDepthLimit);
+        }
+        self.registrations.sort_by_key(|(owner, _)| *owner);
+        if let Some(pair) = self
+            .registrations
+            .windows(2)
+            .find(|pair| pair[0].0 == pair[1].0)
+        {
+            return Err(FlowRegistryError::ExtraContent(pair[1].0));
+        }
+        let expected_owners: std::collections::BTreeSet<_> = self
+            .model
+            .contents
+            .iter()
+            .map(|content| content.owner)
+            .collect();
+        if let Some((owner, _)) = self
+            .registrations
+            .iter()
+            .find(|(owner, _)| !expected_owners.contains(owner))
+        {
+            return Err(FlowRegistryError::ExtraContent(*owner));
+        }
+        let mut registered: std::collections::BTreeMap<_, _> =
+            self.registrations.into_iter().collect();
+        let mut contents = Vec::new();
+        contents
+            .try_reserve_exact(self.model.contents.len())
+            .map_err(|_| FlowRegistryError::AllocationFailure)?;
+        for expected in &self.model.contents {
+            let content = registered
+                .remove(&expected.owner)
+                .ok_or(FlowRegistryError::MissingContent(expected.owner))?;
+            if content.owner() != expected.owner {
+                return Err(FlowRegistryError::WrongOwner {
+                    registered: expected.owner,
+                    actual: content.owner(),
+                });
+            }
+            if content.epoch() != self.epoch {
+                return Err(FlowRegistryError::WrongEpoch(expected.owner));
+            }
+            if content.kind() != expected.kind {
+                return Err(FlowRegistryError::WrongContentKind {
+                    owner: expected.owner,
+                    expected: expected.kind,
+                    actual: content.kind(),
+                });
+            }
+            if content.boundary_count() != expected.boundary_count {
+                return Err(FlowRegistryError::WrongTerminal(expected.flow_id));
+            }
+            contents.push(ValidatedFlowContentRecord {
+                content,
+                block_child_path: expected.block_child_path.clone(),
+                flow_id: expected.flow_id,
+                child_flow_ids: expected.child_flow_ids.clone(),
+            });
+        }
+        if let Some((owner, _)) = registered.first_key_value() {
+            return Err(FlowRegistryError::ExtraContent(*owner));
+        }
+        Ok(ValidatedFlowContentRegistry {
+            package: self.package.epoch_identity().document(),
+            epoch: self.epoch,
+            contents,
+            model: self.model,
+            max_ast_nodes: self.max_ast_nodes,
+            max_ast_nesting_depth: self.max_ast_nesting_depth,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ValidatedFlowContentRecord {
+    content: ValidatedFlowContent,
+    block_child_path: Vec<u32>,
+    flow_id: FlowId,
+    child_flow_ids: Vec<FlowId>,
+}
+
+impl ValidatedFlowContentRecord {
+    pub const fn content(&self) -> &ValidatedFlowContent {
+        &self.content
+    }
+
+    pub fn block_child_path(&self) -> &[u32] {
+        &self.block_child_path
+    }
+
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+
+    pub fn child_flow_id(&self) -> Option<FlowId> {
+        (self.child_flow_ids.len() == 1).then(|| self.child_flow_ids[0])
+    }
+
+    pub fn child_flow_ids(&self) -> &[FlowId] {
+        &self.child_flow_ids
+    }
+}
+
+/// Complete package/epoch-bound content registry. It has no raw-parts
+/// constructor and deliberately is not `Clone`.
+#[derive(Debug)]
+pub struct ValidatedFlowContentRegistry {
+    package: DocumentFingerprint,
+    epoch: LayoutEpoch,
+    contents: Vec<ValidatedFlowContentRecord>,
+    model: ExpectedFlowModel,
+    max_ast_nodes: u64,
+    max_ast_nesting_depth: u32,
+}
+
+impl ValidatedFlowContentRegistry {
+    pub const fn package_fingerprint(&self) -> DocumentFingerprint {
+        self.package
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub fn contents(&self) -> &[ValidatedFlowContentRecord] {
+        &self.contents
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedFlow {
+    flow_id: FlowId,
+    owner_node_id: NodeId,
+    owner_kind: FlowOwnerKind,
+    parent_flow_id: Option<FlowId>,
+    depth: u32,
+    terminal: FlowTerminal,
+}
+
+impl ValidatedFlow {
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+
+    pub const fn owner_node_id(&self) -> NodeId {
+        self.owner_node_id
+    }
+
+    pub const fn owner_kind(&self) -> FlowOwnerKind {
+        self.owner_kind
+    }
+
+    pub const fn parent_flow_id(&self) -> Option<FlowId> {
+        self.parent_flow_id
+    }
+
+    pub const fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    pub const fn terminal(&self) -> FlowTerminal {
+        self.terminal
+    }
+}
+
+/// Non-cloneable completeness proof projected from the canonical registry.
+#[derive(Debug)]
+pub struct ValidatedFlowRegistryReceipt {
+    package: DocumentFingerprint,
+    epoch: LayoutEpoch,
+    fingerprint: FlowRegistryFingerprint,
+    flow_count: u32,
+    max_depth: u32,
+}
+
+impl ValidatedFlowRegistryReceipt {
+    pub const fn package_fingerprint(&self) -> DocumentFingerprint {
+        self.package
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub const fn fingerprint(&self) -> FlowRegistryFingerprint {
+        self.fingerprint
+    }
+
+    pub const fn flow_count(&self) -> u32 {
+        self.flow_count
+    }
+
+    pub const fn max_depth(&self) -> u32 {
+        self.max_depth
+    }
+}
+
+/// Dense canonical body/subflow registry. All relations are derived from the
+/// typed Document traversal retained by `ValidatedFlowContentRegistry`.
+#[derive(Debug)]
+pub struct ValidatedFlowRegistry {
+    flows: Vec<ValidatedFlow>,
+    receipt: ValidatedFlowRegistryReceipt,
+}
+
+impl ValidatedFlowRegistry {
+    fn from_content(content: &ValidatedFlowContentRegistry) -> Result<Self, FlowRegistryError> {
+        if content.model.node_count > content.max_ast_nodes
+            || u64::try_from(content.model.flows.len())
+                .map_err(|_| FlowRegistryError::AstNodeLimit)?
+                > content.model.node_count
+        {
+            return Err(FlowRegistryError::AstNodeLimit);
+        }
+        if content.model.max_depth > content.max_ast_nesting_depth {
+            return Err(FlowRegistryError::FlowDepthLimit);
+        }
+        let mut flows = Vec::new();
+        flows
+            .try_reserve_exact(content.model.flows.len())
+            .map_err(|_| FlowRegistryError::AllocationFailure)?;
+        for (expected_id, expected) in content.model.flows.iter().enumerate() {
+            if expected.flow_id.get() as usize != expected_id {
+                return Err(FlowRegistryError::NonDenseFlowId);
+            }
+            let observed_terminal = content
+                .contents
+                .iter()
+                .filter(|entry| entry.flow_id == expected.flow_id)
+                .try_fold(0u32, |total, entry| {
+                    total
+                        .checked_add(entry.content.boundary_count())
+                        .ok_or(FlowRegistryError::ArithmeticOverflow)
+                })?;
+            if observed_terminal != expected.terminal.owner_local_ordinal() {
+                return Err(FlowRegistryError::WrongTerminal(expected.flow_id));
+            }
+            if let Some(parent) = expected.parent_flow_id {
+                let Some(parent_record) = content.model.flows.get(parent.get() as usize) else {
+                    return Err(FlowRegistryError::WrongParent(expected.flow_id));
+                };
+                if parent_record.depth.checked_add(1) != Some(expected.depth) {
+                    return Err(FlowRegistryError::WrongParent(expected.flow_id));
+                }
+            } else if expected.flow_id != FlowId::DOCUMENT_BODY || expected.depth != 1 {
+                return Err(FlowRegistryError::WrongParent(expected.flow_id));
+            }
+            flows.push(ValidatedFlow {
+                flow_id: expected.flow_id,
+                owner_node_id: expected.owner_node_id,
+                owner_kind: expected.owner_kind,
+                parent_flow_id: expected.parent_flow_id,
+                depth: expected.depth,
+                terminal: expected.terminal,
+            });
+        }
+        let canonical_jcs = encode_flow_registry_jcs(content, &flows);
+        let fingerprint = flow_registry_fingerprint_from_jcs(&canonical_jcs);
+        let flow_count = u32::try_from(flows.len()).map_err(|_| FlowRegistryError::AstNodeLimit)?;
+        Ok(Self {
+            flows,
+            receipt: ValidatedFlowRegistryReceipt {
+                package: content.package,
+                epoch: content.epoch,
+                fingerprint,
+                flow_count,
+                max_depth: content.model.max_depth,
+            },
+        })
+    }
+
+    pub fn flows(&self) -> &[ValidatedFlow] {
+        &self.flows
+    }
+
+    pub fn flow(&self, flow_id: FlowId) -> Option<&ValidatedFlow> {
+        self.flows
+            .get(flow_id.get() as usize)
+            .filter(|flow| flow.flow_id == flow_id)
+    }
+
+    pub const fn receipt(&self) -> &ValidatedFlowRegistryReceipt {
+        &self.receipt
+    }
+}
+
+fn encode_flow_registry_jcs(
+    content: &ValidatedFlowContentRegistry,
+    flows: &[ValidatedFlow],
+) -> String {
+    let mut output = String::from("{\"algorithm\":\"");
+    output.push_str(FlowRegistryFingerprint::ALGORITHM_ID);
+    output.push_str("\",\"flows\":[");
+    for (flow_index, flow) in flows.iter().enumerate() {
+        if flow_index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"contents\":[");
+        for (content_index, entry) in content
+            .contents
+            .iter()
+            .filter(|entry| entry.flow_id == flow.flow_id)
+            .enumerate()
+        {
+            if content_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"boundary_count\":");
+            output.push_str(&entry.content.boundary_count().to_string());
+            if entry.content.kind() == FlowContentKind::TableRow {
+                output.push_str(",\"child_flow_ids\":[");
+                for (index, flow_id) in entry.child_flow_ids.iter().enumerate() {
+                    if index != 0 {
+                        output.push(',');
+                    }
+                    output.push_str(&flow_id.get().to_string());
+                }
+                output.push(']');
+            } else {
+                output.push_str(",\"child_flow_id\":");
+                push_optional_flow_id(&mut output, entry.child_flow_id());
+            }
+            output.push_str(",\"kind\":\"");
+            output.push_str(entry.content.kind().as_str());
+            output.push_str("\",\"owner_node_id\":");
+            output.push_str(&entry.content.owner().get().to_string());
+            output.push('}');
+        }
+        output.push_str("],\"depth\":");
+        output.push_str(&flow.depth.to_string());
+        output.push_str(",\"flow_id\":");
+        output.push_str(&flow.flow_id.get().to_string());
+        output.push_str(",\"kind\":\"");
+        output.push_str(flow.owner_kind.as_str());
+        output.push_str("\",\"owner_node_id\":");
+        output.push_str(&flow.owner_node_id.get().to_string());
+        output.push_str(",\"parent_flow_id\":");
+        push_optional_flow_id(&mut output, flow.parent_flow_id);
+        output.push_str(",\"terminal\":");
+        output.push_str(&flow.terminal.owner_local_ordinal().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"layout_epoch\":");
+    push_layout_epoch_jcs(&mut output, content.epoch);
+    output.push_str(",\"package_sha256\":");
+    push_hash_hex_jcs(&mut output, content.package.bytes());
+    output.push('}');
+    output
+}
+
+fn push_optional_flow_id(output: &mut String, value: Option<FlowId>) {
+    match value {
+        Some(value) => output.push_str(&value.get().to_string()),
+        None => output.push_str("null"),
+    }
+}
+
+fn push_layout_epoch_jcs(output: &mut String, epoch: LayoutEpoch) {
+    output.push_str("{\"admitted_resources_sha256\":");
+    push_hash_hex_jcs(output, epoch.admitted_resources().bytes());
+    output.push_str(",\"document_sha256\":");
+    push_hash_hex_jcs(output, epoch.document().bytes());
+    output.push_str(",\"resolved_input_sha256\":");
+    push_hash_hex_jcs(output, epoch.references().bytes());
+    output.push_str(",\"style_page_master_sha256\":");
+    push_hash_hex_jcs(output, epoch.style().bytes());
+    output.push('}');
+}
+
+fn push_hash_hex_jcs(output: &mut String, bytes: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push('"');
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output.push('"');
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProductionFlowPosition {
+    epoch: LayoutEpoch,
+    registry: FlowRegistryFingerprint,
+    flow_id: FlowId,
+    flow_owner_node_id: NodeId,
+    parent_flow_id: Option<FlowId>,
+    flow_local_ordinal: u32,
+    content_owner_node_id: Option<NodeId>,
+    owner_local_boundary: u32,
+    content_kind: Option<FlowContentKind>,
+    child_flow_ids: Vec<FlowId>,
+    terminal: bool,
+    block_child_path: Vec<u32>,
+}
+
+impl ProductionFlowPosition {
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub const fn registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.registry
+    }
+
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+
+    pub const fn flow_owner_node_id(&self) -> NodeId {
+        self.flow_owner_node_id
+    }
+
+    pub const fn parent_flow_id(&self) -> Option<FlowId> {
+        self.parent_flow_id
+    }
+
+    pub const fn flow_local_ordinal(&self) -> u32 {
+        self.flow_local_ordinal
+    }
+
+    pub const fn content_owner_node_id(&self) -> Option<NodeId> {
+        self.content_owner_node_id
+    }
+
+    pub const fn owner_local_boundary(&self) -> u32 {
+        self.owner_local_boundary
+    }
+
+    pub const fn content_kind(&self) -> Option<FlowContentKind> {
+        self.content_kind
+    }
+
+    pub fn child_flow_id(&self) -> Option<FlowId> {
+        (self.child_flow_ids.len() == 1).then(|| self.child_flow_ids[0])
+    }
+
+    pub fn child_flow_ids(&self) -> &[FlowId] {
+        &self.child_flow_ids
+    }
+
+    pub const fn is_terminal(&self) -> bool {
+        self.terminal
+    }
+
+    pub fn block_child_path(&self) -> &[u32] {
+        &self.block_child_path
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProductionFlow {
+    descriptor: ValidatedFlow,
+    positions: Vec<ProductionFlowPosition>,
+}
+
+impl ProductionFlow {
+    pub const fn descriptor(&self) -> &ValidatedFlow {
+        &self.descriptor
+    }
+
+    pub fn positions(&self) -> &[ProductionFlowPosition] {
+        &self.positions
+    }
+
+    pub fn terminal_position(&self) -> &ProductionFlowPosition {
+        self.positions
+            .last()
+            .expect("a validated production flow always has a terminal")
+    }
+}
+
+/// Complete production IR. Body and subflow positions remain in separate
+/// vectors; no API exposes a body-flattened cursor sequence.
+#[derive(Debug)]
+pub struct ProductionFlowIr {
+    content_registry: ValidatedFlowContentRegistry,
+    registry: ValidatedFlowRegistry,
+    flows: Vec<ProductionFlow>,
+}
+
+impl ProductionFlowIr {
+    /// Deterministic staging convenience for documents whose paragraph and
+    /// heading content is empty. It is not a fallback for missing line-break
+    /// work: `ValidatedParagraphItemRegistry` rejects any text-producing site.
+    pub fn for_empty_paragraph_content(
+        package: &ValidatedParsedPackage,
+        epoch: LayoutEpoch,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<Self, FlowRegistryError> {
+        let paragraph_items = ValidatedParagraphItemRegistry::for_empty_content(package, epoch)
+            .map_err(|_| FlowRegistryError::MissingParagraphContent(NodeId::new(0)))?;
+        let mut builder = ProductionFlowIrBuilder::new(package, &paragraph_items, epoch, limits)?;
+        let owners: Vec<_> = builder.expected_content_owners().collect();
+        for owner in owners {
+            let content = builder.issue_content(owner)?;
+            builder.register_content(content)?;
+        }
+        builder.finish()
+    }
+
+    pub const fn content_registry(&self) -> &ValidatedFlowContentRegistry {
+        &self.content_registry
+    }
+
+    pub const fn registry(&self) -> &ValidatedFlowRegistry {
+        &self.registry
+    }
+
+    pub fn flows(&self) -> &[ProductionFlow] {
+        &self.flows
+    }
+
+    pub fn flow(&self, flow_id: FlowId) -> Option<&ProductionFlow> {
+        self.flows
+            .get(flow_id.get() as usize)
+            .filter(|flow| flow.descriptor.flow_id == flow_id)
+    }
+}
+
+/// Private MI3-02 entry point. It consumes a sealed table style and the
+/// canonical flow IR, then issues the complete column/grid/cell-frame receipt.
+/// Public profile selection remains intentionally unchanged until MI3-04.
+pub fn layout_table_grid(
+    package: &ValidatedStagingStylePackage,
+    table_owner: NodeId,
+    style: &MachineTableComputedStyleReceipt,
+    ir: &ProductionFlowIr,
+    frame_inline_size: PositiveLength,
+    limits: &ValidatedResourceLimits,
+) -> Result<ValidatedTableGridReceipt, TableGridLayoutError> {
+    let parsed = package.package();
+    let epoch = ir.registry().receipt().epoch();
+    if ir.registry().receipt().package_fingerprint() != parsed.epoch_identity().document()
+        || epoch.document() != parsed.epoch_identity().document()
+        || epoch.style() != parsed.epoch_identity().style()
+    {
+        return Err(TableGridLayoutError::PackageEpochMismatch);
+    }
+    if style.owner() != table_owner
+        || style.package_fingerprint() != package.package_fingerprint()
+        || style.document_fingerprint() != epoch.document()
+        || style.style_fingerprint() != epoch.style()
+        || style.registry_version() != TABLE_BLOCK_STYLE_REGISTRY_VERSION
+    {
+        return Err(TableGridLayoutError::WrongStyleReceipt);
+    }
+    let Block::Table {
+        columns,
+        head,
+        body,
+        ..
+    } = parsed
+        .package()
+        .document
+        .blocks
+        .iter()
+        .find(|block| matches!(block, Block::Table { node_id, .. } if *node_id == table_owner))
+        .ok_or(TableGridLayoutError::TableNotFound(table_owner))?
+    else {
+        return Err(TableGridLayoutError::TableNotFound(table_owner));
+    };
+
+    let shapes = prevalidate_table_profile(parsed, limits)?;
+    let shape = shapes
+        .table(table_owner)
+        .ok_or(TableGridLayoutError::TableNotFound(table_owner))?;
+    let computed = style.computed();
+    let after_start = frame_inline_size
+        .get()
+        .checked_sub(computed.start_indent().get())
+        .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+    let available_inline_size = after_start
+        .checked_sub(computed.end_indent().get())
+        .and_then(PositiveLength::new)
+        .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+    let (resolved_columns, rounding_residual, residual_recipient) =
+        resolve_table_columns(columns, available_inline_size)?;
+
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(shape.rows.len())
+        .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+    rows.extend(
+        shape
+            .rows
+            .iter()
+            .map(|row| ValidatedTableRowBinding::new(row.row_owner, row.section, row.row_ordinal)),
+    );
+
+    let ast_cells: Vec<&TableCell> = head.iter().chain(body).flat_map(|row| &row.cells).collect();
+    if ast_cells.len() != shape.cells.len() {
+        return Err(TableGridLayoutError::WrongOwner(table_owner));
+    }
+    let mut cells = Vec::new();
+    cells
+        .try_reserve_exact(shape.cells.len())
+        .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+    for (cell_shape, ast_cell) in shape.cells.iter().zip(&ast_cells) {
+        if cell_shape.cell_owner != ast_cell.node_id
+            || cell_shape.colspan != ast_cell.colspan
+            || cell_shape.rowspan != ast_cell.rowspan
+        {
+            return Err(TableGridLayoutError::WrongOwner(ast_cell.node_id));
+        }
+        let mut matching_flows = ir
+            .registry()
+            .flows()
+            .iter()
+            .filter(|flow| flow.owner_node_id() == cell_shape.cell_owner);
+        let flow = matching_flows
+            .next()
+            .ok_or(TableGridLayoutError::MissingCellFlow(cell_shape.cell_owner))?;
+        if matching_flows.next().is_some()
+            || flow.owner_kind() != FlowOwnerKind::TableCell
+            || flow.parent_flow_id() != Some(FlowId::DOCUMENT_BODY)
+        {
+            return Err(TableGridLayoutError::WrongCellFlow(cell_shape.cell_owner));
+        }
+        let (frame_inline_start, cell_inline_size) = table_cell_inline_frame(
+            &resolved_columns,
+            cell_shape.column_ordinal,
+            cell_shape.colspan,
+            cell_shape.cell_owner,
+        )?;
+        cells.push(ValidatedTableCellBinding::new(
+            cell_shape.cell_owner,
+            cell_shape.row_owner,
+            cell_shape.section,
+            cell_shape.row_ordinal,
+            cell_shape.column_ordinal,
+            cell_shape.colspan,
+            cell_shape.rowspan,
+            flow.flow_id(),
+            flow.terminal(),
+            frame_inline_start,
+            cell_inline_size,
+        ));
+    }
+
+    for row in shape.rows.iter() {
+        let expected_cell_flows: Vec<_> = cells
+            .iter()
+            .filter(|cell| cell.section() == row.section && cell.row_ordinal() == row.row_ordinal)
+            .map(ValidatedTableCellBinding::flow_id)
+            .collect();
+        let Some(content) = ir.content_registry().contents().iter().find(|content| {
+            content.content().owner() == row.row_owner
+                && content.content().kind() == FlowContentKind::TableRow
+        }) else {
+            return Err(TableGridLayoutError::FlowRegistryMismatch);
+        };
+        if content.flow_id() != FlowId::DOCUMENT_BODY
+            || content.child_flow_ids() != expected_cell_flows
+        {
+            return Err(TableGridLayoutError::FlowRegistryMismatch);
+        }
+    }
+
+    ValidatedTableGridReceipt::new(TableGridReceiptInput {
+        package_sha256: package.package_fingerprint().into_bytes(),
+        epoch,
+        flow_registry: ir.registry().receipt().fingerprint(),
+        table_owner,
+        containing_flow_id: FlowId::DOCUMENT_BODY,
+        frame_inline_size,
+        available_inline_size,
+        start_indent: computed.start_indent(),
+        end_indent: computed.end_indent(),
+        space_before: computed.space_before(),
+        space_after: computed.space_after(),
+        keep_with_next: computed.keep_with_next(),
+        columns: resolved_columns,
+        rounding_residual,
+        residual_recipient,
+        rows,
+        cells,
+    })
+    .map_err(TableGridLayoutError::Receipt)
+}
+
+pub const TABLE_ROW_BAND_LAYOUT_ALGORITHM: &str = "typaxis.table-row-band-receipt/1";
+
+/// Measured indivisible block fragments for one canonical cell flow. The
+/// fragment sizes are ordered in cell-flow order; an empty vector is the
+/// already-terminal transparent cell required by the table profile.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TableCellLayoutInput {
+    cell_owner: NodeId,
+    flow_id: FlowId,
+    fragment_block_sizes: Vec<PositiveLength>,
+}
+
+impl TableCellLayoutInput {
+    pub fn new(
+        cell_owner: NodeId,
+        flow_id: FlowId,
+        fragment_block_sizes: Vec<PositiveLength>,
+    ) -> Self {
+        Self {
+            cell_owner,
+            flow_id,
+            fragment_block_sizes,
+        }
+    }
+
+    pub const fn empty(cell_owner: NodeId, flow_id: FlowId) -> Self {
+        Self {
+            cell_owner,
+            flow_id,
+            fragment_block_sizes: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TableRowBandLayoutError {
+    MissingCellMeasurement(NodeId),
+    ExtraCellMeasurement(NodeId),
+    WrongCellFlow(NodeId),
+    MissingRow(NodeId),
+    FragmentLimit,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+/// Sealed cell-flow measurement. Endpoints are cumulative legal break
+/// boundaries, so pagination never has to reinterpret paragraph fragments.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TableCellLayoutReceipt {
+    cell_owner: NodeId,
+    row_owner: NodeId,
+    section: TableSection,
+    row_ordinal: u32,
+    column_ordinal: u32,
+    colspan: NonZeroU16,
+    rowspan: NonZeroU16,
+    flow_id: FlowId,
+    frame_inline_start: NonNegativeLength,
+    frame_inline_size: PositiveLength,
+    fragment_block_sizes: Vec<PositiveLength>,
+    fragment_endpoints: Vec<PositiveLength>,
+    natural_block_size: NonNegativeLength,
+}
+
+impl TableCellLayoutReceipt {
+    pub const fn cell_owner(&self) -> NodeId {
+        self.cell_owner
+    }
+    pub const fn row_owner(&self) -> NodeId {
+        self.row_owner
+    }
+    pub const fn section(&self) -> TableSection {
+        self.section
+    }
+    pub const fn row_ordinal(&self) -> u32 {
+        self.row_ordinal
+    }
+    pub const fn column_ordinal(&self) -> u32 {
+        self.column_ordinal
+    }
+    pub const fn colspan(&self) -> NonZeroU16 {
+        self.colspan
+    }
+    pub const fn rowspan(&self) -> NonZeroU16 {
+        self.rowspan
+    }
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+    pub const fn frame_inline_start(&self) -> NonNegativeLength {
+        self.frame_inline_start
+    }
+    pub const fn frame_inline_size(&self) -> PositiveLength {
+        self.frame_inline_size
+    }
+    pub fn fragment_block_sizes(&self) -> &[PositiveLength] {
+        &self.fragment_block_sizes
+    }
+    pub fn fragment_endpoints(&self) -> &[PositiveLength] {
+        &self.fragment_endpoints
+    }
+    pub const fn natural_block_size(&self) -> NonNegativeLength {
+        self.natural_block_size
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TableRowBandReceipt {
+    row_owner: NodeId,
+    section: TableSection,
+    row_ordinal: u32,
+    block_size: NonNegativeLength,
+}
+
+impl TableRowBandReceipt {
+    pub const fn row_owner(self) -> NodeId {
+        self.row_owner
+    }
+    pub const fn section(self) -> TableSection {
+        self.section
+    }
+    pub const fn row_ordinal(self) -> u32 {
+        self.row_ordinal
+    }
+    pub const fn block_size(self) -> NonNegativeLength {
+        self.block_size
+    }
+}
+
+/// Package/epoch/grid-bound table measurement. Rowspan deficits are assigned
+/// wholly to the last covered logical row, yielding one deterministic band
+/// vector without retaining a recursive grid snapshot.
+#[derive(Debug)]
+pub struct TableRowBandLayoutReceipt {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    grid: TableGridFingerprint,
+    table_owner: NodeId,
+    cells: Vec<TableCellLayoutReceipt>,
+    rows: Vec<TableRowBandReceipt>,
+    contained_fragment_count: u64,
+    fingerprint: [u8; 32],
+}
+
+impl TableRowBandLayoutReceipt {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+    pub const fn grid_fingerprint(&self) -> TableGridFingerprint {
+        self.grid
+    }
+    pub const fn table_owner(&self) -> NodeId {
+        self.table_owner
+    }
+    pub fn cells(&self) -> &[TableCellLayoutReceipt] {
+        &self.cells
+    }
+    pub fn rows(&self) -> &[TableRowBandReceipt] {
+        &self.rows
+    }
+    pub const fn contained_fragment_count(&self) -> u64 {
+        self.contained_fragment_count
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+    pub fn cell(&self, owner: NodeId) -> Option<&TableCellLayoutReceipt> {
+        self.cells.iter().find(|cell| cell.cell_owner == owner)
+    }
+    pub fn row(&self, section: TableSection, ordinal: u32) -> Option<TableRowBandReceipt> {
+        self.rows
+            .iter()
+            .copied()
+            .find(|row| row.section == section && row.row_ordinal == ordinal)
+    }
+}
+
+/// Private MI3-03 cell-layout and row-band issuer. Inputs must correspond
+/// one-for-one with the already validated grid cells in canonical order.
+pub fn layout_table_row_bands(
+    grid: &ValidatedTableGridReceipt,
+    inputs: Vec<TableCellLayoutInput>,
+    limits: &ValidatedResourceLimits,
+) -> Result<TableRowBandLayoutReceipt, TableRowBandLayoutError> {
+    let contained_fragment_count = inputs.iter().try_fold(0u64, |total, input| {
+        total
+            .checked_add(
+                u64::try_from(input.fragment_block_sizes.len())
+                    .map_err(|_| TableRowBandLayoutError::ArithmeticOverflow)?,
+            )
+            .ok_or(TableRowBandLayoutError::ArithmeticOverflow)
+    })?;
+    if contained_fragment_count > limits.get().max_fragments {
+        return Err(TableRowBandLayoutError::FragmentLimit);
+    }
+    if inputs.len() < grid.cells().len() {
+        let owner = grid.cells()[inputs.len()].cell_owner();
+        return Err(TableRowBandLayoutError::MissingCellMeasurement(owner));
+    }
+    if inputs.len() > grid.cells().len() {
+        return Err(TableRowBandLayoutError::ExtraCellMeasurement(
+            inputs[grid.cells().len()].cell_owner,
+        ));
+    }
+
+    let mut cells = Vec::new();
+    cells
+        .try_reserve_exact(inputs.len())
+        .map_err(|_| TableRowBandLayoutError::AllocationFailure)?;
+    for (binding, input) in grid.cells().iter().zip(inputs) {
+        if input.cell_owner != binding.cell_owner() {
+            return Err(TableRowBandLayoutError::MissingCellMeasurement(
+                binding.cell_owner(),
+            ));
+        }
+        if input.flow_id != binding.flow_id() {
+            return Err(TableRowBandLayoutError::WrongCellFlow(binding.cell_owner()));
+        }
+        let mut endpoints = Vec::new();
+        endpoints
+            .try_reserve_exact(input.fragment_block_sizes.len())
+            .map_err(|_| TableRowBandLayoutError::AllocationFailure)?;
+        let mut total = Length::ZERO;
+        for size in &input.fragment_block_sizes {
+            total = total
+                .checked_add(size.get())
+                .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+            endpoints.push(
+                PositiveLength::new(total).ok_or(TableRowBandLayoutError::ArithmeticOverflow)?,
+            );
+        }
+        cells.push(TableCellLayoutReceipt {
+            cell_owner: binding.cell_owner(),
+            row_owner: binding.row_owner(),
+            section: binding.section(),
+            row_ordinal: binding.row_ordinal(),
+            column_ordinal: binding.column_ordinal(),
+            colspan: binding.colspan(),
+            rowspan: binding.rowspan(),
+            flow_id: binding.flow_id(),
+            frame_inline_start: binding.frame_inline_start(),
+            frame_inline_size: binding.frame_inline_size(),
+            fragment_block_sizes: input.fragment_block_sizes,
+            fragment_endpoints: endpoints,
+            natural_block_size: NonNegativeLength::new(total)
+                .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?,
+        });
+    }
+
+    let mut row_sizes = Vec::new();
+    row_sizes
+        .try_reserve_exact(grid.rows().len())
+        .map_err(|_| TableRowBandLayoutError::AllocationFailure)?;
+    row_sizes.resize(grid.rows().len(), 0i128);
+    for cell in &cells {
+        let start = grid
+            .rows()
+            .iter()
+            .position(|row| row.section() == cell.section && row.row_ordinal() == cell.row_ordinal)
+            .ok_or(TableRowBandLayoutError::MissingRow(cell.row_owner))?;
+        let end = start
+            .checked_add(usize::from(cell.rowspan.get()))
+            .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+        let covered = row_sizes
+            .get(start..end)
+            .ok_or(TableRowBandLayoutError::MissingRow(cell.row_owner))?
+            .iter()
+            .try_fold(0i128, |total, value| total.checked_add(*value))
+            .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+        let natural = i128::from(cell.natural_block_size.get().raw());
+        if natural > covered {
+            let deficit = natural
+                .checked_sub(covered)
+                .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+            row_sizes[end - 1] = row_sizes[end - 1]
+                .checked_add(deficit)
+                .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+        }
+    }
+
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(grid.rows().len())
+        .map_err(|_| TableRowBandLayoutError::AllocationFailure)?;
+    for (binding, raw) in grid.rows().iter().zip(row_sizes) {
+        let raw = i64::try_from(raw).map_err(|_| TableRowBandLayoutError::ArithmeticOverflow)?;
+        let block_size = Length::from_raw(raw)
+            .and_then(NonNegativeLength::new)
+            .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+        rows.push(TableRowBandReceipt {
+            row_owner: binding.row_owner(),
+            section: binding.section(),
+            row_ordinal: binding.row_ordinal(),
+            block_size,
+        });
+    }
+    for cell in &cells {
+        let mut spanning_block_size = Length::ZERO;
+        let end = cell
+            .row_ordinal
+            .checked_add(u32::from(cell.rowspan.get()))
+            .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+        for ordinal in cell.row_ordinal..end {
+            spanning_block_size = spanning_block_size
+                .checked_add(
+                    rows.iter()
+                        .find(|row| row.section == cell.section && row.row_ordinal == ordinal)
+                        .ok_or(TableRowBandLayoutError::MissingRow(cell.row_owner))?
+                        .block_size
+                        .get(),
+                )
+                .ok_or(TableRowBandLayoutError::ArithmeticOverflow)?;
+        }
+        if spanning_block_size.raw() < cell.natural_block_size.get().raw() {
+            return Err(TableRowBandLayoutError::ArithmeticOverflow);
+        }
+    }
+    let canonical_jcs = encode_table_row_band_layout(grid, &cells, &rows, contained_fragment_count);
+    Ok(TableRowBandLayoutReceipt {
+        package_sha256: grid.package_sha256(),
+        epoch: grid.epoch(),
+        flow_registry: grid.flow_registry(),
+        grid: grid.fingerprint(),
+        table_owner: grid.table_owner(),
+        cells,
+        rows,
+        contained_fragment_count,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+    })
+}
+
+fn encode_table_row_band_layout(
+    grid: &ValidatedTableGridReceipt,
+    cells: &[TableCellLayoutReceipt],
+    rows: &[TableRowBandReceipt],
+    contained_fragment_count: u64,
+) -> String {
+    let mut output = String::from("{\"algorithm\":\"");
+    output.push_str(TABLE_ROW_BAND_LAYOUT_ALGORITHM);
+    output.push_str("\",\"cells\":[");
+    for (index, cell) in cells.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"cell_node_id\":");
+        output.push_str(&cell.cell_owner.get().to_string());
+        output.push_str(",\"flow_id\":");
+        output.push_str(&cell.flow_id.get().to_string());
+        output.push_str(",\"fragment_block_sizes\":[");
+        for (fragment_index, size) in cell.fragment_block_sizes.iter().enumerate() {
+            if fragment_index != 0 {
+                output.push(',');
+            }
+            output.push_str(&size.get().raw().to_string());
+        }
+        output.push_str("],\"natural_block_size\":");
+        output.push_str(&cell.natural_block_size.get().raw().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"contained_fragment_count\":");
+    output.push_str(&contained_fragment_count.to_string());
+    output.push_str(",\"grid_sha256\":");
+    push_hash_hex_jcs(&mut output, grid.fingerprint().bytes());
+    output.push_str(",\"rows\":[");
+    for (index, row) in rows.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"block_size\":");
+        output.push_str(&row.block_size.get().raw().to_string());
+        output.push_str(",\"row_node_id\":");
+        output.push_str(&row.row_owner.get().to_string());
+        output.push_str(",\"row_ordinal\":");
+        output.push_str(&row.row_ordinal.to_string());
+        output.push_str(",\"section\":\"");
+        output.push_str(row.section.as_str());
+        output.push_str("\"}");
+    }
+    output.push_str("],\"table_node_id\":");
+    output.push_str(&grid.table_owner().get().to_string());
+    output.push('}');
+    output
+}
+
+fn resolve_table_columns(
+    columns: &[TableColumn],
+    available_inline_size: PositiveLength,
+) -> Result<(Vec<ResolvedTableColumn>, Length, Option<u32>), TableGridLayoutError> {
+    if columns.is_empty() {
+        return Err(TableGridLayoutError::ColumnArithmetic);
+    }
+    let available = i128::from(available_inline_size.get().raw());
+    let mut fixed_sum = 0i128;
+    let mut weight_sum = 0i128;
+    let mut last_fraction = None;
+    for (index, column) in columns.iter().enumerate() {
+        match &column.sizing {
+            ColumnSizing::Fixed(width) => {
+                fixed_sum = fixed_sum
+                    .checked_add(i128::from(width.get().raw()))
+                    .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+            }
+            ColumnSizing::Fraction(weight) => {
+                weight_sum = weight_sum
+                    .checked_add(i128::from(weight.get()))
+                    .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+                last_fraction =
+                    Some(u32::try_from(index).map_err(|_| TableGridLayoutError::ColumnArithmetic)?);
+            }
+        }
+    }
+    let remaining = available
+        .checked_sub(fixed_sum)
+        .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+    if remaining < 0 || (weight_sum == 0 && remaining != 0) || (weight_sum != 0 && remaining <= 0) {
+        return Err(TableGridLayoutError::ColumnArithmetic);
+    }
+
+    let mut rounded = Vec::new();
+    rounded
+        .try_reserve_exact(columns.len())
+        .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+    let mut rounded_sum = 0i128;
+    for column in columns {
+        let value = match &column.sizing {
+            ColumnSizing::Fixed(_) => None,
+            ColumnSizing::Fraction(weight) => {
+                let numerator = remaining
+                    .checked_mul(i128::from(weight.get()))
+                    .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+                let share = round_table_ratio_ties_even(numerator, weight_sum)?;
+                rounded_sum = rounded_sum
+                    .checked_add(share)
+                    .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+                Some(share)
+            }
+        };
+        rounded.push(value);
+    }
+    let residual = if weight_sum == 0 {
+        0
+    } else {
+        remaining
+            .checked_sub(rounded_sum)
+            .ok_or(TableGridLayoutError::ColumnArithmetic)?
+    };
+    let rounding_residual = table_length_from_i128(residual)?;
+
+    let mut resolved = Vec::new();
+    resolved
+        .try_reserve_exact(columns.len())
+        .map_err(|_| TableGridLayoutError::AllocationFailure)?;
+    let mut final_sum = 0i128;
+    for (index, (column, rounded)) in columns.iter().zip(rounded).enumerate() {
+        let index = u32::try_from(index).map_err(|_| TableGridLayoutError::ColumnArithmetic)?;
+        let resolved_column = match (&column.sizing, rounded) {
+            (ColumnSizing::Fixed(width), None) => {
+                final_sum = final_sum
+                    .checked_add(i128::from(width.get().raw()))
+                    .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+                ResolvedTableColumn::fixed(index, *width)
+            }
+            (ColumnSizing::Fraction(weight), Some(rounded)) => {
+                let final_raw = if last_fraction == Some(index) {
+                    rounded
+                        .checked_add(residual)
+                        .ok_or(TableGridLayoutError::ColumnArithmetic)?
+                } else {
+                    rounded
+                };
+                let rounded = table_nonnegative_from_i128(rounded)?;
+                let final_width = table_positive_from_i128(final_raw)?;
+                final_sum = final_sum
+                    .checked_add(final_raw)
+                    .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+                ResolvedTableColumn::fraction(index, *weight, rounded, final_width)
+            }
+            _ => return Err(TableGridLayoutError::ColumnArithmetic),
+        };
+        resolved.push(resolved_column);
+    }
+    if final_sum != available {
+        return Err(TableGridLayoutError::ColumnArithmetic);
+    }
+    Ok((resolved, rounding_residual, last_fraction))
+}
+
+fn table_cell_inline_frame(
+    columns: &[ResolvedTableColumn],
+    column_ordinal: u32,
+    colspan: NonZeroU16,
+    owner: NodeId,
+) -> Result<(NonNegativeLength, PositiveLength), TableGridLayoutError> {
+    let start =
+        usize::try_from(column_ordinal).map_err(|_| TableGridLayoutError::GridOutOfRange(owner))?;
+    let end = start
+        .checked_add(usize::from(colspan.get()))
+        .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+    if end > columns.len() {
+        return Err(TableGridLayoutError::GridOutOfRange(owner));
+    }
+    let inline_start = columns[..start].iter().try_fold(0i128, |sum, column| {
+        sum.checked_add(i128::from(column.final_width().get().raw()))
+            .ok_or(TableGridLayoutError::ColumnArithmetic)
+    })?;
+    let inline_size = columns[start..end].iter().try_fold(0i128, |sum, column| {
+        sum.checked_add(i128::from(column.final_width().get().raw()))
+            .ok_or(TableGridLayoutError::ColumnArithmetic)
+    })?;
+    Ok((
+        table_nonnegative_from_i128(inline_start)?,
+        table_positive_from_i128(inline_size)?,
+    ))
+}
+
+fn round_table_ratio_ties_even(
+    numerator: i128,
+    denominator: i128,
+) -> Result<i128, TableGridLayoutError> {
+    if numerator < 0 || denominator <= 0 {
+        return Err(TableGridLayoutError::ColumnArithmetic);
+    }
+    let quotient = numerator / denominator;
+    let remainder = numerator % denominator;
+    let doubled = remainder
+        .checked_mul(2)
+        .ok_or(TableGridLayoutError::ColumnArithmetic)?;
+    if doubled < denominator || (doubled == denominator && quotient % 2 == 0) {
+        Ok(quotient)
+    } else {
+        quotient
+            .checked_add(1)
+            .ok_or(TableGridLayoutError::ColumnArithmetic)
+    }
+}
+
+fn table_length_from_i128(raw: i128) -> Result<Length, TableGridLayoutError> {
+    i64::try_from(raw)
+        .ok()
+        .and_then(Length::from_raw)
+        .ok_or(TableGridLayoutError::ColumnArithmetic)
+}
+
+fn table_nonnegative_from_i128(raw: i128) -> Result<NonNegativeLength, TableGridLayoutError> {
+    NonNegativeLength::new(table_length_from_i128(raw)?)
+        .ok_or(TableGridLayoutError::ColumnArithmetic)
+}
+
+fn table_positive_from_i128(raw: i128) -> Result<PositiveLength, TableGridLayoutError> {
+    PositiveLength::new(table_length_from_i128(raw)?).ok_or(TableGridLayoutError::ColumnArithmetic)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingFigureKeepPolicy {
+    KeepImageAndCaption,
+    AllowCaptionSplit,
+}
+
+impl StagingFigureKeepPolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::KeepImageAndCaption => "keep_image_and_caption",
+            Self::AllowCaptionSplit => "allow_caption_split",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingFigureOversizePolicy {
+    TerminalOnce,
+}
+
+impl StagingFigureOversizePolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TerminalOnce => "terminal_once",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingFigureLayoutError {
+    PreflightMismatch,
+    PackageMismatch,
+    EpochMismatch,
+    ResourceLedgerMismatch,
+    UnsupportedPageMasterPolicy,
+    UnsupportedFitPolicy(NodeId),
+    MissingFigure(NodeId),
+    ExtraFigure(NodeId),
+    DuplicateFigure(NodeId),
+    WrongFigureBoundary(NodeId),
+    CaptionFlowMismatch(NodeId),
+    MissingAdmittedImage(ImageResourceId),
+    ExtraAdmittedImage(ImageResourceId),
+    WrongMediaKind(ImageResourceId),
+    FigureWidthRequired(NodeId),
+    FigureExceedsInlineSize(NodeId),
+    InvalidDimensions(ImageResourceId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+/// One PNG figure bound to its admitted bytes, caption subflow, computed
+/// horizontal geometry, and the closed keep/oversize policies. Vertical page
+/// coordinates are selected by pagination from this receipt only.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedFigureLayoutItem {
+    figure_owner: NodeId,
+    document_ordinal: u32,
+    figure_flow_id: FlowId,
+    caption_flow_id: FlowId,
+    caption_owners: Vec<NodeId>,
+    image_id: ImageResourceId,
+    alt: String,
+    admitted_media_kind: AdmittedImageMediaKind,
+    admitted_sha256: [u8; 32],
+    admitted_byte_length: u64,
+    pixel_width: NonZeroU32,
+    pixel_height: NonZeroU32,
+    decoded_bytes: u64,
+    inline_size: PositiveLength,
+    block_size: PositiveLength,
+    physical_left: Length,
+    space_before: NonNegativeLength,
+    space_after: NonNegativeLength,
+    keep_policy: StagingFigureKeepPolicy,
+    oversize_policy: StagingFigureOversizePolicy,
+}
+
+impl ValidatedFigureLayoutItem {
+    pub const fn figure_owner(&self) -> NodeId {
+        self.figure_owner
+    }
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+    pub const fn figure_flow_id(&self) -> FlowId {
+        self.figure_flow_id
+    }
+    pub const fn caption_flow_id(&self) -> FlowId {
+        self.caption_flow_id
+    }
+    pub fn caption_owners(&self) -> &[NodeId] {
+        &self.caption_owners
+    }
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+    pub fn alt(&self) -> &str {
+        &self.alt
+    }
+    pub const fn admitted_media_kind(&self) -> AdmittedImageMediaKind {
+        self.admitted_media_kind
+    }
+    pub const fn admitted_sha256(&self) -> [u8; 32] {
+        self.admitted_sha256
+    }
+    pub const fn admitted_byte_length(&self) -> u64 {
+        self.admitted_byte_length
+    }
+    pub const fn pixel_width(&self) -> NonZeroU32 {
+        self.pixel_width
+    }
+    pub const fn pixel_height(&self) -> NonZeroU32 {
+        self.pixel_height
+    }
+    pub const fn decoded_bytes(&self) -> u64 {
+        self.decoded_bytes
+    }
+    pub const fn inline_size(&self) -> PositiveLength {
+        self.inline_size
+    }
+    pub const fn block_size(&self) -> PositiveLength {
+        self.block_size
+    }
+    pub const fn physical_left(&self) -> Length {
+        self.physical_left
+    }
+    pub const fn space_before(&self) -> NonNegativeLength {
+        self.space_before
+    }
+    pub const fn space_after(&self) -> NonNegativeLength {
+        self.space_after
+    }
+    pub const fn keep_policy(&self) -> StagingFigureKeepPolicy {
+        self.keep_policy
+    }
+    pub const fn oversize_policy(&self) -> StagingFigureOversizePolicy {
+        self.oversize_policy
+    }
+}
+
+/// Complete MI2-06 Figure layout proof. The page/master and resource facts are
+/// exact and package/epoch-bound; no downstream stage reads raw declarations.
+#[derive(Debug)]
+pub struct ValidatedFigureLayout {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    figure_usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    master_id: MasterId,
+    page_width: PositiveLength,
+    page_height: PositiveLength,
+    body: Rect,
+    figures: Vec<ValidatedFigureLayoutItem>,
+}
+
+impl ValidatedFigureLayout {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+    pub const fn figure_usage_sha256(&self) -> [u8; 32] {
+        self.figure_usage_sha256
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub const fn master_id(&self) -> &MasterId {
+        &self.master_id
+    }
+    pub const fn page_width(&self) -> PositiveLength {
+        self.page_width
+    }
+    pub const fn page_height(&self) -> PositiveLength {
+        self.page_height
+    }
+    pub const fn body(&self) -> Rect {
+        self.body
+    }
+    pub fn figures(&self) -> &[ValidatedFigureLayoutItem] {
+        &self.figures
+    }
+}
+
+pub fn layout_staging_machine_figures(
+    package: &ValidatedStagingStylePackage,
+    preflight: &ValidatedStagingFigureUsageReceipt,
+    admitted: &AdmittedResourceLedger,
+    ir: &ProductionFlowIr,
+) -> Result<ValidatedFigureLayout, StagingFigureLayoutError> {
+    if !preflight.verifies(package)
+        || preflight.policy_version() != STAGING_BASIC_FIGURE_POLICY_VERSION
+    {
+        return Err(StagingFigureLayoutError::PreflightMismatch);
+    }
+    let epoch = ir.registry().receipt().epoch();
+    if ir.content_registry().package_fingerprint() != package.package().epoch_identity().document()
+        || epoch.document() != package.package().epoch_identity().document()
+        || epoch.style() != package.package().epoch_identity().style()
+    {
+        return Err(StagingFigureLayoutError::PackageMismatch);
+    }
+    if epoch.admitted_resources() != admitted.fingerprint() {
+        return Err(StagingFigureLayoutError::EpochMismatch);
+    }
+    let declarations = &package.package().package().resources;
+    if !admitted.matches_declarations(declarations) {
+        return Err(StagingFigureLayoutError::ResourceLedgerMismatch);
+    }
+
+    let masters = &package.package().package().page_masters;
+    if masters.masters.len() != 1
+        || !masters.selection_rules.is_empty()
+        || masters.masters[0].master_id != masters.default_master_id
+        || masters.masters[0].header.is_some()
+        || masters.masters[0].footer.is_some()
+        || masters.masters[0].footnote.is_some()
+    {
+        return Err(StagingFigureLayoutError::UnsupportedPageMasterPolicy);
+    }
+    let master = &masters.masters[0];
+
+    let expected_images: std::collections::BTreeSet<_> = preflight
+        .figures()
+        .iter()
+        .map(|figure| figure.image_id())
+        .collect();
+    for image_id in &expected_images {
+        if admitted.image(*image_id).is_none() {
+            return Err(StagingFigureLayoutError::MissingAdmittedImage(*image_id));
+        }
+    }
+    if let Some(image) = admitted
+        .images()
+        .iter()
+        .find(|image| !expected_images.contains(&image.image_id()))
+    {
+        return Err(StagingFigureLayoutError::ExtraAdmittedImage(
+            image.image_id(),
+        ));
+    }
+
+    let mut positions = std::collections::BTreeMap::new();
+    for position in ir
+        .flows()
+        .iter()
+        .flat_map(|flow| flow.positions())
+        .filter(|position| position.content_kind() == Some(FlowContentKind::FigureCaption))
+    {
+        let owner = position
+            .content_owner_node_id()
+            .ok_or(StagingFigureLayoutError::PackageMismatch)?;
+        if positions.insert(owner, position).is_some() {
+            return Err(StagingFigureLayoutError::DuplicateFigure(owner));
+        }
+    }
+
+    let mut figures = Vec::new();
+    figures
+        .try_reserve_exact(preflight.figures().len())
+        .map_err(|_| StagingFigureLayoutError::AllocationFailure)?;
+    for expected in preflight.figures() {
+        let position = positions
+            .remove(&expected.owner())
+            .ok_or(StagingFigureLayoutError::MissingFigure(expected.owner()))?;
+        if position.epoch() != epoch || position.flow_id() != FlowId::DOCUMENT_BODY {
+            return Err(StagingFigureLayoutError::WrongFigureBoundary(
+                expected.owner(),
+            ));
+        }
+        let caption_flow_id =
+            position
+                .child_flow_id()
+                .ok_or(StagingFigureLayoutError::CaptionFlowMismatch(
+                    expected.owner(),
+                ))?;
+        let caption_flow =
+            ir.flow(caption_flow_id)
+                .ok_or(StagingFigureLayoutError::CaptionFlowMismatch(
+                    expected.owner(),
+                ))?;
+        let observed_caption_owners: Vec<_> = caption_flow
+            .positions()
+            .iter()
+            .filter_map(ProductionFlowPosition::content_owner_node_id)
+            .collect();
+        if observed_caption_owners != expected.caption_owners() {
+            return Err(StagingFigureLayoutError::CaptionFlowMismatch(
+                expected.owner(),
+            ));
+        }
+
+        let style = package
+            .compute_block_style(expected.owner(), None)
+            .map_err(|_| StagingFigureLayoutError::PackageMismatch)?
+            .computed();
+        if style.keep_with_next() {
+            return Err(StagingFigureLayoutError::UnsupportedFitPolicy(
+                expected.owner(),
+            ));
+        }
+        let inline_size = match style.width() {
+            MachineFigureWidth::Length(width) => width,
+            MachineFigureWidth::Auto => {
+                return Err(StagingFigureLayoutError::FigureWidthRequired(
+                    expected.owner(),
+                ))
+            }
+        };
+        let available = master
+            .body
+            .width()
+            .get()
+            .checked_sub(style.start_indent().get())
+            .and_then(|value| value.checked_sub(style.end_indent().get()))
+            .ok_or(StagingFigureLayoutError::ArithmeticOverflow)?;
+        if inline_size.get().raw() > available.raw() {
+            return Err(StagingFigureLayoutError::FigureExceedsInlineSize(
+                expected.owner(),
+            ));
+        }
+        let physical_left = master
+            .body
+            .x()
+            .checked_add(style.start_indent().get())
+            .ok_or(StagingFigureLayoutError::ArithmeticOverflow)?;
+        let image = admitted.image(expected.image_id()).ok_or(
+            StagingFigureLayoutError::MissingAdmittedImage(expected.image_id()),
+        )?;
+        if image.media_kind() != AdmittedImageMediaKind::Png {
+            return Err(StagingFigureLayoutError::WrongMediaKind(
+                expected.image_id(),
+            ));
+        }
+        let block_size = scale_figure_height(inline_size, image.width(), image.height()).ok_or(
+            StagingFigureLayoutError::InvalidDimensions(expected.image_id()),
+        )?;
+        figures.push(ValidatedFigureLayoutItem {
+            figure_owner: expected.owner(),
+            document_ordinal: expected.document_ordinal(),
+            figure_flow_id: position.flow_id(),
+            caption_flow_id,
+            caption_owners: observed_caption_owners,
+            image_id: expected.image_id(),
+            alt: expected.alt().to_owned(),
+            admitted_media_kind: image.media_kind(),
+            admitted_sha256: image.content_hash(),
+            admitted_byte_length: image.byte_length(),
+            pixel_width: image.width(),
+            pixel_height: image.height(),
+            decoded_bytes: image.decoded_bytes(),
+            inline_size,
+            block_size,
+            physical_left,
+            space_before: style.space_before(),
+            space_after: style.space_after(),
+            keep_policy: if style.keep_caption() {
+                StagingFigureKeepPolicy::KeepImageAndCaption
+            } else {
+                StagingFigureKeepPolicy::AllowCaptionSplit
+            },
+            oversize_policy: StagingFigureOversizePolicy::TerminalOnce,
+        });
+    }
+    if let Some((owner, _)) = positions.first_key_value() {
+        return Err(StagingFigureLayoutError::ExtraFigure(*owner));
+    }
+    Ok(ValidatedFigureLayout {
+        package_sha256: package.package_fingerprint().into_bytes(),
+        epoch,
+        flow_registry: ir.registry().receipt().fingerprint(),
+        figure_usage_sha256: preflight.usage_sha256(),
+        policy_version: preflight.policy_version(),
+        master_id: master.master_id.clone(),
+        page_width: master.width,
+        page_height: master.height,
+        body: master.body,
+        figures,
+    })
+}
+
+fn scale_figure_height(
+    inline_size: PositiveLength,
+    pixel_width: NonZeroU32,
+    pixel_height: NonZeroU32,
+) -> Option<PositiveLength> {
+    let numerator =
+        i128::from(inline_size.get().raw()).checked_mul(i128::from(pixel_height.get()))?;
+    let denominator = i128::from(pixel_width.get());
+    let quotient = numerator / denominator;
+    let remainder = numerator % denominator;
+    let doubled = remainder.checked_mul(2)?;
+    let rounded = if doubled < denominator {
+        quotient
+    } else if doubled > denominator || quotient % 2 != 0 {
+        quotient.checked_add(1)?
+    } else {
+        quotient
+    };
+    let raw = i64::try_from(rounded).ok()?;
+    Length::from_raw(raw).and_then(PositiveLength::new)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingForcedPageBreakLayoutError {
+    PreflightMismatch,
+    PackageMismatch,
+    MissingBoundary(NodeId),
+    ExtraBoundary(NodeId),
+    DuplicateBoundary(NodeId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+/// Layout's typed forced boundary. Unlike a fragment or a measured block it
+/// has no geometry; its sole position is the exact pre-consume flow cursor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakBoundary {
+    owner: NodeId,
+    document_ordinal: u32,
+    flow_id: FlowId,
+    flow_local_ordinal: u32,
+    epoch: LayoutEpoch,
+}
+
+impl StagingForcedPageBreakBoundary {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+
+    pub const fn flow_local_ordinal(&self) -> u32 {
+        self.flow_local_ordinal
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+}
+
+/// Exact layout projection of syntax's forced-break usage proof into MI2-02's
+/// sealed flow registry.
+#[derive(Debug)]
+pub struct StagingForcedPageBreakLayoutReceipt {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    boundaries: Vec<StagingForcedPageBreakBoundary>,
+}
+
+impl StagingForcedPageBreakLayoutReceipt {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+
+    pub fn boundaries(&self) -> &[StagingForcedPageBreakBoundary] {
+        &self.boundaries
+    }
+}
+
+pub fn layout_staging_forced_page_breaks(
+    package: &ValidatedStagingStylePackage,
+    preflight: &ValidatedStagingForcedPageBreakUsageReceipt,
+    ir: &ProductionFlowIr,
+) -> Result<StagingForcedPageBreakLayoutReceipt, StagingForcedPageBreakLayoutError> {
+    if !preflight.verifies(package)
+        || preflight.policy_version() != STAGING_FORCED_PAGE_BREAK_POLICY_VERSION
+    {
+        return Err(StagingForcedPageBreakLayoutError::PreflightMismatch);
+    }
+    if ir.content_registry().package_fingerprint() != package.package().epoch_identity().document()
+    {
+        return Err(StagingForcedPageBreakLayoutError::PackageMismatch);
+    }
+
+    let mut positions = std::collections::BTreeMap::new();
+    for position in ir
+        .flows()
+        .iter()
+        .flat_map(|flow| flow.positions().iter())
+        .filter(|position| position.content_kind() == Some(FlowContentKind::PageBreak))
+    {
+        let owner = position
+            .content_owner_node_id()
+            .ok_or(StagingForcedPageBreakLayoutError::PackageMismatch)?;
+        if positions.insert(owner, position).is_some() {
+            return Err(StagingForcedPageBreakLayoutError::DuplicateBoundary(owner));
+        }
+    }
+
+    let mut boundaries = Vec::new();
+    boundaries
+        .try_reserve_exact(preflight.breaks().len())
+        .map_err(|_| StagingForcedPageBreakLayoutError::AllocationFailure)?;
+    for expected in preflight.breaks() {
+        let position = positions.remove(&expected.owner()).ok_or(
+            StagingForcedPageBreakLayoutError::MissingBoundary(expected.owner()),
+        )?;
+        boundaries.push(StagingForcedPageBreakBoundary {
+            owner: expected.owner(),
+            document_ordinal: expected.document_ordinal(),
+            flow_id: position.flow_id(),
+            flow_local_ordinal: position.flow_local_ordinal(),
+            epoch: position.epoch(),
+        });
+    }
+    if let Some((owner, _)) = positions.first_key_value() {
+        return Err(StagingForcedPageBreakLayoutError::ExtraBoundary(*owner));
+    }
+    if boundaries
+        .iter()
+        .enumerate()
+        .any(|(index, boundary)| usize::try_from(boundary.document_ordinal) != Ok(index))
+    {
+        return Err(StagingForcedPageBreakLayoutError::ArithmeticOverflow);
+    }
+    Ok(StagingForcedPageBreakLayoutReceipt {
+        package_sha256: package.package_fingerprint().into_bytes(),
+        epoch: ir.registry().receipt().epoch(),
+        flow_registry: ir.registry().receipt().fingerprint(),
+        usage_sha256: preflight.usage_sha256(),
+        policy_version: preflight.policy_version(),
+        boundaries,
+    })
+}
+
+/// Production entry point. Worker receipts may be registered in any order;
+/// `finish` walks the package-derived registry and issues every position and
+/// terminal in canonical owner order.
+pub struct ProductionFlowIrBuilder<'a> {
+    content: ValidatedFlowContentRegistryBuilder<'a>,
+}
+
+impl<'a> ProductionFlowIrBuilder<'a> {
+    pub fn new(
+        package: &'a ValidatedParsedPackage,
+        paragraph_items: &'a ValidatedParagraphItemRegistry,
+        epoch: LayoutEpoch,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<Self, FlowRegistryError> {
+        Ok(Self {
+            content: ValidatedFlowContentRegistryBuilder::new(
+                package,
+                paragraph_items,
+                epoch,
+                limits,
+            )?,
+        })
+    }
+
+    pub fn expected_content_owners(&self) -> impl ExactSizeIterator<Item = NodeId> + '_ {
+        self.content.expected_content_owners()
+    }
+
+    pub fn issue_content(&self, owner: NodeId) -> Result<ValidatedFlowContent, FlowRegistryError> {
+        self.content.issue_content(owner)
+    }
+
+    pub fn register_content(
+        &mut self,
+        content: ValidatedFlowContent,
+    ) -> Result<(), FlowRegistryError> {
+        self.content.register(content)
+    }
+
+    pub fn register_content_for(
+        &mut self,
+        owner: NodeId,
+        content: ValidatedFlowContent,
+    ) -> Result<(), FlowRegistryError> {
+        self.content.register_for(owner, content)
+    }
+
+    pub fn finish(self) -> Result<ProductionFlowIr, FlowRegistryError> {
+        let content_registry = self.content.finish()?;
+        let registry = ValidatedFlowRegistry::from_content(&content_registry)?;
+        let mut flows = Vec::new();
+        flows
+            .try_reserve_exact(registry.flows.len())
+            .map_err(|_| FlowRegistryError::AllocationFailure)?;
+        for descriptor in &registry.flows {
+            let position_capacity = usize::try_from(descriptor.terminal.owner_local_ordinal())
+                .map_err(|_| FlowRegistryError::ArithmeticOverflow)?
+                .checked_add(1)
+                .ok_or(FlowRegistryError::ArithmeticOverflow)?;
+            let mut positions = Vec::new();
+            positions
+                .try_reserve_exact(position_capacity)
+                .map_err(|_| FlowRegistryError::AllocationFailure)?;
+            let mut flow_local_ordinal = 0u32;
+            for entry in content_registry
+                .contents
+                .iter()
+                .filter(|entry| entry.flow_id == descriptor.flow_id)
+            {
+                for owner_local_boundary in 0..entry.content.boundary_count() {
+                    positions.push(ProductionFlowPosition {
+                        epoch: content_registry.epoch,
+                        registry: registry.receipt.fingerprint,
+                        flow_id: descriptor.flow_id,
+                        flow_owner_node_id: descriptor.owner_node_id,
+                        parent_flow_id: descriptor.parent_flow_id,
+                        flow_local_ordinal,
+                        content_owner_node_id: Some(entry.content.owner()),
+                        owner_local_boundary,
+                        content_kind: Some(entry.content.kind()),
+                        child_flow_ids: entry.child_flow_ids.clone(),
+                        terminal: false,
+                        block_child_path: entry.block_child_path.clone(),
+                    });
+                    flow_local_ordinal = flow_local_ordinal
+                        .checked_add(1)
+                        .ok_or(FlowRegistryError::ArithmeticOverflow)?;
+                }
+            }
+            if flow_local_ordinal != descriptor.terminal.owner_local_ordinal() {
+                return Err(FlowRegistryError::WrongTerminal(descriptor.flow_id));
+            }
+            let owner_path = if descriptor.flow_id == FlowId::DOCUMENT_BODY {
+                Vec::new()
+            } else {
+                content_registry
+                    .model
+                    .contents
+                    .iter()
+                    .find(|entry| entry.child_flow_ids.contains(&descriptor.flow_id))
+                    .map(|entry| entry.block_child_path.clone())
+                    .ok_or(FlowRegistryError::WrongParent(descriptor.flow_id))?
+            };
+            positions.push(ProductionFlowPosition {
+                epoch: content_registry.epoch,
+                registry: registry.receipt.fingerprint,
+                flow_id: descriptor.flow_id,
+                flow_owner_node_id: descriptor.owner_node_id,
+                parent_flow_id: descriptor.parent_flow_id,
+                flow_local_ordinal,
+                content_owner_node_id: None,
+                owner_local_boundary: 0,
+                content_kind: None,
+                child_flow_ids: Vec::new(),
+                terminal: true,
+                block_child_path: owner_path,
+            });
+            flows.push(ProductionFlow {
+                descriptor: descriptor.clone(),
+                positions,
+            });
+        }
+        Ok(ProductionFlowIr {
+            content_registry,
+            registry,
+            flows,
+        })
+    }
+}
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FlowPosition {
     epoch: LayoutEpoch,
@@ -1023,6 +4730,7 @@ struct ReferenceLinePlacement {
     start: usize,
     end: usize,
     height: PositiveLength,
+    forced_break: bool,
 }
 
 fn reference_line_height(
@@ -1054,6 +4762,7 @@ pub struct ReferenceFragmenter<'flow> {
     anchors: Vec<ReferenceAnchorPlacement>,
     lines: Vec<ReferenceLinePlacement>,
     legacy_full_frame: bool,
+    basic_document: bool,
 }
 
 impl<'flow> ReferenceFragmenter<'flow> {
@@ -1199,6 +4908,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                             )
                             .ok_or(FragmentError::ArithmeticOverflow)?,
                         height: line_height,
+                        forced_break: false,
                     });
                     previous_item = line.item_index;
                 }
@@ -1210,6 +4920,7 @@ impl<'flow> ReferenceFragmenter<'flow> {
                     start: paragraph_start,
                     end: position_index,
                     height: line_height,
+                    forced_break: false,
                 });
             }
             if let Some(anchor_id) = heading_anchor {
@@ -1264,7 +4975,200 @@ impl<'flow> ReferenceFragmenter<'flow> {
             anchors,
             lines,
             legacy_full_frame: false,
+            basic_document: false,
         })
+    }
+
+    /// Fragment the immutable basic-document profile from the same canonical
+    /// FlowTree used by paragraph pagination. Non-paragraph boundaries remain
+    /// typed: list items and figures produce boxes, and page breaks produce a
+    /// paint-free box which terminates the current page.
+    pub fn for_basic_document(
+        package: &ValidatedParsedPackage,
+        flow: &'flow FlowTree,
+    ) -> Result<Self, FragmentError> {
+        if !package.package().document.footnotes.is_empty()
+            || flow.epoch.document() != package.epoch_identity().document()
+            || flow.epoch.style() != package.epoch_identity().style()
+        {
+            return Err(FragmentError::UnsupportedFlowDomain);
+        }
+        let registry = flow
+            .paragraph_items()
+            .ok_or(FragmentError::InvalidFragmentKey)?;
+        let terminal = flow
+            .positions
+            .len()
+            .checked_sub(1)
+            .ok_or(FragmentError::InvalidFragmentKey)?;
+        if flow.boundary_kinds.first() != Some(&FlowBoundaryKind::DocumentStart)
+            || flow.boundary_kinds.get(terminal) != Some(&FlowBoundaryKind::End)
+        {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+
+        let paragraphs = basic_paragraph_blocks(&package.package().document.blocks);
+        let by_owner: std::collections::BTreeMap<_, _> = paragraphs
+            .into_iter()
+            .map(|block| (basic_block_node_id(block), block))
+            .collect();
+        let mut anchors = Vec::new();
+        let mut lines = Vec::new();
+        let mut index = 1usize;
+        while index < terminal {
+            let position = flow
+                .positions
+                .get(index)
+                .ok_or(FragmentError::InvalidFragmentKey)?;
+            match flow.boundary_kinds.get(index) {
+                Some(FlowBoundaryKind::ParagraphItem) => {
+                    let owner = position.owner();
+                    if position.owner_local_boundary() != 0 {
+                        return Err(FragmentError::InvalidFragmentKey);
+                    }
+                    let item_count = registry
+                        .item_count(owner)
+                        .ok_or(FragmentError::InvalidFragmentKey)?;
+                    let paragraph_end = index
+                        .checked_add(
+                            usize::try_from(item_count)
+                                .map_err(|_| FragmentError::ArithmeticOverflow)?,
+                        )
+                        .ok_or(FragmentError::ArithmeticOverflow)?;
+                    if paragraph_end > terminal {
+                        return Err(FragmentError::InvalidFragmentKey);
+                    }
+                    for (local, observed) in flow.positions[index..paragraph_end].iter().enumerate()
+                    {
+                        if observed.owner() != owner
+                            || observed.owner_local_boundary()
+                                != u32::try_from(local)
+                                    .map_err(|_| FragmentError::ArithmeticOverflow)?
+                            || flow.boundary_kinds[index + local] != FlowBoundaryKind::ParagraphItem
+                        {
+                            return Err(FragmentError::InvalidFragmentKey);
+                        }
+                    }
+                    let height = reference_line_height(package, owner)?;
+                    let mut previous = 0u32;
+                    if let Some(result) = registry.paragraph_break(owner) {
+                        for line in &result.lines {
+                            if line.item_index <= previous || line.item_index > item_count {
+                                return Err(FragmentError::InvalidFragmentKey);
+                            }
+                            lines.push(ReferenceLinePlacement {
+                                start: index
+                                    .checked_add(
+                                        usize::try_from(previous)
+                                            .map_err(|_| FragmentError::ArithmeticOverflow)?,
+                                    )
+                                    .ok_or(FragmentError::ArithmeticOverflow)?,
+                                end: index
+                                    .checked_add(
+                                        usize::try_from(line.item_index)
+                                            .map_err(|_| FragmentError::ArithmeticOverflow)?,
+                                    )
+                                    .ok_or(FragmentError::ArithmeticOverflow)?,
+                                height,
+                                forced_break: false,
+                            });
+                            previous = line.item_index;
+                        }
+                        if previous != item_count {
+                            return Err(FragmentError::InvalidFragmentKey);
+                        }
+                    } else {
+                        lines.push(ReferenceLinePlacement {
+                            start: index,
+                            end: paragraph_end,
+                            height,
+                            forced_break: false,
+                        });
+                    }
+                    let block = by_owner
+                        .get(&owner)
+                        .ok_or(FragmentError::InvalidFragmentKey)?;
+                    let (heading_anchor, children) = match block {
+                        Block::Paragraph { children, .. } => (None, children.as_slice()),
+                        Block::Heading {
+                            anchor_id,
+                            children,
+                            ..
+                        } => (anchor_id.as_ref(), children.as_slice()),
+                        _ => return Err(FragmentError::InvalidFragmentKey),
+                    };
+                    if let Some(anchor_id) = heading_anchor {
+                        anchors.push(ReferenceAnchorPlacement {
+                            flow_ordinal: u64::try_from(index)
+                                .map_err(|_| FragmentError::ArithmeticOverflow)?,
+                            anchor_id: anchor_id.clone(),
+                            owner_node: owner,
+                        });
+                    }
+                    collect_reference_anchors(
+                        children,
+                        package,
+                        flow,
+                        u64::try_from(index).map_err(|_| FragmentError::ArithmeticOverflow)?,
+                        &mut anchors,
+                    )?;
+                    index = paragraph_end;
+                }
+                Some(FlowBoundaryKind::ListItem) => {
+                    lines.push(ReferenceLinePlacement {
+                        start: index,
+                        end: index
+                            .checked_add(1)
+                            .ok_or(FragmentError::ArithmeticOverflow)?,
+                        height: basic_boundary_height(package, position.owner(), false)?,
+                        forced_break: false,
+                    });
+                    index = index
+                        .checked_add(1)
+                        .ok_or(FragmentError::ArithmeticOverflow)?;
+                }
+                Some(FlowBoundaryKind::BlockItem) => {
+                    let forced_break = package.document_nodes().node_kind(position.owner())
+                        == Some(DocumentNodeKind::PageBreak);
+                    lines.push(ReferenceLinePlacement {
+                        start: index,
+                        end: index
+                            .checked_add(1)
+                            .ok_or(FragmentError::ArithmeticOverflow)?,
+                        height: basic_boundary_height(package, position.owner(), forced_break)?,
+                        forced_break,
+                    });
+                    index = index
+                        .checked_add(1)
+                        .ok_or(FragmentError::ArithmeticOverflow)?;
+                }
+                _ => return Err(FragmentError::UnsupportedFlowDomain),
+            }
+        }
+        anchors.sort_by(|left, right| {
+            (left.flow_ordinal, &left.anchor_id).cmp(&(right.flow_ordinal, &right.anchor_id))
+        });
+        if anchors
+            .windows(2)
+            .any(|pair| pair[0].anchor_id == pair[1].anchor_id)
+            || anchors.len() != flow.anchors.len()
+            || anchors
+                .iter()
+                .any(|anchor| flow.anchor_owner(&anchor.anchor_id) != Some(anchor.owner_node))
+        {
+            return Err(FragmentError::InvalidFragmentKey);
+        }
+        Ok(Self {
+            flow,
+            anchors,
+            lines,
+            legacy_full_frame: false,
+            basic_document: true,
+        })
+    }
+
+    pub fn ends_with_forced_break(&self) -> bool {
+        self.basic_document && matches!(self.lines.last(), Some(line) if line.forced_break)
     }
 
     fn cursor_at(&self, position_index: usize) -> Result<FlowCursor, FragmentError> {
@@ -1285,12 +5189,14 @@ impl<'flow> ReferenceFragmenter<'flow> {
             Some(FlowBoundaryKind::ParagraphItem) => {
                 CursorPosition::ParagraphItem(position.owner_local_boundary())
             }
+            Some(FlowBoundaryKind::ListItem) => {
+                CursorPosition::ListItem(position.owner_local_boundary())
+            }
+            Some(FlowBoundaryKind::BlockItem) => {
+                CursorPosition::BlockItem(position.owner_local_boundary())
+            }
             Some(FlowBoundaryKind::End) => CursorPosition::End,
-            Some(
-                FlowBoundaryKind::TableRow
-                | FlowBoundaryKind::ListItem
-                | FlowBoundaryKind::BlockItem,
-            ) => return Err(FragmentError::UnsupportedFlowDomain),
+            Some(FlowBoundaryKind::TableRow) => return Err(FragmentError::UnsupportedFlowDomain),
             None => return Err(FragmentError::UnknownFlowPosition),
         };
         FlowCursor::at(
@@ -1347,6 +5253,12 @@ impl Fragmenter for ReferenceFragmenter<'_> {
             }
             (Some(FlowBoundaryKind::ParagraphItem), CursorPosition::ParagraphItem(local))
                 if *local == request.cursor().position().owner_local_boundary() => {}
+            (Some(FlowBoundaryKind::ListItem), CursorPosition::ListItem(local))
+                if self.basic_document
+                    && *local == request.cursor().position().owner_local_boundary() => {}
+            (Some(FlowBoundaryKind::BlockItem), CursorPosition::BlockItem(local))
+                if self.basic_document
+                    && *local == request.cursor().position().owner_local_boundary() => {}
             (Some(FlowBoundaryKind::End), CursorPosition::End) => {
                 return Err(FragmentError::InvalidCursorLocation);
             }
@@ -1372,6 +5284,9 @@ impl Fragmenter for ReferenceFragmenter<'_> {
             let mut occupied = 0i64;
             let mut count = 0usize;
             for line in &self.lines[first_line..] {
+                if line.forced_break && line.end == terminal && count != 0 {
+                    break;
+                }
                 let next = occupied
                     .checked_add(line.height.get().raw())
                     .ok_or(FragmentError::ArithmeticOverflow)?;
@@ -1382,6 +5297,9 @@ impl Fragmenter for ReferenceFragmenter<'_> {
                 count = count
                     .checked_add(1)
                     .ok_or(FragmentError::ArithmeticOverflow)?;
+                if line.forced_break {
+                    break;
+                }
             }
             count
         };
@@ -1449,6 +5367,76 @@ impl Fragmenter for ReferenceFragmenter<'_> {
     }
 }
 
+fn basic_paragraph_blocks(blocks: &[Block]) -> Vec<&Block> {
+    let mut paragraphs = Vec::new();
+    let mut pending: Vec<&Block> = blocks.iter().rev().collect();
+    while let Some(block) = pending.pop() {
+        match block {
+            Block::Paragraph { .. } | Block::Heading { .. } => paragraphs.push(block),
+            Block::List { items, .. } => {
+                pending.extend(items.iter().rev().flat_map(|item| item.blocks.iter().rev()));
+            }
+            Block::Figure { caption, .. } => pending.extend(caption.iter().rev()),
+            Block::Table { head, body, .. } => pending.extend(
+                body.iter()
+                    .rev()
+                    .chain(head.iter().rev())
+                    .flat_map(|row| row.cells.iter().rev())
+                    .flat_map(|cell| cell.blocks.iter().rev()),
+            ),
+            Block::PageBreak { .. } => {}
+        }
+    }
+    paragraphs
+}
+
+const fn basic_block_node_id(block: &Block) -> NodeId {
+    match block {
+        Block::Paragraph { node_id, .. }
+        | Block::Heading { node_id, .. }
+        | Block::List { node_id, .. }
+        | Block::Table { node_id, .. }
+        | Block::Figure { node_id, .. }
+        | Block::PageBreak { node_id, .. } => *node_id,
+    }
+}
+
+fn basic_boundary_height(
+    package: &ValidatedParsedPackage,
+    owner: NodeId,
+    forced_break: bool,
+) -> Result<PositiveLength, FragmentError> {
+    let one = || {
+        Length::from_raw(1)
+            .and_then(PositiveLength::new)
+            .ok_or(FragmentError::ArithmeticOverflow)
+    };
+    if forced_break {
+        return one();
+    }
+    let computed = match package.cascade_style(owner) {
+        Ok(computed) => computed,
+        Err(_) => return one(),
+    };
+    if package.document_nodes().node_kind(owner) == Some(DocumentNodeKind::Figure) {
+        return match computed
+            .computed()
+            .basic_figure_width()
+            .map_err(|_| FragmentError::InvalidFragmentKey)?
+        {
+            MachineFigureWidth::Length(value) => Ok(value),
+            MachineFigureWidth::Auto => one(),
+        };
+    }
+    match computed.computed().properties().get("line_height") {
+        Some(StyleValue::Length(value)) => {
+            PositiveLength::new(*value).ok_or(FragmentError::InvalidFragmentKey)
+        }
+        None => one(),
+        Some(_) => Err(FragmentError::InvalidFragmentKey),
+    }
+}
+
 fn collect_reference_anchors(
     inlines: &[Inline],
     package: &ValidatedParsedPackage,
@@ -1490,12 +5478,24 @@ fn collect_reference_anchors(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typaxis_core::{PortablePath, ResourceLimits, SourceId, ValidatedResourceLimits};
-    use typaxis_resource_admission::{AdmittedFontInstanceTable, AdmittedResourceResolver};
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    use typaxis_core::{
+        sha256, ConfigResourceRoot, DocumentPackageContractId, EffectiveConfig,
+        EffectiveDataVersions, HostAdmissionContext, HostPath, ImageResourceId,
+        PdfStreamCompression, PortablePath, ResourceLimits, SourceId, ValidatedResourceLimits,
+        DEFAULT_ALLOWED_URI_SCHEMES, JSON_SAFE_INTEGER_MAX, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
+        REGISTERED_UNICODE_VERSION,
+    };
+    use typaxis_resource_admission::{
+        AdmittedFontInstanceTable, AdmittedResourceResolver, HostResourceAdmissionSession,
+    };
     use typaxis_style::StyleValidationError;
     use typaxis_syntax::{
-        PackageGeneratedTextError, PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser,
-        SourceFile, ValidatedParsedPackage,
+        machine_profile_boundary::{wire, HostMachineInputSession, MachineInputHostOptions},
+        DocumentPackageParser, MachineParseOutcome, PackageGeneratedTextError,
+        PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser, SourceFile,
+        StagingStylePackageParser, ValidatedMachinePackage, ValidatedParsedPackage,
     };
     use typaxis_text::{GeneratedTextStore, TextStore};
     fn parsed_reference_package(seed: u8, text: &str) -> ValidatedParsedPackage {
@@ -1519,6 +5519,1067 @@ mod tests {
     }
     fn paragraph_package(seed: u8) -> ValidatedParsedPackage {
         parsed_reference_package(seed, "paragraph\nparagraph")
+    }
+
+    fn staging_machine_list_package() -> typaxis_syntax::ValidatedStagingStylePackage {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let paragraph = |node_id| wire::WireBlock::Paragraph {
+            node_id,
+            span,
+            classes: Vec::new(),
+            children: Vec::new(),
+        };
+        let declarations = vec![
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::FontFamily,
+                value: wire::WireStyleValue::FontFamilyList {
+                    families: vec!["Fixture".to_owned()],
+                },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::FontSize,
+                value: wire::WireStyleValue::Length { value: 10 },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::LineHeight,
+                value: wire::WireStyleValue::Length { value: 12 },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::StartIndent,
+                value: wire::WireStyleValue::Length { value: 5 },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::EndIndent,
+                value: wire::WireStyleValue::Length { value: 3 },
+                important: false,
+            },
+        ];
+        let package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_1,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![wire::WireBlock::List {
+                    node_id: 1,
+                    span,
+                    classes: Vec::new(),
+                    ordered: true,
+                    start: Some(9),
+                    items: vec![
+                        wire::WireListItem {
+                            node_id: 2,
+                            span,
+                            blocks: vec![
+                                paragraph(3),
+                                wire::WireBlock::List {
+                                    node_id: 4,
+                                    span,
+                                    classes: vec!["nested".to_owned()],
+                                    ordered: false,
+                                    start: None,
+                                    items: vec![wire::WireListItem {
+                                        node_id: 5,
+                                        span,
+                                        blocks: vec![paragraph(6)],
+                                    }],
+                                },
+                            ],
+                        },
+                        wire::WireListItem {
+                            node_id: 7,
+                            span,
+                            blocks: vec![paragraph(8)],
+                        },
+                    ],
+                }],
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet {
+                rules: vec![
+                    wire::WireStyleRule {
+                        style_id: "list-base".to_owned(),
+                        extends: None,
+                        selector: "list".to_owned(),
+                        source_order: 0,
+                        declarations,
+                    },
+                    wire::WireStyleRule {
+                        style_id: "list-nested".to_owned(),
+                        extends: None,
+                        selector: "list.nested".to_owned(),
+                        source_order: 1,
+                        declarations: vec![wire::WireDeclaration {
+                            name: wire::WireDeclarationName::StartIndent,
+                            value: wire::WireStyleValue::Length { value: 7 },
+                            important: false,
+                        }],
+                    },
+                ],
+            },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        };
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+            )
+            .unwrap()
+    }
+
+    fn list_length(raw: i64) -> PositiveLength {
+        PositiveLength::new(Length::from_raw(raw).unwrap()).unwrap()
+    }
+
+    fn staging_machine_list_layout(
+        items: Vec<StagingListItemPaintInput>,
+    ) -> Result<StagingMachineListLayoutReceipt, StagingMachineListLayoutError> {
+        staging_machine_list_layout_with_direction(items, BidiLevel::LTR)
+    }
+
+    fn staging_machine_list_layout_with_direction(
+        items: Vec<StagingListItemPaintInput>,
+        base_direction: BidiLevel,
+    ) -> Result<StagingMachineListLayoutReceipt, StagingMachineListLayoutError> {
+        let package = staging_machine_list_package();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let preflight = package.preflight_list_marker_usage(&limits).unwrap();
+        let generated_store = package
+            .package()
+            .materialize_initial_generated_text(&limits)
+            .unwrap();
+        let generated = package
+            .package()
+            .bind_generated_text(&generated_store, &limits)
+            .unwrap();
+        let admitted =
+            AdmittedResourceResolver::new(&package.package().package().resources, &limits)
+                .unwrap()
+                .finish()
+                .unwrap();
+        let package_epoch =
+            LayoutEpoch::from_validated_inputs(generated, admitted.token()).unwrap();
+        let ir = ProductionFlowIr::for_empty_paragraph_content(
+            package.package(),
+            package_epoch,
+            &limits,
+        )
+        .unwrap();
+        layout_staging_machine_lists(
+            &package,
+            &preflight,
+            generated,
+            &ir,
+            StagingMachineListLayoutInput::new(list_length(100), base_direction, items),
+        )
+    }
+
+    fn painted_list_item(
+        owner: u32,
+        marker_width: i64,
+        first_line_width: i64,
+        first_line_height: i64,
+        painted_height: i64,
+    ) -> StagingListItemPaintInput {
+        StagingListItemPaintInput::painted(
+            NodeId::new(owner),
+            list_length(marker_width),
+            list_length(first_line_width),
+            list_length(first_line_height),
+            list_length(painted_height),
+        )
+    }
+
+    #[test]
+    fn machine_list_layout_end_aligns_markers_and_keeps_nested_indents_in_child_flow() {
+        let layout = staging_machine_list_layout(vec![
+            painted_list_item(2, 4, 20, 8, 14),
+            painted_list_item(5, 6, 18, 8, 12),
+            painted_list_item(7, 8, 24, 8, 16),
+        ])
+        .unwrap();
+        assert_eq!(layout.lists().len(), 2);
+        let outer = layout
+            .lists()
+            .iter()
+            .find(|list| list.list_owner() == NodeId::new(1))
+            .unwrap();
+        let nested = layout
+            .lists()
+            .iter()
+            .find(|list| list.list_owner() == NodeId::new(4))
+            .unwrap();
+        assert_eq!(outer.list_flow_id(), FlowId::DOCUMENT_BODY);
+        assert_eq!(outer.marker_column_width().get().raw(), 8);
+        assert_eq!(outer.marker_gap().get().raw(), 10);
+        assert_eq!(outer.item_frame_inline_size().get().raw(), 74);
+        assert_eq!(nested.list_flow_id(), FlowId::new(1));
+        assert_eq!(nested.start_indent().get().raw(), 7);
+        assert_eq!(nested.marker_column_width().get().raw(), 6);
+        assert_eq!(nested.item_frame_inline_size().get().raw(), 48);
+
+        let first = layout
+            .items()
+            .iter()
+            .find(|item| item.item_owner() == NodeId::new(2))
+            .unwrap();
+        let second_outer = layout
+            .items()
+            .iter()
+            .find(|item| item.item_owner() == NodeId::new(7))
+            .unwrap();
+        assert_eq!(first.marker_utf8(), "9.");
+        assert_eq!(second_outer.marker_utf8(), "10.");
+        assert_eq!(first.marker_physical_left().get().raw(), 9);
+        assert_eq!(second_outer.marker_physical_left().get().raw(), 5);
+        assert_eq!(first.content_physical_left().get().raw(), 23);
+        assert_eq!(first.item_flow_id(), FlowId::new(1));
+        assert_eq!(
+            layout
+                .items()
+                .iter()
+                .find(|item| item.item_owner() == NodeId::new(5))
+                .unwrap()
+                .item_flow_id(),
+            FlowId::new(2)
+        );
+        assert_eq!(second_outer.item_flow_id(), FlowId::new(3));
+
+        let rtl = staging_machine_list_layout_with_direction(
+            vec![
+                painted_list_item(2, 4, 20, 8, 14),
+                painted_list_item(5, 6, 18, 8, 12),
+                painted_list_item(7, 8, 24, 8, 16),
+            ],
+            BidiLevel::RTL,
+        )
+        .unwrap();
+        let rtl_outer: Vec<_> = rtl
+            .items()
+            .iter()
+            .filter(|item| item.list_owner() == NodeId::new(1))
+            .collect();
+        assert_eq!(rtl_outer[0].marker_physical_left().get().raw(), 87);
+        assert_eq!(rtl_outer[1].marker_physical_left().get().raw(), 87);
+        assert_eq!(rtl_outer[0].content_physical_left().get().raw(), 3);
+    }
+
+    #[test]
+    fn machine_list_layout_rejects_empty_or_incomplete_item_paint_receipts() {
+        let empty = staging_machine_list_layout(vec![
+            StagingListItemPaintInput::empty(NodeId::new(2), list_length(4)),
+            painted_list_item(5, 6, 18, 8, 12),
+            painted_list_item(7, 8, 24, 8, 16),
+        ]);
+        assert_eq!(
+            empty.unwrap_err(),
+            StagingMachineListLayoutError::EmptyPaintedItem(NodeId::new(2))
+        );
+
+        let missing = staging_machine_list_layout(vec![
+            painted_list_item(2, 4, 20, 8, 14),
+            painted_list_item(7, 8, 24, 8, 16),
+        ]);
+        assert_eq!(
+            missing.unwrap_err(),
+            StagingMachineListLayoutError::MissingMeasurement(NodeId::new(5))
+        );
+    }
+
+    fn staging_table_grid_package(seed: u8) -> ValidatedStagingStylePackage {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let cell = |node_id, colspan, rowspan| wire::WireTableCell {
+            node_id,
+            span,
+            colspan,
+            rowspan,
+            blocks: Vec::new(),
+        };
+        let table = wire::WireBlock::Table {
+            node_id: 1,
+            span,
+            classes: vec!["matrix".to_owned()],
+            columns: vec![
+                wire::WireTableColumn::Fraction { weight: 1 },
+                wire::WireTableColumn::Fraction { weight: 1 },
+                wire::WireTableColumn::Fraction { weight: 1 },
+                wire::WireTableColumn::Fraction { weight: 1 },
+            ],
+            head: Vec::new(),
+            body: vec![
+                wire::WireTableRow {
+                    node_id: 2,
+                    span,
+                    cells: vec![cell(3, 2, 1), cell(4, 1, 2), cell(5, 1, 1)],
+                },
+                wire::WireTableRow {
+                    node_id: 6,
+                    span,
+                    cells: vec![cell(7, 2, 1), cell(8, 1, 1)],
+                },
+            ],
+        };
+        let declaration = |name, value| wire::WireDeclaration {
+            name,
+            value,
+            important: false,
+        };
+        let package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_2,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: format!("table-{seed}.tsf"),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![table],
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet {
+                rules: vec![wire::WireStyleRule {
+                    style_id: "table-matrix".to_owned(),
+                    extends: None,
+                    selector: "table.matrix".to_owned(),
+                    source_order: 0,
+                    declarations: vec![
+                        declaration(
+                            wire::WireDeclarationName::StartIndent,
+                            wire::WireStyleValue::Length { value: 1 },
+                        ),
+                        declaration(
+                            wire::WireDeclarationName::EndIndent,
+                            wire::WireStyleValue::Length { value: 1 },
+                        ),
+                        declaration(
+                            wire::WireDeclarationName::SpaceBefore,
+                            wire::WireStyleValue::Length { value: 2 },
+                        ),
+                        declaration(
+                            wire::WireDeclarationName::SpaceAfter,
+                            wire::WireStyleValue::Length { value: 3 },
+                        ),
+                        declaration(
+                            wire::WireDeclarationName::KeepWithNext,
+                            wire::WireStyleValue::Boolean { value: true },
+                        ),
+                    ],
+                }],
+            },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        };
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+            )
+            .unwrap()
+    }
+
+    fn table_grid_ir(
+        package: &ValidatedParsedPackage,
+        package_epoch: LayoutEpoch,
+        limits: &ValidatedResourceLimits,
+        reverse_registration: bool,
+    ) -> Result<ProductionFlowIr, FlowRegistryError> {
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package, package_epoch).unwrap();
+        let mut builder =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, limits)?;
+        let mut owners: Vec<_> = builder.expected_content_owners().collect();
+        if reverse_registration {
+            owners.reverse();
+        }
+        for owner in owners {
+            let content = builder.issue_content(owner)?;
+            builder.register_content(content)?;
+        }
+        builder.finish()
+    }
+
+    #[test]
+    fn table_grid_columns_cells_and_flow_registration_are_canonical() {
+        let package = staging_table_grid_package(1);
+        let package_epoch = epoch(package.package());
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let reversed = table_grid_ir(package.package(), package_epoch, &limits, true).unwrap();
+        let canonical = table_grid_ir(package.package(), package_epoch, &limits, false).unwrap();
+        assert_eq!(
+            reversed.registry().receipt().fingerprint(),
+            canonical.registry().receipt().fingerprint()
+        );
+        assert_eq!(reversed.registry().receipt().flow_count(), 6);
+        assert_eq!(
+            reversed
+                .registry()
+                .flows()
+                .iter()
+                .map(|flow| (
+                    flow.flow_id().get(),
+                    flow.owner_node_id().get(),
+                    flow.owner_kind(),
+                    flow.parent_flow_id().map(FlowId::get),
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, 0, FlowOwnerKind::DocumentBody, None),
+                (1, 3, FlowOwnerKind::TableCell, Some(0)),
+                (2, 4, FlowOwnerKind::TableCell, Some(0)),
+                (3, 5, FlowOwnerKind::TableCell, Some(0)),
+                (4, 7, FlowOwnerKind::TableCell, Some(0)),
+                (5, 8, FlowOwnerKind::TableCell, Some(0)),
+            ]
+        );
+        assert_eq!(
+            reversed.flow(FlowId::DOCUMENT_BODY).unwrap().positions()[0].child_flow_ids(),
+            [FlowId::new(1), FlowId::new(2), FlowId::new(3)]
+        );
+        assert_eq!(
+            reversed.flow(FlowId::DOCUMENT_BODY).unwrap().positions()[1].child_flow_ids(),
+            [FlowId::new(4), FlowId::new(5)]
+        );
+
+        let style = package.compute_table_style(NodeId::new(1)).unwrap();
+        let reversed_layout = layout_table_grid(
+            &package,
+            NodeId::new(1),
+            &style,
+            &reversed,
+            list_length(12),
+            &limits,
+        )
+        .unwrap();
+        let canonical_layout = layout_table_grid(
+            &package,
+            NodeId::new(1),
+            &style,
+            &canonical,
+            list_length(12),
+            &limits,
+        )
+        .unwrap();
+        assert_eq!(
+            reversed_layout.fingerprint(),
+            canonical_layout.fingerprint()
+        );
+        assert_eq!(reversed_layout.available_inline_size().get().raw(), 10);
+        assert_eq!(
+            reversed_layout
+                .columns()
+                .iter()
+                .map(|column| column.final_width().get().raw())
+                .collect::<Vec<_>>(),
+            [2, 2, 2, 4]
+        );
+        assert_eq!(reversed_layout.rounding_residual().raw(), 2);
+        assert_eq!(reversed_layout.residual_recipient(), Some(3));
+        assert_eq!(
+            reversed_layout
+                .cells()
+                .iter()
+                .map(|cell| (
+                    cell.cell_owner().get(),
+                    cell.flow_id().get(),
+                    cell.column_ordinal(),
+                    cell.colspan().get(),
+                    cell.rowspan().get(),
+                    cell.frame_inline_start().get().raw(),
+                    cell.frame_inline_size().get().raw(),
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (3, 1, 0, 2, 1, 0, 4),
+                (4, 2, 2, 1, 2, 4, 2),
+                (5, 3, 3, 1, 1, 6, 4),
+                (7, 4, 0, 2, 1, 0, 4),
+                (8, 5, 3, 1, 1, 6, 4),
+            ]
+        );
+        assert!(reversed_layout
+            .cells()
+            .iter()
+            .all(|cell| cell.padding_start() == NonNegativeLength::ZERO
+                && cell.vertical_alignment() == TableVerticalAlignment::BlockStart));
+        assert_eq!(reversed_layout.space_before().get().raw(), 2);
+        assert_eq!(reversed_layout.space_after().get().raw(), 3);
+        assert!(reversed_layout.keep_with_next());
+    }
+
+    #[test]
+    fn table_rowspan_bands_assign_the_complete_deficit_to_the_last_covered_row() {
+        let package = staging_table_grid_package(11);
+        let package_epoch = epoch(package.package());
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let ir = table_grid_ir(package.package(), package_epoch, &limits, false).unwrap();
+        let style = package.compute_table_style(NodeId::new(1)).unwrap();
+        let grid = layout_table_grid(
+            &package,
+            NodeId::new(1),
+            &style,
+            &ir,
+            list_length(12),
+            &limits,
+        )
+        .unwrap();
+        let fragments = [
+            vec![list_length(4)],
+            vec![list_length(4), list_length(6)],
+            vec![list_length(7)],
+            vec![list_length(3)],
+            vec![list_length(8)],
+        ];
+        let inputs = grid
+            .cells()
+            .iter()
+            .zip(fragments)
+            .map(|(cell, fragments)| {
+                TableCellLayoutInput::new(cell.cell_owner(), cell.flow_id(), fragments)
+            })
+            .collect();
+        let bands = layout_table_row_bands(&grid, inputs, &limits).unwrap();
+        assert_eq!(
+            bands
+                .rows()
+                .iter()
+                .map(|row| (
+                    row.section(),
+                    row.row_ordinal(),
+                    row.block_size().get().raw()
+                ))
+                .collect::<Vec<_>>(),
+            vec![(TableSection::Body, 0, 7), (TableSection::Body, 1, 8)]
+        );
+        let spanning = bands.cell(NodeId::new(4)).unwrap();
+        assert_eq!(
+            spanning
+                .fragment_endpoints()
+                .iter()
+                .map(|endpoint| endpoint.get().raw())
+                .collect::<Vec<_>>(),
+            vec![4, 10]
+        );
+        assert_eq!(spanning.natural_block_size().get().raw(), 10);
+        assert_ne!(bands.fingerprint(), [0; 32]);
+    }
+
+    #[test]
+    fn table_rowspan_measurements_reject_missing_and_wrong_cell_flows() {
+        let package = staging_table_grid_package(12);
+        let package_epoch = epoch(package.package());
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let ir = table_grid_ir(package.package(), package_epoch, &limits, false).unwrap();
+        let style = package.compute_table_style(NodeId::new(1)).unwrap();
+        let grid = layout_table_grid(
+            &package,
+            NodeId::new(1),
+            &style,
+            &ir,
+            list_length(12),
+            &limits,
+        )
+        .unwrap();
+        let missing = grid.cells()[..grid.cells().len() - 1]
+            .iter()
+            .map(|cell| TableCellLayoutInput::empty(cell.cell_owner(), cell.flow_id()))
+            .collect();
+        assert_eq!(
+            layout_table_row_bands(&grid, missing, &limits).unwrap_err(),
+            TableRowBandLayoutError::MissingCellMeasurement(NodeId::new(8))
+        );
+        let wrong = grid
+            .cells()
+            .iter()
+            .map(|cell| {
+                TableCellLayoutInput::empty(
+                    cell.cell_owner(),
+                    if cell.cell_owner() == NodeId::new(3) {
+                        FlowId::new(99)
+                    } else {
+                        cell.flow_id()
+                    },
+                )
+            })
+            .collect();
+        assert_eq!(
+            layout_table_row_bands(&grid, wrong, &limits).unwrap_err(),
+            TableRowBandLayoutError::WrongCellFlow(NodeId::new(3))
+        );
+
+        let measured = || {
+            grid.cells()
+                .iter()
+                .map(|cell| {
+                    TableCellLayoutInput::new(
+                        cell.cell_owner(),
+                        cell.flow_id(),
+                        vec![list_length(1)],
+                    )
+                })
+                .collect()
+        };
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_fragments: 5,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            layout_table_row_bands(&grid, measured(), &exact)
+                .unwrap()
+                .contained_fragment_count(),
+            5
+        );
+        let max_plus_one = ValidatedResourceLimits::new(ResourceLimits {
+            max_fragments: 4,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            layout_table_row_bands(&grid, measured(), &max_plus_one).unwrap_err(),
+            TableRowBandLayoutError::FragmentLimit
+        );
+    }
+
+    #[test]
+    fn table_grid_rejects_limit_plus_one_malformed_grids_and_wrong_receipts() {
+        let package = staging_table_grid_package(2);
+        let package_epoch = epoch(package.package());
+        // Nine semantic nodes plus four NodeId-less column records.
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_ast_nodes: 13,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        table_grid_ir(package.package(), package_epoch, &exact, false).unwrap();
+        let plus_one = ValidatedResourceLimits::new(ResourceLimits {
+            max_ast_nodes: 12,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            table_grid_ir(package.package(), package_epoch, &plus_one, false).unwrap_err(),
+            FlowRegistryError::AstNodeLimit
+        );
+
+        let Block::Table { columns, body, .. } = &package.package().package().document.blocks[0]
+        else {
+            unreachable!()
+        };
+        let check = |section_rows: &[TableRow]| {
+            let mut rows = Vec::new();
+            let mut cells = Vec::new();
+            validate_table_section_shape(
+                package.package(),
+                NodeId::new(1),
+                TableSection::Body,
+                section_rows,
+                columns.len(),
+                &mut rows,
+                &mut cells,
+            )
+        };
+
+        let mut overlap = body.clone();
+        overlap[1].cells[0].colspan = NonZeroU16::new(3).unwrap();
+        assert_eq!(
+            check(&overlap),
+            Err(TableGridLayoutError::GridOverlap(NodeId::new(7)))
+        );
+        let mut hole = body.clone();
+        hole[1].cells[0].colspan = NonZeroU16::new(1).unwrap();
+        assert_eq!(
+            check(&hole),
+            Err(TableGridLayoutError::GridHole(NodeId::new(6)))
+        );
+        let mut out_of_range = body.clone();
+        out_of_range[1].cells[0].colspan = NonZeroU16::new(5).unwrap();
+        assert_eq!(
+            check(&out_of_range),
+            Err(TableGridLayoutError::GridOutOfRange(NodeId::new(7)))
+        );
+        let mut wrong_rowspan = body.clone();
+        wrong_rowspan[1].cells[0].rowspan = NonZeroU16::new(2).unwrap();
+        assert_eq!(
+            check(&wrong_rowspan),
+            Err(TableGridLayoutError::RowspanOutOfRange(NodeId::new(7)))
+        );
+
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let ir = table_grid_ir(package.package(), package_epoch, &limits, false).unwrap();
+        let other = staging_table_grid_package(3);
+        let wrong_style = other.compute_table_style(NodeId::new(1)).unwrap();
+        assert_eq!(
+            layout_table_grid(
+                &package,
+                NodeId::new(1),
+                &wrong_style,
+                &ir,
+                list_length(12),
+                &limits,
+            )
+            .unwrap_err(),
+            TableGridLayoutError::WrongStyleReceipt
+        );
+
+        let style = package.compute_table_style(NodeId::new(1)).unwrap();
+        let mut wrong_flow =
+            table_grid_ir(package.package(), package_epoch, &limits, false).unwrap();
+        wrong_flow.registry.flows[1].owner_node_id = NodeId::new(99);
+        assert_eq!(
+            layout_table_grid(
+                &package,
+                NodeId::new(1),
+                &style,
+                &wrong_flow,
+                list_length(12),
+                &limits,
+            )
+            .unwrap_err(),
+            TableGridLayoutError::MissingCellFlow(NodeId::new(3))
+        );
+    }
+
+    #[test]
+    fn table_grid_fixed_columns_require_exact_width_at_safe_integer_max() {
+        let maximum = list_length(JSON_SAFE_INTEGER_MAX);
+        let exact = [TableColumn {
+            sizing: ColumnSizing::Fixed(maximum),
+        }];
+        let (resolved, residual, recipient) = resolve_table_columns(&exact, maximum).unwrap();
+        assert_eq!(resolved[0].final_width(), maximum);
+        assert_eq!(residual, Length::ZERO);
+        assert_eq!(recipient, None);
+
+        let short = [TableColumn {
+            sizing: ColumnSizing::Fixed(list_length(JSON_SAFE_INTEGER_MAX - 1)),
+        }];
+        assert_eq!(
+            resolve_table_columns(&short, maximum),
+            Err(TableGridLayoutError::ColumnArithmetic)
+        );
+        let over = [
+            TableColumn {
+                sizing: ColumnSizing::Fixed(maximum),
+            },
+            TableColumn {
+                sizing: ColumnSizing::Fixed(list_length(1)),
+            },
+        ];
+        assert_eq!(
+            resolve_table_columns(&over, maximum),
+            Err(TableGridLayoutError::ColumnArithmetic)
+        );
+
+        let last_fraction_before_fixed = [
+            TableColumn {
+                sizing: ColumnSizing::Fraction(NonZeroU16::new(1).unwrap()),
+            },
+            TableColumn {
+                sizing: ColumnSizing::Fraction(NonZeroU16::new(1).unwrap()),
+            },
+            TableColumn {
+                sizing: ColumnSizing::Fixed(list_length(7)),
+            },
+        ];
+        let (resolved, residual, recipient) =
+            resolve_table_columns(&last_fraction_before_fixed, list_length(10)).unwrap();
+        assert_eq!(
+            resolved
+                .iter()
+                .map(|column| column.final_width().get().raw())
+                .collect::<Vec<_>>(),
+            [2, 1, 7]
+        );
+        assert_eq!(residual.raw(), -1);
+        assert_eq!(recipient, Some(1));
+    }
+
+    static NEXT_FLOW_REGISTRY_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn multi_flow_machine_package() -> (Box<ValidatedMachinePackage>, LayoutEpoch) {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let paragraph = |node_id| wire::WireBlock::Paragraph {
+            node_id,
+            span,
+            classes: Vec::new(),
+            children: Vec::new(),
+        };
+        let package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_1,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![
+                    paragraph(1),
+                    wire::WireBlock::List {
+                        node_id: 2,
+                        span,
+                        classes: Vec::new(),
+                        ordered: true,
+                        start: Some(1),
+                        items: vec![wire::WireListItem {
+                            node_id: 3,
+                            span,
+                            blocks: vec![
+                                paragraph(4),
+                                wire::WireBlock::List {
+                                    node_id: 5,
+                                    span,
+                                    classes: Vec::new(),
+                                    ordered: false,
+                                    start: None,
+                                    items: vec![wire::WireListItem {
+                                        node_id: 6,
+                                        span,
+                                        blocks: vec![paragraph(7)],
+                                    }],
+                                },
+                            ],
+                        }],
+                    },
+                    wire::WireBlock::Figure {
+                        node_id: 8,
+                        span,
+                        classes: Vec::new(),
+                        image_id: 0,
+                        alt: "diagram".to_owned(),
+                        caption: vec![paragraph(9)],
+                    },
+                    wire::WireBlock::PageBreak {
+                        node_id: 10,
+                        span,
+                        classes: Vec::new(),
+                    },
+                ],
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet { rules: Vec::new() },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: vec![wire::WireImage {
+                    image_id: 0,
+                    uri: "image.png".to_owned(),
+                    expected_sha256: None,
+                }],
+            },
+        };
+        let root = std::env::temp_dir().join(format!(
+            "typaxis-layout-flow-registry-{}-{}",
+            std::process::id(),
+            NEXT_FLOW_REGISTRY_FIXTURE.fetch_add(1, AtomicOrdering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        let package_path = root.join("document-package.json");
+        fs::write(
+            &package_path,
+            wire::DocumentPackageEncoder::default()
+                .to_jcs_vec(&package)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::write(root.join("input.tsf"), []).unwrap();
+        fs::write(
+            root.join("image.png"),
+            [
+                137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0,
+                1, 1, 3, 0, 0, 0, 206, 236, 237, 201, 0, 0, 0, 6, 80, 76, 84, 69, 255, 0, 0, 0,
+                255, 0, 210, 135, 239, 113, 0, 0, 0, 2, 116, 82, 78, 83, 255, 0, 229, 183, 48, 74,
+                0, 0, 0, 10, 73, 68, 65, 84, 120, 156, 99, 112, 0, 0, 0, 66, 0, 65, 41, 55, 244,
+                239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+            ],
+        )
+        .unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let (session, raw) = HostMachineInputSession::open(
+            MachineInputHostOptions::new(HostPath::new(package_path.clone()).unwrap(), None),
+            &limits,
+        )
+        .unwrap();
+        let decoded = session
+            .decode_and_bind(
+                &raw,
+                &wire::StrictDocumentPackageDecoder::new(),
+                &wire::DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let sources = session.admit_sources(&decoded, &limits).unwrap();
+        let admitted = session.finish(raw, decoded, sources).unwrap();
+        let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+            .iter()
+            .map(|scheme| (*scheme).to_owned())
+            .collect::<Vec<_>>();
+        let policy = PackageValidationPolicy::new(&limits, &allowed_schemes).unwrap();
+        let parsed = match DocumentPackageParser::new().parse(admitted, &policy) {
+            MachineParseOutcome::Parsed { package } => package,
+            MachineParseOutcome::Failed { failure, .. } => {
+                panic!("multi-flow package failed: {failure}")
+            }
+        };
+        let config = EffectiveConfig::new(
+            false,
+            PdfStreamCompression::Flate,
+            vec![ConfigResourceRoot::ProjectRoot],
+            DEFAULT_ALLOWED_URI_SCHEMES
+                .iter()
+                .map(|scheme| (*scheme).to_owned())
+                .collect(),
+            EffectiveDataVersions::new(
+                REGISTERED_UNICODE_VERSION,
+                REGISTERED_JAPANESE_LINE_BREAK_VERSION,
+            )
+            .unwrap(),
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let host = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(root.clone()).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let resource_session = HostResourceAdmissionSession::new(
+            &host,
+            &config,
+            &parsed.package().package().resources,
+        )
+        .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_roots(
+            &parsed.package().package().resources,
+            &limits,
+            resource_session.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_image(
+                resource_session
+                    .open_image(ImageResourceId::new(0))
+                    .unwrap(),
+            )
+            .unwrap();
+        resolver.parse_and_bind_png(pending).unwrap();
+        let admitted_resources = resolver.finish().unwrap();
+        let generated = parsed
+            .package()
+            .materialize_initial_generated_text(&limits)
+            .unwrap();
+        let generated = parsed
+            .package()
+            .bind_generated_text(&generated, &limits)
+            .unwrap();
+        let epoch =
+            LayoutEpoch::from_validated_inputs(generated, admitted_resources.token()).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        (parsed, epoch)
     }
     fn epoch(package: &ValidatedParsedPackage) -> LayoutEpoch {
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
@@ -1735,6 +6796,304 @@ mod tests {
             ))
         );
     }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn canonical_flow_registry_is_dense_complete_and_insertion_order_independent() {
+        let (machine, package_epoch) = multi_flow_machine_package();
+        let package = machine.package();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package, package_epoch).unwrap();
+
+        let mut reversed =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        let mut owners: Vec<_> = reversed.expected_content_owners().collect();
+        assert_eq!(owners, [1, 3, 4, 6, 7, 8, 9, 10].map(NodeId::new).to_vec());
+        owners.reverse();
+        for owner in owners {
+            let content = reversed.issue_content(owner).unwrap();
+            reversed.register_content(content).unwrap();
+        }
+        let reversed = reversed.finish().unwrap();
+
+        let mut canonical =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        let owners: Vec<_> = canonical.expected_content_owners().collect();
+        for owner in owners {
+            let content = canonical.issue_content(owner).unwrap();
+            canonical.register_content(content).unwrap();
+        }
+        let canonical = canonical.finish().unwrap();
+
+        assert_eq!(
+            reversed.registry().receipt().fingerprint(),
+            canonical.registry().receipt().fingerprint()
+        );
+        assert_eq!(reversed.registry().receipt().flow_count(), 4);
+        assert_eq!(reversed.registry().receipt().max_depth(), 3);
+        assert_eq!(
+            reversed
+                .registry()
+                .flows()
+                .iter()
+                .map(|flow| (
+                    flow.flow_id().get(),
+                    flow.owner_node_id().get(),
+                    flow.parent_flow_id().map(FlowId::get),
+                    flow.terminal().owner_local_ordinal(),
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, 0, None, 4),
+                (1, 3, Some(0), 2),
+                (2, 6, Some(1), 1),
+                (3, 8, Some(0), 1),
+            ]
+        );
+        assert_eq!(reversed.flows(), canonical.flows());
+        assert_eq!(reversed.flow(FlowId::new(0)).unwrap().positions().len(), 5);
+        assert_eq!(reversed.flow(FlowId::new(1)).unwrap().positions().len(), 3);
+        assert_eq!(reversed.flow(FlowId::new(2)).unwrap().positions().len(), 2);
+        assert_eq!(reversed.flow(FlowId::new(3)).unwrap().positions().len(), 2);
+        for flow in reversed.flows() {
+            assert!(flow.terminal_position().is_terminal());
+            assert_eq!(
+                flow.terminal_position().flow_local_ordinal(),
+                flow.descriptor().terminal().owner_local_ordinal()
+            );
+            assert!(flow.positions()[..flow.positions().len() - 1]
+                .iter()
+                .all(|position| !position.is_terminal()));
+        }
+        assert_eq!(
+            reversed.flow(FlowId::new(0)).unwrap().positions()[1].child_flow_id(),
+            Some(FlowId::new(1))
+        );
+        assert_eq!(
+            reversed.flow(FlowId::new(1)).unwrap().positions()[1].child_flow_id(),
+            Some(FlowId::new(2))
+        );
+        assert_eq!(
+            reversed.flow(FlowId::new(0)).unwrap().positions()[2].child_flow_id(),
+            Some(FlowId::new(3))
+        );
+        assert_eq!(
+            reversed.flow(FlowId::new(0)).unwrap().positions()[2].content_kind(),
+            Some(FlowContentKind::FigureCaption)
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn canonical_flow_registry_finish_rejects_incomplete_and_tampered_content() {
+        let (machine, package_epoch) = multi_flow_machine_package();
+        let package = machine.package();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package, package_epoch).unwrap();
+
+        let mut missing =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        for owner in [1, 3, 4, 6, 7, 8, 9].map(NodeId::new) {
+            let content = missing.issue_content(owner).unwrap();
+            missing.register_content(content).unwrap();
+        }
+        assert_eq!(
+            missing.finish().unwrap_err(),
+            FlowRegistryError::MissingContent(NodeId::new(10))
+        );
+
+        let mut duplicate =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        let owners: Vec<_> = duplicate.expected_content_owners().collect();
+        for owner in &owners {
+            let content = duplicate.issue_content(*owner).unwrap();
+            duplicate.register_content(content).unwrap();
+        }
+        duplicate
+            .register_content(duplicate.issue_content(NodeId::new(1)).unwrap())
+            .unwrap();
+        assert_eq!(
+            duplicate.finish().unwrap_err(),
+            FlowRegistryError::ExtraContent(NodeId::new(1))
+        );
+
+        let mut wrong_owner =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        wrong_owner
+            .register_content_for(
+                NodeId::new(1),
+                wrong_owner.issue_content(NodeId::new(3)).unwrap(),
+            )
+            .unwrap();
+        for owner in [3, 4, 6, 7, 8, 9, 10].map(NodeId::new) {
+            let content = wrong_owner.issue_content(owner).unwrap();
+            wrong_owner.register_content(content).unwrap();
+        }
+        assert_eq!(
+            wrong_owner.finish().unwrap_err(),
+            FlowRegistryError::WrongOwner {
+                registered: NodeId::new(1),
+                actual: NodeId::new(3),
+            }
+        );
+
+        let mut wrong_kind =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        let paragraph = wrong_kind.issue_content(NodeId::new(1)).unwrap();
+        let receipt = match paragraph {
+            ValidatedFlowContent::Paragraph(value) => value.0,
+            _ => unreachable!(),
+        };
+        wrong_kind
+            .register_content(ValidatedFlowContent::PageBreak(
+                ValidatedPageBreakFlowContent(receipt),
+            ))
+            .unwrap();
+        for owner in [3, 4, 6, 7, 8, 9, 10].map(NodeId::new) {
+            let content = wrong_kind.issue_content(owner).unwrap();
+            wrong_kind.register_content(content).unwrap();
+        }
+        assert_eq!(
+            wrong_kind.finish().unwrap_err(),
+            FlowRegistryError::WrongContentKind {
+                owner: NodeId::new(1),
+                expected: FlowContentKind::Paragraph,
+                actual: FlowContentKind::PageBreak,
+            }
+        );
+
+        let mut wrong_terminal =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        let mut paragraph = wrong_terminal.issue_content(NodeId::new(1)).unwrap();
+        match &mut paragraph {
+            ValidatedFlowContent::Paragraph(value) => value.0.boundary_count = 2,
+            _ => unreachable!(),
+        }
+        wrong_terminal.register_content(paragraph).unwrap();
+        for owner in [3, 4, 6, 7, 8, 9, 10].map(NodeId::new) {
+            let content = wrong_terminal.issue_content(owner).unwrap();
+            wrong_terminal.register_content(content).unwrap();
+        }
+        assert_eq!(
+            wrong_terminal.finish().unwrap_err(),
+            FlowRegistryError::WrongTerminal(FlowId::DOCUMENT_BODY)
+        );
+
+        let other = paragraph_package(99);
+        let other_epoch = epoch(&other);
+        let mut wrong_epoch =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        let mut paragraph = wrong_epoch.issue_content(NodeId::new(1)).unwrap();
+        match &mut paragraph {
+            ValidatedFlowContent::Paragraph(value) => value.0.epoch = other_epoch,
+            _ => unreachable!(),
+        }
+        wrong_epoch.register_content(paragraph).unwrap();
+        for owner in [3, 4, 6, 7, 8, 9, 10].map(NodeId::new) {
+            let content = wrong_epoch.issue_content(owner).unwrap();
+            wrong_epoch.register_content(content).unwrap();
+        }
+        assert_eq!(
+            wrong_epoch.finish().unwrap_err(),
+            FlowRegistryError::WrongEpoch(NodeId::new(1))
+        );
+
+        let mut wrong_parent =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &limits)
+                .unwrap();
+        wrong_parent.content.model.flows[1].parent_flow_id = Some(FlowId::new(1));
+        let owners: Vec<_> = wrong_parent.expected_content_owners().collect();
+        for owner in owners {
+            let content = wrong_parent.issue_content(owner).unwrap();
+            wrong_parent.register_content(content).unwrap();
+        }
+        assert_eq!(
+            wrong_parent.finish().unwrap_err(),
+            FlowRegistryError::WrongParent(FlowId::new(1))
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn canonical_flow_registry_rechecks_count_and_depth_limits_before_ir() {
+        let (machine, package_epoch) = multi_flow_machine_package();
+        let package = machine.package();
+        let default_limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package, package_epoch).unwrap();
+
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_ast_nodes: package.document_nodes().node_count() as u64,
+            max_ast_nesting_depth: 3,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert!(
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &exact,).is_ok()
+        );
+
+        let too_few_nodes = ValidatedResourceLimits::new(ResourceLimits {
+            max_ast_nodes: package.document_nodes().node_count() as u64 - 1,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert!(matches!(
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &too_few_nodes,),
+            Err(FlowRegistryError::AstNodeLimit)
+        ));
+
+        let too_shallow = ValidatedResourceLimits::new(ResourceLimits {
+            max_ast_nesting_depth: 2,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert!(matches!(
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &too_shallow,),
+            Err(FlowRegistryError::FlowDepthLimit)
+        ));
+
+        let mut finish_count =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &default_limits)
+                .unwrap();
+        finish_count.content.max_ast_nodes = u64::try_from(package.document_nodes().node_count())
+            .unwrap()
+            .checked_sub(1)
+            .unwrap();
+        let owners: Vec<_> = finish_count.expected_content_owners().collect();
+        for owner in owners {
+            let content = finish_count.issue_content(owner).unwrap();
+            finish_count.register_content(content).unwrap();
+        }
+        assert_eq!(
+            finish_count.finish().unwrap_err(),
+            FlowRegistryError::AstNodeLimit
+        );
+
+        let mut finish_depth =
+            ProductionFlowIrBuilder::new(package, &paragraph_items, package_epoch, &default_limits)
+                .unwrap();
+        finish_depth.content.max_ast_nesting_depth = 2;
+        let owners: Vec<_> = finish_depth.expected_content_owners().collect();
+        for owner in owners {
+            let content = finish_depth.issue_content(owner).unwrap();
+            finish_depth.register_content(content).unwrap();
+        }
+        assert_eq!(
+            finish_depth.finish().unwrap_err(),
+            FlowRegistryError::FlowDepthLimit
+        );
+    }
+
     #[test]
     fn continuation_requires_monotonic_structured_progress() {
         let package = paragraph_package(1);
@@ -2098,5 +7457,281 @@ mod tests {
         );
         assert_eq!(insufficient.fragment_calls, 1);
         assert_eq!(insufficient.consumed_fragments, 0);
+    }
+
+    fn positive(raw: i64) -> PositiveLength {
+        PositiveLength::new(Length::from_raw(raw).unwrap()).unwrap()
+    }
+
+    fn typed_style_receipt(
+        block: BasicStyleBlockKind,
+        declarations: Vec<wire::WireDeclaration>,
+    ) -> MachineBlockComputedStyleReceipt {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let (wire_block, images) = match block {
+            BasicStyleBlockKind::Paragraph => (
+                wire::WireBlock::Paragraph {
+                    node_id: 1,
+                    span,
+                    classes: vec![],
+                    children: vec![],
+                },
+                vec![],
+            ),
+            BasicStyleBlockKind::Figure => (
+                wire::WireBlock::Figure {
+                    node_id: 1,
+                    span,
+                    classes: vec![],
+                    image_id: 0,
+                    alt: "fixture".to_owned(),
+                    caption: vec![],
+                },
+                vec![wire::WireImage {
+                    image_id: 0,
+                    uri: "fixture.png".to_owned(),
+                    expected_sha256: None,
+                }],
+            ),
+            _ => panic!("typed style fixture supports paragraph and figure"),
+        };
+        let package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_1,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: vec![],
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![wire_block],
+                footnotes: vec![],
+            },
+            style_sheet: wire::WireStyleSheet {
+                rules: vec![wire::WireStyleRule {
+                    style_id: "typed-style".to_owned(),
+                    extends: None,
+                    selector: block.as_str().to_owned(),
+                    source_order: 0,
+                    declarations,
+                }],
+            },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 1_000,
+                    height: 1_000,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 1_000,
+                        height: 1_000,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: vec![],
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: vec![],
+                images,
+            },
+        };
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let package = StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+            )
+            .unwrap();
+        package.compute_block_style(NodeId::new(1), None).unwrap()
+    }
+
+    fn typed_declaration(
+        name: wire::WireDeclarationName,
+        value: wire::WireStyleValue,
+    ) -> wire::WireDeclaration {
+        wire::WireDeclaration {
+            name,
+            value,
+            important: false,
+        }
+    }
+
+    #[test]
+    fn typed_style_consumers_apply_spacing_indents_center_rounding_rtl_and_page_split() {
+        let receipt = typed_style_receipt(
+            BasicStyleBlockKind::Paragraph,
+            vec![
+                typed_declaration(
+                    wire::WireDeclarationName::SpaceBefore,
+                    wire::WireStyleValue::Length { value: 5 },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::SpaceAfter,
+                    wire::WireStyleValue::Length { value: 6 },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::StartIndent,
+                    wire::WireStyleValue::Length { value: 10 },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::EndIndent,
+                    wire::WireStyleValue::Length { value: 10 },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::TextAlign,
+                    wire::WireStyleValue::Keyword {
+                        value: "center".to_owned(),
+                    },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::KeepWithNext,
+                    wire::WireStyleValue::Boolean { value: true },
+                ),
+            ],
+        );
+        let input = TypedBlockLayoutInput::new(
+            positive(101),
+            positive(20),
+            positive(20),
+            positive(25),
+            positive(100),
+            NonNegativeLength::new(Length::from_raw(7).unwrap()).unwrap(),
+            false,
+            false,
+            BidiLevel::RTL,
+        );
+        let selected = consume_typed_block_style(&receipt, input).unwrap();
+        assert_eq!(selected.available_inline_size().get().raw(), 81);
+        assert_eq!(selected.logical_start_alignment_space().get().raw(), 30);
+        assert_eq!(selected.logical_end_alignment_space().get().raw(), 31);
+        assert_eq!(selected.physical_left_inset().get().raw(), 41);
+        assert!(selected.page_break_before());
+        assert_eq!(selected.effective_space_before(), NonNegativeLength::ZERO);
+        assert_eq!(selected.effective_space_after().get().raw(), 6);
+        assert!(selected.keep_with_next());
+    }
+
+    #[test]
+    fn typed_style_consumers_use_figure_width_and_caption_keep_without_reinterpretation() {
+        let receipt = typed_style_receipt(
+            BasicStyleBlockKind::Figure,
+            vec![
+                typed_declaration(
+                    wire::WireDeclarationName::StartIndent,
+                    wire::WireStyleValue::Length { value: 10 },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::EndIndent,
+                    wire::WireStyleValue::Length { value: 20 },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::Width,
+                    wire::WireStyleValue::Length { value: 30 },
+                ),
+                typed_declaration(
+                    wire::WireDeclarationName::KeepCaption,
+                    wire::WireStyleValue::Boolean { value: false },
+                ),
+            ],
+        );
+        let selected = consume_typed_block_style(
+            &receipt,
+            TypedBlockLayoutInput::new(
+                positive(100),
+                positive(99),
+                positive(20),
+                positive(100),
+                positive(100),
+                NonNegativeLength::ZERO,
+                true,
+                true,
+                BidiLevel::LTR,
+            ),
+        )
+        .unwrap();
+        assert_eq!(selected.available_inline_size().get().raw(), 70);
+        assert_eq!(selected.content_inline_size().get().raw(), 30);
+        assert_eq!(selected.physical_left_inset().get().raw(), 10);
+        assert!(!selected.keep_caption());
+        assert_eq!(selected.effective_space_after(), NonNegativeLength::ZERO);
+
+        let auto = typed_style_receipt(BasicStyleBlockKind::Figure, vec![]);
+        assert_eq!(
+            consume_typed_block_style(
+                &auto,
+                TypedBlockLayoutInput::new(
+                    positive(100),
+                    positive(10),
+                    positive(10),
+                    positive(100),
+                    positive(100),
+                    NonNegativeLength::ZERO,
+                    true,
+                    true,
+                    BidiLevel::LTR,
+                ),
+            ),
+            Err(TypedStyleConsumerError::FigureWidthRequired)
+        );
+    }
+
+    #[test]
+    fn machine_figure_height_uses_checked_pixel_aspect_ratio_ties_to_even() {
+        let height = scale_figure_height(
+            positive(5),
+            NonZeroU32::new(2).unwrap(),
+            NonZeroU32::new(3).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(height.get().raw(), 8);
+        let half = scale_figure_height(
+            positive(3),
+            NonZeroU32::new(2).unwrap(),
+            NonZeroU32::new(1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(half.get().raw(), 2);
+        assert!(scale_figure_height(
+            positive(1),
+            NonZeroU32::new(3).unwrap(),
+            NonZeroU32::new(1).unwrap(),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn typed_style_consumers_production_path_has_no_new_property_name_comparisons() {
+        let production = include_str!("lib.rs").split("#[cfg(test)]").next().unwrap();
+        for forbidden in [
+            "\"space_before\"",
+            "\"space_after\"",
+            "\"start_indent\"",
+            "\"end_indent\"",
+            "\"text_align\"",
+            "\"width\"",
+            "\"keep_with_next\"",
+            "\"keep_caption\"",
+        ] {
+            assert!(!production.contains(forbidden), "found {forbidden}");
+        }
     }
 }

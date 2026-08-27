@@ -34,6 +34,12 @@ class PdfDifferentialTests(unittest.TestCase):
             differential._normalized_text(b"Typaxis machine input\n\x01\n\f"),
             "Typaxis machine input",
         )
+        self.assertEqual(
+            differential._normalized_text(
+                b"Basic document\ninternal external\nFirst item\n\n\fPNG caption\n"
+            ),
+            "Basic document internal external First item PNG caption",
+        )
 
     def test_independent_results_must_match_across_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

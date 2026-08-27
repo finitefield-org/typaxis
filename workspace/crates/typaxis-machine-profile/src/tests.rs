@@ -3,17 +3,21 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use typaxis_core::{sha256, DocumentPackageContractId, ResourceLimits, ValidatedResourceLimits};
+use typaxis_core::{
+    sha256, DocumentPackageContractId, ImageResourceId, NodeId, ResourceLimits,
+    ValidatedResourceLimits,
+};
 use typaxis_diagnostics::{
     DiagnosticSubject, MachineDiagnosticBudget, MachineDiagnosticPhase, Severity, I9110, L5100,
-    L5101, MAX_MACHINE_DIAGNOSTICS, R7100,
+    L5101, MAX_MACHINE_DIAGNOSTICS, R7100, T2100, T2101,
 };
 use typaxis_syntax::machine_profile_boundary::{
     wire, AtomicFilePublicationCapabilityToken, HostMachineInputSession,
     MachineInputCapabilityToken, MachineInputHostOptions, ResourceAdmissionCapabilityToken,
 };
 use typaxis_syntax::{
-    DocumentPackageParser, MachineParseOutcome, PackageValidationPolicy, ValidatedMachinePackage,
+    DocumentPackageParser, MachineParseOutcome, PackageValidationPolicy, StagingStylePackageParser,
+    ValidatedMachinePackage, ValidatedStagingStylePackage,
 };
 
 static NEXT_FIXTURE_ROOT: AtomicU64 = AtomicU64::new(0);
@@ -346,6 +350,48 @@ fn descriptor_is_a_closed_exhaustive_paragraph_1_contract() {
     );
 }
 
+#[test]
+fn forced_page_break_descriptor_is_private_closed_and_non_painting() {
+    let descriptor = BasicDocumentForcedPageBreakDescriptor::STAGING;
+    assert_eq!(descriptor.profile_id(), BASIC_DOCUMENT_PROFILE_ID);
+    assert_eq!(
+        descriptor.policy_version(),
+        "typaxis.basic-forced-page-break-policy/1"
+    );
+    assert_eq!(
+        descriptor.blank_page_policy(),
+        BasicDocumentBlankPagePolicy::PreserveLeadingConsecutiveAndTrailing
+    );
+    assert!(descriptor.starts_with_open_page());
+    assert_eq!(descriptor.cursor_advances_per_break(), 1);
+    assert!(!descriptor.emits_display_paint());
+    assert!(MachineProfileDescriptor::PARAGRAPH_1
+        .rejected_blocks()
+        .contains(&MachineBlockKind::PageBreak));
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn forced_page_break_remains_rejected_by_paragraph_1_preflight() {
+    let mut wire = base_wire();
+    wire.document.blocks = vec![wire::WireBlock::PageBreak {
+        node_id: 1,
+        span: source_span(),
+        classes: Vec::new(),
+    }];
+    let package = parse_fixture("paragraph-1-page-break", &wire);
+    let (result, diagnostics) = run_preflight(&package);
+    assert_eq!(
+        result.unwrap_err(),
+        MachinePdfPreflightFailure::Unsupported {
+            violation_count: 1,
+            primary_code: L5100,
+        }
+    );
+    assert_eq!(diagnostics.diagnostics().len(), 1);
+    assert_eq!(*diagnostics.diagnostics()[0].code(), L5100);
+}
+
 fn assert_partition<T>(accepted: &[T], rejected: &[T], domain: &[T])
 where
     T: Copy + std::fmt::Debug + Ord,
@@ -363,19 +409,8 @@ where
 #[test]
 fn capabilities_are_the_exact_canonical_descriptor_projection() {
     let encoded = encode_capabilities_canonical(HostCapabilityDescriptor::compiled());
-    let expected = concat!(
-        "{\"contract\":\"typaxis.contract/1.1\",",
-        "\"engine\":{\"name\":\"typaxis\",\"version\":\"0.1.0\"},",
-        "\"machine_input\":{",
-        "\"coordinate_units\":[\"pdf_point_1_65536\"],",
-        "\"default_profile\":\"typaxis.machine-pdf/paragraph-1\",",
-        "\"document_package_contracts\":[\"typaxis.contract/1.0\",\"typaxis.contract/1.1\"],",
-        "\"host_features\":{\"atomic_file_publish\":true,\"contained_package_open\":true,\"contained_resource_open\":true},",
-        "\"host_limits\":{\"max_read_candidates\":131072,\"max_resource_roots\":64},",
-        "\"limits\":{\"max_document_package_bytes\":{\"default\":134217728,\"maximum\":9007199254740991},",
-        "\"max_json_nesting_depth\":{\"default\":256,\"maximum\":256}},",
-        "\"max_diagnostics\":256,",
-        "\"profiles\":[{",
+    let paragraph_1 = concat!(
+        "{",
         "\"available\":true,",
         "\"blocks\":[\"heading\",\"paragraph\"],",
         "\"font_formats\":[\"sfnt-truetype-glyf\",\"ttc-truetype-glyf\"],",
@@ -391,10 +426,21 @@ fn capabilities_are_the_exact_canonical_descriptor_projection() {
         "\"style_block_types\":[\"heading\",\"paragraph\"],",
         "\"style_properties\":[\"font_family\",\"font_size\",\"line_height\",\"page\"],",
         "\"style_selectors\":[\"heading\",\"paragraph\"],",
-        "\"unsupported_pdf_features\":[\"heading-semantics\",\"link-annotations\",\"outlines\",\"tagged-pdf\"]",
-        "}]}}"
+        "\"unsupported_pdf_features\":[\"heading-semantics\",\"link-annotations\",\"outlines\",\"tagged-pdf\"]}"
     );
-    assert_eq!(encoded, expected);
+    assert!(encoded.starts_with(concat!(
+        "{\"contract\":\"typaxis.contract/1.2\",",
+        "\"engine\":{\"name\":\"typaxis\",\"version\":\"0.1.0\"},",
+        "\"machine_input\":{",
+        "\"coordinate_units\":[\"pdf_point_1_65536\"],",
+        "\"default_profile\":\"typaxis.machine-pdf/paragraph-1\",",
+        "\"document_package_contracts\":[\"typaxis.contract/1.0\",\"typaxis.contract/1.1\",\"typaxis.contract/1.2\"],"
+    )));
+    assert!(encoded.ends_with(&format!("{paragraph_1}]}}}}")));
+    assert_eq!(
+        encoded,
+        include_str!("../../../../samples/machine-package/capabilities.json")
+    );
     assert_eq!(
         encoded,
         compact_json_fixture(include_str!(
@@ -694,23 +740,48 @@ fn wire_for_single_fixture(feature: AdvertisedFixture) -> wire::WireDocumentPack
                         families: vec!["Fixture".to_owned()],
                     }
                 }
-                MachineStyleProperty::FontSize | MachineStyleProperty::LineHeight => {
-                    wire::WireStyleValue::Length { value: 12 }
+                MachineStyleProperty::EndIndent
+                | MachineStyleProperty::FontSize
+                | MachineStyleProperty::LineHeight
+                | MachineStyleProperty::SpaceAfter
+                | MachineStyleProperty::SpaceBefore
+                | MachineStyleProperty::StartIndent
+                | MachineStyleProperty::Width => wire::WireStyleValue::Length { value: 12 },
+                MachineStyleProperty::KeepCaption | MachineStyleProperty::KeepWithNext => {
+                    wire::WireStyleValue::Boolean { value: true }
                 }
                 MachineStyleProperty::Page => wire::WireStyleValue::Keyword {
                     value: "auto".to_owned(),
                 },
+                MachineStyleProperty::TextAlign => wire::WireStyleValue::Keyword {
+                    value: "start".to_owned(),
+                },
             };
             let name = match property {
+                MachineStyleProperty::EndIndent => wire::WireDeclarationName::EndIndent,
                 MachineStyleProperty::FontFamily => wire::WireDeclarationName::FontFamily,
                 MachineStyleProperty::FontSize => wire::WireDeclarationName::FontSize,
+                MachineStyleProperty::KeepCaption => wire::WireDeclarationName::KeepCaption,
+                MachineStyleProperty::KeepWithNext => wire::WireDeclarationName::KeepWithNext,
                 MachineStyleProperty::LineHeight => wire::WireDeclarationName::LineHeight,
                 MachineStyleProperty::Page => wire::WireDeclarationName::Page,
+                MachineStyleProperty::SpaceAfter => wire::WireDeclarationName::SpaceAfter,
+                MachineStyleProperty::SpaceBefore => wire::WireDeclarationName::SpaceBefore,
+                MachineStyleProperty::StartIndent => wire::WireDeclarationName::StartIndent,
+                MachineStyleProperty::TextAlign => wire::WireDeclarationName::TextAlign,
+                MachineStyleProperty::Width => wire::WireDeclarationName::Width,
             };
             package.style_sheet.rules.push(wire::WireStyleRule {
                 style_id: "fixture".to_owned(),
                 extends: None,
-                selector: "paragraph".to_owned(),
+                selector: if matches!(
+                    property,
+                    MachineStyleProperty::KeepCaption | MachineStyleProperty::Width
+                ) {
+                    "figure".to_owned()
+                } else {
+                    "paragraph".to_owned()
+                },
                 source_order: 0,
                 declarations: vec![wire::WireDeclaration {
                     name,
@@ -1147,4 +1218,555 @@ fn receipt_binds_the_opaque_admission_session_even_for_identical_bytes() {
         receipt.verify(MachinePdfProfileId::PARAGRAPH_1, &second),
         Err(MachinePdfReceiptMismatch::Session)
     );
+}
+
+fn parse_staging_styles(wire_package: &wire::WireDocumentPackage) -> ValidatedStagingStylePackage {
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+        .to_jcs_vec(wire_package)
+        .unwrap();
+    let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+        .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+        .unwrap();
+    let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+    StagingStylePackageParser::new()
+        .parse(
+            decoded,
+            String::new(),
+            &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+        )
+        .unwrap()
+}
+
+fn staging_link_wire() -> wire::WireDocumentPackage {
+    let mut package = base_wire();
+    add_text_buffer(&mut package);
+    package.document.blocks = vec![paragraph(
+        1,
+        vec![
+            wire::WireInline::Anchor {
+                node_id: 2,
+                span: source_span(),
+                anchor_id: "target".to_owned(),
+            },
+            wire::WireInline::Link {
+                node_id: 3,
+                span: source_span(),
+                target: wire::WireLinkTarget::Internal {
+                    anchor_id: "target".to_owned(),
+                },
+                children: vec![text_inline(4)],
+            },
+        ],
+    )];
+    package
+}
+
+#[test]
+fn machine_link_descriptor_is_closed_without_broadening_paragraph_1() {
+    let descriptor = BasicDocumentLinkDescriptor::STAGING;
+    assert_eq!(descriptor.profile_id(), BASIC_DOCUMENT_PROFILE_ID);
+    assert_eq!(descriptor.policy_version(), BASIC_LINK_POLICY_VERSION);
+    assert_eq!(
+        descriptor.target_policy(),
+        BasicDocumentLinkTargetPolicy::PackageAnchorOrSafeUri
+    );
+    assert_eq!(
+        descriptor.rectangle_policy(),
+        BasicDocumentLinkRectanglePolicy::CanonicalVisualClusterUnionPerPageLine
+    );
+    assert_eq!(
+        descriptor.empty_link_policy(),
+        BasicDocumentEmptyLinkPolicy::RejectBeforeLayout
+    );
+    assert!(!descriptor.permits_nested_links());
+    assert!(!descriptor.permits_raw_pdf_actions());
+    assert!(!MachineProfileDescriptor::PARAGRAPH_1.accepts_inline(MachineInlineKind::Link));
+}
+
+#[test]
+fn machine_link_receipt_binds_internal_anchor_to_its_exact_package() {
+    let first = parse_staging_styles(&staging_link_wire());
+    let mut other_wire = staging_link_wire();
+    other_wire.page_masters.masters[0].width = 101;
+    other_wire.page_masters.masters[0].body.width = 101;
+    let other = parse_staging_styles(&other_wire);
+    let receipt = BasicDocumentLinkPreflight::STAGING.run(&first).unwrap();
+    assert!(receipt.verifies(&first));
+    assert!(!receipt.verifies(&other));
+    assert!(!receipt.cluster_receipt().verifies(&other));
+    assert_eq!(receipt.cluster_receipt().anchors().len(), 1);
+    assert_eq!(
+        receipt.cluster_receipt().anchors()[0].owner(),
+        NodeId::new(2)
+    );
+    let target = receipt.cluster_receipt().links()[0].target();
+    assert_eq!(target.internal_anchor_owner(), Some(NodeId::new(2)));
+    assert_eq!(
+        target.internal_anchor_id().map(|anchor| anchor.as_str()),
+        Some("target")
+    );
+}
+
+fn run_basic_style_preflight(
+    package: &ValidatedStagingStylePackage,
+) -> (
+    Result<BasicDocumentStylePreflightReceipt, BasicDocumentStylePreflightFailure>,
+    typaxis_diagnostics::MachineDiagnostics,
+) {
+    let mut budget = MachineDiagnosticBudget::new();
+    let result = {
+        let mut lender = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+        BasicDocumentStylePreflight::STAGING.run(package, &mut lender)
+    };
+    (result, budget.finish())
+}
+
+#[test]
+fn basic_document_styles_descriptor_covers_every_typed_consumer_without_broadening_paragraph_1() {
+    let descriptor = BasicDocumentStyleDescriptor::STAGING;
+    assert_eq!(descriptor.profile_id(), BASIC_DOCUMENT_PROFILE_ID);
+    assert_eq!(descriptor.additive_properties().len(), 8);
+    assert_eq!(
+        descriptor
+            .additive_properties()
+            .iter()
+            .map(|entry| entry.property)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        8
+    );
+    assert_eq!(
+        descriptor
+            .additive_properties()
+            .iter()
+            .map(|entry| entry.consumer)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        8
+    );
+    for entry in descriptor.additive_properties() {
+        assert!(
+            !MachineProfileDescriptor::PARAGRAPH_1.accepts_style_property(entry.property.as_str())
+        );
+    }
+}
+
+#[test]
+fn basic_document_styles_emit_one_l5101_before_layout_for_inapplicable_property() {
+    let mut package = base_wire();
+    package.style_sheet.rules.push(wire::WireStyleRule {
+        style_id: "invalid-figure-style".to_owned(),
+        extends: None,
+        selector: "figure".to_owned(),
+        source_order: 0,
+        declarations: vec![wire::WireDeclaration {
+            name: wire::WireDeclarationName::TextAlign,
+            value: wire::WireStyleValue::Keyword {
+                value: "center".to_owned(),
+            },
+            important: false,
+        }],
+    });
+    let package = parse_staging_styles(&package);
+    let (result, diagnostics) = run_basic_style_preflight(&package);
+    assert_eq!(
+        result.unwrap_err(),
+        BasicDocumentStylePreflightFailure::Unsupported {
+            violation_count: 1,
+            primary_code: L5101,
+        }
+    );
+    assert_eq!(diagnostics.diagnostics().len(), 1);
+    assert_eq!(*diagnostics.diagnostics()[0].code(), L5101);
+    assert!(matches!(
+        diagnostics.diagnostics()[0].location(),
+        Some(typaxis_diagnostics::DiagnosticLocation::PackageJson {
+            json_pointer,
+            ..
+        }) if json_pointer.as_str() == "/style_sheet/rules/0/declarations/0"
+    ));
+}
+
+#[test]
+fn basic_document_styles_positive_descriptor_issues_package_bound_receipt() {
+    let mut package = base_wire();
+    package.style_sheet.rules.push(wire::WireStyleRule {
+        style_id: "paragraph-style".to_owned(),
+        extends: None,
+        selector: "paragraph".to_owned(),
+        source_order: 0,
+        declarations: vec![
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::SpaceBefore,
+                value: wire::WireStyleValue::Length { value: 0 },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::TextAlign,
+                value: wire::WireStyleValue::Keyword {
+                    value: "start".to_owned(),
+                },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::KeepWithNext,
+                value: wire::WireStyleValue::Boolean { value: false },
+                important: false,
+            },
+        ],
+    });
+    let package = parse_staging_styles(&package);
+    let (result, diagnostics) = run_basic_style_preflight(&package);
+    let receipt = result.unwrap();
+    assert!(receipt.verifies(&package));
+    assert_eq!(receipt.registry_version(), descriptor_registry_version());
+    assert!(diagnostics.diagnostics().is_empty());
+}
+
+fn descriptor_registry_version() -> &'static str {
+    BasicDocumentStyleDescriptor::STAGING.registry_version()
+}
+
+#[test]
+fn basic_document_styles_reject_figure_initial_auto_width_before_layout() {
+    let mut package = base_wire();
+    package.document.blocks.push(wire::WireBlock::Figure {
+        node_id: 1,
+        span: source_span(),
+        classes: vec![],
+        image_id: 0,
+        alt: "fixture".to_owned(),
+        caption: vec![],
+    });
+    package.resources.images.push(wire::WireImage {
+        image_id: 0,
+        uri: "fixture.png".to_owned(),
+        expected_sha256: None,
+    });
+    let package = parse_staging_styles(&package);
+    let (result, diagnostics) = run_basic_style_preflight(&package);
+    assert_eq!(
+        result.unwrap_err(),
+        BasicDocumentStylePreflightFailure::Unsupported {
+            violation_count: 1,
+            primary_code: L5101,
+        }
+    );
+    assert_eq!(diagnostics.diagnostics().len(), 1);
+    assert_eq!(*diagnostics.diagnostics()[0].code(), L5101);
+}
+
+#[test]
+fn machine_figure_descriptor_is_private_closed_png_and_non_floating() {
+    let descriptor = BasicDocumentFigureDescriptor::STAGING;
+    assert_eq!(descriptor.profile_id(), BASIC_DOCUMENT_PROFILE_ID);
+    assert_eq!(
+        descriptor.placement_policy(),
+        BasicDocumentFigurePlacementPolicy::NonFloatingBlock
+    );
+    assert_eq!(
+        descriptor.media_policy(),
+        BasicDocumentFigureMediaPolicy::DecoderAttestedPng
+    );
+    assert_eq!(
+        descriptor.size_policy(),
+        BasicDocumentFigureSizePolicy::ComputedWidthAndPixelAspectRatioTiesEven
+    );
+    assert_eq!(
+        descriptor.caption_policy(),
+        BasicDocumentFigureCaptionPolicy::TypedKeepCaption
+    );
+    assert_eq!(
+        descriptor.oversize_policy(),
+        BasicDocumentFigureOversizePolicy::TerminalOnce
+    );
+    assert!(!descriptor.permits_float());
+    assert!(MachineProfileDescriptor::PARAGRAPH_1
+        .rejected_blocks()
+        .contains(&MachineBlockKind::Figure));
+    assert!(MachineProfileDescriptor::PARAGRAPH_1
+        .rejected_image_formats()
+        .contains(&MachineImageFormat::Png));
+}
+
+#[test]
+fn machine_figure_preflight_binds_body_figure_and_caption_only() {
+    let mut package = base_wire();
+    package.document.blocks.push(wire::WireBlock::Figure {
+        node_id: 1,
+        span: source_span(),
+        classes: vec![],
+        image_id: 0,
+        alt: "decoder-attested fixture".to_owned(),
+        caption: vec![paragraph(2, vec![])],
+    });
+    package.resources.images.push(wire::WireImage {
+        image_id: 0,
+        uri: "not-a-media-attestation.bin".to_owned(),
+        expected_sha256: None,
+    });
+    let package = parse_staging_styles(&package);
+    let receipt = BasicDocumentFigurePreflight::STAGING.run(&package).unwrap();
+    assert!(receipt.verifies(&package));
+    assert_eq!(receipt.layout_receipt().figures().len(), 1);
+    let figure = &receipt.layout_receipt().figures()[0];
+    assert_eq!(figure.owner(), NodeId::new(1));
+    assert_eq!(figure.image_id(), ImageResourceId::new(0));
+    assert_eq!(figure.caption_owners(), &[NodeId::new(2)]);
+
+    let mut nested = base_wire();
+    nested.document.blocks.push(wire::WireBlock::List {
+        node_id: 1,
+        span: source_span(),
+        classes: vec![],
+        ordered: false,
+        start: None,
+        items: vec![wire::WireListItem {
+            node_id: 2,
+            span: source_span(),
+            blocks: vec![wire::WireBlock::Figure {
+                node_id: 3,
+                span: source_span(),
+                classes: vec![],
+                image_id: 0,
+                alt: "nested".to_owned(),
+                caption: vec![],
+            }],
+        }],
+    });
+    nested.resources.images.push(wire::WireImage {
+        image_id: 0,
+        uri: "fixture.bin".to_owned(),
+        expected_sha256: None,
+    });
+    let nested = parse_staging_styles(&nested);
+    assert!(matches!(
+        BasicDocumentFigurePreflight::STAGING.run(&nested),
+        Err(BasicDocumentFigurePreflightFailure::FigureUsage(
+            typaxis_syntax::StagingFigurePreflightError::UnsupportedContainer(owner)
+        ))
+            if owner == NodeId::new(3)
+    ));
+
+    let mut unsupported_fit = base_wire();
+    unsupported_fit
+        .document
+        .blocks
+        .push(wire::WireBlock::Figure {
+            node_id: 1,
+            span: source_span(),
+            classes: vec![],
+            image_id: 0,
+            alt: "unsupported fit".to_owned(),
+            caption: vec![],
+        });
+    unsupported_fit.resources.images.push(wire::WireImage {
+        image_id: 0,
+        uri: "fixture.bin".to_owned(),
+        expected_sha256: None,
+    });
+    unsupported_fit.style_sheet.rules.push(wire::WireStyleRule {
+        style_id: "figure-fit".to_owned(),
+        extends: None,
+        selector: "figure".to_owned(),
+        source_order: 0,
+        declarations: vec![
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::Width,
+                value: wire::WireStyleValue::Length { value: 40 },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::KeepWithNext,
+                value: wire::WireStyleValue::Boolean { value: true },
+                important: false,
+            },
+        ],
+    });
+    let unsupported_fit = parse_staging_styles(&unsupported_fit);
+    assert!(matches!(
+        BasicDocumentFigurePreflight::STAGING.run(&unsupported_fit),
+        Err(BasicDocumentFigurePreflightFailure::UnsupportedFitPolicy(
+            owner
+        )) if owner == NodeId::new(1)
+    ));
+}
+
+fn list_style_rule() -> wire::WireStyleRule {
+    wire::WireStyleRule {
+        style_id: "list-style".to_owned(),
+        extends: None,
+        selector: "list".to_owned(),
+        source_order: 0,
+        declarations: vec![
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::FontFamily,
+                value: wire::WireStyleValue::FontFamilyList {
+                    families: vec!["Fixture".to_owned()],
+                },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::FontSize,
+                value: wire::WireStyleValue::Length { value: 10 },
+                important: false,
+            },
+            wire::WireDeclaration {
+                name: wire::WireDeclarationName::LineHeight,
+                value: wire::WireStyleValue::Length { value: 12 },
+                important: false,
+            },
+        ],
+    }
+}
+
+fn list_wire(ordered: bool, start: Option<u32>, item_count: u32) -> wire::WireDocumentPackage {
+    let mut package = base_wire();
+    package.style_sheet.rules.push(list_style_rule());
+    package.document.blocks.push(wire::WireBlock::List {
+        node_id: 1,
+        span: source_span(),
+        classes: vec![],
+        ordered,
+        start,
+        items: (0..item_count)
+            .map(|index| wire::WireListItem {
+                node_id: index * 2 + 2,
+                span: source_span(),
+                blocks: vec![wire::WireBlock::Paragraph {
+                    node_id: index * 2 + 3,
+                    span: source_span(),
+                    classes: vec![],
+                    children: vec![],
+                }],
+            })
+            .collect(),
+    });
+    package
+}
+
+fn run_list_preflight(
+    package: &ValidatedStagingStylePackage,
+    limits: &ValidatedResourceLimits,
+) -> (
+    Result<BasicDocumentListPreflightReceipt, BasicDocumentListPreflightFailure>,
+    typaxis_diagnostics::MachineDiagnostics,
+) {
+    let mut budget = MachineDiagnosticBudget::new();
+    let result = {
+        let mut lender = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+        BasicDocumentListPreflight::STAGING.run(package, limits, &mut lender)
+    };
+    (result, budget.finish())
+}
+
+#[test]
+fn machine_list_descriptor_is_closed_without_broadening_paragraph_1() {
+    let descriptor = BasicDocumentListDescriptor::STAGING;
+    assert_eq!(descriptor.profile_id(), BASIC_DOCUMENT_PROFILE_ID);
+    assert_eq!(descriptor.policy_version(), BASIC_LIST_POLICY_VERSION);
+    assert_eq!(
+        descriptor.accepted_kinds(),
+        [
+            BasicDocumentListKind::Ordered,
+            BasicDocumentListKind::Unordered
+        ]
+    );
+    assert_eq!(descriptor.marker_gap_font_sizes(), 1);
+    assert_eq!(
+        descriptor.marker_alignment(),
+        BasicDocumentListMarkerAlignment::End
+    );
+    assert!(descriptor.nested_lists());
+    assert!(!descriptor.accepts_caller_marker_text());
+    assert!(!MachineProfileDescriptor::PARAGRAPH_1.accepts_block(MachineBlockKind::List));
+}
+
+#[test]
+fn machine_list_preflight_derives_canonical_marker_ledger() {
+    let package = parse_staging_styles(&list_wire(true, Some(9), 2));
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let (receipt, diagnostics) = run_list_preflight(&package, &limits);
+    let receipt = receipt.unwrap();
+    assert!(diagnostics.diagnostics().is_empty());
+    assert_eq!(
+        receipt
+            .markers()
+            .iter()
+            .map(|marker| (
+                marker.item_owner().get(),
+                marker.ordered_value(),
+                marker.utf8()
+            ))
+            .collect::<Vec<_>>(),
+        vec![(2, Some(9), "9."), (4, Some(10), "10.")]
+    );
+    let generated = package
+        .package()
+        .materialize_initial_generated_text(&limits)
+        .unwrap();
+    let generated = package
+        .package()
+        .bind_generated_text(&generated, &limits)
+        .unwrap();
+    assert!(receipt.verifies_generated_text(generated));
+}
+
+#[test]
+fn machine_list_ordered_overflow_is_staging_l5100_preflight() {
+    let package = parse_staging_styles(&list_wire(true, Some(u32::MAX), 2));
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let (result, diagnostics) = run_list_preflight(&package, &limits);
+    assert_eq!(
+        result.unwrap_err(),
+        BasicDocumentListPreflightFailure::MarkerOverflow {
+            list_owner: typaxis_core::NodeId::new(1)
+        }
+    );
+    assert_eq!(*diagnostics.diagnostics()[0].code(), L5100);
+}
+
+#[test]
+fn machine_list_marker_limits_accept_exact_and_reject_max_plus_one_before_store() {
+    let package = parse_staging_styles(&list_wire(false, None, 1));
+    let exact = ValidatedResourceLimits::new(ResourceLimits {
+        max_text_buffer_bytes: 3,
+        max_text_bytes: 3,
+        max_shaping_context_bytes: 3,
+        ..ResourceLimits::default()
+    })
+    .unwrap();
+    assert!(run_list_preflight(&package, &exact).0.is_ok());
+
+    let too_small = ValidatedResourceLimits::new(ResourceLimits {
+        max_text_buffer_bytes: 2,
+        max_text_bytes: 3,
+        max_shaping_context_bytes: 2,
+        ..ResourceLimits::default()
+    })
+    .unwrap();
+    let (result, diagnostics) = run_list_preflight(&package, &too_small);
+    assert_eq!(
+        result.unwrap_err(),
+        BasicDocumentListPreflightFailure::TextBufferLimit {
+            item_owner: typaxis_core::NodeId::new(2)
+        }
+    );
+    assert_eq!(*diagnostics.diagnostics()[0].code(), T2100);
+
+    let two = parse_staging_styles(&list_wire(false, None, 2));
+    let total_too_small = ValidatedResourceLimits::new(ResourceLimits {
+        max_text_buffer_bytes: 3,
+        max_text_bytes: 5,
+        max_shaping_context_bytes: 3,
+        ..ResourceLimits::default()
+    })
+    .unwrap();
+    let (result, diagnostics) = run_list_preflight(&two, &total_too_small);
+    assert_eq!(
+        result.unwrap_err(),
+        BasicDocumentListPreflightFailure::TextTotalLimit
+    );
+    assert_eq!(*diagnostics.diagnostics()[0].code(), T2101);
 }

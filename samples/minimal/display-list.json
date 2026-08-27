@@ -1,14 +1,14 @@
 {
-  "contract": "typaxis.contract/1.1",
+  "contract": "typaxis.contract/1.2",
   "coordinate_unit": "pdf_point_1_65536",
   "source_layout": {
     "layout_epoch": {
-      "document_sha256": "4b9228095eacd6527953123afee6e890267d19877ec9b083c452c05f6919c69a",
-      "style_page_master_sha256": "40d9810b810455a25f773560a743860c1d04e59b7c72273c161da2136b09b12d",
+      "document_sha256": "0f274e09eca8f12c46be9b2398c24efcb46cb91190c6a7c6d6fc86dac044e6af",
+      "style_page_master_sha256": "c6563f9b21d81bcc53fc0e30a94526e2e13e0c8b2fe9a9dc13872ff260566268",
       "admitted_resources_sha256": "55226c25adbdf5cfde192abdb15de07753e1081db59c1bfc5f6eb829f0d20952",
       "resolved_input_sha256": "6906122af2bf484a8a7306f84ec7e755ed70956ea563fa7c0a9b181c7f657b9f"
     },
-    "state_fingerprint": "3e7c748d0ea787ec633a92274daad30f7a8f6ef251843eb3c905d761a500f130"
+    "state_fingerprint": "b96de394781464968c4f9d05e22416d33bcf23c9610c3e1b5e339cd9e73ca7ae"
   },
   "text_buffers": [],
   "font_instances": [],

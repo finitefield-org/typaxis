@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.1/machine-fixture-expectation.schema.json",
+  "title": "Typaxis Machine Fixture Expectation 1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "advertised_item_coverage",
+    "arguments",
+    "command",
+    "contract",
+    "expected",
+    "fixture_class",
+    "fixture_id",
+    "package",
+    "profile",
+    "resource_hashes"
+  ],
+  "properties": {
+    "advertised_item_coverage": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9][A-Za-z0-9_.-]*$"
+      }
+    },
+    "arguments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "command": {
+      "enum": [
+        "build-package",
+        "check-package"
+      ]
+    },
+    "contract": {
+      "type": "string",
+      "pattern": "^typaxis\\.contract/[0-9]+\\.[0-9]+$"
+    },
+    "expected": {
+      "$ref": "#/$defs/expected_outcome"
+    },
+    "fixture_class": {
+      "enum": [
+        "limit",
+        "negative",
+        "positive",
+        "publication",
+        "round_trip",
+        "tamper"
+      ]
+    },
+    "fixture_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+    },
+    "package": {
+      "$ref": "#/$defs/relative_path"
+    },
+    "profile": {
+      "const": "typaxis.machine-pdf/paragraph-1"
+    },
+    "resource_hashes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/resource_hash"
+      }
+    }
+  },
+  "$defs": {
+    "expected_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exit_code",
+        "location",
+        "manifest_progress",
+        "normalized_extracted_text",
+        "page_count",
+        "primary_code",
+        "side_effects",
+        "visible_artifacts"
+      ],
+      "properties": {
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "manifest_progress": {
+          "$ref": "#/$defs/manifest_progress"
+        },
+        "normalized_extracted_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "primary_code": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?:P1|T2|S3|F4|L5|G6|R7|D8|I9)[0-9]{3}$"
+            }
+          ]
+        },
+        "side_effects": {
+          "$ref": "#/$defs/side_effects"
+        },
+        "visible_artifacts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "diagnostics",
+              "manifest",
+              "pdf",
+              "trace"
+            ]
+          }
+        }
+      }
+    },
+    "manifest_progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package",
+        "resources",
+        "sources"
+      ],
+      "properties": {
+        "package": {
+          "enum": [
+            "decoded",
+            "none",
+            "raw",
+            "validated"
+          ]
+        },
+        "resources": {
+          "enum": [
+            "admitted",
+            "none",
+            "registered"
+          ]
+        },
+        "sources": {
+          "enum": [
+            "admitted",
+            "none"
+          ]
+        }
+      }
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\).+$"
+    },
+    "resource_hash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "sha256",
+        "uri"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "uri": {
+          "$ref": "#/$defs/relative_path"
+        }
+      }
+    },
+    "side_effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layout_started",
+        "package_read",
+        "pdf_started",
+        "resource_opened",
+        "source_read"
+      ],
+      "properties": {
+        "layout_started": {
+          "type": "boolean"
+        },
+        "package_read": {
+          "type": "boolean"
+        },
+        "pdf_started": {
+          "type": "boolean"
+        },
+        "resource_opened": {
+          "type": "boolean"
+        },
+        "source_read": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

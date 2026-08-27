@@ -1,0 +1,78 @@
+{
+  "contract": "typaxis.contract/1.2",
+  "profile": "typaxis.machine-pdf/basic-document-1",
+  "registry_version": "typaxis.basic-block-style-registry/1",
+  "property_coverage": [
+    {
+      "consumer": "block_flow_glue_before",
+      "display": "effective_space_before",
+      "manifest": "effective_space_before",
+      "pdf": "effective_space_before",
+      "property": "space_before"
+    },
+    {
+      "consumer": "block_flow_glue_after",
+      "display": "effective_space_after",
+      "manifest": "effective_space_after",
+      "pdf": "effective_space_after",
+      "property": "space_after"
+    },
+    {
+      "consumer": "logical_start_inset",
+      "display": "start_indent",
+      "manifest": "start_indent",
+      "pdf": "start_indent",
+      "property": "start_indent"
+    },
+    {
+      "consumer": "logical_end_inset",
+      "display": "end_indent",
+      "manifest": "end_indent",
+      "pdf": "end_indent",
+      "property": "end_indent"
+    },
+    {
+      "consumer": "line_placement",
+      "display": "logical_start_alignment_space",
+      "manifest": "logical_start_alignment_space",
+      "pdf": "paint_left_inset",
+      "property": "text_align"
+    },
+    {
+      "consumer": "figure_inline_size",
+      "display": "paint_inline_size",
+      "manifest": "paint_inline_size",
+      "pdf": "paint_inline_size",
+      "property": "width"
+    },
+    {
+      "consumer": "block_next_keep",
+      "display": "keep_with_next",
+      "manifest": "keep_with_next",
+      "pdf": "keep_with_next",
+      "property": "keep_with_next"
+    },
+    {
+      "consumer": "figure_caption_keep",
+      "display": "keep_caption",
+      "manifest": "keep_caption",
+      "pdf": "keep_caption",
+      "property": "keep_caption"
+    }
+  ],
+  "scenarios": {
+    "exact_max": 9007199254740991,
+    "inherit": "text_align",
+    "max_plus_one": 9007199254740992,
+    "minimum": 0,
+    "override": "space_before",
+    "page_split": true,
+    "pdf_content_observation": "q\n40 0 20 1 re W n\nQ\n",
+    "unknown": "future_property",
+    "unused_advertised_property": false,
+    "wrong_tag": {
+      "kind": "integer",
+      "property": "space_before"
+    }
+  }
+}

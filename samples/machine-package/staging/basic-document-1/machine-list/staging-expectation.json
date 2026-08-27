@@ -1,0 +1,20 @@
+{
+  "contract": "typaxis.contract/1.2",
+  "profile": "typaxis.machine-pdf/basic-document-1",
+  "policy_version": "typaxis.basic-list-policy/1",
+  "scenarios": {
+    "deterministic_double_build": true,
+    "empty_painted_item": "L5100",
+    "exact_marker_buffer_bytes": 3,
+    "marker_buffer_max_plus_one": 2,
+    "marker_overflow": "L5100",
+    "nested": true,
+    "page_split": true,
+    "single": true,
+    "tamper": [
+      "missing_item",
+      "extra_item",
+      "wrong_item"
+    ]
+  }
+}

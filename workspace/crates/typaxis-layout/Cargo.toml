@@ -14,8 +14,6 @@ typaxis-document = { path = "../typaxis-document" }
 typaxis-style = { path = "../typaxis-style" }
 typaxis-linebreak = { path = "../typaxis-linebreak" }
 typaxis-layout-contract = { path = "../typaxis-layout-contract" }
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 typaxis-text = { path = "../typaxis-text" }
-
-[dev-dependencies]
-typaxis-resource-admission = { path = "../typaxis-resource-admission" }

@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.1/diagnostics.schema.json",
+  "title": "Typaxis Diagnostics 1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "diagnostics"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "message",
+        "location",
+        "notes"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^(?:P1|T2|S3|F4|L5|G6|R7|D8|I9)[0-9]{3}$"
+        },
+        "severity": {
+          "enum": [
+            "note",
+            "warning",
+            "error",
+            "fatal"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/location"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          }
+        }
+      }
+    },
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "location",
+        "message"
+      ],
+      "properties": {
+        "location": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/location"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "location": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/package_json_location"
+        },
+        {
+          "$ref": "#/$defs/source_location"
+        }
+      ]
+    },
+    "package_json_location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "byte_offset",
+        "json_pointer",
+        "kind",
+        "uri"
+      ],
+      "properties": {
+        "byte_offset": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/nonnegative_safe_integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json_pointer": {
+          "type": "string",
+          "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+        },
+        "kind": {
+          "const": "package_json"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        }
+      }
+    },
+    "source_location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "node_id",
+        "source_span",
+        "text_span"
+      ],
+      "properties": {
+        "kind": {
+          "const": "source"
+        },
+        "node_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_span": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text_span": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/text_span"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            }
+          }
+        },
+        {
+          "properties": {
+            "source_span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            }
+          }
+        },
+        {
+          "properties": {
+            "text_span": {
+              "$ref": "common.schema.json#/$defs/text_span"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

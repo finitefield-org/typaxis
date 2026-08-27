@@ -3,12 +3,12 @@
 use core::num::{NonZeroU16, NonZeroU64};
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
-    document_fingerprint_from_jcs, push_jcs_string, sha256, style_fingerprint_from_jcs, AnchorId,
-    DocumentFingerprint, FontFaceId, FootnoteId, GeneratedBufferKey, GenerationKind,
-    ImageResourceId, JsonPointer, Length, MasterId, NodeId, PageName, PortablePath, PositiveLength,
-    Rect, ReferenceFingerprint, SafeUri, SafeUriError, SourceId, SourceSpan, StyleFingerprint,
-    StyleId, TextBufferId, TextSpan, Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits,
-    CONTRACT, COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
+    document_fingerprint_from_jcs, push_generated_buffer_key_jcs, push_jcs_string, sha256,
+    style_fingerprint_from_jcs, AnchorId, DocumentFingerprint, FontFaceId, FootnoteId,
+    GeneratedBufferKey, GenerationKind, ImageResourceId, JsonPointer, Length, MasterId, NodeId,
+    PageName, PortablePath, PositiveLength, Rect, ReferenceFingerprint, SafeUri, SafeUriError,
+    SourceId, SourceSpan, StyleFingerprint, StyleId, TextBufferId, TextSpan, Utf8ByteOffset,
+    Utf8ByteRange, ValidatedResourceLimits, CONTRACT, COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
 };
 use typaxis_diagnostics::{
     AdvisoryDiagnostic, Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticFlow,
@@ -30,8 +30,10 @@ use typaxis_machine_input::{
     MachineInputFingerprint, MachineInputProgress, MachineInputSessionIdentity, MachineInputStage,
 };
 use typaxis_style::{
-    is_style_identifier, ComputedStyle, Declaration, PageMaster, PageMasterRule, PageMasterSet,
+    is_style_identifier, BasicStyleBlockKind, ComputedMachineBlockStyle, ComputedMachineListStyle,
+    ComputedStyle, Declaration, PageMaster, PageMasterRule, PageMasterSet,
     PageMasterValidationError, PageParity, StyleRule, StyleSheet, StyleValidationError, StyleValue,
+    BASIC_BLOCK_STYLE_REGISTRY_VERSION, TABLE_BLOCK_STYLE_REGISTRY_VERSION,
 };
 use typaxis_text::{
     GeneratedBufferDraft, GeneratedProvenance, GeneratedTextStore, SourceCatalog, SourceRecord,
@@ -54,7 +56,17 @@ pub mod machine_profile_boundary {
         MachineInputCapabilityToken, MachineInputHostOptions, MachineInputSessionIdentity,
         MAX_HOST_READ_CANDIDATES, MAX_RESOURCE_ROOTS,
     };
-    pub use typaxis_style::{PageMaster, PageMasterRule, StyleRule, StyleValue};
+    pub use typaxis_style::{
+        BasicBlockStylePropertyDescriptor, BasicStyleBlockKind, BasicStyleProperty, PageMaster,
+        PageMasterRule, StyleRule, StyleValue, BASIC_BLOCK_STYLE_PROPERTIES,
+        BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+    };
+
+    pub use crate::{
+        MachineBlockComputedStyleReceipt, MachineListComputedStyleReceipt,
+        StagingListMarkerPreflightError, StagingStyleReceiptMismatch,
+        ValidatedStagingListMarkerUsageReceipt, ValidatedStagingStylePackage,
+    };
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1724,6 +1736,7 @@ pub struct ValidatedParsedPackage {
     document_nodes: ValidatedDocumentNodeIndex,
     include_graph: ValidatedIncludeGraph,
     epoch_identity: PackageEpochIdentity,
+    extended_style_contract: bool,
 }
 impl ValidatedParsedPackage {
     /// Validates an entry-only parser result. The syntax keyword scan prevents
@@ -1750,6 +1763,16 @@ impl ValidatedParsedPackage {
         package: ParsedPackage,
         policy: &PackageValidationPolicy<'_>,
         include_graph: &ValidatedIncludeGraph,
+        map_error: impl FnOnce(&ParsedPackage, PackageValidationError) -> E,
+    ) -> Result<Self, E> {
+        Self::new_resolved_with_style_contract(package, policy, include_graph, false, map_error)
+    }
+
+    fn new_resolved_with_style_contract<E>(
+        package: ParsedPackage,
+        policy: &PackageValidationPolicy<'_>,
+        include_graph: &ValidatedIncludeGraph,
+        staging_style_1_2: bool,
         map_error: impl FnOnce(&ParsedPackage, PackageValidationError) -> E,
     ) -> Result<Self, E> {
         let validation = (|| -> Result<_, PackageValidationError> {
@@ -1779,16 +1802,29 @@ impl ValidatedParsedPackage {
                 }
             }
             validate_style_inheritance_depth(&package.style_sheet, policy.limits)?;
-            package
-                .style_sheet
-                .validate()
-                .map_err(PackageValidationError::InvalidStyle)?;
+            if staging_style_1_2 {
+                package
+                    .style_sheet
+                    .validate_basic_document_style_shape()
+                    .map_err(PackageValidationError::InvalidStyle)?;
+            } else {
+                package
+                    .style_sheet
+                    .validate()
+                    .map_err(PackageValidationError::InvalidStyle)?;
+            }
             package
                 .page_masters
                 .validate()
                 .map_err(PackageValidationError::InvalidPageMasters)?;
             let image_ids = validate_resource_catalog(&package.resources)?;
-            validate_document(&package, &image_ids, policy, non_document_ast_nodes)?;
+            validate_document(
+                &package,
+                &image_ids,
+                policy,
+                non_document_ast_nodes,
+                staging_style_1_2,
+            )?;
             let document_nodes = ValidatedDocumentNodeIndex::new(&package.document)
                 .map_err(|_| PackageValidationError::NonCanonicalNodeId)?;
             let epoch_identity = PackageEpochIdentity::from_package(&package);
@@ -1803,6 +1839,7 @@ impl ValidatedParsedPackage {
             document_nodes,
             include_graph: include_graph.clone(),
             epoch_identity,
+            extended_style_contract: staging_style_1_2,
         })
     }
 
@@ -2001,11 +2038,14 @@ impl ValidatedParsedPackage {
         let (style_owner, block_type, classes) =
             find_styleable_block(&self.package.document, owner)
                 .ok_or(PackageStyleError::UnknownStyleOwner)?;
-        let computed = self
-            .package
-            .style_sheet
-            .cascade(block_type, classes)
-            .map_err(PackageStyleError::InvalidStyle)?;
+        let computed = if self.extended_style_contract {
+            self.package
+                .style_sheet
+                .cascade_basic_document(block_type, classes)
+        } else {
+            self.package.style_sheet.cascade(block_type, classes)
+        }
+        .map_err(PackageStyleError::InvalidStyle)?;
         Ok(PackageComputedStyle {
             owner,
             style_owner,
@@ -2420,6 +2460,30 @@ impl ValidatedMachinePackage {
     pub const fn provenance(&self) -> &ValidatedMachineProvenance {
         &self.provenance
     }
+
+    /// Raw contract selected by the strict decoder. Compatibility input keeps
+    /// this identity even though every newly generated artifact uses 1.2.
+    pub fn contract(&self) -> typaxis_core::DocumentPackageContractId {
+        self.provenance
+            .progress()
+            .decoded()
+            .expect("validated machine packages retain decoded PACKAGE facts")
+            .contract()
+    }
+
+    /// Issue the syntax-owned view consumed by the immutable basic-document
+    /// slices. Only raw contract 1.2 input can cross this boundary; 1.0/1.1
+    /// compatibility input is never upgraded by the selected profile.
+    pub fn basic_document_view(&self) -> Option<ValidatedBasicDocumentPackage> {
+        (self.contract() == typaxis_core::DocumentPackageContractId::V1_2).then(|| {
+            ValidatedStagingStylePackage {
+                package: self.package.clone(),
+                raw_sha256: self.provenance.raw_sha256,
+                canonical_jcs_sha256: self.provenance.canonical_jcs_sha256,
+                locations: self.provenance.locations.clone(),
+            }
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -2477,6 +2541,1486 @@ impl DocumentPackageParser {
     }
 }
 
+/// Historical algorithm names retained for the focused contract 1.2 slice
+/// receipts. Public orchestration obtains the same sealed facts from the
+/// validated basic-document view of a normal machine-package receipt.
+pub const STAGING_BASIC_LIST_POLICY_VERSION: &str = "typaxis.basic-list-policy/1";
+pub const STAGING_LIST_MARKER_USAGE_ALGORITHM: &str = "typaxis.basic-list-marker-usage/1";
+pub const STAGING_FORCED_PAGE_BREAK_POLICY_VERSION: &str =
+    "typaxis.basic-forced-page-break-policy/1";
+pub const STAGING_FORCED_PAGE_BREAK_USAGE_ALGORITHM: &str =
+    "typaxis.basic-forced-page-break-usage/1";
+pub const STAGING_BASIC_FIGURE_POLICY_VERSION: &str = "typaxis.basic-png-figure-policy/1";
+pub const STAGING_FIGURE_USAGE_ALGORITHM: &str = "typaxis.basic-png-figure-usage/1";
+pub const STAGING_BASIC_LINK_POLICY_VERSION: &str = "typaxis.basic-link-policy/1";
+pub const STAGING_LINK_USAGE_ALGORITHM: &str = "typaxis.basic-link-usage/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingLinkPreflightError {
+    UnsupportedContainer(NodeId),
+    UnsupportedChild(NodeId),
+    NestedLink(NodeId),
+    EmptyChildren(NodeId),
+    UnpaintedChildren(NodeId),
+    UnknownInternalTarget(NodeId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+/// Syntax-admitted target for the private link slice. External values have
+/// already crossed `SafeUri`; internal values are bound to the package's exact
+/// anchor owner rather than carrying an unresolved identifier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ValidatedStagingLinkTarget {
+    Internal {
+        anchor_id: AnchorId,
+        anchor_owner: NodeId,
+    },
+    External(SafeUri),
+}
+
+impl ValidatedStagingLinkTarget {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Internal { .. } => "internal",
+            Self::External(_) => "external",
+        }
+    }
+
+    pub const fn internal_anchor_id(&self) -> Option<&AnchorId> {
+        match self {
+            Self::Internal { anchor_id, .. } => Some(anchor_id),
+            Self::External(_) => None,
+        }
+    }
+
+    pub const fn internal_anchor_owner(&self) -> Option<NodeId> {
+        match self {
+            Self::Internal { anchor_owner, .. } => Some(*anchor_owner),
+            Self::External(_) => None,
+        }
+    }
+
+    pub const fn external_uri(&self) -> Option<&SafeUri> {
+        match self {
+            Self::Internal { .. } => None,
+            Self::External(uri) => Some(uri),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingAnchor {
+    anchor_id: AnchorId,
+    owner: NodeId,
+}
+
+impl ValidatedStagingAnchor {
+    pub const fn anchor_id(&self) -> &AnchorId {
+        &self.anchor_id
+    }
+
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingLink {
+    owner: NodeId,
+    paragraph_owner: NodeId,
+    target: ValidatedStagingLinkTarget,
+    painted_site_owners: Vec<NodeId>,
+}
+
+impl ValidatedStagingLink {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn paragraph_owner(&self) -> NodeId {
+        self.paragraph_owner
+    }
+
+    pub const fn target(&self) -> &ValidatedStagingLinkTarget {
+        &self.target
+    }
+
+    pub fn painted_site_owners(&self) -> &[NodeId] {
+        &self.painted_site_owners
+    }
+}
+
+#[derive(Debug)]
+struct StagingLinkUsageBinding;
+
+/// Syntax-issued closure over every accepted link and every package anchor.
+/// The receipt is intentionally package-bound so an otherwise-valid anchor
+/// registry from another package cannot be substituted after preflight.
+#[derive(Debug)]
+pub struct ValidatedStagingLinkUsageReceipt {
+    package: CanonicalDocumentPackageJcsSha256,
+    anchors: Vec<ValidatedStagingAnchor>,
+    links: Vec<ValidatedStagingLink>,
+    usage_sha256: [u8; 32],
+    _binding: StagingLinkUsageBinding,
+}
+
+impl ValidatedStagingLinkUsageReceipt {
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.package
+    }
+
+    pub const fn policy_version(&self) -> &'static str {
+        STAGING_BASIC_LINK_POLICY_VERSION
+    }
+
+    pub fn anchors(&self) -> &[ValidatedStagingAnchor] {
+        &self.anchors
+    }
+
+    pub fn links(&self) -> &[ValidatedStagingLink] {
+        &self.links
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub fn verifies(&self, package: &ValidatedStagingStylePackage) -> bool {
+        self.package == package.package_fingerprint()
+            && self.policy_version() == STAGING_BASIC_LINK_POLICY_VERSION
+    }
+}
+
+fn staging_link_usage_fingerprint(
+    anchors: &[ValidatedStagingAnchor],
+    links: &[ValidatedStagingLink],
+) -> [u8; 32] {
+    let mut jcs = String::from("{\"algorithm\":");
+    push_jcs_string(&mut jcs, STAGING_LINK_USAGE_ALGORITHM);
+    jcs.push_str(",\"anchors\":[");
+    for (index, anchor) in anchors.iter().enumerate() {
+        if index > 0 {
+            jcs.push(',');
+        }
+        jcs.push_str("{\"anchor_id\":");
+        push_jcs_string(&mut jcs, anchor.anchor_id.as_str());
+        jcs.push_str(",\"owner_node_id\":");
+        jcs.push_str(&anchor.owner.get().to_string());
+        jcs.push('}');
+    }
+    jcs.push_str("],\"links\":[");
+    for (index, link) in links.iter().enumerate() {
+        if index > 0 {
+            jcs.push(',');
+        }
+        jcs.push_str("{\"link_node_id\":");
+        jcs.push_str(&link.owner.get().to_string());
+        jcs.push_str(",\"painted_site_owners\":[");
+        for (site_index, owner) in link.painted_site_owners.iter().enumerate() {
+            if site_index > 0 {
+                jcs.push(',');
+            }
+            jcs.push_str(&owner.get().to_string());
+        }
+        jcs.push_str("],\"paragraph_node_id\":");
+        jcs.push_str(&link.paragraph_owner.get().to_string());
+        jcs.push_str(",\"target\":");
+        match &link.target {
+            ValidatedStagingLinkTarget::Internal {
+                anchor_id,
+                anchor_owner,
+            } => {
+                jcs.push_str("{\"anchor_id\":");
+                push_jcs_string(&mut jcs, anchor_id.as_str());
+                jcs.push_str(",\"anchor_owner_node_id\":");
+                jcs.push_str(&anchor_owner.get().to_string());
+                jcs.push_str(",\"kind\":\"internal\"}");
+            }
+            ValidatedStagingLinkTarget::External(uri) => {
+                jcs.push_str("{\"kind\":\"external\",\"uri\":");
+                push_jcs_string(&mut jcs, uri.as_str());
+                jcs.push('}');
+            }
+        }
+        jcs.push('}');
+    }
+    jcs.push_str("]}");
+    sha256(jcs.as_bytes())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingFigurePreflightError {
+    UnsupportedContainer(NodeId),
+    UnsupportedCaptionBlock(NodeId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingFigure {
+    owner: NodeId,
+    document_ordinal: u32,
+    image_id: ImageResourceId,
+    alt: String,
+    caption_owners: Vec<NodeId>,
+}
+
+impl ValidatedStagingFigure {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+
+    pub fn alt(&self) -> &str {
+        &self.alt
+    }
+
+    pub fn caption_owners(&self) -> &[NodeId] {
+        &self.caption_owners
+    }
+}
+
+#[derive(Debug)]
+struct StagingFigureUsageBinding;
+
+/// Syntax-issued proof of the complete Figure set accepted by the private
+/// PNG slice. The current closed policy admits non-floating figures only in
+/// the document body and paragraph/heading blocks only in caption subflows.
+#[derive(Debug)]
+pub struct ValidatedStagingFigureUsageReceipt {
+    package: CanonicalDocumentPackageJcsSha256,
+    figures: Vec<ValidatedStagingFigure>,
+    usage_sha256: [u8; 32],
+    _binding: StagingFigureUsageBinding,
+}
+
+impl ValidatedStagingFigureUsageReceipt {
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.package
+    }
+
+    pub const fn policy_version(&self) -> &'static str {
+        STAGING_BASIC_FIGURE_POLICY_VERSION
+    }
+
+    pub fn figures(&self) -> &[ValidatedStagingFigure] {
+        &self.figures
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub fn verifies(&self, package: &ValidatedStagingStylePackage) -> bool {
+        self.package == package.package_fingerprint()
+            && self.policy_version() == STAGING_BASIC_FIGURE_POLICY_VERSION
+    }
+}
+
+fn staging_figure_usage_fingerprint(figures: &[ValidatedStagingFigure]) -> [u8; 32] {
+    let mut jcs = String::from("{\"algorithm\":");
+    push_jcs_string(&mut jcs, STAGING_FIGURE_USAGE_ALGORITHM);
+    jcs.push_str(",\"figures\":[");
+    for (index, figure) in figures.iter().enumerate() {
+        if index > 0 {
+            jcs.push(',');
+        }
+        jcs.push_str("{\"alt\":");
+        push_jcs_string(&mut jcs, &figure.alt);
+        jcs.push_str(",\"caption_owners\":[");
+        for (caption_index, owner) in figure.caption_owners.iter().enumerate() {
+            if caption_index > 0 {
+                jcs.push(',');
+            }
+            jcs.push_str(&owner.get().to_string());
+        }
+        jcs.push_str("],\"document_ordinal\":");
+        jcs.push_str(&figure.document_ordinal.to_string());
+        jcs.push_str(",\"figure_node_id\":");
+        jcs.push_str(&figure.owner.get().to_string());
+        jcs.push_str(",\"image_id\":");
+        jcs.push_str(&figure.image_id.get().to_string());
+        jcs.push('}');
+    }
+    jcs.push_str("]}");
+    sha256(jcs.as_bytes())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingForcedPageBreakPreflightError {
+    UnsupportedContainer(NodeId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingForcedPageBreak {
+    owner: NodeId,
+    document_ordinal: u32,
+}
+
+impl ValidatedStagingForcedPageBreak {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+}
+
+#[derive(Debug)]
+struct StagingForcedPageBreakUsageBinding;
+
+/// Syntax-issued proof of the complete, canonical forced-boundary set for a
+/// staging package. A page break is represented only as a typed owner; it has
+/// no size, fragment, or paint payload that could be confused with content.
+#[derive(Debug)]
+pub struct ValidatedStagingForcedPageBreakUsageReceipt {
+    package: CanonicalDocumentPackageJcsSha256,
+    breaks: Vec<ValidatedStagingForcedPageBreak>,
+    usage_sha256: [u8; 32],
+    _binding: StagingForcedPageBreakUsageBinding,
+}
+
+impl ValidatedStagingForcedPageBreakUsageReceipt {
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.package
+    }
+
+    pub const fn policy_version(&self) -> &'static str {
+        STAGING_FORCED_PAGE_BREAK_POLICY_VERSION
+    }
+
+    pub fn breaks(&self) -> &[ValidatedStagingForcedPageBreak] {
+        &self.breaks
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub fn verifies(&self, package: &ValidatedStagingStylePackage) -> bool {
+        self.package == package.package_fingerprint()
+            && self.policy_version() == STAGING_FORCED_PAGE_BREAK_POLICY_VERSION
+    }
+}
+
+fn staging_forced_page_break_usage_fingerprint(
+    breaks: &[ValidatedStagingForcedPageBreak],
+) -> [u8; 32] {
+    let mut jcs = String::from("{\"algorithm\":");
+    push_jcs_string(&mut jcs, STAGING_FORCED_PAGE_BREAK_USAGE_ALGORITHM);
+    jcs.push_str(",\"breaks\":[");
+    for (index, boundary) in breaks.iter().enumerate() {
+        if index > 0 {
+            jcs.push(',');
+        }
+        jcs.push_str("{\"document_ordinal\":");
+        jcs.push_str(&boundary.document_ordinal.to_string());
+        jcs.push_str(",\"owner_node_id\":");
+        jcs.push_str(&boundary.owner.get().to_string());
+        jcs.push('}');
+    }
+    jcs.push_str("]}");
+    sha256(jcs.as_bytes())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingListMarker {
+    list_owner: NodeId,
+    item_owner: NodeId,
+    item_index: u32,
+    ordered: bool,
+    ordered_value: Option<u32>,
+    key: GeneratedBufferKey,
+    utf8: String,
+}
+
+impl ValidatedStagingListMarker {
+    pub const fn list_owner(&self) -> NodeId {
+        self.list_owner
+    }
+    pub const fn item_owner(&self) -> NodeId {
+        self.item_owner
+    }
+    pub const fn item_index(&self) -> u32 {
+        self.item_index
+    }
+    pub const fn is_ordered(&self) -> bool {
+        self.ordered
+    }
+    pub const fn ordered_value(&self) -> Option<u32> {
+        self.ordered_value
+    }
+    pub const fn key(&self) -> GeneratedBufferKey {
+        self.key
+    }
+    pub fn utf8(&self) -> &str {
+        &self.utf8
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingListMarkerPreflightError {
+    MarkerOverflow { list_owner: NodeId },
+    MissingMarkerTextStyle { list_owner: NodeId },
+    TextBufferLimit { item_owner: NodeId },
+    TextTotalLimit,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+#[derive(Debug)]
+struct StagingListMarkerUsageBinding;
+
+/// Syntax-issued proof that canonical list-marker bytes and their complete
+/// parsed-plus-generated budget were checked before marker string allocation.
+#[derive(Debug)]
+pub struct ValidatedStagingListMarkerUsageReceipt {
+    package: CanonicalDocumentPackageJcsSha256,
+    markers: Vec<ValidatedStagingListMarker>,
+    marker_usage_sha256: [u8; 32],
+    parsed_text_bytes: u64,
+    generated_marker_bytes: u64,
+    max_text_buffer_bytes: u32,
+    max_text_bytes: u64,
+    _binding: StagingListMarkerUsageBinding,
+}
+
+impl ValidatedStagingListMarkerUsageReceipt {
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.package
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        STAGING_BASIC_LIST_POLICY_VERSION
+    }
+    pub fn markers(&self) -> &[ValidatedStagingListMarker] {
+        &self.markers
+    }
+    pub const fn marker_usage_sha256(&self) -> [u8; 32] {
+        self.marker_usage_sha256
+    }
+    pub const fn parsed_text_bytes(&self) -> u64 {
+        self.parsed_text_bytes
+    }
+    pub const fn generated_marker_bytes(&self) -> u64 {
+        self.generated_marker_bytes
+    }
+    pub const fn max_text_buffer_bytes(&self) -> u32 {
+        self.max_text_buffer_bytes
+    }
+    pub const fn max_text_bytes(&self) -> u64 {
+        self.max_text_bytes
+    }
+    pub fn verifies(&self, package: &ValidatedStagingStylePackage) -> bool {
+        self.package == package.package_fingerprint()
+            && self.policy_version() == STAGING_BASIC_LIST_POLICY_VERSION
+    }
+    pub fn verifies_generated_text(&self, generated: PackageGeneratedTextBinding<'_>) -> bool {
+        if generated.generated_text().document_nodes() != generated.package().document_nodes() {
+            return false;
+        }
+        let observed: Vec<_> = generated
+            .generated_text()
+            .buffers()
+            .iter()
+            .filter(|buffer| buffer.key().generation_kind() == GenerationKind::ListMarker)
+            .map(|buffer| (buffer.key(), buffer.utf8()))
+            .collect();
+        observed.len() == self.markers.len()
+            && self
+                .markers
+                .iter()
+                .zip(observed)
+                .all(|(expected, actual)| expected.key == actual.0 && expected.utf8 == actual.1)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PendingStagingListMarker {
+    list_owner: NodeId,
+    item_owner: NodeId,
+    item_index: u32,
+    ordered: bool,
+    ordered_value: Option<u32>,
+}
+
+const fn staging_decimal_digits(mut value: u32) -> u32 {
+    let mut digits = 1;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
+}
+
+fn staging_list_marker_usage_fingerprint(markers: &[ValidatedStagingListMarker]) -> [u8; 32] {
+    let mut jcs = String::from("{\"algorithm\":");
+    push_jcs_string(&mut jcs, STAGING_LIST_MARKER_USAGE_ALGORITHM);
+    jcs.push_str(",\"markers\":[");
+    for (index, marker) in markers.iter().enumerate() {
+        if index > 0 {
+            jcs.push(',');
+        }
+        jcs.push_str("{\"key\":");
+        push_generated_buffer_key_jcs(&mut jcs, marker.key);
+        jcs.push_str(",\"utf8\":");
+        push_jcs_string(&mut jcs, &marker.utf8);
+        jcs.push('}');
+    }
+    jcs.push_str("]}");
+    sha256(jcs.as_bytes())
+}
+
+#[derive(Debug)]
+pub struct ValidatedStagingStylePackage {
+    package: ValidatedParsedPackage,
+    raw_sha256: RawDocumentPackageSha256,
+    canonical_jcs_sha256: CanonicalDocumentPackageJcsSha256,
+    locations: JsonLocationIndex,
+}
+
+/// Public 1.2 name for the syntax-owned basic-document view. The staging name
+/// remains as a source-compatible alias for the frozen MI2-02..07 tests.
+pub type ValidatedBasicDocumentPackage = ValidatedStagingStylePackage;
+
+impl ValidatedStagingStylePackage {
+    pub const fn package(&self) -> &ValidatedParsedPackage {
+        &self.package
+    }
+
+    pub const fn raw_sha256(&self) -> RawDocumentPackageSha256 {
+        self.raw_sha256
+    }
+
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.canonical_jcs_sha256
+    }
+
+    pub const fn locations(&self) -> &JsonLocationIndex {
+        &self.locations
+    }
+
+    /// Preflights the private basic-document link domain before itemization or
+    /// layout begins. The resulting target values are either package-local
+    /// anchor bindings or syntax-admitted `SafeUri` values; no raw URI string
+    /// survives this boundary.
+    pub fn preflight_link_usage(
+        &self,
+    ) -> Result<ValidatedStagingLinkUsageReceipt, StagingLinkPreflightError> {
+        let nodes = self.package.document_nodes();
+        let mut anchors = Vec::new();
+        anchors
+            .try_reserve_exact(nodes.anchors().len())
+            .map_err(|_| StagingLinkPreflightError::AllocationFailure)?;
+        anchors.extend(
+            nodes
+                .anchors()
+                .map(|(anchor_id, owner)| ValidatedStagingAnchor {
+                    anchor_id: anchor_id.clone(),
+                    owner,
+                }),
+        );
+
+        let mut links = Vec::new();
+        collect_staging_links_from_blocks(
+            &self.package.package().document.blocks,
+            true,
+            nodes,
+            &mut links,
+        )?;
+        for footnote in &self.package.package().document.footnotes {
+            collect_staging_links_from_blocks(&footnote.blocks, false, nodes, &mut links)?;
+        }
+        links.sort_by_key(ValidatedStagingLink::owner);
+        if links.windows(2).any(|pair| pair[0].owner == pair[1].owner) {
+            return Err(StagingLinkPreflightError::ArithmeticOverflow);
+        }
+        let usage_sha256 = staging_link_usage_fingerprint(&anchors, &links);
+        Ok(ValidatedStagingLinkUsageReceipt {
+            package: self.canonical_jcs_sha256,
+            anchors,
+            links,
+            usage_sha256,
+            _binding: StagingLinkUsageBinding,
+        })
+    }
+
+    /// Preflights the closed non-floating Figure domain. Resource bytes do not
+    /// participate here: media kind is attested later by resource admission,
+    /// never inferred from the declaration URI or another caller string.
+    pub fn preflight_figure_usage(
+        &self,
+    ) -> Result<ValidatedStagingFigureUsageReceipt, StagingFigurePreflightError> {
+        let mut pending: Vec<(&Block, bool)> = self
+            .package
+            .package()
+            .document
+            .blocks
+            .iter()
+            .rev()
+            .map(|block| (block, true))
+            .collect();
+        let mut figures = Vec::new();
+        while let Some((block, document_body)) = pending.pop() {
+            match block {
+                Block::Figure {
+                    node_id,
+                    image_id,
+                    alt,
+                    caption,
+                    ..
+                } => {
+                    if !document_body {
+                        return Err(StagingFigurePreflightError::UnsupportedContainer(*node_id));
+                    }
+                    let document_ordinal = u32::try_from(figures.len())
+                        .map_err(|_| StagingFigurePreflightError::ArithmeticOverflow)?;
+                    let mut caption_owners = Vec::new();
+                    caption_owners
+                        .try_reserve_exact(caption.len())
+                        .map_err(|_| StagingFigurePreflightError::AllocationFailure)?;
+                    for caption_block in caption {
+                        let owner = match caption_block {
+                            Block::Paragraph { node_id, .. } | Block::Heading { node_id, .. } => {
+                                *node_id
+                            }
+                            Block::List { node_id, .. }
+                            | Block::Table { node_id, .. }
+                            | Block::Figure { node_id, .. }
+                            | Block::PageBreak { node_id, .. } => {
+                                return Err(StagingFigurePreflightError::UnsupportedCaptionBlock(
+                                    *node_id,
+                                ))
+                            }
+                        };
+                        caption_owners.push(owner);
+                    }
+                    figures
+                        .try_reserve(1)
+                        .map_err(|_| StagingFigurePreflightError::AllocationFailure)?;
+                    figures.push(ValidatedStagingFigure {
+                        owner: *node_id,
+                        document_ordinal,
+                        image_id: *image_id,
+                        alt: alt.clone(),
+                        caption_owners,
+                    });
+                }
+                Block::List { items, .. } => {
+                    let additional = items.iter().try_fold(0usize, |total, item| {
+                        total
+                            .checked_add(item.blocks.len())
+                            .ok_or(StagingFigurePreflightError::ArithmeticOverflow)
+                    })?;
+                    pending
+                        .try_reserve(additional)
+                        .map_err(|_| StagingFigurePreflightError::AllocationFailure)?;
+                    pending.extend(
+                        items
+                            .iter()
+                            .rev()
+                            .flat_map(|item| item.blocks.iter().rev())
+                            .map(|block| (block, false)),
+                    );
+                }
+                Block::Table { head, body, .. } => {
+                    let additional = head
+                        .iter()
+                        .chain(body)
+                        .flat_map(|row| &row.cells)
+                        .flat_map(|cell| &cell.blocks)
+                        .try_fold(0usize, |total, _| {
+                            total
+                                .checked_add(1)
+                                .ok_or(StagingFigurePreflightError::ArithmeticOverflow)
+                        })?;
+                    pending
+                        .try_reserve(additional)
+                        .map_err(|_| StagingFigurePreflightError::AllocationFailure)?;
+                    pending.extend(
+                        body.iter()
+                            .rev()
+                            .chain(head.iter().rev())
+                            .flat_map(|row| row.cells.iter().rev())
+                            .flat_map(|cell| cell.blocks.iter().rev())
+                            .map(|block| (block, false)),
+                    );
+                }
+                Block::Paragraph { .. } | Block::Heading { .. } | Block::PageBreak { .. } => {}
+            }
+        }
+        let usage_sha256 = staging_figure_usage_fingerprint(&figures);
+        Ok(ValidatedStagingFigureUsageReceipt {
+            package: self.canonical_jcs_sha256,
+            figures,
+            usage_sha256,
+            _binding: StagingFigureUsageBinding,
+        })
+    }
+
+    /// Preflight the complete forced-break domain accepted by the private M2
+    /// profile. Breaks are accepted in the document body and list-item flows;
+    /// figure captions, tables, and other later domains remain closed.
+    pub fn preflight_forced_page_break_usage(
+        &self,
+    ) -> Result<ValidatedStagingForcedPageBreakUsageReceipt, StagingForcedPageBreakPreflightError>
+    {
+        let mut pending: Vec<(&Block, bool)> = self
+            .package
+            .package()
+            .document
+            .blocks
+            .iter()
+            .rev()
+            .map(|block| (block, true))
+            .collect();
+        let mut breaks = Vec::new();
+        while let Some((block, accepted_container)) = pending.pop() {
+            match block {
+                Block::PageBreak { node_id, .. } => {
+                    if !accepted_container {
+                        return Err(StagingForcedPageBreakPreflightError::UnsupportedContainer(
+                            *node_id,
+                        ));
+                    }
+                    let document_ordinal = u32::try_from(breaks.len())
+                        .map_err(|_| StagingForcedPageBreakPreflightError::ArithmeticOverflow)?;
+                    breaks
+                        .try_reserve(1)
+                        .map_err(|_| StagingForcedPageBreakPreflightError::AllocationFailure)?;
+                    breaks.push(ValidatedStagingForcedPageBreak {
+                        owner: *node_id,
+                        document_ordinal,
+                    });
+                }
+                Block::List { items, .. } => {
+                    let additional = items.iter().try_fold(0usize, |total, item| {
+                        total
+                            .checked_add(item.blocks.len())
+                            .ok_or(StagingForcedPageBreakPreflightError::ArithmeticOverflow)
+                    })?;
+                    pending
+                        .try_reserve(additional)
+                        .map_err(|_| StagingForcedPageBreakPreflightError::AllocationFailure)?;
+                    pending.extend(
+                        items
+                            .iter()
+                            .rev()
+                            .flat_map(|item| item.blocks.iter().rev())
+                            .map(|block| (block, accepted_container)),
+                    );
+                }
+                Block::Figure { caption, .. } => {
+                    pending
+                        .try_reserve(caption.len())
+                        .map_err(|_| StagingForcedPageBreakPreflightError::AllocationFailure)?;
+                    pending.extend(caption.iter().rev().map(|block| (block, false)));
+                }
+                Block::Table { head, body, .. } => {
+                    let nested = body
+                        .iter()
+                        .chain(head)
+                        .flat_map(|row| &row.cells)
+                        .flat_map(|cell| &cell.blocks);
+                    pending.extend(nested.map(|block| (block, false)));
+                }
+                Block::Paragraph { .. } | Block::Heading { .. } => {}
+            }
+        }
+        let usage_sha256 = staging_forced_page_break_usage_fingerprint(&breaks);
+        Ok(ValidatedStagingForcedPageBreakUsageReceipt {
+            package: self.canonical_jcs_sha256,
+            breaks,
+            usage_sha256,
+            _binding: StagingForcedPageBreakUsageBinding,
+        })
+    }
+
+    pub fn compute_block_style(
+        &self,
+        owner: NodeId,
+        flow_parent: Option<&MachineBlockComputedStyleReceipt>,
+    ) -> Result<MachineBlockComputedStyleReceipt, StagingStyleReceiptMismatch> {
+        if let Some(parent) = flow_parent {
+            if parent.package != self.canonical_jcs_sha256
+                || parent.document != self.package.epoch_identity.document()
+                || parent.style != self.package.epoch_identity.style()
+                || parent.registry_version != BASIC_BLOCK_STYLE_REGISTRY_VERSION
+            {
+                return Err(StagingStyleReceiptMismatch::ParentReceiptMismatch);
+            }
+        }
+        let (style_owner, block_type, classes, expected_parent) =
+            find_basic_styleable_block(&self.package.package.document, owner)
+                .ok_or(StagingStyleReceiptMismatch::UnknownStyleOwner)?;
+        if expected_parent != flow_parent.map(MachineBlockComputedStyleReceipt::owner) {
+            return Err(StagingStyleReceiptMismatch::ParentReceiptMismatch);
+        }
+        let block = BasicStyleBlockKind::from_str(block_type)
+            .ok_or(StagingStyleReceiptMismatch::UnsupportedBlockKind)?;
+        let computed = self
+            .package
+            .package
+            .style_sheet
+            .cascade_basic_document_style(block, classes, flow_parent.map(|value| &value.computed))
+            .map_err(StagingStyleReceiptMismatch::InvalidStyle)?;
+        Ok(MachineBlockComputedStyleReceipt {
+            owner,
+            style_owner,
+            package: self.canonical_jcs_sha256,
+            document: self.package.epoch_identity.document(),
+            style: self.package.epoch_identity.style(),
+            registry_version: BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+            block,
+            computed,
+            _binding: StagingStyleBinding,
+        })
+    }
+
+    /// Issues the private `table-1` typed placement style for an actual,
+    /// direct table owner. This does not make `table` a basic-document block
+    /// kind and exposes no raw declaration map to layout.
+    pub fn compute_table_style(
+        &self,
+        owner: NodeId,
+    ) -> Result<MachineTableComputedStyleReceipt, StagingStyleReceiptMismatch> {
+        let (style_owner, block_type, classes, expected_parent) =
+            find_basic_styleable_block(&self.package.package.document, owner)
+                .ok_or(StagingStyleReceiptMismatch::UnknownStyleOwner)?;
+        if style_owner != owner || block_type != "table" || expected_parent.is_some() {
+            return Err(StagingStyleReceiptMismatch::UnsupportedBlockKind);
+        }
+        let computed = self
+            .package
+            .package
+            .style_sheet
+            .cascade_table_document_style(classes)
+            .map_err(StagingStyleReceiptMismatch::InvalidStyle)?;
+        Ok(MachineTableComputedStyleReceipt {
+            owner,
+            package: self.canonical_jcs_sha256,
+            document: self.package.epoch_identity.document(),
+            style: self.package.epoch_identity.style(),
+            registry_version: TABLE_BLOCK_STYLE_REGISTRY_VERSION,
+            computed,
+            _binding: StagingStyleBinding,
+        })
+    }
+
+    /// Issues the ordinary M2 paragraph receipt for a site inside a validated
+    /// table cell, with inheritance bound to the sealed table parent rather
+    /// than a caller-selected block receipt.
+    pub fn compute_table_cell_block_style(
+        &self,
+        owner: NodeId,
+        table_parent: &MachineTableComputedStyleReceipt,
+    ) -> Result<MachineBlockComputedStyleReceipt, StagingStyleReceiptMismatch> {
+        if table_parent.package != self.canonical_jcs_sha256
+            || table_parent.document != self.package.epoch_identity.document()
+            || table_parent.style != self.package.epoch_identity.style()
+            || table_parent.registry_version != TABLE_BLOCK_STYLE_REGISTRY_VERSION
+        {
+            return Err(StagingStyleReceiptMismatch::ParentReceiptMismatch);
+        }
+        let (style_owner, block_type, classes, expected_parent) =
+            find_basic_styleable_block(&self.package.package.document, owner)
+                .ok_or(StagingStyleReceiptMismatch::UnknownStyleOwner)?;
+        if expected_parent != Some(table_parent.owner) || block_type != "paragraph" {
+            return Err(StagingStyleReceiptMismatch::ParentReceiptMismatch);
+        }
+        let computed = self
+            .package
+            .package
+            .style_sheet
+            .cascade_table_cell_paragraph_style(classes, &table_parent.computed)
+            .map_err(StagingStyleReceiptMismatch::InvalidStyle)?;
+        Ok(MachineBlockComputedStyleReceipt {
+            owner,
+            style_owner,
+            package: self.canonical_jcs_sha256,
+            document: self.package.epoch_identity.document(),
+            style: self.package.epoch_identity.style(),
+            registry_version: BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+            block: BasicStyleBlockKind::Paragraph,
+            computed,
+            _binding: StagingStyleBinding,
+        })
+    }
+
+    /// Issues the complete list-marker style only for an actual list block.
+    /// List-item owners cannot borrow their parent's style receipt as a
+    /// caller-selected marker context.
+    pub fn compute_list_style(
+        &self,
+        owner: NodeId,
+    ) -> Result<MachineListComputedStyleReceipt, StagingStyleReceiptMismatch> {
+        let (style_owner, block_type, classes, _) =
+            find_basic_styleable_block(&self.package.package.document, owner)
+                .ok_or(StagingStyleReceiptMismatch::UnknownStyleOwner)?;
+        if style_owner != owner
+            || BasicStyleBlockKind::from_str(block_type) != Some(BasicStyleBlockKind::List)
+        {
+            return Err(StagingStyleReceiptMismatch::UnsupportedBlockKind);
+        }
+        let computed = self
+            .package
+            .package
+            .style_sheet
+            .cascade_basic_document_list_style(classes)
+            .map_err(StagingStyleReceiptMismatch::InvalidStyle)?;
+        Ok(MachineListComputedStyleReceipt {
+            owner,
+            package: self.canonical_jcs_sha256,
+            document: self.package.epoch_identity.document(),
+            style: self.package.epoch_identity.style(),
+            registry_version: BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+            computed,
+            _binding: StagingStyleBinding,
+        })
+    }
+
+    /// Preflights the exact canonical marker overlay for the basic-document list
+    /// policy. The byte budget is complete before decimal/bullet strings are
+    /// allocated, and the resulting receipt is package-bound and sealed.
+    pub fn preflight_list_marker_usage(
+        &self,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<ValidatedStagingListMarkerUsageReceipt, StagingListMarkerPreflightError> {
+        let parsed = self.package.package();
+        let parsed_text_bytes = parsed
+            .text_store
+            .buffers()
+            .iter()
+            .try_fold(0u64, |total, buffer| {
+                total.checked_add(u64::from(buffer.byte_len()))
+            })
+            .ok_or(StagingListMarkerPreflightError::ArithmeticOverflow)?;
+
+        let mut pending_blocks: Vec<&Block> = parsed.document.blocks.iter().rev().collect();
+        let mut pending_markers = Vec::new();
+        let mut generated_marker_bytes = 0u64;
+        while let Some(block) = pending_blocks.pop() {
+            match block {
+                Block::List {
+                    node_id,
+                    ordered,
+                    start,
+                    items,
+                    ..
+                } => {
+                    if self.compute_list_style(*node_id).is_err() {
+                        return Err(StagingListMarkerPreflightError::MissingMarkerTextStyle {
+                            list_owner: *node_id,
+                        });
+                    }
+                    for (index, item) in items.iter().enumerate() {
+                        let item_index = u32::try_from(index).map_err(|_| {
+                            StagingListMarkerPreflightError::MarkerOverflow {
+                                list_owner: *node_id,
+                            }
+                        })?;
+                        let (ordered_value, byte_len) = if *ordered {
+                            let value = start.and_then(|value| value.checked_add(item_index));
+                            let Some(value) = value else {
+                                return Err(StagingListMarkerPreflightError::MarkerOverflow {
+                                    list_owner: *node_id,
+                                });
+                            };
+                            (Some(value), u64::from(staging_decimal_digits(value) + 1))
+                        } else {
+                            (None, 3)
+                        };
+                        if byte_len > u64::from(limits.get().max_text_buffer_bytes) {
+                            return Err(StagingListMarkerPreflightError::TextBufferLimit {
+                                item_owner: item.node_id,
+                            });
+                        }
+                        generated_marker_bytes = generated_marker_bytes
+                            .checked_add(byte_len)
+                            .ok_or(StagingListMarkerPreflightError::ArithmeticOverflow)?;
+                        pending_markers.push(PendingStagingListMarker {
+                            list_owner: *node_id,
+                            item_owner: item.node_id,
+                            item_index,
+                            ordered: *ordered,
+                            ordered_value,
+                        });
+                    }
+                    pending_blocks
+                        .extend(items.iter().rev().flat_map(|item| item.blocks.iter().rev()));
+                }
+                Block::Figure { caption, .. } => pending_blocks.extend(caption.iter().rev()),
+                Block::Table { head, body, .. } => pending_blocks.extend(
+                    body.iter()
+                        .rev()
+                        .chain(head.iter().rev())
+                        .flat_map(|row| row.cells.iter().rev())
+                        .flat_map(|cell| cell.blocks.iter().rev()),
+                ),
+                Block::Paragraph { .. } | Block::Heading { .. } | Block::PageBreak { .. } => {}
+            }
+        }
+
+        if parsed_text_bytes
+            .checked_add(generated_marker_bytes)
+            .ok_or(StagingListMarkerPreflightError::ArithmeticOverflow)?
+            > limits.get().max_text_bytes
+        {
+            return Err(StagingListMarkerPreflightError::TextTotalLimit);
+        }
+
+        pending_markers.sort_by_key(|marker| marker.item_owner);
+        let mut markers = Vec::new();
+        markers
+            .try_reserve_exact(pending_markers.len())
+            .map_err(|_| StagingListMarkerPreflightError::AllocationFailure)?;
+        for marker in pending_markers {
+            let utf8 = match marker.ordered_value {
+                Some(value) => format!("{value}."),
+                None => "\u{2022}".to_owned(),
+            };
+            markers.push(ValidatedStagingListMarker {
+                list_owner: marker.list_owner,
+                item_owner: marker.item_owner,
+                item_index: marker.item_index,
+                ordered: marker.ordered,
+                ordered_value: marker.ordered_value,
+                key: GeneratedBufferKey::new(marker.item_owner, GenerationKind::ListMarker, 0),
+                utf8,
+            });
+        }
+        let marker_usage_sha256 = staging_list_marker_usage_fingerprint(&markers);
+        Ok(ValidatedStagingListMarkerUsageReceipt {
+            package: self.canonical_jcs_sha256,
+            markers,
+            marker_usage_sha256,
+            parsed_text_bytes,
+            generated_marker_bytes,
+            max_text_buffer_bytes: limits.get().max_text_buffer_bytes,
+            max_text_bytes: limits.get().max_text_bytes,
+            _binding: StagingListMarkerUsageBinding,
+        })
+    }
+
+    pub fn figure_has_required_width(
+        &self,
+        owner: NodeId,
+    ) -> Result<bool, StagingStyleReceiptMismatch> {
+        let (_, block_type, classes, _) =
+            find_basic_styleable_block(&self.package.package.document, owner)
+                .ok_or(StagingStyleReceiptMismatch::UnknownStyleOwner)?;
+        let block = BasicStyleBlockKind::from_str(block_type)
+            .ok_or(StagingStyleReceiptMismatch::UnsupportedBlockKind)?;
+        if block != BasicStyleBlockKind::Figure {
+            return Err(StagingStyleReceiptMismatch::UnsupportedBlockKind);
+        }
+        let computed = self
+            .package
+            .package
+            .style_sheet
+            .cascade_basic_document_style(block, classes, None)
+            .map_err(StagingStyleReceiptMismatch::InvalidStyle)?;
+        Ok(!matches!(
+            computed.width(),
+            typaxis_style::MachineFigureWidth::Auto
+        ))
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct StagingStyleBinding;
+
+/// Sealed computed-value receipt. Layout sees this typed value, never a raw
+/// declaration name, JSON scalar, or unchecked fixed-point integer.
+#[derive(Debug, Eq, PartialEq)]
+pub struct MachineBlockComputedStyleReceipt {
+    owner: NodeId,
+    style_owner: NodeId,
+    package: CanonicalDocumentPackageJcsSha256,
+    document: DocumentFingerprint,
+    style: StyleFingerprint,
+    registry_version: &'static str,
+    block: BasicStyleBlockKind,
+    computed: ComputedMachineBlockStyle,
+    _binding: StagingStyleBinding,
+}
+
+/// Sealed `table-1` receipt containing only the M2 typed block-placement
+/// values admitted for table selectors.
+#[derive(Debug, Eq, PartialEq)]
+pub struct MachineTableComputedStyleReceipt {
+    owner: NodeId,
+    package: CanonicalDocumentPackageJcsSha256,
+    document: DocumentFingerprint,
+    style: StyleFingerprint,
+    registry_version: &'static str,
+    computed: ComputedMachineBlockStyle,
+    _binding: StagingStyleBinding,
+}
+
+/// Sealed package/list-owner binding for generated marker text and placement.
+#[derive(Debug, Eq, PartialEq)]
+pub struct MachineListComputedStyleReceipt {
+    owner: NodeId,
+    package: CanonicalDocumentPackageJcsSha256,
+    document: DocumentFingerprint,
+    style: StyleFingerprint,
+    registry_version: &'static str,
+    computed: ComputedMachineListStyle,
+    _binding: StagingStyleBinding,
+}
+
+impl MachineListComputedStyleReceipt {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.package
+    }
+
+    pub const fn document_fingerprint(&self) -> DocumentFingerprint {
+        self.document
+    }
+
+    pub const fn style_fingerprint(&self) -> StyleFingerprint {
+        self.style
+    }
+
+    pub const fn registry_version(&self) -> &'static str {
+        self.registry_version
+    }
+
+    pub const fn computed(&self) -> &ComputedMachineListStyle {
+        &self.computed
+    }
+}
+
+impl MachineBlockComputedStyleReceipt {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn style_owner(&self) -> NodeId {
+        self.style_owner
+    }
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.package
+    }
+    pub const fn document_fingerprint(&self) -> DocumentFingerprint {
+        self.document
+    }
+    pub const fn style_fingerprint(&self) -> StyleFingerprint {
+        self.style
+    }
+    pub const fn registry_version(&self) -> &'static str {
+        self.registry_version
+    }
+    pub const fn block_kind(&self) -> BasicStyleBlockKind {
+        self.block
+    }
+    pub const fn computed(&self) -> ComputedMachineBlockStyle {
+        self.computed
+    }
+
+    pub const fn has_required_figure_width(&self) -> bool {
+        !matches!(
+            (self.block, self.computed.width()),
+            (
+                BasicStyleBlockKind::Figure,
+                typaxis_style::MachineFigureWidth::Auto
+            )
+        )
+    }
+}
+
+impl MachineTableComputedStyleReceipt {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn package_fingerprint(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.package
+    }
+
+    pub const fn document_fingerprint(&self) -> DocumentFingerprint {
+        self.document
+    }
+
+    pub const fn style_fingerprint(&self) -> StyleFingerprint {
+        self.style
+    }
+
+    pub const fn registry_version(&self) -> &'static str {
+        self.registry_version
+    }
+
+    pub const fn computed(&self) -> ComputedMachineBlockStyle {
+        self.computed
+    }
+}
+
+fn collect_staging_links_from_blocks(
+    blocks: &[Block],
+    accepted_container: bool,
+    nodes: &ValidatedDocumentNodeIndex,
+    links: &mut Vec<ValidatedStagingLink>,
+) -> Result<(), StagingLinkPreflightError> {
+    for block in blocks {
+        match block {
+            Block::Paragraph {
+                node_id, children, ..
+            }
+            | Block::Heading {
+                node_id, children, ..
+            } => collect_staging_links_from_inlines(
+                children,
+                *node_id,
+                accepted_container,
+                nodes,
+                links,
+            )?,
+            Block::List { items, .. } => {
+                for item in items {
+                    collect_staging_links_from_blocks(
+                        &item.blocks,
+                        accepted_container,
+                        nodes,
+                        links,
+                    )?;
+                }
+            }
+            Block::Figure { caption, .. } => {
+                collect_staging_links_from_blocks(caption, accepted_container, nodes, links)?
+            }
+            Block::Table { head, body, .. } => {
+                for row in head.iter().chain(body) {
+                    for cell in &row.cells {
+                        collect_staging_links_from_blocks(&cell.blocks, false, nodes, links)?;
+                    }
+                }
+            }
+            Block::PageBreak { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn collect_staging_links_from_inlines(
+    inlines: &[Inline],
+    paragraph_owner: NodeId,
+    accepted_container: bool,
+    nodes: &ValidatedDocumentNodeIndex,
+    links: &mut Vec<ValidatedStagingLink>,
+) -> Result<(), StagingLinkPreflightError> {
+    for inline in inlines {
+        match inline {
+            Inline::Link {
+                node_id,
+                target,
+                children,
+                ..
+            } => {
+                if !accepted_container {
+                    return Err(StagingLinkPreflightError::UnsupportedContainer(*node_id));
+                }
+                if children.is_empty() {
+                    return Err(StagingLinkPreflightError::EmptyChildren(*node_id));
+                }
+                let mut painted_site_owners = Vec::new();
+                painted_site_owners
+                    .try_reserve_exact(children.len())
+                    .map_err(|_| StagingLinkPreflightError::AllocationFailure)?;
+                for child in children {
+                    match child {
+                        Inline::Text {
+                            node_id, text_span, ..
+                        } => {
+                            if !text_span.range().is_empty() {
+                                painted_site_owners.push(*node_id);
+                            }
+                        }
+                        Inline::Reference {
+                            node_id,
+                            format: ReferenceFormat::Page,
+                            ..
+                        } => painted_site_owners.push(*node_id),
+                        Inline::Anchor { .. }
+                        | Inline::SoftBreak { .. }
+                        | Inline::HardBreak { .. } => {}
+                        Inline::Link { node_id, .. } => {
+                            return Err(StagingLinkPreflightError::NestedLink(*node_id))
+                        }
+                        Inline::Emphasis { node_id, .. }
+                        | Inline::Strong { node_id, .. }
+                        | Inline::Reference { node_id, .. }
+                        | Inline::FootnoteReference { node_id, .. } => {
+                            return Err(StagingLinkPreflightError::UnsupportedChild(*node_id))
+                        }
+                    }
+                }
+                if painted_site_owners.is_empty() {
+                    return Err(StagingLinkPreflightError::UnpaintedChildren(*node_id));
+                }
+                let target = match target {
+                    LinkTarget::Internal(anchor_id) => {
+                        let anchor_owner = nodes
+                            .anchor_owner(anchor_id)
+                            .ok_or(StagingLinkPreflightError::UnknownInternalTarget(*node_id))?;
+                        ValidatedStagingLinkTarget::Internal {
+                            anchor_id: anchor_id.clone(),
+                            anchor_owner,
+                        }
+                    }
+                    LinkTarget::Uri(uri) => ValidatedStagingLinkTarget::External(uri.clone()),
+                };
+                links
+                    .try_reserve(1)
+                    .map_err(|_| StagingLinkPreflightError::AllocationFailure)?;
+                links.push(ValidatedStagingLink {
+                    owner: *node_id,
+                    paragraph_owner,
+                    target,
+                    painted_site_owners,
+                });
+            }
+            Inline::Emphasis { children, .. } | Inline::Strong { children, .. } => {
+                collect_staging_links_from_inlines(children, paragraph_owner, false, nodes, links)?;
+            }
+            Inline::Text { .. }
+            | Inline::Anchor { .. }
+            | Inline::Reference { .. }
+            | Inline::FootnoteReference { .. }
+            | Inline::SoftBreak { .. }
+            | Inline::HardBreak { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StagingStyleReceiptMismatch {
+    UnknownStyleOwner,
+    UnsupportedBlockKind,
+    ParentReceiptMismatch,
+    InvalidStyle(StyleValidationError),
+}
+
+/// Compatibility parser for deterministic in-repository M2 slice fixtures.
+/// Host admission and `DocumentPackageParser` remain mandatory for public input.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StagingStylePackageParser;
+
+impl StagingStylePackageParser {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn parse(
+        &self,
+        decoded: wire::DecodedStagingStyleDocumentPackage,
+        source_utf8: String,
+        policy: &PackageValidationPolicy<'_>,
+    ) -> Result<ValidatedStagingStylePackage, MachineParseFailure> {
+        let (wire, raw_sha256, canonical_jcs_sha256, locations) = decoded.into_parts();
+        preflight_wire_semantics(&wire, policy.limits, &locations)?;
+        let WireDocumentPackage {
+            contract: _,
+            coordinate_unit: _,
+            sources,
+            text_buffers,
+            document,
+            style_sheet,
+            page_masters,
+            resources,
+        } = wire;
+        let source_catalog = lower_staging_source(sources, source_utf8, &locations)?;
+        let text_store = lower_text_store(text_buffers, policy.limits, &locations)?;
+        let package = ParsedPackage {
+            sources: source_catalog,
+            text_store,
+            document: lower_document(document, policy, &locations)?,
+            style_sheet: lower_style_sheet(style_sheet, &locations)?,
+            page_masters: lower_page_masters(page_masters, &locations)?,
+            resources: lower_resources(resources, &locations)?,
+        };
+        let include_graph = ValidatedIncludeGraph::entry_only(&package.sources, policy.limits)
+            .map_err(|_| {
+                MachineParseFailure::package(
+                    MachineParseFailureKind::PackageValidation(
+                        PackageValidationError::IncludeGraphMismatch,
+                    ),
+                    locations.root_member(DocumentPackageRootMember::Sources),
+                )
+            })?;
+        let package = ValidatedParsedPackage::new_resolved_with_style_contract(
+            package,
+            policy,
+            &include_graph,
+            true,
+            |package, error| machine_validation_failure(package, error, &locations),
+        )?;
+        Ok(ValidatedStagingStylePackage {
+            package,
+            raw_sha256,
+            canonical_jcs_sha256,
+            locations,
+        })
+    }
+}
+
+fn lower_staging_source(
+    declarations: Vec<wire::WireSource>,
+    source_utf8: String,
+    locations: &JsonLocationIndex,
+) -> Result<SourceCatalog, MachineParseFailure> {
+    if declarations.len() != 1 {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceDeclarationMismatch,
+            locations.root_member(DocumentPackageRootMember::Sources),
+        ));
+    }
+    let declaration = declarations.into_iter().next().expect("length was checked");
+    let pointer = source_pointer(locations, declaration.source_id, 0);
+    let uri = PortablePath::new(declaration.uri).map_err(|_| {
+        MachineParseFailure::package(
+            MachineParseFailureKind::InvalidSourceCatalog,
+            pointer.child("uri"),
+        )
+    })?;
+    let record = SourceRecord::new(SourceId::new(declaration.source_id), uri, source_utf8)
+        .map_err(|_| {
+            MachineParseFailure::package(
+                MachineParseFailureKind::InvalidSourceCatalog,
+                pointer.clone(),
+            )
+        })?;
+    if record.utf8_byte_length() != declaration.utf8_byte_length
+        || record.content_hash() != declaration.sha256
+    {
+        return Err(MachineParseFailure::package(
+            MachineParseFailureKind::SourceBytesMismatch,
+            pointer,
+        ));
+    }
+    SourceCatalog::new(vec![record]).map_err(|_| {
+        MachineParseFailure::package(
+            MachineParseFailureKind::InvalidSourceCatalog,
+            locations.root_member(DocumentPackageRootMember::Sources),
+        )
+    })
+}
+
 fn lower_machine_package(
     decoded: wire::DecodedDocumentPackage,
     admitted_sources: Vec<AdmittedMachineSource>,
@@ -2502,6 +4046,7 @@ fn lower_machine_package(
     )?;
     preflight_wire_semantics(&wire, policy.limits, &locations)?;
 
+    let extended_style_contract = wire.contract == typaxis_core::DocumentPackageContractId::V1_2;
     let WireDocumentPackage {
         contract: _,
         coordinate_unit: _,
@@ -2534,10 +4079,13 @@ fn lower_machine_package(
                 locations.root_member(DocumentPackageRootMember::Sources),
             )
         })?;
-    let package =
-        ValidatedParsedPackage::new_resolved(package, policy, &include_graph, |package, error| {
-            machine_validation_failure(package, error, &locations)
-        })?;
+    let package = ValidatedParsedPackage::new_resolved_with_style_contract(
+        package,
+        policy,
+        &include_graph,
+        extended_style_contract,
+        |package, error| machine_validation_failure(package, error, &locations),
+    )?;
     Ok((package, raw_sha256, canonical_jcs_sha256, locations))
 }
 
@@ -3597,6 +5145,14 @@ fn lower_style_sheet(
                 wire::WireDeclarationName::FontSize => "font_size",
                 wire::WireDeclarationName::LineHeight => "line_height",
                 wire::WireDeclarationName::Page => "page",
+                wire::WireDeclarationName::SpaceBefore => "space_before",
+                wire::WireDeclarationName::SpaceAfter => "space_after",
+                wire::WireDeclarationName::StartIndent => "start_indent",
+                wire::WireDeclarationName::EndIndent => "end_indent",
+                wire::WireDeclarationName::TextAlign => "text_align",
+                wire::WireDeclarationName::Width => "width",
+                wire::WireDeclarationName::KeepWithNext => "keep_with_next",
+                wire::WireDeclarationName::KeepCaption => "keep_caption",
             };
             let subject = DiagnosticSubject::Style(StyleErrorSubject::new(
                 NodeId::new(0),
@@ -4279,6 +5835,59 @@ fn find_styleable_block(
     None
 }
 
+fn find_basic_styleable_block(
+    document: &Document,
+    owner: NodeId,
+) -> Option<(NodeId, &'static str, &[String], Option<NodeId>)> {
+    let mut pending: Vec<(&Block, Option<NodeId>)> = document
+        .blocks
+        .iter()
+        .rev()
+        .map(|block| (block, None))
+        .collect();
+    while let Some((block, flow_parent)) = pending.pop() {
+        let (node_id, block_type) = match block {
+            Block::Paragraph { node_id, .. } => (*node_id, "paragraph"),
+            Block::Heading { node_id, .. } => (*node_id, "heading"),
+            Block::List { node_id, .. } => (*node_id, "list"),
+            Block::Table { node_id, .. } => (*node_id, "table"),
+            Block::Figure { node_id, .. } => (*node_id, "figure"),
+            Block::PageBreak { node_id, .. } => (*node_id, "page_break"),
+        };
+        if node_id == owner {
+            return Some((node_id, block_type, block.classes(), flow_parent));
+        }
+        match block {
+            Block::Paragraph { children, .. } | Block::Heading { children, .. }
+                if inline_tree_contains_owner(children, owner) =>
+            {
+                return Some((node_id, block_type, block.classes(), flow_parent));
+            }
+            Block::List { items, .. } => {
+                for nested in items.iter().rev().flat_map(|item| item.blocks.iter().rev()) {
+                    pending.push((nested, Some(node_id)));
+                }
+            }
+            Block::Figure { caption, .. } => {
+                pending.extend(caption.iter().rev().map(|nested| (nested, Some(node_id))));
+            }
+            Block::Table { head, body, .. } => {
+                for nested in body
+                    .iter()
+                    .rev()
+                    .chain(head.iter().rev())
+                    .flat_map(|row| row.cells.iter().rev())
+                    .flat_map(|cell| cell.blocks.iter().rev())
+                {
+                    pending.push((nested, Some(node_id)));
+                }
+            }
+            Block::Paragraph { .. } | Block::Heading { .. } | Block::PageBreak { .. } => {}
+        }
+    }
+    None
+}
+
 fn inline_tree_contains_owner(inlines: &[Inline], owner: NodeId) -> bool {
     let mut pending: Vec<&Inline> = inlines.iter().rev().collect();
     while let Some(inline) = pending.pop() {
@@ -4926,6 +6535,7 @@ struct DocumentValidator<'a> {
     policy: &'a PackageValidationPolicy<'a>,
     next_node_id: u32,
     non_document_ast_nodes: u64,
+    defer_list_marker_overflow: bool,
 }
 
 fn validate_document(
@@ -4933,6 +6543,7 @@ fn validate_document(
     known_images: &BTreeSet<ImageResourceId>,
     policy: &PackageValidationPolicy<'_>,
     non_document_ast_nodes: u64,
+    defer_list_marker_overflow: bool,
 ) -> Result<(), PackageValidationError> {
     let mut validator = DocumentValidator {
         package,
@@ -4946,6 +6557,7 @@ fn validate_document(
         policy,
         next_node_id: 0,
         non_document_ast_nodes,
+        defer_list_marker_overflow,
     };
     validator.node(package.document.node_id)?;
     for block in &package.document.blocks {
@@ -5087,7 +6699,7 @@ impl DocumentValidator<'_> {
                 if items.is_empty() {
                     return Err(PackageValidationError::EmptyListItems);
                 }
-                if *ordered {
+                if *ordered && !self.defer_list_marker_overflow {
                     let last_offset = u32::try_from(items.len() - 1)
                         .map_err(|_| PackageValidationError::ListMarkerOverflow)?;
                     start
@@ -7687,7 +9299,7 @@ mod tests {
         };
         assert_eq!(
             hex(identity.document().bytes()),
-            "4b9228095eacd6527953123afee6e890267d19877ec9b083c452c05f6919c69a"
+            "0f274e09eca8f12c46be9b2398c24efcb46cb91190c6a7c6d6fc86dac044e6af"
         );
         assert_eq!(
             hex(identity.style().bytes()),
@@ -7758,5 +9370,198 @@ mod tests {
         assert!(variants
             .iter()
             .all(|variant| variant.style() == identity.style()));
+    }
+
+    #[test]
+    fn machine_properties_lower_to_package_bound_typed_receipt_under_the_current_contract() {
+        let source = "p";
+        let mut package = machine_wire(source, None);
+        package.document.blocks.push(wire::WireBlock::Paragraph {
+            node_id: 1,
+            span: wire::WireSourceSpan {
+                source_id: 0,
+                start_byte: 0,
+                end_byte: 1,
+            },
+            classes: vec!["lead".to_owned()],
+            children: vec![],
+        });
+        package.style_sheet.rules = vec![
+            wire::WireStyleRule {
+                style_id: "paragraph-style".to_owned(),
+                extends: None,
+                selector: "paragraph.lead".to_owned(),
+                source_order: 0,
+                declarations: vec![
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::SpaceBefore,
+                        value: wire::WireStyleValue::Length { value: 1 },
+                        important: false,
+                    },
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::SpaceAfter,
+                        value: wire::WireStyleValue::Length { value: 2 },
+                        important: false,
+                    },
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::StartIndent,
+                        value: wire::WireStyleValue::Length { value: 3 },
+                        important: false,
+                    },
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::EndIndent,
+                        value: wire::WireStyleValue::Length { value: 4 },
+                        important: false,
+                    },
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::TextAlign,
+                        value: wire::WireStyleValue::Keyword {
+                            value: "center".to_owned(),
+                        },
+                        important: false,
+                    },
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::KeepWithNext,
+                        value: wire::WireStyleValue::Boolean { value: true },
+                        important: false,
+                    },
+                ],
+            },
+            wire::WireStyleRule {
+                style_id: "figure-style".to_owned(),
+                extends: None,
+                selector: "figure".to_owned(),
+                source_order: 1,
+                declarations: vec![
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::Width,
+                        value: wire::WireStyleValue::Length { value: 20 },
+                        important: false,
+                    },
+                    wire::WireDeclaration {
+                        name: wire::WireDeclarationName::KeepCaption,
+                        value: wire::WireStyleValue::Boolean { value: false },
+                        important: false,
+                    },
+                ],
+            },
+        ];
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("typaxis.contract/1.2"));
+
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let decode_policy = wire::DocumentPackageDecodePolicy::new(&limits);
+        let current = wire::StrictDocumentPackageDecoder::new()
+            .decode(&bytes, &decode_policy)
+            .unwrap();
+        assert_eq!(
+            current.wire().contract,
+            typaxis_core::DocumentPackageContractId::V1_2
+        );
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &decode_policy)
+            .unwrap();
+        assert_eq!(
+            current.canonical_jcs_sha256(),
+            decoded.canonical_jcs_sha256()
+        );
+        let package_hash = decoded.canonical_jcs_sha256();
+        let schemes = vec!["http".to_owned(), "https".to_owned()];
+        let policy = PackageValidationPolicy::new(&limits, &schemes).unwrap();
+        let validated = StagingStylePackageParser::new()
+            .parse(decoded, source.to_owned(), &policy)
+            .unwrap();
+        let receipt = validated.compute_block_style(NodeId::new(1), None).unwrap();
+        assert_eq!(receipt.owner(), NodeId::new(1));
+        assert_eq!(receipt.style_owner(), NodeId::new(1));
+        assert_eq!(receipt.package_fingerprint(), package_hash);
+        assert_eq!(
+            receipt.registry_version(),
+            BASIC_BLOCK_STYLE_REGISTRY_VERSION
+        );
+        assert_eq!(receipt.computed().space_before().get().raw(), 1);
+        assert_eq!(receipt.computed().space_after().get().raw(), 2);
+        assert_eq!(receipt.computed().start_indent().get().raw(), 3);
+        assert_eq!(receipt.computed().end_indent().get().raw(), 4);
+        assert_eq!(
+            receipt.computed().text_align(),
+            typaxis_style::MachineTextAlign::Center
+        );
+        assert!(receipt.computed().keep_with_next());
+
+        let wrong_tag = String::from_utf8(bytes).unwrap().replacen(
+            "\"kind\":\"length\",\"value\":1",
+            "\"kind\":\"integer\",\"value\":1",
+            1,
+        );
+        let error = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(wrong_tag.as_bytes(), &decode_policy)
+            .unwrap_err();
+        assert_eq!(
+            error
+                .typed_error()
+                .unwrap()
+                .location()
+                .json_pointer()
+                .as_str(),
+            "/style_sheet/rules/0/declarations/0/value"
+        );
+    }
+
+    #[test]
+    fn machine_properties_inheritance_requires_the_typed_flow_owner_receipt() {
+        let mut wire_package = machine_wire("", None);
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        wire_package.document.blocks.push(wire::WireBlock::List {
+            node_id: 1,
+            span,
+            classes: vec![],
+            ordered: false,
+            start: None,
+            items: vec![wire::WireListItem {
+                node_id: 2,
+                span,
+                blocks: vec![wire::WireBlock::Paragraph {
+                    node_id: 3,
+                    span,
+                    classes: vec![],
+                    children: vec![],
+                }],
+            }],
+        });
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&wire_package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let package = StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            package.compute_block_style(NodeId::new(3), None),
+            Err(StagingStyleReceiptMismatch::ParentReceiptMismatch)
+        );
+        let list = package.compute_block_style(NodeId::new(1), None).unwrap();
+        let paragraph = package
+            .compute_block_style(NodeId::new(3), Some(&list))
+            .unwrap();
+        assert_eq!(paragraph.style_owner(), NodeId::new(3));
+        assert_eq!(
+            paragraph.computed().text_align(),
+            typaxis_style::MachineTextAlign::Start
+        );
     }
 }

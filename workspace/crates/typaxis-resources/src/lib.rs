@@ -1174,6 +1174,9 @@ impl ResourceFinalizer for ReferenceResourceFinalizer {
 }
 
 fn decode_png_for_pdf(admitted: &AdmittedImage) -> Result<ImageEncoderOutput, ResourceError> {
+    if admitted.media_kind() != AdmittedImageMediaKind::Png {
+        return Err(ResourceError::InvalidImagePlan);
+    }
     decode_png_bytes_for_pdf(
         admitted.image_id(),
         admitted.content_hash(),

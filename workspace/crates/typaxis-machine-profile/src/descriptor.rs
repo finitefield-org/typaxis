@@ -73,28 +73,52 @@ impl MachineReferenceFormat {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachineStyleProperty {
+    EndIndent,
     FontFamily,
     FontSize,
+    KeepCaption,
+    KeepWithNext,
     LineHeight,
     Page,
+    SpaceAfter,
+    SpaceBefore,
+    StartIndent,
+    TextAlign,
+    Width,
 }
 
 impl MachineStyleProperty {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::EndIndent => "end_indent",
             Self::FontFamily => "font_family",
             Self::FontSize => "font_size",
+            Self::KeepCaption => "keep_caption",
+            Self::KeepWithNext => "keep_with_next",
             Self::LineHeight => "line_height",
             Self::Page => "page",
+            Self::SpaceAfter => "space_after",
+            Self::SpaceBefore => "space_before",
+            Self::StartIndent => "start_indent",
+            Self::TextAlign => "text_align",
+            Self::Width => "width",
         }
     }
 
     pub(crate) fn from_str(value: &str) -> Option<Self> {
         match value {
+            "end_indent" => Some(Self::EndIndent),
             "font_family" => Some(Self::FontFamily),
             "font_size" => Some(Self::FontSize),
+            "keep_caption" => Some(Self::KeepCaption),
+            "keep_with_next" => Some(Self::KeepWithNext),
             "line_height" => Some(Self::LineHeight),
             "page" => Some(Self::Page),
+            "space_after" => Some(Self::SpaceAfter),
+            "space_before" => Some(Self::SpaceBefore),
+            "start_indent" => Some(Self::StartIndent),
+            "text_align" => Some(Self::TextAlign),
+            "width" => Some(Self::Width),
             _ => None,
         }
     }
@@ -178,6 +202,7 @@ pub enum MachinePdfFeature {
     LinkAnnotations,
     NamedDestinations,
     Outlines,
+    PngXObjects,
     TaggedPdf,
     TextExtraction,
 }
@@ -189,6 +214,7 @@ impl MachinePdfFeature {
             Self::LinkAnnotations => "link-annotations",
             Self::NamedDestinations => "named-destinations",
             Self::Outlines => "outlines",
+            Self::PngXObjects => "png-xobjects",
             Self::TaggedPdf => "tagged-pdf",
             Self::TextExtraction => "text-extraction",
         }
@@ -344,6 +370,66 @@ const REJECTED_OPTIONAL_FRAMES: &[MachinePageFrame] = &[
     MachinePageFrame::Header,
 ];
 
+const BASIC_ACCEPTED_BLOCKS: &[MachineBlockKind] = &[
+    MachineBlockKind::Figure,
+    MachineBlockKind::Heading,
+    MachineBlockKind::List,
+    MachineBlockKind::PageBreak,
+    MachineBlockKind::Paragraph,
+];
+const BASIC_REJECTED_BLOCKS: &[MachineBlockKind] = &[MachineBlockKind::Table];
+const BASIC_ACCEPTED_INLINES: &[MachineInlineKind] = &[
+    MachineInlineKind::Anchor,
+    MachineInlineKind::HardBreak,
+    MachineInlineKind::Link,
+    MachineInlineKind::Reference,
+    MachineInlineKind::SoftBreak,
+    MachineInlineKind::Text,
+];
+const BASIC_REJECTED_INLINES: &[MachineInlineKind] = &[
+    MachineInlineKind::Emphasis,
+    MachineInlineKind::FootnoteReference,
+    MachineInlineKind::Strong,
+];
+const BASIC_STYLE_BLOCK_TYPES: &[MachineBlockKind] = &[
+    MachineBlockKind::Figure,
+    MachineBlockKind::Heading,
+    MachineBlockKind::List,
+    MachineBlockKind::PageBreak,
+    MachineBlockKind::Paragraph,
+];
+const BASIC_ACCEPTED_STYLE_PROPERTIES: &[MachineStyleProperty] = &[
+    MachineStyleProperty::EndIndent,
+    MachineStyleProperty::FontFamily,
+    MachineStyleProperty::FontSize,
+    MachineStyleProperty::KeepCaption,
+    MachineStyleProperty::KeepWithNext,
+    MachineStyleProperty::LineHeight,
+    MachineStyleProperty::Page,
+    MachineStyleProperty::SpaceAfter,
+    MachineStyleProperty::SpaceBefore,
+    MachineStyleProperty::StartIndent,
+    MachineStyleProperty::TextAlign,
+    MachineStyleProperty::Width,
+];
+const BASIC_ACCEPTED_IMAGE_FORMATS: &[MachineImageFormat] = &[MachineImageFormat::Png];
+const BASIC_REJECTED_IMAGE_FORMATS: &[MachineImageFormat] = &[
+    MachineImageFormat::Jpeg,
+    MachineImageFormat::Svg,
+    MachineImageFormat::Vector,
+];
+const BASIC_PDF_FEATURES: &[MachinePdfFeature] = &[
+    MachinePdfFeature::LinkAnnotations,
+    MachinePdfFeature::NamedDestinations,
+    MachinePdfFeature::PngXObjects,
+    MachinePdfFeature::TextExtraction,
+];
+const BASIC_UNSUPPORTED_PDF_FEATURES: &[MachinePdfFeature] = &[
+    MachinePdfFeature::HeadingSemantics,
+    MachinePdfFeature::Outlines,
+    MachinePdfFeature::TaggedPdf,
+];
+
 /// Immutable, closed contract for one machine-PDF profile.
 ///
 /// All fields are private and every slice points at static, canonically ordered
@@ -417,6 +503,53 @@ impl MachineProfileDescriptor {
         pdf_features: PDF_FEATURES,
         unsupported_pdf_features: UNSUPPORTED_PDF_FEATURES,
     };
+
+    /// Immutable, closed M2 profile adopted by ADR-0028.
+    pub const BASIC_DOCUMENT_1: Self = Self {
+        id: MachinePdfProfileId::BASIC_DOCUMENT_1,
+        source_closure: MachineSourceClosure::EntryOnly,
+        source_count: SourceCountBounds {
+            minimum: 1,
+            maximum: 1,
+        },
+        accepted_blocks: BASIC_ACCEPTED_BLOCKS,
+        rejected_blocks: BASIC_REJECTED_BLOCKS,
+        accepted_inlines: BASIC_ACCEPTED_INLINES,
+        rejected_inlines: BASIC_REJECTED_INLINES,
+        accepted_reference_formats: ACCEPTED_REFERENCE_FORMATS,
+        rejected_reference_formats: REJECTED_REFERENCE_FORMATS,
+        footnotes: FootnoteCapability {
+            definitions: false,
+            references: false,
+        },
+        style_block_types: BASIC_STYLE_BLOCK_TYPES,
+        accepted_style_selectors: BASIC_STYLE_BLOCK_TYPES,
+        rejected_style_selectors: &[MachineBlockKind::Table],
+        accepted_style_properties: BASIC_ACCEPTED_STYLE_PROPERTIES,
+        rejected_style_properties: &[],
+        accepted_page_values: ACCEPTED_PAGE_VALUES,
+        rejected_page_values: REJECTED_PAGE_VALUES,
+        page_master: MachinePageMasterCapability {
+            count: 1,
+            optional_frames: &[],
+            rejected_optional_frames: REJECTED_OPTIONAL_FRAMES,
+            selection_rules: false,
+        },
+        accepted_font_formats: ACCEPTED_FONT_FORMATS,
+        rejected_font_formats: REJECTED_FONT_FORMATS,
+        minimum_fonts_for_text: 1,
+        accepted_image_formats: BASIC_ACCEPTED_IMAGE_FORMATS,
+        rejected_image_formats: BASIC_REJECTED_IMAGE_FORMATS,
+        pdf_features: BASIC_PDF_FEATURES,
+        unsupported_pdf_features: BASIC_UNSUPPORTED_PDF_FEATURES,
+    };
+
+    pub const fn for_id(id: MachinePdfProfileId) -> Self {
+        match id {
+            MachinePdfProfileId::BasicDocument1 => Self::BASIC_DOCUMENT_1,
+            MachinePdfProfileId::Paragraph1 => Self::PARAGRAPH_1,
+        }
+    }
 
     pub const fn id(self) -> MachinePdfProfileId {
         self.id
@@ -533,11 +666,16 @@ impl MachineProfileDescriptor {
     }
 
     pub(crate) fn accepts_style_selector(self, selector: &str) -> bool {
-        !selector.contains('.')
+        let block = if self.id == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+            selector.split('.').next().unwrap_or_default()
+        } else {
+            selector
+        };
+        (self.id == MachinePdfProfileId::BASIC_DOCUMENT_1 || !selector.contains('.'))
             && self
                 .accepted_style_selectors
                 .iter()
-                .any(|kind| kind.as_str() == selector)
+                .any(|kind| kind.as_str() == block)
     }
 
     pub(crate) fn accepts_style_property(self, name: &str) -> bool {

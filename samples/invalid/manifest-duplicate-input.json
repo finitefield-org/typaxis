@@ -1,5 +1,5 @@
 {
-  "contract": "typaxis.contract/1.1",
+  "contract": "typaxis.contract/1.2",
   "status": "failed",
   "deterministic": true,
   "engine": {
@@ -14,7 +14,7 @@
     "shaper_backend": "typaxis-reference-shaper",
     "shaper_version": "0.1.0"
   },
-  "config_sha256": "769ea09077d1abc6354fa305157d26fb0c337fd16c18bf51efd9fbcc14f2b75d",
+  "config_sha256": "778591657cd2b4d7b946778a81efcd413eda4827b2aeecc56b57637fe914d21e",
   "input_profile": "typaxis.reference-source/1",
   "package_input": null,
   "inputs": [

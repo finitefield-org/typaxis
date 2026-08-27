@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the public M1 machine profile and write canonical per-host evidence."""
+"""Verify a public machine profile or matrix and write canonical per-host evidence."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ REQUIRED_CHECKS = {
     "artifact_byte_identity",
     "build_package_run_1",
     "build_package_run_2",
-    "capabilities_m1_only",
+    "capabilities_profile_closure",
     "capabilities_schema",
     "check_package",
     "clean_binary_build",
@@ -52,21 +52,13 @@ REQUIRED_CHECKS = {
     "external_mupdf_raster",
     "manifest_schema",
     "machine_reproducibility",
+    "profile_receipt_closure",
     "trace_schema",
 }
 REQUIRED_TOOLS = {"cargo", "mutool", "pdfinfo", "pdftotext", "python", "rustc"}
-PROHIBITED_M2_ITEMS = {
-    "column",
-    "counter",
-    "figure",
-    "float",
-    "footnote",
-    "image",
-    "list",
-    "math",
-    "page_break",
-    "table",
-    "vector",
+PUBLIC_PROFILES = {
+    "typaxis.machine-pdf/basic-document-1",
+    "typaxis.machine-pdf/paragraph-1",
 }
 
 
@@ -290,31 +282,62 @@ def _capabilities(
     )
 
 
-def _assert_m1_only(capabilities: dict[str, Any]) -> None:
+def _assert_profile_closure(
+    capabilities: dict[str, Any], requested_profiles: set[str]
+) -> None:
     machine = capabilities.get("machine_input")
     profiles = machine.get("profiles") if isinstance(machine, dict) else None
-    if not isinstance(profiles, list) or len(profiles) != 1:
-        raise MachineProfileError("capabilities must advertise exactly one M1 profile")
-    profile = profiles[0]
-    if not isinstance(profile, dict) or profile.get("id") != "typaxis.machine-pdf/paragraph-1":
-        raise MachineProfileError("capabilities advertise a non-M1 profile")
-    advertised: set[str] = set()
-    for member in ("blocks", "image_formats", "page_values", "style_properties"):
-        values = profile.get(member)
-        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-            raise MachineProfileError(f"capability member is not a string array: {member}")
-        advertised.update(values)
-    inlines = profile.get("inlines")
-    if not isinstance(inlines, dict) or not isinstance(inlines.get("kinds"), list):
-        raise MachineProfileError("capability inline kinds are invalid")
-    advertised.update(inlines["kinds"])
-    if advertised & PROHIBITED_M2_ITEMS:
-        raise MachineProfileError(
-            "capabilities advertise post-M1 items: "
-            + ", ".join(sorted(advertised & PROHIBITED_M2_ITEMS))
-        )
-    if profile.get("footnotes") is not False or profile.get("image_formats") != []:
-        raise MachineProfileError("capabilities advertise post-M1 resource/footnote support")
+    if not isinstance(machine, dict) or not isinstance(profiles, list):
+        raise MachineProfileError("capabilities have no public machine profile list")
+    profile_ids = {
+        profile.get("id") for profile in profiles if isinstance(profile, dict)
+    }
+    if profile_ids != PUBLIC_PROFILES or len(profiles) != len(PUBLIC_PROFILES):
+        raise MachineProfileError("capabilities do not advertise the exact public profile set")
+    if machine.get("default_profile") != "typaxis.machine-pdf/paragraph-1":
+        raise MachineProfileError("capabilities changed the compatibility default profile")
+    if machine.get("document_package_contracts") != [
+        "typaxis.contract/1.0",
+        "typaxis.contract/1.1",
+        "typaxis.contract/1.2",
+    ]:
+        raise MachineProfileError("capabilities changed the accepted contract migration set")
+    if capabilities.get("contract") != "typaxis.contract/1.2":
+        raise MachineProfileError("capabilities are not published under the current contract")
+    if not requested_profiles or not requested_profiles <= profile_ids:
+        raise MachineProfileError("fixture requests a profile absent from capabilities")
+
+
+def _assert_profile_receipt_closure(
+    expected: dict[str, Any], manifest: dict[str, Any], trace: dict[str, Any]
+) -> None:
+    profile = expected.get("profile")
+    package_input = manifest.get("package_input")
+    layout = manifest.get("layout")
+    if (
+        profile not in PUBLIC_PROFILES
+        or manifest.get("input_profile") != profile
+        or not isinstance(package_input, dict)
+        or not isinstance(layout, dict)
+    ):
+        raise MachineProfileError("manifest does not bind the resolved public profile")
+    receipt = package_input.get("profile_receipt_sha256")
+    if (
+        not isinstance(receipt, str)
+        or len(receipt) != 64
+        or layout.get("profile_receipt_sha256") != receipt
+        or trace.get("profile_receipt_sha256") != receipt
+    ):
+        raise MachineProfileError("profile receipt differs across package, trace, and manifest")
+    manifest_flow = layout.get("flow_registry_sha256")
+    trace_flow = trace.get("flow_registry_sha256")
+    if manifest_flow != trace_flow:
+        raise MachineProfileError("flow registry differs between trace and manifest")
+    if profile == "typaxis.machine-pdf/basic-document-1":
+        if not isinstance(manifest_flow, str) or len(manifest_flow) != 64:
+            raise MachineProfileError("basic-document-1 lacks its selected flow registry binding")
+    elif manifest_flow is not None:
+        raise MachineProfileError("paragraph-1 unexpectedly carries a basic flow registry")
 
 
 def _verify_fixture(
@@ -366,6 +389,7 @@ def _verify_fixture(
                 f"runtime {kind}",
             )
         manifest = _load_json(output / "manifest.json")
+        trace = _load_json(output / "trace.json")
         manifest_output = manifest.get("output") if isinstance(manifest, dict) else None
         if (
             not isinstance(manifest_output, dict)
@@ -373,6 +397,9 @@ def _verify_fixture(
             or manifest_output.get("sha256") != _sha256(artifacts["pdf"])
         ):
             raise MachineProfileError("manifest output facts do not bind the generated PDF")
+        if not isinstance(manifest, dict) or not isinstance(trace, dict):
+            raise MachineProfileError("machine trace or manifest root is not an object")
+        _assert_profile_receipt_closure(expected, manifest, trace)
         run_directories.append(output)
         run_artifacts.append(artifacts)
 
@@ -499,7 +526,7 @@ def _host_record(rustc: Path, repository: Path, environment: Mapping[str, str]) 
     system = platform.system()
     host_os = {"Darwin": "macos", "Linux": "linux"}.get(system)
     if host_os is None:
-        raise MachineProfileError(f"the M1 machine profile is unavailable on {system}")
+        raise MachineProfileError(f"machine profile host evidence is unavailable on {system}")
     verbose = _run_capture([rustc, "-vV"], cwd=repository, environment=environment)
     host_lines = [
         line.split(":", 1)[1].strip()
@@ -611,7 +638,12 @@ def verify_machine_profile(
             results[0],
         )
         capabilities_instance = json.loads(primary.artifacts["capabilities"])
-        _assert_m1_only(capabilities_instance)
+        requested_profiles = {
+            result.expected.get("profile")
+            for result in results
+            if isinstance(result.expected.get("profile"), str)
+        }
+        _assert_profile_closure(capabilities_instance, requested_profiles)
 
         try:
             machine_reproducibility = reproducibility.verify_machine_reproducibility(
@@ -642,7 +674,7 @@ def verify_machine_profile(
             {"name": "artifact_byte_identity", "result": "passed"},
             {"name": "build_package_run_1", "result": "passed"},
             {"name": "build_package_run_2", "result": "passed"},
-            {"name": "capabilities_m1_only", "result": "passed"},
+            {"name": "capabilities_profile_closure", "result": "passed"},
             {"name": "capabilities_schema", "result": "passed"},
             {"name": "check_package", "result": "passed"},
             {"name": "clean_binary_build", "result": "passed"},
@@ -664,6 +696,7 @@ def verify_machine_profile(
             },
             {"name": "manifest_schema", "result": "passed"},
             {"name": "machine_reproducibility", "result": "passed"},
+            {"name": "profile_receipt_closure", "result": "passed"},
             {"name": "trace_schema", "result": "passed"},
         ]
         if {check["name"] for check in checks} != REQUIRED_CHECKS:
@@ -786,7 +819,9 @@ def require_host_evidence(
 def _parse_arguments(arguments: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, default=Path.cwd())
-    parser.add_argument("--fixture", type=Path)
+    fixture_group = parser.add_mutually_exclusive_group()
+    fixture_group.add_argument("--fixture", type=Path)
+    fixture_group.add_argument("--matrix", type=Path)
     parser.add_argument("--runs", type=int, default=2)
     parser.add_argument("--cargo", default="cargo")
     parser.add_argument("--mutool")
@@ -815,14 +850,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
             for host, path in observed.items():
                 print(f"{host} {path}")
             return 0
-        if options.fixture is None:
-            raise MachineProfileError("--fixture is required outside aggregation mode")
+        selected_fixture = options.matrix or options.fixture
+        if selected_fixture is None:
+            raise MachineProfileError("--fixture or --matrix is required outside aggregation mode")
         # Host evidence is defined to include the external gate. The explicit
         # flag documents release intent; absence never turns a missing tool
         # into a successful skip.
         evidence = verify_machine_profile(
             options.repository,
-            options.fixture,
+            selected_fixture,
             runs=options.runs,
             cargo=options.cargo,
             mutool=options.mutool,

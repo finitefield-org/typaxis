@@ -253,6 +253,14 @@ pub enum WireDeclarationName {
     FontSize,
     LineHeight,
     Page,
+    SpaceBefore,
+    SpaceAfter,
+    StartIndent,
+    EndIndent,
+    TextAlign,
+    Width,
+    KeepWithNext,
+    KeepCaption,
 }
 
 impl WireDeclarationName {
@@ -262,7 +270,28 @@ impl WireDeclarationName {
             Self::FontSize => "font_size",
             Self::LineHeight => "line_height",
             Self::Page => "page",
+            Self::SpaceBefore => "space_before",
+            Self::SpaceAfter => "space_after",
+            Self::StartIndent => "start_indent",
+            Self::EndIndent => "end_indent",
+            Self::TextAlign => "text_align",
+            Self::Width => "width",
+            Self::KeepWithNext => "keep_with_next",
+            Self::KeepCaption => "keep_caption",
         }
+    }
+
+    /// Whether this declaration name belongs to the frozen 1.0/1.1 wire set.
+    pub const fn is_legacy(self) -> bool {
+        matches!(
+            self,
+            Self::FontFamily | Self::FontSize | Self::LineHeight | Self::Page
+        )
+    }
+
+    /// All names in this enum belong to the current 1.2 wire set.
+    pub const fn is_current(self) -> bool {
+        true
     }
 }
 

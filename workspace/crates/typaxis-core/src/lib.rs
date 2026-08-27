@@ -82,23 +82,26 @@ impl fmt::Display for JsonPointer {
     }
 }
 
-/// Closed set of DocumentPackage contracts accepted by the M1 decoder.
+/// Closed set of DocumentPackage contracts accepted by the current decoder.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DocumentPackageContractId {
     V1_0,
     V1_1,
+    V1_2,
 }
 
 impl DocumentPackageContractId {
     pub const CONTRACT_1_0: Self = Self::V1_0;
     pub const CONTRACT_1_1: Self = Self::V1_1;
+    pub const CONTRACT_1_2: Self = Self::V1_2;
     /// Contract emitted by every current generated artifact.
-    pub const CURRENT: Self = Self::V1_1;
+    pub const CURRENT: Self = Self::V1_2;
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::V1_0 => "typaxis.contract/1.0",
             Self::V1_1 => "typaxis.contract/1.1",
+            Self::V1_2 => "typaxis.contract/1.2",
         }
     }
 }
@@ -133,23 +136,29 @@ impl std::str::FromStr for DocumentPackageContractId {
         match value {
             "typaxis.contract/1.0" => Ok(Self::V1_0),
             "typaxis.contract/1.1" => Ok(Self::V1_1),
+            "typaxis.contract/1.2" => Ok(Self::V1_2),
             _ => Err(UnknownDocumentPackageContractId),
         }
     }
 }
 
-/// Closed set of immutable machine-PDF profiles known to M1.
+/// Closed set of immutable machine-PDF profiles known to the engine.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachinePdfProfileId {
+    BasicDocument1,
     Paragraph1,
 }
 
 impl MachinePdfProfileId {
     pub const PARAGRAPH_1: Self = Self::Paragraph1;
+    pub const BASIC_DOCUMENT_1: Self = Self::BasicDocument1;
+    /// The CLI default remains the frozen paragraph profile after the 1.2
+    /// contract migration. A wider profile is always an explicit request.
     pub const CURRENT: Self = Self::Paragraph1;
 
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::BasicDocument1 => "typaxis.machine-pdf/basic-document-1",
             Self::Paragraph1 => "typaxis.machine-pdf/paragraph-1",
         }
     }
@@ -183,6 +192,7 @@ impl std::str::FromStr for MachinePdfProfileId {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
+            "typaxis.machine-pdf/basic-document-1" => Ok(Self::BasicDocument1),
             "typaxis.machine-pdf/paragraph-1" => Ok(Self::Paragraph1),
             _ => Err(UnknownMachinePdfProfileId),
         }
@@ -1952,13 +1962,21 @@ mod tests {
             DocumentPackageContractId::from_str("typaxis.contract/1.1"),
             Ok(DocumentPackageContractId::CONTRACT_1_1)
         );
+        assert_eq!(
+            DocumentPackageContractId::from_str("typaxis.contract/1.2"),
+            Ok(DocumentPackageContractId::CONTRACT_1_2)
+        );
         assert!(DocumentPackageContractId::from_str("typaxis.contract/2.0").is_err());
         assert_eq!(DocumentPackageContractId::CURRENT.as_str(), CONTRACT);
-        assert_eq!(CONTRACT, "typaxis.contract/1.1");
+        assert_eq!(CONTRACT, "typaxis.contract/1.2");
 
         assert_eq!(
             MachinePdfProfileId::from_str("typaxis.machine-pdf/paragraph-1"),
             Ok(MachinePdfProfileId::PARAGRAPH_1)
+        );
+        assert_eq!(
+            MachinePdfProfileId::from_str("typaxis.machine-pdf/basic-document-1"),
+            Ok(MachinePdfProfileId::BASIC_DOCUMENT_1)
         );
         assert!(MachinePdfProfileId::from_str("typaxis.machine-pdf/general").is_err());
     }
@@ -2422,7 +2440,7 @@ mod tests {
             .collect();
         assert_eq!(
             sample_hash,
-            "769ea09077d1abc6354fa305157d26fb0c337fd16c18bf51efd9fbcc14f2b75d"
+            "778591657cd2b4d7b946778a81efcd413eda4827b2aeecc56b57637fe914d21e"
         );
         assert_eq!(
             EffectiveConfig::new(

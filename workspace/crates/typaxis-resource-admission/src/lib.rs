@@ -106,22 +106,40 @@ impl AdmittedFont {
     }
 }
 
+/// Media attestation issued by a crate-owned byte decoder. DocumentPackage
+/// declarations intentionally carry no caller-selected media label.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AdmittedImageMediaKind {
+    Png,
+}
+
+impl AdmittedImageMediaKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedImage {
     image_id: ImageResourceId,
     uri: PortablePath,
     bytes: Vec<u8>,
     sha256: [u8; 32],
+    media_kind: AdmittedImageMediaKind,
     width: NonZeroU32,
     height: NonZeroU32,
     decoded_bytes: u64,
 }
 impl AdmittedImage {
+    #[allow(clippy::too_many_arguments)] // exact identity, bytes, media, and decoded facts
     fn from_verified(
         image_id: ImageResourceId,
         uri: PortablePath,
         bytes: Vec<u8>,
         sha256: [u8; 32],
+        media_kind: AdmittedImageMediaKind,
         width: NonZeroU32,
         height: NonZeroU32,
         decoded_bytes: u64,
@@ -131,6 +149,7 @@ impl AdmittedImage {
             uri,
             bytes,
             sha256,
+            media_kind,
             width,
             height,
             decoded_bytes,
@@ -150,6 +169,9 @@ impl AdmittedImage {
     }
     pub const fn content_hash(&self) -> [u8; 32] {
         self.sha256
+    }
+    pub const fn media_kind(&self) -> AdmittedImageMediaKind {
+        self.media_kind
     }
     pub const fn width(&self) -> NonZeroU32 {
         self.width
@@ -547,6 +569,7 @@ enum VerifiedMetadata {
     },
     Image {
         source: PendingResourceBytes,
+        media_kind: AdmittedImageMediaKind,
         width: NonZeroU32,
         height: NonZeroU32,
         decoded_bytes: u64,
@@ -587,7 +610,7 @@ impl VerifiedMetadataReceiptOwner {
             metadata,
         }))
     }
-    pub fn issue_image(
+    fn issue_png(
         &self,
         source: PendingResourceBytes,
         width: NonZeroU32,
@@ -599,6 +622,7 @@ impl VerifiedMetadataReceiptOwner {
         }
         Ok(VerifiedMetadataReceipt(VerifiedMetadata::Image {
             source,
+            media_kind: AdmittedImageMediaKind::Png,
             width,
             height,
             decoded_bytes,
@@ -859,8 +883,17 @@ impl<'roots> AdmittedResourceResolver<'roots> {
     ) -> Result<(), ResourceAdmissionError> {
         self.ensure_session(&source)?;
         let (width, height, decoded_bytes) = parse_png_metadata(source.bytes())?;
+        let pixels = u64::from(width.get())
+            .checked_mul(u64::from(height.get()))
+            .ok_or(ResourceAdmissionError::ResourceLimit)?;
+        if pixels > self.budget.limits.get().max_image_pixels
+            || decoded_bytes > self.budget.limits.get().max_decoded_image_bytes
+        {
+            return Err(ResourceAdmissionError::ResourceLimit);
+        }
+        validate_png_decoder_attestation(source.bytes(), width, height, decoded_bytes)?;
         let owner = VerifiedMetadataReceiptOwner::new();
-        let receipt = owner.issue_image(source, width, height, decoded_bytes)?;
+        let receipt = owner.issue_png(source, width, height, decoded_bytes)?;
         self.bind_verified_metadata(receipt)
     }
 
@@ -926,6 +959,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             }
             VerifiedMetadata::Image {
                 source,
+                media_kind,
                 width,
                 height,
                 decoded_bytes,
@@ -965,6 +999,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     source.uri,
                     source.bytes,
                     source.sha256,
+                    media_kind,
                     width,
                     height,
                     decoded_bytes,
@@ -1197,6 +1232,47 @@ fn parse_png_metadata(
     Ok((width, height, decoded_bytes))
 }
 
+/// Fully decodes the bounded stable-read payload before issuing the PNG media
+/// attestation. IHDR sniffing alone is intentionally insufficient: corrupt
+/// chunks or pixel data may not enter the admitted ledger as PNG.
+fn validate_png_decoder_attestation(
+    bytes: &[u8],
+    width: NonZeroU32,
+    height: NonZeroU32,
+    decoded_byte_budget: u64,
+) -> Result<(), ResourceAdmissionError> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder
+        .read_info()
+        .map_err(|_| ResourceAdmissionError::InvalidMetadata)?;
+    let output_len = reader
+        .output_buffer_size()
+        .ok_or(ResourceAdmissionError::ResourceLimit)?;
+    let admitted_budget =
+        usize::try_from(decoded_byte_budget).map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    if output_len == 0 || output_len > admitted_budget {
+        return Err(ResourceAdmissionError::InvalidMetadata);
+    }
+    let mut decoded = Vec::new();
+    decoded
+        .try_reserve_exact(output_len)
+        .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    decoded.resize(output_len, 0);
+    let frame = reader
+        .next_frame(&mut decoded)
+        .map_err(|_| ResourceAdmissionError::InvalidMetadata)?;
+    if frame.width != width.get()
+        || frame.height != height.get()
+        || frame.bit_depth != png::BitDepth::Eight
+        || frame.buffer_size() == 0
+        || frame.buffer_size() > decoded.len()
+    {
+        return Err(ResourceAdmissionError::InvalidMetadata);
+    }
+    Ok(())
+}
+
 fn read_be_u16(bytes: &[u8], offset: usize) -> Result<u16, ResourceAdmissionError> {
     let end = offset
         .checked_add(2)
@@ -1347,6 +1423,8 @@ impl AdmittedResourceLedger {
             canonical.push_str(&image.decoded_bytes().to_string());
             canonical.push_str(",\"image_id\":");
             canonical.push_str(&image.image_id().get().to_string());
+            canonical.push_str(",\"media_kind\":");
+            push_jcs_string(&mut canonical, image.media_kind().as_str());
             canonical.push_str(",\"pixel_height\":");
             canonical.push_str(&image.height().get().to_string());
             canonical.push_str(",\"pixel_width\":");
@@ -1710,7 +1788,17 @@ mod tests {
     }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
-        png_header(width, height, 8, 6, 0, 0, 0)
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer
+                .write_image_data(&vec![0; width as usize * height as usize * 4])
+                .unwrap();
+        }
+        bytes
     }
 
     fn sfnt_with_units_per_em(units_per_em: u16) -> Vec<u8> {
@@ -2136,6 +2224,7 @@ mod tests {
         resolver.parse_and_bind_png(pending).unwrap();
         let ledger = resolver.finish().unwrap();
         let image = ledger.image(ImageResourceId::new(0)).unwrap();
+        assert_eq!(image.media_kind(), AdmittedImageMediaKind::Png);
         assert_eq!((image.width().get(), image.height().get()), (2, 3));
         assert_eq!(image.decoded_bytes(), 24);
         assert!(ledger.matches_declarations(&catalog));
@@ -2212,6 +2301,17 @@ mod tests {
                 .unwrap();
             assert_eq!(resolver.parse_and_bind_png(pending), expected);
         }
+    }
+
+    #[test]
+    fn png_media_attestation_requires_a_complete_decoder_pass() {
+        let mut bytes = png(2, 3);
+        bytes.truncate(bytes.len() - 20);
+        let (width, height, decoded_bytes) = parse_png_metadata(&bytes).unwrap();
+        assert_eq!(
+            validate_png_decoder_attestation(&bytes, width, height, decoded_bytes),
+            Err(ResourceAdmissionError::InvalidMetadata)
+        );
     }
 
     #[test]

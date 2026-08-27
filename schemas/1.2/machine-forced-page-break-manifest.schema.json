@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.2/machine-forced-page-break-manifest.schema.json",
+  "title": "Typaxis Forced Page Break Manifest Staging Facts 1.2",
+  "description": "Non-current MI2-05 forced-boundary consumption, blank-page, cursor, and PDF page-tree closure facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "break_usage_sha256",
+    "contract",
+    "flow_registry_sha256",
+    "forced_page_breaks",
+    "package_sha256",
+    "page_count",
+    "pages",
+    "pdf_observation_sha256",
+    "pdf_page_tree_sha256",
+    "policy_version"
+  ],
+  "properties": {
+    "algorithm": {
+      "const": "typaxis.forced-page-break-manifest/1"
+    },
+    "break_usage_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "flow_registry_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "forced_page_breaks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/forced_page_break"
+      }
+    },
+    "package_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "page_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    },
+    "pdf_observation_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "pdf_page_tree_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "policy_version": {
+      "const": "typaxis.basic-forced-page-break-policy/1"
+    }
+  },
+  "$defs": {
+    "cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flow_id",
+        "flow_local_ordinal"
+      ],
+      "properties": {
+        "flow_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "flow_local_ordinal": {
+          "$ref": "common.schema.json#/$defs/id32"
+        }
+      }
+    },
+    "forced_page_break": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "after_cursor",
+        "before_cursor",
+        "break_node_id",
+        "document_ordinal",
+        "produced_page_index"
+      ],
+      "properties": {
+        "after_cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "before_cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "break_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "document_ordinal": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "produced_page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "is_blank",
+        "page_index",
+        "painted_content_count"
+      ],
+      "properties": {
+        "is_blank": {
+          "type": "boolean"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "painted_content_count": {
+          "$ref": "common.schema.json#/$defs/id32"
+        }
+      }
+    }
+  }
+}

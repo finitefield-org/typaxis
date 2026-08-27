@@ -4,8 +4,8 @@ use crate::descriptor::{
 };
 use crate::HostCapabilityDescriptor;
 use typaxis_core::{
-    DocumentFingerprint, FontFaceId, JsonPointer, MachineInputFingerprint, MachinePdfProfileId,
-    NodeId, PortablePath, StyleFingerprint,
+    sha256, DocumentFingerprint, FontFaceId, JsonPointer, MachineInputFingerprint,
+    MachinePdfProfileId, NodeId, PortablePath, StyleFingerprint,
 };
 use typaxis_diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLocation, GlobalDiagnosticScope,
@@ -30,6 +30,7 @@ const UNSUPPORTED_RESOURCE_MESSAGE: &str =
 const MISSING_TEXT_FONT_MESSAGE: &str =
     "text-producing content requires a declared machine PDF font";
 const HOST_UNAVAILABLE_MESSAGE: &str = "required compiled host capability is unavailable";
+pub const BASIC_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.basic-profile-receipt/1";
 
 /// Failure returned before PACKAGE admission when a compiled host primitive is
 /// unavailable. The emitted `I9110` is fatal and therefore terminates the
@@ -148,6 +149,7 @@ pub struct MachinePdfPreflightReceipt {
     style: StyleFingerprint,
     package_input: MachineInputFingerprint,
     session: MachineInputSessionIdentity,
+    profile_receipt_sha256: [u8; 32],
 }
 
 impl MachinePdfPreflightReceipt {
@@ -179,6 +181,12 @@ impl MachinePdfPreflightReceipt {
         self.package_input
     }
 
+    /// Stable digest bound into machine manifests between capability
+    /// preflight and layout.
+    pub const fn profile_receipt_sha256(&self) -> [u8; 32] {
+        self.profile_receipt_sha256
+    }
+
     pub fn verify(
         &self,
         profile: MachinePdfProfileId,
@@ -200,6 +208,9 @@ impl MachinePdfPreflightReceipt {
         if self.session != *package.provenance().session_identity() {
             return Err(MachinePdfReceiptMismatch::Session);
         }
+        if self.profile_receipt_sha256 != profile_receipt_fingerprint(profile, package) {
+            return Err(MachinePdfReceiptMismatch::ProfileReceipt);
+        }
         Ok(())
     }
 
@@ -215,6 +226,7 @@ pub enum MachinePdfReceiptMismatch {
     Style,
     MachineInput,
     Session,
+    ProfileReceipt,
 }
 
 impl std::fmt::Display for MachinePdfReceiptMismatch {
@@ -225,6 +237,7 @@ impl std::fmt::Display for MachinePdfReceiptMismatch {
             Self::Style => "machine PDF style fingerprint mismatch",
             Self::MachineInput => "machine PDF input fingerprint mismatch",
             Self::Session => "machine PDF admission session mismatch",
+            Self::ProfileReceipt => "machine PDF profile receipt fingerprint mismatch",
         })
     }
 }
@@ -238,6 +251,7 @@ pub struct MachinePdfPreflight {
 }
 
 impl MachinePdfPreflight {
+    pub const BASIC_DOCUMENT_1: Self = Self::new(MachineProfileDescriptor::BASIC_DOCUMENT_1);
     pub const PARAGRAPH_1: Self = Self::new(MachineProfileDescriptor::PARAGRAPH_1);
 
     pub const fn new(descriptor: MachineProfileDescriptor) -> Self {
@@ -287,6 +301,7 @@ impl MachinePdfPreflight {
             style: epoch.style(),
             package_input: package.provenance().fingerprint(),
             session: package.provenance().session_identity().clone(),
+            profile_receipt_sha256: profile_receipt_fingerprint(self.descriptor.id(), package),
         })
     }
 
@@ -361,11 +376,13 @@ impl MachinePdfPreflight {
         if !self.descriptor.accepts_block(kind) {
             violations.content(block_node_id(block), None)?;
         }
-        if let Block::Figure {
-            node_id, image_id, ..
-        } = block
-        {
-            violations.resource_at_node(*node_id, ResourceErrorSubject::Image(*image_id))?;
+        if self.descriptor.accepted_image_formats().is_empty() {
+            if let Block::Figure {
+                node_id, image_id, ..
+            } = block
+            {
+                violations.resource_at_node(*node_id, ResourceErrorSubject::Image(*image_id))?;
+            }
         }
         Ok(())
     }
@@ -481,6 +498,24 @@ impl MachinePdfPreflight {
         }
         Ok(())
     }
+}
+
+fn profile_receipt_fingerprint(
+    profile: MachinePdfProfileId,
+    package: &ValidatedMachinePackage,
+) -> [u8; 32] {
+    let epoch = package.package().epoch_identity();
+    let mut bytes = Vec::with_capacity(192);
+    bytes.extend_from_slice(BASIC_PROFILE_RECEIPT_ALGORITHM.as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(package.contract().as_str().as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(profile.as_str().as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(&epoch.document().bytes());
+    bytes.extend_from_slice(&epoch.style().bytes());
+    bytes.extend_from_slice(&package.provenance().fingerprint().bytes());
+    sha256(&bytes)
 }
 
 enum WorkItem<'a> {

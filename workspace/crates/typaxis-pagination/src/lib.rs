@@ -8,19 +8,24 @@ use std::sync::Arc;
 use typaxis_core::{
     initial_pagination_state_fingerprint_from_jcs,
     materialized_pagination_state_fingerprint_from_jcs, push_generated_buffer_key_jcs,
-    push_jcs_string, AnchorId, FootnoteId, GeneratedBufferKey, GenerationKind,
+    push_jcs_string, AnchorId, FootnoteId, GeneratedBufferKey, GenerationKind, ImageResourceId,
     LayoutStateFingerprint, MasterId, NodeId, NonNegativeLength, Point, PositiveLength, Rect,
     ReferenceFingerprint, Utf8ByteOffset, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
 };
 use typaxis_diagnostics::{
     AdvisoryDiagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLocation, DiagnosticSubject,
-    LayoutErrorSubject, Severity, SourceDiagnosticLocation,
+    LayoutErrorSubject, Severity, SourceDiagnosticLocation, I9190, L5100, L5110,
 };
 use typaxis_document::GeneratedSiteTarget;
 use typaxis_layout::{
-    Continuation, DiscoveredAnchor, FlowCursor, FlowPosition, FlowTree, FragmentError,
-    FragmentRequest, FragmentWorkBudget, Fragmenter, LayoutEpoch, PageContext, ReferenceFragmenter,
-    ResolvedPageSelection,
+    multi_flow_selected_state_fingerprint_from_jcs, table_selected_layout_fingerprint_from_jcs,
+    Continuation, DiscoveredAnchor, FlowContentKind, FlowCursor, FlowId, FlowPosition,
+    FlowRegistryFingerprint, FlowTree, FragmentError, FragmentRequest, FragmentWorkBudget,
+    Fragmenter, LayoutEpoch, MultiFlowSelectedStateFingerprint, PageContext, ProductionFlowIr,
+    ProductionFlowPosition, ReferenceFragmenter, ResolvedPageSelection, StagingFigureKeepPolicy,
+    StagingFigureOversizePolicy, StagingForcedPageBreakLayoutReceipt,
+    StagingMachineListLayoutReceipt, TableCellLayoutReceipt, TableRowBandLayoutReceipt,
+    TableRowBandReceipt, TableSection, TableSelectedLayoutFingerprint, ValidatedFigureLayout,
 };
 use typaxis_style::PageMasterSet;
 use typaxis_syntax::{PackagePaginationContext, ValidatedParsedPackage};
@@ -56,6 +61,4561 @@ impl PartialEq for PaginationSessionId {
 }
 
 impl Eq for PaginationSessionId {}
+
+pub const MULTI_FLOW_TRACE_FACTS_ALGORITHM: &str = "typaxis.multi-flow-trace-facts/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MultiFlowError {
+    RegistryMismatch,
+    EpochMismatch,
+    UnknownFlow(FlowId),
+    WrongOwner(FlowId),
+    WrongParent(FlowId),
+    WrongTerminal(FlowId),
+    MissingFlow(FlowId),
+    ExtraFlow(FlowId),
+    DuplicateFlow(FlowId),
+    ChildNotAtCursor(FlowId),
+    FlowAlreadyVisited(FlowId),
+    BodyCannotBeNested,
+    BodyCannotBeLeft,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+/// Package/epoch/registry-bound cursor ledger for nested pagination. Progress
+/// is stored per flow and the active stack stores only explicit parent/child
+/// transitions; subflow boundaries are never flattened into the body cursor.
+#[derive(Debug)]
+pub struct MultiFlowCursorReceipt {
+    registry: FlowRegistryFingerprint,
+    epoch: LayoutEpoch,
+    progress: Vec<u32>,
+    visited: Vec<bool>,
+    active_stack: Vec<FlowId>,
+}
+
+impl MultiFlowCursorReceipt {
+    pub fn new(ir: &ProductionFlowIr) -> Result<Self, MultiFlowError> {
+        let flow_count = ir.registry().flows().len();
+        if flow_count == 0
+            || ir.registry().flows()[0].flow_id() != FlowId::DOCUMENT_BODY
+            || ir.flows().len() != flow_count
+        {
+            return Err(MultiFlowError::RegistryMismatch);
+        }
+        let mut progress = Vec::new();
+        progress
+            .try_reserve_exact(flow_count)
+            .map_err(|_| MultiFlowError::AllocationFailure)?;
+        progress.resize(flow_count, 0);
+        let mut visited = Vec::new();
+        visited
+            .try_reserve_exact(flow_count)
+            .map_err(|_| MultiFlowError::AllocationFailure)?;
+        visited.resize(flow_count, false);
+        visited[FlowId::DOCUMENT_BODY.get() as usize] = true;
+        Ok(Self {
+            registry: ir.registry().receipt().fingerprint(),
+            epoch: ir.registry().receipt().epoch(),
+            progress,
+            visited,
+            active_stack: vec![FlowId::DOCUMENT_BODY],
+        })
+    }
+
+    pub const fn registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.registry
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub fn active_stack(&self) -> &[FlowId] {
+        &self.active_stack
+    }
+
+    pub fn current_flow(&self) -> FlowId {
+        *self
+            .active_stack
+            .last()
+            .expect("a validated multi-flow cursor always retains the body")
+    }
+
+    pub fn flow_progress(&self, flow_id: FlowId) -> Option<u32> {
+        self.progress.get(flow_id.get() as usize).copied()
+    }
+
+    pub fn current_position<'a>(
+        &self,
+        ir: &'a ProductionFlowIr,
+    ) -> Result<&'a ProductionFlowPosition, MultiFlowError> {
+        self.validate_ir(ir)?;
+        let flow_id = self.current_flow();
+        let flow = ir
+            .flow(flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(flow_id))?;
+        flow.positions()
+            .get(self.progress[flow_id.get() as usize] as usize)
+            .ok_or(MultiFlowError::WrongTerminal(flow_id))
+    }
+
+    pub fn advance(&mut self, ir: &ProductionFlowIr) -> Result<(), MultiFlowError> {
+        self.validate_ir(ir)?;
+        let flow_id = self.current_flow();
+        let index = flow_id.get() as usize;
+        let terminal = ir
+            .registry()
+            .flow(flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(flow_id))?
+            .terminal()
+            .owner_local_ordinal();
+        if self.progress[index] >= terminal {
+            return Err(MultiFlowError::WrongTerminal(flow_id));
+        }
+        self.progress[index] = self.progress[index]
+            .checked_add(1)
+            .ok_or(MultiFlowError::ArithmeticOverflow)?;
+        Ok(())
+    }
+
+    pub fn enter_child(
+        &mut self,
+        ir: &ProductionFlowIr,
+        child_flow_id: FlowId,
+    ) -> Result<(), MultiFlowError> {
+        self.validate_ir(ir)?;
+        if child_flow_id == FlowId::DOCUMENT_BODY {
+            return Err(MultiFlowError::BodyCannotBeNested);
+        }
+        let parent_flow_id = self.current_flow();
+        let position = self.current_position(ir)?;
+        if position.is_terminal() || position.child_flow_id() != Some(child_flow_id) {
+            return Err(MultiFlowError::ChildNotAtCursor(child_flow_id));
+        }
+        let child = ir
+            .registry()
+            .flow(child_flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(child_flow_id))?;
+        if child.parent_flow_id() != Some(parent_flow_id) {
+            return Err(MultiFlowError::WrongParent(child_flow_id));
+        }
+        let child_index = child_flow_id.get() as usize;
+        if self.visited[child_index] {
+            return Err(MultiFlowError::FlowAlreadyVisited(child_flow_id));
+        }
+        self.active_stack
+            .try_reserve(1)
+            .map_err(|_| MultiFlowError::AllocationFailure)?;
+        self.visited[child_index] = true;
+        self.active_stack.push(child_flow_id);
+        Ok(())
+    }
+
+    pub fn leave_terminal(&mut self, ir: &ProductionFlowIr) -> Result<(), MultiFlowError> {
+        self.validate_ir(ir)?;
+        let flow_id = self.current_flow();
+        if flow_id == FlowId::DOCUMENT_BODY {
+            return Err(MultiFlowError::BodyCannotBeLeft);
+        }
+        let terminal = ir
+            .registry()
+            .flow(flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(flow_id))?
+            .terminal()
+            .owner_local_ordinal();
+        if self.progress[flow_id.get() as usize] != terminal {
+            return Err(MultiFlowError::WrongTerminal(flow_id));
+        }
+        self.active_stack.pop();
+        Ok(())
+    }
+
+    pub fn finish(
+        self,
+        ir: &ProductionFlowIr,
+    ) -> Result<MultiFlowSelectedStateReceipt, MultiFlowError> {
+        self.validate_ir(ir)?;
+        if self.active_stack != [FlowId::DOCUMENT_BODY] {
+            return Err(MultiFlowError::WrongParent(self.current_flow()));
+        }
+        let mut completed = Vec::new();
+        completed
+            .try_reserve_exact(ir.registry().flows().len())
+            .map_err(|_| MultiFlowError::AllocationFailure)?;
+        for flow in ir.registry().flows() {
+            let index = flow.flow_id().get() as usize;
+            if !self.visited[index] {
+                return Err(MultiFlowError::MissingFlow(flow.flow_id()));
+            }
+            if self.progress[index] != flow.terminal().owner_local_ordinal() {
+                return Err(MultiFlowError::WrongTerminal(flow.flow_id()));
+            }
+            completed.push(CompletedFlowReceipt::from_ir(ir, flow.flow_id())?);
+        }
+        MultiFlowSelectedStateReceipt::from_completed(ir, completed)
+    }
+
+    fn validate_ir(&self, ir: &ProductionFlowIr) -> Result<(), MultiFlowError> {
+        if self.registry != ir.registry().receipt().fingerprint()
+            || self.progress.len() != ir.registry().flows().len()
+            || self.visited.len() != ir.registry().flows().len()
+        {
+            return Err(MultiFlowError::RegistryMismatch);
+        }
+        if self.epoch != ir.registry().receipt().epoch() {
+            return Err(MultiFlowError::EpochMismatch);
+        }
+        Ok(())
+    }
+}
+
+/// Independent worker cursor. It can advance only inside one flow and seals a
+/// completion receipt only at that flow's registry-issued terminal.
+#[derive(Debug)]
+pub struct FlowWorkerCursor {
+    registry: FlowRegistryFingerprint,
+    epoch: LayoutEpoch,
+    flow_id: FlowId,
+    next_boundary: u32,
+}
+
+impl FlowWorkerCursor {
+    pub fn new(ir: &ProductionFlowIr, flow_id: FlowId) -> Result<Self, MultiFlowError> {
+        ir.registry()
+            .flow(flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(flow_id))?;
+        Ok(Self {
+            registry: ir.registry().receipt().fingerprint(),
+            epoch: ir.registry().receipt().epoch(),
+            flow_id,
+            next_boundary: 0,
+        })
+    }
+
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+
+    pub const fn next_boundary(&self) -> u32 {
+        self.next_boundary
+    }
+
+    pub fn advance(&mut self, ir: &ProductionFlowIr) -> Result<(), MultiFlowError> {
+        self.validate_ir(ir)?;
+        let terminal = ir
+            .registry()
+            .flow(self.flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(self.flow_id))?
+            .terminal()
+            .owner_local_ordinal();
+        if self.next_boundary >= terminal {
+            return Err(MultiFlowError::WrongTerminal(self.flow_id));
+        }
+        self.next_boundary = self
+            .next_boundary
+            .checked_add(1)
+            .ok_or(MultiFlowError::ArithmeticOverflow)?;
+        Ok(())
+    }
+
+    pub fn finish(self, ir: &ProductionFlowIr) -> Result<CompletedFlowReceipt, MultiFlowError> {
+        self.validate_ir(ir)?;
+        let terminal = ir
+            .registry()
+            .flow(self.flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(self.flow_id))?
+            .terminal()
+            .owner_local_ordinal();
+        if self.next_boundary != terminal {
+            return Err(MultiFlowError::WrongTerminal(self.flow_id));
+        }
+        CompletedFlowReceipt::from_ir(ir, self.flow_id)
+    }
+
+    fn validate_ir(&self, ir: &ProductionFlowIr) -> Result<(), MultiFlowError> {
+        if self.registry != ir.registry().receipt().fingerprint() {
+            return Err(MultiFlowError::RegistryMismatch);
+        }
+        if self.epoch != ir.registry().receipt().epoch() {
+            return Err(MultiFlowError::EpochMismatch);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct CompletedFlowReceipt {
+    registry: FlowRegistryFingerprint,
+    epoch: LayoutEpoch,
+    flow_id: FlowId,
+    owner_node_id: NodeId,
+    parent_flow_id: Option<FlowId>,
+    terminal: u32,
+}
+
+impl CompletedFlowReceipt {
+    fn from_ir(ir: &ProductionFlowIr, flow_id: FlowId) -> Result<Self, MultiFlowError> {
+        let flow = ir
+            .registry()
+            .flow(flow_id)
+            .ok_or(MultiFlowError::UnknownFlow(flow_id))?;
+        Ok(Self {
+            registry: ir.registry().receipt().fingerprint(),
+            epoch: ir.registry().receipt().epoch(),
+            flow_id,
+            owner_node_id: flow.owner_node_id(),
+            parent_flow_id: flow.parent_flow_id(),
+            terminal: flow.terminal().owner_local_ordinal(),
+        })
+    }
+
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+}
+
+/// Accepts independently completed flow workers in arbitrary order, then
+/// seals one canonical all-flow selected-state receipt.
+pub struct MultiFlowSelectionBuilder<'a> {
+    ir: &'a ProductionFlowIr,
+    completed: Vec<CompletedFlowReceipt>,
+}
+
+impl<'a> MultiFlowSelectionBuilder<'a> {
+    pub const fn new(ir: &'a ProductionFlowIr) -> Self {
+        Self {
+            ir,
+            completed: Vec::new(),
+        }
+    }
+
+    pub fn register(&mut self, completed: CompletedFlowReceipt) -> Result<(), MultiFlowError> {
+        if self.completed.len() >= self.ir.registry().flows().len() {
+            return Err(MultiFlowError::ExtraFlow(completed.flow_id));
+        }
+        self.completed
+            .try_reserve(1)
+            .map_err(|_| MultiFlowError::AllocationFailure)?;
+        self.completed.push(completed);
+        Ok(())
+    }
+
+    pub fn finish(self) -> Result<MultiFlowSelectedStateReceipt, MultiFlowError> {
+        MultiFlowSelectedStateReceipt::from_completed(self.ir, self.completed)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedFlowTerminal {
+    flow_id: FlowId,
+    owner_node_id: NodeId,
+    parent_flow_id: Option<FlowId>,
+    terminal: u32,
+}
+
+impl SelectedFlowTerminal {
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+
+    pub const fn owner_node_id(&self) -> NodeId {
+        self.owner_node_id
+    }
+
+    pub const fn parent_flow_id(&self) -> Option<FlowId> {
+        self.parent_flow_id
+    }
+
+    pub const fn terminal(&self) -> u32 {
+        self.terminal
+    }
+}
+
+/// Selected-state closure over every registry flow. The receipt is
+/// non-cloneable and can be built only from terminal worker/stack receipts.
+#[derive(Debug)]
+pub struct MultiFlowSelectedStateReceipt {
+    registry: FlowRegistryFingerprint,
+    epoch: LayoutEpoch,
+    terminals: Vec<SelectedFlowTerminal>,
+    fingerprint: MultiFlowSelectedStateFingerprint,
+}
+
+impl MultiFlowSelectedStateReceipt {
+    fn from_completed(
+        ir: &ProductionFlowIr,
+        mut completed: Vec<CompletedFlowReceipt>,
+    ) -> Result<Self, MultiFlowError> {
+        completed.sort_by_key(|receipt| receipt.flow_id);
+        if let Some(pair) = completed
+            .windows(2)
+            .find(|pair| pair[0].flow_id == pair[1].flow_id)
+        {
+            return Err(MultiFlowError::DuplicateFlow(pair[1].flow_id));
+        }
+        let mut terminals = Vec::new();
+        terminals
+            .try_reserve_exact(ir.registry().flows().len())
+            .map_err(|_| MultiFlowError::AllocationFailure)?;
+        for expected in ir.registry().flows() {
+            let index = expected.flow_id().get() as usize;
+            let actual = completed
+                .get(index)
+                .ok_or(MultiFlowError::MissingFlow(expected.flow_id()))?;
+            if actual.flow_id != expected.flow_id() {
+                if actual.flow_id.get() < expected.flow_id().get() {
+                    return Err(MultiFlowError::ExtraFlow(actual.flow_id));
+                }
+                return Err(MultiFlowError::MissingFlow(expected.flow_id()));
+            }
+            if actual.registry != ir.registry().receipt().fingerprint() {
+                return Err(MultiFlowError::RegistryMismatch);
+            }
+            if actual.epoch != ir.registry().receipt().epoch() {
+                return Err(MultiFlowError::EpochMismatch);
+            }
+            if actual.owner_node_id != expected.owner_node_id() {
+                return Err(MultiFlowError::WrongOwner(expected.flow_id()));
+            }
+            if actual.parent_flow_id != expected.parent_flow_id() {
+                return Err(MultiFlowError::WrongParent(expected.flow_id()));
+            }
+            if actual.terminal != expected.terminal().owner_local_ordinal() {
+                return Err(MultiFlowError::WrongTerminal(expected.flow_id()));
+            }
+            terminals.push(SelectedFlowTerminal {
+                flow_id: actual.flow_id,
+                owner_node_id: actual.owner_node_id,
+                parent_flow_id: actual.parent_flow_id,
+                terminal: actual.terminal,
+            });
+        }
+        if completed.len() > terminals.len() {
+            return Err(MultiFlowError::ExtraFlow(
+                completed[terminals.len()].flow_id,
+            ));
+        }
+        let registry = ir.registry().receipt().fingerprint();
+        let epoch = ir.registry().receipt().epoch();
+        let canonical_jcs = encode_multi_flow_selected_state(registry, epoch, &terminals);
+        let fingerprint = multi_flow_selected_state_fingerprint_from_jcs(&canonical_jcs);
+        Ok(Self {
+            registry,
+            epoch,
+            terminals,
+            fingerprint,
+        })
+    }
+
+    pub const fn registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.registry
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub fn terminals(&self) -> &[SelectedFlowTerminal] {
+        &self.terminals
+    }
+
+    pub const fn fingerprint(&self) -> MultiFlowSelectedStateFingerprint {
+        self.fingerprint
+    }
+}
+
+fn encode_multi_flow_selected_state(
+    registry: FlowRegistryFingerprint,
+    epoch: LayoutEpoch,
+    terminals: &[SelectedFlowTerminal],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, MultiFlowSelectedStateFingerprint::ALGORITHM_ID);
+    output.push_str(",\"flow_registry_sha256\":");
+    push_hex(&mut output, registry.bytes());
+    output.push_str(",\"flow_terminals\":[");
+    for (index, terminal) in terminals.iter().enumerate() {
+        comma(&mut output, index);
+        output.push_str("{\"flow_id\":");
+        output.push_str(&terminal.flow_id.get().to_string());
+        output.push_str(",\"owner_node_id\":");
+        output.push_str(&terminal.owner_node_id.get().to_string());
+        output.push_str(",\"parent_flow_id\":");
+        push_optional_flow_id(&mut output, terminal.parent_flow_id);
+        output.push_str(",\"terminal\":");
+        output.push_str(&terminal.terminal.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"layout_epoch\":");
+    encode_layout_epoch(&mut output, epoch);
+    output.push('}');
+    output
+}
+
+/// Canonical trace projection for the versioned 1.2 multi-flow facts. It carries
+/// every flow position in dense flow/owner order and is derived only from a
+/// matching all-flow selected receipt.
+#[derive(Debug)]
+pub struct MultiFlowTraceFacts {
+    registry: FlowRegistryFingerprint,
+    selected: MultiFlowSelectedStateFingerprint,
+    positions: Vec<ProductionFlowPosition>,
+    canonical_jcs: String,
+}
+
+impl MultiFlowTraceFacts {
+    pub fn new(
+        ir: &ProductionFlowIr,
+        selected: &MultiFlowSelectedStateReceipt,
+    ) -> Result<Self, MultiFlowError> {
+        if selected.registry != ir.registry().receipt().fingerprint() {
+            return Err(MultiFlowError::RegistryMismatch);
+        }
+        if selected.epoch != ir.registry().receipt().epoch()
+            || selected.terminals.len() != ir.registry().flows().len()
+        {
+            return Err(MultiFlowError::EpochMismatch);
+        }
+        let position_count = ir.flows().iter().try_fold(0usize, |total, flow| {
+            total
+                .checked_add(flow.positions().len())
+                .ok_or(MultiFlowError::ArithmeticOverflow)
+        })?;
+        let mut positions = Vec::new();
+        positions
+            .try_reserve_exact(position_count)
+            .map_err(|_| MultiFlowError::AllocationFailure)?;
+        for flow in ir.flows() {
+            positions.extend_from_slice(flow.positions());
+        }
+        let canonical_jcs = encode_multi_flow_trace_facts(
+            ir.registry().receipt().fingerprint(),
+            selected.fingerprint,
+            &positions,
+        );
+        Ok(Self {
+            registry: ir.registry().receipt().fingerprint(),
+            selected: selected.fingerprint,
+            positions,
+            canonical_jcs,
+        })
+    }
+
+    pub const fn registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.registry
+    }
+
+    pub const fn selected_state_fingerprint(&self) -> MultiFlowSelectedStateFingerprint {
+        self.selected
+    }
+
+    pub fn positions(&self) -> &[ProductionFlowPosition] {
+        &self.positions
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn encode_multi_flow_trace_facts(
+    registry: FlowRegistryFingerprint,
+    selected: MultiFlowSelectedStateFingerprint,
+    positions: &[ProductionFlowPosition],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, MULTI_FLOW_TRACE_FACTS_ALGORITHM);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"flow_positions\":[");
+    for (index, position) in positions.iter().enumerate() {
+        comma(&mut output, index);
+        encode_production_flow_position(&mut output, position);
+    }
+    output.push_str("],\"flow_registry_sha256\":");
+    push_hex(&mut output, registry.bytes());
+    output.push_str(",\"selected_state_sha256\":");
+    push_hex(&mut output, selected.bytes());
+    output.push('}');
+    output
+}
+
+fn encode_production_flow_position(output: &mut String, position: &ProductionFlowPosition) {
+    output.push_str("{\"block_child_path\":[");
+    for (index, component) in position.block_child_path().iter().enumerate() {
+        comma(output, index);
+        output.push_str(&component.to_string());
+    }
+    output.push_str("],\"child_flow_id\":");
+    push_optional_flow_id(output, position.child_flow_id());
+    output.push_str(",\"content_kind\":");
+    match position.content_kind() {
+        Some(kind) => push_jcs_string(output, kind.as_str()),
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"content_owner_node_id\":");
+    match position.content_owner_node_id() {
+        Some(owner) => output.push_str(&owner.get().to_string()),
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"epoch\":");
+    encode_layout_epoch(output, position.epoch());
+    output.push_str(",\"flow_id\":");
+    output.push_str(&position.flow_id().get().to_string());
+    output.push_str(",\"flow_local_ordinal\":");
+    output.push_str(&position.flow_local_ordinal().to_string());
+    output.push_str(",\"owner_local_boundary\":");
+    output.push_str(&position.owner_local_boundary().to_string());
+    output.push_str(",\"owner_node_id\":");
+    output.push_str(&position.flow_owner_node_id().get().to_string());
+    output.push_str(",\"parent_flow_id\":");
+    push_optional_flow_id(output, position.parent_flow_id());
+    output.push_str(",\"terminal\":");
+    output.push_str(if position.is_terminal() {
+        "true"
+    } else {
+        "false"
+    });
+    output.push('}');
+}
+
+fn push_optional_flow_id(output: &mut String, flow_id: Option<FlowId>) {
+    match flow_id {
+        Some(flow_id) => output.push_str(&flow_id.get().to_string()),
+        None => output.push_str("null"),
+    }
+}
+
+pub const STAGING_TABLE_TRACE_ALGORITHM: &str = "typaxis.table-layout-trace/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingTableOversizeTerminal {
+    row_owner: NodeId,
+    page_index: u32,
+    transition_count: u8,
+}
+
+impl StagingTableOversizeTerminal {
+    pub const fn row_owner(self) -> NodeId {
+        self.row_owner
+    }
+    pub const fn page_index(self) -> u32 {
+        self.page_index
+    }
+    pub const fn transition_count(self) -> u8 {
+        self.transition_count
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingTablePaginationError {
+    Flow(MultiFlowError),
+    LayoutRegistryMismatch,
+    InvalidPageInput,
+    HeaderOversize(NodeId),
+    RowOversize(StagingTableOversizeTerminal),
+    PageLimit,
+    FragmentLimit,
+    NoProgress(NodeId),
+    SameCandidateRetry(NodeId),
+    MissingContinuation { column_ordinal: u32 },
+    DuplicateContinuation { column_ordinal: u32 },
+    WrongContinuationOwner { column_ordinal: u32 },
+    WrongRepetitionIndex { expected: u32, actual: u32 },
+    SelectedStateMismatch,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+impl From<MultiFlowError> for StagingTablePaginationError {
+    fn from(value: MultiFlowError) -> Self {
+        Self::Flow(value)
+    }
+}
+
+impl StagingTablePaginationError {
+    pub const fn diagnostic_code(self) -> DiagnosticCode {
+        match self {
+            Self::HeaderOversize(_) | Self::RowOversize(_) => L5100,
+            Self::FragmentLimit => L5110,
+            Self::Flow(_)
+            | Self::LayoutRegistryMismatch
+            | Self::InvalidPageInput
+            | Self::PageLimit
+            | Self::NoProgress(_)
+            | Self::SameCandidateRetry(_)
+            | Self::MissingContinuation { .. }
+            | Self::DuplicateContinuation { .. }
+            | Self::WrongContinuationOwner { .. }
+            | Self::WrongRepetitionIndex { .. }
+            | Self::SelectedStateMismatch
+            | Self::ArithmeticOverflow
+            | Self::AllocationFailure => I9190,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingTablePageInput {
+    body_block_size: PositiveLength,
+    first_page_remaining_block_size: PositiveLength,
+}
+
+impl StagingTablePageInput {
+    pub fn new(
+        body_block_size: PositiveLength,
+        first_page_remaining_block_size: PositiveLength,
+    ) -> Result<Self, StagingTablePaginationError> {
+        if first_page_remaining_block_size.get().raw() > body_block_size.get().raw() {
+            return Err(StagingTablePaginationError::InvalidPageInput);
+        }
+        Ok(Self {
+            body_block_size,
+            first_page_remaining_block_size,
+        })
+    }
+
+    pub const fn body_block_size(self) -> PositiveLength {
+        self.body_block_size
+    }
+    pub const fn first_page_remaining_block_size(self) -> PositiveLength {
+        self.first_page_remaining_block_size
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingTableCellFlowCursor {
+    flow_id: FlowId,
+    next_fragment_ordinal: u32,
+    terminal: bool,
+}
+
+impl StagingTableCellFlowCursor {
+    pub const fn flow_id(self) -> FlowId {
+        self.flow_id
+    }
+    pub const fn next_fragment_ordinal(self) -> u32 {
+        self.next_fragment_ordinal
+    }
+    pub const fn is_terminal(self) -> bool {
+        self.terminal
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingTableRowCursor {
+    logical_row_ordinal: u32,
+    row_fragment_ordinal: u32,
+    block_offset_within_row: i64,
+    terminal: bool,
+}
+
+impl StagingTableRowCursor {
+    const fn start() -> Self {
+        Self {
+            logical_row_ordinal: 0,
+            row_fragment_ordinal: 0,
+            block_offset_within_row: 0,
+            terminal: false,
+        }
+    }
+
+    pub const fn logical_row_ordinal(self) -> u32 {
+        self.logical_row_ordinal
+    }
+    pub const fn row_fragment_ordinal(self) -> u32 {
+        self.row_fragment_ordinal
+    }
+    pub const fn block_offset_within_row(self) -> i64 {
+        self.block_offset_within_row
+    }
+    pub const fn is_terminal(self) -> bool {
+        self.terminal
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingTableCellFragmentReceipt {
+    cell_owner: NodeId,
+    flow_id: FlowId,
+    selected_block_extent: i64,
+    vertical_offset_before: i64,
+    vertical_offset_after: i64,
+    before_cursor: StagingTableCellFlowCursor,
+    after_cursor: StagingTableCellFlowCursor,
+}
+
+impl StagingTableCellFragmentReceipt {
+    pub const fn cell_owner(&self) -> NodeId {
+        self.cell_owner
+    }
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+    pub const fn selected_block_extent(&self) -> i64 {
+        self.selected_block_extent
+    }
+    pub const fn vertical_offset_before(&self) -> i64 {
+        self.vertical_offset_before
+    }
+    pub const fn vertical_offset_after(&self) -> i64 {
+        self.vertical_offset_after
+    }
+    pub const fn before_cursor(&self) -> StagingTableCellFlowCursor {
+        self.before_cursor
+    }
+    pub const fn after_cursor(&self) -> StagingTableCellFlowCursor {
+        self.after_cursor
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RowspanContinuationEntry {
+    column_ordinal: u32,
+    cell_owner: NodeId,
+    flow_id: FlowId,
+    cell_flow_cursor: StagingTableCellFlowCursor,
+    vertical_offset: i64,
+    remaining_logical_rows: NonZeroU16,
+}
+
+impl RowspanContinuationEntry {
+    pub const fn column_ordinal(&self) -> u32 {
+        self.column_ordinal
+    }
+    pub const fn cell_owner(&self) -> NodeId {
+        self.cell_owner
+    }
+    pub const fn flow_id(&self) -> FlowId {
+        self.flow_id
+    }
+    pub const fn cell_flow_cursor(&self) -> StagingTableCellFlowCursor {
+        self.cell_flow_cursor
+    }
+    pub const fn vertical_offset(&self) -> i64 {
+        self.vertical_offset
+    }
+    pub const fn remaining_logical_rows(&self) -> NonZeroU16 {
+        self.remaining_logical_rows
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RowspanContinuationReceipt {
+    logical_row_ordinal: u32,
+    entries: Vec<RowspanContinuationEntry>,
+}
+
+impl RowspanContinuationReceipt {
+    fn empty(logical_row_ordinal: u32) -> Self {
+        Self {
+            logical_row_ordinal,
+            entries: Vec::new(),
+        }
+    }
+
+    pub const fn logical_row_ordinal(&self) -> u32 {
+        self.logical_row_ordinal
+    }
+    pub fn entries(&self) -> &[RowspanContinuationEntry] {
+        &self.entries
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RowFragmentReceipt {
+    fragment_id: u64,
+    row_owner: NodeId,
+    logical_row_ordinal: u32,
+    row_fragment_ordinal: u32,
+    page_index: u32,
+    page_block_offset: i64,
+    selected_block_extent: i64,
+    before_cursor: StagingTableRowCursor,
+    after_cursor: StagingTableRowCursor,
+    cells: Vec<StagingTableCellFragmentReceipt>,
+    continuation_before: RowspanContinuationReceipt,
+    continuation_after: RowspanContinuationReceipt,
+}
+
+impl RowFragmentReceipt {
+    pub const fn fragment_id(&self) -> u64 {
+        self.fragment_id
+    }
+    pub const fn row_owner(&self) -> NodeId {
+        self.row_owner
+    }
+    pub const fn logical_row_ordinal(&self) -> u32 {
+        self.logical_row_ordinal
+    }
+    pub const fn row_fragment_ordinal(&self) -> u32 {
+        self.row_fragment_ordinal
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn page_block_offset(&self) -> i64 {
+        self.page_block_offset
+    }
+    pub const fn selected_block_extent(&self) -> i64 {
+        self.selected_block_extent
+    }
+    pub const fn before_cursor(&self) -> StagingTableRowCursor {
+        self.before_cursor
+    }
+    pub const fn after_cursor(&self) -> StagingTableRowCursor {
+        self.after_cursor
+    }
+    pub fn cells(&self) -> &[StagingTableCellFragmentReceipt] {
+        &self.cells
+    }
+    pub const fn continuation_before(&self) -> &RowspanContinuationReceipt {
+        &self.continuation_before
+    }
+    pub const fn continuation_after(&self) -> &RowspanContinuationReceipt {
+        &self.continuation_after
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingTableHeaderSourceFragment {
+    source_fragment_id: u64,
+    row_owner: NodeId,
+    row_ordinal: u32,
+    group_block_offset: i64,
+    selected_block_extent: i64,
+    cells: Vec<StagingTableCellFragmentReceipt>,
+}
+
+impl StagingTableHeaderSourceFragment {
+    pub const fn source_fragment_id(&self) -> u64 {
+        self.source_fragment_id
+    }
+    pub const fn row_owner(&self) -> NodeId {
+        self.row_owner
+    }
+    pub const fn row_ordinal(&self) -> u32 {
+        self.row_ordinal
+    }
+    pub const fn group_block_offset(&self) -> i64 {
+        self.group_block_offset
+    }
+    pub const fn selected_block_extent(&self) -> i64 {
+        self.selected_block_extent
+    }
+    pub fn cells(&self) -> &[StagingTableCellFragmentReceipt] {
+        &self.cells
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingTableHeaderRowOccurrence {
+    fragment_id: u64,
+    source_fragment_id: u64,
+    row_owner: NodeId,
+    target_block_offset: i64,
+}
+
+impl StagingTableHeaderRowOccurrence {
+    pub const fn fragment_id(&self) -> u64 {
+        self.fragment_id
+    }
+    pub const fn source_fragment_id(&self) -> u64 {
+        self.source_fragment_id
+    }
+    pub const fn row_owner(&self) -> NodeId {
+        self.row_owner
+    }
+    pub const fn target_block_offset(&self) -> i64 {
+        self.target_block_offset
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HeaderRepetitionDraft {
+    repetition_index: u32,
+    target_page_index: u32,
+    rows: Vec<StagingTableHeaderRowOccurrence>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct HeaderRepetitionReceipt {
+    table_owner: NodeId,
+    selected_state: TableSelectedLayoutFingerprint,
+    repetition_index: u32,
+    target_page_index: u32,
+    rows: Vec<StagingTableHeaderRowOccurrence>,
+}
+
+impl HeaderRepetitionReceipt {
+    pub const fn table_owner(&self) -> NodeId {
+        self.table_owner
+    }
+    pub const fn selected_state_fingerprint(&self) -> TableSelectedLayoutFingerprint {
+        self.selected_state
+    }
+    pub const fn repetition_index(&self) -> u32 {
+        self.repetition_index
+    }
+    pub const fn target_page_index(&self) -> u32 {
+        self.target_page_index
+    }
+    pub fn rows(&self) -> &[StagingTableHeaderRowOccurrence] {
+        &self.rows
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingTableSelectedPage {
+    page_index: u32,
+    header_repetition_index: Option<u32>,
+    header_fragment_ids: Vec<u64>,
+    row_fragment_ids: Vec<u64>,
+}
+
+impl StagingTableSelectedPage {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn header_repetition_index(&self) -> Option<u32> {
+        self.header_repetition_index
+    }
+    pub fn header_fragment_ids(&self) -> &[u64] {
+        &self.header_fragment_ids
+    }
+    pub fn row_fragment_ids(&self) -> &[u64] {
+        &self.row_fragment_ids
+    }
+}
+
+/// Complete MI3-03 selected table state. Its constructor is private and binds
+/// the all-flow terminal receipt, every common-extent row/cell fragment, every
+/// continuation transition, and every original/repeated header occurrence.
+#[derive(Debug)]
+pub struct SelectedTableLayoutReceipt {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    grid_sha256: [u8; 32],
+    row_band_sha256: [u8; 32],
+    table_owner: NodeId,
+    body_block_size: i64,
+    first_page_remaining_block_size: i64,
+    page_count: u32,
+    multi_flow: MultiFlowSelectedStateReceipt,
+    pages: Vec<StagingTableSelectedPage>,
+    header_sources: Vec<StagingTableHeaderSourceFragment>,
+    header_repetitions: Vec<HeaderRepetitionReceipt>,
+    row_fragments: Vec<RowFragmentReceipt>,
+    fingerprint: TableSelectedLayoutFingerprint,
+    canonical_jcs: String,
+}
+
+impl SelectedTableLayoutReceipt {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+    pub const fn grid_sha256(&self) -> [u8; 32] {
+        self.grid_sha256
+    }
+    pub const fn row_band_sha256(&self) -> [u8; 32] {
+        self.row_band_sha256
+    }
+    pub const fn table_owner(&self) -> NodeId {
+        self.table_owner
+    }
+    pub const fn body_block_size(&self) -> i64 {
+        self.body_block_size
+    }
+    pub const fn first_page_remaining_block_size(&self) -> i64 {
+        self.first_page_remaining_block_size
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub const fn multi_flow(&self) -> &MultiFlowSelectedStateReceipt {
+        &self.multi_flow
+    }
+    pub fn pages(&self) -> &[StagingTableSelectedPage] {
+        &self.pages
+    }
+    pub fn header_sources(&self) -> &[StagingTableHeaderSourceFragment] {
+        &self.header_sources
+    }
+    pub fn header_repetitions(&self) -> &[HeaderRepetitionReceipt] {
+        &self.header_repetitions
+    }
+    pub fn row_fragments(&self) -> &[RowFragmentReceipt] {
+        &self.row_fragments
+    }
+    pub const fn fingerprint(&self) -> TableSelectedLayoutFingerprint {
+        self.fingerprint
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub fn trace_facts(&self) -> Result<StagingTableTraceFacts, StagingTablePaginationError> {
+        StagingTableTraceFacts::from_selected(self)
+    }
+
+    pub fn validate_closure(
+        &self,
+        layout: &TableRowBandLayoutReceipt,
+        ir: &ProductionFlowIr,
+    ) -> Result<(), StagingTablePaginationError> {
+        validate_selected_table_layout(self, layout, ir)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingTableTraceFacts {
+    flow_registry_sha256: [u8; 32],
+    grid_sha256: [u8; 32],
+    row_band_sha256: [u8; 32],
+    selected_layout_sha256: [u8; 32],
+    page_count: u32,
+    row_fragment_count: u64,
+    header_occurrence_count: u64,
+    cell_fragment_count: u64,
+    canonical_jcs: String,
+}
+
+impl StagingTableTraceFacts {
+    fn from_selected(
+        selected: &SelectedTableLayoutReceipt,
+    ) -> Result<Self, StagingTablePaginationError> {
+        let row_fragment_count = u64::try_from(selected.row_fragments.len())
+            .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?;
+        let header_occurrence_count =
+            selected
+                .header_repetitions
+                .iter()
+                .try_fold(0u64, |total, receipt| {
+                    total
+                        .checked_add(
+                            u64::try_from(receipt.rows.len())
+                                .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?,
+                        )
+                        .ok_or(StagingTablePaginationError::ArithmeticOverflow)
+                })?;
+        let body_cells = selected
+            .row_fragments
+            .iter()
+            .try_fold(0u64, |total, fragment| {
+                total
+                    .checked_add(
+                        u64::try_from(fragment.cells.len())
+                            .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?,
+                    )
+                    .ok_or(StagingTablePaginationError::ArithmeticOverflow)
+            })?;
+        let header_cells = selected
+            .header_sources
+            .iter()
+            .try_fold(0u64, |total, fragment| {
+                total
+                    .checked_add(
+                        u64::try_from(fragment.cells.len())
+                            .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?,
+                    )
+                    .ok_or(StagingTablePaginationError::ArithmeticOverflow)
+            })?;
+        let cell_fragment_count = body_cells
+            .checked_add(header_cells)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        let mut canonical_jcs = String::from("{\"algorithm\":\"");
+        canonical_jcs.push_str(STAGING_TABLE_TRACE_ALGORITHM);
+        canonical_jcs.push_str("\",\"selected_layout\":");
+        canonical_jcs.push_str(&selected.canonical_jcs);
+        canonical_jcs.push_str(",\"selected_layout_sha256\":");
+        push_hex(&mut canonical_jcs, selected.fingerprint.bytes());
+        canonical_jcs.push('}');
+        Ok(Self {
+            flow_registry_sha256: selected.flow_registry.bytes(),
+            grid_sha256: selected.grid_sha256,
+            row_band_sha256: selected.row_band_sha256,
+            selected_layout_sha256: selected.fingerprint.bytes(),
+            page_count: selected.page_count,
+            row_fragment_count,
+            header_occurrence_count,
+            cell_fragment_count,
+            canonical_jcs,
+        })
+    }
+
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+    pub const fn grid_sha256(&self) -> [u8; 32] {
+        self.grid_sha256
+    }
+    pub const fn row_band_sha256(&self) -> [u8; 32] {
+        self.row_band_sha256
+    }
+    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub const fn row_fragment_count(&self) -> u64 {
+        self.row_fragment_count
+    }
+    pub const fn header_occurrence_count(&self) -> u64 {
+        self.header_occurrence_count
+    }
+    pub const fn cell_fragment_count(&self) -> u64 {
+        self.cell_fragment_count
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct TableCandidateAttempt {
+    row_owner: NodeId,
+    row_fragment_ordinal: u32,
+    page_index: u32,
+    row_block_offset: i64,
+    available_block_size: i64,
+}
+
+#[derive(Debug, Default)]
+struct TableAttemptGuard {
+    evaluated: BTreeSet<TableCandidateAttempt>,
+    oversize_rows: BTreeSet<NodeId>,
+}
+
+impl TableAttemptGuard {
+    fn record(
+        &mut self,
+        attempt: TableCandidateAttempt,
+    ) -> Result<(), StagingTablePaginationError> {
+        if !self.evaluated.insert(attempt) {
+            return Err(StagingTablePaginationError::SameCandidateRetry(
+                attempt.row_owner,
+            ));
+        }
+        Ok(())
+    }
+
+    fn transition_oversize(
+        &mut self,
+        row_owner: NodeId,
+        page_index: u32,
+    ) -> StagingTablePaginationError {
+        if !self.oversize_rows.insert(row_owner) {
+            return StagingTablePaginationError::SameCandidateRetry(row_owner);
+        }
+        StagingTablePaginationError::RowOversize(StagingTableOversizeTerminal {
+            row_owner,
+            page_index,
+            transition_count: 1,
+        })
+    }
+}
+
+struct StagingTablePaginator<'a> {
+    layout: &'a TableRowBandLayoutReceipt,
+    limits: &'a ValidatedResourceLimits,
+    body_block_size: i64,
+    remaining_block_size: i64,
+    page_block_offset: i64,
+    page_index: u32,
+    table_page_ordinal: u32,
+    page_open: bool,
+    planned_take: Option<(u32, i64, u32, i64)>,
+    consumed_fragment_count: u64,
+    next_fragment_id: u64,
+    pages: Vec<StagingTableSelectedPage>,
+    header_sources: Vec<StagingTableHeaderSourceFragment>,
+    header_drafts: Vec<HeaderRepetitionDraft>,
+    row_fragments: Vec<RowFragmentReceipt>,
+    continuation: RowspanContinuationReceipt,
+    row_cursor: StagingTableRowCursor,
+    body_row_count: u32,
+    attempts: TableAttemptGuard,
+}
+
+impl<'a> StagingTablePaginator<'a> {
+    fn new(
+        layout: &'a TableRowBandLayoutReceipt,
+        input: StagingTablePageInput,
+        limits: &'a ValidatedResourceLimits,
+    ) -> Result<Self, StagingTablePaginationError> {
+        if layout.contained_fragment_count() > limits.get().max_fragments {
+            return Err(StagingTablePaginationError::FragmentLimit);
+        }
+        let body_row_count = u32::try_from(
+            layout
+                .rows()
+                .iter()
+                .filter(|row| row.section() == TableSection::Body)
+                .count(),
+        )
+        .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?;
+        let body_block_size = input.body_block_size.get().raw();
+        let remaining_block_size = input.first_page_remaining_block_size.get().raw();
+        let page_block_offset = body_block_size
+            .checked_sub(remaining_block_size)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        let mut row_cursor = StagingTableRowCursor::start();
+        row_cursor.terminal = body_row_count == 0;
+        Ok(Self {
+            layout,
+            limits,
+            body_block_size,
+            remaining_block_size,
+            page_block_offset,
+            page_index: 0,
+            table_page_ordinal: 0,
+            page_open: false,
+            planned_take: None,
+            consumed_fragment_count: layout.contained_fragment_count(),
+            next_fragment_id: 0,
+            pages: Vec::new(),
+            header_sources: Vec::new(),
+            header_drafts: Vec::new(),
+            row_fragments: Vec::new(),
+            continuation: RowspanContinuationReceipt::empty(0),
+            row_cursor,
+            body_row_count,
+            attempts: TableAttemptGuard::default(),
+        })
+    }
+
+    fn header_rows(&self) -> Vec<TableRowBandReceipt> {
+        self.layout
+            .rows()
+            .iter()
+            .copied()
+            .filter(|row| row.section() == TableSection::Head)
+            .collect()
+    }
+
+    fn header_block_size(&self) -> Result<i64, StagingTablePaginationError> {
+        self.header_rows().iter().try_fold(0i64, |total, row| {
+            total
+                .checked_add(row.block_size().get().raw())
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)
+        })
+    }
+
+    fn reserve_fragment(&mut self) -> Result<u64, StagingTablePaginationError> {
+        if self.consumed_fragment_count >= self.limits.get().max_fragments {
+            return Err(StagingTablePaginationError::FragmentLimit);
+        }
+        self.consumed_fragment_count = self
+            .consumed_fragment_count
+            .checked_add(1)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        let id = self.next_fragment_id;
+        self.next_fragment_id = self
+            .next_fragment_id
+            .checked_add(1)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        Ok(id)
+    }
+
+    fn ensure_fragment_available(&self) -> Result<(), StagingTablePaginationError> {
+        if self.consumed_fragment_count >= self.limits.get().max_fragments {
+            return Err(StagingTablePaginationError::FragmentLimit);
+        }
+        Ok(())
+    }
+
+    fn advance_page(&mut self) -> Result<(), StagingTablePaginationError> {
+        let next = self
+            .page_index
+            .checked_add(1)
+            .ok_or(StagingTablePaginationError::PageLimit)?;
+        if next >= self.limits.get().max_pages {
+            return Err(StagingTablePaginationError::PageLimit);
+        }
+        self.page_index = next;
+        self.remaining_block_size = self.body_block_size;
+        self.page_block_offset = 0;
+        self.page_open = false;
+        self.planned_take = None;
+        Ok(())
+    }
+
+    fn evaluate_take(
+        &mut self,
+        row: TableRowBandReceipt,
+        row_block_offset: i64,
+        available: i64,
+        row_fragment_ordinal: u32,
+    ) -> Result<Option<i64>, StagingTablePaginationError> {
+        self.attempts.record(TableCandidateAttempt {
+            row_owner: row.row_owner(),
+            row_fragment_ordinal,
+            page_index: self.page_index,
+            row_block_offset,
+            available_block_size: available,
+        })?;
+        let remaining = row
+            .block_size()
+            .get()
+            .raw()
+            .checked_sub(row_block_offset)
+            .ok_or(StagingTablePaginationError::NoProgress(row.row_owner()))?;
+        if remaining < 0 || available < 0 {
+            return Err(StagingTablePaginationError::NoProgress(row.row_owner()));
+        }
+        if remaining <= available {
+            return Ok(Some(remaining));
+        }
+        if available == 0 {
+            return Ok(None);
+        }
+        choose_common_table_cut(
+            self.layout,
+            TableSection::Body,
+            row.row_ordinal(),
+            row_block_offset,
+            available,
+        )
+    }
+
+    fn open_page_for_body(
+        &mut self,
+        row: TableRowBandReceipt,
+    ) -> Result<(), StagingTablePaginationError> {
+        debug_assert!(!self.page_open);
+        loop {
+            let header_size = self.header_block_size()?;
+            if header_size > self.body_block_size {
+                return Err(StagingTablePaginationError::HeaderOversize(
+                    self.layout.table_owner(),
+                ));
+            }
+            if header_size > self.remaining_block_size {
+                if self.remaining_block_size < self.body_block_size {
+                    self.advance_page()?;
+                    continue;
+                }
+                return Err(StagingTablePaginationError::HeaderOversize(
+                    self.layout.table_owner(),
+                ));
+            }
+            let usable = self
+                .remaining_block_size
+                .checked_sub(header_size)
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+            let take = self.evaluate_take(
+                row,
+                self.row_cursor.block_offset_within_row,
+                usable,
+                self.row_cursor.row_fragment_ordinal,
+            )?;
+            if let Some(take) = take {
+                self.place_header_and_open_page()?;
+                self.planned_take = Some((
+                    row.row_ordinal(),
+                    self.row_cursor.block_offset_within_row,
+                    self.page_index,
+                    take,
+                ));
+                return Ok(());
+            }
+            if self.remaining_block_size < self.body_block_size {
+                self.advance_page()?;
+                continue;
+            }
+            return Err(self
+                .attempts
+                .transition_oversize(row.row_owner(), self.page_index));
+        }
+    }
+
+    fn place_head_only(&mut self) -> Result<(), StagingTablePaginationError> {
+        let header_size = self.header_block_size()?;
+        if header_size > self.body_block_size {
+            return Err(StagingTablePaginationError::HeaderOversize(
+                self.layout.table_owner(),
+            ));
+        }
+        if header_size > self.remaining_block_size {
+            self.advance_page()?;
+        }
+        self.place_header_and_open_page()
+    }
+
+    fn place_header_and_open_page(&mut self) -> Result<(), StagingTablePaginationError> {
+        if self.page_open {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+        let header_rows = self.header_rows();
+        let repetition_index = (!header_rows.is_empty()).then_some(self.table_page_ordinal);
+        let mut header_fragment_ids = Vec::new();
+        header_fragment_ids
+            .try_reserve_exact(header_rows.len())
+            .map_err(|_| StagingTablePaginationError::AllocationFailure)?;
+        let mut occurrence_rows = Vec::new();
+        occurrence_rows
+            .try_reserve_exact(header_rows.len())
+            .map_err(|_| StagingTablePaginationError::AllocationFailure)?;
+        let mut group_offset = 0i64;
+        for row in &header_rows {
+            let fragment_id = self.reserve_fragment()?;
+            let source_fragment_id = if self.table_page_ordinal == 0 {
+                let cells = table_cell_fragments_for_row(
+                    self.layout,
+                    TableSection::Head,
+                    row.row_ordinal(),
+                    0,
+                    row.block_size().get().raw(),
+                )?;
+                self.header_sources.push(StagingTableHeaderSourceFragment {
+                    source_fragment_id: fragment_id,
+                    row_owner: row.row_owner(),
+                    row_ordinal: row.row_ordinal(),
+                    group_block_offset: group_offset,
+                    selected_block_extent: row.block_size().get().raw(),
+                    cells,
+                });
+                fragment_id
+            } else {
+                self.header_sources
+                    .iter()
+                    .find(|source| source.row_ordinal == row.row_ordinal())
+                    .map(|source| source.source_fragment_id)
+                    .ok_or(StagingTablePaginationError::SelectedStateMismatch)?
+            };
+            header_fragment_ids.push(fragment_id);
+            occurrence_rows.push(StagingTableHeaderRowOccurrence {
+                fragment_id,
+                source_fragment_id,
+                row_owner: row.row_owner(),
+                target_block_offset: self
+                    .page_block_offset
+                    .checked_add(group_offset)
+                    .ok_or(StagingTablePaginationError::ArithmeticOverflow)?,
+            });
+            group_offset = group_offset
+                .checked_add(row.block_size().get().raw())
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        }
+        if let Some(repetition_index) = repetition_index {
+            self.header_drafts.push(HeaderRepetitionDraft {
+                repetition_index,
+                target_page_index: self.page_index,
+                rows: occurrence_rows,
+            });
+        }
+        self.remaining_block_size = self
+            .remaining_block_size
+            .checked_sub(group_offset)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        self.page_block_offset = self
+            .page_block_offset
+            .checked_add(group_offset)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        self.pages.push(StagingTableSelectedPage {
+            page_index: self.page_index,
+            header_repetition_index: repetition_index,
+            header_fragment_ids,
+            row_fragment_ids: Vec::new(),
+        });
+        self.table_page_ordinal = self
+            .table_page_ordinal
+            .checked_add(1)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        self.page_open = true;
+        Ok(())
+    }
+
+    fn take_for_open_page(
+        &mut self,
+        row: TableRowBandReceipt,
+    ) -> Result<Option<i64>, StagingTablePaginationError> {
+        if let Some((ordinal, offset, page, take)) = self.planned_take.take() {
+            if ordinal != row.row_ordinal()
+                || offset != self.row_cursor.block_offset_within_row
+                || page != self.page_index
+            {
+                return Err(StagingTablePaginationError::SelectedStateMismatch);
+            }
+            return Ok(Some(take));
+        }
+        self.evaluate_take(
+            row,
+            self.row_cursor.block_offset_within_row,
+            self.remaining_block_size,
+            self.row_cursor.row_fragment_ordinal,
+        )
+    }
+
+    fn materialize_body_fragment(
+        &mut self,
+        row: TableRowBandReceipt,
+        take: i64,
+    ) -> Result<bool, StagingTablePaginationError> {
+        let band_size = row.block_size().get().raw();
+        let before = self.row_cursor;
+        let remaining = band_size
+            .checked_sub(before.block_offset_within_row)
+            .ok_or(StagingTablePaginationError::NoProgress(row.row_owner()))?;
+        if take < 0 || take > remaining || (take == 0 && remaining != 0) {
+            return Err(StagingTablePaginationError::NoProgress(row.row_owner()));
+        }
+        self.ensure_fragment_available()?;
+        let completes_row = take == remaining;
+        let next_offset = before
+            .block_offset_within_row
+            .checked_add(take)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        let cells = table_cell_fragments_for_row(
+            self.layout,
+            TableSection::Body,
+            row.row_ordinal(),
+            before.block_offset_within_row,
+            take,
+        )?;
+        if cells.iter().any(|cell| cell.selected_block_extent != take) {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+        let expected_before = continuation_for_body_state(
+            self.layout,
+            row.row_ordinal(),
+            before.block_offset_within_row,
+            before.row_fragment_ordinal != 0,
+        )?;
+        validate_continuation(&self.continuation, &expected_before)?;
+        let after = if completes_row {
+            let next_row = before
+                .logical_row_ordinal
+                .checked_add(1)
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+            StagingTableRowCursor {
+                logical_row_ordinal: next_row,
+                row_fragment_ordinal: 0,
+                block_offset_within_row: 0,
+                terminal: next_row == self.body_row_count,
+            }
+        } else {
+            StagingTableRowCursor {
+                logical_row_ordinal: before.logical_row_ordinal,
+                row_fragment_ordinal: before
+                    .row_fragment_ordinal
+                    .checked_add(1)
+                    .ok_or(StagingTablePaginationError::ArithmeticOverflow)?,
+                block_offset_within_row: next_offset,
+                terminal: false,
+            }
+        };
+        validate_table_row_cursor_advance(row.row_owner(), before, after)?;
+        let continuation_after = if completes_row {
+            continuation_for_body_state(self.layout, after.logical_row_ordinal, 0, false)?
+        } else {
+            continuation_for_body_state(self.layout, row.row_ordinal(), next_offset, true)?
+        };
+        let fragment_id = self.reserve_fragment()?;
+        let receipt = RowFragmentReceipt {
+            fragment_id,
+            row_owner: row.row_owner(),
+            logical_row_ordinal: row.row_ordinal(),
+            row_fragment_ordinal: before.row_fragment_ordinal,
+            page_index: self.page_index,
+            page_block_offset: self.page_block_offset,
+            selected_block_extent: take,
+            before_cursor: before,
+            after_cursor: after,
+            cells,
+            continuation_before: self.continuation.clone(),
+            continuation_after: continuation_after.clone(),
+        };
+        self.pages
+            .last_mut()
+            .filter(|page| page.page_index == self.page_index)
+            .ok_or(StagingTablePaginationError::SelectedStateMismatch)?
+            .row_fragment_ids
+            .push(fragment_id);
+        self.row_fragments.push(receipt);
+        self.remaining_block_size = self
+            .remaining_block_size
+            .checked_sub(take)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        self.page_block_offset = self
+            .page_block_offset
+            .checked_add(take)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        self.continuation = continuation_after;
+        self.row_cursor = after;
+        Ok(completes_row)
+    }
+}
+
+/// Private MI3-03 pagination entry point. It chooses a single greatest legal
+/// cut shared by every active cell, carries only a one-dimensional continuation
+/// ledger, and seals headers against their first-occurrence source fragments.
+pub fn paginate_staging_table(
+    layout: &TableRowBandLayoutReceipt,
+    ir: &ProductionFlowIr,
+    input: StagingTablePageInput,
+    limits: &ValidatedResourceLimits,
+) -> Result<SelectedTableLayoutReceipt, StagingTablePaginationError> {
+    if layout.flow_registry_fingerprint() != ir.registry().receipt().fingerprint()
+        || layout.epoch() != ir.registry().receipt().epoch()
+    {
+        return Err(StagingTablePaginationError::LayoutRegistryMismatch);
+    }
+    let mut paginator = StagingTablePaginator::new(layout, input, limits)?;
+    let body_rows: Vec<_> = layout
+        .rows()
+        .iter()
+        .copied()
+        .filter(|row| row.section() == TableSection::Body)
+        .collect();
+    if body_rows.is_empty() {
+        paginator.place_head_only()?;
+    } else {
+        for row in body_rows {
+            if paginator.row_cursor.logical_row_ordinal != row.row_ordinal() {
+                return Err(StagingTablePaginationError::SelectedStateMismatch);
+            }
+            loop {
+                if !paginator.page_open {
+                    paginator.open_page_for_body(row)?;
+                }
+                let Some(take) = paginator.take_for_open_page(row)? else {
+                    paginator.advance_page()?;
+                    continue;
+                };
+                let completed = paginator.materialize_body_fragment(row, take)?;
+                if completed {
+                    break;
+                }
+                paginator.advance_page()?;
+            }
+        }
+    }
+    if !paginator.row_cursor.terminal || !paginator.continuation.entries.is_empty() {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    let page_count = paginator
+        .page_index
+        .checked_add(1)
+        .ok_or(StagingTablePaginationError::PageLimit)?;
+    if page_count > limits.get().max_pages {
+        return Err(StagingTablePaginationError::PageLimit);
+    }
+    let multi_flow = complete_table_flow_workers(ir)?;
+    let canonical_jcs = encode_staging_table_selected(
+        layout,
+        &multi_flow,
+        input.body_block_size.get().raw(),
+        input.first_page_remaining_block_size.get().raw(),
+        page_count,
+        &paginator.pages,
+        &paginator.header_sources,
+        &paginator.header_drafts,
+        &paginator.row_fragments,
+    );
+    let fingerprint = table_selected_layout_fingerprint_from_jcs(&canonical_jcs);
+    let header_repetitions = paginator
+        .header_drafts
+        .into_iter()
+        .map(|draft| HeaderRepetitionReceipt {
+            table_owner: layout.table_owner(),
+            selected_state: fingerprint,
+            repetition_index: draft.repetition_index,
+            target_page_index: draft.target_page_index,
+            rows: draft.rows,
+        })
+        .collect();
+    let selected = SelectedTableLayoutReceipt {
+        package_sha256: layout.package_sha256(),
+        epoch: layout.epoch(),
+        flow_registry: layout.flow_registry_fingerprint(),
+        grid_sha256: layout.grid_fingerprint().bytes(),
+        row_band_sha256: layout.fingerprint(),
+        table_owner: layout.table_owner(),
+        body_block_size: input.body_block_size.get().raw(),
+        first_page_remaining_block_size: input.first_page_remaining_block_size.get().raw(),
+        page_count,
+        multi_flow,
+        pages: paginator.pages,
+        header_sources: paginator.header_sources,
+        header_repetitions,
+        row_fragments: paginator.row_fragments,
+        fingerprint,
+        canonical_jcs,
+    };
+    selected.validate_closure(layout, ir)?;
+    Ok(selected)
+}
+
+fn complete_table_flow_workers(
+    ir: &ProductionFlowIr,
+) -> Result<MultiFlowSelectedStateReceipt, MultiFlowError> {
+    let mut selection = MultiFlowSelectionBuilder::new(ir);
+    for flow in ir.registry().flows() {
+        let mut worker = FlowWorkerCursor::new(ir, flow.flow_id())?;
+        while worker.next_boundary() < flow.terminal().owner_local_ordinal() {
+            worker.advance(ir)?;
+        }
+        selection.register(worker.finish(ir)?)?;
+    }
+    selection.finish()
+}
+
+fn active_table_cells(
+    layout: &TableRowBandLayoutReceipt,
+    section: TableSection,
+    row_ordinal: u32,
+) -> impl Iterator<Item = &TableCellLayoutReceipt> {
+    layout.cells().iter().filter(move |cell| {
+        let end = cell
+            .row_ordinal()
+            .checked_add(u32::from(cell.rowspan().get()));
+        cell.section() == section
+            && cell.row_ordinal() <= row_ordinal
+            && end.is_some_and(|end| row_ordinal < end)
+    })
+}
+
+fn cell_vertical_offset_at_row(
+    layout: &TableRowBandLayoutReceipt,
+    cell: &TableCellLayoutReceipt,
+    row_ordinal: u32,
+    within_row: i64,
+) -> Result<i64, StagingTablePaginationError> {
+    if row_ordinal < cell.row_ordinal() || within_row < 0 {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    let mut offset = 0i64;
+    for ordinal in cell.row_ordinal()..row_ordinal {
+        offset = offset
+            .checked_add(
+                layout
+                    .row(cell.section(), ordinal)
+                    .ok_or(StagingTablePaginationError::SelectedStateMismatch)?
+                    .block_size()
+                    .get()
+                    .raw(),
+            )
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+    }
+    offset
+        .checked_add(within_row)
+        .ok_or(StagingTablePaginationError::ArithmeticOverflow)
+}
+
+fn table_cell_cursor(
+    cell: &TableCellLayoutReceipt,
+    vertical_offset: i64,
+) -> Result<StagingTableCellFlowCursor, StagingTablePaginationError> {
+    if vertical_offset < 0 {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    let completed = cell
+        .fragment_endpoints()
+        .iter()
+        .take_while(|endpoint| endpoint.get().raw() <= vertical_offset)
+        .count();
+    let next_fragment_ordinal =
+        u32::try_from(completed).map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?;
+    Ok(StagingTableCellFlowCursor {
+        flow_id: cell.flow_id(),
+        next_fragment_ordinal,
+        terminal: vertical_offset >= cell.natural_block_size().get().raw(),
+    })
+}
+
+fn table_cell_fragments_for_row(
+    layout: &TableRowBandLayoutReceipt,
+    section: TableSection,
+    row_ordinal: u32,
+    within_row: i64,
+    selected_extent: i64,
+) -> Result<Vec<StagingTableCellFragmentReceipt>, StagingTablePaginationError> {
+    if within_row < 0 || selected_extent < 0 {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    let active: Vec<_> = active_table_cells(layout, section, row_ordinal).collect();
+    if active.is_empty() {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    let mut fragments = Vec::new();
+    fragments
+        .try_reserve_exact(active.len())
+        .map_err(|_| StagingTablePaginationError::AllocationFailure)?;
+    for cell in active {
+        let vertical_offset_before =
+            cell_vertical_offset_at_row(layout, cell, row_ordinal, within_row)?;
+        let vertical_offset_after = vertical_offset_before
+            .checked_add(selected_extent)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        fragments.push(StagingTableCellFragmentReceipt {
+            cell_owner: cell.cell_owner(),
+            flow_id: cell.flow_id(),
+            selected_block_extent: selected_extent,
+            vertical_offset_before,
+            vertical_offset_after,
+            before_cursor: table_cell_cursor(cell, vertical_offset_before)?,
+            after_cursor: table_cell_cursor(cell, vertical_offset_after)?,
+        });
+    }
+    let row_block_size = layout
+        .row(section, row_ordinal)
+        .ok_or(StagingTablePaginationError::SelectedStateMismatch)?
+        .block_size()
+        .get()
+        .raw();
+    let completes_row = within_row
+        .checked_add(selected_extent)
+        .ok_or(StagingTablePaginationError::ArithmeticOverflow)?
+        == row_block_size;
+    if completes_row {
+        for (fragment, cell) in
+            fragments
+                .iter()
+                .zip(active_table_cells(layout, section, row_ordinal))
+        {
+            let final_covered_row = cell
+                .row_ordinal()
+                .checked_add(u32::from(cell.rowspan().get()))
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?
+                == row_ordinal
+                    .checked_add(1)
+                    .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+            if final_covered_row && !fragment.after_cursor.terminal {
+                return Err(StagingTablePaginationError::SelectedStateMismatch);
+            }
+        }
+    }
+    Ok(fragments)
+}
+
+fn choose_common_table_cut(
+    layout: &TableRowBandLayoutReceipt,
+    section: TableSection,
+    row_ordinal: u32,
+    within_row: i64,
+    maximum_cut: i64,
+) -> Result<Option<i64>, StagingTablePaginationError> {
+    if maximum_cut <= 0 {
+        return Ok(None);
+    }
+    let active: Vec<_> = active_table_cells(layout, section, row_ordinal).collect();
+    if active.is_empty() {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    let mut candidates = BTreeSet::new();
+    candidates.insert(maximum_cut);
+    for cell in &active {
+        let start = cell_vertical_offset_at_row(layout, cell, row_ordinal, within_row)?;
+        for endpoint in cell.fragment_endpoints() {
+            let relative = endpoint
+                .get()
+                .raw()
+                .checked_sub(start)
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+            if relative > 0 && relative <= maximum_cut {
+                candidates.insert(relative);
+            }
+        }
+    }
+    for candidate in candidates.into_iter().rev() {
+        let legal = active.iter().try_fold(true, |legal, cell| {
+            if !legal {
+                return Ok(false);
+            }
+            let start = cell_vertical_offset_at_row(layout, cell, row_ordinal, within_row)?;
+            let end = start
+                .checked_add(candidate)
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+            Ok::<_, StagingTablePaginationError>(
+                start >= cell.natural_block_size().get().raw()
+                    || end >= cell.natural_block_size().get().raw()
+                    || cell
+                        .fragment_endpoints()
+                        .iter()
+                        .any(|endpoint| endpoint.get().raw() == end),
+            )
+        })?;
+        if legal {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
+
+fn continuation_for_body_state(
+    layout: &TableRowBandLayoutReceipt,
+    logical_row_ordinal: u32,
+    within_row: i64,
+    include_current_origins: bool,
+) -> Result<RowspanContinuationReceipt, StagingTablePaginationError> {
+    let body_count = u32::try_from(
+        layout
+            .rows()
+            .iter()
+            .filter(|row| row.section() == TableSection::Body)
+            .count(),
+    )
+    .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?;
+    if logical_row_ordinal >= body_count {
+        return Ok(RowspanContinuationReceipt::empty(logical_row_ordinal));
+    }
+    let mut entries = Vec::new();
+    for cell in layout.cells().iter().filter(|cell| {
+        if cell.section() != TableSection::Body {
+            return false;
+        }
+        let starts = if include_current_origins {
+            cell.row_ordinal() <= logical_row_ordinal
+        } else {
+            cell.row_ordinal() < logical_row_ordinal
+        };
+        let end = cell
+            .row_ordinal()
+            .checked_add(u32::from(cell.rowspan().get()));
+        starts && end.is_some_and(|end| logical_row_ordinal < end)
+    }) {
+        let end = cell
+            .row_ordinal()
+            .checked_add(u32::from(cell.rowspan().get()))
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        let remaining = end
+            .checked_sub(logical_row_ordinal)
+            .and_then(|value| u16::try_from(value).ok())
+            .and_then(NonZeroU16::new)
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        let vertical_offset =
+            cell_vertical_offset_at_row(layout, cell, logical_row_ordinal, within_row)?;
+        let cursor = table_cell_cursor(cell, vertical_offset)?;
+        let column_end = cell
+            .column_ordinal()
+            .checked_add(u32::from(cell.colspan().get()))
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        for column_ordinal in cell.column_ordinal()..column_end {
+            entries.push(RowspanContinuationEntry {
+                column_ordinal,
+                cell_owner: cell.cell_owner(),
+                flow_id: cell.flow_id(),
+                cell_flow_cursor: cursor,
+                vertical_offset,
+                remaining_logical_rows: remaining,
+            });
+        }
+    }
+    entries.sort_by_key(|entry| entry.column_ordinal);
+    Ok(RowspanContinuationReceipt {
+        logical_row_ordinal,
+        entries,
+    })
+}
+
+fn validate_continuation(
+    actual: &RowspanContinuationReceipt,
+    expected: &RowspanContinuationReceipt,
+) -> Result<(), StagingTablePaginationError> {
+    if actual.logical_row_ordinal != expected.logical_row_ordinal {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    if let Some(pair) = actual
+        .entries
+        .windows(2)
+        .find(|pair| pair[0].column_ordinal >= pair[1].column_ordinal)
+    {
+        return Err(StagingTablePaginationError::DuplicateContinuation {
+            column_ordinal: pair[1].column_ordinal,
+        });
+    }
+    for expected_entry in &expected.entries {
+        let Some(actual_entry) = actual
+            .entries
+            .iter()
+            .find(|entry| entry.column_ordinal == expected_entry.column_ordinal)
+        else {
+            return Err(StagingTablePaginationError::MissingContinuation {
+                column_ordinal: expected_entry.column_ordinal,
+            });
+        };
+        if actual_entry != expected_entry {
+            return Err(StagingTablePaginationError::WrongContinuationOwner {
+                column_ordinal: expected_entry.column_ordinal,
+            });
+        }
+    }
+    if actual.entries.len() != expected.entries.len() {
+        let extra = actual
+            .entries
+            .iter()
+            .find(|entry| {
+                !expected
+                    .entries
+                    .iter()
+                    .any(|expected| expected.column_ordinal == entry.column_ordinal)
+            })
+            .map_or(0, |entry| entry.column_ordinal);
+        return Err(StagingTablePaginationError::WrongContinuationOwner {
+            column_ordinal: extra,
+        });
+    }
+    Ok(())
+}
+
+fn validate_table_row_cursor_advance(
+    owner: NodeId,
+    before: StagingTableRowCursor,
+    after: StagingTableRowCursor,
+) -> Result<(), StagingTablePaginationError> {
+    let physical_advance = after.logical_row_ordinal == before.logical_row_ordinal
+        && before.row_fragment_ordinal.checked_add(1) == Some(after.row_fragment_ordinal)
+        && after.block_offset_within_row > before.block_offset_within_row
+        && !after.terminal;
+    let logical_advance = before.logical_row_ordinal.checked_add(1)
+        == Some(after.logical_row_ordinal)
+        && after.row_fragment_ordinal == 0
+        && after.block_offset_within_row == 0;
+    if before.terminal || (!physical_advance && !logical_advance) {
+        return Err(StagingTablePaginationError::NoProgress(owner));
+    }
+    Ok(())
+}
+
+fn validate_selected_table_layout(
+    selected: &SelectedTableLayoutReceipt,
+    layout: &TableRowBandLayoutReceipt,
+    ir: &ProductionFlowIr,
+) -> Result<(), StagingTablePaginationError> {
+    if selected.package_sha256 != layout.package_sha256()
+        || selected.epoch != layout.epoch()
+        || selected.flow_registry != layout.flow_registry_fingerprint()
+        || selected.flow_registry != ir.registry().receipt().fingerprint()
+        || selected.grid_sha256 != layout.grid_fingerprint().bytes()
+        || selected.row_band_sha256 != layout.fingerprint()
+        || selected.table_owner != layout.table_owner()
+        || selected.multi_flow.registry_fingerprint() != selected.flow_registry
+        || selected.multi_flow.epoch() != selected.epoch
+        || selected.body_block_size <= 0
+        || selected.first_page_remaining_block_size <= 0
+        || selected.first_page_remaining_block_size > selected.body_block_size
+    {
+        return Err(StagingTablePaginationError::LayoutRegistryMismatch);
+    }
+    for cell in layout.cells() {
+        let Some(terminal) = selected
+            .multi_flow
+            .terminals()
+            .iter()
+            .find(|terminal| terminal.flow_id() == cell.flow_id())
+        else {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        };
+        if terminal.owner_node_id() != cell.cell_owner() {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+    }
+
+    let header_rows: Vec<_> = layout
+        .rows()
+        .iter()
+        .copied()
+        .filter(|row| row.section() == TableSection::Head)
+        .collect();
+    if selected.header_sources.len() != header_rows.len() {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    let mut expected_group_offset = 0i64;
+    for (source, row) in selected.header_sources.iter().zip(&header_rows) {
+        if source.row_owner != row.row_owner()
+            || source.row_ordinal != row.row_ordinal()
+            || source.group_block_offset != expected_group_offset
+            || source.selected_block_extent != row.block_size().get().raw()
+            || source.cells
+                != table_cell_fragments_for_row(
+                    layout,
+                    TableSection::Head,
+                    row.row_ordinal(),
+                    0,
+                    row.block_size().get().raw(),
+                )?
+        {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+        expected_group_offset = expected_group_offset
+            .checked_add(row.block_size().get().raw())
+            .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+    }
+
+    if header_rows.is_empty() && !selected.header_repetitions.is_empty() {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    for (expected_index, repetition) in selected.header_repetitions.iter().enumerate() {
+        let expected_index = u32::try_from(expected_index)
+            .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?;
+        if repetition.repetition_index != expected_index {
+            return Err(StagingTablePaginationError::WrongRepetitionIndex {
+                expected: expected_index,
+                actual: repetition.repetition_index,
+            });
+        }
+        if repetition.table_owner != selected.table_owner
+            || repetition.selected_state != selected.fingerprint
+            || repetition.rows.len() != selected.header_sources.len()
+        {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+        let Some(page) = selected.pages.iter().find(|page| {
+            page.page_index == repetition.target_page_index
+                && page.header_repetition_index == Some(repetition.repetition_index)
+        }) else {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        };
+        if page.header_fragment_ids.len() != repetition.rows.len() {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+        for ((occurrence, source), page_fragment_id) in repetition
+            .rows
+            .iter()
+            .zip(&selected.header_sources)
+            .zip(&page.header_fragment_ids)
+        {
+            if occurrence.fragment_id != *page_fragment_id
+                || occurrence.source_fragment_id != source.source_fragment_id
+                || occurrence.row_owner != source.row_owner
+            {
+                return Err(StagingTablePaginationError::SelectedStateMismatch);
+            }
+            if repetition.repetition_index == 0
+                && occurrence.fragment_id != source.source_fragment_id
+            {
+                return Err(StagingTablePaginationError::SelectedStateMismatch);
+            }
+        }
+    }
+
+    let body_rows: Vec<_> = layout
+        .rows()
+        .iter()
+        .copied()
+        .filter(|row| row.section() == TableSection::Body)
+        .collect();
+    let body_row_count = u32::try_from(body_rows.len())
+        .map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?;
+    let mut cursor = StagingTableRowCursor::start();
+    cursor.terminal = body_rows.is_empty();
+    let mut continuation = RowspanContinuationReceipt::empty(0);
+    for fragment in &selected.row_fragments {
+        let Some(row) = body_rows
+            .get(fragment.logical_row_ordinal as usize)
+            .copied()
+        else {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        };
+        let remaining_row_extent = row
+            .block_size()
+            .get()
+            .raw()
+            .checked_sub(cursor.block_offset_within_row)
+            .ok_or(StagingTablePaginationError::SelectedStateMismatch)?;
+        if fragment.selected_block_extent < 0
+            || fragment.selected_block_extent > remaining_row_extent
+            || (fragment.selected_block_extent == 0 && remaining_row_extent != 0)
+        {
+            return Err(StagingTablePaginationError::NoProgress(row.row_owner()));
+        }
+        let expected_after_cursor = if fragment.selected_block_extent == remaining_row_extent {
+            let next_row = cursor
+                .logical_row_ordinal
+                .checked_add(1)
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+            StagingTableRowCursor {
+                logical_row_ordinal: next_row,
+                row_fragment_ordinal: 0,
+                block_offset_within_row: 0,
+                terminal: next_row == body_row_count,
+            }
+        } else {
+            StagingTableRowCursor {
+                logical_row_ordinal: cursor.logical_row_ordinal,
+                row_fragment_ordinal: cursor
+                    .row_fragment_ordinal
+                    .checked_add(1)
+                    .ok_or(StagingTablePaginationError::ArithmeticOverflow)?,
+                block_offset_within_row: cursor
+                    .block_offset_within_row
+                    .checked_add(fragment.selected_block_extent)
+                    .ok_or(StagingTablePaginationError::ArithmeticOverflow)?,
+                terminal: false,
+            }
+        };
+        validate_table_row_cursor_advance(row.row_owner(), cursor, fragment.after_cursor)?;
+        if fragment.row_owner != row.row_owner()
+            || fragment.before_cursor != cursor
+            || fragment.after_cursor != expected_after_cursor
+            || fragment.row_fragment_ordinal != cursor.row_fragment_ordinal
+            || fragment.cells
+                != table_cell_fragments_for_row(
+                    layout,
+                    TableSection::Body,
+                    row.row_ordinal(),
+                    cursor.block_offset_within_row,
+                    fragment.selected_block_extent,
+                )?
+        {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+        validate_continuation(&fragment.continuation_before, &continuation)?;
+        let expected_after =
+            if fragment.after_cursor.logical_row_ordinal > cursor.logical_row_ordinal {
+                continuation_for_body_state(
+                    layout,
+                    fragment.after_cursor.logical_row_ordinal,
+                    0,
+                    false,
+                )?
+            } else {
+                continuation_for_body_state(
+                    layout,
+                    cursor.logical_row_ordinal,
+                    fragment.after_cursor.block_offset_within_row,
+                    true,
+                )?
+            };
+        validate_continuation(&fragment.continuation_after, &expected_after)?;
+        continuation = fragment.continuation_after.clone();
+        cursor = fragment.after_cursor;
+    }
+    if !cursor.terminal || !continuation.entries.is_empty() {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+
+    let mut materialized_ids = Vec::new();
+    materialized_ids.extend(
+        selected
+            .header_repetitions
+            .iter()
+            .flat_map(|receipt| receipt.rows.iter().map(|row| row.fragment_id)),
+    );
+    materialized_ids.extend(
+        selected
+            .row_fragments
+            .iter()
+            .map(|fragment| fragment.fragment_id),
+    );
+    materialized_ids.sort_unstable();
+    for (expected, actual) in materialized_ids.iter().enumerate() {
+        let expected =
+            u64::try_from(expected).map_err(|_| StagingTablePaginationError::ArithmeticOverflow)?;
+        if *actual != expected {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+    }
+    if selected.pages.is_empty()
+        || selected
+            .pages
+            .windows(2)
+            .any(|pair| pair[0].page_index.checked_add(1) != Some(pair[1].page_index))
+        || match selected.pages.last() {
+            Some(page) => page.page_index.checked_add(1) != Some(selected.page_count),
+            None => true,
+        }
+    {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    for page in &selected.pages {
+        let mut expected_block_offset = if page.page_index == 0 {
+            selected
+                .body_block_size
+                .checked_sub(selected.first_page_remaining_block_size)
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?
+        } else {
+            0
+        };
+        match page.header_repetition_index {
+            Some(index) => {
+                let repetition = selected
+                    .header_repetitions
+                    .iter()
+                    .find(|repetition| {
+                        repetition.repetition_index == index
+                            && repetition.target_page_index == page.page_index
+                    })
+                    .ok_or(StagingTablePaginationError::SelectedStateMismatch)?;
+                for (occurrence, source) in repetition.rows.iter().zip(&selected.header_sources) {
+                    if occurrence.target_block_offset != expected_block_offset {
+                        return Err(StagingTablePaginationError::SelectedStateMismatch);
+                    }
+                    expected_block_offset = expected_block_offset
+                        .checked_add(source.selected_block_extent)
+                        .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+                }
+            }
+            None if !page.header_fragment_ids.is_empty() || !selected.header_sources.is_empty() => {
+                return Err(StagingTablePaginationError::SelectedStateMismatch)
+            }
+            None => {}
+        }
+        if !body_rows.is_empty() && page.row_fragment_ids.is_empty() {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+        for fragment_id in &page.row_fragment_ids {
+            let Some(fragment) = selected.row_fragments.iter().find(|fragment| {
+                fragment.fragment_id == *fragment_id && fragment.page_index == page.page_index
+            }) else {
+                return Err(StagingTablePaginationError::SelectedStateMismatch);
+            };
+            if fragment.page_block_offset != expected_block_offset {
+                return Err(StagingTablePaginationError::SelectedStateMismatch);
+            }
+            expected_block_offset = expected_block_offset
+                .checked_add(fragment.selected_block_extent)
+                .ok_or(StagingTablePaginationError::ArithmeticOverflow)?;
+        }
+        if expected_block_offset > selected.body_block_size {
+            return Err(StagingTablePaginationError::SelectedStateMismatch);
+        }
+    }
+
+    let drafts: Vec<_> = selected
+        .header_repetitions
+        .iter()
+        .map(|receipt| HeaderRepetitionDraft {
+            repetition_index: receipt.repetition_index,
+            target_page_index: receipt.target_page_index,
+            rows: receipt.rows.clone(),
+        })
+        .collect();
+    let canonical_jcs = encode_staging_table_selected(
+        layout,
+        &selected.multi_flow,
+        selected.body_block_size,
+        selected.first_page_remaining_block_size,
+        selected.page_count,
+        &selected.pages,
+        &selected.header_sources,
+        &drafts,
+        &selected.row_fragments,
+    );
+    if canonical_jcs != selected.canonical_jcs
+        || table_selected_layout_fingerprint_from_jcs(&canonical_jcs) != selected.fingerprint
+    {
+        return Err(StagingTablePaginationError::SelectedStateMismatch);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_staging_table_selected(
+    layout: &TableRowBandLayoutReceipt,
+    multi_flow: &MultiFlowSelectedStateReceipt,
+    body_block_size: i64,
+    first_page_remaining_block_size: i64,
+    page_count: u32,
+    pages: &[StagingTableSelectedPage],
+    header_sources: &[StagingTableHeaderSourceFragment],
+    header_repetitions: &[HeaderRepetitionDraft],
+    row_fragments: &[RowFragmentReceipt],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, TableSelectedLayoutFingerprint::ALGORITHM_ID);
+    output.push_str(",\"body_block_size\":");
+    output.push_str(&body_block_size.to_string());
+    output.push_str(",\"first_page_remaining_block_size\":");
+    output.push_str(&first_page_remaining_block_size.to_string());
+    output.push_str(",\"flow_registry_sha256\":");
+    push_hex(&mut output, layout.flow_registry_fingerprint().bytes());
+    output.push_str(",\"grid_sha256\":");
+    push_hex(&mut output, layout.grid_fingerprint().bytes());
+    output.push_str(",\"header_repetitions\":[");
+    for (index, repetition) in header_repetitions.iter().enumerate() {
+        comma(&mut output, index);
+        encode_table_header_repetition(&mut output, repetition);
+    }
+    output.push_str("],\"header_sources\":[");
+    for (index, source) in header_sources.iter().enumerate() {
+        comma(&mut output, index);
+        encode_table_header_source(&mut output, source);
+    }
+    output.push_str("],\"layout_epoch\":");
+    encode_layout_epoch(&mut output, layout.epoch());
+    output.push_str(",\"multi_flow_selected_sha256\":");
+    push_hex(&mut output, multi_flow.fingerprint().bytes());
+    output.push_str(",\"package_sha256\":");
+    push_hex(&mut output, layout.package_sha256());
+    output.push_str(",\"page_count\":");
+    output.push_str(&page_count.to_string());
+    output.push_str(",\"pages\":[");
+    for (index, page) in pages.iter().enumerate() {
+        comma(&mut output, index);
+        encode_table_page(&mut output, page);
+    }
+    output.push_str("],\"row_band_sha256\":");
+    push_hex(&mut output, layout.fingerprint());
+    output.push_str(",\"row_fragments\":[");
+    for (index, fragment) in row_fragments.iter().enumerate() {
+        comma(&mut output, index);
+        encode_table_row_fragment(&mut output, fragment);
+    }
+    output.push_str("],\"table_node_id\":");
+    output.push_str(&layout.table_owner().get().to_string());
+    output.push('}');
+    output
+}
+
+fn encode_table_header_source(output: &mut String, source: &StagingTableHeaderSourceFragment) {
+    output.push_str("{\"cells\":[");
+    for (index, cell) in source.cells.iter().enumerate() {
+        comma(output, index);
+        encode_table_cell_fragment(output, cell);
+    }
+    output.push_str("],\"group_block_offset\":");
+    output.push_str(&source.group_block_offset.to_string());
+    output.push_str(",\"row_node_id\":");
+    output.push_str(&source.row_owner.get().to_string());
+    output.push_str(",\"row_ordinal\":");
+    output.push_str(&source.row_ordinal.to_string());
+    output.push_str(",\"selected_block_extent\":");
+    output.push_str(&source.selected_block_extent.to_string());
+    output.push_str(",\"source_fragment_id\":");
+    output.push_str(&source.source_fragment_id.to_string());
+    output.push('}');
+}
+
+fn encode_table_header_repetition(output: &mut String, repetition: &HeaderRepetitionDraft) {
+    output.push_str("{\"repetition_index\":");
+    output.push_str(&repetition.repetition_index.to_string());
+    output.push_str(",\"rows\":[");
+    for (index, row) in repetition.rows.iter().enumerate() {
+        comma(output, index);
+        output.push_str("{\"fragment_id\":");
+        output.push_str(&row.fragment_id.to_string());
+        output.push_str(",\"row_node_id\":");
+        output.push_str(&row.row_owner.get().to_string());
+        output.push_str(",\"source_fragment_id\":");
+        output.push_str(&row.source_fragment_id.to_string());
+        output.push_str(",\"target_block_offset\":");
+        output.push_str(&row.target_block_offset.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"target_page_index\":");
+    output.push_str(&repetition.target_page_index.to_string());
+    output.push('}');
+}
+
+fn encode_table_page(output: &mut String, page: &StagingTableSelectedPage) {
+    output.push_str("{\"header_fragment_ids\":[");
+    for (index, fragment_id) in page.header_fragment_ids.iter().enumerate() {
+        comma(output, index);
+        output.push_str(&fragment_id.to_string());
+    }
+    output.push_str("],\"header_repetition_index\":");
+    match page.header_repetition_index {
+        Some(value) => output.push_str(&value.to_string()),
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"page_index\":");
+    output.push_str(&page.page_index.to_string());
+    output.push_str(",\"row_fragment_ids\":[");
+    for (index, fragment_id) in page.row_fragment_ids.iter().enumerate() {
+        comma(output, index);
+        output.push_str(&fragment_id.to_string());
+    }
+    output.push_str("]}");
+}
+
+fn encode_table_row_fragment(output: &mut String, fragment: &RowFragmentReceipt) {
+    output.push_str("{\"after_cursor\":");
+    encode_table_row_cursor(output, fragment.after_cursor);
+    output.push_str(",\"before_cursor\":");
+    encode_table_row_cursor(output, fragment.before_cursor);
+    output.push_str(",\"cells\":[");
+    for (index, cell) in fragment.cells.iter().enumerate() {
+        comma(output, index);
+        encode_table_cell_fragment(output, cell);
+    }
+    output.push_str("],\"continuation_after\":");
+    encode_rowspan_continuation(output, &fragment.continuation_after);
+    output.push_str(",\"continuation_before\":");
+    encode_rowspan_continuation(output, &fragment.continuation_before);
+    output.push_str(",\"fragment_id\":");
+    output.push_str(&fragment.fragment_id.to_string());
+    output.push_str(",\"logical_row_ordinal\":");
+    output.push_str(&fragment.logical_row_ordinal.to_string());
+    output.push_str(",\"page_block_offset\":");
+    output.push_str(&fragment.page_block_offset.to_string());
+    output.push_str(",\"page_index\":");
+    output.push_str(&fragment.page_index.to_string());
+    output.push_str(",\"row_fragment_ordinal\":");
+    output.push_str(&fragment.row_fragment_ordinal.to_string());
+    output.push_str(",\"row_node_id\":");
+    output.push_str(&fragment.row_owner.get().to_string());
+    output.push_str(",\"selected_block_extent\":");
+    output.push_str(&fragment.selected_block_extent.to_string());
+    output.push('}');
+}
+
+fn encode_table_cell_fragment(output: &mut String, cell: &StagingTableCellFragmentReceipt) {
+    output.push_str("{\"after_cursor\":");
+    encode_table_cell_cursor(output, cell.after_cursor);
+    output.push_str(",\"before_cursor\":");
+    encode_table_cell_cursor(output, cell.before_cursor);
+    output.push_str(",\"cell_node_id\":");
+    output.push_str(&cell.cell_owner.get().to_string());
+    output.push_str(",\"flow_id\":");
+    output.push_str(&cell.flow_id.get().to_string());
+    output.push_str(",\"selected_block_extent\":");
+    output.push_str(&cell.selected_block_extent.to_string());
+    output.push_str(",\"vertical_offset_after\":");
+    output.push_str(&cell.vertical_offset_after.to_string());
+    output.push_str(",\"vertical_offset_before\":");
+    output.push_str(&cell.vertical_offset_before.to_string());
+    output.push('}');
+}
+
+fn encode_table_cell_cursor(output: &mut String, cursor: StagingTableCellFlowCursor) {
+    output.push_str("{\"flow_id\":");
+    output.push_str(&cursor.flow_id.get().to_string());
+    output.push_str(",\"next_fragment_ordinal\":");
+    output.push_str(&cursor.next_fragment_ordinal.to_string());
+    output.push_str(",\"terminal\":");
+    output.push_str(if cursor.terminal { "true" } else { "false" });
+    output.push('}');
+}
+
+fn encode_table_row_cursor(output: &mut String, cursor: StagingTableRowCursor) {
+    output.push_str("{\"block_offset_within_row\":");
+    output.push_str(&cursor.block_offset_within_row.to_string());
+    output.push_str(",\"logical_row_ordinal\":");
+    output.push_str(&cursor.logical_row_ordinal.to_string());
+    output.push_str(",\"row_fragment_ordinal\":");
+    output.push_str(&cursor.row_fragment_ordinal.to_string());
+    output.push_str(",\"terminal\":");
+    output.push_str(if cursor.terminal { "true" } else { "false" });
+    output.push('}');
+}
+
+fn encode_rowspan_continuation(output: &mut String, value: &RowspanContinuationReceipt) {
+    output.push_str("{\"entries\":[");
+    for (index, entry) in value.entries.iter().enumerate() {
+        comma(output, index);
+        output.push_str("{\"cell_flow_cursor\":");
+        encode_table_cell_cursor(output, entry.cell_flow_cursor);
+        output.push_str(",\"cell_node_id\":");
+        output.push_str(&entry.cell_owner.get().to_string());
+        output.push_str(",\"column_ordinal\":");
+        output.push_str(&entry.column_ordinal.to_string());
+        output.push_str(",\"flow_id\":");
+        output.push_str(&entry.flow_id.get().to_string());
+        output.push_str(",\"remaining_logical_rows\":");
+        output.push_str(&entry.remaining_logical_rows.get().to_string());
+        output.push_str(",\"vertical_offset\":");
+        output.push_str(&entry.vertical_offset.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"logical_row_ordinal\":");
+    output.push_str(&value.logical_row_ordinal.to_string());
+    output.push('}');
+}
+
+pub const STAGING_MACHINE_LIST_TRACE_ALGORITHM: &str = "typaxis.machine-list-trace/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineListPaginationError {
+    Flow(MultiFlowError),
+    LayoutRegistryMismatch,
+    InvalidPageInput,
+    OversizeKeep(NodeId),
+    PageLimit,
+    FragmentLimit,
+    NoProgress(NodeId),
+    MarkerOrphan(NodeId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+impl From<MultiFlowError> for StagingMachineListPaginationError {
+    fn from(value: MultiFlowError) -> Self {
+        Self::Flow(value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingMachineListPageInput {
+    body_block_size: PositiveLength,
+    first_page_remaining_block_size: PositiveLength,
+}
+
+impl StagingMachineListPageInput {
+    pub fn new(
+        body_block_size: PositiveLength,
+        first_page_remaining_block_size: PositiveLength,
+    ) -> Result<Self, StagingMachineListPaginationError> {
+        if first_page_remaining_block_size.get().raw() > body_block_size.get().raw() {
+            return Err(StagingMachineListPaginationError::InvalidPageInput);
+        }
+        Ok(Self {
+            body_block_size,
+            first_page_remaining_block_size,
+        })
+    }
+
+    pub const fn body_block_size(self) -> PositiveLength {
+        self.body_block_size
+    }
+
+    pub const fn first_page_remaining_block_size(self) -> PositiveLength {
+        self.first_page_remaining_block_size
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListSelectedList {
+    list_owner: NodeId,
+    list_flow_id: FlowId,
+    marker_column_width: i64,
+    marker_gap: i64,
+    start_indent: i64,
+    end_indent: i64,
+    item_frame_inline_size: i64,
+}
+
+impl StagingMachineListSelectedList {
+    pub const fn list_owner(&self) -> NodeId {
+        self.list_owner
+    }
+    pub const fn list_flow_id(&self) -> FlowId {
+        self.list_flow_id
+    }
+    pub const fn marker_column_width(&self) -> i64 {
+        self.marker_column_width
+    }
+    pub const fn marker_gap(&self) -> i64 {
+        self.marker_gap
+    }
+    pub const fn start_indent(&self) -> i64 {
+        self.start_indent
+    }
+    pub const fn end_indent(&self) -> i64 {
+        self.end_indent
+    }
+    pub const fn item_frame_inline_size(&self) -> i64 {
+        self.item_frame_inline_size
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListFragment {
+    fragment_id: u64,
+    item_owner: NodeId,
+    item_flow_id: FlowId,
+    page_index: u32,
+    block_offset: i64,
+    block_size: i64,
+    contains_marker: bool,
+    contains_first_painted_line: bool,
+}
+
+impl StagingMachineListFragment {
+    pub const fn fragment_id(&self) -> u64 {
+        self.fragment_id
+    }
+    pub const fn item_owner(&self) -> NodeId {
+        self.item_owner
+    }
+    pub const fn item_flow_id(&self) -> FlowId {
+        self.item_flow_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn block_offset(&self) -> i64 {
+        self.block_offset
+    }
+    pub const fn block_size(&self) -> i64 {
+        self.block_size
+    }
+    pub const fn contains_marker(&self) -> bool {
+        self.contains_marker
+    }
+    pub const fn contains_first_painted_line(&self) -> bool {
+        self.contains_first_painted_line
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListSelectedItem {
+    list_owner: NodeId,
+    item_owner: NodeId,
+    item_index: u32,
+    list_flow_id: FlowId,
+    item_flow_id: FlowId,
+    marker_key: GeneratedBufferKey,
+    marker_utf8: String,
+    marker_fragment_id: u64,
+    first_line_fragment_id: u64,
+    page_index: u32,
+    fragment_ids: Vec<u64>,
+    marker_inline_size: i64,
+    marker_column_width: i64,
+    marker_physical_left: i64,
+    content_physical_left: i64,
+    content_inline_size: i64,
+    first_line_inline_size: i64,
+    first_line_block_size: i64,
+    block_offset: i64,
+}
+
+impl StagingMachineListSelectedItem {
+    pub const fn list_owner(&self) -> NodeId {
+        self.list_owner
+    }
+    pub const fn item_owner(&self) -> NodeId {
+        self.item_owner
+    }
+    pub const fn item_index(&self) -> u32 {
+        self.item_index
+    }
+    pub const fn list_flow_id(&self) -> FlowId {
+        self.list_flow_id
+    }
+    pub const fn item_flow_id(&self) -> FlowId {
+        self.item_flow_id
+    }
+    pub const fn marker_key(&self) -> GeneratedBufferKey {
+        self.marker_key
+    }
+    pub fn marker_utf8(&self) -> &str {
+        &self.marker_utf8
+    }
+    pub const fn marker_fragment_id(&self) -> u64 {
+        self.marker_fragment_id
+    }
+    pub const fn first_line_fragment_id(&self) -> u64 {
+        self.first_line_fragment_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub fn fragment_ids(&self) -> &[u64] {
+        &self.fragment_ids
+    }
+    pub const fn marker_inline_size(&self) -> i64 {
+        self.marker_inline_size
+    }
+    pub const fn marker_column_width(&self) -> i64 {
+        self.marker_column_width
+    }
+    pub const fn marker_physical_left(&self) -> i64 {
+        self.marker_physical_left
+    }
+    pub const fn content_physical_left(&self) -> i64 {
+        self.content_physical_left
+    }
+    pub const fn content_inline_size(&self) -> i64 {
+        self.content_inline_size
+    }
+    pub const fn first_line_inline_size(&self) -> i64 {
+        self.first_line_inline_size
+    }
+    pub const fn first_line_block_size(&self) -> i64 {
+        self.first_line_block_size
+    }
+    pub const fn block_offset(&self) -> i64 {
+        self.block_offset
+    }
+}
+
+/// Selected list state. The all-flow terminal receipt and marker keep groups
+/// are sealed together so a body-only selection cannot reach Display.
+#[derive(Debug)]
+pub struct StagingMachineListSelectedState {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    marker_usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    page_count: u32,
+    multi_flow: MultiFlowSelectedStateReceipt,
+    lists: Vec<StagingMachineListSelectedList>,
+    items: Vec<StagingMachineListSelectedItem>,
+    fragments: Vec<StagingMachineListFragment>,
+}
+
+impl StagingMachineListSelectedState {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+    pub const fn marker_usage_sha256(&self) -> [u8; 32] {
+        self.marker_usage_sha256
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub const fn multi_flow(&self) -> &MultiFlowSelectedStateReceipt {
+        &self.multi_flow
+    }
+    pub fn lists(&self) -> &[StagingMachineListSelectedList] {
+        &self.lists
+    }
+    pub fn items(&self) -> &[StagingMachineListSelectedItem] {
+        &self.items
+    }
+    pub fn fragments(&self) -> &[StagingMachineListFragment] {
+        &self.fragments
+    }
+
+    pub fn validate_marker_closure(&self) -> Result<(), StagingMachineListPaginationError> {
+        for item in &self.items {
+            if item.marker_fragment_id != item.first_line_fragment_id
+                || item.fragment_ids.first().copied() != Some(item.marker_fragment_id)
+            {
+                return Err(StagingMachineListPaginationError::MarkerOrphan(
+                    item.item_owner,
+                ));
+            }
+            let Some(fragment) = self.fragments.iter().find(|fragment| {
+                fragment.fragment_id == item.marker_fragment_id
+                    && fragment.item_owner == item.item_owner
+                    && fragment.item_flow_id == item.item_flow_id
+            }) else {
+                return Err(StagingMachineListPaginationError::MarkerOrphan(
+                    item.item_owner,
+                ));
+            };
+            if !fragment.contains_marker
+                || !fragment.contains_first_painted_line
+                || fragment.page_index != item.page_index
+            {
+                return Err(StagingMachineListPaginationError::MarkerOrphan(
+                    item.item_owner,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn trace_facts(&self) -> StagingMachineListTraceFacts {
+        StagingMachineListTraceFacts::from_selected(self)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListTraceItem {
+    item_owner: u32,
+    list_flow_id: u32,
+    item_flow_id: u32,
+    page_index: u32,
+    marker_fragment_id: u64,
+}
+
+impl StagingMachineListTraceItem {
+    pub const fn item_owner(&self) -> u32 {
+        self.item_owner
+    }
+    pub const fn list_flow_id(&self) -> u32 {
+        self.list_flow_id
+    }
+    pub const fn item_flow_id(&self) -> u32 {
+        self.item_flow_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn marker_fragment_id(&self) -> u64 {
+        self.marker_fragment_id
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineListTraceFacts {
+    flow_registry_sha256: [u8; 32],
+    marker_usage_sha256: [u8; 32],
+    items: Vec<StagingMachineListTraceItem>,
+    canonical_jcs: String,
+}
+
+impl StagingMachineListTraceFacts {
+    fn from_selected(selected: &StagingMachineListSelectedState) -> Self {
+        let items: Vec<_> = selected
+            .items
+            .iter()
+            .map(|item| StagingMachineListTraceItem {
+                item_owner: item.item_owner.get(),
+                list_flow_id: item.list_flow_id.get(),
+                item_flow_id: item.item_flow_id.get(),
+                page_index: item.page_index,
+                marker_fragment_id: item.marker_fragment_id,
+            })
+            .collect();
+        let canonical_jcs = encode_staging_machine_list_trace(
+            selected.flow_registry.bytes(),
+            selected.marker_usage_sha256,
+            &items,
+        );
+        Self {
+            flow_registry_sha256: selected.flow_registry.bytes(),
+            marker_usage_sha256: selected.marker_usage_sha256,
+            items,
+            canonical_jcs,
+        }
+    }
+
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+    pub const fn marker_usage_sha256(&self) -> [u8; 32] {
+        self.marker_usage_sha256
+    }
+    pub fn items(&self) -> &[StagingMachineListTraceItem] {
+        &self.items
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+pub fn paginate_staging_machine_lists(
+    layout: &StagingMachineListLayoutReceipt,
+    ir: &ProductionFlowIr,
+    input: StagingMachineListPageInput,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingMachineListSelectedState, StagingMachineListPaginationError> {
+    if layout.flow_registry_fingerprint() != ir.registry().receipt().fingerprint()
+        || layout.epoch() != ir.registry().receipt().epoch()
+    {
+        return Err(StagingMachineListPaginationError::LayoutRegistryMismatch);
+    }
+    let multi_flow = complete_staging_list_flow_stack(ir)?;
+    let mut lists = Vec::new();
+    lists
+        .try_reserve_exact(layout.lists().len())
+        .map_err(|_| StagingMachineListPaginationError::AllocationFailure)?;
+    for list in layout.lists() {
+        lists.push(StagingMachineListSelectedList {
+            list_owner: list.list_owner(),
+            list_flow_id: list.list_flow_id(),
+            marker_column_width: list.marker_column_width().get().raw(),
+            marker_gap: list.marker_gap().get().raw(),
+            start_indent: list.start_indent().get().raw(),
+            end_indent: list.end_indent().get().raw(),
+            item_frame_inline_size: list.item_frame_inline_size().get().raw(),
+        });
+    }
+    let body_raw = input.body_block_size.get().raw();
+    let mut remaining_page_raw = input.first_page_remaining_block_size.get().raw();
+    let mut block_offset_raw = body_raw
+        .checked_sub(remaining_page_raw)
+        .ok_or(StagingMachineListPaginationError::ArithmeticOverflow)?;
+    let mut page_index = 0u32;
+    let mut next_fragment_id = 0u64;
+    let mut selected_items = Vec::new();
+    selected_items
+        .try_reserve_exact(layout.items().len())
+        .map_err(|_| StagingMachineListPaginationError::AllocationFailure)?;
+    let mut fragments = Vec::new();
+
+    for (item_ordinal, item) in layout.items().iter().enumerate() {
+        let keep_raw = item.keep_group_block_size().get().raw();
+        if keep_raw > body_raw {
+            return Err(StagingMachineListPaginationError::OversizeKeep(
+                item.item_owner(),
+            ));
+        }
+        if keep_raw > remaining_page_raw {
+            let before = ListProgress {
+                item_ordinal,
+                remaining_item_raw: item.painted_block_size().get().raw(),
+                page_index,
+            };
+            page_index = advance_list_page(page_index, limits)?;
+            remaining_page_raw = body_raw;
+            block_offset_raw = 0;
+            ensure_list_progress(
+                item.item_owner(),
+                before,
+                ListProgress {
+                    page_index,
+                    ..before
+                },
+            )?;
+        }
+
+        let first_page_index = page_index;
+        let first_block_offset = block_offset_raw;
+        let mut remaining_item_raw = item.painted_block_size().get().raw();
+        let mut fragment_ids = Vec::new();
+        while remaining_item_raw > 0 {
+            if remaining_page_raw == 0 {
+                let before = ListProgress {
+                    item_ordinal,
+                    remaining_item_raw,
+                    page_index,
+                };
+                page_index = advance_list_page(page_index, limits)?;
+                remaining_page_raw = body_raw;
+                block_offset_raw = 0;
+                ensure_list_progress(
+                    item.item_owner(),
+                    before,
+                    ListProgress {
+                        page_index,
+                        ..before
+                    },
+                )?;
+            }
+            let before = ListProgress {
+                item_ordinal,
+                remaining_item_raw,
+                page_index,
+            };
+            let take_raw = remaining_item_raw.min(remaining_page_raw);
+            if take_raw <= 0 {
+                return Err(StagingMachineListPaginationError::NoProgress(
+                    item.item_owner(),
+                ));
+            }
+            if next_fragment_id >= limits.get().max_fragments {
+                return Err(StagingMachineListPaginationError::FragmentLimit);
+            }
+            let first_fragment = fragment_ids.is_empty();
+            fragment_ids.push(next_fragment_id);
+            fragments
+                .try_reserve(1)
+                .map_err(|_| StagingMachineListPaginationError::AllocationFailure)?;
+            fragments.push(StagingMachineListFragment {
+                fragment_id: next_fragment_id,
+                item_owner: item.item_owner(),
+                item_flow_id: item.item_flow_id(),
+                page_index,
+                block_offset: block_offset_raw,
+                block_size: take_raw,
+                contains_marker: first_fragment,
+                contains_first_painted_line: first_fragment,
+            });
+            next_fragment_id = next_fragment_id
+                .checked_add(1)
+                .ok_or(StagingMachineListPaginationError::ArithmeticOverflow)?;
+            remaining_item_raw -= take_raw;
+            remaining_page_raw -= take_raw;
+            block_offset_raw = block_offset_raw
+                .checked_add(take_raw)
+                .ok_or(StagingMachineListPaginationError::ArithmeticOverflow)?;
+            ensure_list_progress(
+                item.item_owner(),
+                before,
+                ListProgress {
+                    item_ordinal,
+                    remaining_item_raw,
+                    page_index,
+                },
+            )?;
+        }
+        let marker_fragment_id =
+            *fragment_ids
+                .first()
+                .ok_or(StagingMachineListPaginationError::NoProgress(
+                    item.item_owner(),
+                ))?;
+        selected_items.push(StagingMachineListSelectedItem {
+            list_owner: item.list_owner(),
+            item_owner: item.item_owner(),
+            item_index: item.item_index(),
+            list_flow_id: item.list_flow_id(),
+            item_flow_id: item.item_flow_id(),
+            marker_key: item.marker_key(),
+            marker_utf8: item.marker_utf8().to_owned(),
+            marker_fragment_id,
+            first_line_fragment_id: marker_fragment_id,
+            page_index: first_page_index,
+            fragment_ids,
+            marker_inline_size: item.marker_inline_size().get().raw(),
+            marker_column_width: item.marker_column_width().get().raw(),
+            marker_physical_left: item.marker_physical_left().get().raw(),
+            content_physical_left: item.content_physical_left().get().raw(),
+            content_inline_size: item.content_inline_size().get().raw(),
+            first_line_inline_size: item.first_line_inline_size().get().raw(),
+            first_line_block_size: item.first_line_block_size().get().raw(),
+            block_offset: first_block_offset,
+        });
+    }
+    let page_count = page_index
+        .checked_add(1)
+        .ok_or(StagingMachineListPaginationError::PageLimit)?;
+    if page_count > limits.get().max_pages {
+        return Err(StagingMachineListPaginationError::PageLimit);
+    }
+    let selected = StagingMachineListSelectedState {
+        package_sha256: layout.package_sha256(),
+        epoch: layout.epoch(),
+        flow_registry: layout.flow_registry_fingerprint(),
+        marker_usage_sha256: layout.marker_usage_sha256(),
+        policy_version: layout.policy_version(),
+        page_count,
+        multi_flow,
+        lists,
+        items: selected_items,
+        fragments,
+    };
+    selected.validate_marker_closure()?;
+    Ok(selected)
+}
+
+fn complete_staging_list_flow_stack(
+    ir: &ProductionFlowIr,
+) -> Result<MultiFlowSelectedStateReceipt, MultiFlowError> {
+    let mut cursor = MultiFlowCursorReceipt::new(ir)?;
+    loop {
+        let position = cursor.current_position(ir)?;
+        if position.is_terminal() {
+            if cursor.current_flow() == FlowId::DOCUMENT_BODY {
+                break;
+            }
+            cursor.leave_terminal(ir)?;
+            cursor.advance(ir)?;
+        } else if let Some(child) = position.child_flow_id() {
+            cursor.enter_child(ir, child)?;
+        } else {
+            cursor.advance(ir)?;
+        }
+    }
+    cursor.finish(ir)
+}
+
+fn advance_list_page(
+    current: u32,
+    limits: &ValidatedResourceLimits,
+) -> Result<u32, StagingMachineListPaginationError> {
+    let next = current
+        .checked_add(1)
+        .ok_or(StagingMachineListPaginationError::PageLimit)?;
+    if next >= limits.get().max_pages {
+        return Err(StagingMachineListPaginationError::PageLimit);
+    }
+    Ok(next)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ListProgress {
+    item_ordinal: usize,
+    remaining_item_raw: i64,
+    page_index: u32,
+}
+
+fn ensure_list_progress(
+    owner: NodeId,
+    before: ListProgress,
+    after: ListProgress,
+) -> Result<(), StagingMachineListPaginationError> {
+    if before == after
+        || after.item_ordinal < before.item_ordinal
+        || (after.item_ordinal == before.item_ordinal
+            && after.page_index == before.page_index
+            && after.remaining_item_raw >= before.remaining_item_raw)
+    {
+        return Err(StagingMachineListPaginationError::NoProgress(owner));
+    }
+    Ok(())
+}
+
+fn encode_staging_machine_list_trace(
+    flow_registry_sha256: [u8; 32],
+    marker_usage_sha256: [u8; 32],
+    items: &[StagingMachineListTraceItem],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_LIST_TRACE_ALGORITHM);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"flow_registry_sha256\":");
+    push_hex(&mut output, flow_registry_sha256);
+    output.push_str(",\"items\":[");
+    for (index, item) in items.iter().enumerate() {
+        comma(&mut output, index);
+        output.push_str("{\"item_flow_id\":");
+        output.push_str(&item.item_flow_id.to_string());
+        output.push_str(",\"item_node_id\":");
+        output.push_str(&item.item_owner.to_string());
+        output.push_str(",\"list_flow_id\":");
+        output.push_str(&item.list_flow_id.to_string());
+        output.push_str(",\"marker_fragment_id\":");
+        output.push_str(&item.marker_fragment_id.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&item.page_index.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"marker_usage_sha256\":");
+    push_hex(&mut output, marker_usage_sha256);
+    output.push('}');
+    output
+}
+
+pub const STAGING_MACHINE_FIGURE_SELECTED_ALGORITHM: &str = "typaxis.machine-figure-selected/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingFigureCaptionBlockInput {
+    owner: NodeId,
+    block_size: PositiveLength,
+}
+
+impl StagingFigureCaptionBlockInput {
+    pub const fn new(owner: NodeId, block_size: PositiveLength) -> Self {
+        Self { owner, block_size }
+    }
+
+    pub const fn owner(self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn block_size(self) -> PositiveLength {
+        self.block_size
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineFigurePaginationError {
+    LayoutRegistryMismatch,
+    MissingCaptionMeasurement(NodeId),
+    ExtraCaptionMeasurement(NodeId),
+    DuplicateCaptionMeasurement(NodeId),
+    InitialContentExceedsBody,
+    ImageOversize(NodeId),
+    CaptionOversize(NodeId),
+    KeepOversize(NodeId),
+    NoProgress(NodeId),
+    PageLimit,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+impl StagingMachineFigurePaginationError {
+    pub const fn invariant_diagnostic_code(self) -> Option<DiagnosticCode> {
+        match self {
+            Self::NoProgress(_) => Some(I9190),
+            Self::LayoutRegistryMismatch
+            | Self::MissingCaptionMeasurement(_)
+            | Self::ExtraCaptionMeasurement(_)
+            | Self::DuplicateCaptionMeasurement(_)
+            | Self::InitialContentExceedsBody
+            | Self::ImageOversize(_)
+            | Self::CaptionOversize(_)
+            | Self::KeepOversize(_)
+            | Self::PageLimit
+            | Self::ArithmeticOverflow
+            | Self::AllocationFailure => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigurePaginationInput {
+    initial_consumed_block_size: NonNegativeLength,
+    captions: Vec<StagingFigureCaptionBlockInput>,
+}
+
+impl StagingMachineFigurePaginationInput {
+    pub fn new(
+        layout: &ValidatedFigureLayout,
+        initial_consumed_block_size: NonNegativeLength,
+        mut captions: Vec<StagingFigureCaptionBlockInput>,
+    ) -> Result<Self, StagingMachineFigurePaginationError> {
+        if initial_consumed_block_size.get().raw() > layout.body().height().get().raw() {
+            return Err(StagingMachineFigurePaginationError::InitialContentExceedsBody);
+        }
+        captions.sort_by_key(|caption| caption.owner);
+        if let Some(pair) = captions
+            .windows(2)
+            .find(|pair| pair[0].owner == pair[1].owner)
+        {
+            return Err(
+                StagingMachineFigurePaginationError::DuplicateCaptionMeasurement(pair[1].owner),
+            );
+        }
+        let mut expected: Vec<_> = layout
+            .figures()
+            .iter()
+            .flat_map(|figure| figure.caption_owners().iter().copied())
+            .collect();
+        expected.sort_unstable();
+        for owner in &expected {
+            if captions
+                .binary_search_by_key(owner, |caption| caption.owner)
+                .is_err()
+            {
+                return Err(StagingMachineFigurePaginationError::MissingCaptionMeasurement(*owner));
+            }
+        }
+        if let Some(extra) = captions
+            .iter()
+            .find(|caption| expected.binary_search(&caption.owner).is_err())
+        {
+            return Err(StagingMachineFigurePaginationError::ExtraCaptionMeasurement(extra.owner));
+        }
+        Ok(Self {
+            initial_consumed_block_size,
+            captions,
+        })
+    }
+
+    pub const fn initial_consumed_block_size(&self) -> NonNegativeLength {
+        self.initial_consumed_block_size
+    }
+
+    pub fn captions(&self) -> &[StagingFigureCaptionBlockInput] {
+        &self.captions
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureCaptionFragment {
+    caption_owner: NodeId,
+    caption_flow_id: FlowId,
+    page_index: u32,
+    rect: Rect,
+}
+
+impl StagingMachineFigureCaptionFragment {
+    pub const fn caption_owner(&self) -> NodeId {
+        self.caption_owner
+    }
+    pub const fn caption_flow_id(&self) -> FlowId {
+        self.caption_flow_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn rect(&self) -> Rect {
+        self.rect
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigurePlacement {
+    figure_owner: NodeId,
+    document_ordinal: u32,
+    figure_flow_id: FlowId,
+    caption_flow_id: FlowId,
+    image_id: ImageResourceId,
+    alt: String,
+    admitted_media_kind: &'static str,
+    admitted_sha256: [u8; 32],
+    admitted_byte_length: u64,
+    pixel_width: u32,
+    pixel_height: u32,
+    decoded_bytes: u64,
+    page_index: u32,
+    rect: Rect,
+    effective_space_before: NonNegativeLength,
+    keep_policy: StagingFigureKeepPolicy,
+    oversize_policy: StagingFigureOversizePolicy,
+    moved_to_fresh_page: bool,
+    caption_fragments: Vec<StagingMachineFigureCaptionFragment>,
+}
+
+impl StagingMachineFigurePlacement {
+    pub const fn figure_owner(&self) -> NodeId {
+        self.figure_owner
+    }
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+    pub const fn figure_flow_id(&self) -> FlowId {
+        self.figure_flow_id
+    }
+    pub const fn caption_flow_id(&self) -> FlowId {
+        self.caption_flow_id
+    }
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+    pub fn alt(&self) -> &str {
+        &self.alt
+    }
+    pub const fn admitted_media_kind(&self) -> &'static str {
+        self.admitted_media_kind
+    }
+    pub const fn admitted_sha256(&self) -> [u8; 32] {
+        self.admitted_sha256
+    }
+    pub const fn admitted_byte_length(&self) -> u64 {
+        self.admitted_byte_length
+    }
+    pub const fn pixel_width(&self) -> u32 {
+        self.pixel_width
+    }
+    pub const fn pixel_height(&self) -> u32 {
+        self.pixel_height
+    }
+    pub const fn decoded_bytes(&self) -> u64 {
+        self.decoded_bytes
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn rect(&self) -> Rect {
+        self.rect
+    }
+    pub const fn effective_space_before(&self) -> NonNegativeLength {
+        self.effective_space_before
+    }
+    pub const fn keep_policy(&self) -> StagingFigureKeepPolicy {
+        self.keep_policy
+    }
+    pub const fn oversize_policy(&self) -> StagingFigureOversizePolicy {
+        self.oversize_policy
+    }
+    pub const fn moved_to_fresh_page(&self) -> bool {
+        self.moved_to_fresh_page
+    }
+    pub fn caption_fragments(&self) -> &[StagingMachineFigureCaptionFragment] {
+        &self.caption_fragments
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureSelectedPage {
+    page_index: u32,
+    figure_count: u32,
+    caption_block_count: u32,
+}
+
+impl StagingMachineFigureSelectedPage {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn figure_count(&self) -> u32 {
+        self.figure_count
+    }
+    pub const fn caption_block_count(&self) -> u32 {
+        self.caption_block_count
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureSelectedState {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    figure_usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    master_id: MasterId,
+    page_width: PositiveLength,
+    page_height: PositiveLength,
+    body: Rect,
+    initial_consumed_block_size: NonNegativeLength,
+    pages: Vec<StagingMachineFigureSelectedPage>,
+    figures: Vec<StagingMachineFigurePlacement>,
+    state_fingerprint: LayoutStateFingerprint,
+    canonical_jcs: String,
+}
+
+impl StagingMachineFigureSelectedState {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+    pub const fn figure_usage_sha256(&self) -> [u8; 32] {
+        self.figure_usage_sha256
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub const fn master_id(&self) -> &MasterId {
+        &self.master_id
+    }
+    pub const fn page_width(&self) -> PositiveLength {
+        self.page_width
+    }
+    pub const fn page_height(&self) -> PositiveLength {
+        self.page_height
+    }
+    pub const fn body(&self) -> Rect {
+        self.body
+    }
+    pub const fn initial_consumed_block_size(&self) -> NonNegativeLength {
+        self.initial_consumed_block_size
+    }
+    pub fn pages(&self) -> &[StagingMachineFigureSelectedPage] {
+        &self.pages
+    }
+    pub fn figures(&self) -> &[StagingMachineFigurePlacement] {
+        &self.figures
+    }
+    pub const fn state_fingerprint(&self) -> LayoutStateFingerprint {
+        self.state_fingerprint
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+pub fn paginate_staging_machine_figures(
+    layout: &ValidatedFigureLayout,
+    ir: &ProductionFlowIr,
+    input: &StagingMachineFigurePaginationInput,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingMachineFigureSelectedState, StagingMachineFigurePaginationError> {
+    if layout.flow_registry_fingerprint() != ir.registry().receipt().fingerprint()
+        || layout.epoch() != ir.registry().receipt().epoch()
+    {
+        return Err(StagingMachineFigurePaginationError::LayoutRegistryMismatch);
+    }
+    if limits.get().max_pages == 0 {
+        return Err(StagingMachineFigurePaginationError::PageLimit);
+    }
+    let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(layout.figures().len().saturating_add(1))
+        .map_err(|_| StagingMachineFigurePaginationError::AllocationFailure)?;
+    pages.push(StagingMachineFigureSelectedPage {
+        page_index: 0,
+        figure_count: 0,
+        caption_block_count: 0,
+    });
+    let mut placements = Vec::new();
+    placements
+        .try_reserve_exact(layout.figures().len())
+        .map_err(|_| StagingMachineFigurePaginationError::AllocationFailure)?;
+    let body_height = layout.body().height().get().raw();
+    let mut used = input.initial_consumed_block_size.get().raw();
+    let mut pending_space_after = 0i64;
+
+    for figure in layout.figures() {
+        let caption_inputs: Vec<_> = figure
+            .caption_owners()
+            .iter()
+            .map(|owner| {
+                input
+                    .captions
+                    .binary_search_by_key(owner, |caption| caption.owner)
+                    .map(|index| input.captions[index])
+                    .map_err(|_| {
+                        StagingMachineFigurePaginationError::MissingCaptionMeasurement(*owner)
+                    })
+            })
+            .collect::<Result<_, _>>()?;
+        let caption_total = caption_inputs.iter().try_fold(0i64, |total, caption| {
+            total
+                .checked_add(caption.block_size.get().raw())
+                .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)
+        })?;
+        let image_height = figure.block_size().get().raw();
+        if image_height > body_height {
+            return Err(StagingMachineFigurePaginationError::ImageOversize(
+                figure.figure_owner(),
+            ));
+        }
+        let requested_space_before = if used == 0 {
+            0
+        } else {
+            pending_space_after
+                .checked_add(figure.space_before().get().raw())
+                .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?
+        };
+        let mut effective_space_before = requested_space_before;
+        let mut moved_to_fresh_page = false;
+        let mut caption_fragments = Vec::new();
+        caption_fragments
+            .try_reserve_exact(caption_inputs.len())
+            .map_err(|_| StagingMachineFigurePaginationError::AllocationFailure)?;
+
+        if figure.keep_policy() == StagingFigureKeepPolicy::KeepImageAndCaption {
+            let kept_height = image_height
+                .checked_add(caption_total)
+                .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+            if kept_height > body_height {
+                return Err(StagingMachineFigurePaginationError::KeepOversize(
+                    figure.figure_owner(),
+                ));
+            }
+            let requested = effective_space_before
+                .checked_add(kept_height)
+                .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+            if requested > body_height - used {
+                add_staging_figure_page(&mut pages, limits)?;
+                used = 0;
+                effective_space_before = 0;
+                moved_to_fresh_page = true;
+            }
+            let image_y = checked_figure_y(layout.body(), used, effective_space_before)?;
+            let page_index = u32::try_from(pages.len() - 1)
+                .map_err(|_| StagingMachineFigurePaginationError::PageLimit)?;
+            let rect = Rect::new(
+                figure.physical_left(),
+                image_y,
+                figure.inline_size(),
+                figure.block_size(),
+            );
+            used = used
+                .checked_add(effective_space_before)
+                .and_then(|value| value.checked_add(image_height))
+                .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+            increment_figure_page_count(&mut pages, page_index, true)?;
+            for caption in caption_inputs {
+                let y = checked_figure_y(layout.body(), used, 0)?;
+                caption_fragments.push(StagingMachineFigureCaptionFragment {
+                    caption_owner: caption.owner,
+                    caption_flow_id: figure.caption_flow_id(),
+                    page_index,
+                    rect: Rect::new(
+                        layout.body().x(),
+                        y,
+                        layout.body().width(),
+                        caption.block_size,
+                    ),
+                });
+                used = used
+                    .checked_add(caption.block_size.get().raw())
+                    .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+                increment_figure_page_count(&mut pages, page_index, false)?;
+            }
+            placements.push(staging_figure_placement(
+                figure,
+                page_index,
+                rect,
+                effective_space_before,
+                moved_to_fresh_page,
+                caption_fragments,
+            ));
+        } else {
+            let requested = effective_space_before
+                .checked_add(image_height)
+                .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+            if requested > body_height - used {
+                add_staging_figure_page(&mut pages, limits)?;
+                used = 0;
+                effective_space_before = 0;
+                moved_to_fresh_page = true;
+            }
+            let page_index = u32::try_from(pages.len() - 1)
+                .map_err(|_| StagingMachineFigurePaginationError::PageLimit)?;
+            let image_y = checked_figure_y(layout.body(), used, effective_space_before)?;
+            let rect = Rect::new(
+                figure.physical_left(),
+                image_y,
+                figure.inline_size(),
+                figure.block_size(),
+            );
+            used = used
+                .checked_add(effective_space_before)
+                .and_then(|value| value.checked_add(image_height))
+                .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+            increment_figure_page_count(&mut pages, page_index, true)?;
+            for caption in caption_inputs {
+                let caption_height = caption.block_size.get().raw();
+                if caption_height > body_height {
+                    return Err(StagingMachineFigurePaginationError::CaptionOversize(
+                        caption.owner,
+                    ));
+                }
+                if caption_height > body_height - used {
+                    add_staging_figure_page(&mut pages, limits)?;
+                    used = 0;
+                }
+                let caption_page = u32::try_from(pages.len() - 1)
+                    .map_err(|_| StagingMachineFigurePaginationError::PageLimit)?;
+                let y = checked_figure_y(layout.body(), used, 0)?;
+                caption_fragments.push(StagingMachineFigureCaptionFragment {
+                    caption_owner: caption.owner,
+                    caption_flow_id: figure.caption_flow_id(),
+                    page_index: caption_page,
+                    rect: Rect::new(
+                        layout.body().x(),
+                        y,
+                        layout.body().width(),
+                        caption.block_size,
+                    ),
+                });
+                used = used
+                    .checked_add(caption_height)
+                    .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+                increment_figure_page_count(&mut pages, caption_page, false)?;
+            }
+            placements.push(staging_figure_placement(
+                figure,
+                page_index,
+                rect,
+                effective_space_before,
+                moved_to_fresh_page,
+                caption_fragments,
+            ));
+        }
+        if used > body_height {
+            return Err(StagingMachineFigurePaginationError::NoProgress(
+                figure.figure_owner(),
+            ));
+        }
+        pending_space_after = figure.space_after().get().raw();
+    }
+
+    let mut selected = StagingMachineFigureSelectedState {
+        package_sha256: layout.package_sha256(),
+        epoch: layout.epoch(),
+        flow_registry: layout.flow_registry_fingerprint(),
+        figure_usage_sha256: layout.figure_usage_sha256(),
+        policy_version: layout.policy_version(),
+        master_id: layout.master_id().clone(),
+        page_width: layout.page_width(),
+        page_height: layout.page_height(),
+        body: layout.body(),
+        initial_consumed_block_size: input.initial_consumed_block_size,
+        pages,
+        figures: placements,
+        state_fingerprint: LayoutStateFingerprint::from_untrusted_bytes([0; 32]),
+        canonical_jcs: String::new(),
+    };
+    selected.canonical_jcs = encode_staging_machine_figure_selected(&selected);
+    selected.state_fingerprint =
+        materialized_pagination_state_fingerprint_from_jcs(&selected.canonical_jcs);
+    Ok(selected)
+}
+
+fn add_staging_figure_page(
+    pages: &mut Vec<StagingMachineFigureSelectedPage>,
+    limits: &ValidatedResourceLimits,
+) -> Result<(), StagingMachineFigurePaginationError> {
+    let page_index =
+        u32::try_from(pages.len()).map_err(|_| StagingMachineFigurePaginationError::PageLimit)?;
+    if page_index >= limits.get().max_pages {
+        return Err(StagingMachineFigurePaginationError::PageLimit);
+    }
+    pages
+        .try_reserve(1)
+        .map_err(|_| StagingMachineFigurePaginationError::AllocationFailure)?;
+    pages.push(StagingMachineFigureSelectedPage {
+        page_index,
+        figure_count: 0,
+        caption_block_count: 0,
+    });
+    Ok(())
+}
+
+fn increment_figure_page_count(
+    pages: &mut [StagingMachineFigureSelectedPage],
+    page_index: u32,
+    figure: bool,
+) -> Result<(), StagingMachineFigurePaginationError> {
+    let page = pages
+        .get_mut(page_index as usize)
+        .ok_or(StagingMachineFigurePaginationError::PageLimit)?;
+    let count = if figure {
+        &mut page.figure_count
+    } else {
+        &mut page.caption_block_count
+    };
+    *count = count
+        .checked_add(1)
+        .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+    Ok(())
+}
+
+fn checked_figure_y(
+    body: Rect,
+    used: i64,
+    before: i64,
+) -> Result<typaxis_core::Length, StagingMachineFigurePaginationError> {
+    let offset = used
+        .checked_add(before)
+        .and_then(typaxis_core::Length::from_raw)
+        .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)?;
+    body.y()
+        .checked_add(offset)
+        .ok_or(StagingMachineFigurePaginationError::ArithmeticOverflow)
+}
+
+fn staging_figure_placement(
+    figure: &typaxis_layout::ValidatedFigureLayoutItem,
+    page_index: u32,
+    rect: Rect,
+    effective_space_before: i64,
+    moved_to_fresh_page: bool,
+    caption_fragments: Vec<StagingMachineFigureCaptionFragment>,
+) -> StagingMachineFigurePlacement {
+    StagingMachineFigurePlacement {
+        figure_owner: figure.figure_owner(),
+        document_ordinal: figure.document_ordinal(),
+        figure_flow_id: figure.figure_flow_id(),
+        caption_flow_id: figure.caption_flow_id(),
+        image_id: figure.image_id(),
+        alt: figure.alt().to_owned(),
+        admitted_media_kind: figure.admitted_media_kind().as_str(),
+        admitted_sha256: figure.admitted_sha256(),
+        admitted_byte_length: figure.admitted_byte_length(),
+        pixel_width: figure.pixel_width().get(),
+        pixel_height: figure.pixel_height().get(),
+        decoded_bytes: figure.decoded_bytes(),
+        page_index,
+        rect,
+        effective_space_before: NonNegativeLength::new(
+            typaxis_core::Length::from_raw(effective_space_before)
+                .expect("selected Figure spacing remains in the fixed-point range"),
+        )
+        .expect("selected Figure spacing is nonnegative"),
+        keep_policy: figure.keep_policy(),
+        oversize_policy: figure.oversize_policy(),
+        moved_to_fresh_page,
+        caption_fragments,
+    }
+}
+
+fn encode_staging_machine_figure_selected(value: &StagingMachineFigureSelectedState) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_FIGURE_SELECTED_ALGORITHM);
+    output.push_str(",\"body\":");
+    encode_rect(&mut output, value.body);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"figure_usage_sha256\":");
+    push_hex(&mut output, value.figure_usage_sha256);
+    output.push_str(",\"figures\":[");
+    for (index, figure) in value.figures.iter().enumerate() {
+        comma(&mut output, index);
+        encode_staging_machine_figure_placement(&mut output, figure);
+    }
+    output.push_str("],\"flow_registry_sha256\":");
+    push_hex(&mut output, value.flow_registry.bytes());
+    output.push_str(",\"initial_consumed_block_size\":");
+    output.push_str(&value.initial_consumed_block_size.get().raw().to_string());
+    output.push_str(",\"layout_epoch\":");
+    encode_layout_epoch(&mut output, value.epoch);
+    output.push_str(",\"master_id\":");
+    push_jcs_string(&mut output, value.master_id.as_str());
+    output.push_str(",\"package_sha256\":");
+    push_hex(&mut output, value.package_sha256);
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.pages.len().to_string());
+    output.push_str(",\"page_height\":");
+    output.push_str(&value.page_height.get().raw().to_string());
+    output.push_str(",\"page_width\":");
+    output.push_str(&value.page_width.get().raw().to_string());
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        comma(&mut output, index);
+        output.push_str("{\"caption_block_count\":");
+        output.push_str(&page.caption_block_count.to_string());
+        output.push_str(",\"figure_count\":");
+        output.push_str(&page.figure_count.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push_str(",\"state_algorithm\":");
+    push_jcs_string(
+        &mut output,
+        LayoutStateFingerprint::MATERIALIZED_ALGORITHM_ID,
+    );
+    output.push('}');
+    output
+}
+
+fn encode_staging_machine_figure_placement(
+    output: &mut String,
+    figure: &StagingMachineFigurePlacement,
+) {
+    output.push_str("{\"admitted_byte_length\":");
+    output.push_str(&figure.admitted_byte_length.to_string());
+    output.push_str(",\"admitted_sha256\":");
+    push_hex(output, figure.admitted_sha256);
+    output.push_str(",\"alt\":");
+    push_jcs_string(output, &figure.alt);
+    output.push_str(",\"attested_media_kind\":");
+    push_jcs_string(output, figure.admitted_media_kind);
+    output.push_str(",\"caption_flow_id\":");
+    output.push_str(&figure.caption_flow_id.get().to_string());
+    output.push_str(",\"caption_fragments\":[");
+    for (index, caption) in figure.caption_fragments.iter().enumerate() {
+        comma(output, index);
+        output.push_str("{\"caption_flow_id\":");
+        output.push_str(&caption.caption_flow_id.get().to_string());
+        output.push_str(",\"caption_node_id\":");
+        output.push_str(&caption.caption_owner.get().to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&caption.page_index.to_string());
+        output.push_str(",\"rect\":");
+        encode_rect(output, caption.rect);
+        output.push('}');
+    }
+    output.push_str("],\"decoded_bytes\":");
+    output.push_str(&figure.decoded_bytes.to_string());
+    output.push_str(",\"document_ordinal\":");
+    output.push_str(&figure.document_ordinal.to_string());
+    output.push_str(",\"effective_space_before\":");
+    output.push_str(&figure.effective_space_before.get().raw().to_string());
+    output.push_str(",\"figure_flow_id\":");
+    output.push_str(&figure.figure_flow_id.get().to_string());
+    output.push_str(",\"figure_node_id\":");
+    output.push_str(&figure.figure_owner.get().to_string());
+    output.push_str(",\"image_id\":");
+    output.push_str(&figure.image_id.get().to_string());
+    output.push_str(",\"keep_policy\":");
+    push_jcs_string(output, figure.keep_policy.as_str());
+    output.push_str(",\"moved_to_fresh_page\":");
+    output.push_str(if figure.moved_to_fresh_page {
+        "true"
+    } else {
+        "false"
+    });
+    output.push_str(",\"oversize_policy\":");
+    push_jcs_string(output, figure.oversize_policy.as_str());
+    output.push_str(",\"page_index\":");
+    output.push_str(&figure.page_index.to_string());
+    output.push_str(",\"pixel_height\":");
+    output.push_str(&figure.pixel_height.to_string());
+    output.push_str(",\"pixel_width\":");
+    output.push_str(&figure.pixel_width.to_string());
+    output.push_str(",\"rect\":");
+    encode_rect(output, figure.rect);
+    output.push('}');
+}
+
+pub const STAGING_FORCED_PAGE_BREAK_TRACE_ALGORITHM: &str = "typaxis.forced-page-break-trace/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingForcedPageBreakPaginationError {
+    Flow(MultiFlowError),
+    LayoutRegistryMismatch,
+    UnknownPaintOwner(NodeId),
+    DuplicatePaintOwner(NodeId),
+    ForcedBoundaryPaint(NodeId),
+    MissingBoundary(NodeId),
+    ExtraBoundary(NodeId),
+    WrongBoundary(NodeId),
+    CursorDidNotAdvance(NodeId),
+    PageLimit,
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+impl StagingForcedPageBreakPaginationError {
+    /// Public diagnostic identity for contradictions in the sealed break
+    /// consume chain. In particular, retrying `More` at the pre-break cursor
+    /// maps to the contract's internal invariant code.
+    pub const fn invariant_diagnostic_code(self) -> Option<DiagnosticCode> {
+        match self {
+            Self::MissingBoundary(_)
+            | Self::ExtraBoundary(_)
+            | Self::WrongBoundary(_)
+            | Self::CursorDidNotAdvance(_) => Some(I9190),
+            Self::Flow(_)
+            | Self::LayoutRegistryMismatch
+            | Self::UnknownPaintOwner(_)
+            | Self::DuplicatePaintOwner(_)
+            | Self::ForcedBoundaryPaint(_)
+            | Self::PageLimit
+            | Self::ArithmeticOverflow
+            | Self::AllocationFailure => None,
+        }
+    }
+}
+
+impl From<MultiFlowError> for StagingForcedPageBreakPaginationError {
+    fn from(value: MultiFlowError) -> Self {
+        Self::Flow(value)
+    }
+}
+
+/// Positive-area observations supplied by the staging layout fixture. The
+/// constructor rejects a `page_break` owner, preserving the distinction
+/// between a forced boundary and zero-sized/paintable content.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakPaginationInput {
+    painted_content_owners: Vec<NodeId>,
+}
+
+impl StagingForcedPageBreakPaginationInput {
+    pub fn new(
+        ir: &ProductionFlowIr,
+        mut painted_content_owners: Vec<NodeId>,
+    ) -> Result<Self, StagingForcedPageBreakPaginationError> {
+        painted_content_owners.sort_unstable();
+        if let Some(pair) = painted_content_owners
+            .windows(2)
+            .find(|pair| pair[0] == pair[1])
+        {
+            return Err(StagingForcedPageBreakPaginationError::DuplicatePaintOwner(
+                pair[1],
+            ));
+        }
+        for owner in &painted_content_owners {
+            let kind = ir
+                .flows()
+                .iter()
+                .flat_map(|flow| flow.positions())
+                .find(|position| position.content_owner_node_id() == Some(*owner))
+                .and_then(ProductionFlowPosition::content_kind)
+                .ok_or(StagingForcedPageBreakPaginationError::UnknownPaintOwner(
+                    *owner,
+                ))?;
+            if kind == FlowContentKind::PageBreak {
+                return Err(StagingForcedPageBreakPaginationError::ForcedBoundaryPaint(
+                    *owner,
+                ));
+            }
+        }
+        Ok(Self {
+            painted_content_owners,
+        })
+    }
+
+    pub fn painted_content_owners(&self) -> &[NodeId] {
+        &self.painted_content_owners
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakCursor {
+    flow_id: FlowId,
+    flow_local_ordinal: u32,
+}
+
+impl StagingForcedPageBreakCursor {
+    fn from_position(position: &ProductionFlowPosition) -> Self {
+        Self {
+            flow_id: position.flow_id(),
+            flow_local_ordinal: position.flow_local_ordinal(),
+        }
+    }
+
+    pub const fn flow_id(self) -> FlowId {
+        self.flow_id
+    }
+
+    pub const fn flow_local_ordinal(self) -> u32 {
+        self.flow_local_ordinal
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakConsumeReceipt {
+    break_owner: NodeId,
+    document_ordinal: u32,
+    epoch: LayoutEpoch,
+    before_cursor: StagingForcedPageBreakCursor,
+    after_cursor: StagingForcedPageBreakCursor,
+    produced_page_index: u32,
+}
+
+impl StagingForcedPageBreakConsumeReceipt {
+    pub const fn break_owner(&self) -> NodeId {
+        self.break_owner
+    }
+
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub const fn before_cursor(&self) -> StagingForcedPageBreakCursor {
+        self.before_cursor
+    }
+
+    pub const fn after_cursor(&self) -> StagingForcedPageBreakCursor {
+        self.after_cursor
+    }
+
+    pub const fn produced_page_index(&self) -> u32 {
+        self.produced_page_index
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakSelectedPage {
+    page_index: u32,
+    painted_content_count: u32,
+}
+
+impl StagingForcedPageBreakSelectedPage {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+
+    pub const fn painted_content_count(&self) -> u32 {
+        self.painted_content_count
+    }
+
+    pub const fn is_blank(&self) -> bool {
+        self.painted_content_count == 0
+    }
+}
+
+/// Selected forced-boundary state. It owns the all-flow terminal proof and
+/// one consume receipt per layout boundary; construction cannot return a
+/// continuation carrying the pre-break cursor.
+#[derive(Debug)]
+pub struct StagingForcedPageBreakSelectedState {
+    package_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    flow_registry: FlowRegistryFingerprint,
+    usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    multi_flow: MultiFlowSelectedStateReceipt,
+    pages: Vec<StagingForcedPageBreakSelectedPage>,
+    breaks: Vec<StagingForcedPageBreakConsumeReceipt>,
+}
+
+impl StagingForcedPageBreakSelectedState {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub const fn flow_registry_fingerprint(&self) -> FlowRegistryFingerprint {
+        self.flow_registry
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+
+    pub fn page_count(&self) -> u32 {
+        self.pages.len() as u32
+    }
+
+    pub const fn multi_flow(&self) -> &MultiFlowSelectedStateReceipt {
+        &self.multi_flow
+    }
+
+    pub fn pages(&self) -> &[StagingForcedPageBreakSelectedPage] {
+        &self.pages
+    }
+
+    pub fn breaks(&self) -> &[StagingForcedPageBreakConsumeReceipt] {
+        &self.breaks
+    }
+
+    pub fn validate_break_closure(&self) -> Result<(), StagingForcedPageBreakPaginationError> {
+        let expected_page_count = u32::try_from(self.breaks.len())
+            .map_err(|_| StagingForcedPageBreakPaginationError::ArithmeticOverflow)?
+            .checked_add(1)
+            .ok_or(StagingForcedPageBreakPaginationError::ArithmeticOverflow)?;
+        if self.pages.len() != expected_page_count as usize {
+            return Err(StagingForcedPageBreakPaginationError::PageLimit);
+        }
+        for (index, receipt) in self.breaks.iter().enumerate() {
+            let expected_ordinal = u32::try_from(index)
+                .map_err(|_| StagingForcedPageBreakPaginationError::ArithmeticOverflow)?;
+            if receipt.document_ordinal != expected_ordinal
+                || receipt.produced_page_index != expected_ordinal + 1
+                || receipt.epoch != self.epoch
+            {
+                return Err(StagingForcedPageBreakPaginationError::WrongBoundary(
+                    receipt.break_owner,
+                ));
+            }
+            validate_forced_page_break_cursor_advance(
+                receipt.break_owner,
+                receipt.before_cursor,
+                receipt.after_cursor,
+            )?;
+        }
+        for (index, page) in self.pages.iter().enumerate() {
+            if usize::try_from(page.page_index) != Ok(index) {
+                return Err(StagingForcedPageBreakPaginationError::PageLimit);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn trace_facts(&self) -> StagingForcedPageBreakTraceFacts {
+        StagingForcedPageBreakTraceFacts::from_selected(self)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakTraceFacts {
+    flow_registry_sha256: [u8; 32],
+    usage_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    page_count: u32,
+    policy_version: &'static str,
+    pages: Vec<StagingForcedPageBreakSelectedPage>,
+    breaks: Vec<StagingForcedPageBreakConsumeReceipt>,
+    canonical_jcs: String,
+}
+
+impl StagingForcedPageBreakTraceFacts {
+    fn from_selected(selected: &StagingForcedPageBreakSelectedState) -> Self {
+        let mut value = Self {
+            flow_registry_sha256: selected.flow_registry.bytes(),
+            usage_sha256: selected.usage_sha256,
+            epoch: selected.epoch,
+            page_count: selected.page_count(),
+            policy_version: selected.policy_version,
+            pages: selected.pages.clone(),
+            breaks: selected.breaks.clone(),
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_forced_page_break_trace(&value);
+        value
+    }
+
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+
+    pub fn pages(&self) -> &[StagingForcedPageBreakSelectedPage] {
+        &self.pages
+    }
+
+    pub fn breaks(&self) -> &[StagingForcedPageBreakConsumeReceipt] {
+        &self.breaks
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+pub fn paginate_staging_forced_page_breaks(
+    layout: &StagingForcedPageBreakLayoutReceipt,
+    ir: &ProductionFlowIr,
+    input: &StagingForcedPageBreakPaginationInput,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingForcedPageBreakSelectedState, StagingForcedPageBreakPaginationError> {
+    if layout.flow_registry_fingerprint() != ir.registry().receipt().fingerprint()
+        || layout.epoch() != ir.registry().receipt().epoch()
+    {
+        return Err(StagingForcedPageBreakPaginationError::LayoutRegistryMismatch);
+    }
+    let required_page_count = u32::try_from(layout.boundaries().len())
+        .map_err(|_| StagingForcedPageBreakPaginationError::PageLimit)?
+        .checked_add(1)
+        .ok_or(StagingForcedPageBreakPaginationError::PageLimit)?;
+    if required_page_count > limits.get().max_pages {
+        return Err(StagingForcedPageBreakPaginationError::PageLimit);
+    }
+    let painted: BTreeSet<_> = input.painted_content_owners.iter().copied().collect();
+    let mut observed_paint = BTreeSet::new();
+    let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(layout.boundaries().len().saturating_add(1))
+        .map_err(|_| StagingForcedPageBreakPaginationError::AllocationFailure)?;
+    pages.push(StagingForcedPageBreakSelectedPage {
+        page_index: 0,
+        painted_content_count: 0,
+    });
+    let mut receipts = Vec::new();
+    receipts
+        .try_reserve_exact(layout.boundaries().len())
+        .map_err(|_| StagingForcedPageBreakPaginationError::AllocationFailure)?;
+    let mut cursor = MultiFlowCursorReceipt::new(ir)?;
+
+    loop {
+        let position = cursor.current_position(ir)?;
+        if position.is_terminal() {
+            if cursor.current_flow() == FlowId::DOCUMENT_BODY {
+                break;
+            }
+            cursor.leave_terminal(ir)?;
+            cursor.advance(ir)?;
+            continue;
+        }
+
+        let owner = position
+            .content_owner_node_id()
+            .ok_or(StagingForcedPageBreakPaginationError::LayoutRegistryMismatch)?;
+        if position.content_kind() == Some(FlowContentKind::PageBreak) {
+            let expected = layout
+                .boundaries()
+                .get(receipts.len())
+                .ok_or(StagingForcedPageBreakPaginationError::ExtraBoundary(owner))?;
+            if expected.owner() != owner
+                || expected.flow_id() != position.flow_id()
+                || expected.flow_local_ordinal() != position.flow_local_ordinal()
+                || expected.epoch() != position.epoch()
+            {
+                return Err(StagingForcedPageBreakPaginationError::WrongBoundary(owner));
+            }
+            let current_page = u32::try_from(pages.len() - 1)
+                .map_err(|_| StagingForcedPageBreakPaginationError::PageLimit)?;
+            let produced_page_index = current_page
+                .checked_add(1)
+                .ok_or(StagingForcedPageBreakPaginationError::PageLimit)?;
+            if produced_page_index >= limits.get().max_pages {
+                return Err(StagingForcedPageBreakPaginationError::PageLimit);
+            }
+            let before_cursor = StagingForcedPageBreakCursor::from_position(position);
+            cursor.advance(ir)?;
+            let after_cursor =
+                StagingForcedPageBreakCursor::from_position(cursor.current_position(ir)?);
+            validate_forced_page_break_cursor_advance(owner, before_cursor, after_cursor)?;
+            pages.push(StagingForcedPageBreakSelectedPage {
+                page_index: produced_page_index,
+                painted_content_count: 0,
+            });
+            receipts.push(StagingForcedPageBreakConsumeReceipt {
+                break_owner: owner,
+                document_ordinal: expected.document_ordinal(),
+                epoch: position.epoch(),
+                before_cursor,
+                after_cursor,
+                produced_page_index,
+            });
+            continue;
+        }
+
+        if painted.contains(&owner) && observed_paint.insert(owner) {
+            let page = pages
+                .last_mut()
+                .expect("forced-break pagination always retains one open page");
+            page.painted_content_count = page
+                .painted_content_count
+                .checked_add(1)
+                .ok_or(StagingForcedPageBreakPaginationError::ArithmeticOverflow)?;
+        }
+        if let Some(child) = position.child_flow_id() {
+            cursor.enter_child(ir, child)?;
+        } else {
+            cursor.advance(ir)?;
+        }
+    }
+
+    if let Some(owner) = painted.difference(&observed_paint).next().copied() {
+        return Err(StagingForcedPageBreakPaginationError::UnknownPaintOwner(
+            owner,
+        ));
+    }
+    if receipts.len() != layout.boundaries().len() {
+        let missing = layout.boundaries()[receipts.len()].owner();
+        return Err(StagingForcedPageBreakPaginationError::MissingBoundary(
+            missing,
+        ));
+    }
+    let multi_flow = cursor.finish(ir)?;
+    let selected = StagingForcedPageBreakSelectedState {
+        package_sha256: layout.package_sha256(),
+        epoch: layout.epoch(),
+        flow_registry: layout.flow_registry_fingerprint(),
+        usage_sha256: layout.usage_sha256(),
+        policy_version: layout.policy_version(),
+        multi_flow,
+        pages,
+        breaks: receipts,
+    };
+    selected.validate_break_closure()?;
+    Ok(selected)
+}
+
+fn validate_forced_page_break_cursor_advance(
+    owner: NodeId,
+    before: StagingForcedPageBreakCursor,
+    after: StagingForcedPageBreakCursor,
+) -> Result<(), StagingForcedPageBreakPaginationError> {
+    if after.flow_id != before.flow_id
+        || before.flow_local_ordinal.checked_add(1) != Some(after.flow_local_ordinal)
+    {
+        return Err(StagingForcedPageBreakPaginationError::CursorDidNotAdvance(
+            owner,
+        ));
+    }
+    Ok(())
+}
+
+fn encode_staging_forced_page_break_trace(value: &StagingForcedPageBreakTraceFacts) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_FORCED_PAGE_BREAK_TRACE_ALGORITHM);
+    output.push_str(",\"break_usage_sha256\":");
+    push_hex(&mut output, value.usage_sha256);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"flow_registry_sha256\":");
+    push_hex(&mut output, value.flow_registry_sha256);
+    output.push_str(",\"forced_page_breaks\":[");
+    for (index, boundary) in value.breaks.iter().enumerate() {
+        comma(&mut output, index);
+        encode_staging_forced_page_break_receipt(&mut output, boundary);
+    }
+    output.push_str("],\"layout_epoch\":");
+    encode_layout_epoch(&mut output, value.epoch);
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        comma(&mut output, index);
+        encode_staging_forced_page_break_page(&mut output, page);
+    }
+    output.push_str("],\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push('}');
+    output
+}
+
+fn encode_staging_forced_page_break_receipt(
+    output: &mut String,
+    boundary: &StagingForcedPageBreakConsumeReceipt,
+) {
+    output.push_str("{\"after_cursor\":");
+    encode_staging_forced_page_break_cursor(output, boundary.after_cursor);
+    output.push_str(",\"before_cursor\":");
+    encode_staging_forced_page_break_cursor(output, boundary.before_cursor);
+    output.push_str(",\"break_node_id\":");
+    output.push_str(&boundary.break_owner.get().to_string());
+    output.push_str(",\"document_ordinal\":");
+    output.push_str(&boundary.document_ordinal.to_string());
+    output.push_str(",\"produced_page_index\":");
+    output.push_str(&boundary.produced_page_index.to_string());
+    output.push('}');
+}
+
+fn encode_staging_forced_page_break_cursor(
+    output: &mut String,
+    cursor: StagingForcedPageBreakCursor,
+) {
+    output.push_str("{\"flow_id\":");
+    output.push_str(&cursor.flow_id.get().to_string());
+    output.push_str(",\"flow_local_ordinal\":");
+    output.push_str(&cursor.flow_local_ordinal.to_string());
+    output.push('}');
+}
+
+fn encode_staging_forced_page_break_page(
+    output: &mut String,
+    page: &StagingForcedPageBreakSelectedPage,
+) {
+    output.push_str("{\"is_blank\":");
+    output.push_str(if page.is_blank() { "true" } else { "false" });
+    output.push_str(",\"page_index\":");
+    output.push_str(&page.page_index.to_string());
+    output.push_str(",\"painted_content_count\":");
+    output.push_str(&page.painted_content_count.to_string());
+    output.push('}');
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FallbackPolicy {
@@ -2819,8 +7379,18 @@ impl ReferencePaginator {
             if pass_flow.epoch() != pass_input.layout_epoch() {
                 return Err(PaginationError::InvalidPreparedLayout);
             }
-            let fragmenter = ReferenceFragmenter::for_paragraphs(package, &pass_flow)
-                .map_err(reference_fragment_error)?;
+            let fragmenter = if package.package().document.blocks.iter().all(|block| {
+                matches!(
+                    block,
+                    typaxis_document::Block::Paragraph { .. }
+                        | typaxis_document::Block::Heading { .. }
+                )
+            }) {
+                ReferenceFragmenter::for_paragraphs(package, &pass_flow)
+            } else {
+                ReferenceFragmenter::for_basic_document(package, &pass_flow)
+            }
+            .map_err(reference_fragment_error)?;
             let input_fingerprint = pass_input.fingerprint();
             let generated_text = pass_input.generated_text().clone();
             let mut permit = budget.begin_pass(pass_index, pass_input)?;
@@ -2918,6 +7488,14 @@ impl ReferencePaginator {
                 plan.footnote_ids
                     .extend_from_slice(receipt.discovered_footnotes());
                 match receipt.continuation().clone() {
+                    Continuation::More(next)
+                        if bootstrap
+                            && fragmenter.ends_with_forced_break()
+                            && flow.positions().len() == 3 =>
+                    {
+                        cursor = *next;
+                        break;
+                    }
                     Continuation::More(next) if bootstrap => {
                         cursor = *next;
                         bootstrap = false;
@@ -2964,17 +7542,26 @@ fn reference_fragment_error(error: FragmentError) -> PaginationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use typaxis_core::{
-        Length, NodeId, NonNegativeLength, PortablePath, PositiveLength, ResourceLimits, SourceId,
-        ValidatedResourceLimits,
+        sha256, DocumentPackageContractId, HostPath, Length, NodeId, NonNegativeLength,
+        PortablePath, PositiveLength, ResourceLimits, SourceId, ValidatedResourceLimits,
     };
     use typaxis_document::{DocumentNodeKind, ValidatedDocumentNodeIndex};
-    use typaxis_layout::{CanonicalFlowIrBuilder, FragmentDraft, FragmentResult, LayoutEpoch};
+    use typaxis_layout::{
+        layout_staging_forced_page_breaks, layout_staging_machine_lists, layout_table_grid,
+        layout_table_row_bands, CanonicalFlowIrBuilder, FragmentDraft, FragmentResult, LayoutEpoch,
+        ProductionFlowIrBuilder, StagingForcedPageBreakLayoutReceipt, StagingListItemPaintInput,
+        StagingMachineListLayoutInput, StagingMachineListLayoutReceipt, TableCellLayoutInput,
+    };
     use typaxis_linebreak::ValidatedParagraphItemRegistry;
     use typaxis_resource_admission::AdmittedResourceResolver;
     use typaxis_syntax::{
-        PackagePaginationContext, PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser,
-        SourceFile, ValidatedParsedPackage,
+        machine_profile_boundary::{wire, HostMachineInputSession, MachineInputHostOptions},
+        DocumentPackageParser, MachineParseOutcome, PackagePaginationContext,
+        PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser, SourceFile,
+        StagingStylePackageParser, ValidatedMachinePackage, ValidatedParsedPackage,
     };
     use typaxis_text::TextStore;
 
@@ -2996,6 +7583,1015 @@ mod tests {
             ParseOutcome::Parsed { package, .. } => *package,
             ParseOutcome::Failed { failure } => panic!("reference parse failed: {failure:?}"),
         }
+    }
+
+    fn machine_list_length(raw: i64) -> PositiveLength {
+        PositiveLength::new(Length::from_raw(raw).unwrap()).unwrap()
+    }
+
+    fn table_fragmentation_fixture(
+        zero_height_last_row: bool,
+    ) -> (TableRowBandLayoutReceipt, ProductionFlowIr) {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let cell = |node_id, rowspan| wire::WireTableCell {
+            node_id,
+            span,
+            colspan: 1,
+            rowspan,
+            blocks: Vec::new(),
+        };
+        let package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_2,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "table-fragmentation.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![wire::WireBlock::Table {
+                    node_id: 1,
+                    span,
+                    classes: Vec::new(),
+                    columns: vec![
+                        wire::WireTableColumn::Fixed { width: 5 },
+                        wire::WireTableColumn::Fixed { width: 5 },
+                    ],
+                    head: vec![wire::WireTableRow {
+                        node_id: 2,
+                        span,
+                        cells: vec![cell(3, 1), cell(4, 1)],
+                    }],
+                    body: vec![
+                        wire::WireTableRow {
+                            node_id: 5,
+                            span,
+                            cells: vec![cell(6, 2), cell(7, 1)],
+                        },
+                        wire::WireTableRow {
+                            node_id: 8,
+                            span,
+                            cells: vec![cell(9, 1)],
+                        },
+                        wire::WireTableRow {
+                            node_id: 10,
+                            span,
+                            cells: vec![cell(11, 1), cell(12, 1)],
+                        },
+                    ],
+                }],
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet { rules: Vec::new() },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 10,
+                    height: 7,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 10,
+                        height: 7,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        };
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let package = StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+            )
+            .unwrap();
+        let generated = package
+            .package()
+            .materialize_initial_generated_text(&limits)
+            .unwrap();
+        let package_epoch = epoch_for(package.package(), &generated);
+        let paragraph_items =
+            ValidatedParagraphItemRegistry::for_empty_content(package.package(), package_epoch)
+                .unwrap();
+        let mut builder = ProductionFlowIrBuilder::new(
+            package.package(),
+            &paragraph_items,
+            package_epoch,
+            &limits,
+        )
+        .unwrap();
+        let owners: Vec<_> = builder.expected_content_owners().collect();
+        for owner in owners {
+            let content = builder.issue_content(owner).unwrap();
+            builder.register_content(content).unwrap();
+        }
+        let ir = builder.finish().unwrap();
+        let style = package.compute_table_style(NodeId::new(1)).unwrap();
+        let grid = layout_table_grid(
+            &package,
+            NodeId::new(1),
+            &style,
+            &ir,
+            machine_list_length(10),
+            &limits,
+        )
+        .unwrap();
+        let inputs = grid
+            .cells()
+            .iter()
+            .map(|binding| {
+                let fragments = match binding.cell_owner().get() {
+                    3 | 4 => vec![machine_list_length(2)],
+                    6 => vec![machine_list_length(4), machine_list_length(5)],
+                    7 => vec![machine_list_length(4)],
+                    9 => vec![machine_list_length(5), machine_list_length(1)],
+                    11 | 12 if !zero_height_last_row => {
+                        vec![machine_list_length(4), machine_list_length(4)]
+                    }
+                    11 | 12 => Vec::new(),
+                    _ => unreachable!(),
+                };
+                TableCellLayoutInput::new(binding.cell_owner(), binding.flow_id(), fragments)
+            })
+            .collect();
+        (layout_table_row_bands(&grid, inputs, &limits).unwrap(), ir)
+    }
+
+    fn table_fragmentation_limits(max_fragments: u64) -> ValidatedResourceLimits {
+        ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 8,
+            max_fragments,
+            ..ResourceLimits::default()
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn table_fragmentation_selects_common_cuts_rowspan_and_bound_header_repetitions() {
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let limits = table_fragmentation_limits(21);
+        assert_eq!(layout.contained_fragment_count(), 11);
+        let input =
+            StagingTablePageInput::new(machine_list_length(7), machine_list_length(7)).unwrap();
+        let selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        assert_eq!(selected.page_count(), 5);
+        assert_eq!(selected.header_sources().len(), 1);
+        assert_eq!(selected.header_repetitions().len(), 5);
+        assert_eq!(selected.row_fragments().len(), 5);
+        assert_eq!(
+            selected
+                .row_fragments()
+                .iter()
+                .map(RowFragmentReceipt::selected_block_extent)
+                .collect::<Vec<_>>(),
+            vec![4, 5, 4, 4, 4]
+        );
+        for fragment in selected.row_fragments() {
+            assert!(fragment
+                .cells()
+                .iter()
+                .all(|cell| cell.selected_block_extent() == fragment.selected_block_extent()));
+        }
+        assert_eq!(
+            selected.row_fragments()[0]
+                .continuation_after()
+                .entries()
+                .iter()
+                .map(|entry| (entry.column_ordinal(), entry.cell_owner().get()))
+                .collect::<Vec<_>>(),
+            vec![(0, 6)]
+        );
+        let source_id = selected.header_sources()[0].source_fragment_id();
+        assert!(selected.header_repetitions().iter().all(|receipt| receipt
+            .rows()
+            .iter()
+            .all(|row| row.source_fragment_id() == source_id)));
+        assert!(selected
+            .header_repetitions()
+            .iter()
+            .enumerate()
+            .all(
+                |(index, receipt)| receipt.repetition_index() == index as u32
+                    && receipt.selected_state_fingerprint() == selected.fingerprint()
+            ));
+        selected.validate_closure(&layout, &ir).unwrap();
+        let trace = selected.trace_facts().unwrap();
+        assert_eq!(trace.row_fragment_count(), 5);
+        assert_eq!(trace.header_occurrence_count(), 5);
+        assert_eq!(trace.cell_fragment_count(), 12);
+        assert!(trace
+            .canonical_jcs()
+            .contains(TableSelectedLayoutFingerprint::ALGORITHM_ID));
+
+        let (repeat_layout, repeat_ir) = table_fragmentation_fixture(false);
+        let repeat = paginate_staging_table(&repeat_layout, &repeat_ir, input, &limits).unwrap();
+        assert_eq!(selected.fingerprint(), repeat.fingerprint());
+        assert_eq!(selected.canonical_jcs(), repeat.canonical_jcs());
+    }
+
+    #[test]
+    fn table_fragmentation_zero_height_row_advances_structurally() {
+        let (layout, ir) = table_fragmentation_fixture(true);
+        let limits = table_fragmentation_limits(14);
+        let input =
+            StagingTablePageInput::new(machine_list_length(7), machine_list_length(7)).unwrap();
+        let selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        let zero = selected
+            .row_fragments()
+            .iter()
+            .find(|fragment| fragment.logical_row_ordinal() == 2)
+            .unwrap();
+        assert_eq!(zero.selected_block_extent(), 0);
+        assert_eq!(
+            zero.after_cursor().logical_row_ordinal(),
+            zero.before_cursor().logical_row_ordinal() + 1
+        );
+        assert!(zero.after_cursor().is_terminal());
+    }
+
+    #[test]
+    fn table_fragmentation_exact_limit_and_oversize_terminal_are_fail_closed() {
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let input =
+            StagingTablePageInput::new(machine_list_length(7), machine_list_length(7)).unwrap();
+        let fragment_error =
+            paginate_staging_table(&layout, &ir, input, &table_fragmentation_limits(20))
+                .unwrap_err();
+        assert_eq!(fragment_error, StagingTablePaginationError::FragmentLimit);
+        assert_eq!(fragment_error.diagnostic_code(), L5110);
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let oversize_input =
+            StagingTablePageInput::new(machine_list_length(4), machine_list_length(4)).unwrap();
+        let error = paginate_staging_table(
+            &layout,
+            &ir,
+            oversize_input,
+            &table_fragmentation_limits(21),
+        )
+        .unwrap_err();
+        let StagingTablePaginationError::RowOversize(terminal) = error else {
+            panic!("expected row oversize, got {error:?}");
+        };
+        assert_eq!(terminal.row_owner(), NodeId::new(5));
+        assert_eq!(terminal.transition_count(), 1);
+        assert_eq!(error.diagnostic_code(), L5100);
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let header_error = paginate_staging_table(
+            &layout,
+            &ir,
+            StagingTablePageInput::new(machine_list_length(1), machine_list_length(1)).unwrap(),
+            &table_fragmentation_limits(21),
+        )
+        .unwrap_err();
+        assert_eq!(
+            header_error,
+            StagingTablePaginationError::HeaderOversize(NodeId::new(1))
+        );
+        assert_eq!(header_error.diagnostic_code(), L5100);
+    }
+
+    #[test]
+    fn table_fragmentation_rejects_zero_progress_retry_and_continuation_tamper() {
+        let input =
+            StagingTablePageInput::new(machine_list_length(7), machine_list_length(7)).unwrap();
+        let limits = table_fragmentation_limits(21);
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        selected.row_fragments[0].after_cursor = selected.row_fragments[0].before_cursor;
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::NoProgress(NodeId::new(5))
+        );
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        selected.row_fragments[1]
+            .after_cursor
+            .block_offset_within_row = 1;
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::SelectedStateMismatch
+        );
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        selected.row_fragments[1]
+            .continuation_before
+            .entries
+            .clear();
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::MissingContinuation { column_ordinal: 0 }
+        );
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        let duplicate = selected.row_fragments[1].continuation_before.entries[0].clone();
+        selected.row_fragments[1]
+            .continuation_before
+            .entries
+            .push(duplicate);
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::DuplicateContinuation { column_ordinal: 0 }
+        );
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        selected.row_fragments[1].continuation_before.entries[0].cell_owner = NodeId::new(99);
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::WrongContinuationOwner { column_ordinal: 0 }
+        );
+
+        let mut guard = TableAttemptGuard::default();
+        let attempt = TableCandidateAttempt {
+            row_owner: NodeId::new(5),
+            row_fragment_ordinal: 0,
+            page_index: 0,
+            row_block_offset: 0,
+            available_block_size: 2,
+        };
+        guard.record(attempt).unwrap();
+        assert_eq!(
+            guard.record(attempt).unwrap_err(),
+            StagingTablePaginationError::SameCandidateRetry(NodeId::new(5))
+        );
+    }
+
+    #[test]
+    fn table_fragmentation_rejects_header_source_and_repetition_tamper() {
+        let input =
+            StagingTablePageInput::new(machine_list_length(7), machine_list_length(7)).unwrap();
+        let limits = table_fragmentation_limits(21);
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        selected.header_repetitions[1].repetition_index = 7;
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::WrongRepetitionIndex {
+                expected: 1,
+                actual: 7
+            }
+        );
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        selected.header_repetitions[1].rows[0].source_fragment_id = 99;
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::SelectedStateMismatch
+        );
+
+        let (layout, ir) = table_fragmentation_fixture(false);
+        let mut selected = paginate_staging_table(&layout, &ir, input, &limits).unwrap();
+        selected.header_repetitions[1].rows[0].target_block_offset = 1;
+        assert_eq!(
+            selected.validate_closure(&layout, &ir).unwrap_err(),
+            StagingTablePaginationError::SelectedStateMismatch
+        );
+    }
+
+    fn forced_page_break_layout_fixture() -> (StagingForcedPageBreakLayoutReceipt, ProductionFlowIr)
+    {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let paragraph = |node_id| wire::WireBlock::Paragraph {
+            node_id,
+            span,
+            classes: Vec::new(),
+            children: Vec::new(),
+        };
+        let page_break = |node_id| wire::WireBlock::PageBreak {
+            node_id,
+            span,
+            classes: Vec::new(),
+        };
+        let package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_1,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![
+                    page_break(1),
+                    paragraph(2),
+                    page_break(3),
+                    page_break(4),
+                    paragraph(5),
+                    page_break(6),
+                ],
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet { rules: Vec::new() },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        };
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let package = StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+            )
+            .unwrap();
+        let preflight = package.preflight_forced_page_break_usage().unwrap();
+        let generated_store = package
+            .package()
+            .materialize_initial_generated_text(&limits)
+            .unwrap();
+        let generated = package
+            .package()
+            .bind_generated_text(&generated_store, &limits)
+            .unwrap();
+        let admitted =
+            AdmittedResourceResolver::new(&package.package().package().resources, &limits)
+                .unwrap()
+                .finish()
+                .unwrap();
+        let epoch = LayoutEpoch::from_validated_inputs(generated, admitted.token()).unwrap();
+        let ir = ProductionFlowIr::for_empty_paragraph_content(package.package(), epoch, &limits)
+            .unwrap();
+        let layout = layout_staging_forced_page_breaks(&package, &preflight, &ir).unwrap();
+        (layout, ir)
+    }
+
+    #[test]
+    fn forced_page_break_preserves_start_middle_consecutive_and_trailing_blank_pages() {
+        let (layout, ir) = forced_page_break_layout_fixture();
+        let limits = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 5,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let input =
+            StagingForcedPageBreakPaginationInput::new(&ir, vec![NodeId::new(2), NodeId::new(5)])
+                .unwrap();
+        let selected = paginate_staging_forced_page_breaks(&layout, &ir, &input, &limits).unwrap();
+        assert_eq!(selected.page_count(), 5);
+        assert_eq!(
+            selected
+                .pages()
+                .iter()
+                .map(StagingForcedPageBreakSelectedPage::is_blank)
+                .collect::<Vec<_>>(),
+            vec![true, false, true, false, true]
+        );
+        assert_eq!(selected.breaks().len(), 4);
+        for (index, receipt) in selected.breaks().iter().enumerate() {
+            assert_eq!(receipt.document_ordinal(), index as u32);
+            assert_eq!(receipt.produced_page_index(), index as u32 + 1);
+            assert_eq!(
+                receipt.after_cursor().flow_local_ordinal(),
+                receipt.before_cursor().flow_local_ordinal() + 1
+            );
+        }
+        assert!(selected
+            .trace_facts()
+            .canonical_jcs()
+            .contains("\"page_count\":5"));
+    }
+
+    #[test]
+    fn forced_page_break_page_limit_is_inclusive_and_rejects_max_plus_one() {
+        let (layout, ir) = forced_page_break_layout_fixture();
+        let input = StagingForcedPageBreakPaginationInput::new(&ir, Vec::new()).unwrap();
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 5,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            paginate_staging_forced_page_breaks(&layout, &ir, &input, &exact)
+                .unwrap()
+                .page_count(),
+            5
+        );
+        let below = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 4,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            paginate_staging_forced_page_breaks(&layout, &ir, &input, &below).unwrap_err(),
+            StagingForcedPageBreakPaginationError::PageLimit
+        );
+    }
+
+    #[test]
+    fn forced_page_break_rejects_break_paint_and_cursor_tamper() {
+        let (layout, ir) = forced_page_break_layout_fixture();
+        assert_eq!(
+            StagingForcedPageBreakPaginationInput::new(&ir, vec![NodeId::new(1)]).unwrap_err(),
+            StagingForcedPageBreakPaginationError::ForcedBoundaryPaint(NodeId::new(1))
+        );
+        let input = StagingForcedPageBreakPaginationInput::new(&ir, Vec::new()).unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let mut selected =
+            paginate_staging_forced_page_breaks(&layout, &ir, &input, &limits).unwrap();
+        selected.breaks[0].after_cursor = selected.breaks[0].before_cursor;
+        let error = selected.validate_break_closure().unwrap_err();
+        assert_eq!(
+            error,
+            StagingForcedPageBreakPaginationError::CursorDidNotAdvance(NodeId::new(1))
+        );
+        assert_eq!(error.invariant_diagnostic_code(), Some(I9190));
+    }
+
+    fn machine_list_layout_fixture(
+        first_item_height: i64,
+        first_line_height: i64,
+    ) -> (StagingMachineListLayoutReceipt, ProductionFlowIr) {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let paragraph = |node_id| wire::WireBlock::Paragraph {
+            node_id,
+            span,
+            classes: Vec::new(),
+            children: Vec::new(),
+        };
+        let package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_1,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![wire::WireBlock::List {
+                    node_id: 1,
+                    span,
+                    classes: Vec::new(),
+                    ordered: true,
+                    start: Some(9),
+                    items: vec![
+                        wire::WireListItem {
+                            node_id: 2,
+                            span,
+                            blocks: vec![
+                                paragraph(3),
+                                wire::WireBlock::List {
+                                    node_id: 4,
+                                    span,
+                                    classes: Vec::new(),
+                                    ordered: false,
+                                    start: None,
+                                    items: vec![wire::WireListItem {
+                                        node_id: 5,
+                                        span,
+                                        blocks: vec![paragraph(6)],
+                                    }],
+                                },
+                            ],
+                        },
+                        wire::WireListItem {
+                            node_id: 7,
+                            span,
+                            blocks: vec![paragraph(8)],
+                        },
+                    ],
+                }],
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet {
+                rules: vec![wire::WireStyleRule {
+                    style_id: "list-style".to_owned(),
+                    extends: None,
+                    selector: "list".to_owned(),
+                    source_order: 0,
+                    declarations: vec![
+                        wire::WireDeclaration {
+                            name: wire::WireDeclarationName::FontFamily,
+                            value: wire::WireStyleValue::FontFamilyList {
+                                families: vec!["Fixture".to_owned()],
+                            },
+                            important: false,
+                        },
+                        wire::WireDeclaration {
+                            name: wire::WireDeclarationName::FontSize,
+                            value: wire::WireStyleValue::Length { value: 10 },
+                            important: false,
+                        },
+                        wire::WireDeclaration {
+                            name: wire::WireDeclarationName::LineHeight,
+                            value: wire::WireStyleValue::Length { value: 12 },
+                            important: false,
+                        },
+                        wire::WireDeclaration {
+                            name: wire::WireDeclarationName::StartIndent,
+                            value: wire::WireStyleValue::Length { value: 5 },
+                            important: false,
+                        },
+                        wire::WireDeclaration {
+                            name: wire::WireDeclarationName::EndIndent,
+                            value: wire::WireStyleValue::Length { value: 3 },
+                            important: false,
+                        },
+                    ],
+                }],
+            },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        };
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let decoded = wire::StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let schemes = ["http", "https", "mailto", "tel"].map(str::to_owned);
+        let package = StagingStylePackageParser::new()
+            .parse(
+                decoded,
+                String::new(),
+                &PackageValidationPolicy::new(&limits, &schemes).unwrap(),
+            )
+            .unwrap();
+        let preflight = package.preflight_list_marker_usage(&limits).unwrap();
+        let generated_store = package
+            .package()
+            .materialize_initial_generated_text(&limits)
+            .unwrap();
+        let generated = package
+            .package()
+            .bind_generated_text(&generated_store, &limits)
+            .unwrap();
+        let admitted =
+            AdmittedResourceResolver::new(&package.package().package().resources, &limits)
+                .unwrap()
+                .finish()
+                .unwrap();
+        let epoch = LayoutEpoch::from_validated_inputs(generated, admitted.token()).unwrap();
+        let ir = ProductionFlowIr::for_empty_paragraph_content(package.package(), epoch, &limits)
+            .unwrap();
+        let item = |owner, marker_width, line_width, line_height, total_height| {
+            StagingListItemPaintInput::painted(
+                NodeId::new(owner),
+                machine_list_length(marker_width),
+                machine_list_length(line_width),
+                machine_list_length(line_height),
+                machine_list_length(total_height),
+            )
+        };
+        let layout = layout_staging_machine_lists(
+            &package,
+            &preflight,
+            generated,
+            &ir,
+            StagingMachineListLayoutInput::new(
+                machine_list_length(100),
+                typaxis_core::BidiLevel::LTR,
+                vec![
+                    item(2, 4, 20, first_line_height, first_item_height),
+                    item(5, 6, 18, 8, 12),
+                    item(7, 8, 24, 8, 16),
+                ],
+            ),
+        )
+        .unwrap();
+        (layout, ir)
+    }
+
+    #[test]
+    fn machine_list_page_split_moves_marker_with_first_line_and_closes_nested_flows() {
+        let (layout, ir) = machine_list_layout_fixture(18, 8);
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let selected = paginate_staging_machine_lists(
+            &layout,
+            &ir,
+            StagingMachineListPageInput::new(machine_list_length(20), machine_list_length(5))
+                .unwrap(),
+            &limits,
+        )
+        .unwrap();
+        assert!(selected.validate_marker_closure().is_ok());
+        assert_eq!(selected.multi_flow().terminals().len(), 4);
+        let first = selected
+            .items()
+            .iter()
+            .find(|item| item.item_owner() == NodeId::new(2))
+            .unwrap();
+        assert_eq!(first.page_index(), 1);
+        assert_eq!(first.marker_fragment_id(), first.first_line_fragment_id());
+        let first_fragment = selected
+            .fragments()
+            .iter()
+            .find(|fragment| fragment.fragment_id() == first.marker_fragment_id())
+            .unwrap();
+        assert!(first_fragment.contains_marker());
+        assert!(first_fragment.contains_first_painted_line());
+        assert_eq!(first_fragment.item_flow_id(), FlowId::new(1));
+
+        let nested = selected
+            .items()
+            .iter()
+            .find(|item| item.item_owner() == NodeId::new(5))
+            .unwrap();
+        assert_eq!(nested.list_flow_id(), FlowId::new(1));
+        assert_eq!(nested.item_flow_id(), FlowId::new(2));
+        let trace = selected.trace_facts();
+        let traced = trace
+            .items()
+            .iter()
+            .find(|item| item.item_owner() == 5)
+            .unwrap();
+        assert_eq!(traced.list_flow_id(), nested.list_flow_id().get());
+        assert_eq!(traced.item_flow_id(), nested.item_flow_id().get());
+        assert_eq!(traced.marker_fragment_id(), nested.marker_fragment_id());
+    }
+
+    #[test]
+    fn machine_list_fragment_limit_is_inclusive_and_consumed_before_max_plus_one() {
+        let (layout, ir) = machine_list_layout_fixture(30, 8);
+        let page =
+            StagingMachineListPageInput::new(machine_list_length(20), machine_list_length(20))
+                .unwrap();
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_fragments: 4,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let selected = paginate_staging_machine_lists(&layout, &ir, page, &exact).unwrap();
+        assert_eq!(selected.fragments().len(), 4);
+
+        let below = ValidatedResourceLimits::new(ResourceLimits {
+            max_fragments: 3,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert_eq!(
+            paginate_staging_machine_lists(&layout, &ir, page, &below).unwrap_err(),
+            StagingMachineListPaginationError::FragmentLimit
+        );
+    }
+
+    #[test]
+    fn machine_list_oversize_keep_and_same_candidate_more_are_terminal() {
+        let (layout, ir) = machine_list_layout_fixture(25, 25);
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        assert_eq!(
+            paginate_staging_machine_lists(
+                &layout,
+                &ir,
+                StagingMachineListPageInput::new(machine_list_length(20), machine_list_length(20),)
+                    .unwrap(),
+                &limits,
+            )
+            .unwrap_err(),
+            StagingMachineListPaginationError::OversizeKeep(NodeId::new(2))
+        );
+
+        let cursor = ListProgress {
+            item_ordinal: 0,
+            remaining_item_raw: 12,
+            page_index: 0,
+        };
+        assert_eq!(
+            ensure_list_progress(NodeId::new(2), cursor, cursor),
+            Err(StagingMachineListPaginationError::NoProgress(NodeId::new(
+                2
+            )))
+        );
+    }
+
+    static NEXT_MULTI_FLOW_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn multi_flow_machine_package() -> Box<ValidatedMachinePackage> {
+        let span = wire::WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let paragraph = |node_id| wire::WireBlock::Paragraph {
+            node_id,
+            span,
+            classes: Vec::new(),
+            children: Vec::new(),
+        };
+        let wire_package = wire::WireDocumentPackage {
+            contract: DocumentPackageContractId::V1_1,
+            coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            sources: vec![wire::WireSource {
+                source_id: 0,
+                uri: "input.tsf".to_owned(),
+                utf8_byte_length: 0,
+                sha256: sha256(&[]),
+            }],
+            text_buffers: Vec::new(),
+            document: wire::WireDocument {
+                node_id: 0,
+                blocks: vec![
+                    paragraph(1),
+                    wire::WireBlock::List {
+                        node_id: 2,
+                        span,
+                        classes: Vec::new(),
+                        ordered: true,
+                        start: Some(1),
+                        items: vec![wire::WireListItem {
+                            node_id: 3,
+                            span,
+                            blocks: vec![
+                                paragraph(4),
+                                wire::WireBlock::List {
+                                    node_id: 5,
+                                    span,
+                                    classes: Vec::new(),
+                                    ordered: false,
+                                    start: None,
+                                    items: vec![wire::WireListItem {
+                                        node_id: 6,
+                                        span,
+                                        blocks: vec![paragraph(7)],
+                                    }],
+                                },
+                            ],
+                        }],
+                    },
+                    wire::WireBlock::PageBreak {
+                        node_id: 8,
+                        span,
+                        classes: Vec::new(),
+                    },
+                ],
+                footnotes: Vec::new(),
+            },
+            style_sheet: wire::WireStyleSheet { rules: Vec::new() },
+            page_masters: wire::WirePageMasterSet {
+                default_master_id: "default".to_owned(),
+                masters: vec![wire::WirePageMaster {
+                    master_id: "default".to_owned(),
+                    width: 100,
+                    height: 100,
+                    body: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    header: None,
+                    footer: None,
+                    footnote: None,
+                }],
+                selection_rules: Vec::new(),
+            },
+            resources: wire::WireResourceCatalog {
+                font_faces: Vec::new(),
+                images: Vec::new(),
+            },
+        };
+        let root = std::env::temp_dir().join(format!(
+            "typaxis-pagination-multi-flow-{}-{}",
+            std::process::id(),
+            NEXT_MULTI_FLOW_FIXTURE.fetch_add(1, AtomicOrdering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        let package_path = root.join("document-package.json");
+        fs::write(
+            &package_path,
+            wire::DocumentPackageEncoder::default()
+                .to_jcs_vec(&wire_package)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::write(root.join("input.tsf"), []).unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let (session, raw) = HostMachineInputSession::open(
+            MachineInputHostOptions::new(HostPath::new(package_path).unwrap(), None),
+            &limits,
+        )
+        .unwrap();
+        let decoded = session
+            .decode_and_bind(
+                &raw,
+                &wire::StrictDocumentPackageDecoder::new(),
+                &wire::DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let sources = session.admit_sources(&decoded, &limits).unwrap();
+        let admitted = session.finish(raw, decoded, sources).unwrap();
+        let allowed_schemes = typaxis_core::DEFAULT_ALLOWED_URI_SCHEMES
+            .iter()
+            .map(|scheme| (*scheme).to_owned())
+            .collect::<Vec<_>>();
+        let policy = PackageValidationPolicy::new(&limits, &allowed_schemes).unwrap();
+        let parsed = match DocumentPackageParser::new().parse(admitted, &policy) {
+            MachineParseOutcome::Parsed { package } => package,
+            MachineParseOutcome::Failed { failure, .. } => {
+                panic!("multi-flow package failed: {failure}")
+            }
+        };
+        fs::remove_dir_all(root).unwrap();
+        parsed
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn multi_flow_ir() -> (Box<ValidatedMachinePackage>, ProductionFlowIr) {
+        let machine = multi_flow_machine_package();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let generated = machine
+            .package()
+            .materialize_initial_generated_text(&limits)
+            .unwrap();
+        let package_epoch = epoch_for(machine.package(), &generated);
+        let ir = ProductionFlowIr::for_empty_paragraph_content(
+            machine.package(),
+            package_epoch,
+            &limits,
+        )
+        .unwrap();
+        (machine, ir)
     }
     fn validated_flow_package() -> ValidatedParsedPackage {
         parsed_reference_package("flow-input.tsf", "anchor:chapter\nparagraph")
@@ -3041,6 +8637,214 @@ mod tests {
         let flow = FlowTree::empty(&package, epoch_for(&package, &store)).unwrap();
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
         InitialPaginationState::new(&flow, &package, &limits).unwrap()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn multi_flow_stack_keeps_nested_progress_independent_and_monotonic() {
+        let (_machine, ir) = multi_flow_ir();
+        let mut cursor = MultiFlowCursorReceipt::new(&ir).unwrap();
+        assert_eq!(cursor.active_stack(), &[FlowId::DOCUMENT_BODY]);
+        assert_eq!(cursor.flow_progress(FlowId::new(0)), Some(0));
+        assert_eq!(cursor.flow_progress(FlowId::new(1)), Some(0));
+        assert_eq!(cursor.flow_progress(FlowId::new(2)), Some(0));
+
+        cursor.advance(&ir).unwrap();
+        assert_eq!(cursor.flow_progress(FlowId::new(0)), Some(1));
+        cursor.enter_child(&ir, FlowId::new(1)).unwrap();
+        assert_eq!(cursor.active_stack(), &[FlowId::new(0), FlowId::new(1)]);
+        cursor.advance(&ir).unwrap();
+        assert_eq!(cursor.flow_progress(FlowId::new(0)), Some(1));
+        assert_eq!(cursor.flow_progress(FlowId::new(1)), Some(1));
+
+        cursor.enter_child(&ir, FlowId::new(2)).unwrap();
+        cursor.advance(&ir).unwrap();
+        assert!(cursor.current_position(&ir).unwrap().is_terminal());
+        assert_eq!(cursor.flow_progress(FlowId::new(0)), Some(1));
+        assert_eq!(cursor.flow_progress(FlowId::new(1)), Some(1));
+        assert_eq!(cursor.flow_progress(FlowId::new(2)), Some(1));
+        cursor.leave_terminal(&ir).unwrap();
+        cursor.advance(&ir).unwrap();
+        assert!(cursor.current_position(&ir).unwrap().is_terminal());
+        cursor.leave_terminal(&ir).unwrap();
+
+        cursor.advance(&ir).unwrap();
+        assert_eq!(cursor.flow_progress(FlowId::new(0)), Some(2));
+        cursor.advance(&ir).unwrap();
+        assert_eq!(cursor.flow_progress(FlowId::new(0)), Some(3));
+        assert!(cursor.current_position(&ir).unwrap().is_terminal());
+        assert_eq!(
+            cursor.advance(&ir),
+            Err(MultiFlowError::WrongTerminal(FlowId::DOCUMENT_BODY))
+        );
+
+        let selected = cursor.finish(&ir).unwrap();
+        assert_eq!(selected.terminals().len(), 3);
+        assert_eq!(
+            selected.registry_fingerprint(),
+            ir.registry().receipt().fingerprint()
+        );
+        let trace = MultiFlowTraceFacts::new(&ir, &selected).unwrap();
+        assert_eq!(trace.positions().len(), 9);
+        assert_eq!(
+            trace
+                .positions()
+                .iter()
+                .filter(|position| position.is_terminal())
+                .count(),
+            3
+        );
+        assert!(trace.canonical_jcs().contains("\"flow_id\":2"));
+        assert!(trace.canonical_jcs().contains("\"parent_flow_id\":1"));
+        assert!(trace.canonical_jcs().contains("\"terminal\":true"));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn multi_flow_worker_completion_order_has_identical_trace_and_fingerprint() {
+        let (machine, ir) = multi_flow_ir();
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let paragraph_items = ValidatedParagraphItemRegistry::for_empty_content(
+            machine.package(),
+            ir.registry().receipt().epoch(),
+        )
+        .unwrap();
+        let mut reverse_registration = ProductionFlowIrBuilder::new(
+            machine.package(),
+            &paragraph_items,
+            ir.registry().receipt().epoch(),
+            &limits,
+        )
+        .unwrap();
+        let mut owners: Vec<_> = reverse_registration.expected_content_owners().collect();
+        owners.reverse();
+        for owner in owners {
+            let content = reverse_registration.issue_content(owner).unwrap();
+            reverse_registration.register_content(content).unwrap();
+        }
+        let reverse_registration = reverse_registration.finish().unwrap();
+        assert_eq!(
+            reverse_registration.registry().receipt().fingerprint(),
+            ir.registry().receipt().fingerprint()
+        );
+
+        let select = |selected_ir: &ProductionFlowIr, order: &[FlowId]| {
+            let mut selection = MultiFlowSelectionBuilder::new(selected_ir);
+            for flow_id in order {
+                let mut worker = FlowWorkerCursor::new(selected_ir, *flow_id).unwrap();
+                let terminal = selected_ir
+                    .registry()
+                    .flow(*flow_id)
+                    .unwrap()
+                    .terminal()
+                    .owner_local_ordinal();
+                while worker.next_boundary() < terminal {
+                    worker.advance(selected_ir).unwrap();
+                }
+                selection
+                    .register(worker.finish(selected_ir).unwrap())
+                    .unwrap();
+            }
+            selection.finish().unwrap()
+        };
+        let reverse = select(
+            &reverse_registration,
+            &[FlowId::new(2), FlowId::new(0), FlowId::new(1)],
+        );
+        let canonical = select(&ir, &[FlowId::new(0), FlowId::new(1), FlowId::new(2)]);
+        assert_eq!(reverse.fingerprint(), canonical.fingerprint());
+        assert_eq!(reverse.terminals(), canonical.terminals());
+        let reverse_trace = MultiFlowTraceFacts::new(&reverse_registration, &reverse).unwrap();
+        let canonical_trace = MultiFlowTraceFacts::new(&ir, &canonical).unwrap();
+        assert_eq!(
+            reverse_trace.canonical_jcs(),
+            canonical_trace.canonical_jcs()
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn multi_flow_selection_rejects_missing_duplicate_and_nonterminal_workers() {
+        let (_machine, ir) = multi_flow_ir();
+        let worker = FlowWorkerCursor::new(&ir, FlowId::DOCUMENT_BODY).unwrap();
+        assert_eq!(
+            worker.finish(&ir).unwrap_err(),
+            MultiFlowError::WrongTerminal(FlowId::DOCUMENT_BODY)
+        );
+
+        let completed = |flow_id: FlowId| {
+            let mut worker = FlowWorkerCursor::new(&ir, flow_id).unwrap();
+            let terminal = ir
+                .registry()
+                .flow(flow_id)
+                .unwrap()
+                .terminal()
+                .owner_local_ordinal();
+            while worker.next_boundary() < terminal {
+                worker.advance(&ir).unwrap();
+            }
+            worker.finish(&ir).unwrap()
+        };
+        let mut missing = MultiFlowSelectionBuilder::new(&ir);
+        missing.register(completed(FlowId::new(0))).unwrap();
+        assert_eq!(
+            missing.finish().unwrap_err(),
+            MultiFlowError::MissingFlow(FlowId::new(1))
+        );
+
+        let mut duplicate = MultiFlowSelectionBuilder::new(&ir);
+        duplicate.register(completed(FlowId::new(0))).unwrap();
+        duplicate.register(completed(FlowId::new(0))).unwrap();
+        duplicate.register(completed(FlowId::new(1))).unwrap();
+        assert_eq!(
+            duplicate.finish().unwrap_err(),
+            MultiFlowError::DuplicateFlow(FlowId::new(0))
+        );
+
+        let finish_with_tamper = |tampered: CompletedFlowReceipt| {
+            let tampered_id = tampered.flow_id;
+            let mut tampered = Some(tampered);
+            let mut selection = MultiFlowSelectionBuilder::new(&ir);
+            for flow_id in [FlowId::new(0), FlowId::new(1), FlowId::new(2)] {
+                let receipt = if flow_id == tampered_id {
+                    tampered.take().unwrap()
+                } else {
+                    completed(flow_id)
+                };
+                selection.register(receipt).unwrap();
+            }
+            selection.finish().unwrap_err()
+        };
+
+        let mut wrong_owner = completed(FlowId::new(1));
+        wrong_owner.owner_node_id = NodeId::new(99);
+        assert_eq!(
+            finish_with_tamper(wrong_owner),
+            MultiFlowError::WrongOwner(FlowId::new(1))
+        );
+
+        let mut wrong_parent = completed(FlowId::new(1));
+        wrong_parent.parent_flow_id = Some(FlowId::new(2));
+        assert_eq!(
+            finish_with_tamper(wrong_parent),
+            MultiFlowError::WrongParent(FlowId::new(1))
+        );
+
+        let mut wrong_terminal = completed(FlowId::new(1));
+        wrong_terminal.terminal = wrong_terminal.terminal.checked_add(1).unwrap();
+        assert_eq!(
+            finish_with_tamper(wrong_terminal),
+            MultiFlowError::WrongTerminal(FlowId::new(1))
+        );
+
+        let other_package = validated_package();
+        let other_store = generated_store();
+        let mut wrong_epoch = completed(FlowId::new(1));
+        wrong_epoch.epoch = epoch_for(&other_package, &other_store);
+        assert_eq!(
+            finish_with_tamper(wrong_epoch),
+            MultiFlowError::EpochMismatch
+        );
     }
     fn transitioned_input(pass: &LayoutPass) -> LayoutPassInput<'_> {
         let package = validated_package();

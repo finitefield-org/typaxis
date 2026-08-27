@@ -136,13 +136,92 @@ impl DocumentPackageEncoder {
         package: &WireDocumentPackage,
         output: W,
     ) -> Result<u64, JcsEncodeError> {
+        if package.contract != typaxis_core::DocumentPackageContractId::V1_2
+            && package.style_sheet.rules.iter().any(|rule| {
+                rule.declarations
+                    .iter()
+                    .any(|declaration| !declaration.name.is_legacy())
+            })
+        {
+            return Err(JcsEncodeError::NonCurrentStyleDeclaration);
+        }
         let mut writer = JcsWriter::new(output, self.max_bytes);
-        encode_package(&mut writer, package)?;
+        encode_package(&mut writer, package, package.contract.as_str())?;
         Ok(writer.bytes_written())
     }
 }
 
 impl Default for DocumentPackageEncoder {
+    fn default() -> Self {
+        Self {
+            max_bytes: MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
+        }
+    }
+}
+
+/// Canonical compatibility encoder retained for focused contract 1.2 slice
+/// tests. The public encoder now emits the same current contract and property
+/// set through the ordinary package path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingStyleDocumentPackageEncoder {
+    max_bytes: u64,
+}
+
+impl StagingStyleDocumentPackageEncoder {
+    pub const CONTRACT: &'static str = "typaxis.contract/1.2";
+
+    pub fn new(max_bytes: u64) -> Result<Self, JcsEncodeError> {
+        if max_bytes > MachineInputLimitBounds::HARD_MAX_DOCUMENT_PACKAGE_BYTES {
+            return Err(JcsEncodeError::ByteLimitAboveHardMaximum {
+                requested: max_bytes,
+                maximum: MachineInputLimitBounds::HARD_MAX_DOCUMENT_PACKAGE_BYTES,
+            });
+        }
+        Ok(Self { max_bytes })
+    }
+
+    pub fn analyze(
+        &self,
+        package: &WireDocumentPackage,
+    ) -> Result<CanonicalJcsStats, JcsEncodeError> {
+        let mut sink = JcsCountHashSink::new();
+        let written = self.write_once(package, &mut sink)?;
+        let stats = sink.finish();
+        if written != stats.bytes {
+            return Err(JcsEncodeError::NonDeterministicEncoding);
+        }
+        Ok(stats)
+    }
+
+    pub fn to_jcs_vec(&self, package: &WireDocumentPackage) -> Result<Vec<u8>, JcsEncodeError> {
+        let expected = self.analyze(package)?;
+        let capacity = usize::try_from(expected.bytes)
+            .map_err(|_| JcsEncodeError::OutputTooLargeForPlatform)?;
+        let mut output = Vec::with_capacity(capacity);
+        let written = self.write_once(package, &mut output)?;
+        if written != expected.bytes || output.len() != capacity {
+            return Err(JcsEncodeError::NonDeterministicEncoding);
+        }
+        Ok(output)
+    }
+
+    pub fn to_jcs_string(&self, package: &WireDocumentPackage) -> Result<String, JcsEncodeError> {
+        String::from_utf8(self.to_jcs_vec(package)?)
+            .map_err(|_| JcsEncodeError::NonUtf8EncoderOutput)
+    }
+
+    fn write_once<W: Write>(
+        &self,
+        package: &WireDocumentPackage,
+        output: W,
+    ) -> Result<u64, JcsEncodeError> {
+        let mut writer = JcsWriter::new(output, self.max_bytes);
+        encode_package(&mut writer, package, Self::CONTRACT)?;
+        Ok(writer.bytes_written())
+    }
+}
+
+impl Default for StagingStyleDocumentPackageEncoder {
     fn default() -> Self {
         Self {
             max_bytes: MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
@@ -156,6 +235,7 @@ pub enum JcsEncodeError {
     ByteLimitExceeded { limit: u64, attempted: u64 },
     JsonNestingDepthExceeded { maximum: u16 },
     IntegerOutOfRange { field: &'static str },
+    NonCurrentStyleDeclaration,
     NonCanonicalMemberOrder { previous: String, current: String },
     OutputTooLargeForPlatform,
     NonDeterministicEncoding,
@@ -183,6 +263,9 @@ impl fmt::Display for JcsEncodeError {
                     "wire integer `{field}` is outside its exact range"
                 )
             }
+            Self::NonCurrentStyleDeclaration => formatter.write_str(
+                "the current DocumentPackage encoder cannot emit a contract 1.2 style declaration",
+            ),
             Self::NonCanonicalMemberOrder { previous, current } => write!(
                 formatter,
                 "JCS member `{current}` is not after `{previous}` in UTF-16 order"
@@ -443,11 +526,10 @@ fn utf16_cmp(left: &str, right: &str) -> Ordering {
 fn encode_package<W: Write>(
     writer: &mut JcsWriter<W>,
     package: &WireDocumentPackage,
+    contract: &str,
 ) -> Result<(), JcsEncodeError> {
     writer.object(|object| {
-        object.member("contract", |writer| {
-            writer.string(package.contract.as_str())
-        })?;
+        object.member("contract", |writer| writer.string(contract))?;
         object.member("coordinate_unit", |writer| {
             writer.string(package.coordinate_unit.as_str())
         })?;
@@ -1322,7 +1404,7 @@ mod tests {
         let bytes = encoder.to_jcs_vec(&package).unwrap();
         assert_eq!(stats.bytes(), bytes.len() as u64);
         assert_eq!(stats.sha256(), sha256(&bytes));
-        assert!(bytes.starts_with(b"{\"contract\":\"typaxis.contract/1.1\""));
+        assert!(bytes.starts_with(b"{\"contract\":\"typaxis.contract/1.2\""));
     }
 
     #[test]

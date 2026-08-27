@@ -589,6 +589,7 @@ dependencies = [
 name = "typaxis-resource-admission"
 version = "0.1.0"
 dependencies = [
+ "png",
  "typaxis-core",
  "typaxis-diagnostics",
  "typaxis-document",

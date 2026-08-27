@@ -71,14 +71,20 @@ def _normalized_text(payload: bytes) -> str:
         raise PdfDifferentialError("extractor output is not UTF-8") from error
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # Some extractors expose an unmapped CID from Artifact marked content as
-    # a C0 control scalar. Controls other than the structural tab/newline/form
-    # feed separators are not normalized document text.
-    text = "".join(
-        character
-        for character in text
-        if character in "\t\n\f" or ord(character) >= 0x20
-    )
-    return text.rstrip("\n\f")
+    # a C0 control scalar. Drop those scalars, then normalize extractor-owned
+    # line, page, and tab separators to one space. Page topology is checked
+    # independently, so layout wrapping cannot change logical text evidence.
+    output: list[str] = []
+    pending_separator = False
+    for character in text:
+        if character in "\t\n\f":
+            pending_separator = True
+        elif ord(character) >= 0x20:
+            if pending_separator and output and output[-1] != " ":
+                output.append(" ")
+            output.append(character)
+            pending_separator = False
+    return "".join(output)
 
 
 def verify_pdf_differential(

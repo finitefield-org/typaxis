@@ -1,0 +1,26 @@
+{
+  "contract": "typaxis.contract/1.2",
+  "profile": "typaxis.machine-pdf/basic-document-1",
+  "policy_version": "typaxis.basic-link-policy/1",
+  "scenarios": {
+    "annotation_count": 3,
+    "annotation_closure": [
+      "missing",
+      "extra",
+      "wrong_page",
+      "wrong_target"
+    ],
+    "bad_target": "preflight",
+    "bad_uri": "preflight",
+    "destination_count": 1,
+    "deterministic_double_build": true,
+    "empty_children": "preflight",
+    "exact_rectangle_limit": 3,
+    "external_uri": "https://example.test/Path?Q=1",
+    "internal_anchor": "target",
+    "public_rejected": true,
+    "rectangle_tamper": "closure",
+    "unpainted_children": "preflight",
+    "wrapped_external_rectangles": 2
+  }
+}

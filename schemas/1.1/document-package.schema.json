@@ -1,0 +1,1380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.1/document-package.schema.json",
+  "title": "Typaxis Canonical Document Package 1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "coordinate_unit",
+    "sources",
+    "text_buffers",
+    "document",
+    "style_sheet",
+    "page_masters",
+    "resources"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "coordinate_unit": {
+      "$ref": "common.schema.json#/$defs/coordinate_unit"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "text_buffers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text_buffer"
+      }
+    },
+    "document": {
+      "$ref": "#/$defs/document"
+    },
+    "style_sheet": {
+      "$ref": "#/$defs/style_sheet"
+    },
+    "page_masters": {
+      "$ref": "#/$defs/page_masters"
+    },
+    "resources": {
+      "$ref": "#/$defs/resource_catalog"
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "uri",
+        "utf8_byte_length",
+        "sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        },
+        "utf8_byte_length": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "text_map_segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text_range",
+        "kind",
+        "source_span"
+      ],
+      "properties": {
+        "text_range": {
+          "$ref": "common.schema.json#/$defs/byte_range"
+        },
+        "kind": {
+          "enum": [
+            "identity",
+            "replacement",
+            "inserted"
+          ]
+        },
+        "source_span": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/source_span"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "inserted"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source_span": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "identity",
+                  "replacement"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source_span": {
+                "$ref": "common.schema.json#/$defs/source_span"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "text_buffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text_id",
+        "utf8",
+        "mappings"
+      ],
+      "properties": {
+        "text_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "utf8": {
+          "type": "string"
+        },
+        "mappings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text_map_segment"
+          }
+        }
+      }
+    },
+    "inline": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "text_span"
+          ],
+          "properties": {
+            "kind": {
+              "const": "text"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "text_span": {
+              "$ref": "common.schema.json#/$defs/text_span"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "children"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "emphasis",
+                "strong"
+              ]
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/inline"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "target",
+            "children"
+          ],
+          "properties": {
+            "kind": {
+              "const": "link"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "target": {
+              "$ref": "common.schema.json#/$defs/link_target"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/inline"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "anchor_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "anchor"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "anchor_id": {
+              "$ref": "common.schema.json#/$defs/anchor_id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "target",
+            "format"
+          ],
+          "properties": {
+            "kind": {
+              "const": "reference"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "target": {
+              "$ref": "common.schema.json#/$defs/anchor_id"
+            },
+            "format": {
+              "enum": [
+                "text",
+                "page",
+                "number"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "footnote_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "footnote_reference"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "footnote_id": {
+              "$ref": "common.schema.json#/$defs/footnote_id"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "soft_break",
+                "hard_break"
+              ]
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            }
+          }
+        }
+      ]
+    },
+    "list_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "span",
+        "blocks"
+      ],
+      "properties": {
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "span": {
+          "$ref": "common.schema.json#/$defs/source_span"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          }
+        }
+      }
+    },
+    "table_column": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "width"
+          ],
+          "properties": {
+            "kind": {
+              "const": "fixed"
+            },
+            "width": {
+              "$ref": "common.schema.json#/$defs/positive_length"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "weight"
+          ],
+          "properties": {
+            "kind": {
+              "const": "fraction"
+            },
+            "weight": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
+          }
+        }
+      ]
+    },
+    "table_cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "span",
+        "colspan",
+        "rowspan",
+        "blocks"
+      ],
+      "properties": {
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "span": {
+          "$ref": "common.schema.json#/$defs/source_span"
+        },
+        "colspan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "rowspan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          }
+        }
+      }
+    },
+    "table_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "span",
+        "cells"
+      ],
+      "properties": {
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "span": {
+          "$ref": "common.schema.json#/$defs/source_span"
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/table_cell"
+          }
+        }
+      }
+    },
+    "class_token": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+      "not": {
+        "pattern": "[\\u0000-\\u001F\\u007F]"
+      }
+    },
+    "class_list": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/class_token"
+      }
+    },
+    "block": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "classes",
+            "children"
+          ],
+          "properties": {
+            "kind": {
+              "const": "paragraph"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "classes": {
+              "$ref": "#/$defs/class_list"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/inline"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "classes",
+            "level",
+            "anchor_id",
+            "children"
+          ],
+          "properties": {
+            "kind": {
+              "const": "heading"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "classes": {
+              "$ref": "#/$defs/class_list"
+            },
+            "level": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6
+            },
+            "anchor_id": {
+              "oneOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/anchor_id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/inline"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "classes",
+            "ordered",
+            "start",
+            "items"
+          ],
+          "properties": {
+            "kind": {
+              "const": "list"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "classes": {
+              "$ref": "#/$defs/class_list"
+            },
+            "ordered": {
+              "type": "boolean"
+            },
+            "start": {
+              "description": "Resolved canonical value: ordered lists use an explicit positive start (1 when omitted in source); unordered lists use null.",
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4294967295,
+                  "default": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/list_item"
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "ordered": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "ordered"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4294967295
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "start": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "classes",
+            "columns",
+            "head",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "table"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "classes": {
+              "$ref": "#/$defs/class_list"
+            },
+            "columns": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/table_column"
+              }
+            },
+            "head": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/table_row"
+              }
+            },
+            "body": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/table_row"
+              }
+            }
+          },
+          "anyOf": [
+            {
+              "properties": {
+                "head": {
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "body": {
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "classes",
+            "image_id",
+            "alt",
+            "caption"
+          ],
+          "properties": {
+            "kind": {
+              "const": "figure"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "classes": {
+              "$ref": "#/$defs/class_list"
+            },
+            "image_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "alt": {
+              "type": "string"
+            },
+            "caption": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "classes"
+          ],
+          "properties": {
+            "kind": {
+              "const": "page_break"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "classes": {
+              "$ref": "#/$defs/class_list"
+            }
+          }
+        }
+      ]
+    },
+    "footnote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "footnote_id",
+        "node_id",
+        "span",
+        "blocks"
+      ],
+      "properties": {
+        "footnote_id": {
+          "$ref": "common.schema.json#/$defs/footnote_id"
+        },
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "span": {
+          "$ref": "common.schema.json#/$defs/source_span"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          }
+        }
+      }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "blocks",
+        "footnotes"
+      ],
+      "properties": {
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          }
+        },
+        "footnotes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/footnote"
+          }
+        }
+      }
+    },
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value",
+        "important"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "font_family",
+            "font_size",
+            "line_height",
+            "page"
+          ]
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "value"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "keyword"
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "value"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "value"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "integer"
+                },
+                "value": {
+                  "$ref": "common.schema.json#/$defs/safe_integer"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "value"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "length"
+                },
+                "value": {
+                  "$ref": "common.schema.json#/$defs/length"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "value"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "boolean"
+                },
+                "value": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "families"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "font_family_list"
+                },
+                "families": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "numerator",
+                "denominator"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "ratio"
+                },
+                "numerator": {
+                  "$ref": "common.schema.json#/$defs/safe_integer"
+                },
+                "denominator": {
+                  "$ref": "common.schema.json#/$defs/positive_safe_integer"
+                }
+              }
+            }
+          ]
+        },
+        "important": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "const": "font_family"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "families"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "font_family_list"
+                  },
+                  "families": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "enum": [
+                  "font_size",
+                  "line_height"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "value"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "length"
+                  },
+                  "value": {
+                    "$ref": "common.schema.json#/$defs/positive_length"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "const": "page"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "value"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "keyword"
+                      },
+                      "value": {
+                        "const": "auto"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "value"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "string"
+                      },
+                      "value": {
+                        "$ref": "common.schema.json#/$defs/page_name"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "style_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "style_id",
+        "extends",
+        "selector",
+        "source_order",
+        "declarations"
+      ],
+      "properties": {
+        "style_id": {
+          "$ref": "common.schema.json#/$defs/style_id"
+        },
+        "extends": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/style_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "selector": {
+          "type": "string",
+          "pattern": "^(?:paragraph|heading|list|table|figure|page_break)(?:\\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+          "not": {
+            "pattern": "[\\u0000-\\u001F\\u007F]"
+          }
+        },
+        "source_order": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "declarations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/declaration"
+          }
+        }
+      }
+    },
+    "style_sheet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rules"
+      ],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/style_rule"
+          }
+        }
+      }
+    },
+    "page_master": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "master_id",
+        "width",
+        "height",
+        "body",
+        "header",
+        "footer",
+        "footnote"
+      ],
+      "properties": {
+        "master_id": {
+          "$ref": "common.schema.json#/$defs/master_id"
+        },
+        "width": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "height": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "body": {
+          "$ref": "common.schema.json#/$defs/rect"
+        },
+        "header": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/rect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "footer": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/rect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "footnote": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/rect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "master_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "master_id",
+        "parity",
+        "first",
+        "named_page",
+        "source_order"
+      ],
+      "properties": {
+        "master_id": {
+          "$ref": "common.schema.json#/$defs/master_id"
+        },
+        "parity": {
+          "enum": [
+            "any",
+            "odd",
+            "even"
+          ]
+        },
+        "first": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "named_page": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/page_name"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_order": {
+          "$ref": "common.schema.json#/$defs/id32"
+        }
+      }
+    },
+    "page_masters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default_master_id",
+        "masters",
+        "selection_rules"
+      ],
+      "properties": {
+        "default_master_id": {
+          "$ref": "common.schema.json#/$defs/master_id"
+        },
+        "masters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/page_master"
+          }
+        },
+        "selection_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/master_rule"
+          }
+        }
+      }
+    },
+    "font_face": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "font_face_id",
+        "family",
+        "uri",
+        "face_index",
+        "expected_sha256"
+      ],
+      "properties": {
+        "font_face_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        },
+        "face_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "expected_sha256": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_id",
+        "uri",
+        "expected_sha256"
+      ],
+      "properties": {
+        "image_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        },
+        "expected_sha256": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "resource_catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "font_faces",
+        "images"
+      ],
+      "properties": {
+        "font_faces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/font_face"
+          }
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/image"
+          }
+        }
+      }
+    }
+  }
+}

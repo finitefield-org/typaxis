@@ -14,7 +14,7 @@
       "path": [
         "config_sha256"
       ],
-      "value": "926ccd23360de54c48cfe392a37313e94668601c075f3c57e77bb09474933b1c"
+      "value": "35e8ad8d6cc172347e85d11f37ab36eeaad274d2c07dfd9e6cbc45e0705e39e0"
     },
     {
       "artifact": "trace",
@@ -75,7 +75,7 @@
         "result",
         "final_fingerprint"
       ],
-      "value": "3e7c748d0ea787ec633a92274daad30f7a8f6ef251843eb3c905d761a500f130"
+      "value": "b96de394781464968c4f9d05e22416d33bcf23c9610c3e1b5e339cd9e73ca7ae"
     },
     {
       "artifact": "manifest",

@@ -14,6 +14,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 PROFILE = "typaxis.machine-pdf/paragraph-1"
+BASIC_PROFILE = "typaxis.machine-pdf/basic-document-1"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 PHRASE = "Typaxis machine input"
 MATRIX_TEST = "machine_tests::matrix_{row:02d}_{name}"
@@ -316,6 +317,294 @@ def combined_package(ttf: bytes, ttc: bytes) -> dict[str, Any]:
     return package
 
 
+def basic_document_combined_package(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    """One public package exercising every advertised basic-document item."""
+    package = base_package(
+        contract="typaxis.contract/1.2", source=b"", master_id="basic-combined"
+    )
+    package["sources"][0]["uri"] = "input.tsf"
+    package["page_masters"]["masters"][0] = {
+        "master_id": "basic-combined",
+        "width": 30_000_000,
+        "height": 20_000_000,
+        "body": {
+            "x": 655_360,
+            "y": 655_360,
+            "width": 28_689_280,
+            "height": 18_689_280,
+        },
+        "header": None,
+        "footer": None,
+        "footnote": None,
+    }
+
+    buffer_texts = [
+        "Basic document",
+        "Links",
+        "internal external",
+        "First item",
+        "Second entry",
+        "PNG caption",
+    ]
+    package["text_buffers"] = [
+        {
+            "text_id": text_id,
+            "utf8": value,
+            "mappings": [
+                {
+                    "text_range": {
+                        "start_byte": 0,
+                        "end_byte": len(value.encode("utf-8")),
+                    },
+                    "kind": "inserted",
+                    "source_span": None,
+                }
+            ],
+        }
+        for text_id, value in enumerate(buffer_texts)
+    ]
+    sites = {
+        "heading": (0, 0, 14),
+        "links": (1, 0, 5),
+        "internal": (2, 0, 9),
+        "external": (2, 9, 17),
+        "first_item": (3, 0, 10),
+        "second_item": (4, 0, 12),
+        "caption": (5, 0, 11),
+    }
+
+    def text_node(node_id: int, site: str) -> dict[str, Any]:
+        text_id, start, end = sites[site]
+        return {
+            "kind": "text",
+            "node_id": node_id,
+            "span": span(),
+            "text_span": {"text_id": text_id, "start_byte": start, "end_byte": end},
+        }
+
+    package["document"]["blocks"] = [
+        {
+            "kind": "heading",
+            "node_id": 1,
+            "span": span(),
+            "classes": [],
+            "level": 1,
+            "anchor_id": None,
+            "children": [
+                {"kind": "anchor", "node_id": 2, "span": span(), "anchor_id": "top"},
+                text_node(3, "heading"),
+                {"kind": "soft_break", "node_id": 4, "span": span()},
+                {"kind": "hard_break", "node_id": 5, "span": span()},
+            ],
+        },
+        {
+            "kind": "paragraph",
+            "node_id": 6,
+            "span": span(),
+            "classes": [],
+            "children": [
+                {"kind": "anchor", "node_id": 7, "span": span(), "anchor_id": "links"},
+                {
+                    "kind": "reference",
+                    "node_id": 8,
+                    "span": span(),
+                    "target": "top",
+                    "format": "page",
+                },
+            ],
+        },
+        {
+            "kind": "paragraph",
+            "node_id": 9,
+            "span": span(),
+            "classes": [],
+            "children": [
+                {
+                    "kind": "link",
+                    "node_id": 10,
+                    "span": span(),
+                    "target": {"kind": "internal", "anchor_id": "top"},
+                    "children": [text_node(11, "internal")],
+                },
+                {
+                    "kind": "link",
+                    "node_id": 12,
+                    "span": span(),
+                    "target": {"kind": "uri", "uri": "HTTPS://example.test/Path?Q=1"},
+                    "children": [text_node(13, "external")],
+                },
+            ],
+        },
+        {
+            "kind": "list",
+            "node_id": 14,
+            "span": span(),
+            "classes": [],
+            "ordered": True,
+            "start": 1,
+            "items": [
+                {
+                    "node_id": 15,
+                    "span": span(),
+                    "blocks": [
+                        {
+                            "kind": "paragraph",
+                            "node_id": 16,
+                            "span": span(),
+                            "classes": [],
+                            "children": [text_node(17, "first_item")],
+                        }
+                    ],
+                },
+                {
+                    "node_id": 18,
+                    "span": span(),
+                    "blocks": [
+                        {
+                            "kind": "paragraph",
+                            "node_id": 19,
+                            "span": span(),
+                            "classes": [],
+                            "children": [text_node(20, "second_item")],
+                        }
+                    ],
+                },
+            ],
+        },
+        {"kind": "page_break", "node_id": 21, "span": span(), "classes": []},
+        {
+            "kind": "figure",
+            "node_id": 22,
+            "span": span(),
+            "classes": [],
+            "image_id": 0,
+            "alt": "PNG image",
+            "caption": [
+                {
+                    "kind": "paragraph",
+                    "node_id": 23,
+                    "span": span(),
+                    "classes": [],
+                    "children": [text_node(24, "caption")],
+                }
+            ],
+        },
+    ]
+
+    def declaration(name: str, value: dict[str, Any]) -> dict[str, Any]:
+        return {"name": name, "value": value, "important": False}
+
+    def length(value: int) -> dict[str, Any]:
+        return {"kind": "length", "value": value}
+
+    def keyword(value: str) -> dict[str, Any]:
+        return {"kind": "keyword", "value": value}
+
+    def boolean(value: bool) -> dict[str, Any]:
+        return {"kind": "boolean", "value": value}
+
+    def font(family: str) -> dict[str, Any]:
+        return {"kind": "font_family_list", "families": [family]}
+
+    package["style_sheet"]["rules"] = [
+        {
+            "style_id": "heading",
+            "extends": None,
+            "selector": "heading",
+            "source_order": 0,
+            "declarations": [
+                declaration("font_family", font("Collection")),
+                declaration("font_size", length(917_504)),
+                declaration("line_height", length(1_048_576)),
+                declaration("page", keyword("auto")),
+                declaration("text_align", keyword("center")),
+            ],
+        },
+        {
+            "style_id": "paragraph",
+            "extends": None,
+            "selector": "paragraph",
+            "source_order": 1,
+            "declarations": [
+                declaration("font_family", font("Body")),
+                declaration("font_size", length(786_432)),
+                declaration("line_height", length(917_504)),
+                declaration("page", keyword("auto")),
+                declaration("space_before", length(65_536)),
+                declaration("space_after", length(65_536)),
+                declaration("start_indent", length(65_536)),
+                declaration("end_indent", length(65_536)),
+                declaration("text_align", keyword("start")),
+                declaration("keep_with_next", boolean(False)),
+            ],
+        },
+        {
+            "style_id": "list",
+            "extends": None,
+            "selector": "list",
+            "source_order": 2,
+            "declarations": [
+                declaration("font_family", font("Body")),
+                declaration("font_size", length(786_432)),
+                declaration("line_height", length(917_504)),
+                declaration("page", keyword("auto")),
+                declaration("space_before", length(65_536)),
+                declaration("space_after", length(65_536)),
+                declaration("start_indent", length(131_072)),
+                declaration("end_indent", length(65_536)),
+                declaration("keep_with_next", boolean(False)),
+            ],
+        },
+        {
+            "style_id": "page-break",
+            "extends": None,
+            "selector": "page_break",
+            "source_order": 3,
+            "declarations": [declaration("page", keyword("auto"))],
+        },
+        {
+            "style_id": "figure",
+            "extends": None,
+            "selector": "figure",
+            "source_order": 4,
+            "declarations": [
+                declaration("page", keyword("auto")),
+                declaration("space_before", length(65_536)),
+                declaration("space_after", length(65_536)),
+                declaration("start_indent", length(65_536)),
+                declaration("end_indent", length(65_536)),
+                declaration("width", length(2_097_152)),
+                declaration("keep_with_next", boolean(False)),
+                declaration("keep_caption", boolean(True)),
+            ],
+        },
+    ]
+    package["resources"] = {
+        "font_faces": [
+            {
+                "font_face_id": 0,
+                "family": "Body",
+                "uri": "body.ttf",
+                "face_index": 0,
+                "expected_sha256": sha256(ttf),
+            },
+            {
+                "font_face_id": 1,
+                "family": "Collection",
+                "uri": "collection.ttc",
+                "face_index": 0,
+                "expected_sha256": sha256(ttc),
+            },
+        ],
+        "images": [
+            {"image_id": 0, "uri": "figure.data", "expected_sha256": sha256(png)}
+        ],
+    }
+    return package
+
+
 ADVERTISED_COVERAGE = sorted(
     [
         "block:heading",
@@ -341,6 +630,31 @@ ADVERTISED_COVERAGE = sorted(
         "style_property:page",
         "style_selector:heading",
         "style_selector:paragraph",
+    ]
+)
+
+BASIC_ADVERTISED_COVERAGE = sorted(
+    [
+        *(f"block:{name}" for name in ["figure", "heading", "list", "page_break", "paragraph"]),
+        "font_format:sfnt-truetype-glyf",
+        "font_format:ttc-truetype-glyf",
+        "image_format:png",
+        *(f"inline:{name}" for name in ["anchor", "hard_break", "link", "reference", "soft_break", "text"]),
+        "page_master:default",
+        "page_value:auto",
+        "pdf_feature:link-annotations",
+        "pdf_feature:named-destinations",
+        "pdf_feature:png-xobjects",
+        "pdf_feature:text-extraction",
+        "reference_format:page",
+        "source_closure:entry_only",
+        *(f"style_block_type:{name}" for name in ["figure", "heading", "list", "page_break", "paragraph"]),
+        *(f"style_property:{name}" for name in [
+            "end_indent", "font_family", "font_size", "keep_caption", "keep_with_next",
+            "line_height", "page", "space_after", "space_before", "start_indent",
+            "text_align", "width",
+        ]),
+        *(f"style_selector:{name}" for name in ["figure", "heading", "list", "page_break", "paragraph"]),
     ]
 )
 
@@ -375,6 +689,7 @@ def expectation(
     coverage: list[str] | None = None,
     resource_hashes: list[dict[str, Any]] | None = None,
     arguments: list[str] | None = None,
+    profile: str = PROFILE,
 ) -> dict[str, Any]:
     if arguments is None:
         arguments = [
@@ -384,7 +699,7 @@ def expectation(
             "--package-root",
             "job",
             "--profile",
-            PROFILE,
+            profile,
             "--resource-root",
             "job",
             "--emit-build-manifest",
@@ -414,7 +729,7 @@ def expectation(
         "fixture_class": fixture_class,
         "fixture_id": fixture_id,
         "package": "job/document-package.json",
-        "profile": PROFILE,
+        "profile": profile,
         "resource_hashes": resource_hashes or [],
     }
 
@@ -442,7 +757,13 @@ def write_fixture(
     return f"{relative}/expected.json"
 
 
-def valid_outcome(fixture_id: str, *, contract: str, text: str | None = "") -> dict[str, Any]:
+def valid_outcome(
+    fixture_id: str,
+    *,
+    contract: str,
+    text: str | None = "",
+    profile: str = PROFILE,
+) -> dict[str, Any]:
     return expectation(
         fixture_id,
         contract=contract,
@@ -458,6 +779,7 @@ def valid_outcome(fixture_id: str, *, contract: str, text: str | None = "") -> d
         page_count=1,
         text=text,
         coverage=["page_master:default", "source_closure:entry_only"],
+        profile=profile,
     )
 
 
@@ -474,9 +796,12 @@ def invalid_outcome(
     source_read: bool = False,
     fixture_class: str = "negative",
     arguments: list[str] | None = None,
+    contract: str = "typaxis.contract/1.1",
+    profile: str = PROFILE,
 ) -> dict[str, Any]:
     return expectation(
         fixture_id,
+        contract=contract,
         fixture_class=fixture_class,
         exit_code=exit_code,
         primary_code=code,
@@ -493,6 +818,7 @@ def invalid_outcome(
         ),
         visible=["diagnostics", "manifest"] if exit_code != 2 else [],
         arguments=arguments,
+        profile=profile,
     )
 
 
@@ -620,6 +946,12 @@ def main() -> None:
     reset_generated_tree()
     ttf = synthetic_ascii_ttf()
     ttc = single_face_ttc(ttf)
+    png = bytes.fromhex(
+        (
+            ROOT
+            / "staging/basic-document-1/machine-figure/job/figure.data.hex"
+        ).read_text("ascii")
+    )
     capabilities = json.loads(
         (ROOT.parent / "conformance" / "machine-capabilities.json").read_text("utf-8")
     )
@@ -637,6 +969,12 @@ def main() -> None:
     expected = valid_outcome("paragraph-1.blank-1.1", contract="typaxis.contract/1.1")
     fixtures[expected["fixture_id"]] = write_fixture(
         "profiles/paragraph-1/blank-1.1", jcs(blank_11), expected
+    )
+
+    blank_12 = base_package(contract="typaxis.contract/1.2", master_id="blank-12")
+    expected = valid_outcome("paragraph-1.blank-1.2", contract="typaxis.contract/1.2")
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/paragraph-1/blank-1.2", jcs(blank_12), expected
     )
 
     combined = combined_package(ttf, ttc)
@@ -659,6 +997,48 @@ def main() -> None:
     combined_value = json.loads(combined_path.read_bytes())
     combined_value["sources"][0]["uri"] = "sources/book.json"
     combined_path.write_bytes(jcs(combined_value))
+
+    basic_combined = basic_document_combined_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "basic-document-1.combined",
+        contract="typaxis.contract/1.2",
+        text="Basic document internal external First item Second entry PNG caption",
+        profile=BASIC_PROFILE,
+    )
+    expected["advertised_item_coverage"] = BASIC_ADVERTISED_COVERAGE
+    expected["expected"]["page_count"] = 2
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["resource_hashes"] = [
+        {"bytes": len(ttf), "sha256": sha256(ttf), "uri": "body.ttf"},
+        {"bytes": len(ttc), "sha256": sha256(ttc), "uri": "collection.ttc"},
+        {"bytes": len(png), "sha256": sha256(png), "uri": "figure.data"},
+    ]
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/basic-document-1/combined",
+        jcs(basic_combined),
+        expected,
+        sources={"input.tsf": b""},
+        resources={"body.ttf": ttf, "collection.ttc": ttc, "figure.data": png},
+    )
+
+    old_basic = base_package(contract="typaxis.contract/1.1", master_id="old-basic")
+    old_basic["sources"][0]["uri"] = "input.tsf"
+    expected = invalid_outcome(
+        "basic-document-1.old-contract",
+        "P1103",
+        location="json:/contract",
+        package_progress="validated",
+        sources_progress="admitted",
+        source_read=True,
+        contract="typaxis.contract/1.1",
+        profile=BASIC_PROFILE,
+    )
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "invalid/basic-document-1-old-contract",
+        jcs(old_basic),
+        expected,
+        sources={"input.tsf": b""},
+    )
 
     base = base_package(master_id="invalid")
     base_bytes = jcs(base)
@@ -949,6 +1329,7 @@ def main() -> None:
         (19, "unsupported_image", ["r7100.unsupported.image"]),
         (20, "host_unavailable", ["i9110.host-unavailable"]),
         (21, "unknown_profile", ["usage.unknown-profile"]),
+        (22, "blank_1_2", ["paragraph-1.blank-1.2"]),
     ]
     matrix = {
         "contract": "typaxis.machine-fixture-matrix/1",
@@ -995,6 +1376,39 @@ def main() -> None:
         "verification_commands": matrix["verification_commands"],
     }
     (ROOT / "matrices/m1-closure.json").write_bytes(jcs(closure_matrix))
+
+    m2_rows = [
+        (
+            "m2-basic-combined",
+            ["basic-document-1.combined"],
+            "machine_tests::matrix_m2_basic_combined",
+        ),
+        (
+            "m2-basic-old-contract",
+            ["basic-document-1.old-contract"],
+            "machine_tests::matrix_m2_basic_old_contract",
+        ),
+    ]
+    m2_matrix = {
+        "contract": "typaxis.machine-fixture-matrix/1",
+        "fixtures": [
+            {"expected": fixtures[fixture_id], "fixture_id": fixture_id}
+            for fixture_id in sorted(
+                {item for _, ids, _ in m2_rows for item in ids}
+            )
+        ],
+        "profile": BASIC_PROFILE,
+        "rows": [
+            {"fixture_ids": ids, "id": row_id, "test": test}
+            for row_id, ids, test in m2_rows
+        ],
+        "verification_commands": [
+            "cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine --locked",
+            "cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package --locked",
+            "python3 schemas/validate.py",
+        ],
+    }
+    (ROOT / "matrices/m2-basic.json").write_bytes(jcs(m2_matrix))
 
 
 if __name__ == "__main__":

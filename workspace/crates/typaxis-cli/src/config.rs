@@ -196,12 +196,12 @@ impl fmt::Display for ConfigError {
             }
             Self::MissingContract { path } => write!(
                 formatter,
-                "raw config `{}` must contain a known 1.0 or 1.1 `contract`",
+                "raw config `{}` must contain a known 1.0, 1.1, or 1.2 `contract`",
                 path.display()
             ),
             Self::ContractMismatch { origin, found } => write!(
                 formatter,
-                "configuration contract in {origin} is `{found}`, expected `typaxis.contract/1.0` or `{CONTRACT}`"
+                "configuration contract in {origin} is `{found}`, expected `typaxis.contract/1.0`, `typaxis.contract/1.1`, or `{CONTRACT}`"
             ),
             Self::InvalidValue {
                 origin,
@@ -1585,7 +1585,7 @@ max_pages = 20
     }
 
     #[test]
-    fn raw_1_0_and_1_1_configs_normalize_to_the_same_1_1_jcs() {
+    fn raw_1_0_1_1_and_1_2_configs_normalize_to_the_same_current_jcs() {
         let legacy =
             TempConfig::new(b"contract = \"typaxis.contract/1.0\"\n[limits]\nmax_pages = 321\n");
         let current = TempConfig::new(
@@ -1596,13 +1596,23 @@ max_pages = 20
             )
             .as_bytes(),
         );
+        let published = TempConfig::new(
+            format!(
+                "contract = \"typaxis.contract/1.2\"\n[limits]\nmax_document_package_bytes = {}\nmax_json_nesting_depth = {}\nmax_pages = 321\n",
+                typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
+                typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_JSON_NESTING_DEPTH,
+            )
+            .as_bytes(),
+        );
         let environment = [("TYPAXIS_LIMITS__MAX_PAGES", "654")];
         let legacy = load(Some(&legacy.0), environment, &ConfigOverrides::default()).unwrap();
         let current = load(Some(&current.0), environment, &ConfigOverrides::default()).unwrap();
+        let published = load(Some(&published.0), environment, &ConfigOverrides::default()).unwrap();
         assert_eq!(legacy, current);
+        assert_eq!(current, published);
         assert!(legacy
             .canonical_jcs()
-            .contains("\"contract\":\"typaxis.contract/1.1\""));
+            .contains("\"contract\":\"typaxis.contract/1.2\""));
     }
 
     #[test]

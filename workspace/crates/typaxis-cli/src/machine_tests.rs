@@ -440,10 +440,15 @@ fn limits_from_expectation(expected: &TestJson) -> Vec<(String, u64)> {
 
 fn build_options(job: &Path, artifacts: &Path, expected: &TestJson) -> BuildPackageOptions {
     fs::create_dir_all(artifacts).unwrap();
+    let profile = expected["profile"]
+        .as_str()
+        .expect("fixture profile is a string")
+        .parse()
+        .expect("fixture profile is registered");
     BuildPackageOptions {
         package: job.join("document-package.json"),
         package_root: Some(job.to_path_buf()),
-        profile: PROFILE,
+        profile,
         output: artifacts.join("output.pdf").into_os_string(),
         trace: None,
         trace_text: false,
@@ -564,7 +569,7 @@ fn assert_fixture_outcome(run: &FixtureRun) {
             failure.message
         );
         let diagnostics = read_json(&run.artifacts.join("diagnostics.json"));
-        assert_eq!(diagnostics["contract"], "typaxis.contract/1.1");
+        assert_eq!(diagnostics["contract"], "typaxis.contract/1.2");
         assert_eq!(diagnostics["diagnostics"][0]["code"], code);
         assert_diagnostic_location(
             outcome["location"].as_str().unwrap(),
@@ -585,7 +590,10 @@ fn assert_fixture_outcome(run: &FixtureRun) {
                 "failed"
             }
         );
-        assert_eq!(manifest["input_profile"], PROFILE.as_str());
+        assert_eq!(
+            manifest["input_profile"],
+            run.expected["profile"].as_str().unwrap()
+        );
         if outcome["manifest_progress"]["package"] == "none" {
             assert!(manifest["package_input"].is_null());
         } else {
@@ -648,10 +656,15 @@ fn assert_success_fixture(relative: &str) {
     let (tree, job, artifacts, expected) = copy_fixture(relative, "success");
     let check_diagnostics = artifacts.join("check-diagnostics.json");
     fs::create_dir_all(&artifacts).unwrap();
+    let profile = expected["profile"]
+        .as_str()
+        .expect("fixture profile is a string")
+        .parse()
+        .expect("fixture profile is registered");
     run_check_package(CheckPackageOptions {
         package: job.join("document-package.json"),
         package_root: Some(job.clone()),
-        profile: PROFILE,
+        profile,
         diagnostics: Some(check_diagnostics.clone()),
         common: CommonOptions {
             resource_roots: vec![job.clone()],
@@ -697,13 +710,28 @@ fn machine_capabilities_snapshot_is_exact_and_commands_are_public() {
 }
 
 #[test]
-fn capabilities_do_not_advertise_post_m1_features() {
+fn capabilities_preserve_m1_and_publish_the_closed_m2_profile() {
     let capabilities = read_json(&fixture_root("capabilities.json"));
     let profiles = capabilities["machine_input"]["profiles"]
         .as_array()
         .unwrap();
-    assert_eq!(profiles.len(), 1);
-    let profile = &profiles[0];
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(
+        capabilities["machine_input"]["default_profile"],
+        "typaxis.machine-pdf/paragraph-1"
+    );
+    assert_eq!(
+        json_strings(&capabilities["machine_input"]["document_package_contracts"]),
+        [
+            "typaxis.contract/1.0",
+            "typaxis.contract/1.1",
+            "typaxis.contract/1.2",
+        ]
+    );
+    let profile = profiles
+        .iter()
+        .find(|profile| profile["id"] == PROFILE.as_str())
+        .expect("paragraph-1 remains advertised");
     assert_eq!(json_strings(&profile["blocks"]), ["heading", "paragraph"]);
     assert_eq!(json_strings(&profile["image_formats"]), Vec::<&str>::new());
     assert!(!profile["footnotes"].as_bool().unwrap());
@@ -737,6 +765,16 @@ fn matrix_02_blank_1_0() {
 #[test]
 fn matrix_03_combined() {
     assert_success_fixture("profiles/paragraph-1/combined");
+}
+
+#[test]
+fn matrix_m2_basic_combined() {
+    assert_success_fixture("profiles/basic-document-1/combined");
+}
+
+#[test]
+fn matrix_m2_basic_old_contract() {
+    run_build_fixture("invalid/basic-document-1-old-contract");
 }
 
 #[test]
@@ -950,6 +988,11 @@ fn matrix_21_unknown_profile() {
     let error = cli::parse_build_package(arguments).unwrap_err();
     assert!(error.to_string().contains("unknown machine PDF profile"));
     assert_eq!(expected["expected"]["exit_code"], 2);
+}
+
+#[test]
+fn matrix_22_blank_1_2() {
+    assert_success_fixture("profiles/paragraph-1/blank-1.2");
 }
 
 #[test]

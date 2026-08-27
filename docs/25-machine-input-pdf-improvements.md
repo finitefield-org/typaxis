@@ -1533,6 +1533,7 @@ M0/M1は次の順で実装する。各sliceはworkspaceをcompile可能に保ち
 | image declaration | `R7100` | none | ImageResourceId Pointer | validated package、image未read |
 | unavailable compiled host capability | `I9110` / exit 3 | none | global location | package未read |
 | unknown `--profile` | usage exit 2 | none | context成立前なら変更なし | manifest変更なし |
+| 1.2 blank current input under `paragraph-1` | success | 1 blank page | empty/advisory | input contract 1.2、default profileを保持 |
 
 ### 15.2 closure、publication、reproducibility
 

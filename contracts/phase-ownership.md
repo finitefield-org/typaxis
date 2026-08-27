@@ -1,8 +1,8 @@
 # Phase ownership
 
-## Implemented M1 machine-input ownership
+## Implemented public machine-input ownership
 
-The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and implemented by the completed M1 series. Public package commands, macOS/Linux E2E evidence, and release support are present. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
+The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md). Public package commands and local host evidence cover both immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -13,7 +13,7 @@ The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machi
 | strict JSON lexical preflight, caller-constructible `WireDocumentPackage`, decoder-issued `DecodedDocumentPackage`, JSON location index, and package JCS hash | `typaxis-document-package` | portable decode/export only; never issue host or trusted syntax authority |
 | raw PACKAGE receipt, decoded binding, exact single companion-source set, read budgets, and monotonic machine-input progress | `typaxis-machine-input` | issue `AdmittedMachinePackage`; reject cross-session raw/decoded/source receipt substitution |
 | DTO lowering, actual source/TextMap/AST/style/master/resource validation, entry-only closure, and trusted package issuance | sealed `typaxis-syntax::DocumentPackageParser` | issue `ValidatedMachinePackage { ValidatedParsedPackage, provenance }`; no public DTO promotion path |
-| immutable `typaxis.machine-pdf/paragraph-1` descriptor, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
+| immutable `paragraph-1` / `basic-document-1` descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
 | all safe declared resource candidates before capability preflight | `typaxis-host-admission::HostReadIdentityLedger`, populated by machine orchestration | prevent requested diagnostics/manifest/PDF targets from aliasing existing or missing input candidates without opening resource bytes |
 | logical font/image binding, bytes-derived metadata, partial progress, and complete resource ledger | `typaxis-resource-admission` using generic host receipts | capability-success path only; layout/finalization receives complete ledger, failed manifest may receive sealed progress |
 | typed phase diagnostic code/category/subject and command-wide 256-record budget | originating phase plus `typaxis-diagnostics` materializer | map subjects through package JSON/source indexes; stderr and canonical sidecar read the same typed diagnostic, never parse `Debug` strings |
@@ -36,13 +36,13 @@ NoInput
 
 `typaxis-machine-input -> typaxis-syntax` is forbidden. `WireDocumentPackage` is explicitly untrusted; decoder-issued `DecodedDocumentPackage`, session-bound package/source receipts, `ValidatedMachinePackage`, capability receipts, and publication receipts have private fields, no public raw-parts constructor, and no `Clone`. A downstream owner may project only the last issued token and must not recreate upstream facts from a DTO, error message, path, or canonical artifact.
 
-## Accepted M2 basic-document ownership
+## Implemented M2 basic-document ownership
 
-These rows are the non-public target adopted by [ADR-0028](../adr/ADR-0028-basic-document-profile.md). They become current/public only through MI2-08; until then the public owner graph above continues to expose only contract 1.1 and `paragraph-1`.
+These rows are the public contract 1.2 ownership adopted by [ADR-0028](../adr/ADR-0028-basic-document-profile.md) and integrated by MI2-08. Focused slice types retain their historical `Staging` names for source compatibility, but no dedicated staging runner or hidden profile selector is a production entry point.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
-| closed `basic-document-1` feature/policy table and `typaxis.basic-profile-receipt/1` fingerprint | `typaxis-machine-profile` | derive staging descriptor, typed preflight, capability projection, fixture coverage, and `BasicDocumentPreflightReceipt`; public descriptor remains unchanged before MI2-08 |
+| closed `basic-document-1` feature/policy table and `typaxis.basic-profile-receipt/1` fingerprint | `typaxis-machine-profile` | derive the public descriptor, typed preflight, capability projection, fixture coverage, and `BasicDocumentPreflightReceipt` |
 | contract 1.2 declaration enum and exact tagged-value relation | `typaxis-document-package` versioned 1.2 decoder/encoder | issue typed wire values only; unknown/wrong tagged values are `P1102` and raw strings never reach style/layout |
 | initial/inherit/cascade/applicability registry for 1.2 block properties | `typaxis-style` | issue package/style/registry-version-bound computed-style receipts; inapplicable known properties are `L5101` |
 | canonical body/list-item/caption flow allocation, owner/parent/terminal closure, and `typaxis.basic-flow-registry/1` hash | `ProductionFlowIrBuilder` / `ValidatedFlowContentRegistry` in the layout-contract owner | issue `ValidatedFlowRegistryReceipt`; caller insertion and worker completion order cannot assign FlowId |
@@ -52,7 +52,7 @@ These rows are the non-public target adopted by [ADR-0028](../adr/ADR-0028-basic
 | figure width/aspect geometry, caption FlowId, keep and oversize outcome | typed style/layout figure owner | issue one selected figure placement consumed by Display, finalization, PDF, and manifest |
 | link logical cluster range and selected page/line rectangle union | itemizer then selected-layout link owner | issue canonical nonempty rectangles; Display/PDF cannot infer links from coordinates or raw URI text |
 | selected body/subflow state and full basic-document artifact closure | selected-state owner | bind preflight, registry, flow cursors, breaks, markers, figures, links, and resource ledger into trace/Display/PDF/manifest |
-| versioned 1.2 staging registry and atomic current publication | Schema/contract integration owner in MI2-08 | keep 1.1 aliases and public commands unchanged during slices; freeze 1.1 and switch every current artifact/decoder/help/capability together |
+| versioned/current 1.2 registry and frozen 1.1 registry | Schema/contract integration owner | keep each registry independent; current aliases, decoder, help, capabilities, fixtures, and generated artifacts switch only at an atomic publication milestone |
 
 The M2 progress suffix is `ResourcesAdmitted -> FlowRegistryValidated -> LayoutSelected`. A downstream phase cannot reconstruct a flow registry from trace JSON, infer PNG from a path, normalize a URI again, relax keep/oversize policy, or fabricate profile/registry hashes for manifest output.
 

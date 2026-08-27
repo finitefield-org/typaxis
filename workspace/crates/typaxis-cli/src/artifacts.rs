@@ -96,6 +96,43 @@ pub fn reference_layout_trace_json(
     max_layout_passes: u16,
     include_trace_text: bool,
 ) -> Result<String, &'static str> {
+    layout_trace_json(
+        flow,
+        initial,
+        pagination,
+        max_layout_passes,
+        include_trace_text,
+        None,
+    )
+}
+
+pub fn machine_layout_trace_json(
+    flow: &FlowTree,
+    initial: &InitialPaginationState,
+    pagination: &PaginationResult,
+    max_layout_passes: u16,
+    include_trace_text: bool,
+    capability: &typaxis_machine_profile::MachinePdfPreflightReceipt,
+    flow_registry_sha256: Option<[u8; 32]>,
+) -> Result<String, &'static str> {
+    layout_trace_json(
+        flow,
+        initial,
+        pagination,
+        max_layout_passes,
+        include_trace_text,
+        Some((capability.profile_receipt_sha256(), flow_registry_sha256)),
+    )
+}
+
+fn layout_trace_json(
+    flow: &FlowTree,
+    initial: &InitialPaginationState,
+    pagination: &PaginationResult,
+    max_layout_passes: u16,
+    include_trace_text: bool,
+    machine_binding: Option<([u8; 32], Option<[u8; 32]>)>,
+) -> Result<String, &'static str> {
     let contains_trace_text = !initial.generated_text().buffers().is_empty()
         || pagination
             .passes()
@@ -115,6 +152,13 @@ pub fn reference_layout_trace_json(
     push_jcs_string(&mut json, CONTRACT);
     json.push_str(",\"coordinate_unit\":");
     push_jcs_string(&mut json, COORDINATE_UNIT);
+    if let Some((_, flow_registry_sha256)) = machine_binding {
+        json.push_str(",\"flow_registry_sha256\":");
+        match flow_registry_sha256 {
+            Some(value) => push_hex(&mut json, value),
+            None => json.push_str("null"),
+        }
+    }
     json.push_str(",\"initial_fingerprint\":");
     push_hex(&mut json, initial.fingerprint().bytes());
     json.push_str(",\"initial_state\":{\"algorithm\":");
@@ -190,7 +234,12 @@ pub fn reference_layout_trace_json(
         push_generated_text(&mut json, pass.generated_text());
         json.push_str("]}}");
     }
-    json.push_str("],\"result\":{");
+    json.push(']');
+    if let Some((profile_receipt_sha256, _)) = machine_binding {
+        json.push_str(",\"profile_receipt_sha256\":");
+        push_hex(&mut json, profile_receipt_sha256);
+    }
+    json.push_str(",\"result\":{");
     if let ConvergenceStatus::CycleFallback { cycle_start_state } = pagination.status() {
         json.push_str("\"cycle_start_state\":");
         json.push_str(&cycle_start_state.get().to_string());
@@ -582,7 +631,7 @@ mod tests {
             config.limits(),
         )
         .unwrap();
-        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.1\""));
+        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
         assert!(json.contains("\"kind\":\"text\""));
         assert!(json.contains("\"anchor_id\":\"target\""));
         assert!(!json.contains("text:hello"));

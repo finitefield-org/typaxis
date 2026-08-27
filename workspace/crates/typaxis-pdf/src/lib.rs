@@ -3,19 +3,1452 @@
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use typaxis_core::{
-    AnchorId, EffectiveConfig, EffectiveConfigFingerprint, FontInstanceId, ImageResourceId,
+    push_generated_buffer_key_jcs, push_jcs_string, sha256, AnchorId, EffectiveConfig,
+    EffectiveConfigFingerprint, FontInstanceId, GeneratedBufferKey, ImageResourceId,
     LayoutStateFingerprint, Length, MasterId, PdfStreamCompression, Point, PositiveLength, Rect,
     ValidatedResourceLimits,
 };
 use typaxis_display_list::{
     ClusterExtraction, DestinationView, DisplayCommand, DisplayGlyph, DisplayPage, FillRule,
     LineCap, LineJoin, LinkAnnotation, LinkTarget, NamedDestination, Paint, Path, PathVerb,
+    StagingForcedPageBreakDisplay, StagingMachineBlockStyleDisplay,
+    StagingMachineFigureDisplayFacts, StagingMachineLinkDisplayFacts,
+    StagingMachineLinkDisplayRectangle, StagingMachineLinkDisplayTarget, StagingMachineListDisplay,
     ValidatedDisplayDocument,
 };
 use typaxis_resources::{
     ClusterExtractionPlan, FrozenPdfAlphaMask, FrozenPdfFontPlan, FrozenPdfImagePlan,
     FrozenPdfResourcePlans, ImageColorSpace, ImageEncoding, PdfFontIndirectObjectRole,
 };
+
+pub const STAGING_MACHINE_BLOCK_STYLE_PDF_ALGORITHM: &str = "typaxis.machine-block-style-pdf/1";
+
+/// PDF-stage observation used by the focused 1.2 block-style slice tests. It
+/// is derived solely from the Display receipt; the public pipeline serializes
+/// the complete basic-document Display document through the normal backend.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineBlockStylePdf {
+    display_sha256: [u8; 32],
+    package_sha256: [u8; 32],
+    registry_version: &'static str,
+    owner_node_id: u32,
+    block_kind: &'static str,
+    frame_inline_size: i64,
+    available_inline_size: i64,
+    paint_inline_size: i64,
+    start_indent: i64,
+    end_indent: i64,
+    logical_start_alignment_space: i64,
+    logical_end_alignment_space: i64,
+    paint_left_inset: i64,
+    effective_space_before: i64,
+    effective_space_after: i64,
+    page_break_before: bool,
+    keep_with_next: bool,
+    keep_caption: bool,
+    content_stream_observation: Vec<u8>,
+    canonical_jcs: String,
+}
+
+impl StagingMachineBlockStylePdf {
+    pub fn from_display(display: &StagingMachineBlockStyleDisplay) -> Self {
+        let content_stream_observation = format!(
+            "q\n{} 0 {} 1 re W n\nQ\n",
+            display.paint_left_inset(),
+            display.paint_inline_size()
+        )
+        .into_bytes();
+        let mut value = Self {
+            display_sha256: sha256(display.canonical_jcs().as_bytes()),
+            package_sha256: display.package_sha256(),
+            registry_version: display.registry_version(),
+            owner_node_id: display.owner_node_id(),
+            block_kind: display.block_kind().as_str(),
+            frame_inline_size: display.frame_inline_size(),
+            available_inline_size: display.available_inline_size(),
+            paint_inline_size: display.paint_inline_size(),
+            start_indent: display.start_indent(),
+            end_indent: display.end_indent(),
+            logical_start_alignment_space: display.logical_start_alignment_space(),
+            logical_end_alignment_space: display.logical_end_alignment_space(),
+            paint_left_inset: display.paint_left_inset(),
+            effective_space_before: display.effective_space_before(),
+            effective_space_after: display.effective_space_after(),
+            page_break_before: display.page_break_before(),
+            keep_with_next: display.keep_with_next(),
+            keep_caption: display.keep_caption(),
+            content_stream_observation,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_block_style_pdf(&value);
+        value
+    }
+
+    pub const fn display_sha256(&self) -> [u8; 32] {
+        self.display_sha256
+    }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn registry_version(&self) -> &'static str {
+        self.registry_version
+    }
+    pub const fn owner_node_id(&self) -> u32 {
+        self.owner_node_id
+    }
+    pub const fn block_kind(&self) -> &'static str {
+        self.block_kind
+    }
+    pub const fn frame_inline_size(&self) -> i64 {
+        self.frame_inline_size
+    }
+    pub const fn available_inline_size(&self) -> i64 {
+        self.available_inline_size
+    }
+    pub const fn paint_inline_size(&self) -> i64 {
+        self.paint_inline_size
+    }
+    pub const fn start_indent(&self) -> i64 {
+        self.start_indent
+    }
+    pub const fn end_indent(&self) -> i64 {
+        self.end_indent
+    }
+    pub const fn logical_start_alignment_space(&self) -> i64 {
+        self.logical_start_alignment_space
+    }
+    pub const fn logical_end_alignment_space(&self) -> i64 {
+        self.logical_end_alignment_space
+    }
+    pub const fn paint_left_inset(&self) -> i64 {
+        self.paint_left_inset
+    }
+    pub const fn effective_space_before(&self) -> i64 {
+        self.effective_space_before
+    }
+    pub const fn effective_space_after(&self) -> i64 {
+        self.effective_space_after
+    }
+    pub const fn page_break_before(&self) -> bool {
+        self.page_break_before
+    }
+    pub const fn keep_with_next(&self) -> bool {
+        self.keep_with_next
+    }
+    pub const fn keep_caption(&self) -> bool {
+        self.keep_caption
+    }
+    pub fn content_stream_observation(&self) -> &[u8] {
+        &self.content_stream_observation
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn encode_staging_machine_block_style_pdf(value: &StagingMachineBlockStylePdf) -> String {
+    let mut output = String::from("{\"algorithm\":\"");
+    output.push_str(STAGING_MACHINE_BLOCK_STYLE_PDF_ALGORITHM);
+    output.push_str("\",\"available_inline_size\":");
+    output.push_str(&value.available_inline_size.to_string());
+    output.push_str(",\"block_kind\":\"");
+    output.push_str(value.block_kind);
+    output.push_str("\",\"display_sha256\":\"");
+    push_staging_pdf_hex(&mut output, value.display_sha256);
+    output.push_str("\",\"effective_space_after\":");
+    output.push_str(&value.effective_space_after.to_string());
+    output.push_str(",\"effective_space_before\":");
+    output.push_str(&value.effective_space_before.to_string());
+    output.push_str(",\"end_indent\":");
+    output.push_str(&value.end_indent.to_string());
+    output.push_str(",\"frame_inline_size\":");
+    output.push_str(&value.frame_inline_size.to_string());
+    output.push_str(",\"keep_caption\":");
+    output.push_str(if value.keep_caption { "true" } else { "false" });
+    output.push_str(",\"keep_with_next\":");
+    output.push_str(if value.keep_with_next {
+        "true"
+    } else {
+        "false"
+    });
+    output.push_str(",\"logical_end_alignment_space\":");
+    output.push_str(&value.logical_end_alignment_space.to_string());
+    output.push_str(",\"logical_start_alignment_space\":");
+    output.push_str(&value.logical_start_alignment_space.to_string());
+    output.push_str(",\"owner_node_id\":");
+    output.push_str(&value.owner_node_id.to_string());
+    output.push_str(",\"package_sha256\":\"");
+    push_staging_pdf_hex(&mut output, value.package_sha256);
+    output.push_str("\",\"page_break_before\":");
+    output.push_str(if value.page_break_before {
+        "true"
+    } else {
+        "false"
+    });
+    output.push_str(",\"paint_inline_size\":");
+    output.push_str(&value.paint_inline_size.to_string());
+    output.push_str(",\"paint_left_inset\":");
+    output.push_str(&value.paint_left_inset.to_string());
+    output.push_str(",\"registry_version\":\"");
+    output.push_str(value.registry_version);
+    output.push_str("\",\"start_indent\":");
+    output.push_str(&value.start_indent.to_string());
+    output.push('}');
+    output
+}
+
+fn push_staging_pdf_hex(output: &mut String, bytes: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+}
+
+fn push_json_hex(output: &mut String, bytes: &[u8; 32]) {
+    output.push('"');
+    push_staging_pdf_hex(output, *bytes);
+    output.push('"');
+}
+
+pub const STAGING_MACHINE_FIGURE_PDF_ALGORITHM: &str = "typaxis.machine-figure-pdf/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineFigurePdfError {
+    DisplayStateMismatch,
+    PdfReceiptMismatch,
+    PageClosure,
+    ImageXObjectClosure,
+    InvalidResourceName,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigurePdfXObject {
+    image_id: ImageResourceId,
+    resource_name: String,
+}
+
+impl StagingMachineFigurePdfXObject {
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+    pub fn resource_name(&self) -> &str {
+        &self.resource_name
+    }
+}
+
+/// PDF-stage MI2-06 proof. Logical image closure comes from the frozen graph;
+/// the serialized hash/length and Image XObject observation come from the
+/// exact non-cloneable serializer receipt before any publication attempt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigurePdf {
+    display: StagingMachineFigureDisplayFacts,
+    display_sha256: [u8; 32],
+    pdf_sha256: [u8; 32],
+    pdf_byte_length: u64,
+    page_count: u32,
+    object_count: u32,
+    image_xobject_count: u32,
+    image_xobjects: Vec<StagingMachineFigurePdfXObject>,
+    canonical_jcs: String,
+}
+
+impl StagingMachineFigurePdf {
+    pub fn from_serialized(
+        display: &StagingMachineFigureDisplayFacts,
+        graph: &FrozenPdfGraph,
+        receipt: &VerifiedPdfBytesReceipt,
+    ) -> Result<Self, StagingMachineFigurePdfError> {
+        if graph.selected_layout_fingerprint().bytes() != display.layout_state_sha256()
+            || receipt.selected_layout_fingerprint() != graph.selected_layout_fingerprint()
+        {
+            return Err(StagingMachineFigurePdfError::DisplayStateMismatch);
+        }
+        if graph.page_count() != u32::try_from(display.pages().len()).unwrap_or(u32::MAX)
+            || receipt.page_count() != graph.page_count()
+        {
+            return Err(StagingMachineFigurePdfError::PageClosure);
+        }
+        if receipt.object_count() != graph.object_count()
+            || receipt.byte_length() == 0
+            || sha256(receipt.bytes()) != receipt.content_hash()
+        {
+            return Err(StagingMachineFigurePdfError::PdfReceiptMismatch);
+        }
+
+        let expected: BTreeSet<_> = display
+            .figures()
+            .iter()
+            .map(|figure| figure.image_id())
+            .collect();
+        let image_xobjects =
+            close_staging_machine_figure_image_bindings(&expected, graph.image_resource_names())?;
+        let image_xobject_count = close_staging_machine_figure_graph_images(graph)?;
+        if image_xobject_count
+            < u32::try_from(expected.len())
+                .map_err(|_| StagingMachineFigurePdfError::ImageXObjectClosure)?
+        {
+            return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+        }
+        require_staging_serialized_image_xobjects(receipt.bytes(), image_xobject_count)?;
+        let mut value = Self {
+            display: display.clone(),
+            display_sha256: sha256(display.canonical_jcs().as_bytes()),
+            pdf_sha256: receipt.content_hash(),
+            pdf_byte_length: receipt.byte_length(),
+            page_count: receipt.page_count(),
+            object_count: receipt.object_count(),
+            image_xobject_count,
+            image_xobjects,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_figure_pdf(&value);
+        Ok(value)
+    }
+
+    pub const fn display(&self) -> &StagingMachineFigureDisplayFacts {
+        &self.display
+    }
+    pub const fn display_sha256(&self) -> [u8; 32] {
+        self.display_sha256
+    }
+    pub const fn pdf_sha256(&self) -> [u8; 32] {
+        self.pdf_sha256
+    }
+    pub const fn pdf_byte_length(&self) -> u64 {
+        self.pdf_byte_length
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub const fn object_count(&self) -> u32 {
+        self.object_count
+    }
+    pub const fn image_xobject_count(&self) -> u32 {
+        self.image_xobject_count
+    }
+    pub fn image_xobjects(&self) -> &[StagingMachineFigurePdfXObject] {
+        &self.image_xobjects
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn close_staging_machine_figure_image_bindings<'a>(
+    expected: &BTreeSet<ImageResourceId>,
+    bindings: impl IntoIterator<Item = (ImageResourceId, &'a PdfName)>,
+) -> Result<Vec<StagingMachineFigurePdfXObject>, StagingMachineFigurePdfError> {
+    let mut observed = BTreeSet::new();
+    let mut image_xobjects = Vec::new();
+    for (image_id, name) in bindings {
+        if !observed.insert(image_id) {
+            return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+        }
+        let resource_name = String::from_utf8(name.encoded())
+            .map_err(|_| StagingMachineFigurePdfError::InvalidResourceName)?;
+        image_xobjects.push(StagingMachineFigurePdfXObject {
+            image_id,
+            resource_name,
+        });
+    }
+    if &observed != expected {
+        return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+    }
+    image_xobjects.sort_by_key(|binding| binding.image_id);
+    Ok(image_xobjects)
+}
+
+fn close_staging_machine_figure_graph_images(
+    graph: &FrozenPdfGraph,
+) -> Result<u32, StagingMachineFigurePdfError> {
+    let mut closed_objects = BTreeSet::new();
+    for binding in &graph.image_bindings {
+        if !closed_objects.insert(binding.object_id) {
+            return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+        }
+        let Some(IndirectObjectBody::FrozenImageResource {
+            plan,
+            alpha_mask_object,
+        }) = graph.graph.objects.get(&binding.object_id)
+        else {
+            return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+        };
+        if plan.image_id() != binding.logical_id
+            || plan.alpha_mask().is_some() != alpha_mask_object.is_some()
+        {
+            return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+        }
+        if let (Some(expected_mask), Some(mask_object)) = (plan.alpha_mask(), *alpha_mask_object) {
+            if !closed_objects.insert(mask_object)
+                || !matches!(
+                    graph.graph.objects.get(&mask_object),
+                    Some(IndirectObjectBody::FrozenImageAlphaMask(actual_mask))
+                        if actual_mask == expected_mask
+                )
+            {
+                return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+            }
+        }
+    }
+    let graph_image_objects: BTreeSet<_> = graph
+        .graph
+        .objects
+        .iter()
+        .filter_map(|(object_id, body)| {
+            matches!(
+                body,
+                IndirectObjectBody::FrozenImageResource { .. }
+                    | IndirectObjectBody::FrozenImageAlphaMask(_)
+            )
+            .then_some(*object_id)
+        })
+        .collect();
+    if graph_image_objects != closed_objects {
+        return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+    }
+    u32::try_from(closed_objects.len())
+        .map_err(|_| StagingMachineFigurePdfError::ImageXObjectClosure)
+}
+
+fn require_staging_serialized_image_xobjects(
+    pdf_bytes: &[u8],
+    expected_graph_image_count: u32,
+) -> Result<(), StagingMachineFigurePdfError> {
+    let serialized_marker_count = u32::try_from(
+        pdf_bytes
+            .windows(b"/Subtype /Image".len())
+            .filter(|window| *window == b"/Subtype /Image")
+            .count(),
+    )
+    .map_err(|_| StagingMachineFigurePdfError::ImageXObjectClosure)?;
+    if serialized_marker_count < expected_graph_image_count {
+        return Err(StagingMachineFigurePdfError::ImageXObjectClosure);
+    }
+    Ok(())
+}
+
+fn encode_staging_machine_figure_pdf(value: &StagingMachineFigurePdf) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_FIGURE_PDF_ALGORITHM);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"display_sha256\":");
+    push_json_hex(&mut output, &value.display_sha256);
+    output.push_str(",\"image_xobject_count\":");
+    output.push_str(&value.image_xobject_count.to_string());
+    output.push_str(",\"image_xobjects\":[");
+    for (index, binding) in value.image_xobjects.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"image_id\":");
+        output.push_str(&binding.image_id.get().to_string());
+        output.push_str(",\"resource_name\":");
+        push_jcs_string(&mut output, &binding.resource_name);
+        output.push('}');
+    }
+    output.push_str("],\"object_count\":");
+    output.push_str(&value.object_count.to_string());
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"pdf_byte_length\":");
+    output.push_str(&value.pdf_byte_length.to_string());
+    output.push_str(",\"pdf_sha256\":");
+    push_json_hex(&mut output, &value.pdf_sha256);
+    output.push('}');
+    output
+}
+
+pub const STAGING_MACHINE_LINK_PDF_ALGORITHM: &str = "typaxis.machine-link-pdf/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineLinkPdfError {
+    DisplayStateMismatch,
+    PdfReceiptMismatch,
+    PageClosure,
+    DestinationClosure,
+    AnnotationClosure,
+    SerializedClosure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkPdfAnnotation {
+    link_node_id: u32,
+    paragraph_node_id: u32,
+    page_index: u32,
+    line_ordinal: u32,
+    rect: Rect,
+    target: StagingMachineLinkDisplayTarget,
+    object_id: u32,
+}
+
+impl StagingMachineLinkPdfAnnotation {
+    pub const fn link_node_id(&self) -> u32 {
+        self.link_node_id
+    }
+    pub const fn paragraph_node_id(&self) -> u32 {
+        self.paragraph_node_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn line_ordinal(&self) -> u32 {
+        self.line_ordinal
+    }
+    pub const fn rect(&self) -> Rect {
+        self.rect
+    }
+    pub const fn target(&self) -> &StagingMachineLinkDisplayTarget {
+        &self.target
+    }
+    pub const fn object_id(&self) -> u32 {
+        self.object_id
+    }
+}
+
+/// PDF-stage MI2-07 proof. It reopens the frozen graph to compare every page
+/// `/Annots` reference and annotation dictionary with the selected Display
+/// rectangle/target facts, and compares the complete destination name tree
+/// before retaining the serializer hash.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkPdf {
+    display: StagingMachineLinkDisplayFacts,
+    display_sha256: [u8; 32],
+    pdf_sha256: [u8; 32],
+    pdf_byte_length: u64,
+    page_count: u32,
+    object_count: u32,
+    destination_count: u32,
+    annotation_count: u32,
+    annotations: Vec<StagingMachineLinkPdfAnnotation>,
+    canonical_jcs: String,
+}
+
+impl StagingMachineLinkPdf {
+    pub fn from_serialized(
+        display: &StagingMachineLinkDisplayFacts,
+        graph: &FrozenPdfGraph,
+        receipt: &VerifiedPdfBytesReceipt,
+    ) -> Result<Self, StagingMachineLinkPdfError> {
+        if graph.selected_layout_fingerprint().bytes() != display.layout_state_sha256()
+            || receipt.selected_layout_fingerprint() != graph.selected_layout_fingerprint()
+        {
+            return Err(StagingMachineLinkPdfError::DisplayStateMismatch);
+        }
+        if graph.page_count() != u32::try_from(display.pages().len()).unwrap_or(u32::MAX)
+            || receipt.page_count() != graph.page_count()
+            || graph
+                .pages()
+                .iter()
+                .zip(display.pages())
+                .any(|(graph, display)| {
+                    graph.page_index() != display.page_index()
+                        || graph.width() != display.width()
+                        || graph.height() != display.height()
+                })
+        {
+            return Err(StagingMachineLinkPdfError::PageClosure);
+        }
+        if receipt.object_count() != graph.object_count()
+            || receipt.byte_length() == 0
+            || sha256(receipt.bytes()) != receipt.content_hash()
+        {
+            return Err(StagingMachineLinkPdfError::PdfReceiptMismatch);
+        }
+
+        let page_ids = staging_machine_link_page_ids(graph)?;
+        close_staging_machine_link_destinations(display, graph, &page_ids)?;
+        let annotations = close_staging_machine_link_annotations(display, graph, &page_ids)?;
+        let annotation_count = u32::try_from(annotations.len())
+            .map_err(|_| StagingMachineLinkPdfError::AnnotationClosure)?;
+        if annotation_count != display.annotation_count() {
+            return Err(StagingMachineLinkPdfError::AnnotationClosure);
+        }
+        require_staging_serialized_link_annotations(receipt.bytes(), annotation_count)?;
+        let destination_count = u32::try_from(display.destinations().len())
+            .map_err(|_| StagingMachineLinkPdfError::DestinationClosure)?;
+        let mut value = Self {
+            display: display.clone(),
+            display_sha256: sha256(display.canonical_jcs().as_bytes()),
+            pdf_sha256: receipt.content_hash(),
+            pdf_byte_length: receipt.byte_length(),
+            page_count: receipt.page_count(),
+            object_count: receipt.object_count(),
+            destination_count,
+            annotation_count,
+            annotations,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_link_pdf(&value);
+        Ok(value)
+    }
+
+    pub const fn display(&self) -> &StagingMachineLinkDisplayFacts {
+        &self.display
+    }
+    pub const fn display_sha256(&self) -> [u8; 32] {
+        self.display_sha256
+    }
+    pub const fn pdf_sha256(&self) -> [u8; 32] {
+        self.pdf_sha256
+    }
+    pub const fn pdf_byte_length(&self) -> u64 {
+        self.pdf_byte_length
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub const fn object_count(&self) -> u32 {
+        self.object_count
+    }
+    pub const fn destination_count(&self) -> u32 {
+        self.destination_count
+    }
+    pub const fn annotation_count(&self) -> u32 {
+        self.annotation_count
+    }
+    pub fn annotations(&self) -> &[StagingMachineLinkPdfAnnotation] {
+        &self.annotations
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn staging_machine_link_page_ids(
+    graph: &FrozenPdfGraph,
+) -> Result<Vec<ObjectId>, StagingMachineLinkPdfError> {
+    let catalog = dictionary_for(&graph.graph.objects, graph.graph.root)
+        .map_err(|_| StagingMachineLinkPdfError::PageClosure)?;
+    let pages_id = match dict_value(catalog, b"Pages") {
+        Some(PdfValue::Reference(id)) => *id,
+        _ => return Err(StagingMachineLinkPdfError::PageClosure),
+    };
+    let pages = dictionary_for(&graph.graph.objects, pages_id)
+        .map_err(|_| StagingMachineLinkPdfError::PageClosure)?;
+    let kids = match dict_value(pages, b"Kids") {
+        Some(PdfValue::Array(kids)) => kids,
+        _ => return Err(StagingMachineLinkPdfError::PageClosure),
+    };
+    let page_ids = kids
+        .iter()
+        .map(|kid| match kid {
+            PdfValue::Reference(id)
+                if dictionary_for(&graph.graph.objects, *id)
+                    .is_ok_and(|page| type_is(page, b"Page")) =>
+            {
+                Ok(*id)
+            }
+            _ => Err(StagingMachineLinkPdfError::PageClosure),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if page_ids.len() != graph.pages.len() {
+        return Err(StagingMachineLinkPdfError::PageClosure);
+    }
+    Ok(page_ids)
+}
+
+fn close_staging_machine_link_destinations(
+    display: &StagingMachineLinkDisplayFacts,
+    graph: &FrozenPdfGraph,
+    page_ids: &[ObjectId],
+) -> Result<(), StagingMachineLinkPdfError> {
+    let catalog = dictionary_for(&graph.graph.objects, graph.graph.root)
+        .map_err(|_| StagingMachineLinkPdfError::DestinationClosure)?;
+    if display.destinations().is_empty() {
+        return if dict_value(catalog, b"Names").is_none() {
+            Ok(())
+        } else {
+            Err(StagingMachineLinkPdfError::DestinationClosure)
+        };
+    }
+    let names = match dict_value(catalog, b"Names") {
+        Some(PdfValue::Dictionary(names)) if names.len() == 1 => names,
+        _ => return Err(StagingMachineLinkPdfError::DestinationClosure),
+    };
+    let destinations = match dict_value(names, b"Dests") {
+        Some(PdfValue::Dictionary(destinations)) if destinations.len() == 1 => destinations,
+        _ => return Err(StagingMachineLinkPdfError::DestinationClosure),
+    };
+    let expected_value_count = display
+        .destinations()
+        .len()
+        .checked_mul(2)
+        .ok_or(StagingMachineLinkPdfError::DestinationClosure)?;
+    let values = match dict_value(destinations, b"Names") {
+        Some(PdfValue::Array(values)) if values.len() == expected_value_count => values,
+        _ => return Err(StagingMachineLinkPdfError::DestinationClosure),
+    };
+    for (destination, pair) in display.destinations().iter().zip(values.chunks_exact(2)) {
+        if pair[0] != PdfValue::ByteString(destination.anchor_id().as_str().as_bytes().to_vec()) {
+            return Err(StagingMachineLinkPdfError::DestinationClosure);
+        }
+        let page_index = usize::try_from(destination.page_index())
+            .map_err(|_| StagingMachineLinkPdfError::DestinationClosure)?;
+        let named = NamedDestination {
+            anchor_id: destination.anchor_id().clone(),
+            page_index: destination.page_index(),
+            view: DestinationView::Xyz {
+                point: destination.point(),
+            },
+        };
+        let expected = destination_array(
+            &named,
+            *page_ids
+                .get(page_index)
+                .ok_or(StagingMachineLinkPdfError::DestinationClosure)?,
+            display
+                .pages()
+                .get(page_index)
+                .ok_or(StagingMachineLinkPdfError::DestinationClosure)?
+                .height(),
+        )
+        .map_err(|_| StagingMachineLinkPdfError::DestinationClosure)?;
+        if pair[1] != expected {
+            return Err(StagingMachineLinkPdfError::DestinationClosure);
+        }
+    }
+    Ok(())
+}
+
+fn staging_machine_link_annotation(fact: &StagingMachineLinkDisplayRectangle) -> LinkAnnotation {
+    let target = match fact.target() {
+        StagingMachineLinkDisplayTarget::Internal { anchor_id, .. } => {
+            LinkTarget::Internal(anchor_id.clone())
+        }
+        StagingMachineLinkDisplayTarget::External { uri } => LinkTarget::Uri(uri.clone()),
+    };
+    LinkAnnotation {
+        target,
+        rect: fact.rect(),
+    }
+}
+
+fn close_staging_machine_link_annotations(
+    display: &StagingMachineLinkDisplayFacts,
+    graph: &FrozenPdfGraph,
+    page_ids: &[ObjectId],
+) -> Result<Vec<StagingMachineLinkPdfAnnotation>, StagingMachineLinkPdfError> {
+    let mut object_by_key = BTreeMap::new();
+    let mut closed_annotation_ids = BTreeSet::new();
+    for (page_index, page_id) in page_ids.iter().copied().enumerate() {
+        let page = dictionary_for(&graph.graph.objects, page_id)
+            .map_err(|_| StagingMachineLinkPdfError::AnnotationClosure)?;
+        let expected_facts: Vec<_> = display
+            .annotations()
+            .filter(|annotation| annotation.page_index() as usize == page_index)
+            .collect();
+        let expected_annotations: Vec<_> = expected_facts
+            .iter()
+            .map(|annotation| staging_machine_link_annotation(annotation))
+            .collect();
+        let annotation_ids: Vec<_> = match dict_value(page, b"Annots") {
+            None if expected_annotations.is_empty() => Vec::new(),
+            Some(PdfValue::Array(values)) if values.len() == expected_annotations.len() => values
+                .iter()
+                .map(|value| match value {
+                    PdfValue::Reference(id) => Ok(*id),
+                    _ => Err(StagingMachineLinkPdfError::AnnotationClosure),
+                })
+                .collect::<Result<_, _>>()?,
+            _ => return Err(StagingMachineLinkPdfError::AnnotationClosure),
+        };
+        let content_id = match dict_value(page, b"Contents") {
+            Some(PdfValue::Reference(id)) => *id,
+            _ => return Err(StagingMachineLinkPdfError::AnnotationClosure),
+        };
+        let display_page = match graph.graph.objects.get(&content_id) {
+            Some(IndirectObjectBody::DisplayPageContent(page)) => page,
+            _ => return Err(StagingMachineLinkPdfError::AnnotationClosure),
+        };
+        if display_page.page_index as usize != page_index
+            || display_page.annotations != expected_annotations
+        {
+            return Err(StagingMachineLinkPdfError::AnnotationClosure);
+        }
+        let page_height = display
+            .pages()
+            .get(page_index)
+            .ok_or(StagingMachineLinkPdfError::PageClosure)?
+            .height();
+        for ((fact, annotation), object_id) in expected_facts
+            .iter()
+            .zip(&expected_annotations)
+            .zip(annotation_ids)
+        {
+            if !closed_annotation_ids.insert(object_id) {
+                return Err(StagingMachineLinkPdfError::AnnotationClosure);
+            }
+            let expected_dictionary = annotation_dictionary(annotation, page_height)
+                .map_err(|_| StagingMachineLinkPdfError::AnnotationClosure)?;
+            if !matches!(
+                graph.graph.objects.get(&object_id),
+                Some(IndirectObjectBody::Value(PdfValue::Dictionary(actual)))
+                    if actual == &expected_dictionary
+            ) {
+                return Err(StagingMachineLinkPdfError::AnnotationClosure);
+            }
+            let key = (fact.link_node_id(), fact.page_index(), fact.line_ordinal());
+            if object_by_key.insert(key, object_id).is_some() {
+                return Err(StagingMachineLinkPdfError::AnnotationClosure);
+            }
+        }
+    }
+    let graph_annotation_ids: BTreeSet<_> = graph
+        .graph
+        .objects
+        .iter()
+        .filter_map(|(id, body)| match body {
+            IndirectObjectBody::Value(PdfValue::Dictionary(dictionary))
+                if type_is(dictionary, b"Annot") =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .collect();
+    if graph_annotation_ids != closed_annotation_ids {
+        return Err(StagingMachineLinkPdfError::AnnotationClosure);
+    }
+    display
+        .annotations()
+        .map(|fact| {
+            let object_id = object_by_key
+                .get(&(fact.link_node_id(), fact.page_index(), fact.line_ordinal()))
+                .ok_or(StagingMachineLinkPdfError::AnnotationClosure)?;
+            Ok(StagingMachineLinkPdfAnnotation {
+                link_node_id: fact.link_node_id(),
+                paragraph_node_id: fact.paragraph_node_id(),
+                page_index: fact.page_index(),
+                line_ordinal: fact.line_ordinal(),
+                rect: fact.rect(),
+                target: fact.target().clone(),
+                object_id: object_id.get(),
+            })
+        })
+        .collect()
+}
+
+fn require_staging_serialized_link_annotations(
+    pdf_bytes: &[u8],
+    expected_count: u32,
+) -> Result<(), StagingMachineLinkPdfError> {
+    let marker = b"/Subtype /Link";
+    let count = u32::try_from(
+        pdf_bytes
+            .windows(marker.len())
+            .filter(|window| *window == marker)
+            .count(),
+    )
+    .map_err(|_| StagingMachineLinkPdfError::SerializedClosure)?;
+    if count != expected_count {
+        return Err(StagingMachineLinkPdfError::SerializedClosure);
+    }
+    Ok(())
+}
+
+fn encode_staging_machine_link_pdf(value: &StagingMachineLinkPdf) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_LINK_PDF_ALGORITHM);
+    output.push_str(",\"annotation_count\":");
+    output.push_str(&value.annotation_count.to_string());
+    output.push_str(",\"annotations\":[");
+    for (index, annotation) in value.annotations.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"line_ordinal\":");
+        output.push_str(&annotation.line_ordinal.to_string());
+        output.push_str(",\"link_node_id\":");
+        output.push_str(&annotation.link_node_id.to_string());
+        output.push_str(",\"object_id\":");
+        output.push_str(&annotation.object_id.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&annotation.page_index.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"contract\":\"typaxis.contract/1.2\",\"destination_count\":");
+    output.push_str(&value.destination_count.to_string());
+    output.push_str(",\"display_sha256\":");
+    push_json_hex(&mut output, &value.display_sha256);
+    output.push_str(",\"object_count\":");
+    output.push_str(&value.object_count.to_string());
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"pdf_byte_length\":");
+    output.push_str(&value.pdf_byte_length.to_string());
+    output.push_str(",\"pdf_sha256\":");
+    push_json_hex(&mut output, &value.pdf_sha256);
+    output.push('}');
+    output
+}
+
+pub const STAGING_FORCED_PAGE_BREAK_PDF_ALGORITHM: &str = "typaxis.forced-page-break-pdf/1";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakPdfPage {
+    page_index: u32,
+    painted_content_count: u32,
+}
+
+impl StagingForcedPageBreakPdfPage {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+
+    pub const fn painted_content_count(&self) -> u32 {
+        self.painted_content_count
+    }
+
+    pub const fn is_blank(&self) -> bool {
+        self.painted_content_count == 0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakPdfBoundary {
+    break_node_id: u32,
+    document_ordinal: u32,
+    flow_id: u32,
+    before_flow_local_ordinal: u32,
+    after_flow_local_ordinal: u32,
+    produced_page_index: u32,
+}
+
+impl StagingForcedPageBreakPdfBoundary {
+    pub const fn break_node_id(&self) -> u32 {
+        self.break_node_id
+    }
+
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+
+    pub const fn flow_id(&self) -> u32 {
+        self.flow_id
+    }
+
+    pub const fn before_flow_local_ordinal(&self) -> u32 {
+        self.before_flow_local_ordinal
+    }
+
+    pub const fn after_flow_local_ordinal(&self) -> u32 {
+        self.after_flow_local_ordinal
+    }
+
+    pub const fn produced_page_index(&self) -> u32 {
+        self.produced_page_index
+    }
+}
+
+/// PDF-stage forced-boundary observation. Page-tree count is materialized,
+/// while page breaks themselves contribute no content-stream operation.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakPdf {
+    display_sha256: [u8; 32],
+    package_sha256: [u8; 32],
+    flow_registry_sha256: [u8; 32],
+    usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    page_count: u32,
+    pages: Vec<StagingForcedPageBreakPdfPage>,
+    breaks: Vec<StagingForcedPageBreakPdfBoundary>,
+    page_tree_observation: Vec<u8>,
+    canonical_jcs: String,
+}
+
+impl StagingForcedPageBreakPdf {
+    pub fn from_display(display: &StagingForcedPageBreakDisplay) -> Self {
+        debug_assert_eq!(display.paint_operation_count(), 0);
+        let pages = display
+            .pages()
+            .iter()
+            .map(|page| StagingForcedPageBreakPdfPage {
+                page_index: page.page_index(),
+                painted_content_count: page.painted_content_count(),
+            })
+            .collect();
+        let breaks = display
+            .breaks()
+            .iter()
+            .map(|boundary| StagingForcedPageBreakPdfBoundary {
+                break_node_id: boundary.break_node_id(),
+                document_ordinal: boundary.document_ordinal(),
+                flow_id: boundary.flow_id(),
+                before_flow_local_ordinal: boundary.before_flow_local_ordinal(),
+                after_flow_local_ordinal: boundary.after_flow_local_ordinal(),
+                produced_page_index: boundary.produced_page_index(),
+            })
+            .collect();
+        let page_tree_observation = format!("/Count {}\n", display.page_count()).into_bytes();
+        let mut value = Self {
+            display_sha256: sha256(display.canonical_jcs().as_bytes()),
+            package_sha256: display.package_sha256(),
+            flow_registry_sha256: display.flow_registry_sha256(),
+            usage_sha256: display.usage_sha256(),
+            policy_version: display.policy_version(),
+            page_count: display.page_count(),
+            pages,
+            breaks,
+            page_tree_observation,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_forced_page_break_pdf(&value);
+        value
+    }
+
+    pub const fn display_sha256(&self) -> [u8; 32] {
+        self.display_sha256
+    }
+
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+
+    pub fn pages(&self) -> &[StagingForcedPageBreakPdfPage] {
+        &self.pages
+    }
+
+    pub fn breaks(&self) -> &[StagingForcedPageBreakPdfBoundary] {
+        &self.breaks
+    }
+
+    pub fn page_tree_observation(&self) -> &[u8] {
+        &self.page_tree_observation
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn encode_staging_forced_page_break_pdf(value: &StagingForcedPageBreakPdf) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_FORCED_PAGE_BREAK_PDF_ALGORITHM);
+    output.push_str(",\"break_usage_sha256\":");
+    push_json_hex(&mut output, &value.usage_sha256);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"display_sha256\":");
+    push_json_hex(&mut output, &value.display_sha256);
+    output.push_str(",\"flow_registry_sha256\":");
+    push_json_hex(&mut output, &value.flow_registry_sha256);
+    output.push_str(",\"forced_page_breaks\":[");
+    for (index, boundary) in value.breaks.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        encode_staging_forced_page_break_pdf_boundary(&mut output, boundary);
+    }
+    output.push_str("],\"package_sha256\":");
+    push_json_hex(&mut output, &value.package_sha256);
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"page_tree_sha256\":");
+    push_json_hex(&mut output, &sha256(&value.page_tree_observation));
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"is_blank\":");
+        output.push_str(if page.is_blank() { "true" } else { "false" });
+        output.push_str(",\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push_str(",\"painted_content_count\":");
+        output.push_str(&page.painted_content_count.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push('}');
+    output
+}
+
+fn encode_staging_forced_page_break_pdf_boundary(
+    output: &mut String,
+    boundary: &StagingForcedPageBreakPdfBoundary,
+) {
+    output.push_str("{\"after_cursor\":{\"flow_id\":");
+    output.push_str(&boundary.flow_id.to_string());
+    output.push_str(",\"flow_local_ordinal\":");
+    output.push_str(&boundary.after_flow_local_ordinal.to_string());
+    output.push_str("},\"before_cursor\":{\"flow_id\":");
+    output.push_str(&boundary.flow_id.to_string());
+    output.push_str(",\"flow_local_ordinal\":");
+    output.push_str(&boundary.before_flow_local_ordinal.to_string());
+    output.push_str("},\"break_node_id\":");
+    output.push_str(&boundary.break_node_id.to_string());
+    output.push_str(",\"document_ordinal\":");
+    output.push_str(&boundary.document_ordinal.to_string());
+    output.push_str(",\"produced_page_index\":");
+    output.push_str(&boundary.produced_page_index.to_string());
+    output.push('}');
+}
+
+pub const STAGING_MACHINE_LIST_PDF_ALGORITHM: &str = "typaxis.machine-list-pdf/1";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListPdfList {
+    list_node_id: u32,
+    list_flow_id: u32,
+    marker_column_width: i64,
+    marker_gap: i64,
+    start_indent: i64,
+    end_indent: i64,
+    item_frame_inline_size: i64,
+}
+
+impl StagingMachineListPdfList {
+    pub const fn list_node_id(&self) -> u32 {
+        self.list_node_id
+    }
+    pub const fn list_flow_id(&self) -> u32 {
+        self.list_flow_id
+    }
+    pub const fn marker_column_width(&self) -> i64 {
+        self.marker_column_width
+    }
+    pub const fn marker_gap(&self) -> i64 {
+        self.marker_gap
+    }
+    pub const fn start_indent(&self) -> i64 {
+        self.start_indent
+    }
+    pub const fn end_indent(&self) -> i64 {
+        self.end_indent
+    }
+    pub const fn item_frame_inline_size(&self) -> i64 {
+        self.item_frame_inline_size
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListPdfItem {
+    list_node_id: u32,
+    item_node_id: u32,
+    item_index: u32,
+    list_flow_id: u32,
+    item_flow_id: u32,
+    marker_key: GeneratedBufferKey,
+    marker_utf8: String,
+    marker_fragment_id: u64,
+    first_line_fragment_id: u64,
+    page_index: u32,
+    fragment_ids: Vec<u64>,
+    marker_inline_size: i64,
+    marker_column_width: i64,
+    marker_physical_left: i64,
+    content_physical_left: i64,
+    content_inline_size: i64,
+    first_line_inline_size: i64,
+    first_line_block_size: i64,
+    block_offset: i64,
+}
+
+impl StagingMachineListPdfItem {
+    pub const fn list_node_id(&self) -> u32 {
+        self.list_node_id
+    }
+    pub const fn item_node_id(&self) -> u32 {
+        self.item_node_id
+    }
+    pub const fn item_index(&self) -> u32 {
+        self.item_index
+    }
+    pub const fn list_flow_id(&self) -> u32 {
+        self.list_flow_id
+    }
+    pub const fn item_flow_id(&self) -> u32 {
+        self.item_flow_id
+    }
+    pub const fn marker_key(&self) -> GeneratedBufferKey {
+        self.marker_key
+    }
+    pub fn marker_utf8(&self) -> &str {
+        &self.marker_utf8
+    }
+    pub const fn marker_fragment_id(&self) -> u64 {
+        self.marker_fragment_id
+    }
+    pub const fn first_line_fragment_id(&self) -> u64 {
+        self.first_line_fragment_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub fn fragment_ids(&self) -> &[u64] {
+        &self.fragment_ids
+    }
+    pub const fn marker_inline_size(&self) -> i64 {
+        self.marker_inline_size
+    }
+    pub const fn marker_column_width(&self) -> i64 {
+        self.marker_column_width
+    }
+    pub const fn marker_physical_left(&self) -> i64 {
+        self.marker_physical_left
+    }
+    pub const fn content_physical_left(&self) -> i64 {
+        self.content_physical_left
+    }
+    pub const fn content_inline_size(&self) -> i64 {
+        self.content_inline_size
+    }
+    pub const fn first_line_inline_size(&self) -> i64 {
+        self.first_line_inline_size
+    }
+    pub const fn first_line_block_size(&self) -> i64 {
+        self.first_line_block_size
+    }
+    pub const fn block_offset(&self) -> i64 {
+        self.block_offset
+    }
+}
+
+/// PDF-stage list observation. The marker text operation is produced from the
+/// Display-owned generated buffer and retains the exact selected fragment.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineListPdf {
+    display_sha256: [u8; 32],
+    package_sha256: [u8; 32],
+    flow_registry_sha256: [u8; 32],
+    marker_usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    page_count: u32,
+    lists: Vec<StagingMachineListPdfList>,
+    items: Vec<StagingMachineListPdfItem>,
+    content_stream_observation: Vec<u8>,
+    canonical_jcs: String,
+}
+
+impl StagingMachineListPdf {
+    pub fn from_display(display: &StagingMachineListDisplay) -> Self {
+        let lists = display
+            .lists()
+            .iter()
+            .map(|list| StagingMachineListPdfList {
+                list_node_id: list.list_node_id(),
+                list_flow_id: list.list_flow_id(),
+                marker_column_width: list.marker_column_width(),
+                marker_gap: list.marker_gap(),
+                start_indent: list.start_indent(),
+                end_indent: list.end_indent(),
+                item_frame_inline_size: list.item_frame_inline_size(),
+            })
+            .collect();
+        let items: Vec<_> = display
+            .items()
+            .iter()
+            .map(|item| StagingMachineListPdfItem {
+                list_node_id: item.list_node_id(),
+                item_node_id: item.item_node_id(),
+                item_index: item.item_index(),
+                list_flow_id: item.list_flow_id(),
+                item_flow_id: item.item_flow_id(),
+                marker_key: item.marker_key(),
+                marker_utf8: item.marker_utf8().to_owned(),
+                marker_fragment_id: item.marker_fragment_id(),
+                first_line_fragment_id: item.first_line_fragment_id(),
+                page_index: item.page_index(),
+                fragment_ids: item.fragment_ids().to_vec(),
+                marker_inline_size: item.marker_inline_size(),
+                marker_column_width: item.marker_column_width(),
+                marker_physical_left: item.marker_physical_left(),
+                content_physical_left: item.content_physical_left(),
+                content_inline_size: item.content_inline_size(),
+                first_line_inline_size: item.first_line_inline_size(),
+                first_line_block_size: item.first_line_block_size(),
+                block_offset: item.block_offset(),
+            })
+            .collect();
+        let content_stream_observation = encode_staging_machine_list_content(&items);
+        let mut value = Self {
+            display_sha256: sha256(display.canonical_jcs().as_bytes()),
+            package_sha256: display.package_sha256(),
+            flow_registry_sha256: display.flow_registry_sha256(),
+            marker_usage_sha256: display.marker_usage_sha256(),
+            policy_version: display.policy_version(),
+            page_count: display.page_count(),
+            lists,
+            items,
+            content_stream_observation,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_list_pdf(&value);
+        value
+    }
+
+    pub const fn display_sha256(&self) -> [u8; 32] {
+        self.display_sha256
+    }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+    pub const fn marker_usage_sha256(&self) -> [u8; 32] {
+        self.marker_usage_sha256
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub fn lists(&self) -> &[StagingMachineListPdfList] {
+        &self.lists
+    }
+    pub fn items(&self) -> &[StagingMachineListPdfItem] {
+        &self.items
+    }
+    pub fn content_stream_observation(&self) -> &[u8] {
+        &self.content_stream_observation
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+fn encode_staging_machine_list_content(items: &[StagingMachineListPdfItem]) -> Vec<u8> {
+    let mut output = String::new();
+    for item in items {
+        output.push_str("q\n% item ");
+        output.push_str(&item.item_node_id.to_string());
+        output.push_str(" flow ");
+        output.push_str(&item.item_flow_id.to_string());
+        output.push_str(" fragment ");
+        output.push_str(&item.marker_fragment_id.to_string());
+        output.push_str(" page ");
+        output.push_str(&item.page_index.to_string());
+        output.push_str("\nBT ");
+        output.push_str(&item.marker_physical_left.to_string());
+        output.push(' ');
+        output.push_str(&item.block_offset.to_string());
+        output.push_str(" Td <");
+        push_bytes_hex(&mut output, item.marker_utf8.as_bytes());
+        output.push_str("> Tj ET\nQ\n");
+    }
+    output.into_bytes()
+}
+
+fn encode_staging_machine_list_pdf(value: &StagingMachineListPdf) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_LIST_PDF_ALGORITHM);
+    output.push_str(",\"content_stream_sha256\":\"");
+    push_staging_pdf_hex(&mut output, sha256(&value.content_stream_observation));
+    output.push_str("\",\"contract\":\"typaxis.contract/1.2\",\"display_sha256\":\"");
+    push_staging_pdf_hex(&mut output, value.display_sha256);
+    output.push_str("\",\"flow_registry_sha256\":\"");
+    push_staging_pdf_hex(&mut output, value.flow_registry_sha256);
+    output.push_str("\",\"items\":[");
+    for (index, item) in value.items.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        encode_staging_machine_list_pdf_item(&mut output, item);
+    }
+    output.push_str("],\"list_flows\":[");
+    for (index, list) in value.lists.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"end_indent\":");
+        output.push_str(&list.end_indent.to_string());
+        output.push_str(",\"item_frame_inline_size\":");
+        output.push_str(&list.item_frame_inline_size.to_string());
+        output.push_str(",\"list_flow_id\":");
+        output.push_str(&list.list_flow_id.to_string());
+        output.push_str(",\"list_node_id\":");
+        output.push_str(&list.list_node_id.to_string());
+        output.push_str(",\"marker_column_width\":");
+        output.push_str(&list.marker_column_width.to_string());
+        output.push_str(",\"marker_gap\":");
+        output.push_str(&list.marker_gap.to_string());
+        output.push_str(",\"start_indent\":");
+        output.push_str(&list.start_indent.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"marker_usage_sha256\":\"");
+    push_staging_pdf_hex(&mut output, value.marker_usage_sha256);
+    output.push_str("\",\"package_sha256\":\"");
+    push_staging_pdf_hex(&mut output, value.package_sha256);
+    output.push_str("\",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push('}');
+    output
+}
+
+fn encode_staging_machine_list_pdf_item(output: &mut String, item: &StagingMachineListPdfItem) {
+    output.push_str("{\"block_offset\":");
+    output.push_str(&item.block_offset.to_string());
+    output.push_str(",\"content_inline_size\":");
+    output.push_str(&item.content_inline_size.to_string());
+    output.push_str(",\"content_physical_left\":");
+    output.push_str(&item.content_physical_left.to_string());
+    output.push_str(",\"first_line_block_size\":");
+    output.push_str(&item.first_line_block_size.to_string());
+    output.push_str(",\"first_line_fragment_id\":");
+    output.push_str(&item.first_line_fragment_id.to_string());
+    output.push_str(",\"first_line_inline_size\":");
+    output.push_str(&item.first_line_inline_size.to_string());
+    output.push_str(",\"fragment_ids\":[");
+    for (index, fragment) in item.fragment_ids.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&fragment.to_string());
+    }
+    output.push_str("],\"item_flow_id\":");
+    output.push_str(&item.item_flow_id.to_string());
+    output.push_str(",\"item_index\":");
+    output.push_str(&item.item_index.to_string());
+    output.push_str(",\"item_node_id\":");
+    output.push_str(&item.item_node_id.to_string());
+    output.push_str(",\"list_flow_id\":");
+    output.push_str(&item.list_flow_id.to_string());
+    output.push_str(",\"list_node_id\":");
+    output.push_str(&item.list_node_id.to_string());
+    output.push_str(",\"marker_column_width\":");
+    output.push_str(&item.marker_column_width.to_string());
+    output.push_str(",\"marker_fragment_id\":");
+    output.push_str(&item.marker_fragment_id.to_string());
+    output.push_str(",\"marker_inline_size\":");
+    output.push_str(&item.marker_inline_size.to_string());
+    output.push_str(",\"marker_key\":");
+    push_generated_buffer_key_jcs(output, item.marker_key);
+    output.push_str(",\"marker_physical_left\":");
+    output.push_str(&item.marker_physical_left.to_string());
+    output.push_str(",\"marker_utf8\":");
+    push_jcs_string(output, &item.marker_utf8);
+    output.push_str(",\"page_index\":");
+    output.push_str(&item.page_index.to_string());
+    output.push('}');
+}
+
+fn push_bytes_hex(output: &mut String, bytes: &[u8]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ObjectId(u32);
@@ -3556,7 +4989,7 @@ mod tests {
     }
 
     #[test]
-    fn image_placement_counter_reflects_the_page_root_transform() {
+    fn image_xobject_placement_counter_reflects_the_page_root_transform() {
         let mut output = LimitedPdfBuffer::new(1_024);
         write_image_placement(
             &mut output,
@@ -3570,6 +5003,55 @@ mod tests {
         )
         .unwrap();
         assert_eq!(output.bytes, b"q\n30 0 0 -40 10 60 cm\n/Im0 Do\nQ\n");
+    }
+
+    #[test]
+    fn image_xobject_closure_rejects_missing_extra_wrong_and_duplicate_bindings() {
+        let image_0 = ImageResourceId::new(0);
+        let image_1 = ImageResourceId::new(1);
+        let expected = BTreeSet::from([image_0]);
+        let im0 = name(b"Im0");
+        let im1 = name(b"Im1");
+        let closed =
+            close_staging_machine_figure_image_bindings(&expected, [(image_0, &im0)]).unwrap();
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0].image_id(), image_0);
+        assert_eq!(closed[0].resource_name(), "/Im0");
+
+        for bindings in [
+            Vec::new(),
+            vec![(image_0, &im0), (image_1, &im1)],
+            vec![(image_1, &im1)],
+            vec![(image_0, &im0), (image_0, &im1)],
+        ] {
+            assert_eq!(
+                close_staging_machine_figure_image_bindings(&expected, bindings),
+                Err(StagingMachineFigurePdfError::ImageXObjectClosure)
+            );
+        }
+    }
+
+    #[test]
+    fn image_xobject_serialized_closure_allows_soft_mask_but_requires_logical_image() {
+        assert_eq!(
+            require_staging_serialized_image_xobjects(b"%PDF", 1),
+            Err(StagingMachineFigurePdfError::ImageXObjectClosure)
+        );
+        assert_eq!(
+            require_staging_serialized_image_xobjects(b"/Subtype /Image", 1),
+            Ok(())
+        );
+        assert_eq!(
+            require_staging_serialized_image_xobjects(
+                b"/Subtype /Image /SMask 4 0 R /Subtype /Image",
+                2,
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            require_staging_serialized_image_xobjects(b"/Subtype /Image", 2),
+            Err(StagingMachineFigurePdfError::ImageXObjectClosure)
+        );
     }
 
     #[test]
@@ -3964,7 +5446,7 @@ mod tests {
     }
 
     #[test]
-    fn destination_and_internal_annotation_form_a_closed_graph() {
+    fn annotations_destination_and_internal_target_form_a_closed_graph() {
         let (mut builder, root) = valid_graph();
         let page_id = ObjectId::new(3).unwrap();
         let annotation_id = ObjectId::new(4).unwrap();
@@ -4030,11 +5512,66 @@ mod tests {
                 IndirectObjectBody::Value(PdfValue::Dictionary(annotation)),
             )
             .unwrap();
-        assert!(builder.validate_untrusted(root).is_ok());
+        assert!(builder.clone().validate_untrusted(root).is_ok());
+
+        let mut missing = builder.clone();
+        missing.objects.remove(&annotation_id);
+        assert_eq!(
+            missing.validate_untrusted(root),
+            Err(PdfError::MissingReference(annotation_id))
+        );
+
+        let mut extra = builder.clone();
+        let Some(IndirectObjectBody::Value(PdfValue::Dictionary(page))) =
+            extra.objects.get_mut(&page_id)
+        else {
+            panic!("valid fixture must contain a page");
+        };
+        page.insert(
+            name(b"Annots"),
+            PdfValue::Array(vec![
+                PdfValue::Reference(annotation_id),
+                PdfValue::Reference(annotation_id),
+            ]),
+        );
+        assert_eq!(
+            extra.validate_untrusted(root),
+            Err(PdfError::InvalidAnnotationClosure)
+        );
+
+        let mut wrong_page_reference = builder.clone();
+        let Some(IndirectObjectBody::Value(PdfValue::Dictionary(page))) =
+            wrong_page_reference.objects.get_mut(&page_id)
+        else {
+            panic!("valid fixture must contain a page");
+        };
+        page.insert(
+            name(b"Annots"),
+            PdfValue::Array(vec![PdfValue::Reference(root)]),
+        );
+        assert_eq!(
+            wrong_page_reference.validate_untrusted(root),
+            Err(PdfError::UnreachableObject(annotation_id))
+        );
+
+        let mut wrong_target = builder;
+        let Some(IndirectObjectBody::Value(PdfValue::Dictionary(annotation))) =
+            wrong_target.objects.get_mut(&annotation_id)
+        else {
+            panic!("valid fixture must contain an annotation");
+        };
+        annotation.insert(
+            name(b"Dest"),
+            PdfValue::ByteString(b"wrong-target".to_vec()),
+        );
+        assert_eq!(
+            wrong_target.validate_untrusted(root),
+            Err(PdfError::InvalidAnnotationClosure)
+        );
     }
 
     #[test]
-    fn annotation_coordinates_are_converted_outside_the_content_ctm() {
+    fn annotations_coordinates_are_converted_outside_the_content_ctm() {
         let unit = |points: i64| Length::from_raw(points * 65_536).unwrap();
         let positive = |points: i64| PositiveLength::new(unit(points)).unwrap();
         let converted = annotation_rectangle(
@@ -4128,5 +5665,70 @@ mod tests {
             destination_name_value_count(usize::MAX / 2 + 1),
             Err(PdfError::ObjectCountOverflow)
         );
+    }
+
+    #[test]
+    fn machine_block_styles_pdf_observation_preserves_all_typed_selected_facts() {
+        let display = StagingMachineBlockStyleDisplay::paragraph_pdf_test_fixture();
+        let pdf = StagingMachineBlockStylePdf::from_display(&display);
+        assert_eq!(
+            pdf.display_sha256(),
+            typaxis_core::sha256(display.canonical_jcs().as_bytes())
+        );
+        assert_eq!(pdf.package_sha256(), display.package_sha256());
+        assert_eq!(pdf.start_indent(), 10);
+        assert_eq!(pdf.end_indent(), 10);
+        assert_eq!(pdf.logical_start_alignment_space(), 30);
+        assert_eq!(pdf.logical_end_alignment_space(), 31);
+        assert_eq!(pdf.paint_left_inset(), 40);
+        assert_eq!(pdf.paint_inline_size(), 20);
+        assert_eq!(pdf.effective_space_before(), 0);
+        assert_eq!(pdf.effective_space_after(), 6);
+        assert!(pdf.page_break_before());
+        assert!(pdf.keep_with_next());
+        assert_eq!(
+            pdf.content_stream_observation(),
+            b"q\n40 0 20 1 re W n\nQ\n"
+        );
+
+        let display = StagingMachineBlockStyleDisplay::figure_pdf_test_fixture();
+        let pdf = StagingMachineBlockStylePdf::from_display(&display);
+        assert_eq!(pdf.paint_inline_size(), 30);
+        assert!(!pdf.keep_caption());
+        assert!(pdf.canonical_jcs().contains("\"keep_caption\":false"));
+    }
+
+    #[test]
+    fn machine_list_pdf_observation_uses_selected_generated_marker_and_item_flow() {
+        let display = StagingMachineListDisplay::list_pdf_test_fixture();
+        let pdf = StagingMachineListPdf::from_display(&display);
+        assert_eq!(pdf.lists().len(), 1);
+        assert_eq!(pdf.items().len(), 1);
+        assert_eq!(pdf.items()[0].marker_utf8(), "1.");
+        assert_eq!(pdf.items()[0].item_flow_id(), 1);
+        assert_eq!(pdf.items()[0].marker_fragment_id(), 0);
+        let content = std::str::from_utf8(pdf.content_stream_observation()).unwrap();
+        assert!(content.contains("item 2 flow 1 fragment 0 page 0"));
+        assert!(content.contains("<312e> Tj"));
+        assert!(pdf
+            .canonical_jcs()
+            .contains("\"generation_kind\":\"list_marker\""));
+    }
+
+    #[test]
+    fn forced_page_break_pdf_retains_page_count_without_paint_operation() {
+        let display = StagingForcedPageBreakDisplay::forced_page_break_pdf_test_fixture();
+        assert_eq!(display.paint_operation_count(), 0);
+        let pdf = StagingForcedPageBreakPdf::from_display(&display);
+        assert_eq!(pdf.page_count(), 2);
+        assert_eq!(pdf.pages().len(), 2);
+        assert!(pdf
+            .pages()
+            .iter()
+            .all(StagingForcedPageBreakPdfPage::is_blank));
+        assert_eq!(pdf.breaks().len(), 1);
+        assert_eq!(pdf.breaks()[0].produced_page_index(), 1);
+        assert_eq!(pdf.page_tree_observation(), b"/Count 2\n");
+        assert!(pdf.canonical_jcs().contains("\"produced_page_index\":1"));
     }
 }

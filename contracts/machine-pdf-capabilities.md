@@ -1,22 +1,21 @@
 # Machine PDF capability contract
 
-This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and [ADR-0028](../adr/ADR-0028-basic-document-profile.md). Status axes distinguish the implemented/public M1 profile from the accepted but non-current M2 target.
+This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), and the non-public table target adopted by [ADR-0029](../adr/ADR-0029-table-profile.md). The two current profiles are implemented and release-gated; `table-1` is contract-defined only and remains absent from public capabilities until MI3-04.
 
 ## Status axes
 
-| Axis | Current status |
-| --- | --- |
-| contract-defined | Yes: `paragraph-1` and the future `basic-document-1` are fixed below |
-| implemented | `paragraph-1`: yes; `basic-document-1`: no, M2 slices pending |
-| public CLI E2E | `paragraph-1`: yes on macOS/Linux; `basic-document-1`: no, public CLI rejects it |
-| release-supported | `paragraph-1`: yes; `basic-document-1`: no, reserved for MI2-08 |
+| Profile | Contract-defined | Implemented | Public CLI E2E | Release-supported |
+| --- | --- | --- | --- | --- |
+| `paragraph-1` | Yes, ADR-0027 | Yes | Yes | Yes |
+| `basic-document-1` | Yes, ADR-0028 | Yes | Yes | Yes |
+| `table-1` | Yes, ADR-0029 target | No | No; public profile parsing rejects it | No; gate is MI3-04 |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
 ## Identity and default
 
 - Profile ID: `typaxis.machine-pdf/paragraph-1`
-- Contract 1.1 default profile: `typaxis.machine-pdf/paragraph-1`
+- Current contract 1.2 default profile: `typaxis.machine-pdf/paragraph-1`
 - Source closure: exactly one source, `source_id = 0`, entry-only
 - Unknown profile handling: usage exit 2; never fall back to the default or newest profile
 - Manifest rule: record the resolved profile ID and require exact agreement with the preflight receipt
@@ -58,7 +57,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns one `MachineProfileDescriptor::PARAGRAPH_1`. The implementation must derive all of the following from that same descriptor rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns the closed `PARAGRAPH_1` and `BASIC_DOCUMENT_1` descriptors. The implementation must derive all of the following from those descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -92,12 +91,12 @@ When any required token is unavailable, `profiles[].available` is `false`. Missi
 
 The capability artifact is generated from compiled descriptors only. It does not read config, filesystem contents, ambient locale, or per-job overrides. Built-in package byte/depth defaults and hard maxima come from the same core limit descriptor used by decode; effective per-job config remains bound separately by its config fingerprint.
 
-The target 1.1 artifact publishes these descriptor facts from their sole constant/type owners:
+The current 1.2 artifact publishes these descriptor facts from their sole constant/type owners:
 
 | Fact | Value |
 | --- | --- |
 | coordinate unit | `pdf_point_1_65536` |
-| accepted DocumentPackage contracts | `typaxis.contract/1.0`, `typaxis.contract/1.1` |
+| accepted DocumentPackage contracts | `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2` |
 | `max_resource_roots` | 64 |
 | `max_read_candidates` | 131,072 |
 | `max_document_package_bytes` default / hard maximum | 134,217,728 / 9,007,199,254,740,991 |
@@ -106,9 +105,9 @@ The target 1.1 artifact publishes these descriptor facts from their sole constan
 
 Exact maxima are accepted; max+1 is rejected before the associated allocation, open, read, work, or ID issuance. Host root/read-candidate and diagnostics caps are fixed security-profile constants, not per-job overrides.
 
-## Accepted M2 target: `basic-document-1`
+## Public M2 profile: `basic-document-1`
 
-`typaxis.machine-pdf/basic-document-1` is an immutable closed target adopted by ADR-0028. It is not present in current public capabilities and must be rejected by the public CLI until MI2-08. Its required raw DocumentPackage contract is `typaxis.contract/1.2`, with versioned Schema `$id` `https://schemas.typaxis.invalid/1.2/document-package.schema.json`. Contract 1.2 and this profile are staged privately and are published atomically only after all M2 slices and the combined fixture pass.
+`typaxis.machine-pdf/basic-document-1` is the immutable closed profile adopted by ADR-0028 and published by MI2-08. It is present in current public capabilities and is selected explicitly with `--profile typaxis.machine-pdf/basic-document-1`. Its required raw DocumentPackage contract is `typaxis.contract/1.2`, with versioned Schema `$id` `https://schemas.typaxis.invalid/1.2/document-package.schema.json`. Raw 1.0/1.1 input is rejected at `/contract`; no migration path synthesizes 1.2 properties.
 
 The accepted profile domain is exactly:
 
@@ -137,7 +136,109 @@ The closed policy summary is:
 
 The descriptor maps flow/list nodes to `max_ast_nodes`, flow nesting to `max_ast_nesting_depth`, per-marker and selected-overlay bytes to `max_text_buffer_bytes`/`max_text_bytes`, PNG pixels and expanded bytes to `max_image_pixels`/`max_decoded_image_bytes`, link rectangles to `max_fragments`, and annotations/XObjects to `max_pdf_objects`. Exact maxima are accepted and max+1 is refused by the owning phase before work. Stable limit codes are `P1120`, `P1121`, `T2100`, `T2101`, `R7110`, `R7111`, `L5110`, and `G6100` in that order of subjects; no synonymous limit fields are added.
 
-Successful staging artifacts bind `typaxis.basic-profile-receipt/1` and `typaxis.basic-flow-registry/1` fingerprints. Trace and manifest cover the body and every list-item/caption subflow, plus forced-break consumption, list marker groups, figure placement/media, and link rectangles. Missing, extra, wrong-owner/parent/epoch/terminal/target records are `I9190` before publication. Exact property wire values, applicability, keep/oversize behavior, receipt fields, manifest fact names, and the old/new contract compatibility table are normative in ADR-0028 and must be derived from the descriptor rather than re-authored by the CLI.
+Successful basic-document artifacts bind `typaxis.basic-profile-receipt/1` and `typaxis.basic-flow-registry/1` fingerprints. The preflight receipt hash is carried into trace and manifest layout facts; the registry hash covers the body and every list-item/caption subflow, plus forced-break consumption, list marker groups, figure placement/media, and link rectangles. Missing, extra, wrong-owner/parent/epoch/terminal/target records are `I9190` before publication. Exact property wire values, applicability, keep/oversize behavior, receipt fields, manifest fact names, and the old/new contract compatibility table are normative in ADR-0028 and are derived from the descriptor rather than re-authored by the CLI.
+
+## Adopted non-public M3 table target: `table-1`
+
+`typaxis.machine-pdf/table-1` is the immutable target adopted by ADR-0029. It
+requires raw `typaxis.contract/1.2`, stays absent from current capability JSON,
+and is an unknown public profile until MI3-04. It does not broaden either
+public profile or change the `paragraph-1` default. Portable decode/export of
+the pre-existing table wire shape is not an implementation or support claim.
+
+The target inherits the complete `basic-document-1` domain outside tables and
+adds only a direct document-body table. Nested/list-item/cell/caption tables are
+rejected. A table has at least one current 1.2 column and one `head`-or-`body`
+row; cells contain only zero or more paragraphs whose inlines are `text`,
+`soft_break`, or `hard_break`. The table selector accepts only `page = auto`,
+`space_before`, `space_after`, `start_indent`, `end_indent`, and
+`keep_with_next`. Existing text, alignment, figure-width, and caption properties
+on a table selector are `L5101`; cell paragraphs use the unchanged paragraph
+style contract.
+
+The column contract is closed:
+
+- a fixed column is `{"kind":"fixed","width":N}` in
+  `pdf_point_1_65536`, with inclusive `1..9,007,199,254,740,991`;
+- a fraction column is `{"kind":"fraction","weight":W}`, with inclusive
+  `1..65,535`;
+- checked fixed widths are subtracted from the positive indented available
+  inline size; a fixed-only table must equal that size exactly;
+- fraction shares use checked `i128` rational arithmetic and round to nearest,
+  ties to even; the signed rounding residual is assigned only to the last
+  fraction column in wire order; and
+- all final widths must be positive and their checked sum must equal the
+  available inline size. Overflow, unused fixed-only space, non-positive width,
+  or oversubscription is terminal `L5100`, never scaling or clipping.
+
+Grid validation processes `head` then `body`, preserving row and cell source
+order. Each cell origin is the leftmost column whose one-dimensional remaining-
+rowspan count is zero. Positive colspan/rowspan rectangles must be in range,
+non-overlapping, cover each row without a hole, and end within their own
+declared section row count. `head` is the complete leading repeated-header
+group; a rowspan cannot cross into `body`. Columns are owned by table NodeId and
+column index; each cell's canonical owner binds table/section/row/origin/span
+and exactly one package/epoch/parent-bound child FlowId. Malformed grid shape is
+`P1102` before cell layout.
+
+Cell content is at block-start in the zero-padding spanning rectangle. Logical
+row bands use the ADR-0029 deficit-to-last-covered-row allocation. A body-row
+fragment chooses the greatest positive common cut at or below the available
+frame that does not bisect any active cell's indivisible paragraph fragment.
+A cell is split-capable or split-prohibited at a cursor solely from those legal
+boundaries; there is no authored split property. A row that cannot progress in
+a nonempty remainder is deferred once, while failure to progress in an empty
+usable frame is one terminal `L5100` oversize transition with no retry, forced
+cut, keep relaxation, or header suppression.
+
+The complete header group is split-prohibited, must fit an empty body frame,
+and repeats in full before body content on every continuation page. No
+header-only continuation page is allowed. Repetitions bind the original header
+subflows and source fragments with dense `repetition_index` values starting at
+zero; they are not cloned AST/Flow owners. Rowspan continuation carries only
+the cell owner/cursor, vertical offset, and one-dimensional remaining declared
+row counts, and must advance a row/offset or terminate on every step.
+
+The table-specific visual policy is fixed and emits no decoration:
+
+```text
+border = none
+background = transparent
+cell padding = 0
+vertical alignment = block-start
+border spacing = 0
+```
+
+Contract 1.2 has no table-specific border/background/padding/alignment/split
+property. Such a raw name is `P1102` even when it spells the fixed value; it is
+never ignored or defaulted. Variable visual policy requires a new contract and
+profile. The table adds no tagged-PDF table/header semantics.
+
+Table, row, and cell semantic nodes retain the existing `max_ast_nodes` charge;
+each column consumes one additional `max_ast_nodes` unit before vector/grid
+allocation because it has no NodeId. Exact max succeeds and max+1 is `P1120`.
+Each selected body row piece, original header row, and repeated header-row
+occurrence consumes one existing per-state `max_fragments` record before issue;
+exact max succeeds and max+1 is `L5110`. Rowspan is bounded by the declared
+remaining rows in its own section and invalid range is `P1102`. No synonymous
+table count, row-fragment, or rowspan limit is added.
+
+Successful artifacts must bind `typaxis.table-profile-receipt/1` through
+`typaxis.table-grid-receipt/1`, canonical cell FlowIds, cell/row-band layouts,
+row fragments and rowspan continuations, header repetitions,
+`typaxis.table-selected-layout/1`, and
+`typaxis.table-paint-closure/1` to Display/PDF observations, trace, and
+manifest. Missing, extra, wrong-owner/epoch/cursor/page/repetition or added
+decoration facts are `I9190` before publication.
+
+MI3-04 may advertise the profile only after bidirectional descriptor/fixture
+coverage, a combined all-table-plus-M2 fixture in `m3-table.json`, exact/max/max+1
+and receipt-tamper negatives, older-profile table-rejection goldens, external
+PDF/raster checks, deterministic two-run/different-checkout comparison, and all
+documented-host gates pass. Contract 1.2 and current DocumentPackage Schema
+bytes must remain unchanged. If implementation needs a new wire/style field, a
+separate contract-migration task must be inserted before MI3-02/MI3-03 rather
+than changing this profile or contract in place.
 
 ## Compatible changes
 
@@ -166,4 +267,4 @@ The following changes are incompatible and require a new profile ID or an explic
 
 ## Contract and release gating
 
-The public capability artifact and current Schema use `typaxis.contract/1.1`, and MI1-17 has registered the package commands and completed the `paragraph-1` host gate. ADR-0028 does not alter those bytes or claims. MI2-08 is the only milestone that may atomically switch current output to 1.2, add the new profile to public capabilities, remove the staging runner, publish its combined fixture/evidence, and mark `basic-document-1` public or release-supported.
+The public capability artifact and current Schema use `typaxis.contract/1.2`. Its profile array is exactly `basic-document-1`, then `paragraph-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the complete former 1.1 registry, switched every current artifact together, removed dedicated slice-runner entry points, and published `samples/machine-package/matrices/m2-basic.json`. `table-1` remains excluded until the ADR-0029 MI3-04 publication gate closes. Future features may not broaden either public profile in place.

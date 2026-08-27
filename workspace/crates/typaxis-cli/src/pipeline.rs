@@ -4,43 +4,92 @@ use std::path::{Component, Path};
 
 use typaxis_core::{
     DocumentFingerprint, EffectiveConfig, FontInstanceId, GeneratedBufferKey, GenerationKind,
-    HostAdmissionContext, MachineInputFingerprint, MachinePdfProfileId, NonNegativeLength,
-    PortablePath, ResolvedDataTables, SourceId, StyleFingerprint, TextSpan, Utf8ByteOffset,
-    ValidatedResourceLimits,
+    HostAdmissionContext, JsonPointer, MachineInputFingerprint, MachinePdfProfileId,
+    NonNegativeLength, PortablePath, ResolvedDataTables, SourceId, StyleFingerprint, TextSpan,
+    Utf8ByteOffset, ValidatedResourceLimits,
 };
-use typaxis_diagnostics::MachineDiagnosticLender;
-use typaxis_display_list::ValidatedDisplayDocument;
-use typaxis_document::{Block, Inline, ReferenceFormat};
+#[cfg(test)]
+use typaxis_core::{ImageResourceId, NodeId};
+use typaxis_diagnostics::{
+    DiagnosticBuilder, DiagnosticLocation, MachineDiagnosticLender, PublicMachineError, Severity,
+};
+#[cfg(test)]
+use typaxis_display_list::{
+    StagingForcedPageBreakDisplay, StagingMachineBlockStyleDisplay, StagingMachineFigureDisplay,
+    StagingMachineLinkAnnotationTamper, StagingMachineListDisplay,
+};
+use typaxis_display_list::{
+    StagingForcedPageBreakDisplayError, StagingMachineFigureDisplayError,
+    StagingMachineLinkDisplay, StagingMachineLinkDisplayError, StagingMachineListDisplayError,
+    ValidatedDisplayDocument,
+};
+use typaxis_document::{Block, DocumentNodeKind, Inline, ReferenceFormat};
+#[cfg(test)]
 use typaxis_layout::{
-    CanonicalFlowIrBuilder, FlowTree, LayoutEpoch, MachineGlyphCoverage,
+    consume_typed_block_style, layout_staging_forced_page_breaks, layout_staging_machine_figures,
+    layout_staging_machine_lists, ProductionFlowIr, StagingMachineListLayoutInput,
+    TypedBlockLayoutInput,
+};
+use typaxis_layout::{
+    CanonicalFlowIrBuilder, FlowTree, LayoutEpoch, LayoutEpochError, MachineGlyphCoverage,
     MachineParagraphFlowBuilder, MachineParagraphFlowError, MachineStyleFontPreparationError,
-    MachineTextSiteSource, PreparedMachineStyleFonts, ShapeFontSelectionReceipt,
+    MachineTextSiteSource, PreparedMachineStyleFonts, ProductionFlowIrBuilder,
+    ShapeFontSelectionReceipt, StagingFigureLayoutError, StagingForcedPageBreakLayoutError,
+    StagingMachineListLayoutError, TypedStyleConsumerError,
 };
 use typaxis_linebreak::{
     break_paragraph_validated, BoundedReferenceParagraphFactory, LineLayoutContext, LineShape,
     LineShapeExhaustion, OptimalParagraphBreaker, ParagraphShapedText, ReferenceSpaceGlue,
-    ValidatedParagraphBreak, ValidatedParagraphItemRegistry,
+    StagingMachineLinkClusterError, ValidatedParagraphBreak, ValidatedParagraphItemRegistry,
+    ValidatedStagingMachineLinkClusters,
 };
 use typaxis_machine_input::MachineInputSessionIdentity;
 use typaxis_machine_profile::{
-    MachinePdfPreflight, MachinePdfPreflightFailure, MachinePdfPreflightReceipt,
-    MachinePdfReceiptMismatch,
+    BasicDocumentFigurePreflight, BasicDocumentFigurePreflightFailure,
+    BasicDocumentForcedPageBreakPreflight, BasicDocumentLinkPreflight, BasicDocumentListPreflight,
+    BasicDocumentListPreflightFailure, BasicDocumentStylePreflight,
+    BasicDocumentStylePreflightFailure, MachinePdfPreflight, MachinePdfPreflightFailure,
+    MachinePdfPreflightReceipt, MachinePdfReceiptMismatch,
+};
+#[cfg(test)]
+use typaxis_manifest::{
+    StagingForcedPageBreakManifestFact, StagingMachineBlockStyleManifestFact,
+    StagingMachineFigureManifestFact, StagingMachineLinkManifestFact,
+    StagingMachineListManifestFact,
+};
+#[cfg(test)]
+use typaxis_pagination::{
+    paginate_staging_forced_page_breaks, paginate_staging_machine_figures,
+    paginate_staging_machine_lists, StagingFigureCaptionBlockInput,
+    StagingForcedPageBreakPaginationInput, StagingMachineFigurePaginationInput,
+    StagingMachineListPageInput,
 };
 use typaxis_pagination::{
     ConvergenceStatus, InitialPaginationState, PaginationError, PaginationResult,
-    ReferencePaginator,
+    ReferencePaginator, StagingForcedPageBreakPaginationError, StagingMachineFigurePaginationError,
+    StagingMachineListPaginationError,
 };
 use typaxis_resources::{
     AdmittedFontInstanceTable, AdmittedResourceLedger, AdmittedResourceResolver,
-    HostResourceAdmissionSession, ReferenceResourceFinalizer, ResourceError,
-    ResourceFinalizationInput, ResourceFinalizer,
+    HostResourceAdmissionSession, ReferenceResourceFinalizer, ResourceAdmissionError,
+    ResourceError, ResourceFinalizationInput, ResourceFinalizer,
 };
 use typaxis_shaping::{CanonicalItemizer, LinkedShaper, ParagraphItemizationInput, ShapingCache};
+#[cfg(test)]
+use typaxis_syntax::StagingStylePackageParser;
 use typaxis_syntax::{
-    PackageShapeTextReceipt, PackageValidationPolicy, ParseOutcome, Parser, ReferenceParser,
-    SourceFile, ValidatedMachinePackage, ValidatedParsedPackage,
+    PackageGeneratedTextError, PackageShapeTextReceipt, PackageValidationPolicy, ParseOutcome,
+    Parser, ReferenceParser, SourceFile, StagingStyleReceiptMismatch,
+    ValidatedBasicDocumentPackage, ValidatedMachinePackage, ValidatedParsedPackage,
 };
 use typaxis_text::GeneratedTextStore;
+
+#[cfg(test)]
+use typaxis_pdf::{
+    PdfBackend, StagingForcedPageBreakPdf, StagingMachineBlockStylePdf, StagingMachineFigurePdf,
+    StagingMachineLinkPdf, StagingMachineListPdf,
+};
+use typaxis_pdf::{StagingMachineFigurePdfError, StagingMachineLinkPdfError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FailureKind {
@@ -68,6 +117,719 @@ pub struct Failure {
     pub kind: FailureKind,
     pub message: String,
     failed_manifest_policy: FailedManifestPolicy,
+}
+
+#[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
+#[derive(Debug)]
+pub(crate) enum StagingMachineBlockStyleRunnerError {
+    Decode(typaxis_document_package::DocumentPackageDecodeError),
+    Syntax(typaxis_syntax::MachineParseFailure),
+    Preflight(BasicDocumentStylePreflightFailure),
+    ComputedStyle(StagingStyleReceiptMismatch),
+    Layout(TypedStyleConsumerError),
+}
+
+#[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct StagingMachineBlockStyleArtifacts {
+    display_jcs: String,
+    pdf_jcs: String,
+    pdf_content_observation: Vec<u8>,
+    manifest_jcs: String,
+}
+
+#[allow(dead_code)]
+impl StagingMachineBlockStyleArtifacts {
+    pub(crate) fn display_jcs(&self) -> &str {
+        &self.display_jcs
+    }
+    pub(crate) fn pdf_jcs(&self) -> &str {
+        &self.pdf_jcs
+    }
+    pub(crate) fn pdf_content_observation(&self) -> &[u8] {
+        &self.pdf_content_observation
+    }
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+}
+
+/// Test-only MI2-03 closure harness. Public builds use the normal profile-aware
+/// machine pipeline below.
+#[cfg(test)]
+fn exercise_basic_block_style_slice(
+    package_bytes: &[u8],
+    source_utf8: String,
+    policy: &PackageValidationPolicy<'_>,
+    limits: &ValidatedResourceLimits,
+    owner: NodeId,
+    input: TypedBlockLayoutInput,
+    diagnostics: &mut MachineDiagnosticLender<'_>,
+) -> Result<StagingMachineBlockStyleArtifacts, StagingMachineBlockStyleRunnerError> {
+    let decoded = typaxis_document_package::StagingStyleDocumentPackageDecoder::new()
+        .decode(
+            package_bytes,
+            &typaxis_document_package::DocumentPackageDecodePolicy::new(limits),
+        )
+        .map_err(StagingMachineBlockStyleRunnerError::Decode)?;
+    let package = StagingStylePackageParser::new()
+        .parse(decoded, source_utf8, policy)
+        .map_err(StagingMachineBlockStyleRunnerError::Syntax)?;
+    let preflight = BasicDocumentStylePreflight::STAGING
+        .run(&package, diagnostics)
+        .map_err(StagingMachineBlockStyleRunnerError::Preflight)?;
+    debug_assert!(preflight.verifies(&package));
+    let computed = package
+        .compute_block_style(owner, None)
+        .map_err(StagingMachineBlockStyleRunnerError::ComputedStyle)?;
+    let selected = consume_typed_block_style(&computed, input)
+        .map_err(StagingMachineBlockStyleRunnerError::Layout)?;
+    let display = StagingMachineBlockStyleDisplay::from_selected(&selected);
+    let pdf = StagingMachineBlockStylePdf::from_display(&display);
+    let manifest = StagingMachineBlockStyleManifestFact::from_pdf(&pdf);
+    Ok(StagingMachineBlockStyleArtifacts {
+        display_jcs: display.canonical_jcs().to_owned(),
+        pdf_jcs: pdf.canonical_jcs().to_owned(),
+        pdf_content_observation: pdf.content_stream_observation().to_vec(),
+        manifest_jcs: manifest.canonical_jcs().to_owned(),
+    })
+}
+
+#[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
+#[derive(Debug)]
+pub(crate) enum StagingMachineListRunnerError {
+    Decode(typaxis_document_package::DocumentPackageDecodeError),
+    Syntax(typaxis_syntax::MachineParseFailure),
+    StylePreflight(BasicDocumentStylePreflightFailure),
+    ListPreflight(BasicDocumentListPreflightFailure),
+    GeneratedText(PackageGeneratedTextError),
+    ResourceAdmission(ResourceAdmissionError),
+    LayoutEpoch(LayoutEpochError),
+    Flow(typaxis_layout::FlowRegistryError),
+    Layout(StagingMachineListLayoutError),
+    Pagination(StagingMachineListPaginationError),
+    Display(StagingMachineListDisplayError),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct StagingMachineListArtifacts {
+    trace_jcs: String,
+    display_jcs: String,
+    pdf_jcs: String,
+    pdf_content_observation: Vec<u8>,
+    manifest_jcs: String,
+}
+
+#[allow(dead_code)]
+impl StagingMachineListArtifacts {
+    pub(crate) fn trace_jcs(&self) -> &str {
+        &self.trace_jcs
+    }
+    pub(crate) fn display_jcs(&self) -> &str {
+        &self.display_jcs
+    }
+    pub(crate) fn pdf_jcs(&self) -> &str {
+        &self.pdf_jcs
+    }
+    pub(crate) fn pdf_content_observation(&self) -> &[u8] {
+        &self.pdf_content_observation
+    }
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+}
+
+/// Test-only MI2-04 closure harness for exact list receipts and tamper cases.
+/// Public builds use the normal profile-aware machine pipeline below.
+#[cfg(test)]
+fn exercise_basic_list_slice(
+    package_bytes: &[u8],
+    source_utf8: String,
+    policy: &PackageValidationPolicy<'_>,
+    limits: &ValidatedResourceLimits,
+    layout_input: StagingMachineListLayoutInput,
+    page_input: StagingMachineListPageInput,
+    diagnostics: &mut MachineDiagnosticLender<'_>,
+) -> Result<StagingMachineListArtifacts, StagingMachineListRunnerError> {
+    let decoded = typaxis_document_package::StagingStyleDocumentPackageDecoder::new()
+        .decode(
+            package_bytes,
+            &typaxis_document_package::DocumentPackageDecodePolicy::new(limits),
+        )
+        .map_err(StagingMachineListRunnerError::Decode)?;
+    let package = StagingStylePackageParser::new()
+        .parse(decoded, source_utf8, policy)
+        .map_err(StagingMachineListRunnerError::Syntax)?;
+    let style_preflight = BasicDocumentStylePreflight::STAGING
+        .run(&package, diagnostics)
+        .map_err(StagingMachineListRunnerError::StylePreflight)?;
+    debug_assert!(style_preflight.verifies(&package));
+    let list_preflight = BasicDocumentListPreflight::STAGING
+        .run(&package, limits, diagnostics)
+        .map_err(StagingMachineListRunnerError::ListPreflight)?;
+    let generated_store = package
+        .package()
+        .materialize_initial_generated_text(limits)
+        .map_err(StagingMachineListRunnerError::GeneratedText)?;
+    let generated = package
+        .package()
+        .bind_generated_text(&generated_store, limits)
+        .map_err(StagingMachineListRunnerError::GeneratedText)?;
+    let admitted = AdmittedResourceResolver::new(&package.package().package().resources, limits)
+        .and_then(AdmittedResourceResolver::finish)
+        .map_err(StagingMachineListRunnerError::ResourceAdmission)?;
+    let epoch = LayoutEpoch::from_validated_inputs(generated, admitted.token())
+        .map_err(StagingMachineListRunnerError::LayoutEpoch)?;
+    let ir = ProductionFlowIr::for_empty_paragraph_content(package.package(), epoch, limits)
+        .map_err(StagingMachineListRunnerError::Flow)?;
+    let layout = layout_staging_machine_lists(
+        &package,
+        list_preflight.layout_receipt(),
+        generated,
+        &ir,
+        layout_input,
+    )
+    .map_err(StagingMachineListRunnerError::Layout)?;
+    let selected = paginate_staging_machine_lists(&layout, &ir, page_input, limits)
+        .map_err(StagingMachineListRunnerError::Pagination)?;
+    let trace = selected.trace_facts();
+    let display = StagingMachineListDisplay::from_selected(&selected)
+        .map_err(StagingMachineListRunnerError::Display)?;
+    let pdf = StagingMachineListPdf::from_display(&display);
+    let manifest = StagingMachineListManifestFact::from_pdf(&pdf);
+    Ok(StagingMachineListArtifacts {
+        trace_jcs: trace.canonical_jcs().to_owned(),
+        display_jcs: display.canonical_jcs().to_owned(),
+        pdf_jcs: pdf.canonical_jcs().to_owned(),
+        pdf_content_observation: pdf.content_stream_observation().to_vec(),
+        manifest_jcs: manifest.canonical_jcs().to_owned(),
+    })
+}
+
+#[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
+#[derive(Debug)]
+pub(crate) enum StagingMachinePageBreakRunnerError {
+    Decode(typaxis_document_package::DocumentPackageDecodeError),
+    Syntax(typaxis_syntax::MachineParseFailure),
+    StylePreflight(BasicDocumentStylePreflightFailure),
+    BreakPreflight(typaxis_syntax::StagingForcedPageBreakPreflightError),
+    GeneratedText(PackageGeneratedTextError),
+    ResourceAdmission(ResourceAdmissionError),
+    LayoutEpoch(LayoutEpochError),
+    Flow(typaxis_layout::FlowRegistryError),
+    Layout(StagingForcedPageBreakLayoutError),
+    Pagination(StagingForcedPageBreakPaginationError),
+    Display(StagingForcedPageBreakDisplayError),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct StagingMachinePageBreakArtifacts {
+    trace_jcs: String,
+    display_jcs: String,
+    pdf_jcs: String,
+    pdf_page_tree_observation: Vec<u8>,
+    manifest_jcs: String,
+}
+
+#[allow(dead_code)]
+impl StagingMachinePageBreakArtifacts {
+    pub(crate) fn trace_jcs(&self) -> &str {
+        &self.trace_jcs
+    }
+
+    pub(crate) fn display_jcs(&self) -> &str {
+        &self.display_jcs
+    }
+
+    pub(crate) fn pdf_jcs(&self) -> &str {
+        &self.pdf_jcs
+    }
+
+    pub(crate) fn pdf_page_tree_observation(&self) -> &[u8] {
+        &self.pdf_page_tree_observation
+    }
+
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+}
+
+/// Test-only MI2-05 closure harness for forced-break receipt tampering.
+/// Public builds use the normal profile-aware machine pipeline below.
+#[cfg(test)]
+fn exercise_basic_page_break_slice(
+    package_bytes: &[u8],
+    source_utf8: String,
+    policy: &PackageValidationPolicy<'_>,
+    limits: &ValidatedResourceLimits,
+    painted_content_owners: Vec<NodeId>,
+    diagnostics: &mut MachineDiagnosticLender<'_>,
+) -> Result<StagingMachinePageBreakArtifacts, StagingMachinePageBreakRunnerError> {
+    let decoded = typaxis_document_package::StagingStyleDocumentPackageDecoder::new()
+        .decode(
+            package_bytes,
+            &typaxis_document_package::DocumentPackageDecodePolicy::new(limits),
+        )
+        .map_err(StagingMachinePageBreakRunnerError::Decode)?;
+    let package = StagingStylePackageParser::new()
+        .parse(decoded, source_utf8, policy)
+        .map_err(StagingMachinePageBreakRunnerError::Syntax)?;
+    let style_preflight = BasicDocumentStylePreflight::STAGING
+        .run(&package, diagnostics)
+        .map_err(StagingMachinePageBreakRunnerError::StylePreflight)?;
+    debug_assert!(style_preflight.verifies(&package));
+    let break_preflight = BasicDocumentForcedPageBreakPreflight::STAGING
+        .run(&package)
+        .map_err(StagingMachinePageBreakRunnerError::BreakPreflight)?;
+    debug_assert!(break_preflight.verifies(&package));
+    let generated_store = package
+        .package()
+        .materialize_initial_generated_text(limits)
+        .map_err(StagingMachinePageBreakRunnerError::GeneratedText)?;
+    let generated = package
+        .package()
+        .bind_generated_text(&generated_store, limits)
+        .map_err(StagingMachinePageBreakRunnerError::GeneratedText)?;
+    let admitted = AdmittedResourceResolver::new(&package.package().package().resources, limits)
+        .and_then(AdmittedResourceResolver::finish)
+        .map_err(StagingMachinePageBreakRunnerError::ResourceAdmission)?;
+    let epoch = LayoutEpoch::from_validated_inputs(generated, admitted.token())
+        .map_err(StagingMachinePageBreakRunnerError::LayoutEpoch)?;
+    let ir = ProductionFlowIr::for_empty_paragraph_content(package.package(), epoch, limits)
+        .map_err(StagingMachinePageBreakRunnerError::Flow)?;
+    let layout = layout_staging_forced_page_breaks(&package, break_preflight.layout_receipt(), &ir)
+        .map_err(StagingMachinePageBreakRunnerError::Layout)?;
+    let input = StagingForcedPageBreakPaginationInput::new(&ir, painted_content_owners)
+        .map_err(StagingMachinePageBreakRunnerError::Pagination)?;
+    let selected = paginate_staging_forced_page_breaks(&layout, &ir, &input, limits)
+        .map_err(StagingMachinePageBreakRunnerError::Pagination)?;
+    let trace = selected.trace_facts();
+    let display = StagingForcedPageBreakDisplay::from_selected(&selected)
+        .map_err(StagingMachinePageBreakRunnerError::Display)?;
+    let pdf = StagingForcedPageBreakPdf::from_display(&display);
+    let manifest = StagingForcedPageBreakManifestFact::from_pdf(&pdf);
+    Ok(StagingMachinePageBreakArtifacts {
+        trace_jcs: trace.canonical_jcs().to_owned(),
+        display_jcs: display.canonical_jcs().to_owned(),
+        pdf_jcs: pdf.canonical_jcs().to_owned(),
+        pdf_page_tree_observation: pdf.page_tree_observation().to_vec(),
+        manifest_jcs: manifest.canonical_jcs().to_owned(),
+    })
+}
+
+#[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
+#[derive(Debug)]
+pub(crate) enum StagingMachineFigureRunnerError {
+    Decode(typaxis_document_package::DocumentPackageDecodeError),
+    Syntax(typaxis_syntax::MachineParseFailure),
+    StylePreflight(BasicDocumentStylePreflightFailure),
+    FigurePreflight(BasicDocumentFigurePreflightFailure),
+    GeneratedText(PackageGeneratedTextError),
+    ResourceAdmission(ResourceAdmissionError),
+    LayoutEpoch(LayoutEpochError),
+    Flow(typaxis_layout::FlowRegistryError),
+    Layout(StagingFigureLayoutError),
+    Pagination(StagingMachineFigurePaginationError),
+    Display(StagingMachineFigureDisplayError),
+    ResourceFinalization(ResourceError),
+    Pdf(typaxis_pdf::PdfError),
+    PdfObservation(StagingMachineFigurePdfError),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct StagingMachineFigureArtifacts {
+    selected_jcs: String,
+    display_jcs: String,
+    pdf_jcs: String,
+    manifest_jcs: String,
+    pdf_receipt: typaxis_pdf::VerifiedPdfBytesReceipt,
+    pdf_sha256: [u8; 32],
+    page_count: u32,
+    object_count: u32,
+    image_xobject_count: u32,
+}
+
+#[allow(dead_code)]
+impl StagingMachineFigureArtifacts {
+    pub(crate) fn selected_jcs(&self) -> &str {
+        &self.selected_jcs
+    }
+    pub(crate) fn display_jcs(&self) -> &str {
+        &self.display_jcs
+    }
+    pub(crate) fn pdf_jcs(&self) -> &str {
+        &self.pdf_jcs
+    }
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+    pub(crate) fn pdf_bytes(&self) -> &[u8] {
+        self.pdf_receipt.bytes()
+    }
+    pub(crate) fn write_pdf<W: std::io::Write>(
+        &self,
+        sink: &mut W,
+    ) -> std::io::Result<typaxis_pdf::PdfStreamWriteFacts> {
+        self.pdf_receipt.write_streaming(sink)
+    }
+    pub(crate) const fn pdf_sha256(&self) -> [u8; 32] {
+        self.pdf_sha256
+    }
+    pub(crate) const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub(crate) const fn object_count(&self) -> u32 {
+        self.object_count
+    }
+    pub(crate) const fn image_xobject_count(&self) -> u32 {
+        self.image_xobject_count
+    }
+}
+
+/// Test-only MI2-06 closure harness. It retains the focused injected-caption
+/// measurements used by exact-boundary and tamper tests.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn exercise_basic_figure_slice(
+    package_bytes: &[u8],
+    source_utf8: String,
+    policy: &PackageValidationPolicy<'_>,
+    config: &EffectiveConfig,
+    admission: &HostAdmissionContext,
+    initial_consumed_block_size: NonNegativeLength,
+    caption_measurements: Vec<StagingFigureCaptionBlockInput>,
+    draw_image_ids: Vec<ImageResourceId>,
+    diagnostics: &mut MachineDiagnosticLender<'_>,
+) -> Result<StagingMachineFigureArtifacts, StagingMachineFigureRunnerError> {
+    let limits = config.limits();
+    let decoded = typaxis_document_package::StagingStyleDocumentPackageDecoder::new()
+        .decode(
+            package_bytes,
+            &typaxis_document_package::DocumentPackageDecodePolicy::new(limits),
+        )
+        .map_err(StagingMachineFigureRunnerError::Decode)?;
+    let package = StagingStylePackageParser::new()
+        .parse(decoded, source_utf8, policy)
+        .map_err(StagingMachineFigureRunnerError::Syntax)?;
+    let style_preflight = BasicDocumentStylePreflight::STAGING
+        .run(&package, diagnostics)
+        .map_err(StagingMachineFigureRunnerError::StylePreflight)?;
+    debug_assert!(style_preflight.verifies(&package));
+    let figure_preflight = BasicDocumentFigurePreflight::STAGING
+        .run(&package)
+        .map_err(StagingMachineFigureRunnerError::FigurePreflight)?;
+    debug_assert!(figure_preflight.verifies(&package));
+    let generated_store = package
+        .package()
+        .materialize_initial_generated_text(limits)
+        .map_err(StagingMachineFigureRunnerError::GeneratedText)?;
+    let generated = package
+        .package()
+        .bind_generated_text(&generated_store, limits)
+        .map_err(StagingMachineFigureRunnerError::GeneratedText)?;
+
+    let resource_session = HostResourceAdmissionSession::new(
+        admission,
+        config,
+        &package.package().package().resources,
+    )
+    .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+    let mut resolver = AdmittedResourceResolver::new_with_roots(
+        &package.package().package().resources,
+        limits,
+        resource_session.roots(),
+    )
+    .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+    for declaration in &package.package().package().resources.font_faces {
+        let source = resource_session
+            .open_font(declaration.font_face_id)
+            .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+        let pending = resolver
+            .read_font(source)
+            .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+        resolver
+            .parse_and_bind_sfnt(pending)
+            .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+    }
+    for declaration in &package.package().package().resources.images {
+        let source = resource_session
+            .open_image(declaration.image_id)
+            .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+        let pending = resolver
+            .read_image(source)
+            .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+        resolver
+            .parse_and_bind_png(pending)
+            .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+    }
+    let admitted = resolver
+        .finish()
+        .map_err(StagingMachineFigureRunnerError::ResourceAdmission)?;
+    let epoch = LayoutEpoch::from_validated_inputs(generated, admitted.token())
+        .map_err(StagingMachineFigureRunnerError::LayoutEpoch)?;
+    let ir = ProductionFlowIr::for_empty_paragraph_content(package.package(), epoch, limits)
+        .map_err(StagingMachineFigureRunnerError::Flow)?;
+    let layout =
+        layout_staging_machine_figures(&package, figure_preflight.layout_receipt(), &admitted, &ir)
+            .map_err(StagingMachineFigureRunnerError::Layout)?;
+    let pagination_input = StagingMachineFigurePaginationInput::new(
+        &layout,
+        initial_consumed_block_size,
+        caption_measurements,
+    )
+    .map_err(StagingMachineFigureRunnerError::Pagination)?;
+    let selected = paginate_staging_machine_figures(&layout, &ir, &pagination_input, limits)
+        .map_err(StagingMachineFigureRunnerError::Pagination)?;
+    let selected_jcs = selected.canonical_jcs().to_owned();
+    let display =
+        StagingMachineFigureDisplay::from_selected_with_draw_image_ids(&selected, draw_image_ids)
+            .map_err(StagingMachineFigureRunnerError::Display)?;
+    let display_jcs = display.canonical_jcs().to_owned();
+    let resource_plans = ReferenceResourceFinalizer::new()
+        .finalize(ResourceFinalizationInput {
+            display: display.validated_document(),
+            admitted: &admitted,
+            limits,
+        })
+        .map_err(StagingMachineFigureRunnerError::ResourceFinalization)?;
+    let (trusted_display, display_facts) = display.into_parts();
+    let graph = PdfBackend::build(trusted_display, resource_plans, limits)
+        .map_err(StagingMachineFigureRunnerError::Pdf)?;
+    let receipt = PdfBackend::serialize(graph.clone(), config)
+        .map_err(StagingMachineFigureRunnerError::Pdf)?;
+    let pdf = StagingMachineFigurePdf::from_serialized(&display_facts, &graph, &receipt)
+        .map_err(StagingMachineFigureRunnerError::PdfObservation)?;
+    let manifest = StagingMachineFigureManifestFact::from_pdf(&pdf);
+    Ok(StagingMachineFigureArtifacts {
+        selected_jcs,
+        display_jcs,
+        pdf_jcs: pdf.canonical_jcs().to_owned(),
+        manifest_jcs: manifest.canonical_jcs().to_owned(),
+        pdf_receipt: receipt,
+        pdf_sha256: pdf.pdf_sha256(),
+        page_count: pdf.page_count(),
+        object_count: pdf.object_count(),
+        image_xobject_count: pdf.image_xobject_count(),
+    })
+}
+
+#[allow(dead_code)] // focused MI2 slice-test fact type; no public execution entrance
+#[derive(Debug)]
+pub(crate) enum StagingMachineLinkRunnerError {
+    Decode(typaxis_document_package::DocumentPackageDecodeError),
+    Syntax(typaxis_syntax::MachineParseFailure),
+    StylePreflight(BasicDocumentStylePreflightFailure),
+    LinkPreflight(typaxis_syntax::StagingLinkPreflightError),
+    GeneratedText(PackageGeneratedTextError),
+    UnsupportedImageResource,
+    ResourceAdmission(ResourceAdmissionError),
+    LayoutEpoch(LayoutEpochError),
+    Flow(Failure),
+    Pagination(PaginationError),
+    LinkClusters(StagingMachineLinkClusterError),
+    Display(StagingMachineLinkDisplayError),
+    ResourceFinalization(ResourceError),
+    Pdf(typaxis_pdf::PdfError),
+    PdfObservation(StagingMachineLinkPdfError),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct StagingMachineLinkArtifacts {
+    cluster_jcs: String,
+    display_jcs: String,
+    pdf_jcs: String,
+    manifest_jcs: String,
+    pdf_receipt: typaxis_pdf::VerifiedPdfBytesReceipt,
+    pdf_sha256: [u8; 32],
+    page_count: u32,
+    object_count: u32,
+    destination_count: u32,
+    annotation_count: u32,
+}
+
+#[allow(dead_code)]
+impl StagingMachineLinkArtifacts {
+    pub(crate) fn cluster_jcs(&self) -> &str {
+        &self.cluster_jcs
+    }
+    pub(crate) fn display_jcs(&self) -> &str {
+        &self.display_jcs
+    }
+    pub(crate) fn pdf_jcs(&self) -> &str {
+        &self.pdf_jcs
+    }
+    pub(crate) fn manifest_jcs(&self) -> &str {
+        &self.manifest_jcs
+    }
+    pub(crate) fn pdf_bytes(&self) -> &[u8] {
+        self.pdf_receipt.bytes()
+    }
+    pub(crate) fn write_pdf<W: std::io::Write>(
+        &self,
+        sink: &mut W,
+    ) -> std::io::Result<typaxis_pdf::PdfStreamWriteFacts> {
+        self.pdf_receipt.write_streaming(sink)
+    }
+    pub(crate) const fn pdf_sha256(&self) -> [u8; 32] {
+        self.pdf_sha256
+    }
+    pub(crate) const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub(crate) const fn object_count(&self) -> u32 {
+        self.object_count
+    }
+    pub(crate) const fn destination_count(&self) -> u32 {
+        self.destination_count
+    }
+    pub(crate) const fn annotation_count(&self) -> u32 {
+        self.annotation_count
+    }
+}
+
+/// Test-only MI2-07 closure harness for injected annotation tamper cases.
+/// Public builds use the normal profile-aware machine pipeline below.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn exercise_basic_link_slice(
+    package_bytes: &[u8],
+    source_utf8: String,
+    policy: &PackageValidationPolicy<'_>,
+    config: &EffectiveConfig,
+    admission: &HostAdmissionContext,
+    annotation_tamper: StagingMachineLinkAnnotationTamper,
+    diagnostics: &mut MachineDiagnosticLender<'_>,
+) -> Result<StagingMachineLinkArtifacts, StagingMachineLinkRunnerError> {
+    let limits = config.limits();
+    let decoded = typaxis_document_package::StagingStyleDocumentPackageDecoder::new()
+        .decode(
+            package_bytes,
+            &typaxis_document_package::DocumentPackageDecodePolicy::new(limits),
+        )
+        .map_err(StagingMachineLinkRunnerError::Decode)?;
+    let package = StagingStylePackageParser::new()
+        .parse(decoded, source_utf8, policy)
+        .map_err(StagingMachineLinkRunnerError::Syntax)?;
+    let style_preflight = BasicDocumentStylePreflight::STAGING
+        .run(&package, diagnostics)
+        .map_err(StagingMachineLinkRunnerError::StylePreflight)?;
+    debug_assert!(style_preflight.verifies(&package));
+    let link_preflight = BasicDocumentLinkPreflight::STAGING
+        .run(&package)
+        .map_err(StagingMachineLinkRunnerError::LinkPreflight)?;
+    debug_assert!(link_preflight.verifies(&package));
+
+    let generated_store = package
+        .package()
+        .materialize_initial_generated_text(limits)
+        .map_err(StagingMachineLinkRunnerError::GeneratedText)?;
+    let generated = package
+        .package()
+        .bind_generated_text(&generated_store, limits)
+        .map_err(StagingMachineLinkRunnerError::GeneratedText)?;
+    let resource_session = HostResourceAdmissionSession::new(
+        admission,
+        config,
+        &package.package().package().resources,
+    )
+    .map_err(StagingMachineLinkRunnerError::ResourceAdmission)?;
+    let mut resolver = AdmittedResourceResolver::new_with_roots(
+        &package.package().package().resources,
+        limits,
+        resource_session.roots(),
+    )
+    .map_err(StagingMachineLinkRunnerError::ResourceAdmission)?;
+    for declaration in &package.package().package().resources.font_faces {
+        let source = resource_session
+            .open_font(declaration.font_face_id)
+            .map_err(StagingMachineLinkRunnerError::ResourceAdmission)?;
+        let pending = resolver
+            .read_font(source)
+            .map_err(StagingMachineLinkRunnerError::ResourceAdmission)?;
+        resolver
+            .parse_and_bind_sfnt(pending)
+            .map_err(StagingMachineLinkRunnerError::ResourceAdmission)?;
+    }
+    if !package.package().package().resources.images.is_empty() {
+        return Err(StagingMachineLinkRunnerError::UnsupportedImageResource);
+    }
+    let admitted = resolver
+        .finish()
+        .map_err(StagingMachineLinkRunnerError::ResourceAdmission)?;
+    let epoch = LayoutEpoch::from_validated_inputs(generated, admitted.token())
+        .map_err(StagingMachineLinkRunnerError::LayoutEpoch)?;
+    let flow = build_reference_flow(package.package(), generated, &admitted, epoch, config)
+        .map_err(StagingMachineLinkRunnerError::Flow)?;
+    let pagination = ReferencePaginator::new()
+        .paginate_with_reflow(
+            package.package(),
+            &flow,
+            limits,
+            false,
+            |store, working_epoch| {
+                let binding = package
+                    .package()
+                    .bind_generated_text(store, limits)
+                    .map_err(|_| PaginationError::PackageEpochMismatch)?;
+                build_reference_flow(package.package(), binding, &admitted, working_epoch, config)
+                    .map_err(|_| PaginationError::FatalLayout)
+            },
+        )
+        .map_err(StagingMachineLinkRunnerError::Pagination)?
+        .into_result();
+    let registry = pagination.selected_flow().paragraph_items().ok_or(
+        StagingMachineLinkRunnerError::LinkClusters(
+            StagingMachineLinkClusterError::MissingParagraph,
+        ),
+    )?;
+    let clusters = ValidatedStagingMachineLinkClusters::from_registry(
+        &package,
+        link_preflight.cluster_receipt(),
+        registry,
+    )
+    .map_err(StagingMachineLinkRunnerError::LinkClusters)?;
+    let cluster_jcs = clusters.canonical_jcs().to_owned();
+    let display = StagingMachineLinkDisplay::from_selected_with_tamper(
+        &package,
+        &pagination,
+        pagination.selected_flow(),
+        &clusters,
+        config,
+        annotation_tamper,
+    )
+    .map_err(StagingMachineLinkRunnerError::Display)?;
+    let display_jcs = display.canonical_jcs().to_owned();
+    let plans = ReferenceResourceFinalizer::new()
+        .finalize(ResourceFinalizationInput {
+            display: display.validated_document(),
+            admitted: &admitted,
+            limits,
+        })
+        .map_err(StagingMachineLinkRunnerError::ResourceFinalization)?;
+    let (trusted_display, display_facts) = display.into_parts();
+    let graph = PdfBackend::build(trusted_display, plans, limits)
+        .map_err(StagingMachineLinkRunnerError::Pdf)?;
+    let receipt =
+        PdfBackend::serialize(graph.clone(), config).map_err(StagingMachineLinkRunnerError::Pdf)?;
+    let pdf = StagingMachineLinkPdf::from_serialized(&display_facts, &graph, &receipt)
+        .map_err(StagingMachineLinkRunnerError::PdfObservation)?;
+    let manifest = StagingMachineLinkManifestFact::from_pdf(&pdf);
+    Ok(StagingMachineLinkArtifacts {
+        cluster_jcs,
+        display_jcs,
+        pdf_jcs: pdf.canonical_jcs().to_owned(),
+        manifest_jcs: manifest.canonical_jcs().to_owned(),
+        pdf_receipt: receipt,
+        pdf_sha256: pdf.pdf_sha256(),
+        page_count: pdf.page_count(),
+        object_count: pdf.object_count(),
+        destination_count: pdf.destination_count(),
+        annotation_count: pdf.annotation_count(),
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -551,11 +1313,10 @@ impl MachinePackagePreparation {
         limits: &ValidatedResourceLimits,
     ) -> Result<(), Failure> {
         receipt
-            .verify(MachinePdfProfileId::PARAGRAPH_1, package)
+            .verify(self.profile, package)
             .map_err(map_machine_receipt_mismatch)?;
         let identity = package.package().epoch_identity();
-        if self.profile != MachinePdfProfileId::PARAGRAPH_1
-            || self.document != identity.document()
+        if self.document != identity.document()
             || self.style != identity.style()
             || self.package_input != package.provenance().fingerprint()
             || self.session != *package.provenance().session_identity()
@@ -627,7 +1388,13 @@ pub fn check_machine_package_preparation(
     admission: &HostAdmissionContext,
 ) -> Result<CheckedMachinePackage, Failure> {
     let candidates = register_machine_resource_candidates(package, config, admission)?;
-    let capability = preflight_machine_package(package, diagnostics, candidates)?;
+    let capability = preflight_machine_package(
+        package,
+        MachinePdfProfileId::PARAGRAPH_1,
+        config.limits(),
+        diagnostics,
+        candidates,
+    )?;
     complete_machine_package_preparation(package, capability, config, admission)
         .map_err(MachinePreparationFailure::into_failure)
 }
@@ -701,16 +1468,93 @@ impl MachinePreparationFailure {
 /// returned value still owns the unopened resource candidate session.
 pub(crate) fn preflight_machine_package(
     package: &ValidatedMachinePackage,
+    profile: MachinePdfProfileId,
+    limits: &ValidatedResourceLimits,
     diagnostics: &mut MachineDiagnosticLender<'_>,
     candidates: RegisteredMachineResourceCandidates,
 ) -> Result<MachineCapabilityPreparation, Failure> {
-    let receipt = MachinePdfPreflight::PARAGRAPH_1
+    if profile == MachinePdfProfileId::BASIC_DOCUMENT_1
+        && package.contract() != typaxis_core::DocumentPackageContractId::V1_2
+    {
+        emit_basic_contract_diagnostic(package, diagnostics)?;
+        return Err(Failure::input(
+            "P1103: basic-document-1 requires raw DocumentPackage contract 1.2",
+        ));
+    }
+    let preflight = match profile {
+        MachinePdfProfileId::BasicDocument1 => MachinePdfPreflight::BASIC_DOCUMENT_1,
+        MachinePdfProfileId::Paragraph1 => MachinePdfPreflight::PARAGRAPH_1,
+    };
+    let receipt = preflight
         .run(package, diagnostics)
         .map_err(map_machine_preflight_failure)?;
+    if profile == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+        let basic = package.basic_document_view().ok_or_else(|| {
+            Failure::capability_mismatch("basic-document syntax view was not issued")
+        })?;
+        preflight_basic_document_slices(&basic, limits, diagnostics)?;
+    }
     Ok(MachineCapabilityPreparation {
         receipt,
         candidates,
     })
+}
+
+fn emit_basic_contract_diagnostic(
+    package: &ValidatedMachinePackage,
+    diagnostics: &mut MachineDiagnosticLender<'_>,
+) -> Result<(), Failure> {
+    let uri = package
+        .provenance()
+        .progress()
+        .package()
+        .expect("validated machine package retains PACKAGE facts")
+        .uri()
+        .clone();
+    let error = PublicMachineError::PackageContract;
+    let diagnostic = DiagnosticBuilder::located(
+        error.code(),
+        Severity::Error,
+        "basic-document-1 requires raw DocumentPackage contract 1.2",
+        DiagnosticLocation::package_json(uri, JsonPointer::root().child("contract"), None),
+    )
+    .map_err(|_| Failure::internal("basic-document contract diagnostic was not canonical"))?
+    .build();
+    let _ = diagnostics
+        .emit_error_with(|| diagnostic)
+        .map_err(|error| Failure::internal(format!("diagnostic budget failed: {error:?}")))?;
+    Ok(())
+}
+
+fn preflight_basic_document_slices(
+    package: &ValidatedBasicDocumentPackage,
+    limits: &ValidatedResourceLimits,
+    diagnostics: &mut MachineDiagnosticLender<'_>,
+) -> Result<(), Failure> {
+    BasicDocumentStylePreflight::STAGING
+        .run(package, diagnostics)
+        .map_err(|error| {
+            Failure::input(format!("L5101: basic style preflight failed: {error:?}"))
+        })?;
+    BasicDocumentListPreflight::STAGING
+        .run(package, limits, diagnostics)
+        .map_err(|error| {
+            Failure::input(format!("L5100: basic list preflight failed: {error:?}"))
+        })?;
+    BasicDocumentForcedPageBreakPreflight::STAGING
+        .run(package)
+        .map_err(|error| {
+            Failure::input(format!("L5100: forced-break preflight failed: {error:?}"))
+        })?;
+    BasicDocumentFigurePreflight::STAGING
+        .run(package)
+        .map_err(|error| {
+            Failure::input(format!("L5100: PNG figure preflight failed: {error:?}"))
+        })?;
+    BasicDocumentLinkPreflight::STAGING
+        .run(package)
+        .map_err(|error| Failure::input(format!("L5100: link preflight failed: {error:?}")))?;
+    Ok(())
 }
 
 /// Complete resource admission plus style/font-family coverage. Glyph
@@ -807,7 +1651,7 @@ fn prepare_machine_package_with_registered_progress(
     candidates: RegisteredMachineResourceCandidates,
 ) -> Result<MachinePackagePreparation, MachinePreparationFailure> {
     receipt
-        .verify(MachinePdfProfileId::PARAGRAPH_1, package)
+        .verify(receipt.profile(), package)
         .map_err(map_machine_receipt_mismatch)
         .map_err(MachinePreparationFailure::before_resources)?;
     let parsed = package.package();
@@ -848,7 +1692,7 @@ fn prepare_machine_package_with_registered_progress(
         };
     let identity = parsed.epoch_identity();
     let preparation = MachinePackagePreparation {
-        profile: MachinePdfProfileId::PARAGRAPH_1,
+        profile: receipt.profile(),
         document: identity.document(),
         style: identity.style(),
         package_input: package.provenance().fingerprint(),
@@ -877,7 +1721,7 @@ fn prepare_machine_package_with(
     ) -> Result<AdmittedResourceLedger, Failure>,
 ) -> Result<MachinePackagePreparation, Failure> {
     receipt
-        .verify(MachinePdfProfileId::PARAGRAPH_1, package)
+        .verify(receipt.profile(), package)
         .map_err(map_machine_receipt_mismatch)?;
     let parsed = package.package();
     let generated = parsed
@@ -901,7 +1745,7 @@ fn prepare_machine_package_with(
             .map_err(map_machine_style_font_error)?;
     let identity = parsed.epoch_identity();
     let preparation = MachinePackagePreparation {
-        profile: MachinePdfProfileId::PARAGRAPH_1,
+        profile: receipt.profile(),
         document: identity.document(),
         style: identity.style(),
         package_input: package.provenance().fingerprint(),
@@ -1024,6 +1868,7 @@ pub struct MachineParagraphLayout {
     flow: FlowTree,
     initial: InitialPaginationState,
     pagination: PaginationResult,
+    flow_registry_sha256: Option<[u8; 32]>,
 }
 
 #[allow(dead_code)] // wired to public command dispatch by MI1-15
@@ -1042,6 +1887,10 @@ impl MachineParagraphLayout {
 
     pub const fn pagination(&self) -> &PaginationResult {
         &self.pagination
+    }
+
+    pub const fn flow_registry_sha256(&self) -> Option<[u8; 32]> {
+        self.flow_registry_sha256
     }
 }
 
@@ -1115,12 +1964,57 @@ pub fn layout_machine_paragraphs(
         }
     }
     let pagination = outcome.into_result();
+    let flow_registry_sha256 = if preparation.profile() == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+        Some(basic_flow_registry_sha256(
+            parsed,
+            pagination.selected_flow(),
+            config.limits(),
+        )?)
+    } else {
+        None
+    };
     Ok(MachineParagraphLayout {
         preparation,
         flow,
         initial,
         pagination,
+        flow_registry_sha256,
     })
+}
+
+fn basic_flow_registry_sha256(
+    package: &ValidatedParsedPackage,
+    flow: &FlowTree,
+    limits: &ValidatedResourceLimits,
+) -> Result<[u8; 32], Failure> {
+    let paragraph_items = flow.paragraph_items().ok_or_else(|| {
+        Failure::capability_mismatch("basic-document selected flow lacks paragraph content")
+    })?;
+    let mut builder = ProductionFlowIrBuilder::new(package, paragraph_items, flow.epoch(), limits)
+        .map_err(|error| {
+            Failure::capability_mismatch(format!(
+                "basic-document flow registry construction failed: {error:?}"
+            ))
+        })?;
+    let owners: Vec<_> = builder.expected_content_owners().collect();
+    for owner in owners {
+        let content = builder.issue_content(owner).map_err(|error| {
+            Failure::capability_mismatch(format!(
+                "basic-document flow content issuance failed: {error:?}"
+            ))
+        })?;
+        builder.register_content(content).map_err(|error| {
+            Failure::capability_mismatch(format!(
+                "basic-document flow content registration failed: {error:?}"
+            ))
+        })?;
+    }
+    let registry = builder.finish().map_err(|error| {
+        Failure::capability_mismatch(format!(
+            "basic-document flow registry closure failed: {error:?}"
+        ))
+    })?;
+    Ok(registry.registry().receipt().fingerprint().bytes())
 }
 
 fn build_reference_flow(
@@ -1179,6 +2073,47 @@ fn build_machine_flow(
         &paragraph_breaks,
     )
     .map_err(map_machine_break_error)?;
+    if preparation.profile() == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+        let mut flow_builder = CanonicalFlowIrBuilder::new(parsed, &paragraph_items)
+            .map_err(|error| map_machine_flow_error(MachineParagraphFlowError::Flow(error)))?;
+        for (node, kind) in parsed.document_nodes().nodes() {
+            match kind {
+                DocumentNodeKind::Paragraph | DocumentNodeKind::Heading => {
+                    let item_count = paragraph_items.item_count(node).ok_or_else(|| {
+                        Failure::capability_mismatch(
+                            "basic-document paragraph registry is incomplete",
+                        )
+                    })?;
+                    for item_index in 0..item_count {
+                        flow_builder
+                            .push_paragraph_item(node, item_index)
+                            .map_err(|error| {
+                                map_machine_flow_error(MachineParagraphFlowError::Flow(error))
+                            })?;
+                    }
+                }
+                DocumentNodeKind::ListItem => {
+                    flow_builder.push_list_item(node).map_err(|error| {
+                        map_machine_flow_error(MachineParagraphFlowError::Flow(error))
+                    })?
+                }
+                DocumentNodeKind::Figure | DocumentNodeKind::PageBreak => {
+                    flow_builder.push_block_item(node).map_err(|error| {
+                        map_machine_flow_error(MachineParagraphFlowError::Flow(error))
+                    })?
+                }
+                DocumentNodeKind::TableRow => {
+                    return Err(Failure::capability_mismatch(
+                        "table row reached basic-document flow after preflight",
+                    ))
+                }
+                _ => {}
+            }
+        }
+        return flow_builder
+            .finish(epoch)
+            .map_err(|error| map_machine_flow_error(MachineParagraphFlowError::Flow(error)));
+    }
     let mut flow_builder =
         MachineParagraphFlowBuilder::new(package, &paragraph_items, preparation.style_fonts())
             .map_err(map_machine_flow_error)?;
@@ -1366,12 +2301,13 @@ fn layout_machine_paragraphs_for_epoch(
 ) -> Result<Vec<ValidatedParagraphBreak>, Failure> {
     let parsed = package.package();
     if !parsed.package().document.footnotes.is_empty()
-        || parsed
-            .package()
-            .document
-            .blocks
-            .iter()
-            .any(|block| !matches!(block, Block::Paragraph { .. } | Block::Heading { .. }))
+        || (preparation.profile() == MachinePdfProfileId::PARAGRAPH_1
+            && parsed
+                .package()
+                .document
+                .blocks
+                .iter()
+                .any(|block| !matches!(block, Block::Paragraph { .. } | Block::Heading { .. })))
     {
         return Err(Failure::capability_mismatch(
             "descriptor-approved content reached an unsupported paragraph backend domain",
@@ -1410,11 +2346,12 @@ fn layout_paragraphs_with_fonts(
     let line_shapes = [LineShape { inline_size }];
     let space_glue = ReferenceSpaceGlue::new(NonNegativeLength::ZERO, NonNegativeLength::ZERO);
     let mut cache = ShapingCache::new(config.limits());
+    let paragraph_blocks = collect_layout_paragraph_blocks(&package.package().document.blocks);
     let mut breaks = Vec::new();
     breaks
-        .try_reserve_exact(package.package().document.blocks.len())
+        .try_reserve_exact(paragraph_blocks.len())
         .map_err(|_| Failure::limit("paragraph layout allocation failed"))?;
-    for block in &package.package().document.blocks {
+    for block in paragraph_blocks {
         if let Some(receipt) = layout_paragraph(
             package,
             generated,
@@ -1432,6 +2369,29 @@ fn layout_paragraphs_with_fonts(
         }
     }
     Ok(breaks)
+}
+
+fn collect_layout_paragraph_blocks(blocks: &[Block]) -> Vec<&Block> {
+    let mut output = Vec::new();
+    let mut pending: Vec<&Block> = blocks.iter().rev().collect();
+    while let Some(block) = pending.pop() {
+        match block {
+            Block::Paragraph { .. } | Block::Heading { .. } => output.push(block),
+            Block::List { items, .. } => {
+                pending.extend(items.iter().rev().flat_map(|item| item.blocks.iter().rev()));
+            }
+            Block::Figure { caption, .. } => pending.extend(caption.iter().rev()),
+            Block::Table { head, body, .. } => pending.extend(
+                body.iter()
+                    .rev()
+                    .chain(head.iter().rev())
+                    .flat_map(|row| row.cells.iter().rev())
+                    .flat_map(|cell| cell.blocks.iter().rev()),
+            ),
+            Block::PageBreak { .. } => {}
+        }
+    }
+    output
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1527,7 +2487,12 @@ fn layout_paragraph(
     }
     let itemized = CanonicalItemizer::new()
         .itemize_paragraph(package, paragraph_node, &inputs, epoch, data_tables, limits)
-        .map_err(|error| Failure::input(format!("L5000: itemization failed: {error:?}")))?;
+        .map_err(|error| {
+            Failure::input(format!(
+                "L5000: itemization failed for node {}: {error:?}",
+                paragraph_node.get()
+            ))
+        })?;
     let mut run_sets = Vec::new();
     run_sets
         .try_reserve_exact(itemized.len())
@@ -1848,13 +2813,66 @@ pub fn build_machine_pdf_graph(
     layout
         .preparation
         .verify(package, receipt, config.limits())?;
-    let display = ValidatedDisplayDocument::paint_reference_paragraphs(
-        package.package(),
-        &layout.pagination,
-        layout.pagination.selected_flow(),
-        config,
-    )
-    .map_err(|error| Failure::internal(format!("display construction failed: {error:?}")))?;
+    let display = if layout.preparation.profile() == MachinePdfProfileId::BASIC_DOCUMENT_1 {
+        let basic = package.basic_document_view().ok_or_else(|| {
+            Failure::capability_mismatch("basic-document syntax view was not retained")
+        })?;
+        let links = BasicDocumentLinkPreflight::STAGING
+            .run(&basic)
+            .map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "basic-document link receipt changed after preflight: {error:?}"
+                ))
+            })?;
+        if links.cluster_receipt().links().is_empty() {
+            ValidatedDisplayDocument::paint_reference_paragraphs(
+                package.package(),
+                &layout.pagination,
+                layout.pagination.selected_flow(),
+                config,
+            )
+            .map_err(|error| Failure::internal(format!("display construction failed: {error:?}")))?
+        } else {
+            let registry = layout
+                .pagination
+                .selected_flow()
+                .paragraph_items()
+                .ok_or_else(|| {
+                    Failure::capability_mismatch(
+                        "basic-document link layout lacks paragraph clusters",
+                    )
+                })?;
+            let clusters = ValidatedStagingMachineLinkClusters::from_registry(
+                &basic,
+                links.cluster_receipt(),
+                registry,
+            )
+            .map_err(|error| {
+                Failure::capability_mismatch(format!(
+                    "basic-document link clusters failed: {error:?}"
+                ))
+            })?;
+            let display = StagingMachineLinkDisplay::from_selected(
+                &basic,
+                &layout.pagination,
+                layout.pagination.selected_flow(),
+                &clusters,
+                config,
+            )
+            .map_err(|error| {
+                Failure::internal(format!("link display construction failed: {error:?}"))
+            })?;
+            display.into_parts().0
+        }
+    } else {
+        ValidatedDisplayDocument::paint_reference_paragraphs(
+            package.package(),
+            &layout.pagination,
+            layout.pagination.selected_flow(),
+            config,
+        )
+        .map_err(|error| Failure::internal(format!("display construction failed: {error:?}")))?
+    };
     let plans = ReferenceResourceFinalizer::new()
         .finalize(ResourceFinalizationInput {
             display: &display,
@@ -1940,15 +2958,21 @@ pub(crate) mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     use typaxis_core::{
-        sha256, ConfigResourceRoot, DocumentPackageContractId, EffectiveDataVersions, HostPath,
-        PdfStreamCompression, ResourceLimits,
+        sha256, BidiLevel, ConfigResourceRoot, DocumentPackageContractId, EffectiveDataVersions,
+        HostPath, Length, PdfStreamCompression, PositiveLength, ResourceLimits,
     };
-    use typaxis_diagnostics::{MachineDiagnosticBudget, MachineDiagnosticPhase, L5100};
+    use typaxis_diagnostics::{
+        MachineDiagnosticBudget, MachineDiagnosticPhase, L5100, L5101, T2100,
+    };
     use typaxis_document_package as wire;
     use typaxis_machine_input::{HostMachineInputSession, MachineInputHostOptions};
     use typaxis_syntax::{DocumentPackageParser, MachineParseOutcome};
 
     fn config() -> EffectiveConfig {
+        config_with_limits(ResourceLimits::default())
+    }
+
+    fn config_with_limits(limits: ResourceLimits) -> EffectiveConfig {
         EffectiveConfig::new(
             false,
             PdfStreamCompression::Flate,
@@ -1957,7 +2981,7 @@ pub(crate) mod tests {
                 .map(str::to_owned)
                 .to_vec(),
             EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap(),
-            ResourceLimits::default(),
+            limits,
         )
         .unwrap()
     }
@@ -2808,5 +3832,1550 @@ pub(crate) mod tests {
         assert!(error.message.contains("not a regular file"));
 
         fs::remove_file(path).unwrap();
+    }
+
+    fn staging_style_declaration(
+        name: wire::WireDeclarationName,
+        value: wire::WireStyleValue,
+    ) -> wire::WireDeclaration {
+        wire::WireDeclaration {
+            name,
+            value,
+            important: false,
+        }
+    }
+
+    fn staging_positive(raw: i64) -> PositiveLength {
+        PositiveLength::new(Length::from_raw(raw).unwrap()).unwrap()
+    }
+
+    fn staging_style_run(
+        package: &wire::WireDocumentPackage,
+        input: TypedBlockLayoutInput,
+    ) -> (
+        Result<StagingMachineBlockStyleArtifacts, StagingMachineBlockStyleRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let config = config();
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(package)
+            .unwrap();
+        let policy =
+            PackageValidationPolicy::new(config.limits(), config.allowed_uri_schemes()).unwrap();
+        let mut budget = MachineDiagnosticBudget::new();
+        let result = {
+            let mut diagnostics = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+            exercise_basic_block_style_slice(
+                &bytes,
+                String::new(),
+                &policy,
+                config.limits(),
+                NodeId::new(1),
+                input,
+                &mut diagnostics,
+            )
+        };
+        (result, budget.finish())
+    }
+
+    fn machine_list_wire(start: u32) -> wire::WireDocumentPackage {
+        let mut package = machine_wire(MachineFixtureKind::Blank);
+        let span = machine_source_span();
+        package.document.blocks = vec![wire::WireBlock::List {
+            node_id: 1,
+            span,
+            classes: vec![],
+            ordered: true,
+            start: Some(start),
+            items: vec![
+                wire::WireListItem {
+                    node_id: 2,
+                    span,
+                    blocks: vec![
+                        machine_paragraph(3, vec![]),
+                        wire::WireBlock::List {
+                            node_id: 4,
+                            span,
+                            classes: vec![],
+                            ordered: false,
+                            start: None,
+                            items: vec![wire::WireListItem {
+                                node_id: 5,
+                                span,
+                                blocks: vec![machine_paragraph(6, vec![])],
+                            }],
+                        },
+                    ],
+                },
+                wire::WireListItem {
+                    node_id: 7,
+                    span,
+                    blocks: vec![machine_paragraph(8, vec![])],
+                },
+            ],
+        }];
+        package.style_sheet.rules = vec![wire::WireStyleRule {
+            style_id: "machine-list".to_owned(),
+            extends: None,
+            selector: "list".to_owned(),
+            source_order: 0,
+            declarations: vec![
+                staging_style_declaration(
+                    wire::WireDeclarationName::FontFamily,
+                    wire::WireStyleValue::FontFamilyList {
+                        families: vec!["Fixture".to_owned()],
+                    },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::FontSize,
+                    wire::WireStyleValue::Length { value: 10 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::LineHeight,
+                    wire::WireStyleValue::Length { value: 12 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::StartIndent,
+                    wire::WireStyleValue::Length { value: 5 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::EndIndent,
+                    wire::WireStyleValue::Length { value: 3 },
+                ),
+            ],
+        }];
+        package
+    }
+
+    fn machine_page_break_wire() -> wire::WireDocumentPackage {
+        let mut package = machine_wire(MachineFixtureKind::Blank);
+        let span = machine_source_span();
+        let page_break = |node_id| wire::WireBlock::PageBreak {
+            node_id,
+            span,
+            classes: Vec::new(),
+        };
+        package.document.blocks = vec![
+            page_break(1),
+            machine_paragraph(2, Vec::new()),
+            page_break(3),
+            page_break(4),
+            machine_paragraph(5, Vec::new()),
+            page_break(6),
+        ];
+        package
+    }
+
+    const MACHINE_FIGURE_PNG: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 1, 3,
+        0, 0, 0, 206, 236, 237, 201, 0, 0, 0, 6, 80, 76, 84, 69, 255, 0, 0, 0, 255, 0, 210, 135,
+        239, 113, 0, 0, 0, 2, 116, 82, 78, 83, 255, 0, 229, 183, 48, 74, 0, 0, 0, 10, 73, 68, 65,
+        84, 120, 156, 99, 112, 0, 0, 0, 66, 0, 65, 41, 55, 244, 239, 0, 0, 0, 0, 73, 69, 78, 68,
+        174, 66, 96, 130,
+    ];
+
+    fn machine_figure_wire(
+        keep_caption: bool,
+        expected_sha256: [u8; 32],
+    ) -> wire::WireDocumentPackage {
+        let mut package = machine_wire(MachineFixtureKind::Blank);
+        let span = machine_source_span();
+        package.document.blocks = vec![wire::WireBlock::Figure {
+            node_id: 1,
+            span,
+            classes: Vec::new(),
+            image_id: 0,
+            alt: "opaque-extension PNG".to_owned(),
+            caption: vec![
+                machine_paragraph(2, Vec::new()),
+                machine_paragraph(3, Vec::new()),
+            ],
+        }];
+        package.page_masters = wire::WirePageMasterSet {
+            default_master_id: "default".to_owned(),
+            masters: vec![wire::WirePageMaster {
+                master_id: "default".to_owned(),
+                width: 100,
+                height: 100,
+                body: wire::WireRect {
+                    x: 10,
+                    y: 10,
+                    width: 80,
+                    height: 70,
+                },
+                header: None,
+                footer: None,
+                footnote: None,
+            }],
+            selection_rules: Vec::new(),
+        };
+        package.resources.images = vec![wire::WireImage {
+            image_id: 0,
+            uri: "figure.data".to_owned(),
+            expected_sha256: Some(expected_sha256),
+        }];
+        package.style_sheet.rules = vec![wire::WireStyleRule {
+            style_id: "machine-figure".to_owned(),
+            extends: None,
+            selector: "figure".to_owned(),
+            source_order: 0,
+            declarations: vec![
+                staging_style_declaration(
+                    wire::WireDeclarationName::StartIndent,
+                    wire::WireStyleValue::Length { value: 5 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::EndIndent,
+                    wire::WireStyleValue::Length { value: 5 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::Width,
+                    wire::WireStyleValue::Length { value: 40 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::KeepCaption,
+                    wire::WireStyleValue::Boolean {
+                        value: keep_caption,
+                    },
+                ),
+            ],
+        }];
+        package
+    }
+
+    fn machine_figure_caption_measurements(
+        first: i64,
+        second: i64,
+    ) -> Vec<StagingFigureCaptionBlockInput> {
+        vec![
+            StagingFigureCaptionBlockInput::new(NodeId::new(2), staging_positive(first)),
+            StagingFigureCaptionBlockInput::new(NodeId::new(3), staging_positive(second)),
+        ]
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn staging_machine_figure_run(
+        label: &str,
+        package: &wire::WireDocumentPackage,
+        image_bytes: &[u8],
+        limits: ResourceLimits,
+        initial_consumed: i64,
+        captions: Vec<StagingFigureCaptionBlockInput>,
+        draw_image_ids: Vec<ImageResourceId>,
+    ) -> (
+        Result<StagingMachineFigureArtifacts, StagingMachineFigureRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let package_bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(package)
+            .unwrap();
+        staging_machine_figure_bytes_run(
+            label,
+            &package_bytes,
+            image_bytes,
+            limits,
+            initial_consumed,
+            captions,
+            draw_image_ids,
+        )
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn staging_machine_figure_bytes_run(
+        label: &str,
+        package_bytes: &[u8],
+        image_bytes: &[u8],
+        limits: ResourceLimits,
+        initial_consumed: i64,
+        captions: Vec<StagingFigureCaptionBlockInput>,
+        draw_image_ids: Vec<ImageResourceId>,
+    ) -> (
+        Result<StagingMachineFigureArtifacts, StagingMachineFigureRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let root = MachineFixtureRoot::new(label);
+        let package_path = root.path().join("document-package.json");
+        fs::write(&package_path, package_bytes).unwrap();
+        fs::write(root.path().join("input.tsf"), []).unwrap();
+        fs::write(root.path().join("figure.data"), image_bytes).unwrap();
+        let config = config_with_limits(limits);
+        let policy =
+            PackageValidationPolicy::new(config.limits(), config.allowed_uri_schemes()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(root.path().to_path_buf()).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let initial_consumed =
+            NonNegativeLength::new(Length::from_raw(initial_consumed).unwrap()).unwrap();
+        let mut budget = MachineDiagnosticBudget::new();
+        let result = {
+            let mut diagnostics = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+            exercise_basic_figure_slice(
+                package_bytes,
+                String::new(),
+                &policy,
+                &config,
+                &admission,
+                initial_consumed,
+                captions,
+                draw_image_ids,
+                &mut diagnostics,
+            )
+        };
+        (result, budget.finish())
+    }
+
+    const MACHINE_LINK_TEXT: &str = "In External wrapped link";
+    const MACHINE_LINK_SOURCE: &str = "In External wrapped link\n";
+
+    fn machine_link_text_inline(node_id: u32, start_byte: u32, end_byte: u32) -> wire::WireInline {
+        wire::WireInline::Text {
+            node_id,
+            span: machine_source_span(),
+            text_span: wire::WireTextSpan {
+                text_id: 0,
+                start_byte,
+                end_byte,
+            },
+        }
+    }
+
+    fn machine_link_wire() -> wire::WireDocumentPackage {
+        let mut package = machine_wire(MachineFixtureKind::Blank);
+        package.sources[0].utf8_byte_length = u32::try_from(MACHINE_LINK_SOURCE.len()).unwrap();
+        package.sources[0].sha256 = sha256(MACHINE_LINK_SOURCE.as_bytes());
+        package.text_buffers = vec![machine_text_buffer(MACHINE_LINK_TEXT)];
+        package.document.blocks = vec![machine_paragraph(
+            1,
+            vec![
+                wire::WireInline::Anchor {
+                    node_id: 2,
+                    span: machine_source_span(),
+                    anchor_id: "target".to_owned(),
+                },
+                wire::WireInline::Link {
+                    node_id: 3,
+                    span: machine_source_span(),
+                    target: wire::WireLinkTarget::Internal {
+                        anchor_id: "target".to_owned(),
+                    },
+                    children: vec![machine_link_text_inline(4, 0, 3)],
+                },
+                wire::WireInline::Link {
+                    node_id: 5,
+                    span: machine_source_span(),
+                    target: wire::WireLinkTarget::Uri {
+                        uri: "HTTPS://example.test/Path?Q=1".to_owned(),
+                    },
+                    children: vec![machine_link_text_inline(
+                        6,
+                        3,
+                        u32::try_from(MACHINE_LINK_TEXT.len()).unwrap(),
+                    )],
+                },
+            ],
+        )];
+        package.style_sheet.rules = vec![machine_style("paragraph")];
+        package.page_masters = wire::WirePageMasterSet {
+            default_master_id: "default".to_owned(),
+            masters: vec![wire::WirePageMaster {
+                master_id: "default".to_owned(),
+                width: 7_208_960,
+                height: 13_107_200,
+                body: wire::WireRect {
+                    x: 655_360,
+                    y: 655_360,
+                    width: 5_898_240,
+                    height: 11_796_480,
+                },
+                header: None,
+                footer: None,
+                footnote: None,
+            }],
+            selection_rules: Vec::new(),
+        };
+        package.resources.font_faces = vec![wire::WireFontFace {
+            font_face_id: 0,
+            family: "Fixture".to_owned(),
+            uri: "body.ttf".to_owned(),
+            face_index: 0,
+            expected_sha256: Some(sha256(&synthetic_ascii_ttf())),
+        }];
+        package
+    }
+
+    fn staging_machine_link_run(
+        label: &str,
+        package: &wire::WireDocumentPackage,
+        limits: ResourceLimits,
+        tamper: StagingMachineLinkAnnotationTamper,
+    ) -> (
+        Result<StagingMachineLinkArtifacts, StagingMachineLinkRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let package_bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(package)
+            .unwrap();
+        staging_machine_link_bytes_run(label, &package_bytes, limits, tamper)
+    }
+
+    fn staging_machine_link_bytes_run(
+        label: &str,
+        package_bytes: &[u8],
+        limits: ResourceLimits,
+        tamper: StagingMachineLinkAnnotationTamper,
+    ) -> (
+        Result<StagingMachineLinkArtifacts, StagingMachineLinkRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let root = MachineFixtureRoot::new(label);
+        let package_path = root.path().join("document-package.json");
+        fs::write(&package_path, package_bytes).unwrap();
+        fs::write(root.path().join("input.tsf"), MACHINE_LINK_SOURCE).unwrap();
+        fs::write(root.path().join("body.ttf"), synthetic_ascii_ttf()).unwrap();
+        let config = config_with_limits(limits);
+        let policy =
+            PackageValidationPolicy::new(config.limits(), config.allowed_uri_schemes()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(root.path().to_path_buf()).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let mut budget = MachineDiagnosticBudget::new();
+        let result = {
+            let mut diagnostics = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+            exercise_basic_link_slice(
+                package_bytes,
+                MACHINE_LINK_SOURCE.to_owned(),
+                &policy,
+                &config,
+                &admission,
+                tamper,
+                &mut diagnostics,
+            )
+        };
+        (result, budget.finish())
+    }
+
+    fn staging_machine_page_break_bytes_run_with_limits(
+        package_bytes: &[u8],
+        painted_content_owners: Vec<NodeId>,
+        limits: &ValidatedResourceLimits,
+    ) -> (
+        Result<StagingMachinePageBreakArtifacts, StagingMachinePageBreakRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let config = config();
+        let policy = PackageValidationPolicy::new(limits, config.allowed_uri_schemes()).unwrap();
+        let mut budget = MachineDiagnosticBudget::new();
+        let result = {
+            let mut diagnostics = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+            exercise_basic_page_break_slice(
+                package_bytes,
+                String::new(),
+                &policy,
+                limits,
+                painted_content_owners,
+                &mut diagnostics,
+            )
+        };
+        (result, budget.finish())
+    }
+
+    #[test]
+    fn machine_page_break_internal_runner_is_deterministic_and_closes_all_artifacts() {
+        let package = include_bytes!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-page-break/job/document-package.json"
+        );
+        let limits = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 5,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let painted = vec![NodeId::new(2), NodeId::new(5)];
+        let (first, diagnostics) =
+            staging_machine_page_break_bytes_run_with_limits(package, painted.clone(), &limits);
+        let first = first.unwrap();
+        assert!(diagnostics.diagnostics().is_empty());
+        let (second, _) =
+            staging_machine_page_break_bytes_run_with_limits(package, painted, &limits);
+        assert_eq!(first, second.unwrap());
+        let golden = include_str!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-page-break/staging-selected-state.json"
+        );
+        assert_eq!(first.manifest_jcs(), golden.trim_end());
+        let trace_golden = include_str!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-page-break/staging-trace.json"
+        );
+        assert_eq!(first.trace_jcs(), trace_golden.trim_end());
+        assert_eq!(first.pdf_page_tree_observation(), b"/Count 5\n");
+        assert!(first.trace_jcs().contains("\"page_count\":5"));
+        assert!(first.display_jcs().contains("\"paint_operations\":[]"));
+        assert!(first.pdf_jcs().contains("\"page_count\":5"));
+        for artifact in [
+            first.trace_jcs(),
+            first.display_jcs(),
+            first.pdf_jcs(),
+            first.manifest_jcs(),
+        ] {
+            assert!(artifact
+                .contains("\"policy_version\":\"typaxis.basic-forced-page-break-policy/1\""));
+            assert!(artifact.contains("\"produced_page_index\":4"));
+        }
+        assert!(first.manifest_jcs().contains(
+            "\"pages\":[{\"is_blank\":true,\"page_index\":0,\"painted_content_count\":0},{\"is_blank\":false"
+        ));
+    }
+
+    #[test]
+    fn machine_page_break_internal_runner_enforces_exact_page_limit_and_break_paint_closure() {
+        let package = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&machine_page_break_wire())
+            .unwrap();
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 5,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert!(
+            staging_machine_page_break_bytes_run_with_limits(&package, Vec::new(), &exact)
+                .0
+                .is_ok()
+        );
+
+        let below = ValidatedResourceLimits::new(ResourceLimits {
+            max_pages: 4,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        assert!(matches!(
+            staging_machine_page_break_bytes_run_with_limits(&package, Vec::new(), &below).0,
+            Err(StagingMachinePageBreakRunnerError::Pagination(
+                StagingForcedPageBreakPaginationError::PageLimit
+            ))
+        ));
+        assert!(matches!(
+            staging_machine_page_break_bytes_run_with_limits(
+                &package,
+                vec![NodeId::new(1)],
+                &exact,
+            )
+            .0,
+            Err(StagingMachinePageBreakRunnerError::Pagination(
+                StagingForcedPageBreakPaginationError::ForcedBoundaryPaint(owner)
+            )) if owner == NodeId::new(1)
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_figure_internal_runner_closes_png_placement_xobject_and_publication() {
+        let package = include_bytes!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-figure/job/document-package.json"
+        );
+        let fixture_hex = include_str!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-figure/job/figure.data.hex"
+        )
+        .trim();
+        let fixture_png: Vec<u8> = fixture_hex
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        assert_eq!(fixture_png, MACHINE_FIGURE_PNG);
+        let encoded = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&machine_figure_wire(false, sha256(MACHINE_FIGURE_PNG)))
+            .unwrap();
+        assert_eq!(package.strip_suffix(b"\n").unwrap_or(package), encoded);
+        let run = |label| {
+            staging_machine_figure_bytes_run(
+                label,
+                package,
+                MACHINE_FIGURE_PNG,
+                ResourceLimits::default(),
+                50,
+                machine_figure_caption_measurements(15, 15),
+                vec![ImageResourceId::new(0)],
+            )
+            .0
+            .unwrap()
+        };
+        let first = run("figure-closed-first");
+        let second = run("figure-closed-second");
+        assert_eq!(first, second);
+        assert_eq!(
+            first.manifest_jcs(),
+            include_str!(
+                "../../../../samples/machine-package/staging/basic-document-1/machine-figure/staging-selected-state.json"
+            )
+            .trim_end()
+        );
+        assert_eq!(first.page_count(), 2);
+        assert_eq!(first.image_xobject_count(), 2);
+        assert!(first.selected_jcs().contains(
+            "\"caption_node_id\":2,\"page_index\":1,\"rect\":{\"height\":15,\"width\":80,\"x\":10,\"y\":10}"
+        ));
+        assert!(first.selected_jcs().contains(
+            "\"caption_node_id\":3,\"page_index\":1,\"rect\":{\"height\":15,\"width\":80,\"x\":10,\"y\":25}"
+        ));
+        assert!(first.selected_jcs().contains(
+            "\"figure_node_id\":1,\"image_id\":0,\"keep_policy\":\"allow_caption_split\",\"moved_to_fresh_page\":false"
+        ));
+        assert!(first.selected_jcs().contains(
+            "\"page_index\":0,\"pixel_height\":1,\"pixel_width\":2,\"rect\":{\"height\":20,\"width\":40,\"x\":15,\"y\":60}"
+        ));
+        assert!(first.display_jcs().contains("\"draw_image_count\":1"));
+        assert!(first.pdf_jcs().contains("\"image_xobject_count\":2"));
+        assert!(first
+            .manifest_jcs()
+            .contains("\"alt\":\"opaque-extension PNG\",\"attested_media_kind\":\"png\""));
+        assert!(first
+            .manifest_jcs()
+            .contains("\"image_xobjects\":[{\"image_id\":0,\"resource_name\":\"/Im0\"}]"));
+        assert_eq!(sha256(first.pdf_bytes()), first.pdf_sha256());
+        assert_eq!(
+            first
+                .pdf_bytes()
+                .windows(b"/Subtype /Image".len())
+                .filter(|window| *window == b"/Subtype /Image")
+                .count(),
+            2
+        );
+
+        #[derive(Default)]
+        struct RejectPublication {
+            accepted: usize,
+            limit: usize,
+        }
+        impl Write for RejectPublication {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if self.accepted == self.limit {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "publication rejected",
+                    ));
+                }
+                let written = bytes.len().min(self.limit - self.accepted);
+                self.accepted += written;
+                Ok(written)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut rejecting = RejectPublication {
+            accepted: 0,
+            limit: first.pdf_bytes().len() / 2,
+        };
+        let error = first.write_pdf(&mut rejecting).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        assert_eq!(rejecting.accepted, first.pdf_bytes().len() / 2);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_figure_caption_keep_split_and_terminal_oversize_are_typed() {
+        let hash = sha256(MACHINE_FIGURE_PNG);
+        let split = staging_machine_figure_run(
+            "figure-caption-split",
+            &machine_figure_wire(false, hash),
+            MACHINE_FIGURE_PNG,
+            ResourceLimits::default(),
+            50,
+            machine_figure_caption_measurements(15, 15),
+            vec![ImageResourceId::new(0)],
+        )
+        .0
+        .unwrap();
+        assert!(split
+            .manifest_jcs()
+            .contains("\"keep_policy\":\"allow_caption_split\""));
+        assert!(split
+            .manifest_jcs()
+            .contains("\"caption_node_id\":2,\"page_index\":1"));
+
+        let kept = staging_machine_figure_run(
+            "figure-caption-kept",
+            &machine_figure_wire(true, hash),
+            MACHINE_FIGURE_PNG,
+            ResourceLimits::default(),
+            50,
+            machine_figure_caption_measurements(15, 15),
+            vec![ImageResourceId::new(0)],
+        )
+        .0
+        .unwrap();
+        assert!(kept
+            .manifest_jcs()
+            .contains("\"keep_policy\":\"keep_image_and_caption\""));
+        assert!(kept.manifest_jcs().contains("\"moved_to_fresh_page\":true"));
+        assert!(kept
+            .manifest_jcs()
+            .contains("\"oversize_policy\":\"terminal_once\",\"page_index\":1"));
+        assert!(kept
+            .manifest_jcs()
+            .contains("\"caption_node_id\":2,\"page_index\":1"));
+
+        let keep_oversize = staging_machine_figure_run(
+            "figure-keep-oversize",
+            &machine_figure_wire(true, hash),
+            MACHINE_FIGURE_PNG,
+            ResourceLimits::default(),
+            0,
+            machine_figure_caption_measurements(51, 15),
+            vec![ImageResourceId::new(0)],
+        )
+        .0;
+        assert!(matches!(
+            keep_oversize,
+            Err(StagingMachineFigureRunnerError::Pagination(
+                StagingMachineFigurePaginationError::KeepOversize(owner)
+            )) if owner == NodeId::new(1)
+        ));
+
+        let caption_oversize = staging_machine_figure_run(
+            "figure-caption-oversize",
+            &machine_figure_wire(false, hash),
+            MACHINE_FIGURE_PNG,
+            ResourceLimits::default(),
+            0,
+            machine_figure_caption_measurements(71, 15),
+            vec![ImageResourceId::new(0)],
+        )
+        .0;
+        assert!(matches!(
+            caption_oversize,
+            Err(StagingMachineFigureRunnerError::Pagination(
+                StagingMachineFigurePaginationError::CaptionOversize(owner)
+            )) if owner == NodeId::new(2)
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_figure_admission_and_draw_closure_reject_every_tamper_class() {
+        let valid_hash = sha256(MACHINE_FIGURE_PNG);
+        let run = |label: &str,
+                   package: wire::WireDocumentPackage,
+                   bytes: &[u8],
+                   limits: ResourceLimits,
+                   ids: Vec<ImageResourceId>| {
+            staging_machine_figure_run(
+                label,
+                &package,
+                bytes,
+                limits,
+                0,
+                machine_figure_caption_measurements(15, 15),
+                ids,
+            )
+            .0
+        };
+
+        assert!(matches!(
+            run(
+                "figure-bad-hash",
+                machine_figure_wire(false, [0; 32]),
+                MACHINE_FIGURE_PNG,
+                ResourceLimits::default(),
+                vec![ImageResourceId::new(0)],
+            ),
+            Err(StagingMachineFigureRunnerError::ResourceAdmission(
+                ResourceAdmissionError::ExpectedHashMismatch
+            ))
+        ));
+
+        let non_png = b"this is not a PNG";
+        assert!(matches!(
+            run(
+                "figure-non-png",
+                machine_figure_wire(false, sha256(non_png)),
+                non_png,
+                ResourceLimits::default(),
+                vec![ImageResourceId::new(0)],
+            ),
+            Err(StagingMachineFigureRunnerError::ResourceAdmission(
+                ResourceAdmissionError::InvalidMetadata
+            ))
+        ));
+
+        let mut invalid_dimensions = MACHINE_FIGURE_PNG.to_vec();
+        invalid_dimensions[16..20].copy_from_slice(&0u32.to_be_bytes());
+        assert!(matches!(
+            run(
+                "figure-invalid-dimensions",
+                machine_figure_wire(false, sha256(&invalid_dimensions)),
+                &invalid_dimensions,
+                ResourceLimits::default(),
+                vec![ImageResourceId::new(0)],
+            ),
+            Err(StagingMachineFigureRunnerError::ResourceAdmission(
+                ResourceAdmissionError::InvalidMetadata
+            ))
+        ));
+
+        assert!(matches!(
+            run(
+                "figure-pixel-limit",
+                machine_figure_wire(false, valid_hash),
+                MACHINE_FIGURE_PNG,
+                ResourceLimits {
+                    max_image_pixels: 1,
+                    ..ResourceLimits::default()
+                },
+                vec![ImageResourceId::new(0)],
+            ),
+            Err(StagingMachineFigureRunnerError::ResourceAdmission(
+                ResourceAdmissionError::ResourceLimit
+            ))
+        ));
+
+        assert!(matches!(
+            run(
+                "figure-missing-draw",
+                machine_figure_wire(false, valid_hash),
+                MACHINE_FIGURE_PNG,
+                ResourceLimits::default(),
+                vec![],
+            ),
+            Err(StagingMachineFigureRunnerError::Display(
+                StagingMachineFigureDisplayError::MissingDrawImage(image_id)
+            )) if image_id == ImageResourceId::new(0)
+        ));
+
+        assert!(matches!(
+            run(
+                "figure-extra-draw",
+                machine_figure_wire(false, valid_hash),
+                MACHINE_FIGURE_PNG,
+                ResourceLimits::default(),
+                vec![ImageResourceId::new(0), ImageResourceId::new(1)],
+            ),
+            Err(StagingMachineFigureRunnerError::Display(
+                StagingMachineFigureDisplayError::ExtraDrawImage(image_id)
+            )) if image_id == ImageResourceId::new(1)
+        ));
+
+        assert!(matches!(
+            run(
+                "figure-wrong-id",
+                machine_figure_wire(false, valid_hash),
+                MACHINE_FIGURE_PNG,
+                ResourceLimits::default(),
+                vec![ImageResourceId::new(1)],
+            ),
+            Err(StagingMachineFigureRunnerError::Display(
+                StagingMachineFigureDisplayError::WrongDrawImage { expected, actual }
+            )) if expected == ImageResourceId::new(0) && actual == ImageResourceId::new(1)
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_link_internal_runner_closes_wrapped_internal_and_external_annotations() {
+        let package = machine_link_wire();
+        let encoded = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let checked_package = include_bytes!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-link/job/document-package.json"
+        );
+        assert_eq!(
+            checked_package
+                .strip_suffix(b"\n")
+                .unwrap_or(checked_package),
+            encoded
+        );
+        let fixture_font_hex = include_str!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-link/job/body.ttf.hex"
+        )
+        .trim();
+        let fixture_font: Vec<u8> = fixture_font_hex
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect();
+        assert_eq!(fixture_font, synthetic_ascii_ttf());
+        let run = |label| {
+            staging_machine_link_bytes_run(
+                label,
+                checked_package,
+                ResourceLimits::default(),
+                StagingMachineLinkAnnotationTamper::None,
+            )
+            .0
+            .unwrap()
+        };
+        let first = run("link-closed-first");
+        let second = run("link-closed-second");
+        assert_eq!(first, second);
+        assert_eq!(
+            first.manifest_jcs(),
+            include_str!(
+                "../../../../samples/machine-package/staging/basic-document-1/machine-link/staging-selected-state.json"
+            )
+            .trim_end()
+        );
+        assert_eq!(sha256(first.pdf_bytes()), first.pdf_sha256());
+        assert_eq!(first.destination_count(), 1);
+        assert!(first.annotation_count() >= 3);
+        assert_eq!(
+            first
+                .pdf_bytes()
+                .windows(b"/Subtype /Link".len())
+                .filter(|window| *window == b"/Subtype /Link")
+                .count(),
+            first.annotation_count() as usize
+        );
+        assert!(first
+            .pdf_bytes()
+            .windows(b"/Dest <746172676574>".len())
+            .any(|window| window == b"/Dest <746172676574>"));
+        assert!(first
+            .pdf_bytes()
+            .windows(b"/URI <68747470733A2F2F6578616D706C652E746573742F506174683F513D31>".len(),)
+            .any(|window| {
+                window == b"/URI <68747470733A2F2F6578616D706C652E746573742F506174683F513D31>"
+            }));
+        assert!(first.manifest_jcs().contains("\"anchor_id\":\"target\""));
+        assert!(first.manifest_jcs().contains("\"kind\":\"internal\""));
+        assert!(first
+            .manifest_jcs()
+            .contains("\"kind\":\"external\",\"uri\":\"https://example.test/Path?Q=1\""));
+        assert!(first.cluster_jcs().contains("\"link_node_id\":3"));
+        assert!(first.display_jcs().contains("\"line_ordinal\":"));
+        assert!(first.pdf_jcs().contains("\"object_id\":"));
+        assert!(first.page_count() >= 1);
+        assert!(first.object_count() > first.annotation_count());
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_link_rejects_empty_unpainted_bad_uri_and_bad_targets_before_layout() {
+        let mut empty = machine_link_wire();
+        let wire::WireBlock::Paragraph {
+            children: paragraph_children,
+            ..
+        } = &mut empty.document.blocks[0]
+        else {
+            unreachable!()
+        };
+        let wire::WireInline::Link {
+            children: link_children,
+            ..
+        } = &mut paragraph_children[1]
+        else {
+            unreachable!()
+        };
+        link_children.clear();
+        let wire::WireInline::Link {
+            node_id,
+            children: external_children,
+            ..
+        } = &mut paragraph_children[2]
+        else {
+            unreachable!()
+        };
+        *node_id = 4;
+        let wire::WireInline::Text { node_id, .. } = &mut external_children[0] else {
+            unreachable!()
+        };
+        *node_id = 5;
+        let empty_result = staging_machine_link_run(
+            "link-empty",
+            &empty,
+            ResourceLimits::default(),
+            StagingMachineLinkAnnotationTamper::None,
+        )
+        .0;
+        assert!(matches!(
+            empty_result,
+            Err(StagingMachineLinkRunnerError::LinkPreflight(
+                typaxis_syntax::StagingLinkPreflightError::EmptyChildren(owner)
+            )) if owner == NodeId::new(3)
+        ));
+
+        let mut unpainted = machine_link_wire();
+        let wire::WireBlock::Paragraph { children, .. } = &mut unpainted.document.blocks[0] else {
+            unreachable!()
+        };
+        let wire::WireInline::Link { children, .. } = &mut children[1] else {
+            unreachable!()
+        };
+        children[0] = wire::WireInline::Anchor {
+            node_id: 4,
+            span: machine_source_span(),
+            anchor_id: "unpainted".to_owned(),
+        };
+        assert!(matches!(
+            staging_machine_link_run(
+                "link-unpainted",
+                &unpainted,
+                ResourceLimits::default(),
+                StagingMachineLinkAnnotationTamper::None,
+            )
+            .0,
+            Err(StagingMachineLinkRunnerError::LinkPreflight(
+                typaxis_syntax::StagingLinkPreflightError::UnpaintedChildren(owner)
+            )) if owner == NodeId::new(3)
+        ));
+
+        let mut bad_uri = machine_link_wire();
+        let wire::WireBlock::Paragraph { children, .. } = &mut bad_uri.document.blocks[0] else {
+            unreachable!()
+        };
+        let wire::WireInline::Link { target, .. } = &mut children[2] else {
+            unreachable!()
+        };
+        *target = wire::WireLinkTarget::Uri {
+            uri: "javascript:alert(1)".to_owned(),
+        };
+        assert!(matches!(
+            staging_machine_link_run(
+                "link-bad-uri",
+                &bad_uri,
+                ResourceLimits::default(),
+                StagingMachineLinkAnnotationTamper::None,
+            )
+            .0,
+            Err(StagingMachineLinkRunnerError::Syntax(_))
+        ));
+
+        let mut bad_target = machine_link_wire();
+        let wire::WireBlock::Paragraph { children, .. } = &mut bad_target.document.blocks[0] else {
+            unreachable!()
+        };
+        let wire::WireInline::Link { target, .. } = &mut children[1] else {
+            unreachable!()
+        };
+        *target = wire::WireLinkTarget::Internal {
+            anchor_id: "missing".to_owned(),
+        };
+        assert!(matches!(
+            staging_machine_link_run(
+                "link-bad-target",
+                &bad_target,
+                ResourceLimits::default(),
+                StagingMachineLinkAnnotationTamper::None,
+            )
+            .0,
+            Err(StagingMachineLinkRunnerError::Syntax(_))
+                | Err(StagingMachineLinkRunnerError::LinkPreflight(
+                    typaxis_syntax::StagingLinkPreflightError::UnknownInternalTarget(_)
+                ))
+        ));
+
+        let mut duplicate_anchor = machine_link_wire();
+        let wire::WireBlock::Paragraph { children, .. } = &mut duplicate_anchor.document.blocks[0]
+        else {
+            unreachable!()
+        };
+        children[2] = wire::WireInline::Anchor {
+            node_id: 5,
+            span: machine_source_span(),
+            anchor_id: "target".to_owned(),
+        };
+        assert!(matches!(
+            staging_machine_link_run(
+                "link-duplicate-anchor",
+                &duplicate_anchor,
+                ResourceLimits::default(),
+                StagingMachineLinkAnnotationTamper::None,
+            )
+            .0,
+            Err(StagingMachineLinkRunnerError::Syntax(_))
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_link_rejects_annotation_tamper_and_enforces_exact_limits() {
+        let package = machine_link_wire();
+        let valid = staging_machine_link_run(
+            "link-limit-baseline",
+            &package,
+            ResourceLimits::default(),
+            StagingMachineLinkAnnotationTamper::None,
+        )
+        .0
+        .unwrap();
+        let rectangle_count = u64::from(valid.annotation_count());
+        let object_count = valid.object_count();
+
+        assert!(staging_machine_link_run(
+            "link-rectangle-exact",
+            &package,
+            ResourceLimits {
+                max_fragments: rectangle_count,
+                ..ResourceLimits::default()
+            },
+            StagingMachineLinkAnnotationTamper::None,
+        )
+        .0
+        .is_ok());
+        let below_result = staging_machine_link_run(
+            "link-rectangle-below",
+            &package,
+            ResourceLimits {
+                max_fragments: rectangle_count - 1,
+                ..ResourceLimits::default()
+            },
+            StagingMachineLinkAnnotationTamper::None,
+        )
+        .0;
+        assert!(matches!(
+            below_result,
+            Err(StagingMachineLinkRunnerError::Display(
+                StagingMachineLinkDisplayError::RectangleLimit
+            ))
+        ));
+        assert!(staging_machine_link_run(
+            "link-object-exact",
+            &package,
+            ResourceLimits {
+                max_pdf_objects: object_count,
+                ..ResourceLimits::default()
+            },
+            StagingMachineLinkAnnotationTamper::None,
+        )
+        .0
+        .is_ok());
+        assert!(matches!(
+            staging_machine_link_run(
+                "link-object-below",
+                &package,
+                ResourceLimits {
+                    max_pdf_objects: object_count - 1,
+                    ..ResourceLimits::default()
+                },
+                StagingMachineLinkAnnotationTamper::None,
+            )
+            .0,
+            Err(StagingMachineLinkRunnerError::Pdf(
+                typaxis_pdf::PdfError::ObjectLimit
+            ))
+        ));
+
+        for (tamper, expected) in [
+            (StagingMachineLinkAnnotationTamper::MissingFirst, "missing"),
+            (StagingMachineLinkAnnotationTamper::ExtraFirst, "extra"),
+            (StagingMachineLinkAnnotationTamper::WrongPageFirst, "page"),
+            (
+                StagingMachineLinkAnnotationTamper::WrongTargetFirst,
+                "target",
+            ),
+            (
+                StagingMachineLinkAnnotationTamper::RectangleFirst,
+                "rectangle",
+            ),
+        ] {
+            let error =
+                staging_machine_link_run(expected, &package, ResourceLimits::default(), tamper)
+                    .0
+                    .unwrap_err();
+            assert!(
+                matches!(
+                    (expected, error),
+                    (
+                        "missing",
+                        StagingMachineLinkRunnerError::Display(
+                            StagingMachineLinkDisplayError::MissingAnnotation(_)
+                        )
+                    ) | (
+                        "extra",
+                        StagingMachineLinkRunnerError::Display(
+                            StagingMachineLinkDisplayError::ExtraAnnotation(_)
+                        )
+                    ) | (
+                        "page",
+                        StagingMachineLinkRunnerError::Display(
+                            StagingMachineLinkDisplayError::WrongPage(_)
+                        )
+                    ) | (
+                        "target",
+                        StagingMachineLinkRunnerError::Display(
+                            StagingMachineLinkDisplayError::WrongTarget(_)
+                        )
+                    ) | (
+                        "rectangle",
+                        StagingMachineLinkRunnerError::Display(
+                            StagingMachineLinkDisplayError::RectangleMismatch(_)
+                        )
+                    )
+                ),
+                "unexpected {expected} closure error"
+            );
+        }
+    }
+
+    fn machine_list_paint_inputs(
+        empty_first: bool,
+    ) -> Vec<typaxis_layout::StagingListItemPaintInput> {
+        let painted = |owner, marker_width, line_width, line_height, total_height| {
+            typaxis_layout::StagingListItemPaintInput::painted(
+                NodeId::new(owner),
+                staging_positive(marker_width),
+                staging_positive(line_width),
+                staging_positive(line_height),
+                staging_positive(total_height),
+            )
+        };
+        vec![
+            if empty_first {
+                typaxis_layout::StagingListItemPaintInput::empty(
+                    NodeId::new(2),
+                    staging_positive(4),
+                )
+            } else {
+                painted(2, 4, 20, 8, 18)
+            },
+            painted(5, 6, 18, 8, 12),
+            painted(7, 8, 24, 8, 16),
+        ]
+    }
+
+    fn staging_machine_list_run(
+        package: &wire::WireDocumentPackage,
+        items: Vec<typaxis_layout::StagingListItemPaintInput>,
+    ) -> (
+        Result<StagingMachineListArtifacts, StagingMachineListRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(package)
+            .unwrap();
+        staging_machine_list_bytes_run(&bytes, items)
+    }
+
+    fn staging_machine_list_bytes_run(
+        package_bytes: &[u8],
+        items: Vec<typaxis_layout::StagingListItemPaintInput>,
+    ) -> (
+        Result<StagingMachineListArtifacts, StagingMachineListRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let config = config();
+        staging_machine_list_bytes_run_with_limits(package_bytes, items, config.limits())
+    }
+
+    fn staging_machine_list_bytes_run_with_limits(
+        package_bytes: &[u8],
+        items: Vec<typaxis_layout::StagingListItemPaintInput>,
+        limits: &ValidatedResourceLimits,
+    ) -> (
+        Result<StagingMachineListArtifacts, StagingMachineListRunnerError>,
+        typaxis_diagnostics::MachineDiagnostics,
+    ) {
+        let config = config();
+        let policy = PackageValidationPolicy::new(limits, config.allowed_uri_schemes()).unwrap();
+        let mut budget = MachineDiagnosticBudget::new();
+        let result = {
+            let mut diagnostics = budget.lend(MachineDiagnosticPhase::Capability).unwrap();
+            exercise_basic_list_slice(
+                package_bytes,
+                String::new(),
+                &policy,
+                limits,
+                StagingMachineListLayoutInput::new(staging_positive(100), BidiLevel::LTR, items),
+                StagingMachineListPageInput::new(staging_positive(20), staging_positive(5))
+                    .unwrap(),
+                &mut diagnostics,
+            )
+        };
+        (result, budget.finish())
+    }
+
+    #[test]
+    fn machine_list_internal_runner_is_deterministic_across_nested_page_split_artifacts() {
+        let package = include_bytes!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-list/job/document-package.json"
+        );
+        let (first, diagnostics) =
+            staging_machine_list_bytes_run(package, machine_list_paint_inputs(false));
+        let first = first.unwrap();
+        assert!(diagnostics.diagnostics().is_empty());
+        let (second, _) = staging_machine_list_bytes_run(package, machine_list_paint_inputs(false));
+        assert_eq!(first, second.unwrap());
+        let manifest_golden = include_str!(
+            "../../../../samples/machine-package/staging/basic-document-1/machine-list/staging-selected-state.json"
+        );
+        assert_eq!(first.manifest_jcs(), manifest_golden.trim_end());
+        assert!(first.trace_jcs().contains("\"item_flow_id\":2"));
+        assert!(first.trace_jcs().contains("\"list_flow_id\":1"));
+        assert!(first.display_jcs().contains("\"marker_utf8\":\"•\""));
+        assert!(first.pdf_jcs().contains("\"marker_utf8\":\"10.\""));
+        assert!(std::str::from_utf8(first.pdf_content_observation())
+            .unwrap()
+            .contains("<e280a2> Tj"));
+        assert!(first
+            .manifest_jcs()
+            .contains("\"first_line_fragment_id\":0"));
+        for artifact in [first.display_jcs(), first.pdf_jcs(), first.manifest_jcs()] {
+            assert!(artifact.contains("\"marker_fragment_id\":0"));
+            assert!(artifact.contains("\"item_flow_id\":1"));
+            assert!(artifact.contains("\"page_index\":1"));
+        }
+    }
+
+    #[test]
+    fn machine_list_internal_runner_rejects_empty_overflow_and_wrong_item_tamper() {
+        let package = machine_list_wire(9);
+        let (empty, _) = staging_machine_list_run(&package, machine_list_paint_inputs(true));
+        assert!(matches!(
+            empty,
+            Err(StagingMachineListRunnerError::Layout(
+                StagingMachineListLayoutError::EmptyPaintedItem(owner)
+            )) if owner == NodeId::new(2)
+        ));
+
+        let overflow = machine_list_wire(u32::MAX);
+        let (overflow, diagnostics) =
+            staging_machine_list_run(&overflow, machine_list_paint_inputs(false));
+        assert!(matches!(
+            overflow,
+            Err(StagingMachineListRunnerError::ListPreflight(
+                BasicDocumentListPreflightFailure::MarkerOverflow { list_owner }
+            )) if list_owner == NodeId::new(1)
+        ));
+        assert_eq!(*diagnostics.diagnostics()[0].code(), L5100);
+
+        let mut tampered = machine_list_paint_inputs(false);
+        tampered[1] = typaxis_layout::StagingListItemPaintInput::painted(
+            NodeId::new(99),
+            staging_positive(6),
+            staging_positive(18),
+            staging_positive(8),
+            staging_positive(12),
+        );
+        let (tampered, _) = staging_machine_list_run(&package, tampered);
+        assert!(matches!(
+            tampered,
+            Err(StagingMachineListRunnerError::Layout(
+                StagingMachineListLayoutError::ExtraMeasurement(owner)
+            )) if owner == NodeId::new(99)
+        ));
+    }
+
+    #[test]
+    fn machine_list_internal_runner_closes_single_exact_and_max_plus_one_marker_limits() {
+        let mut package = machine_list_wire(1);
+        let wire::WireBlock::List {
+            ordered,
+            start,
+            items,
+            ..
+        } = &mut package.document.blocks[0]
+        else {
+            panic!("machine-list fixture root must remain a list");
+        };
+        *ordered = false;
+        *start = None;
+        items.truncate(1);
+        items[0].blocks.truncate(1);
+        let bytes = wire::StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let measurements = vec![typaxis_layout::StagingListItemPaintInput::painted(
+            NodeId::new(2),
+            staging_positive(6),
+            staging_positive(20),
+            staging_positive(8),
+            staging_positive(12),
+        )];
+        let exact = ValidatedResourceLimits::new(ResourceLimits {
+            max_text_buffer_bytes: 3,
+            max_text_bytes: 3,
+            max_shaping_context_bytes: 3,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let (single, diagnostics) =
+            staging_machine_list_bytes_run_with_limits(&bytes, measurements.clone(), &exact);
+        let single = single.unwrap();
+        assert!(diagnostics.diagnostics().is_empty());
+        assert!(single.display_jcs().contains("\"marker_utf8\":\"•\""));
+
+        let max_plus_one = ValidatedResourceLimits::new(ResourceLimits {
+            max_text_buffer_bytes: 2,
+            max_text_bytes: 3,
+            max_shaping_context_bytes: 2,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let (rejected, diagnostics) =
+            staging_machine_list_bytes_run_with_limits(&bytes, measurements, &max_plus_one);
+        assert!(matches!(
+            rejected,
+            Err(StagingMachineListRunnerError::ListPreflight(
+                BasicDocumentListPreflightFailure::TextBufferLimit { item_owner }
+            )) if item_owner == NodeId::new(2)
+        ));
+        assert_eq!(*diagnostics.diagnostics()[0].code(), T2100);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_block_styles_internal_runner_closes_wire_display_pdf_and_manifest() {
+        let mut paragraph = machine_wire(MachineFixtureKind::Blank);
+        paragraph.document.blocks = vec![machine_paragraph(1, vec![])];
+        paragraph.style_sheet.rules = vec![wire::WireStyleRule {
+            style_id: "typed-paragraph".to_owned(),
+            extends: None,
+            selector: "paragraph".to_owned(),
+            source_order: 0,
+            declarations: vec![
+                staging_style_declaration(
+                    wire::WireDeclarationName::SpaceBefore,
+                    wire::WireStyleValue::Length { value: 5 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::SpaceAfter,
+                    wire::WireStyleValue::Length { value: 6 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::StartIndent,
+                    wire::WireStyleValue::Length { value: 10 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::EndIndent,
+                    wire::WireStyleValue::Length { value: 10 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::TextAlign,
+                    wire::WireStyleValue::Keyword {
+                        value: "center".to_owned(),
+                    },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::KeepWithNext,
+                    wire::WireStyleValue::Boolean { value: true },
+                ),
+            ],
+        }];
+        let input = TypedBlockLayoutInput::new(
+            staging_positive(101),
+            staging_positive(20),
+            staging_positive(20),
+            staging_positive(25),
+            staging_positive(100),
+            NonNegativeLength::new(Length::from_raw(7).unwrap()).unwrap(),
+            false,
+            false,
+            BidiLevel::LTR,
+        );
+        let (first, diagnostics) = staging_style_run(&paragraph, input);
+        let first = first.unwrap();
+        assert!(diagnostics.diagnostics().is_empty());
+        let (second, _) = staging_style_run(&paragraph, input);
+        assert_eq!(first, second.unwrap());
+        assert_eq!(first.pdf_content_observation(), b"q\n40 0 20 1 re W n\nQ\n");
+        for observation in [first.display_jcs(), first.pdf_jcs(), first.manifest_jcs()] {
+            assert!(observation.contains("\"effective_space_before\":0"));
+            assert!(observation.contains("\"effective_space_after\":6"));
+            assert!(observation.contains("\"start_indent\":10"));
+            assert!(observation.contains("\"end_indent\":10"));
+            assert!(observation.contains("\"logical_start_alignment_space\":30"));
+            assert!(observation.contains("\"logical_end_alignment_space\":31"));
+            assert!(observation.contains("\"keep_with_next\":true"));
+            assert!(observation.contains("\"page_break_before\":true"));
+        }
+
+        let mut figure = machine_wire(MachineFixtureKind::Blank);
+        figure.document.blocks = vec![wire::WireBlock::Figure {
+            node_id: 1,
+            span: machine_source_span(),
+            classes: vec![],
+            image_id: 0,
+            alt: "fixture".to_owned(),
+            caption: vec![],
+        }];
+        figure.resources.images = vec![wire::WireImage {
+            image_id: 0,
+            uri: "fixture.png".to_owned(),
+            expected_sha256: None,
+        }];
+        figure.style_sheet.rules = vec![wire::WireStyleRule {
+            style_id: "typed-figure".to_owned(),
+            extends: None,
+            selector: "figure".to_owned(),
+            source_order: 0,
+            declarations: vec![
+                staging_style_declaration(
+                    wire::WireDeclarationName::Width,
+                    wire::WireStyleValue::Length { value: 30 },
+                ),
+                staging_style_declaration(
+                    wire::WireDeclarationName::KeepCaption,
+                    wire::WireStyleValue::Boolean { value: false },
+                ),
+            ],
+        }];
+        let (figure, diagnostics) = staging_style_run(
+            &figure,
+            TypedBlockLayoutInput::new(
+                staging_positive(100),
+                staging_positive(99),
+                staging_positive(20),
+                staging_positive(100),
+                staging_positive(100),
+                NonNegativeLength::ZERO,
+                true,
+                true,
+                BidiLevel::LTR,
+            ),
+        );
+        let figure = figure.unwrap();
+        assert!(diagnostics.diagnostics().is_empty());
+        assert!(figure.pdf_jcs().contains("\"paint_inline_size\":30"));
+        assert!(figure.manifest_jcs().contains("\"keep_caption\":false"));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_block_styles_unsupported_selector_fails_preflight_before_layout() {
+        let mut package = machine_wire(MachineFixtureKind::Blank);
+        package.document.blocks = vec![wire::WireBlock::PageBreak {
+            node_id: 1,
+            span: machine_source_span(),
+            classes: vec![],
+        }];
+        package.style_sheet.rules = vec![wire::WireStyleRule {
+            style_id: "invalid-break".to_owned(),
+            extends: None,
+            selector: "page_break".to_owned(),
+            source_order: 0,
+            declarations: vec![staging_style_declaration(
+                wire::WireDeclarationName::SpaceBefore,
+                wire::WireStyleValue::Length { value: 1 },
+            )],
+        }];
+        let (result, diagnostics) = staging_style_run(
+            &package,
+            TypedBlockLayoutInput::new(
+                staging_positive(100),
+                staging_positive(10),
+                staging_positive(10),
+                staging_positive(100),
+                staging_positive(100),
+                NonNegativeLength::ZERO,
+                true,
+                true,
+                BidiLevel::LTR,
+            ),
+        );
+        assert!(matches!(
+            result,
+            Err(StagingMachineBlockStyleRunnerError::Preflight(
+                BasicDocumentStylePreflightFailure::Unsupported {
+                    violation_count: 1,
+                    primary_code: L5101,
+                }
+            ))
+        ));
+        assert_eq!(diagnostics.diagnostics().len(), 1);
+        assert_eq!(*diagnostics.diagnostics()[0].code(), L5101);
     }
 }

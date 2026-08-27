@@ -1,23 +1,33 @@
 #![forbid(unsafe_code)]
 
 use typaxis_core::{
-    AffineTransform, AnchorId, BidiLevel, DisplayGlyphRunId, DisplayTextBufferId, DisplayTextSpan,
-    EffectiveConfig, FontFaceId, FontInstanceId, GeneratedBufferKey, GeneratedTextBufferId,
-    GeneratedTextSpan, ImageResourceId, LayoutStateFingerprint, Length, MasterId,
-    NonNegativeLength, Point, PositiveLength, PositiveUnitless16_16, Rect, ReferenceFingerprint,
-    SafeUri, TextBufferId, TextSpan, JSON_SAFE_INTEGER_MAX,
+    push_generated_buffer_key_jcs, push_jcs_string, sha256, AffineTransform, AnchorId, BidiLevel,
+    DisplayGlyphRunId, DisplayTextBufferId, DisplayTextSpan, EffectiveConfig, FontFaceId,
+    FontInstanceId, GeneratedBufferKey, GeneratedTextBufferId, GeneratedTextSpan, ImageResourceId,
+    LayoutStateFingerprint, Length, MasterId, NodeId, NonNegativeLength, Point, PositiveLength,
+    PositiveUnitless16_16, Rect, ReferenceFingerprint, SafeUri, TextBufferId, TextSpan,
+    JSON_SAFE_INTEGER_MAX,
 };
 use typaxis_document::{Block, Inline};
 use typaxis_font::OriginalGlyphId;
-use typaxis_layout::{FlowTree, LayoutEpoch};
+use typaxis_layout::{FlowTree, LayoutEpoch, SelectedTypedBlockStyle};
 use typaxis_linebreak::{
     reorder_line_l2, reset_line_bidi_levels, LineBidiClass, LineLevelsAfterL1, ParagraphItem,
-    ShapedSlice, ValidatedParagraphItemRegistry,
+    ShapedSlice, ValidatedParagraphItemRegistry, ValidatedStagingMachineLinkClusterRange,
+    ValidatedStagingMachineLinkClusters,
 };
-use typaxis_pagination::PaginationResult;
+use typaxis_pagination::{
+    PaginationResult, StagingForcedPageBreakConsumeReceipt, StagingForcedPageBreakSelectedPage,
+    StagingForcedPageBreakSelectedState, StagingMachineFigureCaptionFragment,
+    StagingMachineFigurePlacement, StagingMachineFigureSelectedPage,
+    StagingMachineFigureSelectedState, StagingMachineListSelectedState,
+};
 use typaxis_shaping::{ShapeSourceSpan, ValidatedGlyphRun};
-use typaxis_style::StyleValue;
-use typaxis_syntax::ValidatedParsedPackage;
+use typaxis_style::{BasicStyleBlockKind, StyleValue};
+use typaxis_syntax::{
+    ValidatedParsedPackage, ValidatedStagingLinkTarget, ValidatedStagingStylePackage,
+    STAGING_BASIC_LINK_POLICY_VERSION,
+};
 use typaxis_text::{GeneratedTextStore, TextStore};
 
 pub const CONTRACT_VERSION: &str = typaxis_core::CONTRACT;
@@ -32,6 +42,2331 @@ pub const DISPLAY_COMMAND_OPS: &[&str] = &[
     "draw_glyph_run",
     "draw_image",
 ];
+
+pub const STAGING_MACHINE_BLOCK_STYLE_DISPLAY_ALGORITHM: &str =
+    "typaxis.machine-block-style-display/1";
+
+/// Crate-level 1.2 paint observation derived only from layout's selected
+/// typed-style receipt. The public 1.1 display-list format remains unchanged.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineBlockStyleDisplay {
+    owner: u32,
+    package_sha256: [u8; 32],
+    registry_version: &'static str,
+    block_kind: BasicStyleBlockKind,
+    frame_inline_size: i64,
+    available_inline_size: i64,
+    paint_inline_size: i64,
+    start_indent: i64,
+    end_indent: i64,
+    logical_start_alignment_space: i64,
+    logical_end_alignment_space: i64,
+    paint_left_inset: i64,
+    effective_space_before: i64,
+    effective_space_after: i64,
+    page_break_before: bool,
+    keep_with_next: bool,
+    keep_caption: bool,
+    canonical_jcs: String,
+}
+
+impl StagingMachineBlockStyleDisplay {
+    pub fn from_selected(selected: &SelectedTypedBlockStyle) -> Self {
+        let mut value = Self {
+            owner: selected.owner().get(),
+            package_sha256: selected.package_sha256(),
+            registry_version: selected.registry_version(),
+            block_kind: selected.block_kind(),
+            frame_inline_size: selected.frame_inline_size().get().raw(),
+            available_inline_size: selected.available_inline_size().get().raw(),
+            paint_inline_size: selected.content_inline_size().get().raw(),
+            start_indent: selected.start_indent().get().raw(),
+            end_indent: selected.end_indent().get().raw(),
+            logical_start_alignment_space: selected.logical_start_alignment_space().get().raw(),
+            logical_end_alignment_space: selected.logical_end_alignment_space().get().raw(),
+            paint_left_inset: selected.physical_left_inset().get().raw(),
+            effective_space_before: selected.effective_space_before().get().raw(),
+            effective_space_after: selected.effective_space_after().get().raw(),
+            page_break_before: selected.page_break_before(),
+            keep_with_next: selected.keep_with_next(),
+            keep_caption: selected.keep_caption(),
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_block_style_display(&value);
+        value
+    }
+
+    pub const fn owner_node_id(&self) -> u32 {
+        self.owner
+    }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn registry_version(&self) -> &'static str {
+        self.registry_version
+    }
+    pub const fn block_kind(&self) -> BasicStyleBlockKind {
+        self.block_kind
+    }
+    pub const fn frame_inline_size(&self) -> i64 {
+        self.frame_inline_size
+    }
+    pub const fn available_inline_size(&self) -> i64 {
+        self.available_inline_size
+    }
+    pub const fn paint_inline_size(&self) -> i64 {
+        self.paint_inline_size
+    }
+    pub const fn start_indent(&self) -> i64 {
+        self.start_indent
+    }
+    pub const fn end_indent(&self) -> i64 {
+        self.end_indent
+    }
+    pub const fn logical_start_alignment_space(&self) -> i64 {
+        self.logical_start_alignment_space
+    }
+    pub const fn logical_end_alignment_space(&self) -> i64 {
+        self.logical_end_alignment_space
+    }
+    pub const fn paint_left_inset(&self) -> i64 {
+        self.paint_left_inset
+    }
+    pub const fn effective_space_before(&self) -> i64 {
+        self.effective_space_before
+    }
+    pub const fn effective_space_after(&self) -> i64 {
+        self.effective_space_after
+    }
+    pub const fn page_break_before(&self) -> bool {
+        self.page_break_before
+    }
+    pub const fn keep_with_next(&self) -> bool {
+        self.keep_with_next
+    }
+    pub const fn keep_caption(&self) -> bool {
+        self.keep_caption
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    /// Fixed cross-crate fixture; unavailable in production builds.
+    #[cfg(any(test, feature = "staging-fixtures"))]
+    #[doc(hidden)]
+    pub fn paragraph_pdf_test_fixture() -> Self {
+        let mut value = Self {
+            owner: 1,
+            package_sha256: [0xaa; 32],
+            registry_version: "typaxis.basic-block-style-registry/1",
+            block_kind: BasicStyleBlockKind::Paragraph,
+            frame_inline_size: 101,
+            available_inline_size: 81,
+            paint_inline_size: 20,
+            start_indent: 10,
+            end_indent: 10,
+            logical_start_alignment_space: 30,
+            logical_end_alignment_space: 31,
+            paint_left_inset: 40,
+            effective_space_before: 0,
+            effective_space_after: 6,
+            page_break_before: true,
+            keep_with_next: true,
+            keep_caption: true,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_block_style_display(&value);
+        value
+    }
+
+    /// Fixed cross-crate fixture; unavailable in production builds.
+    #[cfg(feature = "staging-fixtures")]
+    #[doc(hidden)]
+    pub fn figure_pdf_test_fixture() -> Self {
+        let mut value = Self {
+            owner: 2,
+            package_sha256: [0xbb; 32],
+            registry_version: "typaxis.basic-block-style-registry/1",
+            block_kind: BasicStyleBlockKind::Figure,
+            frame_inline_size: 100,
+            available_inline_size: 100,
+            paint_inline_size: 30,
+            start_indent: 0,
+            end_indent: 0,
+            logical_start_alignment_space: 0,
+            logical_end_alignment_space: 70,
+            paint_left_inset: 0,
+            effective_space_before: 0,
+            effective_space_after: 0,
+            page_break_before: false,
+            keep_with_next: false,
+            keep_caption: false,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_block_style_display(&value);
+        value
+    }
+}
+
+fn encode_staging_machine_block_style_display(value: &StagingMachineBlockStyleDisplay) -> String {
+    let mut output = String::from("{\"algorithm\":\"");
+    output.push_str(STAGING_MACHINE_BLOCK_STYLE_DISPLAY_ALGORITHM);
+    output.push_str("\",\"available_inline_size\":");
+    output.push_str(&value.available_inline_size.to_string());
+    output.push_str(",\"block_kind\":\"");
+    output.push_str(value.block_kind.as_str());
+    output.push_str("\",\"effective_space_after\":");
+    output.push_str(&value.effective_space_after.to_string());
+    output.push_str(",\"effective_space_before\":");
+    output.push_str(&value.effective_space_before.to_string());
+    output.push_str(",\"end_indent\":");
+    output.push_str(&value.end_indent.to_string());
+    output.push_str(",\"frame_inline_size\":");
+    output.push_str(&value.frame_inline_size.to_string());
+    output.push_str(",\"keep_caption\":");
+    output.push_str(if value.keep_caption { "true" } else { "false" });
+    output.push_str(",\"keep_with_next\":");
+    output.push_str(if value.keep_with_next {
+        "true"
+    } else {
+        "false"
+    });
+    output.push_str(",\"logical_end_alignment_space\":");
+    output.push_str(&value.logical_end_alignment_space.to_string());
+    output.push_str(",\"logical_start_alignment_space\":");
+    output.push_str(&value.logical_start_alignment_space.to_string());
+    output.push_str(",\"owner_node_id\":");
+    output.push_str(&value.owner.to_string());
+    output.push_str(",\"package_sha256\":\"");
+    push_staging_hex(&mut output, value.package_sha256);
+    output.push_str("\",\"page_break_before\":");
+    output.push_str(if value.page_break_before {
+        "true"
+    } else {
+        "false"
+    });
+    output.push_str(",\"paint_inline_size\":");
+    output.push_str(&value.paint_inline_size.to_string());
+    output.push_str(",\"paint_left_inset\":");
+    output.push_str(&value.paint_left_inset.to_string());
+    output.push_str(",\"registry_version\":\"");
+    output.push_str(value.registry_version);
+    output.push_str("\",\"start_indent\":");
+    output.push_str(&value.start_indent.to_string());
+    output.push('}');
+    output
+}
+
+fn push_staging_hex(output: &mut String, bytes: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+}
+
+pub const STAGING_MACHINE_FIGURE_DISPLAY_ALGORITHM: &str = "typaxis.machine-figure-display/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineFigureDisplayError {
+    EmptyFigureSet,
+    MissingDrawImage(ImageResourceId),
+    ExtraDrawImage(ImageResourceId),
+    WrongDrawImage {
+        expected: ImageResourceId,
+        actual: ImageResourceId,
+    },
+    PageClosure,
+    PlacementOutOfBounds(NodeId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureEpochFacts {
+    admitted_resources_sha256: [u8; 32],
+    document_sha256: [u8; 32],
+    resolved_input_sha256: [u8; 32],
+    style_page_master_sha256: [u8; 32],
+}
+
+impl StagingMachineFigureEpochFacts {
+    fn from_layout_epoch(epoch: LayoutEpoch) -> Self {
+        Self {
+            admitted_resources_sha256: epoch.admitted_resources().bytes(),
+            document_sha256: epoch.document().bytes(),
+            resolved_input_sha256: epoch.references().bytes(),
+            style_page_master_sha256: epoch.style().bytes(),
+        }
+    }
+
+    pub const fn admitted_resources_sha256(self) -> [u8; 32] {
+        self.admitted_resources_sha256
+    }
+    pub const fn document_sha256(self) -> [u8; 32] {
+        self.document_sha256
+    }
+    pub const fn resolved_input_sha256(self) -> [u8; 32] {
+        self.resolved_input_sha256
+    }
+    pub const fn style_page_master_sha256(self) -> [u8; 32] {
+        self.style_page_master_sha256
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureDisplayCaption {
+    caption_node_id: u32,
+    caption_flow_id: u32,
+    page_index: u32,
+    rect: Rect,
+}
+
+impl StagingMachineFigureDisplayCaption {
+    pub const fn caption_node_id(&self) -> u32 {
+        self.caption_node_id
+    }
+    pub const fn caption_flow_id(&self) -> u32 {
+        self.caption_flow_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn rect(&self) -> Rect {
+        self.rect
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureDisplayFigure {
+    figure_node_id: u32,
+    document_ordinal: u32,
+    figure_flow_id: u32,
+    caption_flow_id: u32,
+    image_id: ImageResourceId,
+    alt: String,
+    attested_media_kind: &'static str,
+    admitted_sha256: [u8; 32],
+    admitted_byte_length: u64,
+    pixel_width: u32,
+    pixel_height: u32,
+    decoded_bytes: u64,
+    page_index: u32,
+    rect: Rect,
+    effective_space_before: i64,
+    keep_policy: &'static str,
+    oversize_policy: &'static str,
+    moved_to_fresh_page: bool,
+    caption_fragments: Vec<StagingMachineFigureDisplayCaption>,
+}
+
+impl StagingMachineFigureDisplayFigure {
+    pub const fn figure_node_id(&self) -> u32 {
+        self.figure_node_id
+    }
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+    pub const fn figure_flow_id(&self) -> u32 {
+        self.figure_flow_id
+    }
+    pub const fn caption_flow_id(&self) -> u32 {
+        self.caption_flow_id
+    }
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+    pub fn alt(&self) -> &str {
+        &self.alt
+    }
+    pub const fn attested_media_kind(&self) -> &'static str {
+        self.attested_media_kind
+    }
+    pub const fn admitted_sha256(&self) -> [u8; 32] {
+        self.admitted_sha256
+    }
+    pub const fn admitted_byte_length(&self) -> u64 {
+        self.admitted_byte_length
+    }
+    pub const fn pixel_width(&self) -> u32 {
+        self.pixel_width
+    }
+    pub const fn pixel_height(&self) -> u32 {
+        self.pixel_height
+    }
+    pub const fn decoded_bytes(&self) -> u64 {
+        self.decoded_bytes
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn rect(&self) -> Rect {
+        self.rect
+    }
+    pub const fn effective_space_before(&self) -> i64 {
+        self.effective_space_before
+    }
+    pub const fn keep_policy(&self) -> &'static str {
+        self.keep_policy
+    }
+    pub const fn oversize_policy(&self) -> &'static str {
+        self.oversize_policy
+    }
+    pub const fn moved_to_fresh_page(&self) -> bool {
+        self.moved_to_fresh_page
+    }
+    pub fn caption_fragments(&self) -> &[StagingMachineFigureDisplayCaption] {
+        &self.caption_fragments
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureDisplayPage {
+    page_index: u32,
+    figure_count: u32,
+    caption_block_count: u32,
+}
+
+impl StagingMachineFigureDisplayPage {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn figure_count(&self) -> u32 {
+        self.figure_count
+    }
+    pub const fn caption_block_count(&self) -> u32 {
+        self.caption_block_count
+    }
+}
+
+/// Copyable projection retained after the trusted Display document is moved
+/// into resource finalization/PDF construction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineFigureDisplayFacts {
+    package_sha256: [u8; 32],
+    flow_registry_sha256: [u8; 32],
+    figure_usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    epoch: StagingMachineFigureEpochFacts,
+    selected_state_sha256: [u8; 32],
+    layout_state_sha256: [u8; 32],
+    master_id: MasterId,
+    page_width: PositiveLength,
+    page_height: PositiveLength,
+    body: Rect,
+    pages: Vec<StagingMachineFigureDisplayPage>,
+    figures: Vec<StagingMachineFigureDisplayFigure>,
+    canonical_jcs: String,
+}
+
+impl StagingMachineFigureDisplayFacts {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+    pub const fn figure_usage_sha256(&self) -> [u8; 32] {
+        self.figure_usage_sha256
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub const fn epoch(&self) -> StagingMachineFigureEpochFacts {
+        self.epoch
+    }
+    pub const fn selected_state_sha256(&self) -> [u8; 32] {
+        self.selected_state_sha256
+    }
+    pub const fn layout_state_sha256(&self) -> [u8; 32] {
+        self.layout_state_sha256
+    }
+    pub const fn master_id(&self) -> &MasterId {
+        &self.master_id
+    }
+    pub const fn page_width(&self) -> PositiveLength {
+        self.page_width
+    }
+    pub const fn page_height(&self) -> PositiveLength {
+        self.page_height
+    }
+    pub const fn body(&self) -> Rect {
+        self.body
+    }
+    pub fn pages(&self) -> &[StagingMachineFigureDisplayPage] {
+        &self.pages
+    }
+    pub fn figures(&self) -> &[StagingMachineFigureDisplayFigure] {
+        &self.figures
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+pub struct StagingMachineFigureDisplay {
+    trusted: ValidatedDisplayDocument,
+    facts: StagingMachineFigureDisplayFacts,
+}
+
+impl StagingMachineFigureDisplay {
+    pub fn from_selected(
+        selected: &StagingMachineFigureSelectedState,
+    ) -> Result<Self, StagingMachineFigureDisplayError> {
+        let image_ids = selected
+            .figures()
+            .iter()
+            .map(StagingMachineFigurePlacement::image_id)
+            .collect();
+        Self::from_selected_with_draw_image_ids(selected, image_ids)
+    }
+
+    /// Exact paint-worker closure seam used by tamper tests. Every Figure must
+    /// contribute one DrawImage in canonical order and no other image command.
+    #[doc(hidden)]
+    pub fn from_selected_with_draw_image_ids(
+        selected: &StagingMachineFigureSelectedState,
+        draw_image_ids: Vec<ImageResourceId>,
+    ) -> Result<Self, StagingMachineFigureDisplayError> {
+        if selected.figures().is_empty() {
+            return Err(StagingMachineFigureDisplayError::EmptyFigureSet);
+        }
+        for (index, figure) in selected.figures().iter().enumerate() {
+            let Some(actual) = draw_image_ids.get(index).copied() else {
+                return Err(StagingMachineFigureDisplayError::MissingDrawImage(
+                    figure.image_id(),
+                ));
+            };
+            if actual != figure.image_id() {
+                return Err(StagingMachineFigureDisplayError::WrongDrawImage {
+                    expected: figure.image_id(),
+                    actual,
+                });
+            }
+        }
+        if let Some(extra) = draw_image_ids.get(selected.figures().len()).copied() {
+            return Err(StagingMachineFigureDisplayError::ExtraDrawImage(extra));
+        }
+        if selected
+            .pages()
+            .iter()
+            .enumerate()
+            .any(|(index, page)| page.page_index() != u32::try_from(index).unwrap_or(u32::MAX))
+        {
+            return Err(StagingMachineFigureDisplayError::PageClosure);
+        }
+
+        let mut pages: Vec<_> = selected
+            .pages()
+            .iter()
+            .map(|page| DisplayPage {
+                page_index: page.page_index(),
+                width: selected.page_width(),
+                height: selected.page_height(),
+                commands: Vec::new(),
+                annotations: Vec::new(),
+            })
+            .collect();
+        for figure in selected.figures() {
+            let page = pages
+                .get_mut(figure.page_index() as usize)
+                .ok_or(StagingMachineFigureDisplayError::PageClosure)?;
+            if !rect_within_page(figure.rect(), page) {
+                return Err(StagingMachineFigureDisplayError::PlacementOutOfBounds(
+                    figure.figure_owner(),
+                ));
+            }
+            page.commands.push(DisplayCommand::DrawImage {
+                image_id: figure.image_id(),
+                rect: figure.rect(),
+            });
+        }
+        let selected_page_geometry = selected
+            .pages()
+            .iter()
+            .map(|page| ValidatedDisplayPageGeometry {
+                page_index: page.page_index(),
+                master_id: selected.master_id().clone(),
+                width: selected.page_width(),
+                height: selected.page_height(),
+            })
+            .collect();
+        let document = DisplayDocument {
+            source_layout: DisplaySourceLayout {
+                layout_epoch: selected.epoch(),
+                state_fingerprint: selected.state_fingerprint(),
+            },
+            text_buffers: Vec::new(),
+            font_instances: Vec::new(),
+            destinations: Vec::new(),
+            pages,
+        };
+        let trusted = ValidatedDisplayDocument {
+            structural: StructurallyValidatedDisplayDocument {
+                document,
+                selected_page_geometry,
+            },
+        };
+        let figures = selected
+            .figures()
+            .iter()
+            .map(staging_machine_figure_display_figure)
+            .collect();
+        let pages = selected
+            .pages()
+            .iter()
+            .map(staging_machine_figure_display_page)
+            .collect();
+        let mut facts = StagingMachineFigureDisplayFacts {
+            package_sha256: selected.package_sha256(),
+            flow_registry_sha256: selected.flow_registry_fingerprint().bytes(),
+            figure_usage_sha256: selected.figure_usage_sha256(),
+            policy_version: selected.policy_version(),
+            epoch: StagingMachineFigureEpochFacts::from_layout_epoch(selected.epoch()),
+            selected_state_sha256: sha256(selected.canonical_jcs().as_bytes()),
+            layout_state_sha256: selected.state_fingerprint().bytes(),
+            master_id: selected.master_id().clone(),
+            page_width: selected.page_width(),
+            page_height: selected.page_height(),
+            body: selected.body(),
+            pages,
+            figures,
+            canonical_jcs: String::new(),
+        };
+        facts.canonical_jcs = encode_staging_machine_figure_display(&facts);
+        Ok(Self { trusted, facts })
+    }
+
+    pub const fn validated_document(&self) -> &ValidatedDisplayDocument {
+        &self.trusted
+    }
+
+    pub const fn facts(&self) -> &StagingMachineFigureDisplayFacts {
+        &self.facts
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        self.facts.canonical_jcs()
+    }
+
+    pub fn into_parts(self) -> (ValidatedDisplayDocument, StagingMachineFigureDisplayFacts) {
+        (self.trusted, self.facts)
+    }
+}
+
+fn staging_machine_figure_display_page(
+    page: &StagingMachineFigureSelectedPage,
+) -> StagingMachineFigureDisplayPage {
+    StagingMachineFigureDisplayPage {
+        page_index: page.page_index(),
+        figure_count: page.figure_count(),
+        caption_block_count: page.caption_block_count(),
+    }
+}
+
+fn staging_machine_figure_display_figure(
+    figure: &StagingMachineFigurePlacement,
+) -> StagingMachineFigureDisplayFigure {
+    StagingMachineFigureDisplayFigure {
+        figure_node_id: figure.figure_owner().get(),
+        document_ordinal: figure.document_ordinal(),
+        figure_flow_id: figure.figure_flow_id().get(),
+        caption_flow_id: figure.caption_flow_id().get(),
+        image_id: figure.image_id(),
+        alt: figure.alt().to_owned(),
+        attested_media_kind: figure.admitted_media_kind(),
+        admitted_sha256: figure.admitted_sha256(),
+        admitted_byte_length: figure.admitted_byte_length(),
+        pixel_width: figure.pixel_width(),
+        pixel_height: figure.pixel_height(),
+        decoded_bytes: figure.decoded_bytes(),
+        page_index: figure.page_index(),
+        rect: figure.rect(),
+        effective_space_before: figure.effective_space_before().get().raw(),
+        keep_policy: figure.keep_policy().as_str(),
+        oversize_policy: figure.oversize_policy().as_str(),
+        moved_to_fresh_page: figure.moved_to_fresh_page(),
+        caption_fragments: figure
+            .caption_fragments()
+            .iter()
+            .map(staging_machine_figure_display_caption)
+            .collect(),
+    }
+}
+
+fn staging_machine_figure_display_caption(
+    caption: &StagingMachineFigureCaptionFragment,
+) -> StagingMachineFigureDisplayCaption {
+    StagingMachineFigureDisplayCaption {
+        caption_node_id: caption.caption_owner().get(),
+        caption_flow_id: caption.caption_flow_id().get(),
+        page_index: caption.page_index(),
+        rect: caption.rect(),
+    }
+}
+
+fn encode_staging_machine_figure_display(value: &StagingMachineFigureDisplayFacts) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_FIGURE_DISPLAY_ALGORITHM);
+    output.push_str(",\"body\":");
+    encode_staging_machine_figure_rect(&mut output, value.body);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"figure_usage_sha256\":");
+    push_quoted_staging_hex(&mut output, value.figure_usage_sha256);
+    output.push_str(",\"figures\":[");
+    for (index, figure) in value.figures.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        encode_staging_machine_figure_display_figure(&mut output, figure);
+    }
+    output.push_str("],\"flow_registry_sha256\":");
+    push_quoted_staging_hex(&mut output, value.flow_registry_sha256);
+    output.push_str(",\"layout_epoch\":");
+    encode_staging_machine_figure_epoch(&mut output, value.epoch);
+    output.push_str(",\"layout_state_sha256\":");
+    push_quoted_staging_hex(&mut output, value.layout_state_sha256);
+    output.push_str(",\"master_id\":");
+    push_jcs_string(&mut output, value.master_id.as_str());
+    output.push_str(",\"package_sha256\":");
+    push_quoted_staging_hex(&mut output, value.package_sha256);
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.pages.len().to_string());
+    output.push_str(",\"page_height\":");
+    output.push_str(&value.page_height.get().raw().to_string());
+    output.push_str(",\"page_width\":");
+    output.push_str(&value.page_width.get().raw().to_string());
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"caption_block_count\":");
+        output.push_str(&page.caption_block_count.to_string());
+        output.push_str(",\"figure_count\":");
+        output.push_str(&page.figure_count.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push_str(",\"selected_state_sha256\":");
+    push_quoted_staging_hex(&mut output, value.selected_state_sha256);
+    output.push('}');
+    output
+}
+
+fn encode_staging_machine_figure_display_figure(
+    output: &mut String,
+    figure: &StagingMachineFigureDisplayFigure,
+) {
+    output.push_str("{\"admitted_byte_length\":");
+    output.push_str(&figure.admitted_byte_length.to_string());
+    output.push_str(",\"admitted_sha256\":");
+    push_quoted_staging_hex(output, figure.admitted_sha256);
+    output.push_str(",\"alt\":");
+    push_jcs_string(output, &figure.alt);
+    output.push_str(",\"attested_media_kind\":");
+    push_jcs_string(output, figure.attested_media_kind);
+    output.push_str(",\"caption_flow_id\":");
+    output.push_str(&figure.caption_flow_id.to_string());
+    output.push_str(",\"caption_fragments\":[");
+    for (index, caption) in figure.caption_fragments.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"caption_flow_id\":");
+        output.push_str(&caption.caption_flow_id.to_string());
+        output.push_str(",\"caption_node_id\":");
+        output.push_str(&caption.caption_node_id.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&caption.page_index.to_string());
+        output.push_str(",\"rect\":");
+        encode_staging_machine_figure_rect(output, caption.rect);
+        output.push('}');
+    }
+    output.push_str("],\"decoded_bytes\":");
+    output.push_str(&figure.decoded_bytes.to_string());
+    output.push_str(",\"document_ordinal\":");
+    output.push_str(&figure.document_ordinal.to_string());
+    output.push_str(",\"draw_image_count\":1,\"effective_space_before\":");
+    output.push_str(&figure.effective_space_before.to_string());
+    output.push_str(",\"figure_flow_id\":");
+    output.push_str(&figure.figure_flow_id.to_string());
+    output.push_str(",\"figure_node_id\":");
+    output.push_str(&figure.figure_node_id.to_string());
+    output.push_str(",\"image_id\":");
+    output.push_str(&figure.image_id.get().to_string());
+    output.push_str(",\"keep_policy\":");
+    push_jcs_string(output, figure.keep_policy);
+    output.push_str(",\"moved_to_fresh_page\":");
+    output.push_str(if figure.moved_to_fresh_page {
+        "true"
+    } else {
+        "false"
+    });
+    output.push_str(",\"oversize_policy\":");
+    push_jcs_string(output, figure.oversize_policy);
+    output.push_str(",\"page_index\":");
+    output.push_str(&figure.page_index.to_string());
+    output.push_str(",\"pixel_height\":");
+    output.push_str(&figure.pixel_height.to_string());
+    output.push_str(",\"pixel_width\":");
+    output.push_str(&figure.pixel_width.to_string());
+    output.push_str(",\"rect\":");
+    encode_staging_machine_figure_rect(output, figure.rect);
+    output.push('}');
+}
+
+fn encode_staging_machine_figure_epoch(output: &mut String, epoch: StagingMachineFigureEpochFacts) {
+    output.push_str("{\"admitted_resources_sha256\":");
+    push_quoted_staging_hex(output, epoch.admitted_resources_sha256);
+    output.push_str(",\"document_sha256\":");
+    push_quoted_staging_hex(output, epoch.document_sha256);
+    output.push_str(",\"resolved_input_sha256\":");
+    push_quoted_staging_hex(output, epoch.resolved_input_sha256);
+    output.push_str(",\"style_page_master_sha256\":");
+    push_quoted_staging_hex(output, epoch.style_page_master_sha256);
+    output.push('}');
+}
+
+fn encode_staging_machine_figure_rect(output: &mut String, rect: Rect) {
+    output.push_str("{\"height\":");
+    output.push_str(&rect.height().get().raw().to_string());
+    output.push_str(",\"width\":");
+    output.push_str(&rect.width().get().raw().to_string());
+    output.push_str(",\"x\":");
+    output.push_str(&rect.x().raw().to_string());
+    output.push_str(",\"y\":");
+    output.push_str(&rect.y().raw().to_string());
+    output.push('}');
+}
+
+fn push_quoted_staging_hex(output: &mut String, bytes: [u8; 32]) {
+    output.push('"');
+    push_staging_hex(output, bytes);
+    output.push('"');
+}
+
+pub const STAGING_MACHINE_LINK_DISPLAY_ALGORITHM: &str = "typaxis.machine-link-display/1";
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StagingMachineLinkAnnotationTamper {
+    #[default]
+    None,
+    MissingFirst,
+    ExtraFirst,
+    WrongPageFirst,
+    WrongTargetFirst,
+    RectangleFirst,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineLinkDisplayError {
+    ReceiptMismatch,
+    EmptyLinkSet,
+    MissingPaintedCluster(NodeId),
+    DuplicatePaintedCluster(NodeId),
+    ZeroAreaPaintedCluster(NodeId),
+    RectangleLimit,
+    MissingAnnotation(NodeId),
+    ExtraAnnotation(NodeId),
+    WrongPage(NodeId),
+    WrongTarget(NodeId),
+    RectangleMismatch(NodeId),
+    DestinationClosure,
+    NumericOverflow,
+    DisplayValidation(DisplayValidationError),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StagingMachineLinkDisplayTarget {
+    Internal {
+        anchor_id: AnchorId,
+        anchor_owner_node_id: u32,
+    },
+    External {
+        uri: SafeUri,
+    },
+}
+
+impl StagingMachineLinkDisplayTarget {
+    fn from_validated(target: &ValidatedStagingLinkTarget) -> Self {
+        match target {
+            ValidatedStagingLinkTarget::Internal {
+                anchor_id,
+                anchor_owner,
+            } => Self::Internal {
+                anchor_id: anchor_id.clone(),
+                anchor_owner_node_id: anchor_owner.get(),
+            },
+            ValidatedStagingLinkTarget::External(uri) => Self::External { uri: uri.clone() },
+        }
+    }
+
+    fn to_display_target(&self) -> LinkTarget {
+        match self {
+            Self::Internal { anchor_id, .. } => LinkTarget::Internal(anchor_id.clone()),
+            Self::External { uri } => LinkTarget::Uri(uri.clone()),
+        }
+    }
+
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Internal { .. } => "internal",
+            Self::External { .. } => "external",
+        }
+    }
+
+    pub const fn anchor_id(&self) -> Option<&AnchorId> {
+        match self {
+            Self::Internal { anchor_id, .. } => Some(anchor_id),
+            Self::External { .. } => None,
+        }
+    }
+
+    pub const fn anchor_owner_node_id(&self) -> Option<u32> {
+        match self {
+            Self::Internal {
+                anchor_owner_node_id,
+                ..
+            } => Some(*anchor_owner_node_id),
+            Self::External { .. } => None,
+        }
+    }
+
+    pub const fn uri(&self) -> Option<&SafeUri> {
+        match self {
+            Self::Internal { .. } => None,
+            Self::External { uri } => Some(uri),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkDisplayRectangle {
+    link_node_id: u32,
+    paragraph_node_id: u32,
+    page_index: u32,
+    line_ordinal: u32,
+    rect: Rect,
+    target: StagingMachineLinkDisplayTarget,
+}
+
+impl StagingMachineLinkDisplayRectangle {
+    pub const fn link_node_id(&self) -> u32 {
+        self.link_node_id
+    }
+    pub const fn paragraph_node_id(&self) -> u32 {
+        self.paragraph_node_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn line_ordinal(&self) -> u32 {
+        self.line_ordinal
+    }
+    pub const fn rect(&self) -> Rect {
+        self.rect
+    }
+    pub const fn target(&self) -> &StagingMachineLinkDisplayTarget {
+        &self.target
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkDisplayLink {
+    link_node_id: u32,
+    paragraph_node_id: u32,
+    logical_cluster_start: u32,
+    logical_cluster_end: u32,
+    logical_cluster_count: u32,
+    target: StagingMachineLinkDisplayTarget,
+    rectangles: Vec<StagingMachineLinkDisplayRectangle>,
+}
+
+impl StagingMachineLinkDisplayLink {
+    pub const fn link_node_id(&self) -> u32 {
+        self.link_node_id
+    }
+    pub const fn paragraph_node_id(&self) -> u32 {
+        self.paragraph_node_id
+    }
+    pub const fn logical_cluster_start(&self) -> u32 {
+        self.logical_cluster_start
+    }
+    pub const fn logical_cluster_end(&self) -> u32 {
+        self.logical_cluster_end
+    }
+    pub const fn logical_cluster_count(&self) -> u32 {
+        self.logical_cluster_count
+    }
+    pub const fn target(&self) -> &StagingMachineLinkDisplayTarget {
+        &self.target
+    }
+    pub fn rectangles(&self) -> &[StagingMachineLinkDisplayRectangle] {
+        &self.rectangles
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkDisplayDestination {
+    anchor_id: AnchorId,
+    owner_node_id: u32,
+    page_index: u32,
+    point: Point,
+}
+
+impl StagingMachineLinkDisplayDestination {
+    pub const fn anchor_id(&self) -> &AnchorId {
+        &self.anchor_id
+    }
+    pub const fn owner_node_id(&self) -> u32 {
+        self.owner_node_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn point(&self) -> Point {
+        self.point
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkDisplayPage {
+    page_index: u32,
+    width: PositiveLength,
+    height: PositiveLength,
+    annotation_count: u32,
+}
+
+impl StagingMachineLinkDisplayPage {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn width(&self) -> PositiveLength {
+        self.width
+    }
+    pub const fn height(&self) -> PositiveLength {
+        self.height
+    }
+    pub const fn annotation_count(&self) -> u32 {
+        self.annotation_count
+    }
+}
+
+/// Cloneable link facts retained after the publication-trusted Display value
+/// moves into the PDF backend.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkDisplayFacts {
+    package_sha256: [u8; 32],
+    usage_sha256: [u8; 32],
+    cluster_receipt_sha256: [u8; 32],
+    selected_state_sha256: [u8; 32],
+    layout_state_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    policy_version: &'static str,
+    pages: Vec<StagingMachineLinkDisplayPage>,
+    destinations: Vec<StagingMachineLinkDisplayDestination>,
+    links: Vec<StagingMachineLinkDisplayLink>,
+    annotation_count: u32,
+    canonical_jcs: String,
+}
+
+impl StagingMachineLinkDisplayFacts {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+    pub const fn cluster_receipt_sha256(&self) -> [u8; 32] {
+        self.cluster_receipt_sha256
+    }
+    pub const fn selected_state_sha256(&self) -> [u8; 32] {
+        self.selected_state_sha256
+    }
+    pub const fn layout_state_sha256(&self) -> [u8; 32] {
+        self.layout_state_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub fn pages(&self) -> &[StagingMachineLinkDisplayPage] {
+        &self.pages
+    }
+    pub fn destinations(&self) -> &[StagingMachineLinkDisplayDestination] {
+        &self.destinations
+    }
+    pub fn links(&self) -> &[StagingMachineLinkDisplayLink] {
+        &self.links
+    }
+    pub const fn annotation_count(&self) -> u32 {
+        self.annotation_count
+    }
+    pub fn annotations(&self) -> impl Iterator<Item = &StagingMachineLinkDisplayRectangle> {
+        self.links.iter().flat_map(|link| link.rectangles.iter())
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+/// MI2-07 Display owner. Glyph commands are first produced by the existing
+/// selected-paragraph painter; this owner derives only annotations from the
+/// same selected cluster/line receipts and then revalidates the complete
+/// Display document.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineLinkDisplay {
+    validated: ValidatedDisplayDocument,
+    facts: StagingMachineLinkDisplayFacts,
+}
+
+impl StagingMachineLinkDisplay {
+    pub fn from_selected(
+        package: &ValidatedStagingStylePackage,
+        selected: &PaginationResult,
+        flow: &FlowTree,
+        links: &ValidatedStagingMachineLinkClusters,
+        config: &EffectiveConfig,
+    ) -> Result<Self, StagingMachineLinkDisplayError> {
+        Self::from_selected_with_tamper(
+            package,
+            selected,
+            flow,
+            links,
+            config,
+            StagingMachineLinkAnnotationTamper::None,
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn from_selected_with_tamper(
+        package: &ValidatedStagingStylePackage,
+        selected: &PaginationResult,
+        flow: &FlowTree,
+        links: &ValidatedStagingMachineLinkClusters,
+        config: &EffectiveConfig,
+        tamper: StagingMachineLinkAnnotationTamper,
+    ) -> Result<Self, StagingMachineLinkDisplayError> {
+        let registry = flow
+            .paragraph_items()
+            .ok_or(StagingMachineLinkDisplayError::ReceiptMismatch)?;
+        if flow != selected.selected_flow()
+            || !links.verifies(package, registry)
+            || links.ranges().is_empty()
+        {
+            return Err(if links.ranges().is_empty() {
+                StagingMachineLinkDisplayError::EmptyLinkSet
+            } else {
+                StagingMachineLinkDisplayError::ReceiptMismatch
+            });
+        }
+
+        let base = ValidatedDisplayDocument::paint_reference_paragraphs(
+            package.package(),
+            selected,
+            flow,
+            config,
+        )
+        .map_err(StagingMachineLinkDisplayError::DisplayValidation)?;
+        let expected = derive_staging_machine_link_rectangles(
+            selected,
+            registry,
+            links,
+            config.limits().get().max_fragments,
+        )?;
+        let mut observed = expected.clone();
+        apply_staging_machine_link_tamper(&mut observed, tamper)?;
+        close_staging_machine_link_annotations(&expected, &observed)?;
+
+        let (mut document, _) = base.into_parts();
+        for page in &mut document.pages {
+            page.annotations.clear();
+        }
+        for annotation in &observed {
+            let page = document
+                .pages
+                .get_mut(annotation.page_index as usize)
+                .ok_or(StagingMachineLinkDisplayError::WrongPage(NodeId::new(
+                    annotation.link_node_id,
+                )))?;
+            page.annotations.push(LinkAnnotation {
+                target: annotation.target.to_display_target(),
+                rect: annotation.rect,
+            });
+        }
+        let structural = StructurallyValidatedDisplayDocument::new(
+            document,
+            package.package(),
+            selected,
+            config,
+        )
+        .map_err(StagingMachineLinkDisplayError::DisplayValidation)?;
+        let validated = ValidatedDisplayDocument { structural };
+        let destinations = staging_machine_link_destinations(package, &validated)?;
+        let link_facts = staging_machine_link_facts(links, &expected)?;
+        let pages = validated
+            .document()
+            .pages
+            .iter()
+            .map(|page| {
+                Ok(StagingMachineLinkDisplayPage {
+                    page_index: page.page_index,
+                    width: page.width,
+                    height: page.height,
+                    annotation_count: u32::try_from(page.annotations.len())
+                        .map_err(|_| StagingMachineLinkDisplayError::NumericOverflow)?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let annotation_count = u32::try_from(expected.len())
+            .map_err(|_| StagingMachineLinkDisplayError::NumericOverflow)?;
+        let layout_state_sha256 = selected.final_fingerprint().bytes();
+        let cluster_receipt_sha256 = sha256(links.canonical_jcs().as_bytes());
+        let mut selected_state_bytes = Vec::new();
+        selected_state_bytes.extend_from_slice(&layout_state_sha256);
+        selected_state_bytes.extend_from_slice(&cluster_receipt_sha256);
+        let selected_state_sha256 = sha256(&selected_state_bytes);
+        let mut facts = StagingMachineLinkDisplayFacts {
+            package_sha256: links.package_sha256(),
+            usage_sha256: links.usage_sha256(),
+            cluster_receipt_sha256,
+            selected_state_sha256,
+            layout_state_sha256,
+            epoch: links.epoch(),
+            policy_version: STAGING_BASIC_LINK_POLICY_VERSION,
+            pages,
+            destinations,
+            links: link_facts,
+            annotation_count,
+            canonical_jcs: String::new(),
+        };
+        facts.canonical_jcs = encode_staging_machine_link_display(&facts);
+        Ok(Self { validated, facts })
+    }
+
+    pub const fn validated_document(&self) -> &ValidatedDisplayDocument {
+        &self.validated
+    }
+    pub const fn facts(&self) -> &StagingMachineLinkDisplayFacts {
+        &self.facts
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        self.facts.canonical_jcs()
+    }
+    pub fn into_parts(self) -> (ValidatedDisplayDocument, StagingMachineLinkDisplayFacts) {
+        (self.validated, self.facts)
+    }
+}
+
+fn derive_staging_machine_link_rectangles(
+    selected: &PaginationResult,
+    registry: &ValidatedParagraphItemRegistry,
+    links: &ValidatedStagingMachineLinkClusters,
+    max_rectangles: u64,
+) -> Result<Vec<StagingMachineLinkDisplayRectangle>, StagingMachineLinkDisplayError> {
+    let expected_clusters: std::collections::BTreeSet<_> = links
+        .ranges()
+        .iter()
+        .flat_map(|range| range.clusters().iter().copied())
+        .collect();
+    let mut seen_clusters = std::collections::BTreeSet::new();
+    let mut unions: std::collections::BTreeMap<(NodeId, u32, u32), Rect> =
+        std::collections::BTreeMap::new();
+    for page in selected.selected_pages() {
+        for fragment in &page.fragments {
+            if registry.item_count(fragment.owner).is_none() {
+                continue;
+            }
+            let logical = fragment_shaped_slices(registry, fragment)
+                .map_err(StagingMachineLinkDisplayError::DisplayValidation)?;
+            if logical.is_empty() {
+                continue;
+            }
+            let levels: Vec<_> = logical
+                .iter()
+                .map(|slice| slice.shaped.bidi_level())
+                .collect();
+            let classes: Vec<_> = logical.iter().map(|slice| slice.class).collect();
+            let paragraph_level = registry
+                .paragraph_level(fragment.owner)
+                .ok_or(StagingMachineLinkDisplayError::ReceiptMismatch)?;
+            let after_l1 = reset_line_bidi_levels(paragraph_level, &levels, &classes)
+                .map_err(|_| StagingMachineLinkDisplayError::ReceiptMismatch)?;
+            let mut logical =
+                reference_final_line_reshape(registry, fragment.owner, logical, &after_l1)
+                    .map_err(StagingMachineLinkDisplayError::DisplayValidation)?;
+            justify_reference_line(registry, fragment, &mut logical)
+                .map_err(StagingMachineLinkDisplayError::DisplayValidation)?;
+            let order = reorder_line_l2(&after_l1)
+                .map_err(|_| StagingMachineLinkDisplayError::ReceiptMismatch)?;
+            let mut x = fragment.bounds.x();
+            for logical_index in order.visual_to_logical() {
+                let slice = logical
+                    .get(*logical_index as usize)
+                    .ok_or(StagingMachineLinkDisplayError::ReceiptMismatch)?;
+                if let Some((range, cluster)) = links.range_for_shaped(fragment.owner, slice.shaped)
+                {
+                    if !seen_clusters.insert(cluster) {
+                        return Err(StagingMachineLinkDisplayError::DuplicatePaintedCluster(
+                            range.link_node(),
+                        ));
+                    }
+                    let width = PositiveLength::new(slice.advance).ok_or(
+                        StagingMachineLinkDisplayError::ZeroAreaPaintedCluster(range.link_node()),
+                    )?;
+                    let cluster_rect =
+                        Rect::new(x, fragment.bounds.y(), width, fragment.bounds.height());
+                    let union_key = (
+                        range.link_node(),
+                        page.page_index,
+                        fragment.owner_local_ordinal,
+                    );
+                    if !unions.contains_key(&union_key)
+                        && u64::try_from(unions.len()).unwrap_or(u64::MAX) >= max_rectangles
+                    {
+                        return Err(StagingMachineLinkDisplayError::RectangleLimit);
+                    }
+                    match unions.entry(union_key) {
+                        std::collections::btree_map::Entry::Occupied(mut entry) => {
+                            let union = union_staging_machine_link_rect(*entry.get(), cluster_rect)
+                                .ok_or(StagingMachineLinkDisplayError::NumericOverflow)?;
+                            entry.insert(union);
+                        }
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(cluster_rect);
+                        }
+                    }
+                }
+                x = x
+                    .checked_add(slice.advance)
+                    .ok_or(StagingMachineLinkDisplayError::NumericOverflow)?;
+            }
+        }
+    }
+    if seen_clusters != expected_clusters {
+        let owner = links
+            .ranges()
+            .iter()
+            .find(|range| {
+                range
+                    .clusters()
+                    .iter()
+                    .any(|cluster| !seen_clusters.contains(cluster))
+            })
+            .map(ValidatedStagingMachineLinkClusterRange::link_node)
+            .unwrap_or(NodeId::new(0));
+        return Err(StagingMachineLinkDisplayError::MissingPaintedCluster(owner));
+    }
+    let mut rectangles = Vec::new();
+    rectangles
+        .try_reserve_exact(unions.len())
+        .map_err(|_| StagingMachineLinkDisplayError::NumericOverflow)?;
+    for ((link_node, page_index, line_ordinal), rect) in unions {
+        let range = links
+            .ranges()
+            .iter()
+            .find(|range| range.link_node() == link_node)
+            .ok_or(StagingMachineLinkDisplayError::ReceiptMismatch)?;
+        rectangles.push(StagingMachineLinkDisplayRectangle {
+            link_node_id: link_node.get(),
+            paragraph_node_id: range.paragraph_node().get(),
+            page_index,
+            line_ordinal,
+            rect,
+            target: StagingMachineLinkDisplayTarget::from_validated(range.target()),
+        });
+    }
+    for range in links.ranges() {
+        if rectangles
+            .iter()
+            .all(|rectangle| rectangle.link_node_id != range.link_node().get())
+        {
+            return Err(StagingMachineLinkDisplayError::MissingPaintedCluster(
+                range.link_node(),
+            ));
+        }
+    }
+    Ok(rectangles)
+}
+
+fn union_staging_machine_link_rect(left: Rect, right: Rect) -> Option<Rect> {
+    let min_x = left.x().raw().min(right.x().raw());
+    let min_y = left.y().raw().min(right.y().raw());
+    let max_x = left
+        .x()
+        .raw()
+        .checked_add(left.width().get().raw())?
+        .max(right.x().raw().checked_add(right.width().get().raw())?);
+    let max_y = left
+        .y()
+        .raw()
+        .checked_add(left.height().get().raw())?
+        .max(right.y().raw().checked_add(right.height().get().raw())?);
+    Some(Rect::new(
+        Length::from_raw(min_x)?,
+        Length::from_raw(min_y)?,
+        PositiveLength::new(Length::from_raw(max_x.checked_sub(min_x)?)?)?,
+        PositiveLength::new(Length::from_raw(max_y.checked_sub(min_y)?)?)?,
+    ))
+}
+
+fn apply_staging_machine_link_tamper(
+    annotations: &mut Vec<StagingMachineLinkDisplayRectangle>,
+    tamper: StagingMachineLinkAnnotationTamper,
+) -> Result<(), StagingMachineLinkDisplayError> {
+    let Some(first) = annotations.first().cloned() else {
+        return Err(StagingMachineLinkDisplayError::EmptyLinkSet);
+    };
+    match tamper {
+        StagingMachineLinkAnnotationTamper::None => {}
+        StagingMachineLinkAnnotationTamper::MissingFirst => {
+            annotations.remove(0);
+        }
+        StagingMachineLinkAnnotationTamper::ExtraFirst => annotations.push(first),
+        StagingMachineLinkAnnotationTamper::WrongPageFirst => {
+            annotations[0].page_index = annotations[0]
+                .page_index
+                .checked_add(1)
+                .ok_or(StagingMachineLinkDisplayError::NumericOverflow)?;
+        }
+        StagingMachineLinkAnnotationTamper::WrongTargetFirst => {
+            annotations[0].target = StagingMachineLinkDisplayTarget::External {
+                uri: SafeUri::new("https://tamper.invalid/").map_err(|_| {
+                    StagingMachineLinkDisplayError::WrongTarget(NodeId::new(first.link_node_id))
+                })?,
+            };
+        }
+        StagingMachineLinkAnnotationTamper::RectangleFirst => {
+            let rect = annotations[0].rect;
+            let x = rect
+                .x()
+                .checked_add(Length::from_raw(1).expect("one is a valid fixed-point length"))
+                .ok_or(StagingMachineLinkDisplayError::NumericOverflow)?;
+            annotations[0].rect = Rect::new(x, rect.y(), rect.width(), rect.height());
+        }
+    }
+    Ok(())
+}
+
+fn close_staging_machine_link_annotations(
+    expected: &[StagingMachineLinkDisplayRectangle],
+    observed: &[StagingMachineLinkDisplayRectangle],
+) -> Result<(), StagingMachineLinkDisplayError> {
+    if observed.len() < expected.len() {
+        let missing = expected
+            .iter()
+            .find(|candidate| !observed.contains(candidate))
+            .unwrap_or(&expected[0]);
+        return Err(StagingMachineLinkDisplayError::MissingAnnotation(
+            NodeId::new(missing.link_node_id),
+        ));
+    }
+    if observed.len() > expected.len() {
+        let extra = observed
+            .iter()
+            .find(|candidate| !expected.contains(candidate))
+            .unwrap_or(&observed[observed.len() - 1]);
+        return Err(StagingMachineLinkDisplayError::ExtraAnnotation(
+            NodeId::new(extra.link_node_id),
+        ));
+    }
+    for (expected, observed) in expected.iter().zip(observed) {
+        let owner = NodeId::new(expected.link_node_id);
+        if expected.link_node_id != observed.link_node_id
+            || expected.paragraph_node_id != observed.paragraph_node_id
+            || expected.line_ordinal != observed.line_ordinal
+            || expected.page_index != observed.page_index
+        {
+            return Err(StagingMachineLinkDisplayError::WrongPage(owner));
+        }
+        if expected.target != observed.target {
+            return Err(StagingMachineLinkDisplayError::WrongTarget(owner));
+        }
+        if expected.rect != observed.rect {
+            return Err(StagingMachineLinkDisplayError::RectangleMismatch(owner));
+        }
+    }
+    Ok(())
+}
+
+fn staging_machine_link_destinations(
+    package: &ValidatedStagingStylePackage,
+    display: &ValidatedDisplayDocument,
+) -> Result<Vec<StagingMachineLinkDisplayDestination>, StagingMachineLinkDisplayError> {
+    let destinations = &display.document().destinations;
+    if destinations.len() != package.package().document_nodes().anchors().len() {
+        return Err(StagingMachineLinkDisplayError::DestinationClosure);
+    }
+    destinations
+        .iter()
+        .map(|destination| {
+            let DestinationView::Xyz { point } = destination.view else {
+                return Err(StagingMachineLinkDisplayError::DestinationClosure);
+            };
+            let owner = package
+                .package()
+                .document_nodes()
+                .anchor_owner(&destination.anchor_id)
+                .ok_or(StagingMachineLinkDisplayError::DestinationClosure)?;
+            Ok(StagingMachineLinkDisplayDestination {
+                anchor_id: destination.anchor_id.clone(),
+                owner_node_id: owner.get(),
+                page_index: destination.page_index,
+                point,
+            })
+        })
+        .collect()
+}
+
+fn staging_machine_link_facts(
+    clusters: &ValidatedStagingMachineLinkClusters,
+    rectangles: &[StagingMachineLinkDisplayRectangle],
+) -> Result<Vec<StagingMachineLinkDisplayLink>, StagingMachineLinkDisplayError> {
+    clusters
+        .ranges()
+        .iter()
+        .map(|range| {
+            let link_rectangles: Vec<_> = rectangles
+                .iter()
+                .filter(|rectangle| rectangle.link_node_id == range.link_node().get())
+                .cloned()
+                .collect();
+            if link_rectangles.is_empty() {
+                return Err(StagingMachineLinkDisplayError::MissingPaintedCluster(
+                    range.link_node(),
+                ));
+            }
+            Ok(StagingMachineLinkDisplayLink {
+                link_node_id: range.link_node().get(),
+                paragraph_node_id: range.paragraph_node().get(),
+                logical_cluster_start: range.logical_start(),
+                logical_cluster_end: range.logical_end(),
+                logical_cluster_count: u32::try_from(range.clusters().len())
+                    .map_err(|_| StagingMachineLinkDisplayError::NumericOverflow)?,
+                target: StagingMachineLinkDisplayTarget::from_validated(range.target()),
+                rectangles: link_rectangles,
+            })
+        })
+        .collect()
+}
+
+fn encode_staging_machine_link_display(value: &StagingMachineLinkDisplayFacts) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_LINK_DISPLAY_ALGORITHM);
+    output.push_str(",\"annotation_count\":");
+    output.push_str(&value.annotation_count.to_string());
+    output.push_str(",\"cluster_receipt_sha256\":");
+    push_quoted_staging_hex(&mut output, value.cluster_receipt_sha256);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"destinations\":[");
+    for (index, destination) in value.destinations.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"anchor_id\":");
+        push_jcs_string(&mut output, destination.anchor_id.as_str());
+        output.push_str(",\"owner_node_id\":");
+        output.push_str(&destination.owner_node_id.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&destination.page_index.to_string());
+        output.push_str(",\"point\":");
+        encode_staging_machine_link_point(&mut output, destination.point);
+        output.push('}');
+    }
+    output.push_str("],\"layout_epoch\":");
+    encode_staging_machine_figure_epoch(
+        &mut output,
+        StagingMachineFigureEpochFacts::from_layout_epoch(value.epoch),
+    );
+    output.push_str(",\"layout_state_sha256\":");
+    push_quoted_staging_hex(&mut output, value.layout_state_sha256);
+    output.push_str(",\"links\":[");
+    for (index, link) in value.links.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"link_node_id\":");
+        output.push_str(&link.link_node_id.to_string());
+        output.push_str(",\"logical_cluster_count\":");
+        output.push_str(&link.logical_cluster_count.to_string());
+        output.push_str(",\"logical_cluster_end\":");
+        output.push_str(&link.logical_cluster_end.to_string());
+        output.push_str(",\"logical_cluster_start\":");
+        output.push_str(&link.logical_cluster_start.to_string());
+        output.push_str(",\"paragraph_node_id\":");
+        output.push_str(&link.paragraph_node_id.to_string());
+        output.push_str(",\"rectangles\":[");
+        for (rectangle_index, rectangle) in link.rectangles.iter().enumerate() {
+            if rectangle_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"line_ordinal\":");
+            output.push_str(&rectangle.line_ordinal.to_string());
+            output.push_str(",\"page_index\":");
+            output.push_str(&rectangle.page_index.to_string());
+            output.push_str(",\"rect\":");
+            encode_staging_machine_figure_rect(&mut output, rectangle.rect);
+            output.push('}');
+        }
+        output.push_str("],\"target\":");
+        encode_staging_machine_link_target(&mut output, &link.target);
+        output.push('}');
+    }
+    output.push_str("],\"package_sha256\":");
+    push_quoted_staging_hex(&mut output, value.package_sha256);
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"annotation_count\":");
+        output.push_str(&page.annotation_count.to_string());
+        output.push_str(",\"height\":");
+        output.push_str(&page.height.get().raw().to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push_str(",\"width\":");
+        output.push_str(&page.width.get().raw().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push_str(
+        ",\"profile\":\"typaxis.machine-pdf/basic-document-1\",\"selected_state_sha256\":",
+    );
+    push_quoted_staging_hex(&mut output, value.selected_state_sha256);
+    output.push_str(",\"usage_sha256\":");
+    push_quoted_staging_hex(&mut output, value.usage_sha256);
+    output.push('}');
+    output
+}
+
+fn encode_staging_machine_link_target(
+    output: &mut String,
+    target: &StagingMachineLinkDisplayTarget,
+) {
+    match target {
+        StagingMachineLinkDisplayTarget::Internal {
+            anchor_id,
+            anchor_owner_node_id,
+        } => {
+            output.push_str("{\"anchor_id\":");
+            push_jcs_string(output, anchor_id.as_str());
+            output.push_str(",\"anchor_owner_node_id\":");
+            output.push_str(&anchor_owner_node_id.to_string());
+            output.push_str(",\"kind\":\"internal\"}");
+        }
+        StagingMachineLinkDisplayTarget::External { uri } => {
+            output.push_str("{\"kind\":\"external\",\"uri\":");
+            push_jcs_string(output, uri.as_str());
+            output.push('}');
+        }
+    }
+}
+
+fn encode_staging_machine_link_point(output: &mut String, point: Point) {
+    output.push_str("{\"x\":");
+    output.push_str(&point.x.raw().to_string());
+    output.push_str(",\"y\":");
+    output.push_str(&point.y.raw().to_string());
+    output.push('}');
+}
+
+pub const STAGING_FORCED_PAGE_BREAK_DISPLAY_ALGORITHM: &str = "typaxis.forced-page-break-display/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingForcedPageBreakDisplayError {
+    BreakClosure,
+    ExtraBreakPaint(NodeId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakDisplayPage {
+    page_index: u32,
+    painted_content_count: u32,
+}
+
+impl StagingForcedPageBreakDisplayPage {
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+
+    pub const fn painted_content_count(&self) -> u32 {
+        self.painted_content_count
+    }
+
+    pub const fn is_blank(&self) -> bool {
+        self.painted_content_count == 0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakDisplayBoundary {
+    break_node_id: u32,
+    document_ordinal: u32,
+    flow_id: u32,
+    before_flow_local_ordinal: u32,
+    after_flow_local_ordinal: u32,
+    produced_page_index: u32,
+}
+
+impl StagingForcedPageBreakDisplayBoundary {
+    pub const fn break_node_id(&self) -> u32 {
+        self.break_node_id
+    }
+
+    pub const fn document_ordinal(&self) -> u32 {
+        self.document_ordinal
+    }
+
+    pub const fn flow_id(&self) -> u32 {
+        self.flow_id
+    }
+
+    pub const fn before_flow_local_ordinal(&self) -> u32 {
+        self.before_flow_local_ordinal
+    }
+
+    pub const fn after_flow_local_ordinal(&self) -> u32 {
+        self.after_flow_local_ordinal
+    }
+
+    pub const fn produced_page_index(&self) -> u32 {
+        self.produced_page_index
+    }
+}
+
+/// Display-stage forced-break observation. It intentionally owns no paint
+/// operations; attempting to close a break-derived paint is a terminal error.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingForcedPageBreakDisplay {
+    package_sha256: [u8; 32],
+    flow_registry_sha256: [u8; 32],
+    usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    page_count: u32,
+    pages: Vec<StagingForcedPageBreakDisplayPage>,
+    breaks: Vec<StagingForcedPageBreakDisplayBoundary>,
+    canonical_jcs: String,
+}
+
+impl StagingForcedPageBreakDisplay {
+    pub fn from_selected(
+        selected: &StagingForcedPageBreakSelectedState,
+    ) -> Result<Self, StagingForcedPageBreakDisplayError> {
+        Self::from_selected_break_paint_owners(selected, &[])
+    }
+
+    /// Closure seam for paint workers. Since a forced boundary has no Display
+    /// operation, the only exact accepted set is empty.
+    #[doc(hidden)]
+    pub fn from_selected_break_paint_owners(
+        selected: &StagingForcedPageBreakSelectedState,
+        break_paint_owners: &[NodeId],
+    ) -> Result<Self, StagingForcedPageBreakDisplayError> {
+        selected
+            .validate_break_closure()
+            .map_err(|_| StagingForcedPageBreakDisplayError::BreakClosure)?;
+        validate_staging_forced_page_break_paint_owners(break_paint_owners)?;
+        let pages = selected
+            .pages()
+            .iter()
+            .map(staging_forced_page_break_display_page)
+            .collect();
+        let breaks = selected
+            .breaks()
+            .iter()
+            .map(staging_forced_page_break_display_boundary)
+            .collect();
+        let mut value = Self {
+            package_sha256: selected.package_sha256(),
+            flow_registry_sha256: selected.flow_registry_fingerprint().bytes(),
+            usage_sha256: selected.usage_sha256(),
+            policy_version: selected.policy_version(),
+            page_count: selected.page_count(),
+            pages,
+            breaks,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_forced_page_break_display(&value);
+        Ok(value)
+    }
+
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+
+    pub fn pages(&self) -> &[StagingForcedPageBreakDisplayPage] {
+        &self.pages
+    }
+
+    pub fn breaks(&self) -> &[StagingForcedPageBreakDisplayBoundary] {
+        &self.breaks
+    }
+
+    pub const fn paint_operation_count(&self) -> usize {
+        0
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    #[cfg(any(test, feature = "staging-fixtures"))]
+    #[doc(hidden)]
+    pub fn forced_page_break_pdf_test_fixture() -> Self {
+        let mut value = Self {
+            package_sha256: [0x11; 32],
+            flow_registry_sha256: [0x22; 32],
+            usage_sha256: [0x33; 32],
+            policy_version: "typaxis.basic-forced-page-break-policy/1",
+            page_count: 2,
+            pages: vec![
+                StagingForcedPageBreakDisplayPage {
+                    page_index: 0,
+                    painted_content_count: 0,
+                },
+                StagingForcedPageBreakDisplayPage {
+                    page_index: 1,
+                    painted_content_count: 0,
+                },
+            ],
+            breaks: vec![StagingForcedPageBreakDisplayBoundary {
+                break_node_id: 1,
+                document_ordinal: 0,
+                flow_id: 0,
+                before_flow_local_ordinal: 0,
+                after_flow_local_ordinal: 1,
+                produced_page_index: 1,
+            }],
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_forced_page_break_display(&value);
+        value
+    }
+}
+
+fn validate_staging_forced_page_break_paint_owners(
+    break_paint_owners: &[NodeId],
+) -> Result<(), StagingForcedPageBreakDisplayError> {
+    match break_paint_owners.first().copied() {
+        Some(owner) => Err(StagingForcedPageBreakDisplayError::ExtraBreakPaint(owner)),
+        None => Ok(()),
+    }
+}
+
+fn staging_forced_page_break_display_page(
+    page: &StagingForcedPageBreakSelectedPage,
+) -> StagingForcedPageBreakDisplayPage {
+    StagingForcedPageBreakDisplayPage {
+        page_index: page.page_index(),
+        painted_content_count: page.painted_content_count(),
+    }
+}
+
+fn staging_forced_page_break_display_boundary(
+    boundary: &StagingForcedPageBreakConsumeReceipt,
+) -> StagingForcedPageBreakDisplayBoundary {
+    debug_assert_eq!(
+        boundary.before_cursor().flow_id(),
+        boundary.after_cursor().flow_id()
+    );
+    StagingForcedPageBreakDisplayBoundary {
+        break_node_id: boundary.break_owner().get(),
+        document_ordinal: boundary.document_ordinal(),
+        flow_id: boundary.before_cursor().flow_id().get(),
+        before_flow_local_ordinal: boundary.before_cursor().flow_local_ordinal(),
+        after_flow_local_ordinal: boundary.after_cursor().flow_local_ordinal(),
+        produced_page_index: boundary.produced_page_index(),
+    }
+}
+
+fn encode_staging_forced_page_break_display(value: &StagingForcedPageBreakDisplay) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_FORCED_PAGE_BREAK_DISPLAY_ALGORITHM);
+    output.push_str(",\"break_usage_sha256\":\"");
+    push_staging_hex(&mut output, value.usage_sha256);
+    output.push_str("\",\"contract\":\"typaxis.contract/1.2\",\"flow_registry_sha256\":\"");
+    push_staging_hex(&mut output, value.flow_registry_sha256);
+    output.push_str("\",\"forced_page_breaks\":[");
+    for (index, boundary) in value.breaks.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        encode_staging_forced_page_break_display_boundary(&mut output, boundary);
+    }
+    output.push_str("],\"package_sha256\":\"");
+    push_staging_hex(&mut output, value.package_sha256);
+    output.push_str("\",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"is_blank\":");
+        output.push_str(if page.is_blank() { "true" } else { "false" });
+        output.push_str(",\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push_str(",\"painted_content_count\":");
+        output.push_str(&page.painted_content_count.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"paint_operations\":[],\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push('}');
+    output
+}
+
+fn encode_staging_forced_page_break_display_boundary(
+    output: &mut String,
+    boundary: &StagingForcedPageBreakDisplayBoundary,
+) {
+    output.push_str("{\"after_cursor\":{\"flow_id\":");
+    output.push_str(&boundary.flow_id.to_string());
+    output.push_str(",\"flow_local_ordinal\":");
+    output.push_str(&boundary.after_flow_local_ordinal.to_string());
+    output.push_str("},\"before_cursor\":{\"flow_id\":");
+    output.push_str(&boundary.flow_id.to_string());
+    output.push_str(",\"flow_local_ordinal\":");
+    output.push_str(&boundary.before_flow_local_ordinal.to_string());
+    output.push_str("},\"break_node_id\":");
+    output.push_str(&boundary.break_node_id.to_string());
+    output.push_str(",\"document_ordinal\":");
+    output.push_str(&boundary.document_ordinal.to_string());
+    output.push_str(",\"produced_page_index\":");
+    output.push_str(&boundary.produced_page_index.to_string());
+    output.push('}');
+}
+
+pub const STAGING_MACHINE_LIST_DISPLAY_ALGORITHM: &str = "typaxis.machine-list-display/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineListDisplayError {
+    MarkerClosure,
+    MissingItem(u32),
+    ExtraItem(u32),
+    WrongItem { expected: u32, actual: u32 },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListDisplayList {
+    list_node_id: u32,
+    list_flow_id: u32,
+    marker_column_width: i64,
+    marker_gap: i64,
+    start_indent: i64,
+    end_indent: i64,
+    item_frame_inline_size: i64,
+}
+
+impl StagingMachineListDisplayList {
+    pub const fn list_node_id(&self) -> u32 {
+        self.list_node_id
+    }
+    pub const fn list_flow_id(&self) -> u32 {
+        self.list_flow_id
+    }
+    pub const fn marker_column_width(&self) -> i64 {
+        self.marker_column_width
+    }
+    pub const fn marker_gap(&self) -> i64 {
+        self.marker_gap
+    }
+    pub const fn start_indent(&self) -> i64 {
+        self.start_indent
+    }
+    pub const fn end_indent(&self) -> i64 {
+        self.end_indent
+    }
+    pub const fn item_frame_inline_size(&self) -> i64 {
+        self.item_frame_inline_size
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMachineListDisplayItem {
+    list_node_id: u32,
+    item_node_id: u32,
+    item_index: u32,
+    list_flow_id: u32,
+    item_flow_id: u32,
+    marker_key: GeneratedBufferKey,
+    marker_utf8: String,
+    marker_fragment_id: u64,
+    first_line_fragment_id: u64,
+    page_index: u32,
+    fragment_ids: Vec<u64>,
+    marker_inline_size: i64,
+    marker_column_width: i64,
+    marker_physical_left: i64,
+    content_physical_left: i64,
+    content_inline_size: i64,
+    first_line_inline_size: i64,
+    first_line_block_size: i64,
+    block_offset: i64,
+}
+
+impl StagingMachineListDisplayItem {
+    pub const fn list_node_id(&self) -> u32 {
+        self.list_node_id
+    }
+    pub const fn item_node_id(&self) -> u32 {
+        self.item_node_id
+    }
+    pub const fn item_index(&self) -> u32 {
+        self.item_index
+    }
+    pub const fn list_flow_id(&self) -> u32 {
+        self.list_flow_id
+    }
+    pub const fn item_flow_id(&self) -> u32 {
+        self.item_flow_id
+    }
+    pub const fn marker_key(&self) -> GeneratedBufferKey {
+        self.marker_key
+    }
+    pub fn marker_utf8(&self) -> &str {
+        &self.marker_utf8
+    }
+    pub const fn marker_fragment_id(&self) -> u64 {
+        self.marker_fragment_id
+    }
+    pub const fn first_line_fragment_id(&self) -> u64 {
+        self.first_line_fragment_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub fn fragment_ids(&self) -> &[u64] {
+        &self.fragment_ids
+    }
+    pub const fn marker_inline_size(&self) -> i64 {
+        self.marker_inline_size
+    }
+    pub const fn marker_column_width(&self) -> i64 {
+        self.marker_column_width
+    }
+    pub const fn marker_physical_left(&self) -> i64 {
+        self.marker_physical_left
+    }
+    pub const fn content_physical_left(&self) -> i64 {
+        self.content_physical_left
+    }
+    pub const fn content_inline_size(&self) -> i64 {
+        self.content_inline_size
+    }
+    pub const fn first_line_inline_size(&self) -> i64 {
+        self.first_line_inline_size
+    }
+    pub const fn first_line_block_size(&self) -> i64 {
+        self.first_line_block_size
+    }
+    pub const fn block_offset(&self) -> i64 {
+        self.block_offset
+    }
+}
+
+/// Staging Display observation issued only from a selected list state. Marker
+/// bytes and item identities are copied; no Display caller supplies labels.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StagingMachineListDisplay {
+    package_sha256: [u8; 32],
+    flow_registry_sha256: [u8; 32],
+    marker_usage_sha256: [u8; 32],
+    policy_version: &'static str,
+    page_count: u32,
+    lists: Vec<StagingMachineListDisplayList>,
+    items: Vec<StagingMachineListDisplayItem>,
+    canonical_jcs: String,
+}
+
+fn validate_staging_machine_list_item_order(
+    expected_owners: &[u32],
+    item_owners: &[u32],
+) -> Result<(), StagingMachineListDisplayError> {
+    for (index, expected) in expected_owners.iter().copied().enumerate() {
+        let Some(actual) = item_owners.get(index).copied() else {
+            return Err(StagingMachineListDisplayError::MissingItem(expected));
+        };
+        if actual != expected {
+            return Err(StagingMachineListDisplayError::WrongItem { expected, actual });
+        }
+    }
+    if let Some(extra) = item_owners.get(expected_owners.len()).copied() {
+        return Err(StagingMachineListDisplayError::ExtraItem(extra));
+    }
+    Ok(())
+}
+
+impl StagingMachineListDisplay {
+    pub fn from_selected(
+        selected: &StagingMachineListSelectedState,
+    ) -> Result<Self, StagingMachineListDisplayError> {
+        let owners: Vec<_> = selected
+            .items()
+            .iter()
+            .map(|item| item.item_owner().get())
+            .collect();
+        Self::from_selected_item_order(selected, &owners)
+    }
+
+    /// Explicit closure seam used by tests and parallel painters. The order
+    /// must cover the selected item registry exactly once.
+    #[doc(hidden)]
+    pub fn from_selected_item_order(
+        selected: &StagingMachineListSelectedState,
+        item_owners: &[u32],
+    ) -> Result<Self, StagingMachineListDisplayError> {
+        selected
+            .validate_marker_closure()
+            .map_err(|_| StagingMachineListDisplayError::MarkerClosure)?;
+        let expected_owners: Vec<_> = selected
+            .items()
+            .iter()
+            .map(|item| item.item_owner().get())
+            .collect();
+        validate_staging_machine_list_item_order(&expected_owners, item_owners)?;
+        let lists = selected
+            .lists()
+            .iter()
+            .map(|list| StagingMachineListDisplayList {
+                list_node_id: list.list_owner().get(),
+                list_flow_id: list.list_flow_id().get(),
+                marker_column_width: list.marker_column_width(),
+                marker_gap: list.marker_gap(),
+                start_indent: list.start_indent(),
+                end_indent: list.end_indent(),
+                item_frame_inline_size: list.item_frame_inline_size(),
+            })
+            .collect();
+        let items = selected
+            .items()
+            .iter()
+            .map(|item| StagingMachineListDisplayItem {
+                list_node_id: item.list_owner().get(),
+                item_node_id: item.item_owner().get(),
+                item_index: item.item_index(),
+                list_flow_id: item.list_flow_id().get(),
+                item_flow_id: item.item_flow_id().get(),
+                marker_key: item.marker_key(),
+                marker_utf8: item.marker_utf8().to_owned(),
+                marker_fragment_id: item.marker_fragment_id(),
+                first_line_fragment_id: item.first_line_fragment_id(),
+                page_index: item.page_index(),
+                fragment_ids: item.fragment_ids().to_vec(),
+                marker_inline_size: item.marker_inline_size(),
+                marker_column_width: item.marker_column_width(),
+                marker_physical_left: item.marker_physical_left(),
+                content_physical_left: item.content_physical_left(),
+                content_inline_size: item.content_inline_size(),
+                first_line_inline_size: item.first_line_inline_size(),
+                first_line_block_size: item.first_line_block_size(),
+                block_offset: item.block_offset(),
+            })
+            .collect();
+        let mut value = Self {
+            package_sha256: selected.package_sha256(),
+            flow_registry_sha256: selected.flow_registry_fingerprint().bytes(),
+            marker_usage_sha256: selected.marker_usage_sha256(),
+            policy_version: selected.policy_version(),
+            page_count: selected.page_count(),
+            lists,
+            items,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_list_display(&value);
+        Ok(value)
+    }
+
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn flow_registry_sha256(&self) -> [u8; 32] {
+        self.flow_registry_sha256
+    }
+    pub const fn marker_usage_sha256(&self) -> [u8; 32] {
+        self.marker_usage_sha256
+    }
+    pub const fn policy_version(&self) -> &'static str {
+        self.policy_version
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub fn lists(&self) -> &[StagingMachineListDisplayList] {
+        &self.lists
+    }
+    pub fn items(&self) -> &[StagingMachineListDisplayItem] {
+        &self.items
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    #[cfg(any(test, feature = "staging-fixtures"))]
+    #[doc(hidden)]
+    pub fn list_pdf_test_fixture() -> Self {
+        let key = GeneratedBufferKey::new(
+            typaxis_core::NodeId::new(2),
+            typaxis_core::GenerationKind::ListMarker,
+            0,
+        );
+        let mut value = Self {
+            package_sha256: [0xcc; 32],
+            flow_registry_sha256: [0xdd; 32],
+            marker_usage_sha256: [0xee; 32],
+            policy_version: "typaxis.basic-list-policy/1",
+            page_count: 1,
+            lists: vec![StagingMachineListDisplayList {
+                list_node_id: 1,
+                list_flow_id: 0,
+                marker_column_width: 8,
+                marker_gap: 10,
+                start_indent: 5,
+                end_indent: 3,
+                item_frame_inline_size: 74,
+            }],
+            items: vec![StagingMachineListDisplayItem {
+                list_node_id: 1,
+                item_node_id: 2,
+                item_index: 0,
+                list_flow_id: 0,
+                item_flow_id: 1,
+                marker_key: key,
+                marker_utf8: "1.".to_owned(),
+                marker_fragment_id: 0,
+                first_line_fragment_id: 0,
+                page_index: 0,
+                fragment_ids: vec![0],
+                marker_inline_size: 8,
+                marker_column_width: 8,
+                marker_physical_left: 5,
+                content_physical_left: 23,
+                content_inline_size: 74,
+                first_line_inline_size: 20,
+                first_line_block_size: 12,
+                block_offset: 0,
+            }],
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_list_display(&value);
+        value
+    }
+}
+
+fn encode_staging_machine_list_display(value: &StagingMachineListDisplay) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_LIST_DISPLAY_ALGORITHM);
+    output.push_str(",\"contract\":\"typaxis.contract/1.2\",\"flow_registry_sha256\":\"");
+    push_staging_hex(&mut output, value.flow_registry_sha256);
+    output.push_str("\",\"items\":[");
+    for (index, item) in value.items.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        encode_staging_machine_list_display_item(&mut output, item);
+    }
+    output.push_str("],\"list_flows\":[");
+    for (index, list) in value.lists.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"end_indent\":");
+        output.push_str(&list.end_indent.to_string());
+        output.push_str(",\"item_frame_inline_size\":");
+        output.push_str(&list.item_frame_inline_size.to_string());
+        output.push_str(",\"list_flow_id\":");
+        output.push_str(&list.list_flow_id.to_string());
+        output.push_str(",\"list_node_id\":");
+        output.push_str(&list.list_node_id.to_string());
+        output.push_str(",\"marker_column_width\":");
+        output.push_str(&list.marker_column_width.to_string());
+        output.push_str(",\"marker_gap\":");
+        output.push_str(&list.marker_gap.to_string());
+        output.push_str(",\"start_indent\":");
+        output.push_str(&list.start_indent.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"marker_usage_sha256\":\"");
+    push_staging_hex(&mut output, value.marker_usage_sha256);
+    output.push_str("\",\"package_sha256\":\"");
+    push_staging_hex(&mut output, value.package_sha256);
+    output.push_str("\",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"policy_version\":");
+    push_jcs_string(&mut output, value.policy_version);
+    output.push('}');
+    output
+}
+
+fn encode_staging_machine_list_display_item(
+    output: &mut String,
+    item: &StagingMachineListDisplayItem,
+) {
+    output.push_str("{\"block_offset\":");
+    output.push_str(&item.block_offset.to_string());
+    output.push_str(",\"content_inline_size\":");
+    output.push_str(&item.content_inline_size.to_string());
+    output.push_str(",\"content_physical_left\":");
+    output.push_str(&item.content_physical_left.to_string());
+    output.push_str(",\"first_line_block_size\":");
+    output.push_str(&item.first_line_block_size.to_string());
+    output.push_str(",\"first_line_fragment_id\":");
+    output.push_str(&item.first_line_fragment_id.to_string());
+    output.push_str(",\"first_line_inline_size\":");
+    output.push_str(&item.first_line_inline_size.to_string());
+    output.push_str(",\"fragment_ids\":[");
+    for (index, fragment) in item.fragment_ids.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&fragment.to_string());
+    }
+    output.push_str("],\"item_flow_id\":");
+    output.push_str(&item.item_flow_id.to_string());
+    output.push_str(",\"item_index\":");
+    output.push_str(&item.item_index.to_string());
+    output.push_str(",\"item_node_id\":");
+    output.push_str(&item.item_node_id.to_string());
+    output.push_str(",\"list_flow_id\":");
+    output.push_str(&item.list_flow_id.to_string());
+    output.push_str(",\"list_node_id\":");
+    output.push_str(&item.list_node_id.to_string());
+    output.push_str(",\"marker_column_width\":");
+    output.push_str(&item.marker_column_width.to_string());
+    output.push_str(",\"marker_fragment_id\":");
+    output.push_str(&item.marker_fragment_id.to_string());
+    output.push_str(",\"marker_inline_size\":");
+    output.push_str(&item.marker_inline_size.to_string());
+    output.push_str(",\"marker_key\":");
+    push_generated_buffer_key_jcs(output, item.marker_key);
+    output.push_str(",\"marker_physical_left\":");
+    output.push_str(&item.marker_physical_left.to_string());
+    output.push_str(",\"marker_utf8\":");
+    push_jcs_string(output, &item.marker_utf8);
+    output.push_str(",\"page_index\":");
+    output.push_str(&item.page_index.to_string());
+    output.push('}');
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FillRule {
     NonZero,
@@ -644,6 +2979,9 @@ impl ValidatedDisplayDocument {
         let mut generated_spans = Vec::new();
         for page in selected.selected_pages() {
             for fragment in &page.fragments {
+                if registry.item_count(fragment.owner).is_none() {
+                    continue;
+                }
                 for slice in fragment_shaped_slices(registry, fragment)? {
                     match slice.shaped.source() {
                         ShapeSourceSpan::Parsed(span) => parsed_spans.push(span),
@@ -668,6 +3006,22 @@ impl ValidatedDisplayDocument {
         {
             let mut commands = Vec::new();
             for fragment in &page_plan.fragments {
+                if registry.item_count(fragment.owner).is_none() {
+                    if package.document_nodes().node_kind(fragment.owner)
+                        == Some(typaxis_document::DocumentNodeKind::Figure)
+                    {
+                        let image_id = basic_figure_image_id(
+                            &package.package().document.blocks,
+                            fragment.owner,
+                        )
+                        .ok_or(DisplayValidationError::UnsupportedReferencePaintDomain)?;
+                        commands.push(DisplayCommand::DrawImage {
+                            image_id,
+                            rect: fragment.bounds,
+                        });
+                    }
+                    continue;
+                }
                 let logical = fragment_shaped_slices(registry, fragment)?;
                 if logical.is_empty() {
                     continue;
@@ -843,6 +3197,37 @@ impl ValidatedDisplayDocument {
     pub fn into_parts(self) -> (DisplayDocument, Vec<ValidatedDisplayPageGeometry>) {
         self.structural.into_parts()
     }
+}
+
+fn basic_figure_image_id(blocks: &[Block], owner: NodeId) -> Option<ImageResourceId> {
+    let mut pending: Vec<&Block> = blocks.iter().rev().collect();
+    while let Some(block) = pending.pop() {
+        match block {
+            Block::Figure {
+                node_id,
+                image_id,
+                caption,
+                ..
+            } => {
+                if *node_id == owner {
+                    return Some(*image_id);
+                }
+                pending.extend(caption.iter().rev());
+            }
+            Block::List { items, .. } => {
+                pending.extend(items.iter().rev().flat_map(|item| item.blocks.iter().rev()));
+            }
+            Block::Table { head, body, .. } => pending.extend(
+                body.iter()
+                    .rev()
+                    .chain(head.iter().rev())
+                    .flat_map(|row| row.cells.iter().rev())
+                    .flat_map(|cell| cell.blocks.iter().rev()),
+            ),
+            Block::Paragraph { .. } | Block::Heading { .. } | Block::PageBreak { .. } => {}
+        }
+    }
+    None
 }
 
 fn fragment_shaped_slices(
@@ -1124,7 +3509,7 @@ fn paint_shaped_slice(
         }
     };
     let font_size = match package
-        .cascade_style(shaped.site_owner())
+        .cascade_style(shaped.style_owner())
         .map_err(|_| DisplayValidationError::UnsupportedReferencePaintDomain)?
         .computed()
         .properties()
@@ -1759,6 +4144,52 @@ mod tests {
             ResourceLimits::default(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn machine_list_display_preserves_generated_marker_usage_and_fragment_binding() {
+        let display = StagingMachineListDisplay::list_pdf_test_fixture();
+        assert_eq!(display.lists().len(), 1);
+        assert_eq!(display.items().len(), 1);
+        let item = &display.items()[0];
+        assert_eq!(item.marker_utf8(), "1.");
+        assert_eq!(item.marker_key().owner(), NodeId::new(2));
+        assert_eq!(item.marker_fragment_id(), item.first_line_fragment_id());
+        assert_eq!(item.item_flow_id(), 1);
+        assert!(display
+            .canonical_jcs()
+            .contains("\"generation_kind\":\"list_marker\""));
+    }
+
+    #[test]
+    fn forced_page_break_display_has_empty_exact_paint_closure() {
+        assert_eq!(validate_staging_forced_page_break_paint_owners(&[]), Ok(()));
+        assert_eq!(
+            validate_staging_forced_page_break_paint_owners(&[NodeId::new(7)]),
+            Err(StagingForcedPageBreakDisplayError::ExtraBreakPaint(
+                NodeId::new(7)
+            ))
+        );
+    }
+
+    #[test]
+    fn machine_list_display_rejects_missing_extra_and_wrong_item_closure() {
+        let expected = [2, 5, 7];
+        assert_eq!(
+            validate_staging_machine_list_item_order(&expected, &[2, 5]),
+            Err(StagingMachineListDisplayError::MissingItem(7))
+        );
+        assert_eq!(
+            validate_staging_machine_list_item_order(&expected, &[2, 5, 7, 9]),
+            Err(StagingMachineListDisplayError::ExtraItem(9))
+        );
+        assert_eq!(
+            validate_staging_machine_list_item_order(&expected, &[2, 6, 7]),
+            Err(StagingMachineListDisplayError::WrongItem {
+                expected: 5,
+                actual: 6,
+            })
+        );
     }
 
     fn reference_body(package: &ValidatedParsedPackage) -> Rect {

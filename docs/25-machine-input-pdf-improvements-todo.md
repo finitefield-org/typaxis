@@ -1045,7 +1045,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
 
 ### MI2-02 Canonical multi-flow registryを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-01
 - Design inputs: docs/25 §13.1
 - Primary files:
@@ -1054,6 +1054,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `workspace/crates/typaxis-pagination/src/`
   - `workspace/crates/typaxis-manifest/src/`
   - `schemas/`
+  - `docs/22-contract-matrix.md`
 - Deliverables:
   - `ValidatedFlowContent`、`ValidatedFlowContentRegistry`、`ValidatedFlowRegistry`、`ProductionFlowIrBuilder`。
   - package/epoch-boundなmulti-flow completeness receipt。
@@ -1073,28 +1074,36 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout-contract flow_registry --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout canonical_flow --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination multi_flow --locked`
+- Implementation notes (2026-08-27, Linux):
+  - `FlowId`、closed owner/content kind、terminal、registry/selected-state fingerprint domainをlayout contractへ追加した。`ProductionFlowIrBuilder`はsealed packageのtyped Document preorderからbody、各list item、figure captionをdense allocationし、paragraph/list item/figure/page break receiptをcaller登録順から独立してcanonicalizeする。package/epoch-boundなnon-cloneable registry receiptを発行し、missing/extra/wrong kind/owner/parent/epoch/terminalをlayout前にtyped errorで拒否する。
+  - `max_ast_nodes`と`max_ast_nesting_depth`をmodel admissionと`finish`の双方で再照合し、bodyへsubflowをflattenしないper-flow IRと明示stack cursorを追加した。独立workerの完了順をcanonicalizeしたall-flow selected-state fingerprint、全position trace、manifest projectionをreceiptから導出し、登録順とworker順を同時に変えたtestでFlowId、trace bytes、fingerprintの一致を確認した。
+  - non-current `schemas/1.2/`へcommon、multi-flow trace、manifest staging Schemaを追加し、validatorでnested三flowのdense ordinal、parent/child edge、terminal、trace/manifest hash closureとcurrent 1.1 rejectionを検査した。top-level current Schema、public decoder/CLI/profileは1.1/`paragraph-1`のままである。milestone指定test、変更四crateの全test、workspace全target test、strict clippy、Schema validator、repository format checkはすべてexit 0だった。
 - Non-goals:
   - table cell、footnote、header/footer、column、floatの具体layout
 
 ### MI2-03 Typed block styleをwireからlayout consumerまで閉じる
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-01
 - Design inputs: docs/25 §13.2 style registry
 - Primary files:
+  - `workspace/Cargo.lock`
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-document/src/`
   - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-style/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-layout/src/`
+  - `workspace/crates/typaxis-display-list/Cargo.toml`
   - `workspace/crates/typaxis-display-list/src/`
+  - `workspace/crates/typaxis-pdf/Cargo.toml`
   - `workspace/crates/typaxis-pdf/src/`
   - `workspace/crates/typaxis-manifest/src/`
   - `workspace/crates/typaxis-cli/src/pipeline.rs`
   - `workspace/crates/typaxis-cli/tests/`
   - `schemas/`
   - `samples/machine-package/`
+  - `docs/22-contract-matrix.md`
 - Deliverables:
   - spacing、indent、alignment、width、keepのtyped property definitionとcomputed value。
   - propertyごとのcapability/fixture/consumer coverage table。
@@ -1119,15 +1128,23 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf machine_block_styles --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_block_styles --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-27, Linux):
+  - contract 1.2専用のstrict decoder/encoderとversioned DocumentPackage Schemaへ八propertyのexact name、tag、keyword、inclusive fixed-point rangeを追加した。current decoder/encoder、1.1 Schema、`paragraph-1` descriptorは同じ入力を拒否し続ける。staging syntaxはwireから既存domainへlossless loweringし、computed valueをowner/style owner、canonical package、document/style fingerprint、immutable registry versionへbindするsealed receiptだけをlayoutへ渡す。
+  - registryはinitial、`text_align`だけのtyped flow-owner inheritance、既存cascade priority、selector applicability、sole consumerをclosed列挙する。non-public `basic-document-1` style preflightはunsupported selector/propertyとfigureの`auto` widthをlayout前の`L5101`にし、layout consumerはchecked fixed-point arithmeticだけでspacing suppression、logical LTR/RTL indent、center odd-unit placement、figure width、keep facts、page splitを選択する。production layout sourceに八property名の文字列比較が無いこともtestで固定した。
+  - selected receiptからだけDisplay factを、DisplayからだけPDF geometry/content-stream observationを、PDFからだけcontract 1.2 manifest factを導出し、package/registry hashと全八propertyのconsumer/Display/PDF/manifest coverageをstaging fixtureで照合した。crate-private CLI runnerのpositive chainはdeterministic bytesまで検査し、public CLI E2Eはcontract 1.2と`basic-document-1`をMI2-08まで拒否することを確認する。
+  - milestone指定の七command、`cargo test --manifest-path workspace/Cargo.toml --workspace --all-targets --locked`、dependency-edge guard、`cargo clippy --manifest-path workspace/Cargo.toml --workspace --all-targets --locked -- -D warnings`、format check、`git diff --check`はすべてexit 0だった。Schema validatorは5 non-current 1.2 Schemas、953 refs、exact/max+1/wrong-tag/unknown/current-rejection fixtureを含む全registryを検証した。
 - Non-goals:
   - table border collapse、cell vertical alignment
 
 ### MI2-04 Listを独立subflowのvertical sliceとして実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-02, MI2-03
 - Design inputs: docs/25 §13.2 list
 - Primary files:
+  - `workspace/crates/typaxis-diagnostics/src/`
+  - `workspace/crates/typaxis-style/src/`
+  - `workspace/crates/typaxis-syntax/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-pagination/src/`
@@ -1138,6 +1155,7 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `workspace/crates/typaxis-cli/tests/`
   - `schemas/`
   - `samples/machine-package/`
+  - `docs/22-contract-matrix.md`
 - Deliverables:
   - ordered/unordered/nested listのvalidated layout、fragment、Display、PDF closure。
 - Tasks:
@@ -1157,13 +1175,18 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination list --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_list --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-27, Linux):
+  - syntax trust boundaryへpackage-boundな`ValidatedStagingListMarkerUsageReceipt`を追加し、orderedのchecked `start + item_index`と`.`、unorderedのU+2022をcaller markerなしで導出する。marker string allocation前に一bufferとparsed+generated aggregateを`max_text_buffer_bytes`/`max_text_bytes`へ照合し、profile preflightがoverflow=`L5100`、missing text style=`L5101`、limit=`T2100`/`T2101`を発行する。closed staging descriptorだけがordered/unordered/nested policyを列挙し、1.1 decoder、`paragraph-1` descriptor、public capabilities/CLIはlist/1.2/`basic-document-1`を拒否し続ける。
+  - MI2-02のcanonical item FlowIdを使い、各listのwidest marker column、font-size gap、logical start/end indent、LTR/RTL end alignmentをchecked fixed-point geometryへ変換した。nested listはbody幅を再利用せずparent itemのchild-flow frameに対して自身のindentを適用する。paginationはbounded `MultiFlowCursorReceipt` stackで全terminalを閉じ、markerとfirst painted lineを同じfirst fragmentへsealしてpage末では一緒に移動する。empty painted item、empty-frameに収まらないkeep、fragment max+1、同一candidate無進捗、marker orphanはterminal errorになる。
+  - selected receiptからtrace/Display、DisplayからPDF marker observation、PDFからmanifestだけを導出し、list/item FlowId、fragment、marker key/bytes/usage hash、exact geometryを保持する。Displayのmissing/extra/wrong-item closureを専用testで固定した。versioned `machine-list-manifest.schema.json`とsingle/nested/page-split/empty/overflow/exact/max+1/tamper expectationを追加し、checked-in selected-stateはcrate-private runnerが生成したcanonical JCS goldenで二重buildの全artifact byte一致を検査する。
+  - milestone指定の四command、machine-profile/Display/PDF/manifest tests、public-negative CLI E2E、workspace全target test、dependency-edge guard、strict clippy、Schema validator、repository format/diff checkはすべてexit 0だった。layout/paginationからprofile crateへの逆向き依存は作らず、profile-issued receiptのsyntax-owned lower projectionだけをlayoutが消費する。
 - Non-goals:
   - arbitrary caller marker text
   - table/footnote内listのrelease claim
 
 ### MI2-05 Forced page breakを進捗保証付きvertical sliceとして実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-02
 - Design inputs: docs/25 §13.2 page break
 - Primary files:
@@ -1195,13 +1218,18 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list forced_page_break --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_page_break --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-27, Linux):
+  - syntaxがcontract 1.2 staging packageのforced-break owner集合とusage hashをcanonical Document順でsealし、private `basic-document-1` descriptorが「open pageから開始、leading/consecutive/trailing blankを保持、1 breakにつきcursorを1回進める、Display paintなし」をclosed policyとしてwrapする。公開`paragraph-1` descriptor/capabilities、1.1 decoder/current Schema alias、CLI routeは変更せずPageBreakを拒否し続ける。
+  - layoutはMI2-02の独立`ValidatedFlowContent::PageBreak`をpackage/NodeId/FlowId/LayoutEpoch/flow-local ordinalへ投影するgeometryなしのtyped boundary receiptを発行する。paginationはbounded multi-flow cursorでbreakをちょうど1回consumeし、before/after cursorの同一FlowIdかつ`+1`をreceiptで検証してからpageを開く。leading、consecutive、trailingを含む`N` breakはopen final pageを保持して`N + 1` pageとなり、page max+1とstale cursorはterminal errorになる。
+  - selected trace、paint-op空のDisplay、PDF `/Count` observation、versioned forced-page-break trace/manifest Schemaへbreak source/cursor/produced pageとblank factsを同じreceipt chainから伝播した。checked-in fixtureは4 break/5 page、blank index 0/2/4を固定し、二重build byte一致、break由来extra paint、exact/max+1、cursor tamper、current 1.1/public negativeを検査する。
+  - milestone指定の四command、workspace全target test、dependency-edge guard、strict clippy、Schema validator、format check、`git diff --check`はすべてexit 0だった。
 - Non-goals:
   - named page/master切替
   - recto/verso break
 
 ### MI2-06 Non-floating PNG figure/captionをE2Eで実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-02, MI2-03
 - Design inputs: docs/25 §7 figure/assets、§13.2 figure/PNG
 - Primary files:
@@ -1237,12 +1265,17 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf image_xobject --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_figure --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-27, Linux):
+  - stable-read image bytesをfull bounded PNG decodeへ通したownerだけが`AdmittedImageMediaKind::Png`を発行し、`ImageResourceId`、encoded hash/length、nonzero pixel dimensions、canonical decoded-byte budgetをledger fingerprintへbindする。宣言は従来のID/URI/optional hashだけで、opaqueな`figure.data` fixtureによりsuffix/media文字列推論がないことを固定した。private `basic-document-1` descriptorはdocument-bodyのnon-floating Figureとparagraph/heading captionだけを採択し、fit-likeなFigure `keep_with_next`をlayout前にrejectする。公開1.1 decoder、`paragraph-1`、capabilities、manifest aliasは変更していない。
+  - `ValidatedFigureLayout`はpackage/usage/admitted-ledger/LayoutEpoch/Flow registryを閉じ、figure owner/ordinal、image ID/hash/media/pixels、alt、caption child FlowId/owners、computed width、logical indent、spacing、typed keep/terminal-oversize policyを一receiptへ保持する。heightはDPIなしで`width * pixel_height / pixel_width`をchecked i128とties-to-evenだけで丸める。paginationはblock placementのみを行い、caption splitまたはimage+caption keepをpage境界で適用し、image/caption/kept groupのoversizeをretryしないterminal errorにする。
+  - selected receiptから各Figure exactly one `DrawImage`を作り、missing/extra/wrong draw IDをDisplay前に拒否する。late PNG finalizerはadmitted media/hash/dimensionsとusage setを再照合し、PDF stageはlogical binding/resource name、main image/soft-mask object graph、serializer receiptのXObject emission、page/object/hashをpublish前に閉じる。PDF-derived staging manifestとversioned `machine-figure-manifest.schema.json`だけが`attested_media_kind = png`、source/caption/placement、XObject/PDF factsを公開する。
+  - checked-in 2x1 palette+tRNS fixtureは40x20 placement、page-2 caption split、one DrawImage、main+soft-mask XObject、canonical PDF hash/bytesの二重build一致を固定する。focused E2Eはcaption split/keep、terminal oversize、bad hash、non-PNG、invalid dimensions、pixel/decoded limits、missing/extra/wrong image ID、missing/extra/wrong XObject、partial publication failure、current public negativeを覆う。milestone指定の五command、workspace全target test、dependency guard、strict clippy、Schema validator、format/diff checkはすべてlocal exit 0で確認した。
 - Non-goals:
   - inline image、float、SVG、JPEG
 
 ### MI2-07 Link annotationとnamed destinationをE2Eで実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-01
 - Design inputs: docs/25 §7 links、§13.2 link
 - Primary files:
@@ -1275,13 +1308,17 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf annotations --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_link --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-27, Linux):
+  - private `basic-document-1` link descriptorとsyntax preflightは、empty/unpainted/nested/unsupported childをlayout前に閉じ、internal targetをcanonical package anchor ownerへ、external targetをMI2-01の`SafeUri`へbindする。receiptはpackage fingerprintと全anchor/link usage setを保持するため、別packageの同名anchorへ差し替えられない。公開1.1 decoder、`paragraph-1` descriptor、capabilities、current Schema/manifest aliasは変更していない。
+  - selected paragraph item registryから各link childのlogical shaping cluster rangeを確定し、selected reflowのL1/final reshape/justification/L2 visual orderと同じclusterをpage/line単位のpositive rectangleへcanonical unionする。Display closureは各link一件以上とexact missing/extra/page/target/rectangleを、PDF closureはnamed destination、page `/Annots`、indirect `/Subtype /Link` dictionary、internal `/Dest`またはexternal `/URI`、serializer bytesをpublish前に再照合する。
+  - PDF-derived `machine-link-manifest/1`とversioned staging Schemaはpackage/usage/cluster/layout/Display/PDF hash、logical range、target、page/line rectangle、annotation object ID、destination owner/pointを一つのselected-state factへbindする。checked fixtureはuppercase raw schemeを`https`へ正規化し、同一line上の二linkとwrapped external linkから三rectangleを作る。focused testsはpreflight failures、wrong-package receipt、exact rectangle/PDF-object limits、全annotation tamper、deterministic PDF golden、public negativeを覆う。milestone指定の四command、profile receipt test、workspace全target test、workspace全target strict clippy、format/diff checkはすべてlocal exit 0で確認した。
 - Non-goals:
   - JavaScript/action annotation
   - arbitrary PDF destination syntax
 
 ### MI2-08 Basic document profileを統合・公開する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-04, MI2-05, MI2-06, MI2-07
 - Design inputs: docs/25 §8 M2、§13.5
 - Primary files:
@@ -1324,6 +1361,11 @@ M2は`paragraph-1`を変更せず、採択済みADRで固定した新profileへ�
   - `cargo clippy --manifest-path workspace/Cargo.toml --workspace --all-targets --locked -- -D warnings`
   - `python3 schemas/validate.py`
   - `python3 tools/verify_machine_profile.py --repository . --matrix samples/machine-package/matrices/m2-basic.json --runs 2 --require-external-tools`
+- Implementation notes (2026-08-27, Linux):
+  - current wire/outputを`typaxis.contract/1.2`へatomic switchし、former current十一Schemaを`schemas/1.1/`へhash固定した。top-level current aliasとcomplete `schemas/1.2/` registryは一致し、DocumentPackage/configは1.0/1.1/1.2のclosed setを受理する。`paragraph-1`は旧semantic bytesとdefault statusを維持し、explicit `basic-document-1`だけがraw 1.2を要求する。
+  - `basic-document-1`を通常の`build-package`/`check-package` pipelineへ統合し、専用staging runner入口とhidden selectorを残さなかった。preflight receipt hashをpackage/trace/manifest layoutへ、canonical all-flow registry hashをtrace/manifestへbindし、profile/package/session/flow差し替えを`I9190` closure testで拒否する。
+  - `profiles/basic-document-1/combined`はlist、forced break、PNG/caption、internal/external link、全advertised selector/property、sfnt/TTCを一packageで使用し、二page PDFまで到達する。descriptorとfixture coverageは双方向exact照合され、`m2-basic.json`にはcombined positiveとold-contract `/contract` negativeを登録した。Popplerのlayout由来tab/line/page separatorだけを一spaceへ正規化し、page countは独立にexact検査するregression testも追加した。
+  - workspace全target test、strict clippy、format check、Schema validator（7 frozen 1.0、11 frozen 1.1、11 current alias、17 versioned 1.2、41 machine expectations）、およびexternal MuPDF/Popplerを含む二重build・異名checkout verifierはすべてlocal exit 0。host evidenceは`target/machine-e2e/host-evidence/x86_64-unknown-linux-gnu.json`へcanonical publishされた。
 - Non-goals:
   - M3以降のfeature advertising
 
@@ -1333,7 +1375,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-01 Table profile ADRとgrid policyを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI2-08
 - Design inputs: docs/25 §8 M3、§13.1、§13.3 table
 - Primary files:
@@ -1356,12 +1398,17 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - profile公開条件がcombined fixtureとclosure検査まで含む。
 - Verification:
   - `rg -n "column|fraction|residual|rowspan|header|oversize|border = none|background = transparent|padding = 0|block-start|max_ast_nodes|max_fragments" adr contracts/machine-pdf-capabilities.md`
+- Implementation notes (2026-08-27, Linux):
+  - repositoryで次に空いていた`ADR-0029`をAcceptedとし、immutable target `typaxis.machine-pdf/table-1`をcurrent `typaxis.contract/1.2`上へ固定した。profileはM2 domainにdirect document-body tableだけを加え、cellをcurrent paragraph wireへ限定する。MI3-04まではpublic ID/help/capabilityへ登録せず、`paragraph-1` defaultと両public profileのtable rejectionを維持する。
+  - fixedはpositive `pdf_point_1_65536`、fraction weightは`1..=65535`とし、checked `i128` ties-to-even shareのsigned residualをwire順のlast fraction columnだけへ割り当てる。leftmost-free origin、section内rowspan、overlap/hole禁止、deficit-to-last-row band、common legal cut、one-shot oversize、dense header repetition、zero-decoration (`border = none`、`background = transparent`、`cell padding = 0`、`vertical alignment = block-start`)を一意に固定した。table固有style/split fieldはunknown 1.2 memberとして拒否し、必要ならMI3-02/MI3-03前に別contract migration taskを追加する。
+  - columnを既存`max_ast_nodes`へ追加chargeし、row/cellの既存chargeを重複させず、body/header row fragmentを`max_fragments`へ、rowspanをdeclared section row countへbindした。profile/grid/cell Flow/row band/row fragment/rowspan/header/selected layout/Display/PDF/trace/manifestのreceipt chain、`P1120`/`L5110`/`P1102`/`L5100`/`L5101`/`I9190`、combined fixtureとbidirectional closureを含むMI3-04 publication gateをcapability contractとmatrixへ反映した。
+  - milestone指定の`rg` gate、`python3 schemas/validate.py`、`cargo fmt --manifest-path workspace/Cargo.toml --all -- --check`、whitespace/diff checkはlocal exit 0だった。current aliasとversioned 1.2 DocumentPackage SchemaはいずれもSHA-256 `de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままで、MI3-01はSchema bytesを変更していない。
 - Non-goals:
   - footnote、header/footer、column、float
 
 ### MI3-02 Table column/grid/cell subflowを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-01
 - Design inputs: docs/25 §13.1、§13.3 table steps 1-2
 - Primary files:
@@ -1385,12 +1432,18 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout table_grid --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout-contract table_receipts --locked`
+- Implementation notes (2026-08-27, Linux):
+  - strict decoderの`max_ast_nodes` ownerへNodeIdを持たない各table columnを1 unitとして追加し、location index用semantic node countとは分離した。private table prevalidationでもsemantic node total + column countをgrid vector/Cell `FlowId` allocation前に再検査し、exact maxを受理、max+1を拒否する。
+  - table styleはpublic `basic-document-1`を拡張せず、private sealed receiptで既存M2の`page = auto`、spacing、logical indent、`keep_with_next`だけをtyped computed valueへ閉じた。cell paragraph用parent receiptもtable owner/package/styleへbindし、table固有raw property/negative geometryの入力経路を追加していない。
+  - 全direct body tableのone-dimensional gridをcell layout前に検査し、head/body別のleftmost-free origin、colspan/rowspan、overlap、out-of-range、hole、row/cell ownerを固定した。canonical flow registryへ`TableRow` contentとdense `TableCell` child flowを追加し、rowごとの全cell FlowId、owner、parent、terminal、package、`LayoutEpoch`をcaller registration順から独立して発行する。
+  - fixedをchecked subtractionし、fraction shareをchecked `i128` ties-to-evenで丸め、signed residualをwire順last fractionだけへ加えた。`ValidatedTableGridReceipt`はinput/rounded/final column、exact sum、residual recipient、row/cell span、cell FlowId/terminal、zero-padding/block-start frame、typed table spacing/indentを再導出・fingerprintする。
+  - milestone指定の2 command、affected crate full tests (`typaxis-layout`、`typaxis-layout-contract`、`typaxis-style`、`typaxis-syntax`、`typaxis-document-package`)、workspace all-target check、Schema validation、format/diff checkをlocal実行した。rounding positive/negative residual、last-fraction-before-fixed、fixed exact/safe max/over、colspan/rowspan、overlap/hole/out-of-range、wrong style/flow/row receipt、reverse registration、AST exact/max+1を含む。current alias/versioned 1.2 DocumentPackage SchemaはいずれもSHA-256 `de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままである。
 - Non-goals:
   - row fragmentation、header repetition、paint
 
 ### MI3-03 Row fragmentation、rowspan continuation、header repeatを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-02
 - Design inputs: docs/25 §13.3 table step 3
 - Primary files:
@@ -1415,6 +1468,14 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination table_fragmentation --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout table_rowspan --locked`
+- Implementation notes (2026-08-27, Linux):
+  - canonical cell orderのindivisible fragment sizeを`TableCellLayoutReceipt`の累積break endpointへsealし、row bandをsectionごとにzero初期化した。cellを`(origin_row, origin_column)`順に処理し、rowspan covered bandとの差分をlast covered rowだけへchecked加算する。empty cellはzero extent/terminalのままでminimum heightを発行しない。
+  - body rowがremaining frameへ収まらない場合はframe extentと全active cell endpointの有限集合を降順評価し、全cellで合法なgreatest positive cutだけを選択する。全cell receiptへ同じselected block extentとflow cursor/vertical offsetのbefore/afterをbindし、zero-height rowはzero-size structural fragmentでlogical cursorを進める。
+  - continuationはcolumn順の一次元`RowspanContinuationReceipt`だけを運び、cell owner、FlowId、cell cursor、vertical offset、remaining logical rowsを各covered columnへbindした。physical splitではlogical rowを保持してfragment ordinalを進め、logical completionではrowspanを一度だけ減らし、final covered rowのcell terminalを明示検査する。missing、duplicate、wrong-owner/resurrected stateは`I9190`で閉じる。
+  - complete head groupはbody progressを先に証明してからmaterializeし、first occurrenceのheader row/cell/subflow fragmentをsource receiptとして保持する。各later occurrenceは新しいAST/NodeId/FlowIdを作らず、source fragment、連続repetition index、target page、`typaxis.table-selected-layout/1` fingerprintだけへbindする。
+  - `SelectedTableLayoutReceipt`はgrid/row-band/all-flow terminal receipt、全row/cell fragment、continuation、header occurrence、pageを一方向にsealする。同じfactsをtable traceへ埋め込み、manifest projectionはflow/grid/row-band/selected hash一致後にrow/header/cell factsをcopyするため、trace/manifest側のgeometry再解釈経路を持たない。
+  - cell内paragraph fragmentの既存消費数とbody/header row recordを同じ`max_fragments` stateへ合算し、各row/header ID issuance前にmax+1を`L5110`で拒否する。multi-page、rowspan、header repeat、common cut、split-prohibited/empty-frame oversize、zero-height progress、exact combined limit、same-candidate retry、missing/duplicate/wrong continuation、header source/repetition tamper、deterministic fingerprint、manifest closureをlocal testへ追加した。
+  - milestone指定の2 command、manifest table projection test、locked workspace all-target tests、workspace all-target clippy `-D warnings`、format/diff check、`python3 schemas/validate.py`はすべてlocal exit 0だった。current aliasとversioned 1.2 DocumentPackage SchemaはともにSHA-256 `de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a`のままで、MI3-03はSchema bytesやpublic profile surfaceを変更していない。
 - Non-goals:
   - footnote inside cellのrelease claim
 

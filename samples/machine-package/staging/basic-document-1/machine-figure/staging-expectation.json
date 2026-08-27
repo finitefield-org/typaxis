@@ -1,0 +1,23 @@
+{
+  "contract": "typaxis.contract/1.2",
+  "profile": "typaxis.machine-pdf/basic-document-1",
+  "policy_version": "typaxis.basic-png-figure-policy/1",
+  "scenarios": {
+    "bad_hash": "resource_hash_mismatch",
+    "caption_block_sizes": [
+      15,
+      15
+    ],
+    "caption_keep": true,
+    "caption_split": true,
+    "deterministic_double_build": true,
+    "image_xobject_count": 2,
+    "initial_consumed_block_size": 50,
+    "invalid_dimensions": "invalid_metadata",
+    "non_png": "invalid_metadata",
+    "oversize": "terminal_once",
+    "pixel_limit": "resource_limit",
+    "publication_failure": "no_success",
+    "wrong_image_id": "draw_image_closure"
+  }
+}

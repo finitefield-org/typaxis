@@ -172,7 +172,7 @@ fn run_build_package_with_host(
     let output = BuildOutputCommitContext::new_machine(
         &config,
         &execution,
-        MachineProfileDescriptor::PARAGRAPH_1,
+        MachineProfileDescriptor::for_id(options.profile),
     )
     .map_err(map_output_context_error)?;
     let publication = if options.manifest.is_some() {
@@ -295,12 +295,14 @@ fn run_build_package_with_host(
         }
     }
     let trace_json = match options.trace.as_ref() {
-        Some(_) => match artifacts::reference_layout_trace_json(
+        Some(_) => match artifacts::machine_layout_trace_json(
             layout.flow(),
             layout.initial(),
             layout.pagination(),
             config.limits().get().max_layout_passes,
             options.trace_text,
+            &receipt,
+            layout.flow_registry_sha256(),
         ) {
             Ok(trace) => Some(trace),
             Err(message) => {
@@ -794,7 +796,13 @@ fn prepare_machine_command(
         let mut capability_phase =
             lend_machine_phase(diagnostics, MachineDiagnosticPhase::Capability)
                 .map_err(FailedMachineCommand::without_reads)?;
-        match pipeline::preflight_machine_package(&package, &mut capability_phase, candidates) {
+        match pipeline::preflight_machine_package(
+            &package,
+            profile,
+            config.limits(),
+            &mut capability_phase,
+            candidates,
+        ) {
             Ok(capability) => capability,
             Err(primary) => {
                 let reads = read_tokens_from_package(&package)
@@ -1379,6 +1387,7 @@ fn publish_machine_success(
                 receipt,
                 layout.preparation().admitted().token(),
                 layout.pagination(),
+                layout.flow_registry_sha256(),
                 pdf,
             ) {
                 Ok(prepared) => prepared,
@@ -2963,7 +2972,7 @@ mod tests {
                 .starts_with(b"%PDF-"));
             assert!(fs::read_to_string(tree.path().join("trace.json"))
                 .unwrap()
-                .contains("\"contract\":\"typaxis.contract/1.1\""));
+                .contains("\"contract\":\"typaxis.contract/1.2\""));
             let manifest = fs::read_to_string(tree.path().join("manifest.json")).unwrap();
             assert!(manifest.contains("\"status\":\"built\""));
             assert!(manifest.contains("\"input_profile\":\"typaxis.machine-pdf/paragraph-1\""));

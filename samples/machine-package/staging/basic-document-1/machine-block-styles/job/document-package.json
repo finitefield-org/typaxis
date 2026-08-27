@@ -1,0 +1,175 @@
+{
+  "contract": "typaxis.contract/1.2",
+  "coordinate_unit": "pdf_point_1_65536",
+  "document": {
+    "blocks": [
+      {
+        "children": [],
+        "classes": [
+          "lead"
+        ],
+        "kind": "paragraph",
+        "node_id": 1,
+        "span": {
+          "end_byte": 0,
+          "source_id": 0,
+          "start_byte": 0
+        }
+      },
+      {
+        "alt": "fixture",
+        "caption": [],
+        "classes": [],
+        "image_id": 0,
+        "kind": "figure",
+        "node_id": 2,
+        "span": {
+          "end_byte": 0,
+          "source_id": 0,
+          "start_byte": 0
+        }
+      }
+    ],
+    "footnotes": [],
+    "node_id": 0
+  },
+  "page_masters": {
+    "default_master_id": "default",
+    "masters": [
+      {
+        "body": {
+          "height": 100,
+          "width": 101,
+          "x": 0,
+          "y": 0
+        },
+        "footer": null,
+        "footnote": null,
+        "header": null,
+        "height": 100,
+        "master_id": "default",
+        "width": 101
+      }
+    ],
+    "selection_rules": []
+  },
+  "resources": {
+    "font_faces": [],
+    "images": [
+      {
+        "expected_sha256": null,
+        "image_id": 0,
+        "uri": "fixture.png"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_id": 0,
+      "uri": "input.tsf",
+      "utf8_byte_length": 0
+    }
+  ],
+  "style_sheet": {
+    "rules": [
+      {
+        "declarations": [
+          {
+            "important": false,
+            "name": "space_before",
+            "value": {
+              "kind": "length",
+              "value": 0
+            }
+          },
+          {
+            "important": false,
+            "name": "space_after",
+            "value": {
+              "kind": "length",
+              "value": 9007199254740991
+            }
+          },
+          {
+            "important": false,
+            "name": "start_indent",
+            "value": {
+              "kind": "length",
+              "value": 10
+            }
+          },
+          {
+            "important": false,
+            "name": "end_indent",
+            "value": {
+              "kind": "length",
+              "value": 10
+            }
+          },
+          {
+            "important": false,
+            "name": "text_align",
+            "value": {
+              "kind": "keyword",
+              "value": "center"
+            }
+          },
+          {
+            "important": false,
+            "name": "keep_with_next",
+            "value": {
+              "kind": "boolean",
+              "value": true
+            }
+          }
+        ],
+        "extends": null,
+        "selector": "paragraph.lead",
+        "source_order": 0,
+        "style_id": "paragraph-base"
+      },
+      {
+        "declarations": [
+          {
+            "important": true,
+            "name": "space_before",
+            "value": {
+              "kind": "length",
+              "value": 5
+            }
+          }
+        ],
+        "extends": "paragraph-base",
+        "selector": "paragraph.lead",
+        "source_order": 1,
+        "style_id": "paragraph-override"
+      },
+      {
+        "declarations": [
+          {
+            "important": false,
+            "name": "width",
+            "value": {
+              "kind": "length",
+              "value": 30
+            }
+          },
+          {
+            "important": false,
+            "name": "keep_caption",
+            "value": {
+              "kind": "boolean",
+              "value": false
+            }
+          }
+        ],
+        "extends": null,
+        "selector": "figure",
+        "source_order": 2,
+        "style_id": "figure-style"
+      }
+    ]
+  },
+  "text_buffers": []
+}

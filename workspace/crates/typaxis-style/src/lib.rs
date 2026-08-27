@@ -3,7 +3,8 @@
 use core::num::{NonZeroU32, NonZeroU64};
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
-    FontFaceId, Length, MasterId, PageName, PositiveLength, Rect, StyleId, JSON_SAFE_INTEGER_MAX,
+    FontFaceId, Length, MasterId, NonNegativeLength, PageName, PositiveLength, Rect, StyleId,
+    JSON_SAFE_INTEGER_MAX,
 };
 use typaxis_resource_admission::AdmittedResourceLedgerToken;
 
@@ -100,10 +101,76 @@ pub enum StyleValidationError {
     MissingTextProperty,
     UnknownFontFamily,
     CascadePriorityOverflow,
+    InapplicableProperty,
 }
 
 impl StyleSheet {
     pub fn validate(&self) -> Result<(), StyleValidationError> {
+        self.validate_contract(false)
+    }
+
+    /// Validates the additive contract 1.2 style shape without publishing it
+    /// through the current contract. Selector/property applicability remains a
+    /// profile concern and is checked by [`Self::validate_basic_document_styles`].
+    pub fn validate_basic_document_style_shape(&self) -> Result<(), StyleValidationError> {
+        self.validate_contract(true)
+    }
+
+    /// Validates both the 1.2 tagged-value domain and the immutable
+    /// `basic-document-1` selector/property coverage table.
+    pub fn validate_basic_document_styles(&self) -> Result<(), StyleValidationError> {
+        self.validate_contract(true)?;
+        for rule in &self.rules {
+            let block_type = rule.selector.split('.').next().unwrap_or_default();
+            if BasicStyleBlockKind::from_str(block_type).is_none() {
+                return Err(StyleValidationError::InapplicableProperty);
+            }
+            for declaration in &rule.declarations {
+                let property = BasicStyleProperty::from_str(&declaration.name)
+                    .ok_or(StyleValidationError::UnknownProperty)?;
+                if !property.applies_to_str(block_type) {
+                    return Err(StyleValidationError::InapplicableProperty);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates the private `table-1` style domain without widening the
+    /// immutable `basic-document-1` profile. Existing M2 selectors retain
+    /// their applicability rules; `table` accepts only the already-typed
+    /// block placement properties fixed by ADR-0029.
+    pub fn validate_table_document_styles(&self) -> Result<(), StyleValidationError> {
+        self.validate_contract(true)?;
+        for rule in &self.rules {
+            let block_type = rule.selector.split('.').next().unwrap_or_default();
+            for declaration in &rule.declarations {
+                let property = BasicStyleProperty::from_str(&declaration.name)
+                    .ok_or(StyleValidationError::UnknownProperty)?;
+                let applies = if block_type == "table" {
+                    property.applies_to_table()
+                } else {
+                    BasicStyleBlockKind::from_str(block_type)
+                        .is_some_and(|block| property.applies_to(block))
+                };
+                if !applies {
+                    return Err(StyleValidationError::InapplicableProperty);
+                }
+                if block_type == "table"
+                    && property == BasicStyleProperty::Page
+                    && !matches!(
+                        &declaration.value,
+                        StyleValue::Keyword(value) if value == "auto"
+                    )
+                {
+                    return Err(StyleValidationError::InvalidPageProperty);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_contract(&self, staging_1_2: bool) -> Result<(), StyleValidationError> {
         let mut by_id = BTreeMap::new();
         for (index, rule) in self.rules.iter().enumerate() {
             if rule.source_order
@@ -139,7 +206,51 @@ impl StyleSheet {
                     "page" if !valid_page_value(&declaration.value) => {
                         return Err(StyleValidationError::InvalidPageProperty)
                     }
+                    "space_before" | "space_after" | "start_indent" | "end_indent"
+                        if staging_1_2
+                            && !matches!(
+                                declaration.value,
+                                StyleValue::Length(value)
+                                    if value.raw() >= 0
+                                        && value.raw() <= JSON_SAFE_INTEGER_MAX
+                            ) =>
+                    {
+                        return Err(StyleValidationError::InvalidDeclarationValue)
+                    }
+                    "text_align"
+                        if staging_1_2
+                            && !matches!(
+                                &declaration.value,
+                                StyleValue::Keyword(value)
+                                    if matches!(value.as_str(), "start" | "end" | "center")
+                            ) =>
+                    {
+                        return Err(StyleValidationError::InvalidDeclarationValue)
+                    }
+                    "width"
+                        if staging_1_2
+                            && !matches!(
+                                &declaration.value,
+                                StyleValue::Keyword(value) if value == "auto"
+                            )
+                            && !matches!(
+                                declaration.value,
+                                StyleValue::Length(value)
+                                    if value.raw() > 0
+                                        && value.raw() <= JSON_SAFE_INTEGER_MAX
+                            ) =>
+                    {
+                        return Err(StyleValidationError::InvalidDeclarationValue)
+                    }
+                    "keep_with_next" | "keep_caption"
+                        if staging_1_2 && !matches!(declaration.value, StyleValue::Boolean(_)) =>
+                    {
+                        return Err(StyleValidationError::InvalidDeclarationValue)
+                    }
                     "font_family" | "font_size" | "line_height" | "page" => {}
+                    "space_before" | "space_after" | "start_indent" | "end_indent"
+                    | "text_align" | "width" | "keep_with_next" | "keep_caption"
+                        if staging_1_2 => {}
                     _ => return Err(StyleValidationError::UnknownProperty),
                 }
             }
@@ -212,6 +323,313 @@ pub fn selector_matches(
     Ok(selector_type == block_type && selector_classes.is_subset(&target_classes))
 }
 
+/// Immutable registry identity bound into every computed M2 block-style
+/// receipt. Changing any property shape, default, inheritance, applicability,
+/// or consumer requires a new registry identifier.
+pub const BASIC_BLOCK_STYLE_REGISTRY_VERSION: &str = "typaxis.basic-block-style-registry/1";
+pub const TABLE_BLOCK_STYLE_REGISTRY_VERSION: &str = "typaxis.table-block-style-registry/1";
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BasicStyleBlockKind {
+    Figure,
+    Heading,
+    List,
+    PageBreak,
+    Paragraph,
+}
+
+impl BasicStyleBlockKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Figure => "figure",
+            Self::Heading => "heading",
+            Self::List => "list",
+            Self::PageBreak => "page_break",
+            Self::Paragraph => "paragraph",
+        }
+    }
+
+    pub const fn from_str(value: &str) -> Option<Self> {
+        match value.as_bytes() {
+            b"figure" => Some(Self::Figure),
+            b"heading" => Some(Self::Heading),
+            b"list" => Some(Self::List),
+            b"page_break" => Some(Self::PageBreak),
+            b"paragraph" => Some(Self::Paragraph),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BasicStyleProperty {
+    FontFamily,
+    FontSize,
+    LineHeight,
+    Page,
+    SpaceBefore,
+    SpaceAfter,
+    StartIndent,
+    EndIndent,
+    TextAlign,
+    Width,
+    KeepWithNext,
+    KeepCaption,
+}
+
+impl BasicStyleProperty {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FontFamily => "font_family",
+            Self::FontSize => "font_size",
+            Self::LineHeight => "line_height",
+            Self::Page => "page",
+            Self::SpaceBefore => "space_before",
+            Self::SpaceAfter => "space_after",
+            Self::StartIndent => "start_indent",
+            Self::EndIndent => "end_indent",
+            Self::TextAlign => "text_align",
+            Self::Width => "width",
+            Self::KeepWithNext => "keep_with_next",
+            Self::KeepCaption => "keep_caption",
+        }
+    }
+
+    pub const fn from_str(value: &str) -> Option<Self> {
+        match value.as_bytes() {
+            b"font_family" => Some(Self::FontFamily),
+            b"font_size" => Some(Self::FontSize),
+            b"line_height" => Some(Self::LineHeight),
+            b"page" => Some(Self::Page),
+            b"space_before" => Some(Self::SpaceBefore),
+            b"space_after" => Some(Self::SpaceAfter),
+            b"start_indent" => Some(Self::StartIndent),
+            b"end_indent" => Some(Self::EndIndent),
+            b"text_align" => Some(Self::TextAlign),
+            b"width" => Some(Self::Width),
+            b"keep_with_next" => Some(Self::KeepWithNext),
+            b"keep_caption" => Some(Self::KeepCaption),
+            _ => None,
+        }
+    }
+
+    pub const fn applies_to(self, block: BasicStyleBlockKind) -> bool {
+        match self {
+            Self::FontFamily | Self::FontSize | Self::LineHeight => matches!(
+                block,
+                BasicStyleBlockKind::Paragraph
+                    | BasicStyleBlockKind::Heading
+                    | BasicStyleBlockKind::List
+            ),
+            Self::Page => true,
+            Self::SpaceBefore
+            | Self::SpaceAfter
+            | Self::StartIndent
+            | Self::EndIndent
+            | Self::KeepWithNext => !matches!(block, BasicStyleBlockKind::PageBreak),
+            Self::TextAlign => matches!(
+                block,
+                BasicStyleBlockKind::Paragraph | BasicStyleBlockKind::Heading
+            ),
+            Self::Width | Self::KeepCaption => matches!(block, BasicStyleBlockKind::Figure),
+        }
+    }
+
+    /// Closed table applicability set for the private `table-1` profile.
+    /// This is deliberately separate from [`Self::applies_to`] so adding the
+    /// table slice cannot broaden either current public M2 profile.
+    pub const fn applies_to_table(self) -> bool {
+        matches!(
+            self,
+            Self::Page
+                | Self::SpaceBefore
+                | Self::SpaceAfter
+                | Self::StartIndent
+                | Self::EndIndent
+                | Self::KeepWithNext
+        )
+    }
+
+    const fn applies_to_str(self, block: &str) -> bool {
+        match BasicStyleBlockKind::from_str(block) {
+            Some(block) => self.applies_to(block),
+            None => false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BasicBlockStyleConsumer {
+    BlockFlowGlueBefore,
+    BlockFlowGlueAfter,
+    LogicalStartInset,
+    LogicalEndInset,
+    LinePlacement,
+    FigureInlineSize,
+    BlockNextKeep,
+    FigureCaptionKeep,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BasicBlockStyleInitial {
+    ZeroLength,
+    TextStart,
+    WidthAuto,
+    Boolean(bool),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BasicBlockStylePropertyDescriptor {
+    pub property: BasicStyleProperty,
+    pub initial: BasicBlockStyleInitial,
+    pub inherited: bool,
+    pub consumer: BasicBlockStyleConsumer,
+}
+
+/// Complete additive 1.2 property table. Profile preflight, fixtures, and
+/// typed consumers enumerate this table instead of maintaining name lists.
+pub const BASIC_BLOCK_STYLE_PROPERTIES: &[BasicBlockStylePropertyDescriptor] = &[
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::SpaceBefore,
+        initial: BasicBlockStyleInitial::ZeroLength,
+        inherited: false,
+        consumer: BasicBlockStyleConsumer::BlockFlowGlueBefore,
+    },
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::SpaceAfter,
+        initial: BasicBlockStyleInitial::ZeroLength,
+        inherited: false,
+        consumer: BasicBlockStyleConsumer::BlockFlowGlueAfter,
+    },
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::StartIndent,
+        initial: BasicBlockStyleInitial::ZeroLength,
+        inherited: false,
+        consumer: BasicBlockStyleConsumer::LogicalStartInset,
+    },
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::EndIndent,
+        initial: BasicBlockStyleInitial::ZeroLength,
+        inherited: false,
+        consumer: BasicBlockStyleConsumer::LogicalEndInset,
+    },
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::TextAlign,
+        initial: BasicBlockStyleInitial::TextStart,
+        inherited: true,
+        consumer: BasicBlockStyleConsumer::LinePlacement,
+    },
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::Width,
+        initial: BasicBlockStyleInitial::WidthAuto,
+        inherited: false,
+        consumer: BasicBlockStyleConsumer::FigureInlineSize,
+    },
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::KeepWithNext,
+        initial: BasicBlockStyleInitial::Boolean(false),
+        inherited: false,
+        consumer: BasicBlockStyleConsumer::BlockNextKeep,
+    },
+    BasicBlockStylePropertyDescriptor {
+        property: BasicStyleProperty::KeepCaption,
+        initial: BasicBlockStyleInitial::Boolean(true),
+        inherited: false,
+        consumer: BasicBlockStyleConsumer::FigureCaptionKeep,
+    },
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MachineTextAlign {
+    Start,
+    End,
+    Center,
+}
+
+impl MachineTextAlign {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::End => "end",
+            Self::Center => "center",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MachineFigureWidth {
+    Auto,
+    Length(PositiveLength),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ComputedMachineBlockStyle {
+    space_before: NonNegativeLength,
+    space_after: NonNegativeLength,
+    start_indent: NonNegativeLength,
+    end_indent: NonNegativeLength,
+    text_align: MachineTextAlign,
+    width: MachineFigureWidth,
+    keep_with_next: bool,
+    keep_caption: bool,
+}
+
+/// Complete computed style for a generated list marker. Marker shaping uses
+/// the same required text triple as paragraph text, while marker placement
+/// consumes the list block's typed spacing and indents.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputedMachineListStyle {
+    block: ComputedMachineBlockStyle,
+    font_families: Vec<String>,
+    font_size: PositiveLength,
+    line_height: PositiveLength,
+}
+
+impl ComputedMachineListStyle {
+    pub const fn block(&self) -> ComputedMachineBlockStyle {
+        self.block
+    }
+
+    pub fn font_families(&self) -> &[String] {
+        &self.font_families
+    }
+
+    pub const fn font_size(&self) -> PositiveLength {
+        self.font_size
+    }
+
+    pub const fn line_height(&self) -> PositiveLength {
+        self.line_height
+    }
+}
+
+impl ComputedMachineBlockStyle {
+    pub const fn space_before(self) -> NonNegativeLength {
+        self.space_before
+    }
+    pub const fn space_after(self) -> NonNegativeLength {
+        self.space_after
+    }
+    pub const fn start_indent(self) -> NonNegativeLength {
+        self.start_indent
+    }
+    pub const fn end_indent(self) -> NonNegativeLength {
+        self.end_indent
+    }
+    pub const fn text_align(self) -> MachineTextAlign {
+        self.text_align
+    }
+    pub const fn width(self) -> MachineFigureWidth {
+        self.width
+    }
+    pub const fn keep_with_next(self) -> bool {
+        self.keep_with_next
+    }
+    pub const fn keep_caption(self) -> bool {
+        self.keep_caption
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComputedStyle {
     properties: BTreeMap<String, StyleValue>,
@@ -280,6 +698,20 @@ impl ComputedStyle {
         &self.properties
     }
 
+    /// Resolves the closed basic-document figure width into its typed domain.
+    /// Layout consumers never need to compare or reinterpret the declaration
+    /// name or its wire value.
+    pub fn basic_figure_width(&self) -> Result<MachineFigureWidth, StyleValidationError> {
+        match self.properties.get(BasicStyleProperty::Width.as_str()) {
+            None => Ok(MachineFigureWidth::Auto),
+            Some(StyleValue::Keyword(value)) if value == "auto" => Ok(MachineFigureWidth::Auto),
+            Some(StyleValue::Length(value)) => PositiveLength::new(*value)
+                .map(MachineFigureWidth::Length)
+                .ok_or(StyleValidationError::InvalidDeclarationValue),
+            Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
+        }
+    }
+
     /// Resolves the computed `page` property. Absence and `auto` both mean no named page.
     pub fn page_name(&self) -> Result<Option<PageName>, StyleValidationError> {
         match self.properties.get("page") {
@@ -293,6 +725,49 @@ impl ComputedStyle {
     }
 }
 
+fn close_machine_block_style(
+    computed: &ComputedStyle,
+    parent: Option<&ComputedMachineBlockStyle>,
+) -> Result<ComputedMachineBlockStyle, StyleValidationError> {
+    let nonnegative = |name: &str| match computed.properties.get(name) {
+        None => Ok(NonNegativeLength::ZERO),
+        Some(StyleValue::Length(value)) => {
+            NonNegativeLength::new(*value).ok_or(StyleValidationError::InvalidDeclarationValue)
+        }
+        Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
+    };
+    let text_align = match computed
+        .properties
+        .get(BasicStyleProperty::TextAlign.as_str())
+    {
+        Some(StyleValue::Keyword(value)) => match value.as_str() {
+            "start" => MachineTextAlign::Start,
+            "end" => MachineTextAlign::End,
+            "center" => MachineTextAlign::Center,
+            _ => return Err(StyleValidationError::InvalidDeclarationValue),
+        },
+        None => parent
+            .map(|style| style.text_align)
+            .unwrap_or(MachineTextAlign::Start),
+        Some(_) => return Err(StyleValidationError::InvalidDeclarationValue),
+    };
+    let boolean = |name: &str, initial: bool| match computed.properties.get(name) {
+        None => Ok(initial),
+        Some(StyleValue::Boolean(value)) => Ok(*value),
+        Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
+    };
+    Ok(ComputedMachineBlockStyle {
+        space_before: nonnegative(BasicStyleProperty::SpaceBefore.as_str())?,
+        space_after: nonnegative(BasicStyleProperty::SpaceAfter.as_str())?,
+        start_indent: nonnegative(BasicStyleProperty::StartIndent.as_str())?,
+        end_indent: nonnegative(BasicStyleProperty::EndIndent.as_str())?,
+        text_align,
+        width: computed.basic_figure_width()?,
+        keep_with_next: boolean(BasicStyleProperty::KeepWithNext.as_str(), false)?,
+        keep_caption: boolean(BasicStyleProperty::KeepCaption.as_str(), true)?,
+    })
+}
+
 impl StyleSheet {
     pub fn cascade(
         &self,
@@ -300,6 +775,96 @@ impl StyleSheet {
         classes: &[String],
     ) -> Result<ComputedStyle, StyleValidationError> {
         self.validate()?;
+        self.cascade_validated(block_type, classes)
+    }
+
+    /// Cascades the complete closed contract-1.2 declaration set while
+    /// retaining the ordinary computed text properties used by shaping.
+    pub fn cascade_basic_document(
+        &self,
+        block_type: &str,
+        classes: &[String],
+    ) -> Result<ComputedStyle, StyleValidationError> {
+        self.validate_basic_document_styles()?;
+        BasicStyleBlockKind::from_str(block_type).ok_or(StyleValidationError::InvalidSelector(
+            SelectorError::InvalidBlockType,
+        ))?;
+        self.cascade_validated(block_type, classes)
+    }
+
+    /// Cascades contract 1.2 values and immediately closes them into the
+    /// fixed-point/enum/boolean domain consumed by layout. Only `text_align`
+    /// may inherit from the typed flow-owner parent.
+    pub fn cascade_basic_document_style(
+        &self,
+        block: BasicStyleBlockKind,
+        classes: &[String],
+        parent: Option<&ComputedMachineBlockStyle>,
+    ) -> Result<ComputedMachineBlockStyle, StyleValidationError> {
+        self.validate_basic_document_styles()?;
+        let computed = self.cascade_validated(block.as_str(), classes)?;
+        close_machine_block_style(&computed, parent)
+    }
+
+    /// Cascades only existing M2 block-placement values for a table. The
+    /// returned type has no table-specific raw-property channel; text
+    /// alignment, figure width, and caption keep remain their fixed initials.
+    pub fn cascade_table_document_style(
+        &self,
+        classes: &[String],
+    ) -> Result<ComputedMachineBlockStyle, StyleValidationError> {
+        self.validate_table_document_styles()?;
+        let computed = self.cascade_validated("table", classes)?;
+        close_machine_block_style(&computed, None)
+    }
+
+    /// Cascades a cell paragraph against the sealed table parent using the
+    /// same M2 computed-value closure as ordinary paragraph flows.
+    pub fn cascade_table_cell_paragraph_style(
+        &self,
+        classes: &[String],
+        table_parent: &ComputedMachineBlockStyle,
+    ) -> Result<ComputedMachineBlockStyle, StyleValidationError> {
+        self.validate_table_document_styles()?;
+        let computed = self.cascade_validated(BasicStyleBlockKind::Paragraph.as_str(), classes)?;
+        close_machine_block_style(&computed, Some(table_parent))
+    }
+
+    /// Cascades the closed list-marker style. Missing marker text properties
+    /// fail here rather than being replaced with backend defaults.
+    pub fn cascade_basic_document_list_style(
+        &self,
+        classes: &[String],
+    ) -> Result<ComputedMachineListStyle, StyleValidationError> {
+        let block = self.cascade_basic_document_style(BasicStyleBlockKind::List, classes, None)?;
+        let computed = self.cascade_validated(BasicStyleBlockKind::List.as_str(), classes)?;
+        let font_families = match computed
+            .properties
+            .get(BasicStyleProperty::FontFamily.as_str())
+        {
+            Some(StyleValue::FontFamilyList(families)) if !families.is_empty() => families.clone(),
+            _ => return Err(StyleValidationError::MissingTextProperty),
+        };
+        let positive =
+            |property: BasicStyleProperty| match computed.properties.get(property.as_str()) {
+                Some(StyleValue::Length(value)) => {
+                    PositiveLength::new(*value).ok_or(StyleValidationError::InvalidDeclarationValue)
+                }
+                _ => Err(StyleValidationError::MissingTextProperty),
+            };
+        Ok(ComputedMachineListStyle {
+            block,
+            font_families,
+            font_size: positive(BasicStyleProperty::FontSize)?,
+            line_height: positive(BasicStyleProperty::LineHeight)?,
+        })
+    }
+
+    fn cascade_validated(
+        &self,
+        block_type: &str,
+        classes: &[String],
+    ) -> Result<ComputedStyle, StyleValidationError> {
         let by_id: BTreeMap<&StyleId, &StyleRule> = self
             .rules
             .iter()
@@ -783,5 +1348,216 @@ mod tests {
         let context =
             PageSelectionContext::new(0, Some(PageName::new("chapter").unwrap())).unwrap();
         assert_eq!(set.select(&context).unwrap().master_id.as_str(), "chapter");
+    }
+
+    fn machine_declaration(name: &str, value: StyleValue) -> Declaration {
+        Declaration {
+            name: name.to_owned(),
+            value,
+            important: false,
+        }
+    }
+
+    #[test]
+    fn machine_properties_have_closed_shape_initials_inheritance_and_override() {
+        assert_eq!(BASIC_BLOCK_STYLE_PROPERTIES.len(), 8);
+        assert_eq!(
+            BASIC_BLOCK_STYLE_PROPERTIES
+                .iter()
+                .map(|entry| entry.property)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            8
+        );
+        assert!(BASIC_BLOCK_STYLE_PROPERTIES.iter().all(|entry| entry
+            .property
+            .applies_to(BasicStyleBlockKind::Paragraph)
+            || entry.property.applies_to(BasicStyleBlockKind::Figure)));
+
+        let mut base = rule("base", None, "paragraph", 0);
+        base.declarations.extend([
+            machine_declaration(
+                "space_before",
+                StyleValue::Length(Length::from_raw(0).unwrap()),
+            ),
+            machine_declaration(
+                "space_after",
+                StyleValue::Length(Length::from_raw(JSON_SAFE_INTEGER_MAX).unwrap()),
+            ),
+            machine_declaration(
+                "start_indent",
+                StyleValue::Length(Length::from_raw(2).unwrap()),
+            ),
+            machine_declaration(
+                "end_indent",
+                StyleValue::Length(Length::from_raw(3).unwrap()),
+            ),
+            machine_declaration("text_align", StyleValue::Keyword("end".to_owned())),
+            machine_declaration("keep_with_next", StyleValue::Boolean(true)),
+        ]);
+        let mut override_rule = rule("override", None, "paragraph.lead", 1);
+        override_rule.declarations.push(machine_declaration(
+            "space_before",
+            StyleValue::Length(Length::from_raw(7).unwrap()),
+        ));
+        let sheet = StyleSheet {
+            rules: vec![base, override_rule],
+        };
+        let computed = sheet
+            .cascade_basic_document_style(
+                BasicStyleBlockKind::Paragraph,
+                &["lead".to_owned()],
+                None,
+            )
+            .unwrap();
+        assert_eq!(computed.space_before().get().raw(), 7);
+        assert_eq!(computed.space_after().get().raw(), JSON_SAFE_INTEGER_MAX);
+        assert_eq!(computed.start_indent().get().raw(), 2);
+        assert_eq!(computed.end_indent().get().raw(), 3);
+        assert_eq!(computed.text_align(), MachineTextAlign::End);
+        assert_eq!(computed.width(), MachineFigureWidth::Auto);
+        assert!(computed.keep_with_next());
+        assert!(computed.keep_caption());
+
+        let inherited = StyleSheet { rules: vec![] }
+            .cascade_basic_document_style(BasicStyleBlockKind::Heading, &[], Some(&computed))
+            .unwrap();
+        assert_eq!(inherited.text_align(), MachineTextAlign::End);
+        assert_eq!(inherited.space_before(), NonNegativeLength::ZERO);
+        assert!(!inherited.keep_with_next());
+        assert!(Length::from_raw(JSON_SAFE_INTEGER_MAX.checked_add(1).unwrap()).is_none());
+    }
+
+    #[test]
+    fn machine_properties_reject_wrong_tags_keywords_unknown_and_inapplicable_use() {
+        for (name, value) in [
+            ("space_before", StyleValue::Integer(0)),
+            ("width", StyleValue::Length(Length::ZERO)),
+            ("text_align", StyleValue::Keyword("justify".to_owned())),
+            ("keep_caption", StyleValue::Keyword("true".to_owned())),
+            ("future_property", StyleValue::Boolean(true)),
+        ] {
+            let mut invalid = rule("invalid", None, "paragraph", 0);
+            invalid.declarations.push(machine_declaration(name, value));
+            assert!(StyleSheet {
+                rules: vec![invalid]
+            }
+            .validate_basic_document_style_shape()
+            .is_err());
+        }
+
+        let mut invalid = rule("figure-align", None, "figure", 0);
+        invalid.declarations.push(machine_declaration(
+            "text_align",
+            StyleValue::Keyword("center".to_owned()),
+        ));
+        assert_eq!(
+            StyleSheet {
+                rules: vec![invalid]
+            }
+            .validate_basic_document_styles(),
+            Err(StyleValidationError::InapplicableProperty)
+        );
+
+        let mut staging = rule("staging", None, "paragraph", 0);
+        staging.declarations.push(machine_declaration(
+            "space_before",
+            StyleValue::Length(Length::ZERO),
+        ));
+        assert_eq!(
+            StyleSheet {
+                rules: vec![staging]
+            }
+            .validate(),
+            Err(StyleValidationError::UnknownProperty)
+        );
+    }
+
+    #[test]
+    fn machine_properties_figure_width_and_caption_keep_are_typed() {
+        let mut figure = rule("figure", None, "figure", 0);
+        figure.declarations.extend([
+            machine_declaration("width", StyleValue::Length(Length::from_raw(100).unwrap())),
+            machine_declaration("keep_caption", StyleValue::Boolean(false)),
+        ]);
+        let computed = StyleSheet {
+            rules: vec![figure],
+        }
+        .cascade_basic_document_style(BasicStyleBlockKind::Figure, &[], None)
+        .unwrap();
+        assert_eq!(
+            computed.width(),
+            MachineFigureWidth::Length(
+                PositiveLength::new(Length::from_raw(100).unwrap()).unwrap()
+            )
+        );
+        assert!(!computed.keep_caption());
+    }
+
+    #[test]
+    fn table_style_profile_reuses_only_typed_m2_placement_properties() {
+        let mut table = rule("table", None, "table.matrix", 0);
+        table.declarations.extend([
+            machine_declaration(
+                "start_indent",
+                StyleValue::Length(Length::from_raw(2).unwrap()),
+            ),
+            machine_declaration(
+                "end_indent",
+                StyleValue::Length(Length::from_raw(3).unwrap()),
+            ),
+            machine_declaration("page", StyleValue::Keyword("auto".to_owned())),
+            machine_declaration("keep_with_next", StyleValue::Boolean(true)),
+        ]);
+        let sheet = StyleSheet { rules: vec![table] };
+        assert_eq!(
+            sheet.validate_basic_document_styles(),
+            Err(StyleValidationError::InapplicableProperty)
+        );
+        sheet.validate_table_document_styles().unwrap();
+        let computed = sheet
+            .cascade_table_document_style(&["matrix".to_owned()])
+            .unwrap();
+        assert_eq!(computed.start_indent().get().raw(), 2);
+        assert_eq!(computed.end_indent().get().raw(), 3);
+        assert_eq!(computed.text_align(), MachineTextAlign::Start);
+        assert_eq!(computed.width(), MachineFigureWidth::Auto);
+        assert!(computed.keep_with_next());
+
+        let mut paragraph = rule("paragraph", None, "paragraph", 1);
+        paragraph.declarations.push(machine_declaration(
+            "text_align",
+            StyleValue::Keyword("end".to_owned()),
+        ));
+        let with_paragraph = StyleSheet {
+            rules: vec![sheet.rules[0].clone(), paragraph],
+        };
+        let child = with_paragraph
+            .cascade_table_cell_paragraph_style(&[], &computed)
+            .unwrap();
+        assert_eq!(child.text_align(), MachineTextAlign::End);
+
+        for (name, value, expected) in [
+            (
+                "text_align",
+                StyleValue::Keyword("center".to_owned()),
+                StyleValidationError::InapplicableProperty,
+            ),
+            (
+                "page",
+                StyleValue::Text("chapter".to_owned()),
+                StyleValidationError::InvalidPageProperty,
+            ),
+        ] {
+            let mut invalid = rule("invalid", None, "table", 0);
+            invalid.declarations.push(machine_declaration(name, value));
+            assert_eq!(
+                StyleSheet {
+                    rules: vec![invalid]
+                }
+                .validate_table_document_styles(),
+                Err(expected)
+            );
+        }
     }
 }

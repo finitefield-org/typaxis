@@ -1,0 +1,24 @@
+{
+  "contract": "typaxis.contract/1.2",
+  "profile": "typaxis.machine-pdf/basic-document-1",
+  "policy_version": "typaxis.basic-forced-page-break-policy/1",
+  "scenarios": {
+    "blank_page_indexes": [
+      0,
+      2,
+      4
+    ],
+    "consecutive": true,
+    "cursor_tamper": "I9190",
+    "deterministic_double_build": true,
+    "leading": true,
+    "max_pages": 5,
+    "max_plus_one": "limit",
+    "middle": true,
+    "painted_content_owners": [
+      2,
+      5
+    ],
+    "trailing": true
+  }
+}

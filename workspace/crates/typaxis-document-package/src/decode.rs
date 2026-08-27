@@ -331,7 +331,7 @@ impl StrictDocumentPackageDecoder {
         let report = preflight
             .check(input)
             .map_err(DocumentPackageDecodeError::preflight)?;
-        let mut context = DecodeContext::new(policy, report)
+        let mut context = DecodeContext::new(policy, report, DecodeDialect::Current)
             .map_err(|pending| DocumentPackageDecodeError::typed(pending.into_error(input, 0)))?;
 
         let mut json = serde_json::Deserializer::from_slice(input);
@@ -381,6 +381,135 @@ impl StrictDocumentPackageDecoder {
             .map_err(|error| location_index_error(input, error))?;
 
         Ok(DecodedDocumentPackage {
+            wire,
+            raw_sha256: RawDocumentPackageSha256::new(sha256(input)),
+            canonical_jcs_sha256: CanonicalDocumentPackageJcsSha256::new(canonical.sha256()),
+            locations,
+            _binding: DecoderIssuedBinding,
+        })
+    }
+}
+
+/// Compatibility receipt retained for focused contract 1.2 slice tests. The
+/// public [`StrictDocumentPackageDecoder`] accepts the same 1.2 shape; this
+/// wrapper is not a production runner or an alternate profile selector.
+pub struct DecodedStagingStyleDocumentPackage {
+    wire: WireDocumentPackage,
+    raw_sha256: RawDocumentPackageSha256,
+    canonical_jcs_sha256: CanonicalDocumentPackageJcsSha256,
+    locations: JsonLocationIndex,
+    _binding: DecoderIssuedBinding,
+}
+
+impl DecodedStagingStyleDocumentPackage {
+    pub const CONTRACT: &'static str = "typaxis.contract/1.2";
+
+    pub const fn wire(&self) -> &WireDocumentPackage {
+        &self.wire
+    }
+
+    pub const fn raw_sha256(&self) -> RawDocumentPackageSha256 {
+        self.raw_sha256
+    }
+
+    pub const fn canonical_jcs_sha256(&self) -> CanonicalDocumentPackageJcsSha256 {
+        self.canonical_jcs_sha256
+    }
+
+    pub const fn locations(&self) -> &JsonLocationIndex {
+        &self.locations
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        WireDocumentPackage,
+        RawDocumentPackageSha256,
+        CanonicalDocumentPackageJcsSha256,
+        JsonLocationIndex,
+    ) {
+        (
+            self.wire,
+            self.raw_sha256,
+            self.canonical_jcs_sha256,
+            self.locations,
+        )
+    }
+}
+
+impl fmt::Debug for DecodedStagingStyleDocumentPackage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DecodedStagingStyleDocumentPackage")
+            .field("contract", &Self::CONTRACT)
+            .field("raw_sha256", &self.raw_sha256)
+            .field("canonical_jcs_sha256", &self.canonical_jcs_sha256)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Strict, bounded compatibility decoder used by focused M2 slice tests.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StagingStyleDocumentPackageDecoder;
+
+impl StagingStyleDocumentPackageDecoder {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn decode(
+        &self,
+        input: &[u8],
+        policy: &DocumentPackageDecodePolicy<'_>,
+    ) -> Result<DecodedStagingStyleDocumentPackage, DocumentPackageDecodeError> {
+        let preflight = StrictJsonPreflight::new(policy.preflight_limits());
+        let report = preflight
+            .check(input)
+            .map_err(DocumentPackageDecodeError::preflight)?;
+        let mut context = DecodeContext::new(policy, report, DecodeDialect::StagingStyle1_2)
+            .map_err(|pending| DocumentPackageDecodeError::typed(pending.into_error(input, 0)))?;
+
+        let mut json = serde_json::Deserializer::from_slice(input);
+        json.disable_recursion_limit();
+        let stacker = serde_stacker::Deserializer::new(&mut json);
+        let mut track = serde_path_to_error::Track::new();
+        let tracked = serde_path_to_error::Deserializer::new(stacker, &mut track);
+        let decoded = DecodeSeed::<WireDocumentPackage>::new(&mut context).deserialize(tracked);
+        let wire = match decoded {
+            Ok(wire) => wire,
+            Err(error) => {
+                let fallback_path = tracked_path(track.path());
+                let pending = context.pending.take().unwrap_or(PendingDecodeError {
+                    kind: DocumentPackageTypedDecodeErrorKind::TypeMismatch,
+                    path: fallback_path,
+                    primary: DocumentPackageDecodePrimary::Value,
+                });
+                let fallback = line_column_to_offset(input, error.line(), error.column());
+                return Err(DocumentPackageDecodeError::typed(
+                    pending.into_error(input, fallback),
+                ));
+            }
+        };
+        if let Err(error) = json.end() {
+            let pending = PendingDecodeError {
+                kind: DocumentPackageTypedDecodeErrorKind::InternalDecoderInvariant,
+                path: Vec::new(),
+                primary: DocumentPackageDecodePrimary::ContainingObject,
+            };
+            return Err(DocumentPackageDecodeError::typed(pending.into_error(
+                input,
+                line_column_to_offset(input, error.line(), error.column()),
+            )));
+        }
+
+        let encoder =
+            StagingStyleDocumentPackageEncoder::new(policy.preflight_limits().max_bytes().get())
+                .map_err(|_| canonical_error(input))?;
+        let canonical = encoder.analyze(&wire).map_err(|_| canonical_error(input))?;
+        let location_budget = context.location_budget();
+        let locations = JsonLocationIndex::build(&wire, location_budget)
+            .map_err(|error| location_index_error(input, error))?;
+        Ok(DecodedStagingStyleDocumentPackage {
             wire,
             raw_sha256: RawDocumentPackageSha256::new(sha256(input)),
             canonical_jcs_sha256: CanonicalDocumentPackageJcsSha256::new(canonical.sha256()),
@@ -524,6 +653,7 @@ enum Counter {
     Sources,
     TextBuffers,
     AstNodes,
+    AstUnits,
     StyleRules,
     PageMasters,
     Fonts,
@@ -531,11 +661,19 @@ enum Counter {
     PackageItems,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DecodeDialect {
+    Current,
+    StagingStyle1_2,
+}
+
 struct DecodeContext {
+    dialect: DecodeDialect,
     limits: DecodeLimits,
     sources: u64,
     text_buffers: u64,
     ast_nodes: u64,
+    indexed_ast_nodes: u64,
     style_rules: u64,
     page_masters: u64,
     fonts: u64,
@@ -550,6 +688,7 @@ impl DecodeContext {
     fn new(
         policy: &DocumentPackageDecodePolicy<'_>,
         report: JsonPreflightReport<'_>,
+        dialect: DecodeDialect,
     ) -> Result<Self, PendingDecodeError> {
         let mut path = Vec::new();
         path.try_reserve_exact(usize::from(report.maximum_depth()))
@@ -561,10 +700,12 @@ impl DecodeContext {
                 primary: DocumentPackageDecodePrimary::ContainingObject,
             })?;
         Ok(Self {
+            dialect,
             limits: DecodeLimits::from_policy(policy),
             sources: 0,
             text_buffers: 0,
             ast_nodes: 0,
+            indexed_ast_nodes: 0,
             style_rules: 0,
             page_masters: 0,
             fonts: 0,
@@ -586,11 +727,12 @@ impl DecodeContext {
             page_masters: self.limits.page_masters,
             fonts: self.limits.fonts,
             images: self.limits.images,
-            observed_ast_nodes: self.ast_nodes,
+            observed_ast_nodes: self.indexed_ast_nodes,
         }
     }
 
     fn consume<E: de::Error>(&mut self, counter: Counter) -> Result<(), E> {
+        let indexes_node = matches!(counter, Counter::AstNodes);
         let (used, limit, limit_kind) = match counter {
             Counter::Sources => (
                 &mut self.sources,
@@ -603,6 +745,11 @@ impl DecodeContext {
                 DocumentPackageDecodeLimit::TextBuffers,
             ),
             Counter::AstNodes => (
+                &mut self.ast_nodes,
+                self.limits.ast_nodes,
+                DocumentPackageDecodeLimit::AstNodes,
+            ),
+            Counter::AstUnits => (
                 &mut self.ast_nodes,
                 self.limits.ast_nodes,
                 DocumentPackageDecodeLimit::AstNodes,
@@ -645,6 +792,9 @@ impl DecodeContext {
             ));
         }
         *used = attempted;
+        if indexes_node {
+            self.indexed_ast_nodes = self.indexed_ast_nodes.saturating_add(1);
+        }
         Ok(())
     }
 
@@ -1244,12 +1394,26 @@ impl<'de> Decode<'de> for WireDocumentPackage {
                 while let Some(field) = map.next_key::<String>()? {
                     match field.as_str() {
                         "contract" => {
+                            let dialect = context.dialect;
                             let value = map_string_parse(
                                 &mut map,
                                 context,
                                 "contract",
                                 DocumentPackageTypedDecodeErrorKind::UnknownContract,
-                                |value| DocumentPackageContractId::from_str(value).ok(),
+                                |value| match dialect {
+                                    DecodeDialect::Current => {
+                                        DocumentPackageContractId::from_str(value).ok()
+                                    }
+                                    DecodeDialect::StagingStyle1_2
+                                        if value
+                                            == DecodedStagingStyleDocumentPackage::CONTRACT =>
+                                    {
+                                        // The sealed staging receipt, not this carrier field,
+                                        // proves the 1.2 identity.
+                                        Some(DocumentPackageContractId::CURRENT)
+                                    }
+                                    DecodeDialect::StagingStyle1_2 => None,
+                                },
                             )?;
                             set_field(&mut contract, value, context, "contract")?;
                         }
@@ -1975,6 +2139,9 @@ impl<'de> Decode<'de> for WireTableColumn {
         context: &mut DecodeContext,
         deserializer: D,
     ) -> Result<Self, D::Error> {
+        // Columns have no NodeId, but ADR-0029 assigns each wire column one
+        // max_ast_nodes unit. Consume it before constructing the column value.
+        context.consume(Counter::AstUnits)?;
         struct ColumnVisitor<'a>(&'a mut DecodeContext);
         impl<'de> Visitor<'de> for ColumnVisitor<'_> {
             type Value = WireTableColumn;
@@ -2740,6 +2907,14 @@ impl<'de> Decode<'de> for WireDeclaration {
                                     "font_size" => Some(WireDeclarationName::FontSize),
                                     "line_height" => Some(WireDeclarationName::LineHeight),
                                     "page" => Some(WireDeclarationName::Page),
+                                    "space_before" => Some(WireDeclarationName::SpaceBefore),
+                                    "space_after" => Some(WireDeclarationName::SpaceAfter),
+                                    "start_indent" => Some(WireDeclarationName::StartIndent),
+                                    "end_indent" => Some(WireDeclarationName::EndIndent),
+                                    "text_align" => Some(WireDeclarationName::TextAlign),
+                                    "width" => Some(WireDeclarationName::Width),
+                                    "keep_with_next" => Some(WireDeclarationName::KeepWithNext),
+                                    "keep_caption" => Some(WireDeclarationName::KeepCaption),
                                     _ => None,
                                 },
                             )?;
@@ -2772,6 +2947,24 @@ impl<'de> Decode<'de> for WireDeclaration {
                     (WireDeclarationName::Page, WireStyleValue::String { value }) => {
                         !value.is_empty()
                     }
+                    (
+                        WireDeclarationName::SpaceBefore
+                        | WireDeclarationName::SpaceAfter
+                        | WireDeclarationName::StartIndent
+                        | WireDeclarationName::EndIndent,
+                        WireStyleValue::Length { value },
+                    ) => *value >= 0,
+                    (WireDeclarationName::TextAlign, WireStyleValue::Keyword { value }) => {
+                        matches!(value.as_str(), "start" | "end" | "center")
+                    }
+                    (WireDeclarationName::Width, WireStyleValue::Keyword { value }) => {
+                        value == "auto"
+                    }
+                    (WireDeclarationName::Width, WireStyleValue::Length { value }) => *value > 0,
+                    (
+                        WireDeclarationName::KeepWithNext | WireDeclarationName::KeepCaption,
+                        WireStyleValue::Boolean { .. },
+                    ) => true,
                     _ => false,
                 };
                 if !compatible {
@@ -3392,27 +3585,33 @@ mod tests {
     }
 
     #[test]
-    fn decoder_accepts_schema_positive_fixtures_and_both_contracts() {
+    fn decoder_accepts_schema_positive_fixtures_and_all_compatible_contracts() {
         let limits = validated_limits();
         let minimal = decode(MINIMAL, &limits).expect("minimal Schema fixture");
         assert_eq!(
             minimal.wire().contract,
-            DocumentPackageContractId::CONTRACT_1_1
+            DocumentPackageContractId::CONTRACT_1_2
         );
         decode(RICH, &limits).expect("rich Schema fixture");
 
-        let compatible = String::from_utf8(MINIMAL.to_vec())
-            .expect("fixture UTF-8")
-            .replacen("typaxis.contract/1.1", "typaxis.contract/1.0", 1);
-        let decoded = decode(compatible.as_bytes(), &limits).expect("1.0 compatibility input");
-        assert_eq!(
-            decoded.wire().contract,
-            DocumentPackageContractId::CONTRACT_1_0
-        );
-        assert_eq!(
-            decoded.canonical_jcs_sha256().to_string(),
-            "341b8f6213fe34651314a33c258db967b6c2e3ef0a547d415f15ba9790cf82be"
-        );
+        let current = String::from_utf8(MINIMAL.to_vec()).expect("fixture UTF-8");
+        for (wire_contract, contract, canonical_sha256) in [
+            (
+                "typaxis.contract/1.0",
+                DocumentPackageContractId::CONTRACT_1_0,
+                "797e2522187b12d48c47866fa13cde09819817d4fd61748d352564f563932152",
+            ),
+            (
+                "typaxis.contract/1.1",
+                DocumentPackageContractId::CONTRACT_1_1,
+                "8f01dd947733db349290d235624f9d979b2a6dc9be56657cc85c795c0e40ac8c",
+            ),
+        ] {
+            let compatible = current.replacen("typaxis.contract/1.2", wire_contract, 1);
+            let decoded = decode(compatible.as_bytes(), &limits).expect("compatibility input");
+            assert_eq!(decoded.wire().contract, contract);
+            assert_eq!(decoded.canonical_jcs_sha256().to_string(), canonical_sha256);
+        }
     }
 
     #[test]
@@ -3714,7 +3913,7 @@ mod tests {
         let canonical = String::from_utf8(encode(&minimal_wire())).expect("canonical UTF-8");
 
         let unknown_contract =
-            canonical.replacen("typaxis.contract/1.1", "typaxis.contract/9.9", 1);
+            canonical.replacen("typaxis.contract/1.2", "typaxis.contract/9.9", 1);
         let error = decode(unknown_contract.as_bytes(), &limits).expect_err("unknown contract");
         let typed = typed_error(&error);
         assert_eq!(
@@ -4083,7 +4282,7 @@ mod tests {
             "/style_sheet/rules/1/declarations/0"
         );
         assert_eq!(
-            locations.page_master("a4", 1).unwrap().as_str(),
+            locations.page_master("default", 1).unwrap().as_str(),
             "/page_masters/masters/1"
         );
         assert_eq!(
@@ -4094,6 +4293,145 @@ mod tests {
             locations.image(u32::MAX, 1).unwrap().as_str(),
             "/resources/images/1"
         );
+    }
+
+    #[test]
+    fn decoder_table_columns_consume_ast_units_at_exact_and_plus_one() {
+        let span = WireSourceSpan {
+            source_id: 0,
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let mut table = minimal_wire();
+        table.document.blocks.push(WireBlock::Table {
+            node_id: 1,
+            span,
+            classes: Vec::new(),
+            columns: vec![
+                WireTableColumn::Fixed { width: 1 },
+                WireTableColumn::Fraction { weight: 1 },
+            ],
+            head: Vec::new(),
+            body: vec![WireTableRow {
+                node_id: 2,
+                span,
+                cells: vec![WireTableCell {
+                    node_id: 3,
+                    span,
+                    colspan: 2,
+                    rowspan: 1,
+                    blocks: Vec::new(),
+                }],
+            }],
+        });
+        let exact = limits_with(|limits| limits.max_ast_nodes = 6);
+        decode(&encode(&table), &exact).expect("root/table/row/cell/two-column exact max");
+
+        let plus_one = limits_with(|limits| limits.max_ast_nodes = 5);
+        assert_limit_error(
+            decode(&encode(&table), &plus_one),
+            DocumentPackageDecodeLimit::AstNodes,
+            5,
+            6,
+            "/document/blocks/0/columns/1",
+        );
+    }
+
+    #[test]
+    fn current_machine_properties_are_exact_for_both_encoder_entry_points() {
+        let mut package = minimal_wire();
+        package.style_sheet.rules = vec![WireStyleRule {
+            style_id: "typed".to_owned(),
+            extends: None,
+            selector: "paragraph".to_owned(),
+            source_order: 0,
+            declarations: vec![
+                WireDeclaration {
+                    name: WireDeclarationName::SpaceBefore,
+                    value: WireStyleValue::Length { value: 0 },
+                    important: false,
+                },
+                WireDeclaration {
+                    name: WireDeclarationName::SpaceAfter,
+                    value: WireStyleValue::Length {
+                        value: JSON_SAFE_INTEGER_MAX,
+                    },
+                    important: false,
+                },
+                WireDeclaration {
+                    name: WireDeclarationName::StartIndent,
+                    value: WireStyleValue::Length { value: 1 },
+                    important: false,
+                },
+                WireDeclaration {
+                    name: WireDeclarationName::EndIndent,
+                    value: WireStyleValue::Length { value: 2 },
+                    important: false,
+                },
+                WireDeclaration {
+                    name: WireDeclarationName::TextAlign,
+                    value: WireStyleValue::Keyword {
+                        value: "center".to_owned(),
+                    },
+                    important: false,
+                },
+                WireDeclaration {
+                    name: WireDeclarationName::Width,
+                    value: WireStyleValue::Keyword {
+                        value: "auto".to_owned(),
+                    },
+                    important: false,
+                },
+                WireDeclaration {
+                    name: WireDeclarationName::KeepWithNext,
+                    value: WireStyleValue::Boolean { value: true },
+                    important: false,
+                },
+                WireDeclaration {
+                    name: WireDeclarationName::KeepCaption,
+                    value: WireStyleValue::Boolean { value: false },
+                    important: false,
+                },
+            ],
+        }];
+        let current_bytes = DocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        let bytes = StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&package)
+            .unwrap();
+        assert_eq!(bytes, current_bytes);
+        let canonical = String::from_utf8(bytes.clone()).unwrap();
+        assert!(canonical.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
+        let limits = validated_limits();
+        let policy = DocumentPackageDecodePolicy::new(&limits);
+        let decoded = StagingStyleDocumentPackageDecoder::new()
+            .decode(&bytes, &policy)
+            .unwrap();
+        assert_eq!(decoded.wire().style_sheet.rules[0].declarations.len(), 8);
+        let decoded = StrictDocumentPackageDecoder::new()
+            .decode(&bytes, &policy)
+            .unwrap();
+        assert_eq!(decoded.wire().style_sheet.rules[0].declarations.len(), 8);
+
+        for invalid in [
+            canonical.replacen("9007199254740991", "9007199254740992", 1),
+            canonical.replacen("\"space_before\"", "\"future_property\"", 1),
+            canonical.replacen(
+                "\"kind\":\"length\",\"value\":0",
+                "\"kind\":\"integer\",\"value\":0",
+                1,
+            ),
+        ] {
+            let error = StrictDocumentPackageDecoder::new()
+                .decode(invalid.as_bytes(), &policy)
+                .unwrap_err();
+            let pointer = typed_error(&error).location().json_pointer().as_str();
+            assert!(
+                pointer.starts_with("/style_sheet/rules/0/declarations/"),
+                "unexpected pointer {pointer}"
+            );
+        }
     }
 }
 

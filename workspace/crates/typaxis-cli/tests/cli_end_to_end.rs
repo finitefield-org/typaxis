@@ -507,7 +507,7 @@ fn public_machine_commands_execute_fixtures_and_capabilities_ignore_ambient_inpu
     assert!(manifest_text.contains("\"input_profile\":\"typaxis.machine-pdf/paragraph-1\""));
     assert_eq!(
         fs::read_to_string(&diagnostics).unwrap(),
-        "{\"contract\":\"typaxis.contract/1.1\",\"diagnostics\":[]}"
+        "{\"contract\":\"typaxis.contract/1.2\",\"diagnostics\":[]}"
     );
 
     let check_diagnostics = output.path().join("check-diagnostics.json");
@@ -589,6 +589,81 @@ fn public_machine_commands_execute_fixtures_and_capabilities_ignore_ambient_inpu
         capabilities.stdout,
         fs::read(repository.join("samples/machine-package/capabilities.json")).unwrap()
     );
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn basic_document_profile_executes_the_combined_public_fixture() {
+    let fixture =
+        repository_root().join("samples/machine-package/profiles/basic-document-1/combined");
+    let output = TestDirectory::new();
+    let pdf = output.path().join("output.pdf");
+    let trace = output.path().join("trace.json");
+    let manifest = output.path().join("manifest.json");
+    let diagnostics = output.path().join("diagnostics.json");
+
+    let built = run(
+        &fixture,
+        &[
+            OsStr::new("build-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("-o"),
+            pdf.as_os_str(),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/basic-document-1"),
+            OsStr::new("--resource-root"),
+            OsStr::new("job"),
+            OsStr::new("--trace"),
+            trace.as_os_str(),
+            OsStr::new("--trace-text"),
+            OsStr::new("--emit-build-manifest"),
+            manifest.as_os_str(),
+            OsStr::new("--emit-diagnostics"),
+            diagnostics.as_os_str(),
+            OsStr::new("--no-compress"),
+        ],
+    );
+    assert!(
+        built.status.success(),
+        "build-package stderr: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    assert!(built.stdout.is_empty());
+    assert!(built.stderr.is_empty());
+
+    let pdf_bytes = fs::read(&pdf).unwrap();
+    assert!(pdf_bytes.starts_with(b"%PDF-1.7\n"));
+    assert_eq!(pdf_page_count(&pdf_bytes), 2);
+    let trace = fs::read_to_string(trace).unwrap();
+    assert!(trace.contains("\"profile_receipt_sha256\":\""));
+    assert!(trace.contains("\"flow_registry_sha256\":\""));
+    let manifest = fs::read_to_string(manifest).unwrap();
+    assert!(manifest.contains("\"status\":\"built\""));
+    assert!(manifest.contains("\"input_profile\":\"typaxis.machine-pdf/basic-document-1\""));
+    assert!(manifest.contains("\"profile_receipt_sha256\":\""));
+    assert!(manifest.contains("\"flow_registry_sha256\":\""));
+    assert_eq!(
+        fs::read_to_string(diagnostics).unwrap(),
+        "{\"contract\":\"typaxis.contract/1.2\",\"diagnostics\":[]}"
+    );
+
+    let rejected_by_paragraph = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/paragraph-1",
+            "--resource-root",
+            "job",
+        ]),
+    );
+    assert_eq!(rejected_by_paragraph.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&rejected_by_paragraph.stderr).contains("L5100:"));
 }
 
 #[test]
@@ -680,7 +755,7 @@ fn empty_build_publishes_pdf_trace_and_manifest_atomically() {
     let first_manifest = fs::read(&manifest).unwrap();
     assert!(first_pdf.starts_with(b"%PDF-1.7\n"));
     assert!(first_pdf.ends_with(b"%%EOF\n"));
-    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.1\""));
+    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.2\""));
     assert!(first_manifest
         .windows(16)
         .any(|window| window == b"\"status\":\"built\""));
@@ -908,7 +983,7 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(ast.status.success());
     let ast = String::from_utf8(ast.stdout).unwrap();
-    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.1\""));
+    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
     assert!(ast.contains("\"anchor_id\":\"target\""));
     assert!(!ast.ends_with('\n'));
 
@@ -932,7 +1007,7 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(layout.status.success());
     let layout = String::from_utf8(layout.stdout).unwrap();
-    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.1\""));
+    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
     assert!(layout.contains("\"fragments\":[{"));
     assert!(!layout.ends_with('\n'));
 
@@ -1122,4 +1197,199 @@ fn paragraph_lines_continue_on_a_new_physical_page() {
     );
     let manifest = fs::read_to_string(directory.path().join("pages.json")).unwrap();
     assert_eq!(manifest_output_facts(&manifest).page_count, 2);
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_block_styles_staging_slice_uses_the_normal_public_pipeline() {
+    let fixture = repository_root()
+        .join("samples/machine-package/staging/basic-document-1/machine-block-styles");
+    let output = TestDirectory::new();
+    let diagnostics = output.path().join("diagnostics.json");
+    let rejected_contract = run(
+        &fixture,
+        &[
+            OsStr::new("check-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/paragraph-1"),
+            OsStr::new("--emit-diagnostics"),
+            diagnostics.as_os_str(),
+        ],
+    );
+    assert_eq!(rejected_contract.status.code(), Some(1));
+    assert!(!output.path().join("output.pdf").exists());
+    let diagnostics = fs::read_to_string(diagnostics).unwrap();
+    assert!(diagnostics.contains("\"code\":\"L5100\""));
+
+    let rejected_profile = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/basic-document-1",
+        ]),
+    );
+    assert_ne!(rejected_profile.status.code(), Some(2));
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_list_staging_slice_uses_the_normal_public_pipeline() {
+    let fixture =
+        repository_root().join("samples/machine-package/staging/basic-document-1/machine-list");
+    let output = TestDirectory::new();
+    let diagnostics = output.path().join("diagnostics.json");
+    let rejected_contract = run(
+        &fixture,
+        &[
+            OsStr::new("check-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/paragraph-1"),
+            OsStr::new("--emit-diagnostics"),
+            diagnostics.as_os_str(),
+        ],
+    );
+    assert_eq!(rejected_contract.status.code(), Some(1));
+    assert!(!output.path().join("output.pdf").exists());
+    let diagnostics = fs::read_to_string(diagnostics).unwrap();
+    assert!(diagnostics.contains("\"code\":\"L5100\""));
+
+    let rejected_profile = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/basic-document-1",
+        ]),
+    );
+    assert_ne!(rejected_profile.status.code(), Some(2));
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_page_break_staging_slice_uses_the_normal_public_pipeline() {
+    let fixture = repository_root()
+        .join("samples/machine-package/staging/basic-document-1/machine-page-break");
+    let output = TestDirectory::new();
+    let diagnostics = output.path().join("diagnostics.json");
+    let rejected_contract = run(
+        &fixture,
+        &[
+            OsStr::new("check-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/paragraph-1"),
+            OsStr::new("--emit-diagnostics"),
+            diagnostics.as_os_str(),
+        ],
+    );
+    assert_eq!(rejected_contract.status.code(), Some(1));
+    assert!(!output.path().join("output.pdf").exists());
+    let diagnostics = fs::read_to_string(diagnostics).unwrap();
+    assert!(diagnostics.contains("\"code\":\"L5100\""));
+
+    let rejected_profile = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/basic-document-1",
+        ]),
+    );
+    assert_ne!(rejected_profile.status.code(), Some(2));
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_figure_staging_slice_uses_the_normal_public_pipeline() {
+    let fixture =
+        repository_root().join("samples/machine-package/staging/basic-document-1/machine-figure");
+    let output = TestDirectory::new();
+    let diagnostics = output.path().join("diagnostics.json");
+    let rejected_contract = run(
+        &fixture,
+        &[
+            OsStr::new("check-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/paragraph-1"),
+            OsStr::new("--emit-diagnostics"),
+            diagnostics.as_os_str(),
+        ],
+    );
+    assert_eq!(rejected_contract.status.code(), Some(1));
+    assert!(!output.path().join("output.pdf").exists());
+    let diagnostics = fs::read_to_string(diagnostics).unwrap();
+    assert!(diagnostics.contains("\"code\":\"L5100\""));
+
+    let rejected_profile = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/basic-document-1",
+        ]),
+    );
+    assert_ne!(rejected_profile.status.code(), Some(2));
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_link_staging_slice_uses_the_normal_public_pipeline() {
+    let fixture =
+        repository_root().join("samples/machine-package/staging/basic-document-1/machine-link");
+    let output = TestDirectory::new();
+    let diagnostics = output.path().join("diagnostics.json");
+    let rejected_contract = run(
+        &fixture,
+        &[
+            OsStr::new("check-package"),
+            OsStr::new("job/document-package.json"),
+            OsStr::new("--package-root"),
+            OsStr::new("job"),
+            OsStr::new("--profile"),
+            OsStr::new("typaxis.machine-pdf/paragraph-1"),
+            OsStr::new("--emit-diagnostics"),
+            diagnostics.as_os_str(),
+        ],
+    );
+    assert_eq!(rejected_contract.status.code(), Some(1));
+    assert!(!output.path().join("output.pdf").exists());
+    let diagnostics = fs::read_to_string(diagnostics).unwrap();
+    assert!(diagnostics.contains("\"code\":\"L5100\""));
+
+    let rejected_profile = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/basic-document-1",
+        ]),
+    );
+    assert_ne!(rejected_profile.status.code(), Some(2));
 }

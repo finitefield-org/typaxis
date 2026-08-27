@@ -69,8 +69,11 @@ pub const P1103: DiagnosticCode = DiagnosticCode(*b"P1103");
 pub const P1110: DiagnosticCode = DiagnosticCode(*b"P1110");
 pub const P1111: DiagnosticCode = DiagnosticCode(*b"P1111");
 pub const P1112: DiagnosticCode = DiagnosticCode(*b"P1112");
+pub const T2100: DiagnosticCode = DiagnosticCode(*b"T2100");
+pub const T2101: DiagnosticCode = DiagnosticCode(*b"T2101");
 pub const L5100: DiagnosticCode = DiagnosticCode(*b"L5100");
 pub const L5101: DiagnosticCode = DiagnosticCode(*b"L5101");
+pub const L5110: DiagnosticCode = DiagnosticCode(*b"L5110");
 pub const R7100: DiagnosticCode = DiagnosticCode(*b"R7100");
 pub const I9100: DiagnosticCode = DiagnosticCode(*b"I9100");
 pub const I9101: DiagnosticCode = DiagnosticCode(*b"I9101");
@@ -1279,7 +1282,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_encoder_uses_the_1_1_tagged_location_union() {
+    fn diagnostics_encoder_uses_the_current_tagged_location_union() {
         let package_location = DiagnosticLocation::package_json(
             PortablePath::new("document-package.json").unwrap(),
             JsonPointer::from_segments(["document", "blocks", "3"]),
@@ -1306,7 +1309,7 @@ mod tests {
         assert_eq!(
             encode_diagnostics_canonical(&[package, global]),
             concat!(
-                "{\"contract\":\"typaxis.contract/1.1\",\"diagnostics\":[",
+                "{\"contract\":\"typaxis.contract/1.2\",\"diagnostics\":[",
                 "{\"code\":\"P1102\",\"location\":{\"byte_offset\":1942,",
                 "\"json_pointer\":\"/document/blocks/3\",\"kind\":\"package_json\",",
                 "\"uri\":\"document-package.json\"},\"message\":\"package member is invalid\",",

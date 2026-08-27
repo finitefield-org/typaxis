@@ -8,16 +8,17 @@ pub use unicode_linebreak::{
 };
 
 use typaxis_core::{
-    sha256, BidiLevel, GeneratedBufferKey, GenerationKind, GlyphRunId, Length, NodeId,
-    NonNegativeLength, PositiveLength, ReferenceFingerprint, TextOffset, TextSpan, Utf8ByteOffset,
-    ValidatedResourceLimits,
+    push_jcs_string, sha256, BidiLevel, GeneratedBufferKey, GenerationKind, GlyphRunId, Length,
+    NodeId, NonNegativeLength, PositiveLength, ReferenceFingerprint, TextOffset, TextSpan,
+    Utf8ByteOffset, ValidatedResourceLimits,
 };
 use typaxis_document::{Block, DocumentNodeKind, Inline, ReferenceFormat};
 use typaxis_layout_contract::LayoutEpoch;
 use typaxis_shaping::{ItemizedShapeRequests, ShapeSourceSpan, ValidatedGlyphRun};
 use typaxis_syntax::{
     PackageGeneratedTextBinding, PackageShapeTextReceipt, PackageShapeTextSource,
-    ValidatedParsedPackage,
+    ValidatedParsedPackage, ValidatedStagingLinkTarget, ValidatedStagingLinkUsageReceipt,
+    ValidatedStagingStylePackage,
 };
 use typaxis_text::GeneratedProvenance;
 
@@ -1968,6 +1969,373 @@ impl ValidatedParagraphItemRegistry {
     }
 }
 
+pub const STAGING_MACHINE_LINK_CLUSTER_ALGORITHM: &str = "typaxis.machine-link-cluster-ranges/1";
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct StagingMachineLinkClusterKey {
+    paragraph_node: NodeId,
+    logical_ordinal: u32,
+    item_index: u32,
+    paragraph_run_index: u32,
+    glyph_start: u32,
+    glyph_end: u32,
+    site_owner: NodeId,
+}
+
+impl StagingMachineLinkClusterKey {
+    pub const fn paragraph_node(self) -> NodeId {
+        self.paragraph_node
+    }
+    pub const fn logical_ordinal(self) -> u32 {
+        self.logical_ordinal
+    }
+    pub const fn item_index(self) -> u32 {
+        self.item_index
+    }
+    pub const fn paragraph_run_index(self) -> u32 {
+        self.paragraph_run_index
+    }
+    pub const fn glyph_start(self) -> u32 {
+        self.glyph_start
+    }
+    pub const fn glyph_end(self) -> u32 {
+        self.glyph_end
+    }
+    pub const fn site_owner(self) -> NodeId {
+        self.site_owner
+    }
+
+    pub fn matches_shaped(self, paragraph_node: NodeId, shaped: ShapedSlice) -> bool {
+        self.paragraph_node == paragraph_node
+            && self.paragraph_run_index == shaped.paragraph_run_index().get()
+            && self.glyph_start == shaped.glyph_start()
+            && self.glyph_end == shaped.glyph_end()
+            && self.site_owner == shaped.site_owner()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingMachineLinkClusterRange {
+    link_node: NodeId,
+    paragraph_node: NodeId,
+    target: ValidatedStagingLinkTarget,
+    logical_start: u32,
+    logical_end: u32,
+    clusters: Vec<StagingMachineLinkClusterKey>,
+}
+
+impl ValidatedStagingMachineLinkClusterRange {
+    pub const fn link_node(&self) -> NodeId {
+        self.link_node
+    }
+    pub const fn paragraph_node(&self) -> NodeId {
+        self.paragraph_node
+    }
+    pub const fn target(&self) -> &ValidatedStagingLinkTarget {
+        &self.target
+    }
+    pub const fn logical_start(&self) -> u32 {
+        self.logical_start
+    }
+    pub const fn logical_end(&self) -> u32 {
+        self.logical_end
+    }
+    pub fn clusters(&self) -> &[StagingMachineLinkClusterKey] {
+        &self.clusters
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingMachineLinkClusterError {
+    EmptyLinkSet,
+    PackageMismatch,
+    EpochMismatch,
+    MissingParagraph,
+    MissingPaintedCluster(NodeId),
+    ZeroWidthPaintedCluster(NodeId),
+    NonContiguousClusterRange(NodeId),
+    OverlappingCluster(NodeId),
+    ArithmeticOverflow,
+    AllocationFailure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingMachineLinkClusters {
+    package_sha256: [u8; 32],
+    usage_sha256: [u8; 32],
+    epoch: LayoutEpoch,
+    ranges: Vec<ValidatedStagingMachineLinkClusterRange>,
+    canonical_jcs: String,
+}
+
+impl ValidatedStagingMachineLinkClusters {
+    /// Binds each syntax-owned link child set to the exact logical shaping
+    /// clusters retained by the selected paragraph-item registry.
+    pub fn from_registry(
+        package: &ValidatedStagingStylePackage,
+        usage: &ValidatedStagingLinkUsageReceipt,
+        registry: &ValidatedParagraphItemRegistry,
+    ) -> Result<Self, StagingMachineLinkClusterError> {
+        if !usage.verifies(package) {
+            return Err(StagingMachineLinkClusterError::PackageMismatch);
+        }
+        if registry.epoch().document() != package.package().epoch_identity().document()
+            || registry.epoch().style() != package.package().epoch_identity().style()
+        {
+            return Err(StagingMachineLinkClusterError::EpochMismatch);
+        }
+        if usage.links().is_empty() {
+            return Err(StagingMachineLinkClusterError::EmptyLinkSet);
+        }
+
+        let mut used_clusters = std::collections::BTreeSet::new();
+        let mut ranges = Vec::new();
+        ranges
+            .try_reserve_exact(usage.links().len())
+            .map_err(|_| StagingMachineLinkClusterError::AllocationFailure)?;
+        for link in usage.links() {
+            let items = registry
+                .items(link.paragraph_owner())
+                .ok_or(StagingMachineLinkClusterError::MissingParagraph)?;
+            let expected_sites: std::collections::BTreeSet<_> =
+                link.painted_site_owners().iter().copied().collect();
+            let mut observed_sites = std::collections::BTreeSet::new();
+            let mut clusters = Vec::new();
+            let mut logical_ordinal = 0u32;
+            for (item_index, item) in items.iter().enumerate() {
+                let shaped = match item {
+                    ParagraphItem::Box { shaped, .. } | ParagraphItem::Glue { shaped, .. } => {
+                        Some(*shaped)
+                    }
+                    ParagraphItem::Penalty { .. }
+                    | ParagraphItem::Discretionary { .. }
+                    | ParagraphItem::InlineObject { .. } => None,
+                };
+                let Some(shaped) = shaped else {
+                    continue;
+                };
+                let current_ordinal = logical_ordinal;
+                logical_ordinal = logical_ordinal
+                    .checked_add(1)
+                    .ok_or(StagingMachineLinkClusterError::ArithmeticOverflow)?;
+                if !expected_sites.contains(&shaped.site_owner()) {
+                    continue;
+                }
+                if shaped.derived_width().get() == Length::ZERO {
+                    return Err(StagingMachineLinkClusterError::ZeroWidthPaintedCluster(
+                        link.owner(),
+                    ));
+                }
+                observed_sites.insert(shaped.site_owner());
+                let key = StagingMachineLinkClusterKey {
+                    paragraph_node: link.paragraph_owner(),
+                    logical_ordinal: current_ordinal,
+                    item_index: u32::try_from(item_index)
+                        .map_err(|_| StagingMachineLinkClusterError::ArithmeticOverflow)?,
+                    paragraph_run_index: shaped.paragraph_run_index().get(),
+                    glyph_start: shaped.glyph_start(),
+                    glyph_end: shaped.glyph_end(),
+                    site_owner: shaped.site_owner(),
+                };
+                if !used_clusters.insert(key) {
+                    return Err(StagingMachineLinkClusterError::OverlappingCluster(
+                        link.owner(),
+                    ));
+                }
+                clusters
+                    .try_reserve(1)
+                    .map_err(|_| StagingMachineLinkClusterError::AllocationFailure)?;
+                clusters.push(key);
+            }
+            if observed_sites != expected_sites {
+                return Err(StagingMachineLinkClusterError::MissingPaintedCluster(
+                    link.owner(),
+                ));
+            }
+            let (logical_start, logical_end) =
+                staging_machine_link_logical_bounds(link.owner(), &clusters)?;
+            ranges.push(ValidatedStagingMachineLinkClusterRange {
+                link_node: link.owner(),
+                paragraph_node: link.paragraph_owner(),
+                target: link.target().clone(),
+                logical_start,
+                logical_end,
+                clusters,
+            });
+        }
+        ranges.sort_by_key(ValidatedStagingMachineLinkClusterRange::link_node);
+        let mut value = Self {
+            package_sha256: package.package_fingerprint().into_bytes(),
+            usage_sha256: usage.usage_sha256(),
+            epoch: registry.epoch(),
+            ranges,
+            canonical_jcs: String::new(),
+        };
+        value.canonical_jcs = encode_staging_machine_link_clusters(&value);
+        Ok(value)
+    }
+
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn usage_sha256(&self) -> [u8; 32] {
+        self.usage_sha256
+    }
+    pub const fn epoch(&self) -> LayoutEpoch {
+        self.epoch
+    }
+    pub fn ranges(&self) -> &[ValidatedStagingMachineLinkClusterRange] {
+        &self.ranges
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub fn verifies(
+        &self,
+        package: &ValidatedStagingStylePackage,
+        registry: &ValidatedParagraphItemRegistry,
+    ) -> bool {
+        self.package_sha256 == package.package_fingerprint().into_bytes()
+            && self.epoch == registry.epoch()
+            && self.epoch.document() == package.package().epoch_identity().document()
+            && self.epoch.style() == package.package().epoch_identity().style()
+    }
+
+    pub fn range_for_shaped(
+        &self,
+        paragraph_node: NodeId,
+        shaped: ShapedSlice,
+    ) -> Option<(
+        &ValidatedStagingMachineLinkClusterRange,
+        StagingMachineLinkClusterKey,
+    )> {
+        self.ranges.iter().find_map(|range| {
+            range
+                .clusters
+                .iter()
+                .copied()
+                .find(|key| key.matches_shaped(paragraph_node, shaped))
+                .map(|key| (range, key))
+        })
+    }
+}
+
+fn staging_machine_link_logical_bounds(
+    link_node: NodeId,
+    clusters: &[StagingMachineLinkClusterKey],
+) -> Result<(u32, u32), StagingMachineLinkClusterError> {
+    let Some(first) = clusters.first() else {
+        return Err(StagingMachineLinkClusterError::MissingPaintedCluster(
+            link_node,
+        ));
+    };
+    if clusters
+        .windows(2)
+        .any(|pair| match pair[0].logical_ordinal.checked_add(1) {
+            Some(next) => next != pair[1].logical_ordinal,
+            None => true,
+        })
+    {
+        return Err(StagingMachineLinkClusterError::NonContiguousClusterRange(
+            link_node,
+        ));
+    }
+    let logical_end = clusters
+        .last()
+        .and_then(|cluster| cluster.logical_ordinal.checked_add(1))
+        .ok_or(StagingMachineLinkClusterError::ArithmeticOverflow)?;
+    Ok((first.logical_ordinal, logical_end))
+}
+
+fn encode_staging_machine_link_clusters(value: &ValidatedStagingMachineLinkClusters) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STAGING_MACHINE_LINK_CLUSTER_ALGORITHM);
+    output.push_str(",\"layout_epoch\":{");
+    output.push_str("\"admitted_resources_sha256\":");
+    push_linebreak_json_hex(&mut output, value.epoch.admitted_resources().bytes());
+    output.push_str(",\"document_sha256\":");
+    push_linebreak_json_hex(&mut output, value.epoch.document().bytes());
+    output.push_str(",\"resolved_input_sha256\":");
+    push_linebreak_json_hex(&mut output, value.epoch.references().bytes());
+    output.push_str(",\"style_page_master_sha256\":");
+    push_linebreak_json_hex(&mut output, value.epoch.style().bytes());
+    output.push_str("},\"links\":[");
+    for (index, range) in value.ranges.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"clusters\":[");
+        for (cluster_index, cluster) in range.clusters.iter().enumerate() {
+            if cluster_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"glyph_end\":");
+            output.push_str(&cluster.glyph_end.to_string());
+            output.push_str(",\"glyph_start\":");
+            output.push_str(&cluster.glyph_start.to_string());
+            output.push_str(",\"item_index\":");
+            output.push_str(&cluster.item_index.to_string());
+            output.push_str(",\"logical_ordinal\":");
+            output.push_str(&cluster.logical_ordinal.to_string());
+            output.push_str(",\"paragraph_run_index\":");
+            output.push_str(&cluster.paragraph_run_index.to_string());
+            output.push_str(",\"site_owner_node_id\":");
+            output.push_str(&cluster.site_owner.get().to_string());
+            output.push('}');
+        }
+        output.push_str("],\"link_node_id\":");
+        output.push_str(&range.link_node.get().to_string());
+        output.push_str(",\"logical_cluster_count\":");
+        output.push_str(&range.clusters.len().to_string());
+        output.push_str(",\"logical_cluster_end\":");
+        output.push_str(&range.logical_end.to_string());
+        output.push_str(",\"logical_cluster_start\":");
+        output.push_str(&range.logical_start.to_string());
+        output.push_str(",\"paragraph_node_id\":");
+        output.push_str(&range.paragraph_node.get().to_string());
+        output.push_str(",\"target\":");
+        encode_staging_machine_link_target(&mut output, &range.target);
+        output.push('}');
+    }
+    output.push_str("],\"package_sha256\":");
+    push_linebreak_json_hex(&mut output, value.package_sha256);
+    output.push_str(",\"usage_sha256\":");
+    push_linebreak_json_hex(&mut output, value.usage_sha256);
+    output.push('}');
+    output
+}
+
+fn encode_staging_machine_link_target(output: &mut String, target: &ValidatedStagingLinkTarget) {
+    match target {
+        ValidatedStagingLinkTarget::Internal {
+            anchor_id,
+            anchor_owner,
+        } => {
+            output.push_str("{\"anchor_id\":");
+            push_jcs_string(output, anchor_id.as_str());
+            output.push_str(",\"anchor_owner_node_id\":");
+            output.push_str(&anchor_owner.get().to_string());
+            output.push_str(",\"kind\":\"internal\"}");
+        }
+        ValidatedStagingLinkTarget::External(uri) => {
+            output.push_str("{\"kind\":\"external\",\"uri\":");
+            push_jcs_string(output, uri.as_str());
+            output.push('}');
+        }
+    }
+}
+
+fn push_linebreak_json_hex(output: &mut String, bytes: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push('"');
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output.push('"');
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BreakError {
     NoFeasibleBreak,
@@ -3370,6 +3738,62 @@ mod tests {
             site_owner: NodeId::new(2),
             style_owner: NodeId::new(1),
         }
+    }
+
+    #[test]
+    fn link_clusters_match_the_exact_selected_shaping_slice() {
+        let (_, _, epoch) = package_epoch("text:a");
+        let shaped = shaped_slice(10, 0, 1, epoch);
+        let key = StagingMachineLinkClusterKey {
+            paragraph_node: NodeId::new(1),
+            logical_ordinal: 0,
+            item_index: 0,
+            paragraph_run_index: shaped.paragraph_run_index().get(),
+            glyph_start: shaped.glyph_start(),
+            glyph_end: shaped.glyph_end(),
+            site_owner: shaped.site_owner(),
+        };
+        assert!(key.matches_shaped(NodeId::new(1), shaped));
+        assert!(!key.matches_shaped(NodeId::new(9), shaped));
+
+        let mut wrong_run = key;
+        wrong_run.paragraph_run_index += 1;
+        assert!(!wrong_run.matches_shaped(NodeId::new(1), shaped));
+        let mut wrong_site = key;
+        wrong_site.site_owner = NodeId::new(9);
+        assert!(!wrong_site.matches_shaped(NodeId::new(1), shaped));
+    }
+
+    #[test]
+    fn link_clusters_require_nonempty_contiguous_logical_ranges() {
+        let key = |logical_ordinal| StagingMachineLinkClusterKey {
+            paragraph_node: NodeId::new(1),
+            logical_ordinal,
+            item_index: logical_ordinal,
+            paragraph_run_index: logical_ordinal,
+            glyph_start: 0,
+            glyph_end: 1,
+            site_owner: NodeId::new(2),
+        };
+        let owner = NodeId::new(3);
+        assert_eq!(
+            staging_machine_link_logical_bounds(owner, &[key(4), key(5)]),
+            Ok((4, 6))
+        );
+        assert_eq!(
+            staging_machine_link_logical_bounds(owner, &[]),
+            Err(StagingMachineLinkClusterError::MissingPaintedCluster(owner))
+        );
+        assert_eq!(
+            staging_machine_link_logical_bounds(owner, &[key(4), key(6)]),
+            Err(StagingMachineLinkClusterError::NonContiguousClusterRange(
+                owner
+            ))
+        );
+        assert_eq!(
+            staging_machine_link_logical_bounds(owner, &[key(u32::MAX)]),
+            Err(StagingMachineLinkClusterError::ArithmeticOverflow)
+        );
     }
 
     fn glue(width: i64, start: u32, end: u32, epoch: LayoutEpoch) -> ParagraphItem {
