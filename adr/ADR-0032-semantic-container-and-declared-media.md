@@ -255,11 +255,12 @@ For tagged structure, the typed mapping is reserved now:
 
 One container produces one structure element even when it has multiple page
 fragments. Its child structure nodes remain in canonical logical child order,
-not paint-coordinate or page-object order. MI4-08 owns the complete structure
-tree, marked-content, language, alternative, and validator policy, but it may
-not change these semantic role names or flatten the wrapper. Private MI4-02
-PDF observation may precede tagged-PDF publication only if the typed structure
-binding survives to the later owner; it is not a public untagged fallback.
+not paint-coordinate or page-object order. ADR-0035 fixes the complete
+structure-tree, marked-content, language, alternative, and validator policy;
+MI4-09 may not change these semantic role names or flatten the wrapper.
+Private MI4-02 PDF observation may precede tagged-PDF publication only if the
+typed structure binding survives to the later owner; it is not a public
+untagged fallback.
 
 ## Validation phases, diagnostics, and fallback
 

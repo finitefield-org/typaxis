@@ -262,9 +262,9 @@ decoding that PDF string must recover the same scalar sequence. It cannot use
 the math source, canonical formatter output, glyph names, or a lossy ASCII
 transliteration instead.
 
-MI4-08 must retain this mapping in its structure-policy ADR, and MI4-09 must
-create one `/Formula` structure element for the same math owner with the same
-producer alternative as `/Alt`. The structure policy must consume ADR-0034's
+ADR-0035 retains this mapping, and MI4-09 must create one `/Formula` structure
+element for the same math owner with the same producer alternative as `/Alt`.
+The structure policy consumes ADR-0034's
 computed language and may not redefine inheritance, substitute a new
 alternative, split one atomic math node into unrelated formula owners, or
 treat `ActualText` as a replacement for tagged structure. Inline and display
@@ -359,7 +359,7 @@ the math receipt, while safe SVG remains an independently admitted figure
 resource. A SafeVector attestation carries no embedded text or alternative;
 each Figure use retains its existing use-specific `alt` in the validated Figure
 receipt. That alternative cannot attest the resource bytes or enter the Form
-plan; MI4-08 owns the tagged-Figure policy and MI4-09 its implementation.
+plan; ADR-0035 fixes the tagged-Figure policy and MI4-09 owns its implementation.
 
 ## Safe-SVG declaration and attestation
 
@@ -769,10 +769,10 @@ The manifest records the base MathReceiptKey, source/alternative hashes,
 parser/formatter identities, font/AST/vector fingerprints, selected placement,
 Display hash, PDF observation, and structure owner when available. It does not
 claim the original source equals the speech or reconstruct either from PDF.
-MI4-08 adds structure-tree/MCID policy around this already fixed formula owner,
-and MI4-09 implements it while consuming ADR-0034's computed language without
-changing the math source or speech. MI4-13 requires bidirectional closure and
-external visual/text/accessibility evidence before publication.
+ADR-0035 adds structure-tree/MCID policy around this already fixed formula
+owner, and MI4-09 implements it while consuming ADR-0034's computed language
+without changing the math source or speech. MI4-13 requires bidirectional
+closure and external visual/text/accessibility evidence before publication.
 
 ## Closed rejection and fallback policy
 
@@ -812,8 +812,8 @@ Display/PDF/manifest observations. MI4-05 privately adds the two math nodes,
 `ActualText`. Neither task changes current aliases, public accepted contracts,
 help, capabilities, default profile, old profile domains, or frozen artifacts.
 
-MI4-08 must consume the reserved `/Formula` owner, exact producer alternative,
-and ADR-0034 computed-language receipt when fixing structure policy; MI4-09
+ADR-0035 consumes the reserved `/Formula` owner, exact producer alternative,
+and ADR-0034 computed-language receipt in its fixed structure policy; MI4-09
 must implement that policy rather than revisiting these bindings. MI4-10 may
 add other media types but cannot broaden `svg-safe-1`. MI4-13 may publish only
 the complete contract/profile and remove all private staging entrances in the

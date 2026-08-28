@@ -99,6 +99,15 @@ stable BCP 47 canonicalization/inheritance and deterministic PDF Info, XMP,
 catalog language, and outline mapping. MI4-07 implements that complete private
 slice; no current/frozen contract or public descriptor gains the fields early.
 
+[ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md) closes the
+same target's PDF/UA-1 structure projection, selected-paint/MCID/artifact
+binding, `typaxis.book-xmp/2`, and exact independent-validation evidence. It
+adds no DocumentPackage member or Schema bytes at adoption: existing 1.4
+semantic, alternative, language, outline, grid, footnote, and link facts are
+sufficient. MI4-09 implements the private manifest/expectation schemas and
+tagged slice; current aliases, frozen registries, and public descriptors stay
+unchanged.
+
 These are target facts, not current support. MI4-02 through MI4-12 may extend
 only an independent crate-private 1.4 staging registry. Until MI4-13, public
 contract 1.4 input remains `P1103`, the target profile is unknown to public

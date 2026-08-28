@@ -2193,7 +2193,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `ADR-0034`をAccepted targetとして追加し、non-current contract 1.4へrequired seven-field `metadata`、required `document.language`、semantic-node language override、explicit `outline.entries`、nullable semantic-container `anchor_id`を固定した。metadata stringはexact UTF-8、keywordsはstrict UTF-8-byte order、created/modifiedはexact UTC-secondとし、trim/NFC/case conversion、clock/file time/host/path/locale/first-heading inferenceを禁止する。public current 1.3、frozen 1.0〜1.3、七profile/defaultは変更しない。
   - languageはlive IANA registryに依存しないRFC 5646 grammar/fixed grandfathered set、duplicate variant/singleton rejection、255-byte cap、stable casing/extension orderで`typaxis.bcp47-language/1`へcanonicalizeする。inheritanceはlogical semantic ownerだけを辿る`ComputedLanguageRegistryReceipt`とし、shape/font/bidi/layout/outline/paint/object orderから独立させる。PDF catalog `/Lang`、owner-bound marked-content `/Lang`、将来のstructure `/Lang`は同じcomputed tagを消費する。
   - outlineはdense source-owner preorder、level 1〜6、stack-derived exact parent、heading/container kind/NodeId/SourceSpan/AnchorId、unique destinationを`ValidatedOutlineRegistryReceipt`へbindする。selected stateは既存named-destination registryのsame owner/page/frame/view/pointをextendし、PDF itemはそのname-tree keyだけを`/Dest`に使う。Info、fixed-order/no-packet XMP、catalog language、outline graph、nullable future `/SE`、manifest、independent validator observationをbidirectional receipt chainへ閉じ、caller page/coordinate/action/direct-array fallbackを禁止する。
-  - metadata/keyword/outline/languageは新しいsynonym limitを追加せず既存inclusive AST/depth/text/fragment/PDF/output/spool limitsへone-time chargeし、exact JSON Pointerの`P1102`、profile/selected `L5100`、limit `P1120` / `P1121` / `T2100` / `T2101` / `L5110` / `G6100` / `D8101`、tamper `I9190`を固定した。MI4-07がprivate 1.4 Schema/Rust/PDF/validatorを一括実装し、MI4-08はreceipt-bound structure languageとoutline `/SE` policyを採択、MI4-09が実装し、MI4-13だけが公開する。
+  - metadata/keyword/outline/languageは新しいsynonym limitを追加せず既存inclusive AST/depth/text/fragment/PDF/output/spool limitsへone-time chargeし、exact JSON Pointerの`P1102`、profile/selected `L5100`、limit `P1120` / `P1121` / `T2100` / `T2101` / `L5110` / `G6100` / `D8101`、tamper `I9190`を固定した。MI4-07がprivate 1.4 Schema/Rust/PDF/validatorを一括実装し、ADR-0035がreceipt-bound structure languageとoutline `/SE` policyを採択、MI4-09が実装し、MI4-13だけが公開する。
   - 指定vocabulary gate、changed Markdownのlocal link/table/fence/JSON、ADR-0001〜0034、I-001〜080、diff/whitespaceを検査し、`python3 schemas/validate.py`（private 1.4は23 Schema、208 exact-rule invalid fixtures）、workspace all-target/all-feature `cargo check` / `cargo test`、strict clippy、formatをlocal exit 0で確認した。Schema JSON、public capability fixture、`.github/workflows/`は変更していない。
 - Non-goals:
   - arbitrary XMP extension vocabulary
@@ -2252,7 +2252,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-08 Tagged PDF/structure tree ADRとvalidation policyを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-03, MI4-06
 - Design inputs: docs/25 §7 accessibility、§13.4
 - Primary files:
@@ -2276,6 +2276,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - validator warningを無条件success扱いしない。
 - Verification:
   - `rg -n "structure|marked content|MCID|reading order|ActualText|artifact|validator|limit" adr contracts/machine-pdf-capabilities.md`
+- Implementation notes (2026-08-29, Linux):
+  - `ADR-0035`をAccepted targetとして追加し、PDF 1.7上のclosed `typaxis.pdfua1-profile/1`、全source semantic variantとgenerated wrapperのrole mapping、dense `StructureNodeId`、logical `/K` order、Table header、Note/reference、Link OBJR、outline `/SE`、Figure/Formula alternative、computed languageを固定した。tagはsealed syntax receiptを消費するlayout-contract-owned registryからのみ供給し、Display/PDFの座標・文字列・object orderによる推測を禁止する。
+  - selected fragment/occurrenceを一つのstructure ownerまたはclosed artifactへbindし、Display paintを双方向closureした後だけfinal page paint orderでdense page-local MCIDを発行するreceipt chainを固定した。StructTreeRoot、RoleMap、MCR/OBJR、ParentTree、IDTree、page/annotation parent key、`typaxis.book-xmp/2`を同じPDF hashへ閉じ、header/footer/repeated table head/page numberをPagination artifact、engine decorationをLayout artifactとする。
+  - production accessibility preflight、missing/extra/wrong-owner/order/MCID/alternative等の`I9190`、既存inclusive AST/depth/text/fragment/PDF/output/spool limitへのone-time chargeとMCID表現上限を固定した。untagged、role/artifact substitution、validator warning fallbackはなく、MI4-09だけがprivate implementationを担い、MI4-13までcurrent 1.3、frozen registry、七public profile/default/helpを変更しない。
+  - release validationはwriter-independent in-tree validator、exact veraPDF Greenfield 1.30.2のexplicit `ua1` flavour/empty warning allowlist、Matterhorn Protocol 1.1の136 failure-condition ledgerを同一artifactへ要求する。machine-only passは完全なPDF/UA/accessibility/legal conformance claimに昇格できない。
+  - 指定vocabulary gate、changed Markdownのlocal link/table/fence/JSON検査、ADR/invariant連番、Schema validation、PDF structure/全Python unit test、dependency firewall、workspace all-target/all-feature locked check/test、strict clippy、format、diff/whitespaceをlocal exit 0で確認した。レビューで検出したretired M1-only helperを参照するlegacy unit testは、現行のexact public profile closureとunadopted profile拒否を検査するよう修正した。`.github/workflows/`は変更していない。
 - Non-goals:
   - 採択validatorで検証不能なconformance claim
 

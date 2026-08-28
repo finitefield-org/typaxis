@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), and [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
+This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md), and [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
 
 ## Status axes
 
@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, and ADR-0034 metadata/language/outline target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, and metadata/language/outline navigation slices through MI4-07 | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, ADR-0034 metadata/language/outline, and ADR-0035 tagged PDF/PDF/UA-1 validation target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, and metadata/language/outline navigation slices through MI4-07; tagged structure remains MI4-09 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -460,9 +460,9 @@ owner across all fragments.
 The selector type is `semantic_container`. Kind is retained in a typed
 computed style, selected state, and structure binding, but does not generate a
 label, outline entry, implicit decoration, or raw kind-specific selector.
-Contained headings keep their ordinary outline identity. Tagged structure uses
-`/Result`, `/Proof`, or `/Exercise`, each role-mapped to `/Div`; MI4-08 owns the
-full marked-content policy without permission to flatten the wrapper.
+Contained headings keep their ordinary outline identity. ADR-0035 fixes tagged
+structure as `/Result`, `/Proof`, or `/Exercise`, each role-mapped to `/Div`,
+with no permission for MI4-09 to flatten the wrapper.
 
 Structurally empty blocks, unknown kinds, inline occurrences, and invalid
 source/owner shapes are `P1102`. Semantically empty or unsupported/nested
@@ -596,8 +596,8 @@ parser and `typaxis.safe-vector-ir/1` issuer remain in
 `typaxis-resource-admission`; resource finalization alone creates a frozen Form
 plan, and PDF alone assigns/serializes the Form XObject. No external math,
 XML, SVG, CSS, browser, speech, or network dependency/tool is part of the `/1`
-identities. MI4-04 implements the SafeVector branch privately; MI4-05 owns the
-remaining math branch. Public capabilities, current Schema aliases, old
+identities. MI4-04 implements the SafeVector branch privately and MI4-05
+implements the math branch. Public capabilities, current Schema aliases, old
 profiles, and default remain unchanged until MI4-13.
 
 ### Adopted M4 document metadata, language, and outline extension
@@ -649,7 +649,7 @@ never an action or copied destination array. Canonical preorder alone assigns
 root/item roles and sibling/child links; the complete tree is initially open.
 An empty outline omits catalog `/Outlines` and never changes `/PageMode`.
 
-The target PDF emits one Info dictionary and one fixed
+The MI4-07 navigation slice emits one Info dictionary and one fixed
 `typaxis.book-xmp/1` Metadata stream. Title, author, subject, keywords, and
 dates agree across their adopted Info/XMP mappings; identifier is XMP-only;
 the exact engine name/version is the sole engine-authored `/Producer` fact.
@@ -657,9 +657,10 @@ Catalog `/Lang` is the canonical document language and a differing painted
 leaf receives one owner-bound `/Span` `/Lang` marked-content property. XMP has
 fixed namespaces, property order, XML escaping, and UTF-8 serialization with
 no packet, timestamp, padding, generic extension, or serializer-dependent
-formatting. MI4-08 fixes the receipt-matching structure `/Lang` and outline
-`/SE` policy; MI4-09 may implement it but cannot revise source, hierarchy,
-label, destination, or language.
+formatting. ADR-0035 preserves those bytes and fixes `typaxis.book-xmp/2` for
+the PDF/UA identifier, receipt-matching structure `/Lang`, and outline `/SE`;
+MI4-09 may implement them but cannot revise source, hierarchy, label,
+destination, or language.
 
 No overlapping metadata/navigation config is added. Objects/items reuse
 inclusive `max_ast_nodes`/`max_ast_nesting_depth`, all strings and canonical
@@ -680,6 +681,99 @@ directions over its source and destination; no downstream JSON/PDF consumer can
 issue an upstream receipt. MI4-07 owns this private implementation. Public
 capabilities, current Schema aliases, old profiles, default, and CLI remain
 unchanged until MI4-13.
+
+### Adopted M4 tagged-PDF and accessibility-validation target
+
+[ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md) makes
+`typaxis.pdfua1-profile/1` a required component of the private production-book
+target. It is an unencrypted PDF 1.7/PDF/UA-1 target, not PDF/UA-2, PDF/A,
+WCAG, Section 508, or a general legal-accessibility claim. Accessibility
+preflight additionally requires a non-null title, a first `/H1` with no
+skipped heading-level increases, non-whitespace Paragraph/Heading/TH content,
+semantic Figures with non-whitespace producer alternatives, Tables with
+complete leading column-header rows, Links with name-contributing source
+content, Link and outline text in the catalog language, paragraph-owned
+non-Link footnote references, and complete real-content or artifact rules for
+every potentially painting variant. Unsupported target semantics fail as
+`L5100` before layout or PDF work; selected Figure, Link, paint, and annotation
+closure is subsequently `I9190`.
+
+The layout-contract-owned `typaxis.structure-registry/1`, authorized by the
+machine-profile receipt's sealed syntax projection, is complete before layout.
+It maps the production vocabulary as follows:
+
+| Semantic owner | Structure projection |
+| --- | --- |
+| document, paragraph, heading | `/Document`, `/P`, exact `/H1` through `/H6` |
+| result, proof, exercise | `/Result`, `/Proof`, `/Exercise`, each role-mapped to `/Div` |
+| list and item | `/L`; `/LI` with generated `/Lbl` then `/LBody` |
+| table, section, row, cell | `/Table`; generated `/THead` then `/TBody`; `/TR`; `/TH` or `/TD` |
+| figure and caption | `/Figure` with exact `/Alt`, then an optional generated `/Caption` |
+| inline/display math | `/Formula` with exact producer speech as `/Alt` and painted `/ActualText` |
+| footnote definition/reference | one uniquely identified `/Note` after the last source-position `/Reference`, with exact matching generated labels |
+| text, emphasis, strong | `/Span`, custom `/Em -> /Span`, custom `/Strong -> /Span` |
+| link and generated reference | `/Link` plus annotation OBJRs, or `/Reference` |
+| anchor, breaks, page break, table column | no structure element and no invented content |
+
+Dense `StructureNodeId` allocation and generated wrapper keys are fixed by one
+iterative logical traversal. Structure parentage and `/K` retain source reading
+order across page, column, float, table, and footnote placement; physical
+selection cannot clone, flatten, or reorder a semantic owner. Every selected
+paint occurrence is bound by `typaxis.selected-structure-binding/1` to exactly
+one StructureNodeId/fragment or one closed artifact occurrence before Display.
+Display attaches the receipt to exact paint IDs, then
+`typaxis.marked-content-plan/1` alone groups contiguous paint and assigns dense
+page-local MCIDs in final paint order. The PDF writer accepts neither inferred
+roles nor a caller-authored NodeId-to-MCID map. Each structural sequence uses
+its standard role as the outer tag and an inline `/MCID`; a non-Span owner that
+needs paint-level `/ActualText` or `/Lang` uses ADR-0035's one nested,
+property-only `/Span` with no second MCID. Formula uses that form for its exact
+producer speech.
+
+Page-master headers and footers are Pagination artifacts with the matching
+Header/Footer subtype; repeated table heads and standalone page numbers are
+Pagination artifacts; separators, rules, backgrounds, and decorations are
+Layout artifacts. Artifacts have no MCID or structure relation. Figure/math
+paint, meaningful generated labels, references, and Link text are real
+content. A Form XObject contains no MCID; its page-level invocation sits in the
+owning real-content or artifact scope.
+
+The tagged graph closes StructTreeRoot, exact RoleMap, StructElem MCR/OBJR
+kids, ParentTree, optional IDTree, page `/StructParents`, annotation
+`/StructParent`, and `/ParentTreeNextKey` against the marked-content plan in
+both directions. It reuses ADR-0034 computed language and outline owners,
+ADR-0033 Formula speech, Figure alternatives, selected table grid, footnote
+relations, and Link annotations. TH `/Scope /Column` plus deterministic IDs
+and TD `/Headers` express the closed leading-column-header model. Link
+annotations carry no nonstandard `/Lang`; preflight keeps their `/Contents`
+and outline titles in the catalog language. Link `/Contents`, outline `/SE`,
+language, alternatives, IDs, and relations cannot be inferred or repaired from
+PDF observations.
+
+The PDF catalog adds MarkInfo, StructTreeRoot, DisplayDocTitle, existing
+catalog language, page `/Tabs /S` where annotations exist, and
+`typaxis.book-xmp/2`. XMP version 2 preserves version-1 metadata facts and
+serialization and adds only the fixed PDF/UA-1 namespace and
+`pdfuaid:part = 1`; version 1 remains the MI4-07 navigation identity.
+Current/frozen schemas and artifact goldens do not change at ADR adoption.
+
+Generated structure nodes reuse the existing AST-node aggregate, structure
+depth reuses AST nesting, MCR/artifact records reuse fragments, derived
+strings reuse text limits, structure objects reuse PDF-object limits, and all
+bytes reuse output/spool limits. The page-local MCID representation is
+additionally capped at 2,147,483,647. Max is inclusive; max+1 fails before
+allocation or serialization. No synonymous structure/accessibility limits,
+retry reset, untagged output, artifact substitution, or warning fallback is
+permitted. Closure contradictions are `I9190`.
+
+MI4-09 implements the private slice and must add a writer-independent
+`typaxis.tagged-pdf-validator/1`. Release evidence additionally fixes veraPDF
+Greenfield 1.30.2 with explicit `ua1` flavour and an empty warning allowlist,
+plus one reviewed row for every Matterhorn Protocol 1.1 failure condition.
+Missing/wrong tools, malformed reports, warnings, failed/skipped checks, or an
+incomplete or hash-mismatched human ledger fail the gate. Machine validation
+alone may not be promoted to a full accessibility or PDF/UA conformance claim;
+MI4-13 alone may aggregate the complete evidence and publish the profile.
 
 ## Compatible changes
 
@@ -708,9 +802,10 @@ The following changes are incompatible and require a new profile ID or an explic
 table, footnote, and advanced-pagination slices are governed by ADR-0029,
 ADR-0030, and ADR-0031 respectively. ADR-0032 fixes the M4 base target and
 ADR-0033 fixes its math/safe-vector/alternative domain; ADR-0034 fixes its
-metadata/language/outline domain. The remaining tagged-structure, JPEG, and
-OTF/CFF decisions require their assigned ADRs before the production profile
-can be published. Any other later capability requires a decision-gate ADR
+metadata/language/outline domain; ADR-0035 fixes its tagged-structure and
+PDF/UA-1 validation domain. The remaining JPEG and OTF/CFF decisions require
+their assigned ADRs before the production profile can be published. Any other
+later capability requires a decision-gate ADR
 fixing a new profile ID, closed domain, limits, fallback/oversize behavior,
 publication semantics, fixtures, and migration rule before implementation
 begins.
@@ -738,8 +833,9 @@ columns, block Figure placement, and the profile's unchanged auxiliary-frame
 rules.
 
 ADR-0032's contract 1.4 and `production-book-1`, including ADR-0033's
-math/safe-vector and ADR-0034's metadata/language/outline extensions, are target
-facts only. They are absent from the public capability artifact,
+math/safe-vector, ADR-0034's metadata/language/outline, and ADR-0035's tagged
+PDF/accessibility-validation extensions, are target facts only. They are
+absent from the public capability artifact,
 accepted-contract array, profile parser/help, and current Schema aliases until
 MI4-13 atomically publishes the complete M4 registry and combined evidence.
 MI4-02 through MI4-12 use no hidden public selector or partially exposed

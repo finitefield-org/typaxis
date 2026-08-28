@@ -107,15 +107,17 @@ class MachineProfileEvidenceTests(unittest.TestCase):
                         self.repository, directory, ["macos", "linux"]
                     )
 
-    def test_capability_guard_rejects_post_m1_advertisement(self) -> None:
+    def test_capability_guard_rejects_unadopted_profile(self) -> None:
         capabilities = json.loads(
             (self.repository / "samples/machine-package/capabilities.json").read_bytes()
         )
-        machine._assert_m1_only(capabilities)
+        machine._assert_profile_closure(capabilities, machine.PUBLIC_PROFILES)
         future = copy.deepcopy(capabilities)
-        future["machine_input"]["profiles"][0]["blocks"].append("table")
+        future["machine_input"]["profiles"].append(
+            {"id": "typaxis.machine-pdf/tagged-pdf-1"}
+        )
         with self.assertRaises(machine.MachineProfileError):
-            machine._assert_m1_only(future)
+            machine._assert_profile_closure(future, machine.PUBLIC_PROFILES)
 
     def test_machine_build_flags_remove_checkout_specific_symbol_paths(self) -> None:
         flags = reproducibility._machine_build_rustflags(

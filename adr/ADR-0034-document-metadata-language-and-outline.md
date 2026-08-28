@@ -308,8 +308,8 @@ painted leaf whose effective language differs from the document language is
 covered by exactly one owner-bound `/Span` `BDC` inline property list carrying
 `/Lang`; it does not allocate an indirect property object. Math adds `/Lang`
 to the same canonically serialized inline dictionary that owns `/ActualText`.
-Nonpainting container overrides remain in the computed registry. MI4-08 must
-retain the rule that a differing tag belongs on the corresponding structure
+Nonpainting container overrides remain in the computed registry. ADR-0035
+retains the rule that a differing tag belongs on the corresponding structure
 element, and MI4-09 must implement it. Tagged structure may not replace or
 reinterpret the computed tag.
 
@@ -370,6 +370,9 @@ separate label-language override and no `/Lang` key on an outline item; a
 producer needing another label language must place the corresponding explicit
 override on the source owner. The receipt-bound `/SE` relation below carries
 that owner into tagged structure without inventing a second language.
+ADR-0035 consequently narrows its PDF/UA-1 profile to outline sources whose
+computed language equals the catalog language; `/SE` does not override the
+language of an outline-title text string.
 
 The validated outline receipt covers the exact label bytes, level, parent,
 source kind/NodeId/SourceSpan, source semantic fingerprint, heading level or
@@ -416,13 +419,13 @@ validated hierarchy:
 - nonleaf `/Count` is the positive number of all visible descendants, so the
   complete tree is initially open. Leaves omit `/Count`.
 
-MI4-07 outline items omit `/SE`. MI4-08 must retain the source-association rule
-in its tagged-structure ADR. Once MI4-09 has issued the matching structure
-owner receipt, an outline item may add exactly one `/SE` indirect reference to
-the source heading/container's structure element. That binding is nullable in
-`BookNavigationPdfObservation`, must agree with the same `source_node_id`, and
-cannot alter the outline hierarchy, title, or destination. No other outline
-item key is profile-authorized.
+MI4-07 outline items omit `/SE`. ADR-0035 retains the source-association rule.
+Once MI4-09 has issued the matching structure owner receipt, an outline item
+may add exactly one `/SE` indirect reference to the source
+heading/container's structure element. That binding is nullable in
+`BookNavigationPdfObservation`, must agree with the same `source_node_id`,
+and cannot alter the outline hierarchy, title, or destination. No other
+outline item key is profile-authorized.
 
 The catalog points `/Outlines` to the one root when entries are nonempty and
 omits `/Outlines` when `entries` is empty. The profile does not set
@@ -511,6 +514,13 @@ stream compression may wrap the bytes, but decompression must yield the exact
 `typaxis.book-xmp/1` serialization. No generic RDF/XML library ordering,
 ambient namespace prefix, packet timestamp, random identifier, or serializer
 pretty-printing is permitted to affect bytes.
+
+[ADR-0035](ADR-0035-tagged-pdf-structure-and-validation.md) follows this ADR's
+versioning rule: the tagged PDF/UA-1 projection is
+`typaxis.book-xmp/2`, which preserves every version-1 metadata fact and
+serialization rule and adds the fixed PDF/UA identification namespace and
+`pdfuaid:part`. Version 1 remains the immutable MI4-07 navigation-only byte
+identity and is not silently changed.
 
 ## Limits and one-time accounting
 
@@ -618,8 +628,8 @@ property, language property, XMP field, outline item, action, destination, or
 structure binding is allowed. The only later extension is the receipt-bound
 `/SE` relation authorized above.
 
-MI4-08 must consume the computed-language and outline source-owner receipts
-when adopting structure language and heading-relation policy. MI4-09 may then
+ADR-0035 consumes the computed-language and outline source-owner receipts in
+its structure-language and heading-relation policy. MI4-09 may then
 add structure elements and MCIDs but cannot change metadata, canonical tags,
 outline labels/parents, destinations, or existing name-tree coordinates.
 
@@ -667,8 +677,8 @@ anchors. It must not infer facts from host/source names, standalone anchors, or
 headings. A future source syntax may populate richer facts only under a
 separately adopted source/parser contract and exact mappings.
 
-MI4-08 must use this ADR's computed-language and outline-owner bindings in its
-decision, and MI4-09 must use them in implementation. MI4-13 may publish only
+ADR-0035 uses this ADR's computed-language and outline-owner bindings, and
+MI4-09 must use them in implementation. MI4-13 may publish only
 after MI4-07 and the later tagged/resource slices have closed their private
 evidence. Publication follows ADR-0032's atomic switch:
 complete frozen 1.4 Schemas and semantics first, then version dispatch and

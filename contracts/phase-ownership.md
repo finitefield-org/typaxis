@@ -132,9 +132,9 @@ continuation.
 ## Adopted M4 semantic-container and declared-media ownership
 
 These target rows are adopted by
-[ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) but have no
-implemented public Rust type, Schema file, or CLI surface at MI4-01. MI4-02
-through MI4-12 may implement them only behind the non-current 1.4 staging
+[ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md). They had
+no implemented Rust type, Schema file, or CLI surface at MI4-01; MI4-02 and
+later slices implement them only behind the non-current 1.4 staging
 boundary; MI4-13 alone may move them into public ownership.
 
 | Data or decision | Sole owner | Downstream use |
@@ -148,7 +148,7 @@ boundary; MI4-13 alone may move them into public ownership.
 | one canonical container FlowId, parent edge, terminal, fragment sequence, and typed grouping/structure binding | flow-registry, pagination, and selected-state owners | preserve the wrapper across page splits; ordinary child items stay in the container flow while existing/nested subflow owners retain independent FlowIds |
 | stable resource bytes plus decoder-issued actual image/font container and outline kind | `typaxis-resource-admission` | exact-match the profile-permitted declaration before expensive media decode/font outline work; URI suffix and caller strings have no authority |
 | reference-source 1.4 `media_type` population | shared `dump-ast` exporter consuming same-session resource-admission attestation | emit a declared value only after stable attestation; failure writes no partial JSON and never emits legacy absence |
-| `/Result`, `/Proof`, `/Exercise` to `/Div` role mapping and one structure owner across all selected fragments | semantic-container structure-binding owner; full marked-content policy remains MI4-08 | retain canonical child reading order and prevent outline/tag reconstruction from paint or PDF object order |
+| `/Result`, `/Proof`, `/Exercise` to `/Div` role mapping and one structure owner across all selected fragments | ADR-0035 structure-registry owner; MI4-09 implements it | retain canonical child reading order and prevent outline/tag reconstruction from paint or PDF object order |
 | declaration/attestation resource projection in the M4 manifest branch | manifest owned-facts owner | built M4 records require declared/non-null exact match; pre-resource legacy failure alone may carry legacy/null; frozen old images retain their existing PNG attestation and old fonts gain no new field |
 
 Target progress extends the public chain only after publication:
@@ -172,7 +172,7 @@ from legacy input, or flatten the container continuation into its parent.
 
 These target rows are adopted by
 [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md).
-MI4-04 and MI4-05 may implement them only in the independent non-current 1.4
+MI4-04 and MI4-05 implement them only in the independent non-current 1.4
 staging registry; MI4-13 alone may publish them with the complete production
 profile.
 
@@ -187,7 +187,7 @@ profile.
 | one atomic inline item or one independent display `MathFlowId` and terminal | inline itemizer or `typaxis.math-flow/1` registry owner | forbid breaks inside an expression; parent display flow advances only after the exact math terminal |
 | selected parent/math FlowIds, page/frame/fragment/paint ordinals, origin, and transform extension of the MathReceiptKey | selected-state owner | preserve one atomic math owner and reject wrong flow/page/fragment/font/vector/alternative substitution as `I9190` |
 | exact producer speech to PDF `/ActualText`, canonical glyph/rule/path commands, and observed serialized paint | Display owner then PDF graph/serializer owner | extract the same scalar sequence while retaining visual vector output; source text, glyph names, or generated speech cannot replace the alternative |
-| one future `/Formula` structure owner and `/Alt` equal to the same producer speech | MI4-08 decision gate, then MI4-09 structure-binding owner consuming the MathReceiptKey | add tree/MCID/language closure without changing, splitting, or regenerating the adopted alternative |
+| one `/Formula` structure owner and `/Alt` equal to the same producer speech | ADR-0035 structure-registry owner, to be implemented by MI4-09 while consuming the MathReceiptKey | add tree/MCID/language closure without changing, splitting, or regenerating the adopted alternative |
 | declared `ImageMediaType::SvgSafe1` wire value `svg-safe-1` and profile admission | document-package/domain lowering then machine-profile declared-media policy | reject missing/legacy/unknown/disallowed media before resource open; URI suffix and host MIME have no authority |
 | stable-byte `typaxis.safe-svg-parser/1`, fixed element/paint/geometry subset, inclusive vector permits, canonical `typaxis.safe-vector-ir/1`, and `AdmittedImageMediaKind::SafeVector` | `typaxis-resource-admission` | issue intrinsic size/view box/allocation charge/IR fingerprint attestation after bounded validation and before layout/PDF; perform no filesystem, network, font, CSS, script, or browser work |
 | logical SafeVector use, selected Figure placement, and final PDF-ready Form plan | layout/selected-state, Display usage, then `typaxis-resources` finalization owners | bind the existing ImageResourceId and admitted bytes/IR fingerprint to one DrawVector use and canonical Form plan |
@@ -216,6 +216,8 @@ PackageValidated (including MathSourceValidated,
   -> PdfGraphFrozen
   -> PdfBytesVerified
   -> BookNavigationPdfObserved
+  -> TaggedPdfObserved
+  -> AccessibilityValidated
 ```
 
 MI4-04/05/07 slice-local runners may produce non-public vector/math/navigation
@@ -233,7 +235,7 @@ coordinates, PDF objects, a URI suffix, or caller-authored hashes.
 
 These target rows are adopted by
 [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md).
-MI4-07 may implement them only in the independent non-current 1.4 staging
+MI4-07 implements them only in the independent non-current 1.4 staging
 registry; MI4-13 alone may publish them with the complete production profile.
 
 | Data or decision | Sole owner | Downstream use |
@@ -246,8 +248,8 @@ registry; MI4-13 alone may publish them with the complete production profile.
 | one-time AST/text/depth/fragment/object charges using the existing inclusive limits | syntax, selected-layout, and PDF budget owners for their own units | refuse max+1 before receipt, selected record, allocation, or serialization; retry and foreign receipts cannot reset aggregates |
 | exact semantic-container/heading anchor point and existing selected named-destination registry entry | selected-layout destination owner | bind source owner, selected page/frame/view/point, LayoutEpoch, and destination-registry fingerprint without caller page/coordinate fallback |
 | metadata/language/outline plus selected destination extension | book-navigation selected-state owner | issue `BookNavigationSelectedReceipt` and prove every validated entry has exactly one selected target before object allocation |
-| Info dictionary, fixed `typaxis.book-xmp/1` Metadata stream, catalog `/Lang`, marked-content `/Lang`, and canonical outline object graph | PDF graph/serializer owners alone | allocate deterministic roles, reference the existing name-tree key, and issue `BookNavigationPdfObservation`; no generic XMP, action, copied destination, or host-derived value |
-| structure-element language and optional outline-item `/SE` source relation | MI4-08 decision gate, then MI4-09 tagged-structure owner consuming the computed-language/outline receipts | add exact structure bindings without changing canonical tags, source owners, labels, hierarchy, or destinations |
+| Info dictionary, navigation-only `typaxis.book-xmp/1` Metadata stream, catalog `/Lang`, marked-content `/Lang`, and canonical outline object graph | PDF graph/serializer owners alone | allocate deterministic roles, reference the existing name-tree key, and issue `BookNavigationPdfObservation`; ADR-0035 versions the tagged projection as `typaxis.book-xmp/2` rather than changing version 1 |
+| structure-element language and optional outline-item `/SE` source relation | ADR-0035 tagged-structure owner, to be implemented by MI4-09 while consuming the computed-language/outline receipts | add exact structure bindings without changing canonical tags, source owners, labels, hierarchy, or destinations |
 | metadata/language/navigation manifest facts and independent decoded PDF observations | manifest owned-facts owner and external validator, respectively | require bidirectional closure over the prior receipts; neither JSON nor the validator can manufacture upstream authority |
 
 The metadata, language, and outline owners feed the combined private M4
@@ -255,6 +257,30 @@ progress chain above. An interned language value does not erase its logical
 per-NodeId aggregate charge; a selected destination does not authorize a new
 outline entry; and Info/XMP/catalog/outline bytes cannot repair invalid Wire or
 substitute for an owner-issued receipt.
+
+## Adopted M4 tagged-PDF and accessibility-validation ownership
+
+These target rows are adopted by
+[ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md). MI4-09 may
+implement them only in independent non-current 1.4 staging; MI4-13 alone may
+publish them or make a PDF/UA-1 conformance statement.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| exhaustive source role vocabulary, generated wrapper slots, dense StructureNodeId allocation, source parentage, and logical reading order | `typaxis-layout-contract` structure-registry builder consuming sealed syntax receipts plus the profile-bound dependency-inversion authorization | issue a PDF-independent `StructureRole` registry before layout; coordinates, typography, paint order, and PDF objects have no role or order authority |
+| closed PDF/UA-1 production subset, including title, heading sequence, non-whitespace semantic Figure/TH/P/heading content, catalog-language Link/outline strings, headed Table, name-contributing Link content, footnote placement, and a classification rule for every painting variant | machine-profile accessibility preflight | issue the sealed preflight receipt and syntax-owned lower authorization; reject unsupported semantics as `L5100` before layout/PDF without broadening an old profile, while actual selected paint/annotation closure remains downstream |
+| selected fragments, repetitions, generated labels, and decoration classified as one structure owner or one artifact occurrence | selected-layout owner consuming structure, flow, resource, math, language, and navigation receipts | issue `SelectedStructureBindingReceipt`; require every selected occurrence exactly once and retain both semantic and physical ordinals |
+| DisplayPaintId binding, maximal marked-content groups, and dense page-local MCIDs in final paint order | Display binding owner, then the private `typaxis-display-list` PDF-profile finalizer separate from the Display value and serializer | consume the layout-contract receipt through the existing `typaxis-layout` re-export, keep Display free of MCID/PDF names/objects, issue `MarkedContentPlanReceipt`, and let `typaxis-pdf` consume it only through its existing display-list edge |
+| StructTreeRoot, RoleMap, StructElem/MCR/OBJR objects, ParentTree, IDTree, page `/StructParents`, annotation `/StructParent`, and `typaxis.book-xmp/2` | PDF graph and serializer consuming the closed plans | allocate deterministic later object roles, serialize only receipt-authorized dictionaries, and issue `TaggedPdfObservation` over the exact PDF hash |
+| Figure `/Alt`, Formula `/Alt` and `/ActualText`, structure/marked-content `/Lang`, Link `/Contents`, TH IDs/TD Headers, Note/reference relation, and outline `/SE` | structure registry plus the earlier alternative/language/grid/footnote/link/outline owners | reuse the exact upstream facts; missing, extra, duplicate, reordered, or wrong-owner closure is `I9190`, never a repair opportunity |
+| generated structure-node, depth, MCR/artifact, text, MCID, PDF-object, output, and spool charges | existing syntax, selected-layout, text, PDF, and output budget owners | apply one-time inclusive maxima before allocation/serialization; add no synonymous accessibility limit or retry reset |
+| writer-independent PDF observation, exact veraPDF Greenfield 1.30.2 `ua1` report, empty warning allowlist, and complete Matterhorn 1.1 assessment ledger | in-tree validator and release-evidence aggregator, never the writer | require all evidence for the same PDF hash; machine success alone cannot issue a full conformance, accessibility, or legal claim |
+
+The tagged owners extend the combined private progress chain above. A slice
+may produce local test observations, but until MI4-09 supplies every structure
+and validation receipt it cannot issue `TaggedPdfObserved` or
+`AccessibilityValidated`; until MI4-13 neither receipt is public or
+release-supported.
 
 ## Shared base ownership (originating in contract 1.0)
 
