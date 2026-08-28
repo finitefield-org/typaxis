@@ -1,10 +1,15 @@
 #![forbid(unsafe_code)]
 
 mod advanced;
+mod semantic_container;
 
 pub use advanced::{
     StagingAdvancedPackageParseError, StagingAdvancedPackageParser, StagingAdvancedSyntaxFailure,
     ValidatedStagingAdvancedPackage,
+};
+pub use semantic_container::{
+    StagingSemanticContainerProfileView, StagingSemanticPackageParser, StagingSemanticSyntaxError,
+    ValidatedStagingSemanticPackage,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};
@@ -37,10 +42,11 @@ use typaxis_machine_input::{
     MachineInputFingerprint, MachineInputProgress, MachineInputSessionIdentity, MachineInputStage,
 };
 use typaxis_style::{
-    is_style_identifier, BasicStyleBlockKind, ComputedMachineBlockStyle, ComputedMachineListStyle,
-    ComputedStyle, Declaration, PageMaster, PageMasterRule, PageMasterSet,
-    PageMasterValidationError, PageParity, StyleRule, StyleSheet, StyleValidationError, StyleValue,
-    BASIC_BLOCK_STYLE_REGISTRY_VERSION, TABLE_BLOCK_STYLE_REGISTRY_VERSION,
+    is_style_identifier, BasicStyleBlockKind, BasicStyleProperty, ComputedMachineBlockStyle,
+    ComputedMachineListStyle, ComputedStyle, Declaration, PageMaster, PageMasterRule,
+    PageMasterSet, PageMasterValidationError, PageParity, StyleRule, StyleSheet,
+    StyleValidationError, StyleValue, BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+    TABLE_BLOCK_STYLE_REGISTRY_VERSION,
 };
 use typaxis_text::{
     GeneratedBufferDraft, GeneratedProvenance, GeneratedTextStore, SourceCatalog, SourceRecord,
@@ -57,7 +63,9 @@ use typaxis_text::{
 pub mod machine_profile_boundary {
     pub use typaxis_document::{
         Block, ColumnBalance, ColumnFill, ColumnLayout, FigurePlacement, FloatPlacementClass,
-        FootnoteDefinition, Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
+        FontMediaDeclaration, FontMediaType, FootnoteDefinition, ImageMediaDeclaration,
+        ImageMediaType, Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
+        SemanticContainerKind, StagingM4Block, StagingM4ResourceCatalog,
     };
     pub use typaxis_document_package as wire;
     pub use typaxis_machine_input::{
@@ -68,14 +76,15 @@ pub mod machine_profile_boundary {
     };
     pub use typaxis_style::{
         BasicBlockStylePropertyDescriptor, BasicStyleBlockKind, BasicStyleProperty,
-        MachineFigureWidth, PageMaster, PageMasterRule, PageParity, StyleRule, StyleValue,
-        BASIC_BLOCK_STYLE_PROPERTIES, BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+        MachineFigureWidth, PageMaster, PageMasterRule, PageParity, SemanticContainerStyleKind,
+        StyleRule, StyleValue, BASIC_BLOCK_STYLE_PROPERTIES, BASIC_BLOCK_STYLE_REGISTRY_VERSION,
     };
 
     pub use crate::{
         MachineBlockComputedStyleReceipt, MachineListComputedStyleReceipt,
         StagingListMarkerPreflightError, StagingStyleReceiptMismatch,
-        ValidatedStagingListMarkerUsageReceipt, ValidatedStagingStylePackage,
+        ValidatedStagingListMarkerUsageReceipt, ValidatedStagingSemanticPackage,
+        ValidatedStagingStylePackage,
     };
 }
 

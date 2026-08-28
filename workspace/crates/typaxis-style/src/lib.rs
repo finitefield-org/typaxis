@@ -577,6 +577,164 @@ pub struct ComputedMachineBlockStyle {
     keep_caption: bool,
 }
 
+/// Style-owner copy of the closed semantic kind. Syntax performs the one
+/// typed conversion from the document domain; layout never sees wire strings.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SemanticContainerStyleKind {
+    Result,
+    Proof,
+    Exercise,
+}
+
+impl SemanticContainerStyleKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Result => "result",
+            Self::Proof => "proof",
+            Self::Exercise => "exercise",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticContainerInheritanceStyle {
+    block_style: ComputedMachineBlockStyle,
+    font_families: Option<Vec<String>>,
+    font_size: Option<PositiveLength>,
+    line_height: Option<PositiveLength>,
+}
+
+impl SemanticContainerInheritanceStyle {
+    pub const fn block_style(&self) -> ComputedMachineBlockStyle {
+        self.block_style
+    }
+
+    pub fn font_families(&self) -> Option<&[String]> {
+        self.font_families.as_deref()
+    }
+
+    pub const fn font_size(&self) -> Option<PositiveLength> {
+        self.font_size
+    }
+
+    pub const fn line_height(&self) -> Option<PositiveLength> {
+        self.line_height
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticContainerComputedStyle {
+    semantic_kind: SemanticContainerStyleKind,
+    inheritance: SemanticContainerInheritanceStyle,
+    page_name: Option<PageName>,
+}
+
+impl SemanticContainerComputedStyle {
+    pub const fn semantic_kind(&self) -> SemanticContainerStyleKind {
+        self.semantic_kind
+    }
+
+    pub const fn block_style(&self) -> ComputedMachineBlockStyle {
+        self.inheritance.block_style
+    }
+
+    pub const fn inheritance_style(&self) -> &SemanticContainerInheritanceStyle {
+        &self.inheritance
+    }
+
+    pub const fn page_name(&self) -> Option<&PageName> {
+        self.page_name.as_ref()
+    }
+}
+
+/// Closes the private 1.4 semantic selector cascade into the same typed block
+/// domain used by existing layout. Syntax supplies an isolated, validated
+/// sheet whose semantic selectors are represented by the paragraph-shaped
+/// applicability domain, so the ordinary important/specificity/source-order,
+/// `extends`, and inherited `text_align` behavior is reused exactly.
+pub fn cascade_staging_semantic_container_style(
+    semantic_kind: SemanticContainerStyleKind,
+    classes: &[String],
+    sheet: &StyleSheet,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+) -> Result<SemanticContainerComputedStyle, StyleValidationError> {
+    sheet.validate_basic_document_styles()?;
+    let computed = sheet.cascade_validated(BasicStyleBlockKind::Paragraph.as_str(), classes)?;
+    let inheritance = close_semantic_inheritance_style(&computed, parent)?;
+    if inheritance.block_style.width() != MachineFigureWidth::Auto
+        || !inheritance.block_style.keep_caption()
+    {
+        return Err(StyleValidationError::InapplicableProperty);
+    }
+    Ok(SemanticContainerComputedStyle {
+        semantic_kind,
+        page_name: computed.page_name()?,
+        inheritance,
+    })
+}
+
+/// Computes the inheritance context of an ordinary block that owns a nested
+/// semantic container. Semantic-only selectors are hidden by the syntax
+/// owner before this function is called.
+pub fn cascade_staging_semantic_descendant_style(
+    block_type: &str,
+    classes: &[String],
+    sheet: &StyleSheet,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+) -> Result<SemanticContainerInheritanceStyle, StyleValidationError> {
+    sheet.validate_table_document_styles()?;
+    if block_type != "table" && BasicStyleBlockKind::from_str(block_type).is_none() {
+        return Err(StyleValidationError::InvalidSelector(
+            SelectorError::InvalidBlockType,
+        ));
+    }
+    let computed = sheet.cascade_validated(block_type, classes)?;
+    close_semantic_inheritance_style(&computed, parent)
+}
+
+fn close_semantic_inheritance_style(
+    computed: &ComputedStyle,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+) -> Result<SemanticContainerInheritanceStyle, StyleValidationError> {
+    let font_families = match computed
+        .properties
+        .get(BasicStyleProperty::FontFamily.as_str())
+    {
+        Some(StyleValue::FontFamilyList(families)) if valid_font_family_list(families) => {
+            Some(families.clone())
+        }
+        None => parent.and_then(|parent| parent.font_families.clone()),
+        Some(_) => return Err(StyleValidationError::InvalidDeclarationValue),
+    };
+    let positive = |property: BasicStyleProperty, inherited: Option<PositiveLength>| match computed
+        .properties
+        .get(property.as_str())
+    {
+        Some(StyleValue::Length(value)) => PositiveLength::new(*value)
+            .map(Some)
+            .ok_or(StyleValidationError::InvalidDeclarationValue),
+        None => Ok(inherited),
+        Some(_) => Err(StyleValidationError::InvalidDeclarationValue),
+    };
+    Ok(SemanticContainerInheritanceStyle {
+        block_style: close_machine_block_style(
+            computed,
+            parent
+                .map(SemanticContainerInheritanceStyle::block_style)
+                .as_ref(),
+        )?,
+        font_size: positive(
+            BasicStyleProperty::FontSize,
+            parent.and_then(SemanticContainerInheritanceStyle::font_size),
+        )?,
+        line_height: positive(
+            BasicStyleProperty::LineHeight,
+            parent.and_then(SemanticContainerInheritanceStyle::line_height),
+        )?,
+        font_families,
+    })
+}
+
 /// Complete computed style for a generated list marker. Marker shaping uses
 /// the same required text triple as paragraph text, while marker placement
 /// consumes the list block's typed spacing and indents.

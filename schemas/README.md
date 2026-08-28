@@ -14,7 +14,7 @@
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
-| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | No Schema files at MI4-01; private staging begins MI4-02 | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: private twenty-one-schema staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -42,8 +42,9 @@ the public footnote profile, and [ADR-0031](../adr/ADR-0031-advanced-pagination-
 defines the public advanced-pagination profiles.
 [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) reserves
 the non-current 1.4 semantic-container/declared-media target and
-`production-book-1`; it does not create a Schema file or public descriptor at
-MI4-01. `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
+`production-book-1`; MI4-02 implements them only in the private staging
+registry and does not create a current alias or public descriptor.
+`schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
 Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
 capability, fixture/matrix, and machine host-evidence Schemas. Current
@@ -73,8 +74,8 @@ and forbidden for the other profiles. MI3-12 added the conditional
 `advanced_pagination` projection, froze the complete 1.3 registry, and switched
 the current aliases atomically.
 
-The future independent `schemas/1.4/` registry begins only with MI4-02 private
-staging and is not frozen until MI4-13. Its base DocumentPackage shape will add
+The independent `schemas/1.4/` registry begins with MI4-02 private staging and
+is not frozen until MI4-13. Its base DocumentPackage shape adds
 the closed block-only `semantic_container` with
 `semantic_kind = result|proof|exercise` and will require
 `resources.images[*].media_type = png` plus
@@ -82,7 +83,7 @@ the closed block-only `semantic_container` with
 Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
 
-The target 1.4 production-manifest resource branch will use a closed
+The private semantic-container manifest projection uses a closed
 `media_declaration` tagged union. `kind = declared` requires typed
 `media_type`; `kind = legacy_unspecified` forbids it. The separate
 `attested_media_kind` is decoder-issued, nonnull, and equal on every built M4
@@ -96,8 +97,9 @@ independently before switching any top-level alias.
 
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/`,
 `https://schemas.typaxis.invalid/1.1/`,
-`https://schemas.typaxis.invalid/1.2/`, and
-`https://schemas.typaxis.invalid/1.3/` are logical, offline
+`https://schemas.typaxis.invalid/1.2/`,
+`https://schemas.typaxis.invalid/1.3/`, and
+`https://schemas.typaxis.invalid/1.4/` are logical, offline
 identifiers. They are not fetch URLs. A validator must build independent
 registries for each version and register every `*.schema.json` file by its
 `$id` before resolving relative `$ref` values.
@@ -110,7 +112,8 @@ python3 schemas/validate.py
 
 It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 
-- meta-validates the frozen 1.0/1.1/1.2 and current/versioned 1.3 Draft
+- meta-validates the frozen 1.0/1.1/1.2, current/versioned 1.3, and private
+  1.4 Draft
   2020-12 registries and resolves every registered `$ref` without
   cross-registering versions;
 - proves that the canonical 1.0 compatibility fixture is accepted by the
@@ -165,6 +168,10 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 - validates MI3-12's exact seven-profile descriptor, three advanced combined
   fixtures, bidirectional descriptor coverage, dense page/frame/queue progress,
   exact advanced limits, and the aggregate `m3-all.json` publication matrix;
+- validates MI4-02's private 1.4 block-only result/proof/exercise nesting,
+  required PNG/sfnt/TTC declarations, opaque-suffix resource hashes,
+  declaration/attestation equality, dense selected fragments, and canonical
+  Display/PDF/raster manifest projection while proving 1.3 rejection;
 - checks that `samples/invalid/expected-errors.json` indexes every invalid fixture;
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;

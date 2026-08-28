@@ -11,12 +11,15 @@ workspace = true
 [dependencies]
 typaxis-core = { path = "../typaxis-core" }
 typaxis-display-list = { path = "../typaxis-display-list" }
+typaxis-document = { path = "../typaxis-document" }
 typaxis-host-admission = { path = "../typaxis-host-admission" }
+typaxis-layout = { path = "../typaxis-layout" }
 typaxis-layout-contract = { path = "../typaxis-layout-contract" }
 typaxis-machine-input = { path = "../typaxis-machine-input" }
 typaxis-machine-profile = { path = "../typaxis-machine-profile" }
 typaxis-pagination = { path = "../typaxis-pagination" }
 typaxis-pdf = { path = "../typaxis-pdf" }
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 typaxis-resources = { path = "../typaxis-resources" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 typaxis-text = { path = "../typaxis-text" }
@@ -24,6 +27,4 @@ typaxis-text = { path = "../typaxis-text" }
 [dev-dependencies]
 typaxis-display-list = { path = "../typaxis-display-list", features = ["staging-fixtures"] }
 typaxis-diagnostics = { path = "../typaxis-diagnostics" }
-typaxis-document = { path = "../typaxis-document" }
-typaxis-layout = { path = "../typaxis-layout" }
 typaxis-style = { path = "../typaxis-style" }

@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-semantic-container-manifest.schema.json",
+  "title": "Typaxis Semantic Container Manifest 1.4",
+  "description": "Private MI4 selected-layout, Display, PDF/raster, and declared-media closure projection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "declared_media_fingerprint",
+    "display_fingerprint",
+    "pdf_fingerprint",
+    "resources",
+    "selected_facts",
+    "selected_layout_fingerprint"
+  ],
+  "properties": {
+    "algorithm": {
+      "const": "typaxis.semantic-container-manifest/1"
+    },
+    "declared_media_fingerprint": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "display_fingerprint": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "pdf_fingerprint": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/resource"
+      }
+    },
+    "selected_facts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/selected_fact"
+      }
+    },
+    "selected_layout_fingerprint": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "declared_font": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "media_type"],
+      "properties": {
+        "kind": {"const": "declared"},
+        "media_type": {
+          "enum": ["sfnt-truetype-glyf", "ttc-truetype-glyf"]
+        }
+      }
+    },
+    "declared_image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "media_type"],
+      "properties": {
+        "kind": {"const": "declared"},
+        "media_type": {"const": "png"}
+      }
+    },
+    "resource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attested_media_kind",
+            "media_declaration",
+            "resource_id",
+            "resource_kind",
+            "sha256"
+          ],
+          "properties": {
+            "attested_media_kind": {
+              "enum": ["sfnt-truetype-glyf", "ttc-truetype-glyf"]
+            },
+            "media_declaration": {"$ref": "#/$defs/declared_font"},
+            "resource_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "resource_kind": {"const": "font"},
+            "sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "media_declaration": {
+                    "properties": {
+                      "media_type": {"const": "sfnt-truetype-glyf"}
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "attested_media_kind": {"const": "sfnt-truetype-glyf"}
+                }
+              },
+              "else": {
+                "properties": {
+                  "attested_media_kind": {"const": "ttc-truetype-glyf"}
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attested_media_kind",
+            "media_declaration",
+            "resource_id",
+            "resource_kind",
+            "sha256"
+          ],
+          "properties": {
+            "attested_media_kind": {"const": "png"},
+            "media_declaration": {"$ref": "#/$defs/declared_image"},
+            "resource_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "resource_kind": {"const": "image"},
+            "sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "selected_fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "child_owners",
+        "display_paint_fingerprint",
+        "fragment_index",
+        "kind",
+        "owner",
+        "page_index",
+        "pdf_content_stream_fingerprint",
+        "raster_fingerprint",
+        "selected_fragment_fingerprint",
+        "source_span",
+        "style_fingerprint"
+      ],
+      "properties": {
+        "child_owners": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "common.schema.json#/$defs/id32"}
+        },
+        "display_paint_fingerprint": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "fragment_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "kind": {"enum": ["result", "proof", "exercise"]},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "pdf_content_stream_fingerprint": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "raster_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "selected_fragment_fingerprint": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "source_span": {"$ref": "common.schema.json#/$defs/source_span"},
+        "style_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    }
+  }
+}

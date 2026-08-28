@@ -1,0 +1,597 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-capabilities.schema.json",
+  "title": "Typaxis Machine Capabilities 1.4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "engine",
+    "machine_input"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "typaxis"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "machine_input": {
+      "$ref": "#/$defs/machine_input"
+    }
+  },
+  "$defs": {
+    "machine_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_units",
+        "default_profile",
+        "document_package_contracts",
+        "host_features",
+        "host_limits",
+        "limits",
+        "max_diagnostics",
+        "profiles"
+      ],
+      "properties": {
+        "coordinate_units": {
+          "const": [
+            "pdf_point_1_65536"
+          ]
+        },
+        "default_profile": {
+          "const": "typaxis.machine-pdf/paragraph-1"
+        },
+        "document_package_contracts": {
+          "const": [
+            "typaxis.contract/1.0",
+            "typaxis.contract/1.1",
+            "typaxis.contract/1.2",
+            "typaxis.contract/1.3",
+            "typaxis.contract/1.4"
+          ]
+        },
+        "host_features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "atomic_file_publish",
+            "contained_package_open",
+            "contained_resource_open"
+          ],
+          "properties": {
+            "atomic_file_publish": {
+              "type": "boolean"
+            },
+            "contained_package_open": {
+              "type": "boolean"
+            },
+            "contained_resource_open": {
+              "type": "boolean"
+            }
+          }
+        },
+        "host_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_read_candidates",
+            "max_resource_roots"
+          ],
+          "properties": {
+            "max_read_candidates": {
+              "const": 131072
+            },
+            "max_resource_roots": {
+              "const": 64
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_document_package_bytes",
+            "max_json_nesting_depth"
+          ],
+          "properties": {
+            "max_document_package_bytes": {
+              "$ref": "#/$defs/document_package_limit"
+            },
+            "max_json_nesting_depth": {
+              "$ref": "#/$defs/json_depth_limit"
+            }
+          }
+        },
+        "max_diagnostics": {
+          "const": 256
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "prefixItems": [
+            {"$ref": "#/$defs/basic_profile"},
+            {"$ref": "#/$defs/columns_profile"},
+            {"$ref": "#/$defs/float_profile"},
+            {"$ref": "#/$defs/footnote_profile"},
+            {"$ref": "#/$defs/header_footer_profile"},
+            {"$ref": "#/$defs/paragraph_profile"},
+            {"$ref": "#/$defs/table_profile"}
+          ],
+          "items": false
+        }
+      }
+    },
+    "document_package_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default",
+        "maximum"
+      ],
+      "properties": {
+        "default": {
+          "const": 134217728
+        },
+        "maximum": {
+          "const": 9007199254740991
+        }
+      }
+    },
+    "json_depth_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default",
+        "maximum"
+      ],
+      "properties": {
+        "default": {
+          "const": 256
+        },
+        "maximum": {
+          "const": 256
+        }
+      }
+    },
+    "basic_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available", "blocks", "font_formats", "footnotes", "id",
+        "image_formats", "inlines", "page_master", "page_values",
+        "pdf_features", "source_closure", "source_count",
+        "style_block_types", "style_properties", "style_selectors",
+        "unsupported_pdf_features"
+      ],
+      "properties": {
+        "available": {"type": "boolean"},
+        "blocks": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "font_formats": {"const": ["sfnt-truetype-glyf", "ttc-truetype-glyf"]},
+        "footnotes": {"const": false},
+        "id": {"const": "typaxis.machine-pdf/basic-document-1"},
+        "image_formats": {"const": ["png"]},
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kinds", "reference_formats"],
+          "properties": {
+            "kinds": {"const": ["anchor", "hard_break", "link", "reference", "soft_break", "text"]},
+            "reference_formats": {"const": ["page"]}
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "optional_frames", "selection_rules"],
+          "properties": {
+            "count": {"const": 1},
+            "optional_frames": {"const": []},
+            "selection_rules": {"const": false}
+          }
+        },
+        "page_values": {"const": ["auto"]},
+        "pdf_features": {"const": ["link-annotations", "named-destinations", "png-xobjects", "text-extraction"]},
+        "source_closure": {"const": "entry_only"},
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum", "minimum"],
+          "properties": {"maximum": {"const": 1}, "minimum": {"const": 1}}
+        },
+        "style_block_types": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "style_properties": {"const": ["end_indent", "font_family", "font_size", "keep_caption", "keep_with_next", "line_height", "page", "space_after", "space_before", "start_indent", "text_align", "width"]},
+        "style_selectors": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "unsupported_pdf_features": {"const": ["heading-semantics", "outlines", "tagged-pdf"]}
+      }
+    },
+    "advanced_pagination_columns": {
+      "const": {
+        "balance": "last_page",
+        "column_count": {"maximum": 65535, "minimum": 1},
+        "custom_trim": false,
+        "float_classes": [],
+        "header_footer": false,
+        "master_selection": ["single"],
+        "page_boxes": ["crop", "media", "trim"],
+        "page_progression": "ltr",
+        "writing_mode": "horizontal-tb"
+      }
+    },
+    "advanced_pagination_float": {
+      "const": {
+        "balance": "none",
+        "column_count": {"maximum": 65535, "minimum": 1},
+        "custom_trim": false,
+        "float_classes": ["here", "top", "bottom", "next_page"],
+        "header_footer": false,
+        "master_selection": ["single"],
+        "page_boxes": ["crop", "media", "trim"],
+        "page_progression": "ltr",
+        "writing_mode": "horizontal-tb"
+      }
+    },
+    "advanced_pagination_header_footer": {
+      "const": {
+        "balance": "forbidden",
+        "column_count": null,
+        "custom_trim": true,
+        "float_classes": [],
+        "header_footer": true,
+        "master_selection": ["single", "first_left_right"],
+        "page_boxes": ["crop", "media", "trim"],
+        "page_progression": "ltr",
+        "writing_mode": "horizontal-tb"
+      }
+    },
+    "advanced_profile_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "advanced_pagination", "available", "blocks", "font_formats", "footnotes", "id",
+        "image_formats", "inlines", "page_master", "page_values", "pdf_features",
+        "source_closure", "source_count", "style_block_types", "style_properties",
+        "style_selectors", "unsupported_pdf_features"
+      ],
+      "properties": {
+        "advanced_pagination": {
+          "oneOf": [
+            {"$ref": "#/$defs/advanced_pagination_columns"},
+            {"$ref": "#/$defs/advanced_pagination_float"},
+            {"$ref": "#/$defs/advanced_pagination_header_footer"}
+          ]
+        },
+        "available": {"type": "boolean"},
+        "blocks": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "font_formats": {"const": ["sfnt-truetype-glyf", "ttc-truetype-glyf"]},
+        "footnotes": {"const": false},
+        "id": {
+          "enum": [
+            "typaxis.machine-pdf/columns-1",
+            "typaxis.machine-pdf/float-1",
+            "typaxis.machine-pdf/header-footer-1"
+          ]
+        },
+        "image_formats": {"const": ["png"]},
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kinds", "reference_formats"],
+          "properties": {
+            "kinds": {"const": ["anchor", "hard_break", "link", "reference", "soft_break", "text"]},
+            "reference_formats": {"const": ["page"]}
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "optional_frames", "selection_rules"],
+          "properties": {
+            "count": {"const": 1},
+            "optional_frames": {"const": []},
+            "selection_rules": {"const": false}
+          }
+        },
+        "page_values": {"const": ["auto"]},
+        "pdf_features": {"const": ["link-annotations", "named-destinations", "png-xobjects", "text-extraction"]},
+        "source_closure": {"const": "entry_only"},
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum", "minimum"],
+          "properties": {"maximum": {"const": 1}, "minimum": {"const": 1}}
+        },
+        "style_block_types": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "style_properties": {"const": ["end_indent", "font_family", "font_size", "keep_caption", "keep_with_next", "line_height", "page", "space_after", "space_before", "start_indent", "text_align", "width"]},
+        "style_selectors": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "unsupported_pdf_features": {"const": ["heading-semantics", "outlines", "tagged-pdf"]}
+      }
+    },
+    "columns_profile": {
+      "allOf": [
+        {"$ref": "#/$defs/advanced_profile_base"},
+        {"properties": {"advanced_pagination": {"$ref": "#/$defs/advanced_pagination_columns"}, "id": {"const": "typaxis.machine-pdf/columns-1"}}}
+      ]
+    },
+    "float_profile": {
+      "allOf": [
+        {"$ref": "#/$defs/advanced_profile_base"},
+        {"properties": {"advanced_pagination": {"$ref": "#/$defs/advanced_pagination_float"}, "id": {"const": "typaxis.machine-pdf/float-1"}}}
+      ]
+    },
+    "header_footer_profile": {
+      "allOf": [
+        {"$ref": "#/$defs/advanced_profile_base"},
+        {"properties": {"advanced_pagination": {"$ref": "#/$defs/advanced_pagination_header_footer"}, "id": {"const": "typaxis.machine-pdf/header-footer-1"}}}
+      ]
+    },
+    "table_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available", "blocks", "font_formats", "footnotes", "id",
+        "image_formats", "inlines", "page_master", "page_values",
+        "pdf_features", "source_closure", "source_count",
+        "style_block_types", "style_properties", "style_selectors",
+        "unsupported_pdf_features"
+      ],
+      "properties": {
+        "available": {"type": "boolean"},
+        "blocks": {"const": ["figure", "heading", "list", "page_break", "paragraph", "table"]},
+        "font_formats": {"const": ["sfnt-truetype-glyf", "ttc-truetype-glyf"]},
+        "footnotes": {"const": false},
+        "id": {"const": "typaxis.machine-pdf/table-1"},
+        "image_formats": {"const": ["png"]},
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kinds", "reference_formats"],
+          "properties": {
+            "kinds": {"const": ["anchor", "hard_break", "link", "reference", "soft_break", "text"]},
+            "reference_formats": {"const": ["page"]}
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "optional_frames", "selection_rules"],
+          "properties": {
+            "count": {"const": 1},
+            "optional_frames": {"const": []},
+            "selection_rules": {"const": false}
+          }
+        },
+        "page_values": {"const": ["auto"]},
+        "pdf_features": {"const": ["link-annotations", "named-destinations", "png-xobjects", "text-extraction"]},
+        "source_closure": {"const": "entry_only"},
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum", "minimum"],
+          "properties": {"maximum": {"const": 1}, "minimum": {"const": 1}}
+        },
+        "style_block_types": {"const": ["figure", "heading", "list", "page_break", "paragraph", "table"]},
+        "style_properties": {"const": ["end_indent", "font_family", "font_size", "keep_caption", "keep_with_next", "line_height", "page", "space_after", "space_before", "start_indent", "text_align", "width"]},
+        "style_selectors": {"const": ["figure", "heading", "list", "page_break", "paragraph", "table"]},
+        "unsupported_pdf_features": {"const": ["heading-semantics", "outlines", "tagged-pdf"]}
+      }
+    },
+    "footnote_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available", "blocks", "font_formats", "footnotes", "id",
+        "image_formats", "inlines", "page_master", "page_values",
+        "pdf_features", "source_closure", "source_count",
+        "style_block_types", "style_properties", "style_selectors",
+        "unsupported_pdf_features"
+      ],
+      "properties": {
+        "available": {"type": "boolean"},
+        "blocks": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "font_formats": {"const": ["sfnt-truetype-glyf", "ttc-truetype-glyf"]},
+        "footnotes": {"const": true},
+        "id": {"const": "typaxis.machine-pdf/footnote-1"},
+        "image_formats": {"const": ["png"]},
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kinds", "reference_formats"],
+          "properties": {
+            "kinds": {"const": ["anchor", "footnote_reference", "hard_break", "link", "reference", "soft_break", "text"]},
+            "reference_formats": {"const": ["page"]}
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "optional_frames", "selection_rules"],
+          "properties": {
+            "count": {"const": 1},
+            "optional_frames": {"const": ["footnote"]},
+            "selection_rules": {"const": false}
+          }
+        },
+        "page_values": {"const": ["auto"]},
+        "pdf_features": {"const": ["link-annotations", "named-destinations", "png-xobjects", "text-extraction"]},
+        "source_closure": {"const": "entry_only"},
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum", "minimum"],
+          "properties": {"maximum": {"const": 1}, "minimum": {"const": 1}}
+        },
+        "style_block_types": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "style_properties": {"const": ["end_indent", "font_family", "font_size", "keep_caption", "keep_with_next", "line_height", "page", "space_after", "space_before", "start_indent", "text_align", "width"]},
+        "style_selectors": {"const": ["figure", "heading", "list", "page_break", "paragraph"]},
+        "unsupported_pdf_features": {"const": ["heading-semantics", "outlines", "tagged-pdf"]}
+      }
+    },
+    "paragraph_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "blocks",
+        "font_formats",
+        "footnotes",
+        "id",
+        "image_formats",
+        "inlines",
+        "page_master",
+        "page_values",
+        "pdf_features",
+        "source_closure",
+        "source_count",
+        "style_block_types",
+        "style_properties",
+        "style_selectors",
+        "unsupported_pdf_features"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "blocks": {
+          "const": [
+            "heading",
+            "paragraph"
+          ]
+        },
+        "font_formats": {
+          "const": [
+            "sfnt-truetype-glyf",
+            "ttc-truetype-glyf"
+          ]
+        },
+        "footnotes": {
+          "const": false
+        },
+        "id": {
+          "const": "typaxis.machine-pdf/paragraph-1"
+        },
+        "image_formats": {
+          "const": []
+        },
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kinds",
+            "reference_formats"
+          ],
+          "properties": {
+            "kinds": {
+              "const": [
+                "anchor",
+                "hard_break",
+                "reference",
+                "soft_break",
+                "text"
+              ]
+            },
+            "reference_formats": {
+              "const": [
+                "page"
+              ]
+            }
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "count",
+            "optional_frames",
+            "selection_rules"
+          ],
+          "properties": {
+            "count": {
+              "const": 1
+            },
+            "optional_frames": {
+              "const": []
+            },
+            "selection_rules": {
+              "const": false
+            }
+          }
+        },
+        "page_values": {
+          "const": [
+            "auto"
+          ]
+        },
+        "pdf_features": {
+          "const": [
+            "named-destinations",
+            "text-extraction"
+          ]
+        },
+        "source_closure": {
+          "const": "entry_only"
+        },
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum",
+            "minimum"
+          ],
+          "properties": {
+            "maximum": {
+              "const": 1
+            },
+            "minimum": {
+              "const": 1
+            }
+          }
+        },
+        "style_block_types": {
+          "const": [
+            "heading",
+            "paragraph"
+          ]
+        },
+        "style_properties": {
+          "const": [
+            "font_family",
+            "font_size",
+            "line_height",
+            "page"
+          ]
+        },
+        "style_selectors": {
+          "const": [
+            "heading",
+            "paragraph"
+          ]
+        },
+        "unsupported_pdf_features": {
+          "const": [
+            "heading-semantics",
+            "link-annotations",
+            "outlines",
+            "tagged-pdf"
+          ]
+        }
+      }
+    }
+  }
+}

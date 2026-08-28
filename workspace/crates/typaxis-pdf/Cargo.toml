@@ -12,6 +12,7 @@ workspace = true
 typaxis-core = { path = "../typaxis-core" }
 typaxis-display-list = { path = "../typaxis-display-list" }
 typaxis-resources = { path = "../typaxis-resources" }
+typaxis-syntax = { path = "../typaxis-syntax" }
 
 [dev-dependencies]
 typaxis-display-list = { path = "../typaxis-display-list", features = ["staging-fixtures"] }

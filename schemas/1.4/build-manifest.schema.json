@@ -1,0 +1,696 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/build-manifest.schema.json",
+  "title": "Typaxis Build Manifest 1.4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "status",
+    "deterministic",
+    "engine",
+    "data_versions",
+    "config_sha256",
+    "input_profile",
+    "package_input",
+    "inputs",
+    "fonts",
+    "images",
+    "pdf_profile",
+    "stream_compression",
+    "layout",
+    "output"
+  ],
+  "properties": {
+    "advanced_pagination": {
+      "$ref": "machine-advanced-pagination-manifest.schema.json"
+    },
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "status": {
+      "enum": [
+        "built",
+        "failed"
+      ]
+    },
+    "deterministic": {
+      "const": true
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "rust_version",
+        "git_commit"
+      ],
+      "properties": {
+        "name": {
+          "const": "typaxis"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rust_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "data_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unicode",
+        "japanese_line_break",
+        "shaper_backend",
+        "shaper_version"
+      ],
+      "properties": {
+        "unicode": {
+          "const": "16.0.0"
+        },
+        "japanese_line_break": {
+          "const": "typaxis-jlreq-horizontal/1.0.0"
+        },
+        "shaper_backend": {
+          "const": "typaxis-reference-shaper"
+        },
+        "shaper_version": {
+          "const": "0.1.0"
+        }
+      }
+    },
+    "config_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "input_profile": {
+      "enum": [
+        "typaxis.machine-pdf/basic-document-1",
+        "typaxis.machine-pdf/columns-1",
+        "typaxis.machine-pdf/float-1",
+        "typaxis.machine-pdf/footnote-1",
+        "typaxis.machine-pdf/header-footer-1",
+        "typaxis.machine-pdf/paragraph-1",
+        "typaxis.machine-pdf/table-1",
+        "typaxis.reference-source/1"
+      ]
+    },
+    "package_input": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/package_input_record"
+        }
+      ]
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/file_record"
+      }
+    },
+    "fonts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/font_record"
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/image_record"
+      }
+    },
+    "pdf_profile": {
+      "const": "pdf-1.7-classic-xref"
+    },
+    "stream_compression": {
+      "enum": [
+        "flate",
+        "none"
+      ]
+    },
+    "layout": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/layout_summary"
+        }
+      ]
+    },
+    "output": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/output_record"
+        }
+      ]
+    },
+    "footnote_layout": {
+      "$ref": "machine-footnote-manifest.schema.json"
+    },
+    "table_layouts": {
+      "type": "array",
+      "items": {
+        "$ref": "machine-table-manifest.schema.json"
+      }
+    }
+  },
+  "$defs": {
+    "layout_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "pass_count",
+        "selected_state",
+        "final_fingerprint",
+        "fallback_policy",
+        "flow_registry_sha256",
+        "profile_receipt_sha256"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "converged",
+            "cycle_fallback",
+            "max_pass_fallback"
+          ]
+        },
+        "pass_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "selected_state": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "final_fingerprint": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "flow_registry_sha256": {
+          "oneOf": [
+            {"$ref": "common.schema.json#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "profile_receipt_sha256": {
+          "oneOf": [
+            {"$ref": "common.schema.json#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "fallback_policy": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "const": "lowest_cost_then_earliest"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "converged"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fallback_policy": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "cycle_fallback",
+                  "max_pass_fallback"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fallback_policy": {
+                "const": "lowest_cost_then_earliest"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uri",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        },
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/nonnegative_safe_integer"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "package_input_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "canonical_sha256",
+        "contract",
+        "profile_receipt_sha256",
+        "sha256",
+        "uri"
+      ],
+      "properties": {
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        },
+        "canonical_sha256": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "contract": {
+          "oneOf": [
+            {
+              "enum": [
+                "typaxis.contract/1.0",
+                "typaxis.contract/1.1",
+                "typaxis.contract/1.2",
+                "typaxis.contract/1.3",
+                "typaxis.contract/1.4"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_receipt_sha256": {
+          "oneOf": [
+            {"$ref": "common.schema.json#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "canonical_sha256": {
+              "type": "null"
+            },
+            "contract": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "canonical_sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "contract": {
+              "enum": [
+                "typaxis.contract/1.0",
+                "typaxis.contract/1.1",
+                "typaxis.contract/1.2",
+                "typaxis.contract/1.3",
+                "typaxis.contract/1.4"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "output_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sink",
+        "bytes",
+        "sha256",
+        "page_count",
+        "pdf_object_count"
+      ],
+      "properties": {
+        "sink": {
+          "enum": [
+            "file",
+            "stdout"
+          ]
+        },
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "page_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "pdf_object_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "font_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "font_face_id",
+        "uri",
+        "face_index",
+        "bytes",
+        "sha256",
+        "units_per_em",
+        "glyph_count"
+      ],
+      "properties": {
+        "font_face_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        },
+        "face_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "units_per_em": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 16384
+        },
+        "glyph_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "image_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_id",
+        "attested_media_kind",
+        "uri",
+        "bytes",
+        "sha256",
+        "pixel_width",
+        "pixel_height",
+        "decoded_bytes"
+      ],
+      "properties": {
+        "attested_media_kind": {
+          "const": "png"
+        },
+        "image_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "uri": {
+          "$ref": "common.schema.json#/$defs/portable_relative_path"
+        },
+        "bytes": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "pixel_width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "pixel_height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "decoded_bytes": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
+            "const": "typaxis.machine-pdf/footnote-1"
+          },
+          "status": {
+            "const": "built"
+          }
+        },
+        "required": [
+          "input_profile",
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "footnote_layout"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "footnote_layout"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
+            "const": "typaxis.machine-pdf/table-1"
+          },
+          "status": {
+            "const": "built"
+          }
+        },
+        "required": [
+          "input_profile",
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "table_layouts"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "table_layouts"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
+            "const": "typaxis.reference-source/1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "package_input": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
+            "enum": [
+              "typaxis.machine-pdf/basic-document-1",
+              "typaxis.machine-pdf/columns-1",
+              "typaxis.machine-pdf/float-1",
+              "typaxis.machine-pdf/footnote-1",
+              "typaxis.machine-pdf/header-footer-1",
+              "typaxis.machine-pdf/paragraph-1",
+              "typaxis.machine-pdf/table-1"
+            ]
+          },
+          "status": {
+            "const": "built"
+          }
+        },
+        "required": [
+          "input_profile",
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "package_input": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/package_input_record"
+              },
+              {
+                "properties": {
+                  "canonical_sha256": {
+                    "$ref": "common.schema.json#/$defs/sha256"
+                  },
+                  "contract": {
+                    "enum": [
+                      "typaxis.contract/1.0",
+                      "typaxis.contract/1.1",
+                      "typaxis.contract/1.2",
+                      "typaxis.contract/1.3",
+                      "typaxis.contract/1.4"
+                    ]
+                  },
+                  "profile_receipt_sha256": {
+                    "$ref": "common.schema.json#/$defs/sha256"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input_profile": {
+            "enum": [
+              "typaxis.machine-pdf/columns-1",
+              "typaxis.machine-pdf/float-1",
+              "typaxis.machine-pdf/header-footer-1"
+            ]
+          },
+          "status": {
+            "const": "built"
+          }
+        },
+        "required": [
+          "input_profile",
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "advanced_pagination"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "advanced_pagination"
+          ]
+        }
+      }
+    },
+    {
+      "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "const": "built"
+        },
+        "layout": {
+          "$ref": "#/$defs/layout_summary"
+        },
+        "output": {
+          "$ref": "#/$defs/output_record"
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "failed"
+        },
+        "layout": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/layout_summary"
+            }
+          ]
+        },
+        "output": {
+          "type": "null"
+        }
+      }
+    }
+      ]
+    }
+  ]
+}

@@ -28,6 +28,7 @@ FROZEN_SCHEMA_DIR = SCHEMA_DIR / "1.0"
 PREVIOUS_SCHEMA_DIR = SCHEMA_DIR / "1.1"
 FROZEN_1_2_SCHEMA_DIR = SCHEMA_DIR / "1.2"
 VERSIONED_CURRENT_SCHEMA_DIR = SCHEMA_DIR / "1.3"
+PRIVATE_M4_SCHEMA_DIR = SCHEMA_DIR / "1.4"
 REPOSITORY_ROOT = SCHEMA_DIR.parent
 MINIMAL_DIR = REPOSITORY_ROOT / "samples" / "minimal"
 CONFORMANCE_DIR = REPOSITORY_ROOT / "samples" / "conformance"
@@ -78,6 +79,12 @@ STAGING_FLOAT_FIXTURE_ROOT = (
     MACHINE_FIXTURE_DIR
     / "staging"
     / "float-1"
+)
+STAGING_SEMANTIC_CONTAINER_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "production-book-1"
+    / "semantic-container"
 )
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
@@ -5073,6 +5080,9 @@ def main() -> int:
         versioned_current_schemas, versioned_current_validators, versioned_current_reference_count = (
             load_schema_registry(VERSIONED_CURRENT_SCHEMA_DIR, "1.3")
         )
+        private_m4_schemas, private_m4_validators, private_m4_reference_count = (
+            load_schema_registry(PRIVATE_M4_SCHEMA_DIR, "1.4")
+        )
         if set(staging_schemas) != {
             "build-manifest.schema.json",
             "common.schema.json",
@@ -5119,6 +5129,12 @@ def main() -> int:
             raise ValidationFailure("the current 1.3 alias registry has a missing or extra schema")
         if set(versioned_current_schemas) != expected_versioned_current:
             raise ValidationFailure("the versioned 1.3 registry has a missing or extra schema")
+        expected_private_m4 = {
+            *expected_versioned_current,
+            "machine-semantic-container-manifest.schema.json",
+        }
+        if set(private_m4_schemas) != expected_private_m4:
+            raise ValidationFailure("the private 1.4 registry has a missing or extra schema")
         for filename in schemas:
             if (SCHEMA_DIR / filename).read_bytes() != (
                 VERSIONED_CURRENT_SCHEMA_DIR / filename
@@ -5156,6 +5172,173 @@ def main() -> int:
                 raise ValidationFailure(
                     f"the frozen 1.2 schema bytes changed: {filename}"
                 )
+
+        semantic_document_path = (
+            STAGING_SEMANTIC_CONTAINER_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        semantic_manifest_path = (
+            STAGING_SEMANTIC_CONTAINER_FIXTURE_DIR
+            / "staging-semantic-container.json"
+        )
+        semantic_document = load_json(semantic_document_path)
+        semantic_manifest = load_json(semantic_manifest_path)
+        semantic_document_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], semantic_document
+        )
+        if semantic_document_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the semantic-container fixture: "
+                + " | ".join(semantic_document_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            semantic_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private 1.4 fixture"
+            )
+        semantic_manifest_errors = schema_errors(
+            private_m4_validators[
+                "machine-semantic-container-manifest.schema.json"
+            ],
+            semantic_manifest,
+        )
+        if semantic_manifest_errors:
+            raise ValidationFailure(
+                "private 1.4 semantic-container manifest was rejected: "
+                + " | ".join(semantic_manifest_errors)
+            )
+        for path, value, label in (
+            (semantic_document_path, semantic_document, "DocumentPackage"),
+            (semantic_manifest_path, semantic_manifest, "semantic manifest"),
+        ):
+            if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
+                raise ValidationFailure(
+                    f"private 1.4 {label} fixture is not canonical JCS"
+                )
+
+        semantic_job = STAGING_SEMANTIC_CONTAINER_FIXTURE_DIR / "job"
+        for source in semantic_document["sources"]:
+            source_bytes = (semantic_job / source["uri"]).read_bytes()
+            if (
+                len(source_bytes) != source["utf8_byte_length"]
+                or hashlib.sha256(source_bytes).hexdigest() != source["sha256"]
+            ):
+                raise ValidationFailure("private 1.4 source attestation drifted")
+        declarations = [
+            *(('font', item) for item in semantic_document["resources"]["font_faces"]),
+            *(('image', item) for item in semantic_document["resources"]["images"]),
+        ]
+        if len(declarations) != len(semantic_manifest["resources"]):
+            raise ValidationFailure("private 1.4 declared-media coverage is incomplete")
+        for (resource_kind, declaration), record in zip(
+            declarations, semantic_manifest["resources"], strict=True
+        ):
+            resource_id_name = "font_face_id" if resource_kind == "font" else "image_id"
+            resource_bytes = (semantic_job / declaration["uri"]).read_bytes()
+            if (
+                record["resource_kind"] != resource_kind
+                or record["resource_id"] != declaration[resource_id_name]
+                or record["media_declaration"]
+                != {"kind": "declared", "media_type": declaration["media_type"]}
+                or record["attested_media_kind"] != declaration["media_type"]
+                or record["sha256"] != hashlib.sha256(resource_bytes).hexdigest()
+                or record["sha256"] != declaration["expected_sha256"]
+            ):
+                raise ValidationFailure(
+                    "private 1.4 declaration/attestation closure drifted"
+                )
+
+        semantic_containers: dict[int, tuple[str, dict[str, Any], list[int]]] = {}
+
+        def collect_semantic_containers(blocks: list[dict[str, Any]]) -> None:
+            for block in blocks:
+                kind = block["kind"]
+                if kind == "semantic_container":
+                    semantic_containers[block["node_id"]] = (
+                        block["semantic_kind"],
+                        block["span"],
+                        [child["node_id"] for child in block["blocks"]],
+                    )
+                    collect_semantic_containers(block["blocks"])
+                elif kind == "list":
+                    for item in block["items"]:
+                        collect_semantic_containers(item["blocks"])
+                elif kind == "table":
+                    for row in [*block["head"], *block["body"]]:
+                        for cell in row["cells"]:
+                            collect_semantic_containers(cell["blocks"])
+                elif kind == "figure":
+                    collect_semantic_containers(block["caption"])
+
+        collect_semantic_containers(semantic_document["document"]["blocks"])
+        for footnote in semantic_document["document"]["footnotes"]:
+            collect_semantic_containers(footnote["blocks"])
+        observed_fragments: dict[int, list[dict[str, Any]]] = {}
+        for expected_page, fact in enumerate(semantic_manifest["selected_facts"]):
+            observed_fragments.setdefault(fact["owner"], []).append(fact)
+            container = semantic_containers.get(fact["owner"])
+            if (
+                container is None
+                or fact["kind"] != container[0]
+                or fact["source_span"] != container[1]
+                or fact["page_index"] != expected_page
+            ):
+                raise ValidationFailure(
+                    "private 1.4 selected semantic owner/kind/span/page drifted"
+                )
+        if set(observed_fragments) != set(semantic_containers):
+            raise ValidationFailure(
+                "private 1.4 selected facts do not cover every container"
+            )
+        for owner, facts in observed_fragments.items():
+            if [fact["fragment_index"] for fact in facts] != list(range(len(facts))):
+                raise ValidationFailure(
+                    "private 1.4 semantic fragment indices are not dense"
+                )
+            if [child for fact in facts for child in fact["child_owners"]] != (
+                semantic_containers[owner][2]
+            ):
+                raise ValidationFailure(
+                    "private 1.4 semantic fragment child closure drifted"
+                )
+
+        unknown_semantic_kind = copy.deepcopy(semantic_document)
+        unknown_semantic_kind["document"]["blocks"][0]["semantic_kind"] = "lemma"
+        empty_semantic = copy.deepcopy(semantic_document)
+        empty_semantic["document"]["blocks"][0]["blocks"] = []
+        missing_media = copy.deepcopy(semantic_document)
+        del missing_media["resources"]["images"][0]["media_type"]
+        inline_semantic = copy.deepcopy(semantic_document)
+        inline_semantic["document"]["blocks"][0]["blocks"][0]["children"].append(
+            copy.deepcopy(semantic_document["document"]["blocks"][0])
+        )
+        for label, invalid in (
+            ("unknown kind", unknown_semantic_kind),
+            ("empty blocks", empty_semantic),
+            ("missing media", missing_media),
+            ("inline container", inline_semantic),
+        ):
+            if not schema_errors(
+                private_m4_validators["document-package.schema.json"], invalid
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 DocumentPackage accepted {label}"
+                )
+        mismatched_media = copy.deepcopy(semantic_manifest)
+        mismatched_media["resources"][0]["attested_media_kind"] = (
+            "ttc-truetype-glyf"
+        )
+        if not schema_errors(
+            private_m4_validators[
+                "machine-semantic-container-manifest.schema.json"
+            ],
+            mismatched_media,
+        ):
+            raise ValidationFailure(
+                "private 1.4 manifest accepted declared/attested media mismatch"
+            )
+
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         advanced_fixture_roots = (
             ("header/footer", STAGING_HEADER_FOOTER_FIXTURE_ROOT),
@@ -6264,8 +6447,9 @@ def main() -> int:
             "validated "
             f"{len(frozen_schemas)} frozen 1.0, {len(previous_schemas)} frozen 1.1, "
             f"{len(staging_schemas)} frozen 1.2, {len(schemas)} current 1.3 aliases, and "
-            f"{len(versioned_current_schemas)} versioned 1.3 schemas, "
-            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count + versioned_current_reference_count} refs, "
+            f"{len(versioned_current_schemas)} versioned 1.3 and "
+            f"{len(private_m4_schemas)} private 1.4 schemas, "
+            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count + versioned_current_reference_count + private_m4_reference_count} refs, "
             f"{len(POSITIVE_FIXTURES)} artifact and "
             f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
             f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "

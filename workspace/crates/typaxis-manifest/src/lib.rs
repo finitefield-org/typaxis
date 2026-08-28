@@ -3,12 +3,18 @@
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
+mod semantic_container;
 
 pub use advanced_columns::project_staging_columns_manifest;
 pub use advanced_float::project_staging_float_manifest;
 pub use advanced_header_footer::{
     project_staging_header_footer_manifest, StagingAdvancedPaginationManifest,
     StagingAdvancedPaginationManifestError, ADVANCED_PAGINATION_MANIFEST_ALGORITHM,
+};
+pub use semantic_container::{
+    build_staging_semantic_container_manifest, StagingDeclaredMediaManifestRecord,
+    StagingSemanticContainerManifest, StagingSemanticContainerManifestError,
+    StagingSemanticContainerSelectedFact,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};

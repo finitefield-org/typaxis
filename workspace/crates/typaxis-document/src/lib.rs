@@ -7,6 +7,15 @@ use typaxis_core::{
     NonNegativeLength, PortablePath, PositiveLength, Rect, SafeUri, SourceSpan, TextSpan,
 };
 
+mod semantic_container;
+
+pub use semantic_container::{
+    FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,
+    SemanticContainerKind, StagingM4Block, StagingM4BlockCommon, StagingM4Document,
+    StagingM4FontFaceDeclaration, StagingM4FootnoteDefinition, StagingM4ImageDeclaration,
+    StagingM4ListItem, StagingM4ResourceCatalog, StagingM4TableCell, StagingM4TableRow,
+};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Document {
     pub node_id: NodeId,

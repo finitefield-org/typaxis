@@ -13,6 +13,75 @@ use typaxis_pagination::{
 use typaxis_syntax::{DocumentPackageConversionError, ValidatedParsedPackage};
 use typaxis_text::GeneratedTextStore;
 
+#[cfg(test)]
+pub(crate) fn staging_m4_document_package_from_attested_media(
+    package: &typaxis_syntax::ValidatedStagingSemanticPackage,
+    media: &typaxis_resources::StagingDeclaredMediaLedger,
+) -> Result<String, String> {
+    use typaxis_document_package::{
+        StagingSemanticDocumentPackageEncoder, WireFontMediaType, WireImageMediaType,
+    };
+    use typaxis_resources::{AdmittedFontMediaKind, AdmittedImageMediaKind};
+
+    let mut wire = package
+        .checked_wire()
+        .map_err(|error| error.to_string())?
+        .clone();
+    let mut resources = wire.resources().clone();
+    if resources.font_faces.len() != media.fonts().len()
+        || resources.images.len() != media.images().len()
+    {
+        return Err("stable media attestation set is incomplete".to_owned());
+    }
+    for (declaration, attestation) in resources.font_faces.iter_mut().zip(media.fonts()) {
+        if declaration.font_face_id != attestation.font_face_id().get()
+            || declaration.uri != attestation.uri().as_str()
+            || declaration.family != attestation.family()
+            || declaration.face_index != attestation.face_index()
+            || declaration
+                .expected_sha256
+                .as_deref()
+                .is_some_and(|value| value != hex_hash(attestation.content_hash()))
+        {
+            return Err("stable font attestation identity mismatch".to_owned());
+        }
+        declaration.media_type = match attestation.attested() {
+            AdmittedFontMediaKind::SfntTrueTypeGlyf => WireFontMediaType::SfntTrueTypeGlyf,
+            AdmittedFontMediaKind::TtcTrueTypeGlyf => WireFontMediaType::TtcTrueTypeGlyf,
+        };
+    }
+    for (declaration, attestation) in resources.images.iter_mut().zip(media.images()) {
+        if declaration.image_id != attestation.image_id().get()
+            || declaration.uri != attestation.uri().as_str()
+            || declaration
+                .expected_sha256
+                .as_deref()
+                .is_some_and(|value| value != hex_hash(attestation.content_hash()))
+        {
+            return Err("stable image attestation identity mismatch".to_owned());
+        }
+        declaration.media_type = match attestation.attested() {
+            AdmittedImageMediaKind::Png => WireImageMediaType::Png,
+        };
+    }
+    let document = wire.document().clone();
+    wire.replace_typed_regions(document, resources);
+    StagingSemanticDocumentPackageEncoder::new()
+        .encode(&wire)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+fn hex_hash(value: [u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(64);
+    for byte in value {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
+}
+
 pub const GENERATED_TRACE_TEXT_REQUIRES_OPT_IN: &str =
     "generated text requires `--trace-text` for a complete trace";
 

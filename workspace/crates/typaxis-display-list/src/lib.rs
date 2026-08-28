@@ -4,6 +4,7 @@ mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
+mod semantic_container;
 
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use advanced_columns::staging_columns_display_fixture;
@@ -28,6 +29,14 @@ pub use advanced_header_footer::{
     StagingHeaderFooterDisplayError, StagingHeaderFooterDisplayPage,
     StagingHeaderFooterDisplayReceipt, StagingHeaderFooterPaintCommand, StagingPdfPageBox,
     StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
+};
+#[cfg(feature = "staging-fixtures")]
+pub use semantic_container::build_staging_semantic_container_display_fixture;
+pub use semantic_container::{
+    build_staging_semantic_container_display, StagingSemanticChildPaint,
+    StagingSemanticContainerDisplay, StagingSemanticContainerDisplayError,
+    StagingSemanticContainerDisplayPage, StagingSemanticContainerDisplayReceipt,
+    StagingSemanticContainerPaint, StagingSemanticRasterObservation, StagingSemanticStructureRole,
 };
 
 use typaxis_core::{

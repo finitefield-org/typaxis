@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-fixture-matrix.schema.json",
+  "title": "Typaxis Machine Fixture Matrix 1.4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "fixtures",
+    "profile",
+    "rows",
+    "verification_commands"
+  ],
+  "properties": {
+    "contract": {
+      "const": "typaxis.machine-fixture-matrix/1"
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/fixture"
+      }
+    },
+    "profile": {
+      "enum": [
+        "typaxis.machine-pdf/basic-document-1",
+        "typaxis.machine-pdf/columns-1",
+        "typaxis.machine-pdf/float-1",
+        "typaxis.machine-pdf/footnote-1",
+        "typaxis.machine-pdf/header-footer-1",
+        "typaxis.machine-pdf/m3-all",
+        "typaxis.machine-pdf/paragraph-1",
+        "typaxis.machine-pdf/table-1"
+      ]
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    },
+    "verification_commands": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "fixture_id"
+      ],
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "fixture_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+        }
+      }
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\).+$"
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture_ids",
+        "id",
+        "test"
+      ],
+      "properties": {
+        "fixture_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+          }
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^(?:m1-(?:decoder-[0-9]{2}|closure-[a-z0-9-]+)|m2-basic-[a-z0-9-]+|m3-(?:all|columns-1|float-1|footnote|header-footer-1|table)-[a-z0-9-]+)$"
+        },
+        "test": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)+$"
+        }
+      }
+    }
+  }
+}

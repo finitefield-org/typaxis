@@ -3,6 +3,7 @@
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
+mod semantic_container;
 
 pub use advanced_columns::{
     layout_staging_columns, StagingColumnBlockLayout, StagingColumnFlowOwnerKind,
@@ -32,6 +33,14 @@ pub use advanced_header_footer::{
     StagingAdvancedFlowRegistryReceipt, StagingHeaderFooterLayout, StagingHeaderFooterLayoutError,
     StagingPageRegionKind, StagingPageRegionLayout, StagingRegionBlockLayout,
     ADVANCED_FLOW_REGISTRY_ALGORITHM,
+};
+pub use semantic_container::{
+    layout_staging_semantic_containers, StagingSemanticContainerFlow,
+    StagingSemanticContainerFlowItem, StagingSemanticContainerFlowItemKind,
+    StagingSemanticContainerFlowOwnerKind, StagingSemanticContainerFlowRegistry,
+    StagingSemanticContainerFlowRegistryReceipt, StagingSemanticContainerFragment,
+    StagingSemanticContainerLayoutError, StagingSemanticContainerSelectedLayout,
+    StagingSemanticContainerSelectedLayoutReceipt,
 };
 
 use core::cmp::Ordering;

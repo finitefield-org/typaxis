@@ -556,6 +556,7 @@ dependencies = [
  "typaxis-machine-profile",
  "typaxis-pagination",
  "typaxis-pdf",
+ "typaxis-resource-admission",
  "typaxis-resources",
  "typaxis-style",
  "typaxis-syntax",
@@ -584,6 +585,7 @@ dependencies = [
  "typaxis-core",
  "typaxis-display-list",
  "typaxis-resources",
+ "typaxis-syntax",
 ]
 
 [[package]]

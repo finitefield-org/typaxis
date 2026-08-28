@@ -18,6 +18,7 @@ mod basic_styles;
 mod capabilities;
 mod descriptor;
 mod preflight;
+mod semantic_container;
 
 #[cfg(test)]
 mod tests;
@@ -76,5 +77,11 @@ pub use preflight::{
     preflight_advanced_machine_pdf, AdvancedMachinePdfPreflightError, HostCapabilityPreflightError,
     MachinePdfPreflight, MachinePdfPreflightFailure, MachinePdfPreflightReceipt,
     MachinePdfReceiptMismatch, BASIC_PROFILE_RECEIPT_ALGORITHM, TABLE_PROFILE_RECEIPT_ALGORITHM,
+};
+pub use semantic_container::{
+    preflight_staging_semantic_container_profile, StagingSemanticContainerParentKind,
+    StagingSemanticContainerPreflightError, StagingSemanticContainerPreflightReceipt,
+    StagingSemanticContainerProfileDescriptor, StagingSemanticContainerSessionIdentity,
+    STAGING_PRODUCTION_BOOK_PROFILE_ID, STAGING_PRODUCTION_BOOK_PROFILE_RECEIPT_ALGORITHM,
 };
 pub use typaxis_core::{MachineInputLimitBounds, MachinePdfProfileId};

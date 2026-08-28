@@ -4,12 +4,15 @@ use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use typaxis_core::{
-    admitted_resource_fingerprint_from_jcs, push_jcs_string, AdmittedResourceFingerprint,
+    admitted_resource_fingerprint_from_jcs, push_jcs_string, sha256, AdmittedResourceFingerprint,
     EffectiveConfig, FontFaceId, HostAdmissionContext, ImageResourceId, PortablePath,
     ValidatedResourceLimits,
 };
 use typaxis_diagnostics::{DiagnosticSubject, PublicMachineError, ResourceErrorSubject};
-use typaxis_document::ResourceCatalog;
+use typaxis_document::{
+    FontFaceDeclaration, FontMediaDeclaration, FontMediaType, ImageDeclaration,
+    ImageMediaDeclaration, ImageMediaType, ResourceCatalog, StagingM4ResourceCatalog,
+};
 use typaxis_font::{FontFamilyError, FontFamilyTable};
 use typaxis_host_admission::{
     HostAdmissionError, HostAdmissionSession, HostReadIdentityLedger, HostReadIdentityLedgerToken,
@@ -103,6 +106,21 @@ impl AdmittedFont {
     }
     pub const fn metadata(&self) -> &AdmittedFontMetadata {
         &self.metadata
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AdmittedFontMediaKind {
+    SfntTrueTypeGlyf,
+    TtcTrueTypeGlyf,
+}
+
+impl AdmittedFontMediaKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SfntTrueTypeGlyf => "sfnt-truetype-glyf",
+            Self::TtcTrueTypeGlyf => "ttc-truetype-glyf",
+        }
     }
 }
 
@@ -208,6 +226,7 @@ pub enum ResourceAdmissionError {
     UnsafeResourceCandidate,
     ResourceNotRegularFile,
     ResourceLockUnavailable,
+    DeclaredMediaMismatch,
 }
 
 impl ResourceAdmissionError {
@@ -238,6 +257,9 @@ impl ResourceAdmissionError {
             Self::UnsafeResourceCandidate => "resource candidate is not contained",
             Self::ResourceNotRegularFile => "resource candidate is not a regular file",
             Self::ResourceLockUnavailable => "resource read lock is unavailable",
+            Self::DeclaredMediaMismatch => {
+                "declared media type does not match the stable resource bytes"
+            }
         }
     }
 }
@@ -302,7 +324,8 @@ impl ResourceAdmissionFailure {
     /// their public code is assigned by a later integration milestone.
     pub fn public_error(&self) -> Option<PublicMachineError> {
         match self.error {
-            ResourceAdmissionError::InvalidMetadata => Some(
+            ResourceAdmissionError::InvalidMetadata
+            | ResourceAdmissionError::DeclaredMediaMismatch => Some(
                 PublicMachineError::UnsupportedResource(self.subject.clone()),
             ),
             ResourceAdmissionError::UnsupportedContainedOpen => {
@@ -323,6 +346,12 @@ enum PendingResourceId {
     Image(ImageResourceId),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PendingResourceDeclaration {
+    Font(FontFaceDeclaration),
+    Image(ImageDeclaration),
+}
+
 /// Logical resource binding around one generic host-owned contained open.
 /// Only this crate can attach a font/image ID to the host read identity.
 ///
@@ -332,6 +361,7 @@ enum PendingResourceId {
 /// ```
 pub struct VerifiedResourceSource<'roots> {
     id: PendingResourceId,
+    declaration: PendingResourceDeclaration,
     opened: OpenedContainedFile<'roots>,
 }
 
@@ -423,7 +453,7 @@ impl HostResourceAdmissionSession {
         &self,
         font_face_id: FontFaceId,
     ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionError> {
-        let _declaration = self
+        let declaration = self
             .declarations
             .font_faces
             .get(font_face_id.get() as usize)
@@ -439,6 +469,7 @@ impl HostResourceAdmissionSession {
             .map_err(map_host_error)?;
         Ok(VerifiedResourceSource {
             id: PendingResourceId::Font(font_face_id),
+            declaration: PendingResourceDeclaration::Font(declaration.clone()),
             opened,
         })
     }
@@ -447,7 +478,7 @@ impl HostResourceAdmissionSession {
         &self,
         image_id: ImageResourceId,
     ) -> Result<VerifiedResourceSource<'_>, ResourceAdmissionError> {
-        let _declaration = self
+        let declaration = self
             .declarations
             .images
             .get(image_id.get() as usize)
@@ -463,6 +494,7 @@ impl HostResourceAdmissionSession {
             .map_err(map_host_error)?;
         Ok(VerifiedResourceSource {
             id: PendingResourceId::Image(image_id),
+            declaration: PendingResourceDeclaration::Image(declaration.clone()),
             opened,
         })
     }
@@ -641,6 +673,12 @@ struct ResourceAdmissionBudget {
     limits: ValidatedResourceLimits,
     reserved_bytes: u64,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DeclaredMediaPolicy {
+    fonts: Vec<FontMediaType>,
+    images: Vec<ImageMediaType>,
+}
 impl ResourceAdmissionBudget {
     fn new(
         declarations: &ResourceCatalog,
@@ -688,6 +726,7 @@ pub struct AdmittedResourceResolver<'roots> {
     session: ResourceAdmissionSessionIdentity,
     roots: Option<HostRootSetToken<'roots>>,
     declarations: ResourceCatalog,
+    declared_media_policy: Option<Arc<DeclaredMediaPolicy>>,
     budget: ResourceAdmissionBudget,
     attempted_fonts: BTreeSet<FontFaceId>,
     attempted_images: BTreeSet<ImageResourceId>,
@@ -731,6 +770,22 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         Self::new_inner(declarations, limits, Some(roots))
     }
 
+    /// Contract-1.4 resolver whose media policy is sealed into the resolver
+    /// before any stable bytes are read. Decode calls cannot substitute a
+    /// caller-selected declaration after the read.
+    pub fn new_with_declared_roots(
+        declarations: &StagingDeclaredBaseCatalog,
+        limits: &ValidatedResourceLimits,
+        roots: HostRootSetToken<'roots>,
+    ) -> Result<Self, ResourceAdmissionError> {
+        let mut resolver = Self::new_inner(declarations.resource_catalog(), limits, Some(roots))?;
+        resolver.declared_media_policy = Some(Arc::new(DeclaredMediaPolicy {
+            fonts: declarations.font_media.clone(),
+            images: declarations.image_media.clone(),
+        }));
+        Ok(resolver)
+    }
+
     fn new_inner(
         declarations: &ResourceCatalog,
         limits: &ValidatedResourceLimits,
@@ -742,6 +797,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             session: ResourceAdmissionSessionIdentity::fresh(),
             roots,
             declarations: declarations.clone(),
+            declared_media_policy: None,
             budget,
             attempted_fonts: BTreeSet::new(),
             attempted_images: BTreeSet::new(),
@@ -766,6 +822,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .get(font_face_id.get() as usize)
             .filter(|candidate| candidate.font_face_id == font_face_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        if source.declaration != PendingResourceDeclaration::Font(declaration.clone()) {
+            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+        }
         if self.attempted_fonts.contains(&font_face_id) {
             return Err(ResourceAdmissionError::ConflictingLogicalResource);
         }
@@ -807,6 +866,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .get(image_id.get() as usize)
             .filter(|candidate| candidate.image_id == image_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        if source.declaration != PendingResourceDeclaration::Image(declaration.clone()) {
+            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+        }
         if self.attempted_images.contains(&image_id) {
             return Err(ResourceAdmissionError::ConflictingLogicalResource);
         }
@@ -860,7 +922,17 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         &mut self,
         source: PendingResourceBytes,
     ) -> Result<(), ResourceAdmissionError> {
+        if self.declared_media_policy.is_some() {
+            return self.parse_and_bind_declared_sfnt(source);
+        }
         self.ensure_session(&source)?;
+        self.parse_and_bind_sfnt_after_policy(source)
+    }
+
+    fn parse_and_bind_sfnt_after_policy(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionError> {
         let (units_per_em, glyph_count) = parse_sfnt_metadata(
             source.bytes(),
             source
@@ -877,11 +949,54 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         )?;
         self.bind_verified_metadata(receipt)
     }
-    pub fn parse_and_bind_png(
+
+    /// Contract-1.4 path: compare the declared container with stable bytes
+    /// before metric decoding or glyph-outline evaluation, then reuse the
+    /// same parser which issues the admitted media attestation.
+    pub fn parse_and_bind_declared_sfnt(
         &mut self,
         source: PendingResourceBytes,
     ) -> Result<(), ResourceAdmissionError> {
         self.ensure_session(&source)?;
+        let PendingResourceId::Font(font_face_id) = source.id else {
+            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+        };
+        let declared = *self
+            .declared_media_policy
+            .as_ref()
+            .and_then(|policy| policy.fonts.get(font_face_id.get() as usize))
+            .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
+        let observed = attest_declared_font_media_kind(
+            source.bytes(),
+            source
+                .face_index()
+                .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?,
+        )
+        .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
+        let expected = match declared {
+            FontMediaType::SfntTrueTypeGlyf => AdmittedFontMediaKind::SfntTrueTypeGlyf,
+            FontMediaType::TtcTrueTypeGlyf => AdmittedFontMediaKind::TtcTrueTypeGlyf,
+        };
+        if observed != expected {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        self.parse_and_bind_sfnt_after_policy(source)
+    }
+    pub fn parse_and_bind_png(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionError> {
+        if self.declared_media_policy.is_some() {
+            return self.parse_and_bind_declared_png(source);
+        }
+        self.ensure_session(&source)?;
+        self.parse_and_bind_png_after_policy(source)
+    }
+
+    fn parse_and_bind_png_after_policy(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionError> {
         let (width, height, decoded_bytes) = parse_png_metadata(source.bytes())?;
         let pixels = u64::from(width.get())
             .checked_mul(u64::from(height.get()))
@@ -895,6 +1010,32 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let owner = VerifiedMetadataReceiptOwner::new();
         let receipt = owner.issue_png(source, width, height, decoded_bytes)?;
         self.bind_verified_metadata(receipt)
+    }
+
+    /// Contract-1.4 path: the signature comparison happens immediately after
+    /// the stable read and before PNG decoder allocation or pixel expansion.
+    pub fn parse_and_bind_declared_png(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionError> {
+        self.ensure_session(&source)?;
+        let PendingResourceId::Image(image_id) = source.id else {
+            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+        };
+        let declared = *self
+            .declared_media_policy
+            .as_ref()
+            .and_then(|policy| policy.images.get(image_id.get() as usize))
+            .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
+        let observed = attest_image_media_kind(source.bytes())
+            .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
+        let expected = match declared {
+            ImageMediaType::Png => AdmittedImageMediaKind::Png,
+        };
+        if observed != expected {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        self.parse_and_bind_png_after_policy(source)
     }
 
     pub fn parse_and_bind_sfnt_with_subject(
@@ -912,6 +1053,24 @@ impl<'roots> AdmittedResourceResolver<'roots> {
     ) -> Result<(), ResourceAdmissionFailureOutcome> {
         let subject = source.error_subject();
         self.parse_and_bind_png(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
+    pub fn parse_and_bind_declared_sfnt_with_subject(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = source.error_subject();
+        self.parse_and_bind_declared_sfnt(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
+    pub fn parse_and_bind_declared_png_with_subject(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = source.error_subject();
+        self.parse_and_bind_declared_png(source)
             .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
     }
 
@@ -1070,6 +1229,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             fonts: self.fonts.into_values().collect(),
             images: self.images.into_values().collect(),
             font_families,
+            declared_media_policy: self.declared_media_policy,
         })
     }
 }
@@ -1174,6 +1334,101 @@ fn parse_sfnt_metadata(
         return Err(ResourceAdmissionError::InvalidMetadata);
     }
     Ok((units_per_em, glyph_count))
+}
+
+fn attest_font_media_kind(bytes: &[u8]) -> Result<AdmittedFontMediaKind, ResourceAdmissionError> {
+    if bytes.get(..4) == Some(b"ttcf") {
+        Ok(AdmittedFontMediaKind::TtcTrueTypeGlyf)
+    } else if bytes.get(..4) == Some(&0x0001_0000u32.to_be_bytes()) {
+        Ok(AdmittedFontMediaKind::SfntTrueTypeGlyf)
+    } else {
+        Err(ResourceAdmissionError::InvalidMetadata)
+    }
+}
+
+/// The M4 declaration check classifies both the outer container and the
+/// selected face's TrueType outline directory. It intentionally stops before
+/// metric decoding or glyph-outline evaluation.
+fn attest_declared_font_media_kind(
+    bytes: &[u8],
+    face_index: u32,
+) -> Result<AdmittedFontMediaKind, ResourceAdmissionError> {
+    let media_kind = attest_font_media_kind(bytes)?;
+    let directory_offset = match media_kind {
+        AdmittedFontMediaKind::SfntTrueTypeGlyf => {
+            if face_index != 0 {
+                return Err(ResourceAdmissionError::InvalidMetadata);
+            }
+            0usize
+        }
+        AdmittedFontMediaKind::TtcTrueTypeGlyf => {
+            let count = read_be_u32(bytes, 8)?;
+            if face_index >= count {
+                return Err(ResourceAdmissionError::InvalidMetadata);
+            }
+            let offset_position = 12usize
+                .checked_add(
+                    usize::try_from(face_index)
+                        .map_err(|_| ResourceAdmissionError::InvalidMetadata)?
+                        .checked_mul(4)
+                        .ok_or(ResourceAdmissionError::InvalidMetadata)?,
+                )
+                .ok_or(ResourceAdmissionError::InvalidMetadata)?;
+            usize::try_from(read_be_u32(bytes, offset_position)?)
+                .map_err(|_| ResourceAdmissionError::InvalidMetadata)?
+        }
+    };
+    let signature_end = directory_offset
+        .checked_add(4)
+        .ok_or(ResourceAdmissionError::InvalidMetadata)?;
+    if bytes.get(directory_offset..signature_end) != Some(&0x0001_0000u32.to_be_bytes()) {
+        return Err(ResourceAdmissionError::InvalidMetadata);
+    }
+    let table_count = usize::from(read_be_u16(
+        bytes,
+        directory_offset
+            .checked_add(4)
+            .ok_or(ResourceAdmissionError::InvalidMetadata)?,
+    )?);
+    let directory_start = directory_offset
+        .checked_add(12)
+        .ok_or(ResourceAdmissionError::InvalidMetadata)?;
+    let mut has_glyf = false;
+    let mut has_loca = false;
+    let mut has_cff = false;
+    for index in 0..table_count {
+        let record = directory_start
+            .checked_add(
+                index
+                    .checked_mul(16)
+                    .ok_or(ResourceAdmissionError::InvalidMetadata)?,
+            )
+            .ok_or(ResourceAdmissionError::InvalidMetadata)?;
+        let tag_end = record
+            .checked_add(4)
+            .ok_or(ResourceAdmissionError::InvalidMetadata)?;
+        match bytes
+            .get(record..tag_end)
+            .ok_or(ResourceAdmissionError::InvalidMetadata)?
+        {
+            b"glyf" => has_glyf = true,
+            b"loca" => has_loca = true,
+            b"CFF " | b"CFF2" => has_cff = true,
+            _ => {}
+        }
+    }
+    if !has_glyf || !has_loca || has_cff {
+        return Err(ResourceAdmissionError::InvalidMetadata);
+    }
+    Ok(media_kind)
+}
+
+fn attest_image_media_kind(bytes: &[u8]) -> Result<AdmittedImageMediaKind, ResourceAdmissionError> {
+    if bytes.get(..8) == Some(b"\x89PNG\r\n\x1a\n") {
+        Ok(AdmittedImageMediaKind::Png)
+    } else {
+        Err(ResourceAdmissionError::InvalidMetadata)
+    }
 }
 
 fn parse_png_metadata(
@@ -1336,6 +1591,7 @@ pub struct AdmittedResourceLedger {
     fonts: Vec<AdmittedFont>,
     images: Vec<AdmittedImage>,
     font_families: FontFamilyTable,
+    declared_media_policy: Option<Arc<DeclaredMediaPolicy>>,
 }
 impl AdmittedResourceLedger {
     pub fn fonts(&self) -> &[AdmittedFont] {
@@ -1436,6 +1692,329 @@ impl AdmittedResourceLedger {
         canonical.push_str("]}");
         admitted_resource_fingerprint_from_jcs(&canonical)
     }
+}
+
+/// Stable M4 media observation issued only from a complete admitted ledger.
+/// It is separate from the frozen admitted-resource fingerprint so old
+/// manifests and layout epochs retain their exact bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingDeclaredFontAttestation {
+    font_face_id: FontFaceId,
+    uri: PortablePath,
+    family: String,
+    face_index: u32,
+    declared: FontMediaType,
+    attested: AdmittedFontMediaKind,
+    sha256: [u8; 32],
+}
+
+impl StagingDeclaredFontAttestation {
+    pub const fn font_face_id(&self) -> FontFaceId {
+        self.font_face_id
+    }
+    pub const fn uri(&self) -> &PortablePath {
+        &self.uri
+    }
+    pub fn family(&self) -> &str {
+        &self.family
+    }
+    pub const fn face_index(&self) -> u32 {
+        self.face_index
+    }
+    pub const fn declared(&self) -> FontMediaType {
+        self.declared
+    }
+    pub const fn attested(&self) -> AdmittedFontMediaKind {
+        self.attested
+    }
+    pub const fn content_hash(&self) -> [u8; 32] {
+        self.sha256
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingDeclaredImageAttestation {
+    image_id: ImageResourceId,
+    uri: PortablePath,
+    declared: ImageMediaType,
+    attested: AdmittedImageMediaKind,
+    sha256: [u8; 32],
+}
+
+impl StagingDeclaredImageAttestation {
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+    pub const fn uri(&self) -> &PortablePath {
+        &self.uri
+    }
+    pub const fn declared(&self) -> ImageMediaType {
+        self.declared
+    }
+    pub const fn attested(&self) -> AdmittedImageMediaKind {
+        self.attested
+    }
+    pub const fn content_hash(&self) -> [u8; 32] {
+        self.sha256
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingDeclaredMediaLedger {
+    fonts: Vec<StagingDeclaredFontAttestation>,
+    images: Vec<StagingDeclaredImageAttestation>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingDeclaredMediaLedger {
+    pub fn fonts(&self) -> &[StagingDeclaredFontAttestation] {
+        &self.fonts
+    }
+    pub fn images(&self) -> &[StagingDeclaredImageAttestation] {
+        &self.images
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+/// Base resource catalog plus the profile-approved media policy sealed before
+/// stable reads. Deref exposes only the frozen catalog shape to host admission;
+/// the resolver constructor consumes the private typed media vectors as well.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingDeclaredBaseCatalog {
+    resource_catalog: ResourceCatalog,
+    font_media: Vec<FontMediaType>,
+    image_media: Vec<ImageMediaType>,
+}
+
+impl StagingDeclaredBaseCatalog {
+    pub const fn resource_catalog(&self) -> &ResourceCatalog {
+        &self.resource_catalog
+    }
+}
+
+impl std::ops::Deref for StagingDeclaredBaseCatalog {
+    type Target = ResourceCatalog;
+
+    fn deref(&self) -> &Self::Target {
+        self.resource_catalog()
+    }
+}
+
+/// Builds the ordinary resolver catalog without inventing media labels. The
+/// caller must first hold the M4 profile receipt; legacy variants are rejected
+/// before any host-open API can be reached.
+pub fn staging_declared_base_catalog(
+    declarations: &StagingM4ResourceCatalog,
+) -> Result<StagingDeclaredBaseCatalog, ResourceAdmissionError> {
+    let mut font_faces = Vec::new();
+    let mut font_media = Vec::new();
+    font_faces
+        .try_reserve_exact(declarations.font_faces.len())
+        .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    font_media
+        .try_reserve_exact(declarations.font_faces.len())
+        .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    for declaration in &declarations.font_faces {
+        let FontMediaDeclaration::Declared(media) = declaration.media else {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        };
+        font_media.push(media);
+        font_faces.push(FontFaceDeclaration {
+            font_face_id: declaration.font_face_id,
+            family: declaration.family.clone(),
+            uri: declaration.uri.clone(),
+            face_index: declaration.face_index,
+            expected_sha256: declaration.expected_sha256,
+        });
+    }
+    let mut images = Vec::new();
+    let mut image_media = Vec::new();
+    images
+        .try_reserve_exact(declarations.images.len())
+        .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    image_media
+        .try_reserve_exact(declarations.images.len())
+        .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    for declaration in &declarations.images {
+        let ImageMediaDeclaration::Declared(media) = declaration.media else {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        };
+        image_media.push(media);
+        images.push(ImageDeclaration {
+            image_id: declaration.image_id,
+            uri: declaration.uri.clone(),
+            expected_sha256: declaration.expected_sha256,
+        });
+    }
+    let catalog = ResourceCatalog { font_faces, images };
+    validate_declaration_order(&catalog)?;
+    Ok(StagingDeclaredBaseCatalog {
+        resource_catalog: catalog,
+        font_media,
+        image_media,
+    })
+}
+
+/// Exact declaration/attestation closure used by the internal dump-ast
+/// exporter and the new manifest branch. URI suffixes are never consulted.
+pub fn close_staging_declared_media(
+    admitted: &AdmittedResourceLedger,
+    declarations: &StagingM4ResourceCatalog,
+) -> Result<StagingDeclaredMediaLedger, ResourceAdmissionError> {
+    let expected_font_media: Vec<_> = declarations
+        .font_faces
+        .iter()
+        .map(|declaration| match declaration.media {
+            FontMediaDeclaration::Declared(media) => Ok(media),
+            FontMediaDeclaration::LegacyUnspecified => {
+                Err(ResourceAdmissionError::DeclaredMediaMismatch)
+            }
+        })
+        .collect::<Result<_, _>>()?;
+    let expected_image_media: Vec<_> = declarations
+        .images
+        .iter()
+        .map(|declaration| match declaration.media {
+            ImageMediaDeclaration::Declared(media) => Ok(media),
+            ImageMediaDeclaration::LegacyUnspecified => {
+                Err(ResourceAdmissionError::DeclaredMediaMismatch)
+            }
+        })
+        .collect::<Result<_, _>>()?;
+    let Some(policy) = admitted.declared_media_policy.as_deref() else {
+        return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+    };
+    if policy.fonts != expected_font_media || policy.images != expected_image_media {
+        return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+    }
+    if admitted.fonts.len() != declarations.font_faces.len()
+        || admitted.images.len() != declarations.images.len()
+    {
+        return Err(ResourceAdmissionError::MissingLogicalResource);
+    }
+    let mut fonts = Vec::new();
+    fonts
+        .try_reserve_exact(declarations.font_faces.len())
+        .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    for (font, declaration) in admitted.fonts.iter().zip(&declarations.font_faces) {
+        let FontMediaDeclaration::Declared(declared) = declaration.media else {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        };
+        let expected = match declared {
+            FontMediaType::SfntTrueTypeGlyf => AdmittedFontMediaKind::SfntTrueTypeGlyf,
+            FontMediaType::TtcTrueTypeGlyf => AdmittedFontMediaKind::TtcTrueTypeGlyf,
+        };
+        let observed = attest_declared_font_media_kind(font.bytes(), font.face_index())
+            .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
+        if font.font_face_id() != declaration.font_face_id
+            || font.uri() != &declaration.uri
+            || font.family() != declaration.family
+            || font.face_index() != declaration.face_index
+            || observed != expected
+            || declaration
+                .expected_sha256
+                .is_some_and(|hash| hash != font.content_hash())
+        {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        fonts.push(StagingDeclaredFontAttestation {
+            font_face_id: font.font_face_id(),
+            uri: font.uri().clone(),
+            family: font.family().to_owned(),
+            face_index: font.face_index(),
+            declared,
+            attested: observed,
+            sha256: font.content_hash(),
+        });
+    }
+    let mut images = Vec::new();
+    images
+        .try_reserve_exact(declarations.images.len())
+        .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+    for (image, declaration) in admitted.images.iter().zip(&declarations.images) {
+        let ImageMediaDeclaration::Declared(declared) = declaration.media else {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        };
+        let expected = match declared {
+            ImageMediaType::Png => AdmittedImageMediaKind::Png,
+        };
+        if image.image_id() != declaration.image_id
+            || image.uri() != &declaration.uri
+            || image.media_kind() != expected
+            || declaration
+                .expected_sha256
+                .is_some_and(|hash| hash != image.content_hash())
+        {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        images.push(StagingDeclaredImageAttestation {
+            image_id: image.image_id(),
+            uri: image.uri().clone(),
+            declared,
+            attested: image.media_kind(),
+            sha256: image.content_hash(),
+        });
+    }
+    let canonical_jcs = encode_staging_declared_media(&fonts, &images);
+    Ok(StagingDeclaredMediaLedger {
+        fonts,
+        images,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
+fn encode_staging_declared_media(
+    fonts: &[StagingDeclaredFontAttestation],
+    images: &[StagingDeclaredImageAttestation],
+) -> String {
+    let mut output =
+        String::from("{\"algorithm\":\"typaxis.declared-media-attestation/1\",\"fonts\":[");
+    for (index, font) in fonts.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"attested_media_kind\":");
+        push_jcs_string(&mut output, font.attested.as_str());
+        output.push_str(",\"declared_media_type\":");
+        push_jcs_string(&mut output, font.declared.as_str());
+        output.push_str(",\"face_index\":");
+        output.push_str(&font.face_index.to_string());
+        output.push_str(",\"family\":");
+        push_jcs_string(&mut output, &font.family);
+        output.push_str(",\"font_face_id\":");
+        output.push_str(&font.font_face_id.get().to_string());
+        output.push_str(",\"sha256\":");
+        push_hash_hex(&mut output, font.sha256);
+        output.push_str(",\"uri\":");
+        push_jcs_string(&mut output, font.uri.as_str());
+        output.push('}');
+    }
+    output.push_str("],\"images\":[");
+    for (index, image) in images.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"attested_media_kind\":");
+        push_jcs_string(&mut output, image.attested.as_str());
+        output.push_str(",\"declared_media_type\":");
+        push_jcs_string(&mut output, image.declared.as_str());
+        output.push_str(",\"image_id\":");
+        output.push_str(&image.image_id.get().to_string());
+        output.push_str(",\"sha256\":");
+        push_hash_hex(&mut output, image.sha256);
+        output.push_str(",\"uri\":");
+        push_jcs_string(&mut output, image.uri.as_str());
+        output.push('}');
+    }
+    output.push_str("]}");
+    output
 }
 
 /// Sealed, session-bound snapshot of successfully verified resources.
@@ -1696,6 +2275,15 @@ mod tests {
         let public = failure.public_error().unwrap();
         assert_eq!(public.code(), typaxis_diagnostics::R7100);
         assert_eq!(public.subject(), Some(DiagnosticSubject::Resource(subject)));
+
+        let mismatch = ResourceAdmissionFailure::new(
+            ResourceAdmissionError::DeclaredMediaMismatch,
+            ResourceErrorSubject::Image(ImageResourceId::new(2)),
+        );
+        assert_eq!(
+            mismatch.public_error().unwrap().code(),
+            typaxis_diagnostics::R7100
+        );
     }
 
     struct TempTree {
@@ -2423,6 +3011,34 @@ mod tests {
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
     #[test]
+    fn host_open_cannot_be_rebound_to_a_different_resource_declaration() {
+        let bytes = sfnt();
+        let host_catalog = font_catalog(1);
+        let mut resolver_catalog = host_catalog.clone();
+        resolver_catalog.font_faces[0].family = "different-family".to_owned();
+        let tree = TempTree::new("resolver-declaration-identity");
+        fs::write(tree.path().join("font-0.ttf"), bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let host = HostResourceAdmissionSession::new(
+            &host_context(tree.path(), &[]),
+            &config,
+            &host_catalog,
+        )
+        .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_roots(
+            &resolver_catalog,
+            config.limits(),
+            host.roots(),
+        )
+        .unwrap();
+        assert!(matches!(
+            resolver.read_font(host.open_font(FontFaceId::new(0)).unwrap()),
+            Err(ResourceAdmissionError::ReceiptIdentityMismatch)
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
     fn font_instance_identity_is_ledger_issued_and_dense() {
         let bytes = sfnt();
         let mut catalog = font_catalog(1);
@@ -2452,5 +3068,166 @@ mod tests {
         assert_eq!(instance.admitted_sha256(), sha256(&bytes));
         assert_eq!(instance.metadata().units_per_em, 1000);
         assert_eq!(instance.metadata().glyph_count, 3);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn declared_media_base_exactly_attests_png_sfnt_and_ttc_without_suffixes() {
+        let sfnt = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/body.bin"
+        ));
+        let ttc = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/collection.bin"
+        ));
+        let png = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/cover.bin"
+        ));
+        let declared = StagingM4ResourceCatalog {
+            font_faces: vec![
+                typaxis_document::StagingM4FontFaceDeclaration {
+                    font_face_id: FontFaceId::new(0),
+                    family: "Body".to_owned(),
+                    uri: PortablePath::new("body.bin").unwrap(),
+                    face_index: 0,
+                    expected_sha256: Some(sha256(sfnt)),
+                    media: FontMediaDeclaration::Declared(FontMediaType::SfntTrueTypeGlyf),
+                },
+                typaxis_document::StagingM4FontFaceDeclaration {
+                    font_face_id: FontFaceId::new(1),
+                    family: "Collection".to_owned(),
+                    uri: PortablePath::new("collection.bin").unwrap(),
+                    face_index: 0,
+                    expected_sha256: Some(sha256(ttc)),
+                    media: FontMediaDeclaration::Declared(FontMediaType::TtcTrueTypeGlyf),
+                },
+            ],
+            images: vec![typaxis_document::StagingM4ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("cover.bin").unwrap(),
+                expected_sha256: Some(sha256(png)),
+                media: ImageMediaDeclaration::Declared(ImageMediaType::Png),
+            }],
+        };
+        let catalog = staging_declared_base_catalog(&declared).unwrap();
+        let tree = TempTree::new("declared-media-base");
+        fs::write(tree.path().join("body.bin"), sfnt).unwrap();
+        fs::write(tree.path().join("collection.bin"), ttc).unwrap();
+        fs::write(tree.path().join("cover.bin"), png).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots(
+            &catalog,
+            config.limits(),
+            host.roots(),
+        )
+        .unwrap();
+        let first = resolver
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_declared_sfnt(first).unwrap();
+        let second = resolver
+            .read_font(host.open_font(FontFaceId::new(1)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_declared_sfnt(second).unwrap();
+        let image = resolver
+            .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_declared_png(image).unwrap();
+        let ledger = resolver.finish().unwrap();
+        let mut unbound = ledger.clone();
+        unbound.declared_media_policy = None;
+        assert_eq!(
+            close_staging_declared_media(&unbound, &declared),
+            Err(ResourceAdmissionError::DeclaredMediaMismatch)
+        );
+        let closed = close_staging_declared_media(&ledger, &declared).unwrap();
+        assert_eq!(closed.fonts().len(), 2);
+        assert_eq!(closed.images().len(), 1);
+        assert_eq!(
+            closed.fonts()[0].attested(),
+            AdmittedFontMediaKind::SfntTrueTypeGlyf
+        );
+        assert_eq!(
+            closed.fonts()[1].attested(),
+            AdmittedFontMediaKind::TtcTrueTypeGlyf
+        );
+        assert!(closed
+            .canonical_jcs()
+            .contains("\"declared_media_type\":\"ttc-truetype-glyf\""));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn declared_media_base_rejects_legacy_before_open_and_mismatch_after_stable_read() {
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/body.bin"
+        ));
+        let mut wrong_outline = bytes.to_vec();
+        let glyf = wrong_outline
+            .windows(4)
+            .position(|window| window == b"glyf")
+            .unwrap();
+        wrong_outline[glyf..glyf + 4].copy_from_slice(b"CFF ");
+        assert_eq!(
+            attest_declared_font_media_kind(&wrong_outline, 0),
+            Err(ResourceAdmissionError::InvalidMetadata)
+        );
+        let mut ambiguous_outline = bytes.to_vec();
+        let name = ambiguous_outline
+            .windows(4)
+            .position(|window| window == b"name")
+            .unwrap();
+        ambiguous_outline[name..name + 4].copy_from_slice(b"CFF ");
+        assert_eq!(
+            attest_declared_font_media_kind(&ambiguous_outline, 0),
+            Err(ResourceAdmissionError::InvalidMetadata)
+        );
+        let mut declared = StagingM4ResourceCatalog {
+            font_faces: vec![typaxis_document::StagingM4FontFaceDeclaration {
+                font_face_id: FontFaceId::new(0),
+                family: "Body".to_owned(),
+                uri: PortablePath::new("font.resource").unwrap(),
+                face_index: 0,
+                expected_sha256: Some(sha256(bytes)),
+                media: FontMediaDeclaration::LegacyUnspecified,
+            }],
+            images: vec![],
+        };
+        assert_eq!(
+            staging_declared_base_catalog(&declared),
+            Err(ResourceAdmissionError::DeclaredMediaMismatch)
+        );
+
+        declared.font_faces[0].media =
+            FontMediaDeclaration::Declared(FontMediaType::TtcTrueTypeGlyf);
+        let catalog = staging_declared_base_catalog(&declared).unwrap();
+        let tree = TempTree::new("declared-media-mismatch");
+        fs::write(tree.path().join("font.resource"), bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots(
+            &catalog,
+            config.limits(),
+            host.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            // The legacy-named parser cannot bypass a resolver whose M4
+            // declaration policy was sealed before the stable read.
+            resolver.parse_and_bind_sfnt(pending),
+            Err(ResourceAdmissionError::DeclaredMediaMismatch)
+        );
+        assert!(resolver.progress_token().fonts().is_empty());
     }
 }

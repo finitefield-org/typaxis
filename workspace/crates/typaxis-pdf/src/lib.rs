@@ -4,6 +4,7 @@ mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
+mod semantic_container;
 
 pub use advanced_columns::{
     serialize_columns_pdf, serialize_staging_columns_pdf, StagingColumnsPdf,
@@ -18,6 +19,11 @@ pub use advanced_header_footer::{
     serialize_header_footer_pdf, serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,
     StagingHeaderFooterPdfClosureReceipt, StagingHeaderFooterPdfError,
     StagingHeaderFooterPdfPageObservation, STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
+};
+pub use semantic_container::{
+    write_staging_semantic_container_pdf, StagingSemanticContainerPdf,
+    StagingSemanticContainerPdfClosureReceipt, StagingSemanticContainerPdfError,
+    StagingSemanticContainerPdfPageObservation, StagingSemanticContainerStructureInput,
 };
 
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};

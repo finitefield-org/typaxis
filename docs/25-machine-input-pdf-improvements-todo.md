@@ -1938,7 +1938,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-02 M4 contract scaffoldとSemantic containerをPDF observationまで実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-01
 - Design inputs: docs/25 §7、§13.4
 - Primary files:
@@ -1988,6 +1988,11 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_semantic_container --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli dump_ast_m4_base_media --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-28, Linux):
+  - non-current `typaxis.contract/1.4`をprivate staging registryとして追加し、required media declaration、result/proof/exercise semantic container、canonical JCS decode/re-encodeをWire DTOからtrusted domainまでlosslessに接続した。decoderでbyte/depth/node/style/resource limitを固定し、encoderも同じreceipted limitを再適用する。public current contract、1.3 Schema alias、capability bytes、CLI help/command grammarは変更せず、旧contract/profileによる1.4 input拒否をintegration testで凍結した。
+  - syntax/profileはNodeId、source span、class/style scope、child ownership、recursive non-empty、closed kind/nesting、package/limit/session authorizationをlayout前に検証する。container、nested container、list/table/footnote subflowをcanonical Flow registryへ登録し、parent/position/style/profile/LayoutEpochをbindしたselected fragmentとfirst/middle/last splitを作る。typed computed styleからDisplay child paint、structure role input、deterministic PDF/raster observationへ渡し、raw kindの再解釈を後段に残していない。
+  - PNG、TrueType glyf sfnt、TrueType glyf TTCのrequired declarationをprofile policyへ封印し、opaque suffixのfixtureをstable readしてdecoder-issued attestationとexact照合する。CFF/CFF2、missing/unknown/disallowed declaration、cross-catalog rebinding、generic parse bypass、declared/actual mismatchをresource allocation・outline evaluation・PDF開始前に拒否し、同じattestationだけを使うshared exporterはtest-only staging入口に限定した。
+  - selected layout、Display、PDF、declared media、manifestを相互receipt/fingerprintで閉じ、kind/source/style/nested/page-split/mediaを保持するnon-lossy fixtureとtamper/alternate-layout/exact-limit testsを追加した。指定9 gate、workspace全target/all-feature check/test、strict clippy、format、forbidden dependency audit、Schema validator、diff/whitespaceと最終source reviewをlocal exit 0で完了し、21 private 1.4 Schemaとpublic 1.3 byte isolationを確認した。
 - Non-goals:
   - tagged PDF role assignmentの公開
   - semantic container用reference TSF grammar

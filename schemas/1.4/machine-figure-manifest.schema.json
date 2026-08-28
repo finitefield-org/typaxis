@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-figure-manifest.schema.json",
+  "title": "Typaxis Machine PNG Figure Manifest Staging Facts 1.4",
+  "description": "Non-current MI2-06 admitted PNG, figure/caption placement, DrawImage, and serialized image-XObject closure facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "body",
+    "contract",
+    "display_sha256",
+    "figure_usage_sha256",
+    "figures",
+    "flow_registry_sha256",
+    "image_xobject_count",
+    "image_xobjects",
+    "layout_epoch",
+    "layout_state_sha256",
+    "master_id",
+    "object_count",
+    "package_sha256",
+    "page_count",
+    "page_height",
+    "page_width",
+    "pages",
+    "pdf_byte_length",
+    "pdf_sha256",
+    "policy_version",
+    "profile",
+    "selected_state_sha256"
+  ],
+  "properties": {
+    "algorithm": {
+      "const": "typaxis.machine-figure-manifest/1"
+    },
+    "body": {
+      "$ref": "common.schema.json#/$defs/rect"
+    },
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "display_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "figure_usage_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "figures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/figure"
+      }
+    },
+    "flow_registry_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "image_xobject_count": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "image_xobjects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/image_xobject"
+      }
+    },
+    "layout_epoch": {
+      "$ref": "common.schema.json#/$defs/layout_epoch"
+    },
+    "layout_state_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "master_id": {
+      "$ref": "common.schema.json#/$defs/master_id"
+    },
+    "object_count": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "package_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "page_count": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "page_height": {
+      "$ref": "common.schema.json#/$defs/positive_length"
+    },
+    "page_width": {
+      "$ref": "common.schema.json#/$defs/positive_length"
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    },
+    "pdf_byte_length": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "pdf_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "policy_version": {
+      "const": "typaxis.basic-png-figure-policy/1"
+    },
+    "profile": {
+      "const": "typaxis.machine-pdf/basic-document-1"
+    },
+    "selected_state_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "caption_fragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caption_flow_id",
+        "caption_node_id",
+        "page_index",
+        "rect"
+      ],
+      "properties": {
+        "caption_flow_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "caption_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "rect": {
+          "$ref": "common.schema.json#/$defs/rect"
+        }
+      }
+    },
+    "figure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admitted_byte_length",
+        "admitted_sha256",
+        "alt",
+        "attested_media_kind",
+        "caption_flow_id",
+        "caption_fragments",
+        "decoded_bytes",
+        "document_ordinal",
+        "draw_image_count",
+        "effective_space_before",
+        "figure_flow_id",
+        "figure_node_id",
+        "image_id",
+        "keep_policy",
+        "moved_to_fresh_page",
+        "oversize_policy",
+        "page_index",
+        "pixel_height",
+        "pixel_width",
+        "rect"
+      ],
+      "properties": {
+        "admitted_byte_length": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        },
+        "admitted_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "alt": {
+          "type": "string"
+        },
+        "attested_media_kind": {
+          "const": "png"
+        },
+        "caption_flow_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "caption_fragments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/caption_fragment"
+          }
+        },
+        "decoded_bytes": {
+          "$ref": "common.schema.json#/$defs/positive_safe_integer"
+        },
+        "document_ordinal": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "draw_image_count": {
+          "const": 1
+        },
+        "effective_space_before": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "figure_flow_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "figure_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "image_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "keep_policy": {
+          "enum": [
+            "allow_caption_split",
+            "keep_image_and_caption"
+          ]
+        },
+        "moved_to_fresh_page": {
+          "type": "boolean"
+        },
+        "oversize_policy": {
+          "const": "terminal_once"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "pixel_height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "pixel_width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "rect": {
+          "$ref": "common.schema.json#/$defs/rect"
+        }
+      }
+    },
+    "image_xobject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_id",
+        "resource_name"
+      ],
+      "properties": {
+        "image_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "resource_name": {
+          "type": "string",
+          "pattern": "^/Im(?:0|[1-9][0-9]*)$"
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caption_block_count",
+        "figure_count",
+        "page_index"
+      ],
+      "properties": {
+        "caption_block_count": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "figure_count": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        }
+      }
+    }
+  }
+}

@@ -4373,6 +4373,7 @@ fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Fail
         | Error::ConflictingLogicalResource
         | Error::ExpectedHashMismatch
         | Error::InvalidMetadata
+        | Error::DeclaredMediaMismatch
         | Error::InvalidFontFamily
         | Error::MissingResourceCandidate
         | Error::AmbiguousResourceCandidate
@@ -7028,5 +7029,204 @@ pub(crate) mod tests {
         ));
         assert_eq!(diagnostics.diagnostics().len(), 1);
         assert_eq!(*diagnostics.diagnostics()[0].code(), L5101);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    struct StagingSemanticRun {
+        package: typaxis_syntax::ValidatedStagingSemanticPackage,
+        profile: typaxis_machine_profile::StagingSemanticContainerPreflightReceipt,
+        selected: typaxis_layout::StagingSemanticContainerSelectedLayout,
+        display: typaxis_display_list::StagingSemanticContainerDisplay,
+        pdf: typaxis_pdf::StagingSemanticContainerPdf,
+        media: typaxis_resources::StagingDeclaredMediaLedger,
+        manifest: typaxis_manifest::StagingSemanticContainerManifest,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_semantic_container() -> StagingSemanticRun {
+        use typaxis_machine_profile::{
+            preflight_staging_semantic_container_profile, StagingSemanticContainerSessionIdentity,
+        };
+        use typaxis_resources::{close_staging_declared_media, staging_declared_base_catalog};
+
+        let job = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../samples/machine-package/staging/production-book-1/semantic-container/job",
+        );
+        let package_path = job.join("document-package.json");
+        let bytes = fs::read(&package_path).unwrap();
+        let config = config();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                &bytes,
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let package = typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse(decoded, config.limits())
+            .unwrap();
+        let profile = preflight_staging_semantic_container_profile(
+            &package,
+            config.limits(),
+            &StagingSemanticContainerSessionIdentity::fresh(),
+        )
+        .unwrap();
+
+        // Profile preflight completes before this conversion exposes any
+        // host-open path for the declared resources.
+        let base = staging_declared_base_catalog(package.resources()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(job).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let session = HostResourceAdmissionSession::new(&admission, &config, &base).unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots(
+            &base,
+            config.limits(),
+            session.roots(),
+        )
+        .unwrap();
+        for declaration in &package.resources().font_faces {
+            let pending = resolver
+                .read_font(session.open_font(declaration.font_face_id).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_sfnt(pending).unwrap();
+        }
+        for declaration in &package.resources().images {
+            let pending = resolver
+                .read_image(session.open_image(declaration.image_id).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_png(pending).unwrap();
+        }
+        let admitted = resolver.finish().unwrap();
+        let media = close_staging_declared_media(&admitted, package.resources()).unwrap();
+        let selected = typaxis_layout::layout_staging_semantic_containers(
+            &package,
+            profile.authorization(),
+            2,
+        )
+        .unwrap();
+        let display = typaxis_display_list::build_staging_semantic_container_display(
+            &package,
+            profile.authorization(),
+            &selected,
+        )
+        .unwrap();
+        let pdf = typaxis_pdf::write_staging_semantic_container_pdf(
+            &package,
+            profile.authorization(),
+            &display,
+        )
+        .unwrap();
+        let manifest = typaxis_manifest::build_staging_semantic_container_manifest(
+            &package, &profile, &selected, &display, &pdf, &media,
+        )
+        .unwrap();
+        StagingSemanticRun {
+            package,
+            profile,
+            selected,
+            display,
+            pdf,
+            media,
+            manifest,
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_semantic_container_closes_wire_flow_display_pdf_manifest_and_media() {
+        let run = run_staging_machine_semantic_container();
+        let expected_manifest = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/semantic-container/staging-semantic-container.json"
+        ));
+        assert_eq!(run.manifest.canonical_jcs(), expected_manifest.trim_end());
+        run.manifest
+            .verify(
+                &run.package,
+                &run.profile,
+                &run.selected,
+                &run.display,
+                &run.pdf,
+                &run.media,
+            )
+            .unwrap();
+        assert_eq!(run.package.semantic_container_count(), 3);
+        assert_eq!(run.profile.container_count(), 3);
+        assert_eq!(run.selected.fragments().len(), 4);
+        assert_eq!(run.display.pages().len(), 4);
+        assert_eq!(run.pdf.pages().len(), 4);
+        assert_eq!(run.manifest.selected_facts().len(), 4);
+        assert_eq!(run.manifest.resources().len(), 3);
+        assert_eq!(run.media.fonts().len(), 2);
+        for ((fact, fragment), page) in run
+            .manifest
+            .selected_facts()
+            .iter()
+            .zip(run.selected.fragments())
+            .zip(run.pdf.pages())
+        {
+            assert_eq!(fact.owner(), fragment.owner());
+            assert_eq!(fact.raster_fingerprint(), page.raster_fingerprint());
+            assert_eq!(fact.selected_fragment_fingerprint(), fragment.fingerprint());
+        }
+        assert!(run
+            .pdf
+            .bytes()
+            .windows(b"typaxis-semantic /Result /Div".len())
+            .any(|window| window == b"typaxis-semantic /Result /Div"));
+
+        let alternate = typaxis_layout::layout_staging_semantic_containers(
+            &run.package,
+            run.profile.authorization(),
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            typaxis_manifest::build_staging_semantic_container_manifest(
+                &run.package,
+                &run.profile,
+                &alternate,
+                &run.display,
+                &run.pdf,
+                &run.media,
+            ),
+            Err(typaxis_manifest::StagingSemanticContainerManifestError::ReceiptMismatch)
+        ));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn dump_ast_m4_base_media_uses_only_stable_attestation_and_stays_private() {
+        let run = run_staging_machine_semantic_container();
+        let exported = crate::artifacts::staging_m4_document_package_from_attested_media(
+            &run.package,
+            &run.media,
+        )
+        .unwrap();
+        assert!(exported.contains("\"media_type\":\"png\""));
+        assert!(exported.contains("\"media_type\":\"sfnt-truetype-glyf\""));
+        assert!(exported.contains("\"media_type\":\"ttc-truetype-glyf\""));
+        assert!(exported.contains("\"uri\":\"cover.bin\""));
+        assert!(exported.contains("\"uri\":\"body.bin\""));
+        let config = config();
+        assert!(wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                exported.as_bytes(),
+                &wire::DocumentPackageDecodePolicy::new(config.limits())
+            )
+            .is_ok());
+        assert!(wire::StrictDocumentPackageDecoder::new()
+            .decode(
+                exported.as_bytes(),
+                &wire::DocumentPackageDecodePolicy::new(config.limits())
+            )
+            .is_err());
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
     }
 }

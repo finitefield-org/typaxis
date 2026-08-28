@@ -150,6 +150,16 @@ manifest `advanced_pagination` members are byte-identical. The focused
 matrices and aggregate `matrices/m3-all.json` drive the normal public CLI;
 there is no private advanced runner or hidden selector.
 
+The private MI4-02 slice is under
+`staging/production-book-1/semantic-container/`. Its contract-1.4 package
+contains result, proof, and exercise owners with nested page splitting, and
+declares PNG, standalone TrueType sfnt, and TrueType collection bytes through
+opaque `.bin` paths. `staging-semantic-container.json` is canonical JCS and
+binds the selected fragments, typed style, Display paint, PDF/raster
+observations, and separate declared/decoder-attested media facts. Crate tests
+and `schemas/validate.py` consume this slice; no public CLI selector accepts
+contract 1.4 or `production-book-1` before MI4-13.
+
 ## Regenerate hashes and expectations
 
 The bundle is generated, not hand-rehashed. Edit the generator inputs and run:

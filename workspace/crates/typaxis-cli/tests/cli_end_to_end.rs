@@ -1393,3 +1393,82 @@ fn machine_link_staging_slice_uses_the_normal_public_pipeline() {
     );
     assert_ne!(rejected_profile.status.code(), Some(2));
 }
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn semantic_container_staging_contract_and_profile_remain_private() {
+    let repository = repository_root();
+    let fixture =
+        repository.join("samples/machine-package/staging/production-book-1/semantic-container");
+
+    for arguments in [
+        strings(&["--help"]),
+        strings(&["build-package", "--help"]),
+        strings(&["check-package", "--help"]),
+        strings(&["dump-ast", "--help"]),
+    ] {
+        let help = run(&repository, &arguments);
+        assert!(help.status.success());
+        let help = String::from_utf8(help.stdout).unwrap();
+        assert!(!help.contains("production-book-1"));
+        assert!(!help.contains("typaxis.contract/1.4"));
+        assert!(!help.contains("semantic_container"));
+    }
+
+    let capabilities = run(&repository, &strings(&["capabilities", "--format", "json"]));
+    assert!(capabilities.status.success());
+    assert!(capabilities.stderr.is_empty());
+    assert_eq!(
+        capabilities.stdout,
+        fs::read(repository.join("samples/machine-package/capabilities.json")).unwrap()
+    );
+    let capabilities = String::from_utf8(capabilities.stdout).unwrap();
+    assert!(!capabilities.contains("production-book-1"));
+    assert!(!capabilities.contains("typaxis.contract/1.4"));
+
+    let current_schema = fs::read(repository.join("schemas/document-package.schema.json")).unwrap();
+    assert_eq!(
+        current_schema,
+        fs::read(repository.join("schemas/1.3/document-package.schema.json")).unwrap()
+    );
+    assert_ne!(
+        current_schema,
+        fs::read(repository.join("schemas/1.4/document-package.schema.json")).unwrap()
+    );
+    assert_eq!(
+        typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
+        "typaxis.contract/1.3"
+    );
+
+    let rejected_contract = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/paragraph-1",
+        ]),
+    );
+    assert_eq!(rejected_contract.status.code(), Some(1));
+    assert!(String::from_utf8(rejected_contract.stderr)
+        .unwrap()
+        .contains("P1103: unknown DocumentPackage contract at /contract"));
+
+    let rejected_profile = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/production-book-1",
+        ]),
+    );
+    assert_eq!(rejected_profile.status.code(), Some(2));
+    assert!(String::from_utf8(rejected_profile.stderr)
+        .unwrap()
+        .contains("unknown machine PDF profile `typaxis.machine-pdf/production-book-1`"));
+}
