@@ -65,14 +65,14 @@ public until it contains the complete adopted shape. No partial staging shape
 may be exposed under the reserved ID.
 
 The compatibility judgment applies to the complete planned M4 wire family:
-the semantic container, later math/vector bindings, document
+the semantic container, ADR-0033 math/vector bindings, ADR-0034 document
 metadata/language/outline facts, tagged-structure inputs, and required media
 discriminators all belong to the new 1.4 boundary and none may be added to a
 frozen 1.0 through 1.3 shape. Their assigned decision-gate ADRs may add exact
-fields to the private 1.4 registry before MI4-13; this reservation does not
-pre-adopt those fields or their semantics. A planned field not adopted by the
-publication gate is absent, while a wire addition after 1.4 is frozen requires
-another contract migration.
+fields to the private 1.4 registry before MI4-13; this base reservation does
+not pre-adopt later fields or their semantics. A planned field not adopted by
+the publication gate is absent, while a wire addition after 1.4 is frozen
+requires another contract migration.
 
 At this ADR's adoption:
 
@@ -90,6 +90,7 @@ Contract 1.4 adds one `block` alternative with this exact closed shape:
 
 ```json
 {
+  "anchor_id": null,
   "blocks": [
     {
       "children": [
@@ -118,8 +119,10 @@ Contract 1.4 adds one `block` alternative with this exact closed shape:
 }
 ```
 
-The example uses canonical JCS member order. All six members are required,
-`additionalProperties` is false, and `blocks` has at least one item.
+The example uses canonical JCS member order. All seven shown members are
+required and `blocks` has at least one item. ADR-0034 additionally permits the
+sole optional `language` member on the assembled private target;
+`additionalProperties` remains false over that combined property set.
 `semantic_kind` is exactly one of:
 
 ```text
@@ -134,6 +137,13 @@ namespaced extension value, `other`, custom role, or fallback kind in contract
 profile. The container never generates a localized label such as “Proof” and
 has no implicit title; an authored heading or paragraph child carries visible
 label text and its own SourceSpan.
+
+[ADR-0034](ADR-0034-document-metadata-language-and-outline.md) adds the
+required nullable `anchor_id` during the still-private 1.4 assembly. A
+non-null value makes the container an ordinary named-destination owner but
+never an implicit outline entry; null means no container-owned destination.
+It also owns the optional semantic `language` override and inheritance rules;
+this base ADR assigns neither field an independent meaning.
 
 The block is admitted anywhere the general DocumentPackage `block` type is
 admitted: the document body, a list item, table cell, figure caption, footnote
@@ -231,8 +241,9 @@ same-position, or post-terminal records are `I9190`.
 
 A semantic container does not create an outline entry and does not infer an
 outline title from its kind, classes, or first child. Headings inside it remain
-ordinary heading nodes and participate in the separately adopted outline
-hierarchy under their own NodeIds and anchors.
+ordinary heading nodes. ADR-0034's explicit outline registry may reference a
+heading or an anchored semantic container under its own NodeId and exact
+AnchorId; it never derives an entry from kind, text, or selected coordinates.
 
 For tagged structure, the typed mapping is reserved now:
 
@@ -511,8 +522,9 @@ The publication surfaces are therefore fixed independently:
 ## Atomic publication order
 
 MI4-02 first creates an independent non-current 1.4 staging registry containing
-the base declarations and container. ADR-0033 and later M4 decision gates
-extend that same private target only with their adopted fields and enum values.
+the base declarations and container. ADR-0033 and ADR-0034, followed by later
+M4 decision gates, extend that same private target only with their adopted
+fields and enum values.
 At every intermediate commit:
 
 - public contract 1.4 input is `P1103`;

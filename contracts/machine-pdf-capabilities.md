@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) and [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
+This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), and [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
 
 ## Status axes
 
@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes, ADR-0032 base plus ADR-0033 math/safe-vector target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector admission/PDF, and math source/vector/alternative staging | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, and ADR-0034 metadata/language/outline target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector admission/PDF, and math source/vector/alternative staging; metadata/navigation implementation remains MI4-07 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -600,6 +600,87 @@ identities. MI4-04 implements the SafeVector branch privately; MI4-05 owns the
 remaining math branch. Public capabilities, current Schema aliases, old
 profiles, and default remain unchanged until MI4-13.
 
+### Adopted M4 document metadata, language, and outline extension
+
+[ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md) adds
+required top-level `metadata` and `outline` objects plus required
+`document.language` to the private contract-1.4 target. The metadata object has
+exactly required nullable `author`, `created`, `identifier`, `modified`,
+`subject`, and `title` members plus required `keywords`. The keyword array is
+an exact UTF-8-byte-sorted unique set; null metadata and an empty array mean
+explicit absence. No value is inferred from a heading, filename, source path,
+repository, host, locale, or another metadata member.
+
+Metadata strings are nonempty/control-free exact UTF-8 producer facts. The
+engine retains whitespace and scalar spelling and performs no trimming,
+Unicode normalization, case folding, locale conversion, or smart-punctuation
+rewrite. Creation and modification facts use only canonical UTC whole seconds
+`YYYY-MM-DDTHH:MM:SSZ`, years 0001 through 9999; offsets, fractions, leap
+seconds, invalid Gregorian dates, and `modified < created` are input errors.
+Neither build clocks nor file timestamps can populate document facts.
+
+The required document language and optional semantic-node overrides use
+`typaxis.bcp47-language/1`: the RFC 5646 structural grammar, its fixed
+grandfathered list, duplicate-variant/singleton checks, 255-byte maximum, and
+registry-independent canonical casing/extension order. `und` is the explicit
+unknown tag. Null, empty, underscore-separated, host-locale-derived, or live
+registry-dependent language is never accepted or synthesized. Inheritance
+follows the logical semantic owner tree, not style, shaping, selected pages,
+outline parents, paint, or object order; language is semantic/PDF information
+and does not silently change font, shaping, bidi, or line breaking.
+
+The outline is an explicit array of closed entries with required dense
+`outline_id`, nullable `parent_outline_id`, level 1 through 6, label,
+`source_kind = heading|semantic_container`, source NodeId, and destination
+AnchorId. Entries are in source-owner preorder. Stack-derived parents must
+match the authored parent, depth may increase only one level at a time, source
+NodeIds and destinations are unique, and a heading level must match its
+HeadingLevel. A source heading/container must own the exact non-null anchor
+named by the entry. A nullable semantic-container `anchor_id` is therefore
+added to the private wire without creating an implicit entry. No heading,
+container kind, visible text, page, or coordinate generates a label, hierarchy,
+entry, or target.
+
+Selected navigation extends the existing package-bound named-destination
+registry. It records the same anchor owner plus selected page/frame/view/point
+and LayoutEpoch; a missing or substituted selected target fails before PDF
+object allocation. PDF outline items use `/Dest` with that exact name-tree key,
+never an action or copied destination array. Canonical preorder alone assigns
+root/item roles and sibling/child links; the complete tree is initially open.
+An empty outline omits catalog `/Outlines` and never changes `/PageMode`.
+
+The target PDF emits one Info dictionary and one fixed
+`typaxis.book-xmp/1` Metadata stream. Title, author, subject, keywords, and
+dates agree across their adopted Info/XMP mappings; identifier is XMP-only;
+the exact engine name/version is the sole engine-authored `/Producer` fact.
+Catalog `/Lang` is the canonical document language and a differing painted
+leaf receives one owner-bound `/Span` `/Lang` marked-content property. XMP has
+fixed namespaces, property order, XML escaping, and UTF-8 serialization with
+no packet, timestamp, padding, generic extension, or serializer-dependent
+formatting. MI4-08 fixes the receipt-matching structure `/Lang` and outline
+`/SE` policy; MI4-09 may implement it but cannot revise source, hierarchy,
+label, destination, or language.
+
+No overlapping metadata/navigation config is added. Objects/items reuse
+inclusive `max_ast_nodes`/`max_ast_nesting_depth`, all strings and canonical
+language charges reuse `max_text_buffer_bytes`/`max_text_bytes`, selected
+entries reuse `max_fragments`, Info/XMP/outline object projection reuses
+`max_pdf_objects`, and all serialized content reuses `max_output_bytes` and
+`max_spool_bytes`. Exact max is accepted and max+1 is refused before
+allocation or receipt issuance. Retrying or interning cannot erase the logical
+one-time package/NodeId charges. The owning codes are `P1120`, `P1121`,
+`T2100`, `T2101`, `L5110`, `G6100`, and `D8101`; the fixed 255-byte BCP 47
+syntax cap is `P1102`.
+
+The owner chain is strict Wire/location index to metadata, computed-language,
+and outline receipts, then production preflight, selected destination and
+book-navigation receipt, PDF graph/serialization observation, versioned
+manifest, and independent validator observation. Every entry is closed in both
+directions over its source and destination; no downstream JSON/PDF consumer can
+issue an upstream receipt. MI4-07 owns this private implementation. Public
+capabilities, current Schema aliases, old profiles, default, and CLI remain
+unchanged until MI4-13.
+
 ## Compatible changes
 
 The following changes are compatible with the same profile ID when they preserve observable semantics and existing fixtures:
@@ -626,12 +707,13 @@ The following changes are incompatible and require a new profile ID or an explic
 `paragraph-1` is never broadened in place. M2 is governed by ADR-0028; the M3
 table, footnote, and advanced-pagination slices are governed by ADR-0029,
 ADR-0030, and ADR-0031 respectively. ADR-0032 fixes the M4 base target and
-ADR-0033 fixes its math/safe-vector/alternative domain; the remaining
-metadata/navigation, tagged-structure, JPEG, and OTF/CFF decisions require
-their assigned ADRs before the production profile can be published. Any other
-later capability requires a decision-gate ADR fixing a new profile ID, closed
-domain, limits, fallback/oversize behavior, publication semantics, fixtures,
-and migration rule before implementation begins.
+ADR-0033 fixes its math/safe-vector/alternative domain; ADR-0034 fixes its
+metadata/language/outline domain. The remaining tagged-structure, JPEG, and
+OTF/CFF decisions require their assigned ADRs before the production profile
+can be published. Any other later capability requires a decision-gate ADR
+fixing a new profile ID, closed domain, limits, fallback/oversize behavior,
+publication semantics, fixtures, and migration rule before implementation
+begins.
 
 ## Contract and release gating
 
@@ -655,8 +737,10 @@ are raw-1.3-only. Neutral means full-media trim, null page-region content and
 columns, block Figure placement, and the profile's unchanged auxiliary-frame
 rules.
 
-ADR-0032's contract 1.4 and `production-book-1` are target facts only. They are
-absent from the public capability artifact, accepted-contract array, profile
-parser/help, and current Schema aliases until MI4-13 atomically publishes the
-complete M4 registry and combined evidence. MI4-02 through MI4-12 use no hidden
-public selector or partially exposed decoder.
+ADR-0032's contract 1.4 and `production-book-1`, including ADR-0033's
+math/safe-vector and ADR-0034's metadata/language/outline extensions, are target
+facts only. They are absent from the public capability artifact,
+accepted-contract array, profile parser/help, and current Schema aliases until
+MI4-13 atomically publishes the complete M4 registry and combined evidence.
+MI4-02 through MI4-12 use no hidden public selector or partially exposed
+decoder.

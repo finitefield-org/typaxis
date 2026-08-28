@@ -187,7 +187,7 @@ profile.
 | one atomic inline item or one independent display `MathFlowId` and terminal | inline itemizer or `typaxis.math-flow/1` registry owner | forbid breaks inside an expression; parent display flow advances only after the exact math terminal |
 | selected parent/math FlowIds, page/frame/fragment/paint ordinals, origin, and transform extension of the MathReceiptKey | selected-state owner | preserve one atomic math owner and reject wrong flow/page/fragment/font/vector/alternative substitution as `I9190` |
 | exact producer speech to PDF `/ActualText`, canonical glyph/rule/path commands, and observed serialized paint | Display owner then PDF graph/serializer owner | extract the same scalar sequence while retaining visual vector output; source text, glyph names, or generated speech cannot replace the alternative |
-| one future `/Formula` structure owner and `/Alt` equal to the same producer speech | MI4-08 structure-binding owner consuming the MathReceiptKey | add tree/MCID/language closure without changing, splitting, or regenerating the adopted alternative |
+| one future `/Formula` structure owner and `/Alt` equal to the same producer speech | MI4-08 decision gate, then MI4-09 structure-binding owner consuming the MathReceiptKey | add tree/MCID/language closure without changing, splitting, or regenerating the adopted alternative |
 | declared `ImageMediaType::SvgSafe1` wire value `svg-safe-1` and profile admission | document-package/domain lowering then machine-profile declared-media policy | reject missing/legacy/unknown/disallowed media before resource open; URI suffix and host MIME have no authority |
 | stable-byte `typaxis.safe-svg-parser/1`, fixed element/paint/geometry subset, inclusive vector permits, canonical `typaxis.safe-vector-ir/1`, and `AdmittedImageMediaKind::SafeVector` | `typaxis-resource-admission` | issue intrinsic size/view box/allocation charge/IR fingerprint attestation after bounded validation and before layout/PDF; perform no filesystem, network, font, CSS, script, or browser work |
 | logical SafeVector use, selected Figure placement, and final PDF-ready Form plan | layout/selected-state, Display usage, then `typaxis-resources` finalization owners | bind the existing ImageResourceId and admitted bytes/IR fingerprint to one DrawVector use and canonical Form plan |
@@ -199,7 +199,10 @@ Target progress extends the private M4 chain as follows; publication exposes
 only the complete combined chain:
 
 ```text
-PackageValidated (including MathSourceValidated)
+PackageValidated (including MathSourceValidated,
+  DocumentMetadataValidated,
+  ComputedLanguageRegistryValidated,
+  OutlineRegistryValidated)
   -> M4CapabilityValidated
   -> DeclaredMediaPolicyValidated
   -> MediaAttested (including SafeVectorAttested)
@@ -207,13 +210,16 @@ PackageValidated (including MathSourceValidated)
   -> MathFontAndLayoutBound
   -> MathFlowRegistryValidated
   -> MathAndVectorLayoutSelected
+  -> BookNavigationSelected
   -> TaggedStructureBound (including FormulaStructureBound)
   -> DisplayClosed
   -> PdfGraphFrozen
+  -> PdfBytesVerified
+  -> BookNavigationPdfObserved
 ```
 
-MI4-04/05 slice-local runners may produce non-public vector/math Display and
-PDF evidence for their own tests, but those receipts do not issue
+MI4-04/05/07 slice-local runners may produce non-public vector/math/navigation
+Display and PDF evidence for their own tests, but those receipts do not issue
 `TaggedStructureBound`, cannot be promoted to this combined progress type, and
 cannot reach publication. Once the tagged owner exists, the combined target
 uses the order above without a bypass edge.
@@ -222,6 +228,33 @@ Safe SVG and math paint are separate typed paths: a math node never acquires
 an ImageResourceId, while a SafeVector image never acquires a math source or
 alternative. Neither path may reconstruct authority from trace, manifest,
 coordinates, PDF objects, a URI suffix, or caller-authored hashes.
+
+## Adopted M4 metadata, language, and outline ownership
+
+These target rows are adopted by
+[ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md).
+MI4-07 may implement them only in the independent non-current 1.4 staging
+registry; MI4-13 alone may publish them with the complete production profile.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| required closed `metadata`, `document.language`, optional node `language`, required `outline.entries`, and nullable semantic-container `anchor_id` Wire members | contract-1.4 `typaxis-document-package` decoder/encoder | preserve exact producer bytes and reject missing/extra/wrong-typed members; never infer values from source, host, or another field |
+| nonempty/control-free metadata strings, canonical keyword order, exact `typaxis.utc-second/1` dates, and modified/created relation | sealed `typaxis-syntax` metadata validator | issue `DocumentMetadataReceipt` before profile/layout/PDF work; clocks and file times have no document-fact authority |
+| registry-independent `typaxis.bcp47-language/1` parse/canonicalization and logical-owner inheritance | sealed `typaxis-syntax` language owner | issue `ComputedLanguageRegistryReceipt` for every language-capable NodeId; shaping, style, layout order, and host locale cannot reinterpret it |
+| dense source-preorder outline IDs, exact level/parent stack, heading/container kind and source binding, unique AnchorId, and anchor-owner equality | sealed `typaxis-syntax` outline owner | issue `ValidatedOutlineRegistryReceipt`; never infer labels, entries, hierarchy, or coordinates from headings, paint, or PDF |
+| closed metadata/language/outline feature set and old-profile rejection | machine-profile preflight consuming the three validated receipts | issue the production profile authorization before resource open/layout/PDF without broadening any old descriptor |
+| one-time AST/text/depth/fragment/object charges using the existing inclusive limits | syntax, selected-layout, and PDF budget owners for their own units | refuse max+1 before receipt, selected record, allocation, or serialization; retry and foreign receipts cannot reset aggregates |
+| exact semantic-container/heading anchor point and existing selected named-destination registry entry | selected-layout destination owner | bind source owner, selected page/frame/view/point, LayoutEpoch, and destination-registry fingerprint without caller page/coordinate fallback |
+| metadata/language/outline plus selected destination extension | book-navigation selected-state owner | issue `BookNavigationSelectedReceipt` and prove every validated entry has exactly one selected target before object allocation |
+| Info dictionary, fixed `typaxis.book-xmp/1` Metadata stream, catalog `/Lang`, marked-content `/Lang`, and canonical outline object graph | PDF graph/serializer owners alone | allocate deterministic roles, reference the existing name-tree key, and issue `BookNavigationPdfObservation`; no generic XMP, action, copied destination, or host-derived value |
+| structure-element language and optional outline-item `/SE` source relation | MI4-08 decision gate, then MI4-09 tagged-structure owner consuming the computed-language/outline receipts | add exact structure bindings without changing canonical tags, source owners, labels, hierarchy, or destinations |
+| metadata/language/navigation manifest facts and independent decoded PDF observations | manifest owned-facts owner and external validator, respectively | require bidirectional closure over the prior receipts; neither JSON nor the validator can manufacture upstream authority |
+
+The metadata, language, and outline owners feed the combined private M4
+progress chain above. An interned language value does not erase its logical
+per-NodeId aggregate charge; a selected destination does not authorize a new
+outline entry; and Info/XMP/catalog/outline bytes cannot repair invalid Wire or
+substitute for an owner-issued receipt.
 
 ## Shared base ownership (originating in contract 1.0)
 

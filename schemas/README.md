@@ -14,8 +14,9 @@
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
-| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: private twenty-two-schema staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Partial: MI4-04 SafeVector Schema/Rust/PDF slice is implemented; MI4-05 math remains pending | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: independent private staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Yes: MI4-04 SafeVector and MI4-05 math Schema/Rust/PDF slices in the private twenty-three-schema registry | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | No: MI4-07 owns private Schema/Rust/PDF/validator implementation | No; current aliases remain 1.3 | No, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -47,8 +48,14 @@ the non-current 1.4 semantic-container/declared-media target and
 registry and does not create a current alias or public descriptor.
 [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) fixes
 the `typaxis-math` source/alternative receipt and `svg-safe-1` subset. MI4-04
-implements the private SafeVector declaration/manifest/config slice; the math
-Schema and Rust slice remain assigned to MI4-05.
+implements the private SafeVector declaration/manifest/config slice and
+MI4-05 implements the private math Schema/Rust/PDF slice.
+[ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md) fixes the
+required closed metadata record, stable BCP 47 inheritance, explicit
+source-bound outline, and Info/XMP/catalog/outline mapping. At ADR adoption it
+adds no Schema: MI4-07 must update the complete private 1.4 registry and all
+existing private fixtures atomically, while current/frozen aliases stay
+byte-identical.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
 Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
@@ -96,6 +103,13 @@ and PDF object, including the adopted parser/IR/charge identities; an unused
 admitted vector has no plan or PDF object. These
 private limit members do not alter the current 1.3 `ResourceLimits` JCS or
 fingerprint.
+
+MI4-05 adds closed `inline_math`/`display_math` records and the private
+`machine-math-manifest`. Its fixtures bind exact source/span, producer speech,
+parsed AST, admitted MATH font, layout/vector paint, selected placement, PDF
+`/ActualText`, and manifest observation while preserving 1.3 rejection and
+public alias bytes. ADR-0034's metadata/language/outline fields are deliberately
+absent until MI4-07 implements the whole target receipt/validator slice.
 
 The private semantic-container manifest projection uses a closed
 `media_declaration` tagged union. `kind = declared` requires typed
@@ -191,6 +205,9 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   used-resource Form/PDF closure, unused-resource plan/object omission, unknown media
   rejection, attestation mismatch rejection, private M4 limit default/zero/
   hard-max-plus-one behavior, and 1.3 isolation;
+- validates MI4-05's private math DocumentPackage/manifest shapes and canonical
+  runner golden, including source/span/speech/font/vector/selected/PDF closure,
+  exact and max+1 limits, typed tamper cases, and public 1.3 isolation;
 - checks that `samples/invalid/expected-errors.json` indexes every invalid fixture;
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;

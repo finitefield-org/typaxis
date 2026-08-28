@@ -2160,13 +2160,20 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-06 Document metadata、language、outline ADRを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-01
 - Design inputs: docs/25 §7 book navigation、§13.4
 - Primary files:
+  - `README.md`
   - `adr/`
+  - `contracts/contract-version.md`
+  - `contracts/invariants.txt`
+  - `contracts/phase-ownership.md`
   - `contracts/machine-pdf-capabilities.md`
-  - `schemas/`
+  - `docs/21-roadmap.md`
+  - `docs/22-contract-matrix.md`
+  - `docs/23-implementation-checklist.md`
+  - `schemas/README.md`
 - Deliverables:
   - metadata fields、BCP 47 language inheritance、outline hierarchy/destination policy。
 - Tasks:
@@ -2182,6 +2189,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - source headingとoutline destinationをtamper不能に照合できる。
 - Verification:
   - `rg -n "BCP 47|language|outline|destination|metadata|clock|host|limit" adr contracts/machine-pdf-capabilities.md schemas`
+- Implementation notes (2026-08-28, Linux):
+  - `ADR-0034`をAccepted targetとして追加し、non-current contract 1.4へrequired seven-field `metadata`、required `document.language`、semantic-node language override、explicit `outline.entries`、nullable semantic-container `anchor_id`を固定した。metadata stringはexact UTF-8、keywordsはstrict UTF-8-byte order、created/modifiedはexact UTC-secondとし、trim/NFC/case conversion、clock/file time/host/path/locale/first-heading inferenceを禁止する。public current 1.3、frozen 1.0〜1.3、七profile/defaultは変更しない。
+  - languageはlive IANA registryに依存しないRFC 5646 grammar/fixed grandfathered set、duplicate variant/singleton rejection、255-byte cap、stable casing/extension orderで`typaxis.bcp47-language/1`へcanonicalizeする。inheritanceはlogical semantic ownerだけを辿る`ComputedLanguageRegistryReceipt`とし、shape/font/bidi/layout/outline/paint/object orderから独立させる。PDF catalog `/Lang`、owner-bound marked-content `/Lang`、将来のstructure `/Lang`は同じcomputed tagを消費する。
+  - outlineはdense source-owner preorder、level 1〜6、stack-derived exact parent、heading/container kind/NodeId/SourceSpan/AnchorId、unique destinationを`ValidatedOutlineRegistryReceipt`へbindする。selected stateは既存named-destination registryのsame owner/page/frame/view/pointをextendし、PDF itemはそのname-tree keyだけを`/Dest`に使う。Info、fixed-order/no-packet XMP、catalog language、outline graph、nullable future `/SE`、manifest、independent validator observationをbidirectional receipt chainへ閉じ、caller page/coordinate/action/direct-array fallbackを禁止する。
+  - metadata/keyword/outline/languageは新しいsynonym limitを追加せず既存inclusive AST/depth/text/fragment/PDF/output/spool limitsへone-time chargeし、exact JSON Pointerの`P1102`、profile/selected `L5100`、limit `P1120` / `P1121` / `T2100` / `T2101` / `L5110` / `G6100` / `D8101`、tamper `I9190`を固定した。MI4-07がprivate 1.4 Schema/Rust/PDF/validatorを一括実装し、MI4-08はreceipt-bound structure languageとoutline `/SE` policyを採択、MI4-09が実装し、MI4-13だけが公開する。
+  - 指定vocabulary gate、changed Markdownのlocal link/table/fence/JSON、ADR-0001〜0034、I-001〜080、diff/whitespaceを検査し、`python3 schemas/validate.py`（private 1.4は23 Schema、208 exact-rule invalid fixtures）、workspace all-target/all-feature `cargo check` / `cargo test`、strict clippy、formatをlocal exit 0で確認した。Schema JSON、public capability fixture、`.github/workflows/`は変更していない。
 - Non-goals:
   - arbitrary XMP extension vocabulary
 

@@ -91,6 +91,14 @@ that same private target with explicit `inline_math`/`display_math`, required
 decoder; their exact receipt/vector semantics remain part of the MI4-13 atomic
 publication set.
 
+[ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md) extends
+the private target with a required closed metadata record, required document
+language and explicit node-language overrides, an explicit source-bound
+outline registry, and required nullable semantic-container anchors. It fixes
+stable BCP 47 canonicalization/inheritance and deterministic PDF Info, XMP,
+catalog language, and outline mapping. MI4-07 implements that complete private
+slice; no current/frozen contract or public descriptor gains the fields early.
+
 These are target facts, not current support. MI4-02 through MI4-12 may extend
 only an independent crate-private 1.4 staging registry. Until MI4-13, public
 contract 1.4 input remains `P1103`, the target profile is unknown to public
