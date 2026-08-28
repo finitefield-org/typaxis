@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, ADR-0034 metadata/language/outline, and ADR-0035 tagged PDF/PDF/UA-1 validation target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, and metadata/language/outline navigation slices through MI4-07; tagged structure remains MI4-09 | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, ADR-0034 metadata/language/outline, and ADR-0035 tagged PDF/PDF/UA-1 validation target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, metadata/language/outline, and tagged-PDF slices through MI4-09 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -659,7 +659,7 @@ fixed namespaces, property order, XML escaping, and UTF-8 serialization with
 no packet, timestamp, padding, generic extension, or serializer-dependent
 formatting. ADR-0035 preserves those bytes and fixes `typaxis.book-xmp/2` for
 the PDF/UA identifier, receipt-matching structure `/Lang`, and outline `/SE`;
-MI4-09 may implement them but cannot revise source, hierarchy, label,
+MI4-09 implements them but cannot revise source, hierarchy, label,
 destination, or language.
 
 No overlapping metadata/navigation config is added. Objects/items reuse
@@ -766,7 +766,7 @@ allocation or serialization. No synonymous structure/accessibility limits,
 retry reset, untagged output, artifact substitution, or warning fallback is
 permitted. Closure contradictions are `I9190`.
 
-MI4-09 implements the private slice and must add a writer-independent
+MI4-09 implements the private slice and adds a writer-independent
 `typaxis.tagged-pdf-validator/1`. Release evidence additionally fixes veraPDF
 Greenfield 1.30.2 with explicit `ua1` flavour and an empty warning allowlist,
 plus one reviewed row for every Matterhorn Protocol 1.1 failure condition.

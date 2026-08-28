@@ -105,6 +105,12 @@ STAGING_BOOK_NAVIGATION_FIXTURE_DIR = (
     / "production-book-1"
     / "book-navigation"
 )
+STAGING_ACCESSIBILITY_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "production-book-1"
+    / "accessibility"
+)
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
@@ -5501,6 +5507,7 @@ def main() -> int:
             raise ValidationFailure("the versioned 1.3 registry has a missing or extra schema")
         expected_private_m4 = {
             *expected_versioned_current,
+            "machine-accessibility-manifest.schema.json",
             "machine-book-navigation-manifest.schema.json",
             "machine-math-manifest.schema.json",
             "machine-safe-vector-manifest.schema.json",
@@ -6129,6 +6136,106 @@ def main() -> int:
             raise ValidationFailure(
                 "private 1.4 book-navigation manifest accepted object zero"
             )
+
+        accessibility_document_path = (
+            STAGING_ACCESSIBILITY_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        accessibility_manifest_path = STAGING_ACCESSIBILITY_FIXTURE_DIR / "manifest.json"
+        accessibility_pdf_path = STAGING_ACCESSIBILITY_FIXTURE_DIR / "output.pdf"
+        accessibility_document = load_json(accessibility_document_path)
+        accessibility_manifest = load_json(accessibility_manifest_path)
+        accessibility_document_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"],
+            accessibility_document,
+        )
+        if accessibility_document_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the accessibility fixture: "
+                + " | ".join(accessibility_document_errors)
+            )
+        accessibility_manifest_errors = schema_errors(
+            private_m4_validators[
+                "machine-accessibility-manifest.schema.json"
+            ],
+            accessibility_manifest,
+        )
+        if accessibility_manifest_errors:
+            raise ValidationFailure(
+                "private 1.4 accessibility manifest was rejected: "
+                + " | ".join(accessibility_manifest_errors)
+            )
+        for path, value, label in (
+            (accessibility_document_path, accessibility_document, "accessibility DocumentPackage"),
+            (accessibility_manifest_path, accessibility_manifest, "accessibility manifest"),
+        ):
+            if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
+                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+        accessibility_pdf = accessibility_pdf_path.read_bytes()
+        if (
+            accessibility_manifest["fingerprints"]["pdf_sha256"]
+            != hashlib.sha256(accessibility_pdf).hexdigest()
+            or accessibility_manifest["pdf"]["byte_length"] != len(accessibility_pdf)
+        ):
+            raise ValidationFailure("private 1.4 accessibility PDF hash/length drifted")
+        structure = accessibility_manifest["structure"]
+        if [node["structure_node_id"] for node in structure] != list(range(len(structure))):
+            raise ValidationFailure("private 1.4 StructureNodeIds are not dense")
+        for node in structure:
+            parent = node["parent"]
+            if parent is None:
+                if node["structure_node_id"] != 0 or node["role"] != "Document":
+                    raise ValidationFailure("private 1.4 structure root drifted")
+            elif node["structure_node_id"] not in structure[parent]["children"]:
+                raise ValidationFailure("private 1.4 structure parent/child closure drifted")
+        marked = accessibility_manifest["marked_content"]
+        selected_paint_ids = [
+            paint_id
+            for record in marked["records"]
+            for paint_id in record["selected_paint_ids"]
+        ]
+        if selected_paint_ids != list(range(len(selected_paint_ids))):
+            raise ValidationFailure("private 1.4 selected paint IDs are not dense")
+        for page in marked["pages"]:
+            mcids = [
+                record["owner"]["mcid"]
+                for record in marked["records"]
+                if record["page_index"] == page["page_index"]
+                and record["owner"]["kind"] == "structure"
+            ]
+            if mcids != list(range(len(mcids))) or len(mcids) != page["marked_content_count"]:
+                raise ValidationFailure("private 1.4 page-local MCIDs are not dense")
+        required_roles = {
+            "Caption", "Document", "Em", "Exercise", "Figure", "Formula",
+            "H1", "H2", "H3", "H4", "H5", "H6", "L", "LBody", "LI",
+            "Lbl", "Link", "Note", "P", "Proof", "Reference", "Result",
+            "Span", "Strong", "TBody", "TD", "TH", "THead", "TR", "Table",
+        }
+        if not required_roles.issubset({node["role"] for node in structure}):
+            raise ValidationFailure("private 1.4 accessibility role coverage is incomplete")
+        if {
+            node["list_numbering"] for node in structure if node["role"] == "L"
+        } != {"decimal", "disc"}:
+            raise ValidationFailure("private 1.4 accessibility List coverage is incomplete")
+        if accessibility_manifest["validators"] != [
+            "typaxis.tagged-pdf-validator/1",
+            "verapdf-greenfield/1.30.2:ua1",
+            "typaxis.matterhorn-assessment/1",
+        ]:
+            raise ValidationFailure("private 1.4 accessibility validators drifted")
+        unknown_accessibility_role = copy.deepcopy(accessibility_manifest)
+        unknown_accessibility_role["structure"][0]["role"] = "Unknown"
+        if not schema_errors(
+            private_m4_validators["machine-accessibility-manifest.schema.json"],
+            unknown_accessibility_role,
+        ):
+            raise ValidationFailure("private 1.4 accessibility manifest accepted an unknown role")
+        extra_accessibility_member = copy.deepcopy(accessibility_manifest)
+        extra_accessibility_member["tagged"] = True
+        if not schema_errors(
+            private_m4_validators["machine-accessibility-manifest.schema.json"],
+            extra_accessibility_member,
+        ):
+            raise ValidationFailure("private 1.4 accessibility manifest accepted an extra member")
 
         m4_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         m4_config["contract"] = "typaxis.contract/1.4"

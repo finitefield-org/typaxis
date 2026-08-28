@@ -7848,4 +7848,334 @@ pub(crate) mod tests {
             .unwrap();
         assert!(status.success());
     }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    struct StagingMachineAccessibilityRun {
+        limits: typaxis_core::ValidatedResourceLimits,
+        package: typaxis_syntax::ValidatedStagingSemanticPackage,
+        navigation: typaxis_syntax::ValidatedStagingBookNavigation,
+        semantics: typaxis_syntax::ValidatedStagingStructureSemantics,
+        session: typaxis_machine_profile::StagingSemanticContainerSessionIdentity,
+        profile: typaxis_machine_profile::StagingTaggedPdfProfileReceipt,
+        book: typaxis_display_list::BookNavigationSelectedReceipt,
+        registry: typaxis_display_list::StructureRegistryReceipt,
+        binding: typaxis_display_list::SelectedStructureBindingReceipt,
+        marked: typaxis_display_list::MarkedContentPlanReceipt,
+        pdf: typaxis_pdf::StagingTaggedPdf,
+        manifest: typaxis_manifest::StagingTaggedPdfManifest,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_accessibility_from_bytes(
+        bytes: &[u8],
+    ) -> StagingMachineAccessibilityRun {
+        use std::collections::BTreeMap;
+        use typaxis_core::{EngineIdentity, Point, ValidatedResourceLimits};
+        use typaxis_display_list::{
+            build_marked_content_plan, build_structure_registry, select_staging_book_navigation,
+            select_structure_bindings, BookInternalLinkInput, BookNavigationDestinationBinding,
+            BookNavigationSelectedPage, DestinationView, NamedDestination,
+            SelectedStructureAnnotationInput, SelectedStructurePage, SelectedStructurePaintInput,
+            SelectedStructurePaintOwner, StructureArtifactClass, StructureOwner, StructureRole,
+        };
+        use typaxis_machine_profile::{
+            preflight_staging_tagged_pdf_profile, StagingSemanticContainerSessionIdentity,
+        };
+        use typaxis_syntax::{
+            validate_staging_book_navigation, validate_staging_structure_semantics,
+            StagingSemanticPackageParser,
+        };
+
+        const SCALE: i64 = 65_536;
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let package = StagingSemanticPackageParser::new()
+            .parse(decoded, &limits)
+            .unwrap();
+        let navigation = validate_staging_book_navigation(&package, &limits).unwrap();
+        let semantics = validate_staging_structure_semantics(&package, &navigation).unwrap();
+        let session = StagingSemanticContainerSessionIdentity::fresh();
+        let profile = preflight_staging_tagged_pdf_profile(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &session,
+        )
+        .unwrap();
+        let registry = build_structure_registry(
+            &package,
+            &navigation,
+            &semantics,
+            profile.authorization(),
+            &limits,
+        )
+        .unwrap();
+
+        let book_pages = [
+            BookNavigationSelectedPage {
+                page_index: 0,
+                width_raw: 1_000 * SCALE,
+                height_raw: 800 * SCALE,
+            },
+            BookNavigationSelectedPage {
+                page_index: 1,
+                width_raw: 1_000 * SCALE,
+                height_raw: 800 * SCALE,
+            },
+        ];
+        let destinations = navigation
+            .anchors()
+            .iter()
+            .enumerate()
+            .map(
+                |(index, (anchor, owner))| BookNavigationDestinationBinding {
+                    source_node_id: *owner,
+                    frame_id: index as u32,
+                    destination: NamedDestination {
+                        anchor_id: anchor.clone(),
+                        page_index: index as u32 % 2,
+                        view: DestinationView::Xyz {
+                            point: Point {
+                                x: Length::from_raw(index as i64 * 10 * SCALE).unwrap(),
+                                y: Length::from_raw(700 * SCALE).unwrap(),
+                            },
+                        },
+                    },
+                },
+            )
+            .collect::<Vec<_>>();
+        let links = navigation
+            .internal_links()
+            .iter()
+            .enumerate()
+            .map(|(index, (owner, destination))| BookInternalLinkInput {
+                owner_node_id: *owner,
+                page_index: 0,
+                destination: destination.clone(),
+                x_raw: (100 + index as i64 * 100) * SCALE,
+                y_raw: 650 * SCALE,
+                width_raw: 60 * SCALE,
+                height_raw: 20 * SCALE,
+            })
+            .collect::<Vec<_>>();
+        let book = select_staging_book_navigation(
+            &navigation,
+            profile.base().authorization(),
+            &limits,
+            sha256(b"mi4-09-book-layout"),
+            10,
+            &book_pages,
+            &destinations,
+            &[],
+            &links,
+        )
+        .unwrap();
+
+        let required = registry
+            .nodes()
+            .iter()
+            .filter(|node| node.paint_required())
+            .map(|node| node.structure_node_id())
+            .collect::<Vec<_>>();
+        let mut owners = Vec::with_capacity(required.len() + 1);
+        owners.push((required[0], 0u32));
+        owners.push((required[0], 0u32));
+        owners.push((required[0], 1u32));
+        owners.extend(required.iter().skip(1).map(|owner| (*owner, 0)));
+        let mut next_page_ordinal = [0u32; 2];
+        let mut paints = Vec::new();
+        for (owner, fragment) in owners {
+            let page_index = if fragment == 1 { 1 } else { owner.get() % 2 };
+            let paint_ordinal = next_page_ordinal[page_index as usize];
+            next_page_ordinal[page_index as usize] += 1;
+            paints.push(SelectedStructurePaintInput {
+                selected_paint_id: 0,
+                page_index,
+                paint_ordinal,
+                semantic_fragment_ordinal: fragment,
+                owner: SelectedStructurePaintOwner::Structure(owner),
+            });
+        }
+        let mut occurrences = BTreeMap::new();
+        for (page_index, class) in [
+            (0, StructureArtifactClass::Pagination),
+            (0, StructureArtifactClass::PaginationHeader),
+            (1, StructureArtifactClass::PaginationFooter),
+            (1, StructureArtifactClass::Layout),
+        ] {
+            let occurrence = *occurrences.entry(class).or_insert(0u32);
+            *occurrences.get_mut(&class).unwrap() += 1;
+            let paint_ordinal = next_page_ordinal[page_index as usize];
+            next_page_ordinal[page_index as usize] += 1;
+            paints.push(SelectedStructurePaintInput {
+                selected_paint_id: 0,
+                page_index,
+                paint_ordinal,
+                semantic_fragment_ordinal: 0,
+                owner: SelectedStructurePaintOwner::Artifact { class, occurrence },
+            });
+        }
+        paints.sort_by_key(|paint| (paint.page_index, paint.paint_ordinal));
+        for (index, paint) in paints.iter_mut().enumerate() {
+            paint.selected_paint_id = index as u32;
+        }
+        let annotations = registry
+            .nodes()
+            .iter()
+            .filter(|node| node.role() == StructureRole::Link)
+            .enumerate()
+            .map(|(index, node)| SelectedStructureAnnotationInput {
+                annotation_id: index as u32,
+                page_index: 0,
+                annotation_ordinal: index as u32,
+                owner_node_id: match node.owner() {
+                    StructureOwner::Source(source) => source,
+                    StructureOwner::Generated(_) => panic!("Link must be source-owned"),
+                },
+            })
+            .collect::<Vec<_>>();
+        let structure_pages = book_pages.map(|page| SelectedStructurePage {
+            page_index: page.page_index,
+            width_raw: page.width_raw,
+            height_raw: page.height_raw,
+        });
+        let binding = select_structure_bindings(
+            &registry,
+            profile.authorization(),
+            &limits,
+            sha256(b"mi4-09-structure-layout"),
+            (paints.len() - 1) as u64,
+            &structure_pages,
+            &paints,
+            &annotations,
+        )
+        .unwrap();
+        let marked =
+            build_marked_content_plan(&registry, &binding, profile.authorization(), &limits)
+                .unwrap();
+        let engine = EngineIdentity::compiled();
+        let pdf = typaxis_pdf::write_staging_tagged_pdf(
+            &navigation,
+            profile.base().authorization(),
+            profile.authorization(),
+            &book,
+            &registry,
+            &binding,
+            &marked,
+            &limits,
+            &engine,
+        )
+        .unwrap();
+        let manifest = typaxis_manifest::build_staging_tagged_pdf_manifest(
+            &package,
+            &navigation,
+            &semantics,
+            &profile,
+            &session,
+            &book,
+            &registry,
+            &binding,
+            &marked,
+            &pdf,
+            &limits,
+            &engine,
+        )
+        .unwrap();
+        StagingMachineAccessibilityRun {
+            limits,
+            package,
+            navigation,
+            semantics,
+            session,
+            profile,
+            book,
+            registry,
+            binding,
+            marked,
+            pdf,
+            manifest,
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_accessibility() -> StagingMachineAccessibilityRun {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../samples/machine-package/staging/production-book-1/accessibility/job/document-package.json",
+        );
+        run_staging_machine_accessibility_from_bytes(&fs::read(fixture).unwrap())
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_accessibility_closes_source_structure_marked_pdf_and_manifest() {
+        let first = run_staging_machine_accessibility();
+        let second = run_staging_machine_accessibility();
+        assert_eq!(first.pdf.bytes(), second.pdf.bytes());
+        assert_eq!(first.manifest, second.manifest);
+        assert_eq!(first.navigation.languages().document_language(), "en-US");
+        assert!(first.registry.generated_node_count() > 0);
+        assert_eq!(first.marked.annotations().len(), first.book.links().len());
+        assert_eq!(first.pdf.observation().artifact_count(), 4);
+        first
+            .manifest
+            .verify(
+                &first.package,
+                &first.navigation,
+                &first.semantics,
+                &first.profile,
+                &first.session,
+                &first.book,
+                &first.registry,
+                &first.binding,
+                &first.marked,
+                &first.pdf,
+                &first.limits,
+                &typaxis_core::EngineIdentity::compiled(),
+            )
+            .unwrap();
+        let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../samples/machine-package/staging/production-book-1/accessibility/manifest.json",
+        );
+        if std::env::var_os("UPDATE_MI4_09_GOLDENS").is_some() {
+            fs::write(&golden, format!("{}\n", first.manifest.canonical_jcs())).unwrap();
+            fs::write(golden.with_file_name("output.pdf"), first.pdf.bytes()).unwrap();
+        }
+        assert_eq!(
+            first.manifest.canonical_jcs(),
+            fs::read_to_string(golden).unwrap().trim_end()
+        );
+        let capabilities = typaxis_machine_profile::encode_capabilities_canonical(
+            typaxis_machine_profile::HostCapabilityDescriptor::compiled(),
+        );
+        assert!(!capabilities.contains("accessibility"));
+        assert!(!capabilities.contains("pdfua"));
+        assert!(!capabilities.contains("tagged_pdf"));
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    #[ignore = "runs the independent Python tagged-PDF structure validator"]
+    fn machine_accessibility_external_validator() {
+        let run = run_staging_machine_accessibility();
+        let root = MachineFixtureRoot::new("mi4-09-external");
+        let pdf_path = root.path().join("accessibility.pdf");
+        let manifest_path = root.path().join("accessibility.json");
+        fs::write(&pdf_path, run.pdf.bytes()).unwrap();
+        fs::write(&manifest_path, run.manifest.canonical_jcs()).unwrap();
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let status = std::process::Command::new("python3")
+            .arg(repository.join("tools/verify_pdf_structure.py"))
+            .arg(&pdf_path)
+            .arg(&manifest_path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
 }

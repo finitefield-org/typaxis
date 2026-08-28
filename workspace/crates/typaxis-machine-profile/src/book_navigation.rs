@@ -5,7 +5,10 @@ use typaxis_syntax::{
     ValidatedStagingBookNavigation, ValidatedStagingSemanticPackage,
 };
 
-use crate::semantic_container::preflight_staging_semantic_container_profile_for_book_navigation;
+use crate::semantic_container::{
+    preflight_staging_semantic_container_profile_for_book_navigation,
+    preflight_staging_semantic_container_profile_for_tagged_pdf,
+};
 use crate::{
     StagingSemanticContainerPreflightReceipt, StagingSemanticContainerSessionIdentity,
     STAGING_PRODUCTION_BOOK_PROFILE_ID,
@@ -182,6 +185,28 @@ pub fn preflight_staging_book_navigation_profile(
     let base =
         preflight_staging_semantic_container_profile_for_book_navigation(package, limits, session)
             .map_err(|_| StagingBookNavigationProfileError::BaseProfile)?;
+    finish_book_navigation_preflight(package, navigation, limits, session, base)
+}
+
+pub(crate) fn preflight_staging_book_navigation_profile_for_tagged_pdf(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigation,
+    limits: &ValidatedResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+) -> Result<StagingBookNavigationProfileReceipt, StagingBookNavigationProfileError> {
+    let base =
+        preflight_staging_semantic_container_profile_for_tagged_pdf(package, limits, session)
+            .map_err(|_| StagingBookNavigationProfileError::BaseProfile)?;
+    finish_book_navigation_preflight(package, navigation, limits, session, base)
+}
+
+fn finish_book_navigation_preflight(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigation,
+    limits: &ValidatedResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+    base: StagingSemanticContainerPreflightReceipt,
+) -> Result<StagingBookNavigationProfileReceipt, StagingBookNavigationProfileError> {
     let view = StagingBookNavigationProfileView::new(package, navigation, limits)
         .map_err(|_| StagingBookNavigationProfileError::ReceiptMismatch)?;
     let descriptor_jcs = encode_descriptor();

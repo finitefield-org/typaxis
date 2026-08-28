@@ -272,6 +272,20 @@ pub(crate) fn preflight_staging_semantic_container_profile_for_book_navigation(
     preflight_staging_semantic_container_profile_inner(package, limits, session, false, true)
 }
 
+pub(crate) fn preflight_staging_semantic_container_profile_for_tagged_pdf(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &ValidatedResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    preflight_staging_semantic_container_profile_inner(
+        package,
+        limits,
+        session,
+        !package.math_nodes().is_empty(),
+        true,
+    )
+}
+
 fn preflight_staging_semantic_container_profile_inner(
     package: &ValidatedStagingSemanticPackage,
     limits: &ValidatedResourceLimits,

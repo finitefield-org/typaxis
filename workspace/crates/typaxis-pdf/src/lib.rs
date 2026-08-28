@@ -8,6 +8,7 @@ mod book_navigation;
 mod math;
 mod safe_vector;
 mod semantic_container;
+mod tagged_pdf;
 
 pub use advanced_columns::{
     serialize_columns_pdf, serialize_staging_columns_pdf, StagingColumnsPdf,
@@ -42,6 +43,10 @@ pub use semantic_container::{
     write_staging_semantic_container_pdf, StagingSemanticContainerPdf,
     StagingSemanticContainerPdfClosureReceipt, StagingSemanticContainerPdfError,
     StagingSemanticContainerPdfPageObservation, StagingSemanticContainerStructureInput,
+};
+pub use tagged_pdf::{
+    write_staging_tagged_pdf, StagingTaggedPdf, TaggedPdfError, TaggedPdfObjectObservation,
+    TaggedPdfObservation, TAGGED_PDF_ALGORITHM, TAGGED_PDF_XMP_ALGORITHM,
 };
 
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};

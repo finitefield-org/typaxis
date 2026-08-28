@@ -22,6 +22,7 @@ mod math;
 mod preflight;
 mod safe_vector;
 mod semantic_container;
+mod tagged_pdf;
 
 #[cfg(test)]
 mod tests;
@@ -99,5 +100,10 @@ pub use semantic_container::{
     StagingSemanticContainerPreflightError, StagingSemanticContainerPreflightReceipt,
     StagingSemanticContainerProfileDescriptor, StagingSemanticContainerSessionIdentity,
     STAGING_PRODUCTION_BOOK_PROFILE_ID, STAGING_PRODUCTION_BOOK_PROFILE_RECEIPT_ALGORITHM,
+};
+pub use tagged_pdf::{
+    preflight_staging_tagged_pdf_profile, StagingTaggedPdfProfileDescriptor,
+    StagingTaggedPdfProfileError, StagingTaggedPdfProfileReceipt, STAGING_PDFUA1_PROFILE_ID,
+    STAGING_TAGGED_PDF_PROFILE_ALGORITHM,
 };
 pub use typaxis_core::{MachineInputLimitBounds, MachinePdfProfileId};

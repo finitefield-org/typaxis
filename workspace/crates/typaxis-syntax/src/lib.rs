@@ -3,6 +3,7 @@
 mod advanced;
 mod book_navigation;
 mod semantic_container;
+mod tagged_structure;
 
 pub use advanced::{
     StagingAdvancedPackageParseError, StagingAdvancedPackageParser, StagingAdvancedSyntaxFailure,
@@ -22,6 +23,13 @@ pub use semantic_container::{
     StagingSafeVectorProfileView, StagingSemanticContainerProfileView,
     StagingSemanticPackageParser, StagingSemanticSyntaxError, ValidatedStagingMathNode,
     ValidatedStagingSemanticPackage,
+};
+pub use tagged_structure::{
+    validate_staging_structure_semantics, StagingAccessibilityProfileAuthorization,
+    StagingAccessibilityProfileView, StagingStructureSemanticError, StagingStructureSemanticKind,
+    StagingStructureSemanticRecord, StagingStructureTableSection,
+    ValidatedStagingStructureSemantics, STAGING_ACCESSIBILITY_AUTHORIZATION_ALGORITHM,
+    STAGING_ACCESSIBILITY_PROFILE_VIEW_ALGORITHM, STAGING_STRUCTURE_SEMANTIC_INPUT_ALGORITHM,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};

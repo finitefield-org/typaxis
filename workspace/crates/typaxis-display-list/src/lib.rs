@@ -8,6 +8,7 @@ mod book_navigation;
 mod math;
 mod safe_vector;
 mod semantic_container;
+mod tagged_structure;
 
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use advanced_columns::staging_columns_display_fixture;
@@ -59,6 +60,19 @@ pub use semantic_container::{
     StagingSemanticContainerDisplay, StagingSemanticContainerDisplayError,
     StagingSemanticContainerDisplayPage, StagingSemanticContainerDisplayReceipt,
     StagingSemanticContainerPaint, StagingSemanticRasterObservation, StagingSemanticStructureRole,
+};
+pub use tagged_structure::{
+    build_marked_content_plan, MarkedContentArtifact, MarkedContentError, MarkedContentOwner,
+    MarkedContentPage, MarkedContentPlanReceipt, MarkedContentRecord, MarkedContentStructure,
+    StructureLinkAnnotation, StructureParentTreeEntry, StructureParentTreeValue,
+    MARKED_CONTENT_PLAN_ALGORITHM,
+};
+pub use typaxis_layout::{
+    build_structure_registry, select_structure_bindings, GeneratedStructureKey,
+    GeneratedStructureSlot, SelectedStructureAnnotationInput, SelectedStructureBindingReceipt,
+    SelectedStructurePage, SelectedStructurePaintInput, SelectedStructurePaintOwner,
+    StructureArtifactClass, StructureNodeId, StructureNodeRecord, StructureOwner,
+    StructureRegistryReceipt, StructureRole, StructureTableAttributes,
 };
 
 use typaxis_core::{

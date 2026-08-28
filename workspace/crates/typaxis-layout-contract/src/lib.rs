@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod tagged_structure;
+
+pub use tagged_structure::*;
+
 use core::num::NonZeroU16;
 use std::collections::BTreeSet;
 use typaxis_core::{

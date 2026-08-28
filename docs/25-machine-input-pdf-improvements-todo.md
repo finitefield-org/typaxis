@@ -2287,7 +2287,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-09 Tagged structure、marked content、accessibility closureを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-05, MI4-07, MI4-08
 - Design inputs: docs/25 §7 accessibility、§13.4
 - Primary files:
@@ -2326,6 +2326,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `python3 -m unittest tools/test_pdf_structure.py -v`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_accessibility_external --locked -- --ignored`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-29, Linux):
+  - sealed syntax semanticsとproduction accessibility preflightから、全source variantとgenerated wrapperをclosed role、source span、logical parent/child order、computed language、Figure/Formula alternative、Table header、Note/reference、Link/outline relationへbindするdense `StructureNodeId` registryを構築した。footnote definition内やLink内のreference placement、empty required content、heading sequence、unsupported role/alternativeをlayout前に拒否し、current/frozen contract、七public profile、default/helpは変更していない。
+  - selected layout paintをstructure fragmentまたはclosed Pagination/Layout artifact occurrenceへ双方向bindし、同一ownerの連続paintをmaximal groupへまとめてからfinal page/paint順のdense page-local MCID、page/annotation parent key、ParentTreeを発行する。split logical ownerはsemantic fragment orderを保持し、physical page orderからreading orderを推測しない。generated label、repeated pagination、Figure/Formula atomic paint、Link annotationのmissing/extra/duplicate/order/owner tamperを`I9190`で拒否し、既存fragment/text/AST/depth/MCID/PDF/output/spool上限を再利用した。
+  - receiptだけからdeterministic PDF 1.7のMarkInfo、DisplayDocTitle、StructTreeRoot、exact RoleMap、StructElem/MCR/OBJR、ParentTree/IDTree、`/StructParents`/`/StructParent`、List/Table attributes、Note/reference relation、Link `/Contents`、outline `/SE`、computed `/Lang`、Figure/Formula `/Alt`とFormula `/ActualText`、fixed-order `typaxis.book-xmp/2`をserializeし、object payload/final bytesを再導出検証する。private canonical accessibility manifest/Schemaは同じPDF/object/XMP hashへ閉じた。
+  - paragraph/list/table/figure/inline+display math/link/footnote/result/proof/exercise、H1〜H6、Em/Strong、ordered/unordered list、全30 role、split paint、四artifact classを一つのprivate fixtureで検査する。writer-independent parserはcanonical JSON、全leafのfail-closed型検査、contiguous xref/object role/hash、logical structure、marked paint/MCID、ParentTree/IDTree、PDF dictionaries/streams、XMP、outline/link/table/note closureを検証し、hashを再bindしたsame-length PDF tamperを含むmissing/extra/wrong-owner/order/page/MCID/alternative/language negativesを拒否する。
+  - 指定7 verification、dependency firewall、workspace all-target/all-feature locked check/test、strict clippy、format、Schema validator、Python 17 testと2,433 leaf-type mutation、diff/whitespace reviewをlocal exit 0で確認した。veraPDF/Matterhornのrelease evidenceとpublic publicationはMI4-13に留まり、machine-only結果を完全なPDF/UA/accessibility claimにはしていない。`.github/workflows/`は変更していない。
 - Non-goals:
   - validator未対応roleのproduction claim
 

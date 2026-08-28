@@ -13,7 +13,7 @@
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed capability contracts | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.3 output | Yes | Yes, current output | Yes | Yes |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: public selected-state and artifact closure | Yes | Yes, MI3-12 gate |
-| contract 1.4 / `production-book-1` target | Yes through ADR-0035 for base/media, math/safe-vector, metadata/language/outline, and tagged PDF/PDF/UA-1 validation | Partial private MI4-02/04/05/07 slices, including metadata/navigation through PDF validation; tagged implementation remains MI4-09 | No | No, MI4-13 gate |
+| contract 1.4 / `production-book-1` target | Yes through ADR-0035 for base/media, math/safe-vector, metadata/language/outline, and tagged PDF/PDF/UA-1 validation | Partial private MI4-02/04/05/07/09 slices, including tagged structure and independent PDF validation | No | No, MI4-13 gate |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
@@ -31,7 +31,8 @@
 - [x] ADR-0033 fixes math source/speech/vector/ActualText binding and the bounded `svg-safe-1` subset; MI4-04 and MI4-05 implement both private slices with public 1.3 isolation
 - [x] ADR-0034 fixes explicit metadata, stable BCP 47 inheritance, source-bound outline/named destinations, deterministic Info/XMP/catalog/outline mapping, limits, diagnostics, and the MI4-07/MI4-13 gates
 - [x] MI4-07 implements the private 1.4 metadata/language/outline Wire-to-PDF/manifest/independent-validator closure while keeping current aliases, public descriptors, help, and default unchanged
-- [x] ADR-0035 fixes exhaustive source-bound PDF/UA-1 roles in a layout-contract-owned registry, logical reading order, selected-paint/artifact/MCID closure, alternatives/language/table/note/link/outline relations, `book-xmp/2`, existing-limit reuse, and exact veraPDF/Matterhorn evidence; MI4-09 implementation and MI4-13 publication remain unchecked gates
+- [x] ADR-0035 fixes exhaustive source-bound PDF/UA-1 roles in a layout-contract-owned registry, logical reading order, selected-paint/artifact/MCID closure, alternatives/language/table/note/link/outline relations, `book-xmp/2`, existing-limit reuse, and exact veraPDF/Matterhorn evidence
+- [x] MI4-09 implements the private structure registry, selected-paint/artifact binding, dense MCID/ParentTree plan, tagged PDF/manifest closure, writer-independent validator, combined fixture, and old-public-surface isolation; MI4-13 publication and external release evidence remain unchecked gates
 
 The ADR-0027/ownership/paragraph items are contract-boundary decisions; the
 command and evidence items are implementation/public/release claims backed by

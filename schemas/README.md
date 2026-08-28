@@ -17,7 +17,7 @@
 | contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: independent private staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Yes: MI4-04 SafeVector and MI4-05 math Schema/Rust/PDF slices in the private twenty-three-schema registry | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | No: MI4-09 implements the private manifest/expectation Schema and tagged slice | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -59,7 +59,7 @@ while current/frozen aliases stayed byte-identical.
 [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md) fixes the
 PDF/UA-1 structure/marked-content/artifact projection, `book-xmp/2`, and exact
 validator evidence. It adds no DocumentPackage member or Schema bytes at ADR
-adoption; MI4-09 must add only the private versioned manifest/expectation
+adoption; MI4-09 adds only the private versioned manifest/expectation
 shapes needed for the implementation, without changing current/frozen aliases.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
@@ -114,9 +114,11 @@ MI4-05 adds closed `inline_math`/`display_math` records and the private
 parsed AST, admitted MATH font, layout/vector paint, selected placement, PDF
 `/ActualText`, and manifest observation while preserving 1.3 rejection and
 public alias bytes. MI4-07 adds ADR-0034's metadata/language/outline fields and
-book-navigation artifacts to this private registry. ADR-0035 adds no package
-shape at adoption; its tagged-PDF manifest and validator-expectation shapes
-remain absent until MI4-09 implements the whole structure/validation slice.
+book-navigation artifacts to this private registry. MI4-09 adds the private
+`machine-accessibility-manifest`, dense logical structure/selected paint/MCID/
+ParentTree closure, tagged PDF object observations, and the independent
+writer-free validation projection. The current aliases remain byte-for-byte
+1.3 and do not advertise or accept this target.
 
 The private semantic-container manifest projection uses a closed
 `media_declaration` tagged union. `kind = declared` requires typed
@@ -215,6 +217,10 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 - validates MI4-05's private math DocumentPackage/manifest shapes and canonical
   runner golden, including source/span/speech/font/vector/selected/PDF closure,
   exact and max+1 limits, typed tamper cases, and public 1.3 isolation;
+- validates MI4-09's private accessibility DocumentPackage/manifest/PDF
+  goldens, dense StructureNodeId/paint/page-local MCID/ParentTree closure,
+  closed roles and validators, combined semantic coverage, typed tamper cases,
+  and public 1.3 alias isolation;
 - checks that `samples/invalid/expected-errors.json` indexes every invalid fixture;
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;

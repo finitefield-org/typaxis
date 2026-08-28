@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-accessibility-manifest.schema.json",
+  "title": "Typaxis Tagged PDF Accessibility Manifest 1.4",
+  "description": "Private MI4-09 structure, marked-content, tagged-PDF, and validator closure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "accessibility_profile",
+    "algorithm",
+    "contract",
+    "destinations",
+    "document_language",
+    "engine",
+    "fingerprints",
+    "marked_content",
+    "metadata",
+    "outline",
+    "pdf",
+    "profile_id",
+    "structure",
+    "validators"
+  ],
+  "properties": {
+    "accessibility_profile": {"const": "typaxis.pdfua1-profile/1"},
+    "algorithm": {"const": "typaxis.tagged-pdf-manifest/1"},
+    "contract": {"const": "typaxis.contract/1.4"},
+    "destinations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/destination"}
+    },
+    "document_language": {"$ref": "#/$defs/language"},
+    "engine": {"$ref": "#/$defs/engine"},
+    "fingerprints": {"$ref": "#/$defs/fingerprints"},
+    "marked_content": {"$ref": "#/$defs/marked_content"},
+    "metadata": {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/metadata"},
+    "outline": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/outline"}
+    },
+    "pdf": {"$ref": "#/$defs/pdf"},
+    "profile_id": {"const": "typaxis.machine-pdf/production-book-1"},
+    "structure": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/structure"}
+    },
+    "validators": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {"const": "typaxis.tagged-pdf-validator/1"},
+        {"const": "verapdf-greenfield/1.30.2:ua1"},
+        {"const": "typaxis.matterhorn-assessment/1"}
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "id": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+    "object_number": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+    "nullable_id": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/id"}]
+    },
+    "nullable_object_number": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/object_number"}]
+    },
+    "nullable_string": {
+      "oneOf": [{"type": "null"}, {"type": "string"}]
+    },
+    "language": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "book_navigation_sha256",
+        "destination_registry_sha256",
+        "language_sha256",
+        "limits_sha256",
+        "marked_content_sha256",
+        "metadata_sha256",
+        "outline_sha256",
+        "package_sha256",
+        "pdf_observation_sha256",
+        "pdf_sha256",
+        "profile_sha256",
+        "selected_binding_sha256",
+        "semantic_sha256",
+        "structure_registry_sha256",
+        "xmp_sha256"
+      ],
+      "properties": {
+        "book_navigation_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "destination_registry_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "language_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "limits_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "marked_content_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "metadata_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "outline_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "package_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_observation_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "profile_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "selected_binding_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "semantic_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "structure_registry_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "xmp_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "role": {
+      "enum": [
+        "Caption", "Document", "Em", "Exercise", "Figure", "Formula",
+        "H1", "H2", "H3", "H4", "H5", "H6", "L", "LBody", "LI",
+        "Lbl", "Link", "Note", "P", "Proof", "Reference", "Result",
+        "Span", "Strong", "TBody", "TD", "TH", "THead", "TR", "Table"
+      ]
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "frame_id", "page_index", "source_node_id", "view"],
+      "properties": {
+        "anchor_id": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$"},
+        "frame_id": {"$ref": "#/$defs/id"},
+        "page_index": {"$ref": "#/$defs/id"},
+        "source_node_id": {"$ref": "#/$defs/id"},
+        "view": {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/view"}
+      }
+    },
+    "source_owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "node_id"],
+      "properties": {
+        "kind": {"const": "source"},
+        "node_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "generated_owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ordinal", "owner_node_id", "slot"],
+      "properties": {
+        "kind": {"const": "generated"},
+        "ordinal": {"$ref": "#/$defs/id"},
+        "owner_node_id": {"$ref": "#/$defs/id"},
+        "slot": {
+          "enum": [
+            "figure_caption", "footnote_label", "list_body", "list_label",
+            "table_body", "table_head"
+          ]
+        }
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["colspan", "column_ordinal", "header_ids", "row_ordinal", "rowspan", "section"],
+      "properties": {
+        "colspan": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "column_ordinal": {"$ref": "#/$defs/id"},
+        "header_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^typaxis-se-[0-9a-f]{8}$"}
+        },
+        "row_ordinal": {"$ref": "#/$defs/id"},
+        "rowspan": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "section": {"enum": ["body", "head"]}
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accessible_name", "actual_text", "alternative", "children", "language",
+        "list_numbering", "marker",
+        "outline_ids", "owner", "paint_required", "parent", "related_nodes", "role",
+        "source_span", "structure_id", "structure_node_id", "table"
+      ],
+      "properties": {
+        "accessible_name": {"$ref": "#/$defs/nullable_string"},
+        "actual_text": {"$ref": "#/$defs/nullable_string"},
+        "alternative": {"$ref": "#/$defs/nullable_string"},
+        "children": {"type": "array", "items": {"$ref": "#/$defs/id"}},
+        "language": {"$ref": "#/$defs/language"},
+        "list_numbering": {
+          "oneOf": [
+            {"type": "null"},
+            {"enum": ["decimal", "disc"]}
+          ]
+        },
+        "marker": {"$ref": "#/$defs/nullable_string"},
+        "outline_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "owner": {"oneOf": [{"$ref": "#/$defs/source_owner"}, {"$ref": "#/$defs/generated_owner"}]},
+        "paint_required": {"type": "boolean"},
+        "parent": {"$ref": "#/$defs/nullable_id"},
+        "related_nodes": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "role": {"$ref": "#/$defs/role"},
+        "source_span": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "common.schema.json#/$defs/source_span"}
+          ]
+        },
+        "structure_id": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^typaxis-se-[0-9a-f]{8}$"}
+          ]
+        },
+        "structure_node_id": {"$ref": "#/$defs/id"},
+        "table": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/table"}]}
+      }
+    },
+    "marked_structure_owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "mcid", "role", "structure_node_id"],
+      "properties": {
+        "kind": {"const": "structure"},
+        "mcid": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "role": {"$ref": "#/$defs/role"},
+        "structure_node_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "artifact_owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "kind", "occurrence"],
+      "properties": {
+        "class": {"enum": ["layout", "pagination", "pagination_footer", "pagination_header"]},
+        "kind": {"const": "artifact"},
+        "occurrence": {"$ref": "#/$defs/id"}
+      }
+    },
+    "marked_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actual_text", "language", "owner", "page_index", "paint_ordinal_start",
+        "selected_paint_ids", "semantic_fragment_ordinal"
+      ],
+      "properties": {
+        "actual_text": {"$ref": "#/$defs/nullable_string"},
+        "language": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/language"}]},
+        "owner": {"oneOf": [{"$ref": "#/$defs/marked_structure_owner"}, {"$ref": "#/$defs/artifact_owner"}]},
+        "page_index": {"$ref": "#/$defs/id"},
+        "paint_ordinal_start": {"$ref": "#/$defs/id"},
+        "selected_paint_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "semantic_fragment_ordinal": {"$ref": "#/$defs/id"}
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accessible_name", "annotation_id", "destination", "page_index", "rect",
+        "structure_node_id", "structure_parent_key"
+      ],
+      "properties": {
+        "accessible_name": {"type": "string", "minLength": 1},
+        "annotation_id": {"$ref": "#/$defs/id"},
+        "destination": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$"},
+        "page_index": {"$ref": "#/$defs/id"},
+        "rect": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"$ref": "common.schema.json#/$defs/length"}
+        },
+        "structure_node_id": {"$ref": "#/$defs/id"},
+        "structure_parent_key": {"$ref": "#/$defs/id"}
+      }
+    },
+    "marked_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_count", "height_raw", "marked_content_count", "page_index",
+        "structure_parent_key", "width_raw"
+      ],
+      "properties": {
+        "artifact_count": {"$ref": "#/$defs/id"},
+        "height_raw": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "marked_content_count": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "page_index": {"$ref": "#/$defs/id"},
+        "structure_parent_key": {"$ref": "#/$defs/nullable_id"},
+        "width_raw": {"$ref": "common.schema.json#/$defs/positive_safe_integer"}
+      }
+    },
+    "page_parent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "kind", "structure_node_ids"],
+      "properties": {
+        "key": {"$ref": "#/$defs/id"},
+        "kind": {"const": "page"},
+        "structure_node_ids": {"type": "array", "items": {"$ref": "#/$defs/id"}}
+      }
+    },
+    "annotation_parent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "kind", "structure_node_id"],
+      "properties": {
+        "key": {"$ref": "#/$defs/id"},
+        "kind": {"const": "annotation"},
+        "structure_node_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "marked_content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["annotations", "pages", "parent_tree", "records", "selected_layout_fragment_count"],
+      "properties": {
+        "annotations": {"type": "array", "items": {"$ref": "#/$defs/annotation"}},
+        "pages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/marked_page"}},
+        "parent_tree": {
+          "type": "array",
+          "items": {"oneOf": [{"$ref": "#/$defs/page_parent"}, {"$ref": "#/$defs/annotation_parent"}]}
+        },
+        "records": {"type": "array", "items": {"$ref": "#/$defs/marked_record"}},
+        "selected_layout_fragment_count": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"}
+      }
+    },
+    "outline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destination", "label", "level", "outline_id", "parent_outline_id",
+        "source_node_id", "structure_node_id"
+      ],
+      "properties": {
+        "destination": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$"},
+        "label": {"type": "string", "minLength": 1},
+        "level": {"type": "integer", "minimum": 1, "maximum": 6},
+        "outline_id": {"$ref": "#/$defs/id"},
+        "parent_outline_id": {"$ref": "#/$defs/nullable_id"},
+        "source_node_id": {"$ref": "#/$defs/id"},
+        "structure_node_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "pdf_object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["object_number", "role", "sha256"],
+      "properties": {
+        "object_number": {"$ref": "#/$defs/object_number"},
+        "role": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "pdf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_count", "byte_length", "id_tree_object", "link_annotation_count",
+        "marked_content_count", "objects", "parent_tree_object",
+        "structure_element_count", "structure_tree_root_object"
+      ],
+      "properties": {
+        "artifact_count": {"$ref": "#/$defs/id"},
+        "byte_length": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "id_tree_object": {"$ref": "#/$defs/nullable_object_number"},
+        "link_annotation_count": {"$ref": "#/$defs/id"},
+        "marked_content_count": {"$ref": "#/$defs/id"},
+        "objects": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/pdf_object"}},
+        "parent_tree_object": {"$ref": "#/$defs/object_number"},
+        "structure_element_count": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "structure_tree_root_object": {"$ref": "#/$defs/object_number"}
+      }
+    }
+  }
+}

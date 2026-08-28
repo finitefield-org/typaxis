@@ -7,6 +7,7 @@ mod book_navigation;
 mod math;
 mod safe_vector;
 mod semantic_container;
+mod tagged_pdf;
 
 pub use advanced_columns::project_staging_columns_manifest;
 pub use advanced_float::project_staging_float_manifest;
@@ -31,6 +32,10 @@ pub use semantic_container::{
     build_staging_semantic_container_manifest, StagingDeclaredMediaManifestRecord,
     StagingSemanticContainerManifest, StagingSemanticContainerManifestError,
     StagingSemanticContainerSelectedFact,
+};
+pub use tagged_pdf::{
+    build_staging_tagged_pdf_manifest, StagingTaggedPdfManifest, StagingTaggedPdfManifestError,
+    STAGING_TAGGED_PDF_MANIFEST_ALGORITHM,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};

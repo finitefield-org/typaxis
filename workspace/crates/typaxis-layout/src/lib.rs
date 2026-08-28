@@ -72,6 +72,15 @@ use typaxis_document::{
     TableCell, TableColumn, TableRow, ValidatedDocumentNodeIndex,
 };
 pub use typaxis_layout_contract::{
+    build_structure_registry, select_structure_bindings, GeneratedStructureKey,
+    GeneratedStructureSlot, SelectedStructureAnnotation, SelectedStructureAnnotationInput,
+    SelectedStructureBindingError, SelectedStructureBindingReceipt, SelectedStructurePage,
+    SelectedStructurePaint, SelectedStructurePaintInput, SelectedStructurePaintOwner,
+    StructureArtifactClass, StructureNodeId, StructureNodeRecord, StructureOwner,
+    StructureRegistryError, StructureRegistryReceipt, StructureRole, StructureTableAttributes,
+    SELECTED_STRUCTURE_BINDING_ALGORITHM, STRUCTURE_REGISTRY_ALGORITHM,
+};
+pub use typaxis_layout_contract::{
     flow_registry_fingerprint_from_jcs, footnote_flow_registry_fingerprint_from_jcs,
     footnote_page_evaluation_fingerprint_from_jcs, footnote_profile_fingerprint_from_jcs,
     footnote_selected_layout_fingerprint_from_jcs, multi_flow_selected_state_fingerprint_from_jcs,

@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 
 from tools import verify_pdf_structure as verifier
@@ -24,6 +26,16 @@ EXPECTATION_PATH = (
     / "book-navigation"
     / "pdf-expectation.json"
 )
+TAGGED_MANIFEST_PATH = (
+    ROOT
+    / "samples"
+    / "machine-package"
+    / "staging"
+    / "production-book-1"
+    / "accessibility"
+    / "manifest.json"
+)
+TAGGED_PDF_PATH = TAGGED_MANIFEST_PATH.with_name("output.pdf")
 
 
 def utf16_hex(value: str) -> str:
@@ -393,6 +405,241 @@ class PdfStructureTests(unittest.TestCase):
         whitespace_title["metadata"]["title"] = "\u3000"
         with self.assertRaisesRegex(verifier.PdfValidationError, "metadata string"):
             verifier.verify_pdf_structure(pdf, whitespace_title)
+
+
+class TaggedPdfStructureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.manifest = verifier.load_expectation(TAGGED_MANIFEST_PATH)
+        cls.pdf = TAGGED_PDF_PATH.read_bytes()
+
+    @staticmethod
+    def rebind_pdf_hashes(pdf: bytes, source: dict) -> dict:
+        manifest = copy.deepcopy(source)
+        objects, _ = verifier._parse_xref(pdf)
+        manifest["fingerprints"]["pdf_sha256"] = hashlib.sha256(pdf).hexdigest()
+        manifest["pdf"]["byte_length"] = len(pdf)
+        for item in manifest["pdf"]["objects"]:
+            item["sha256"] = hashlib.sha256(objects[item["object_number"]].raw).hexdigest()
+        return manifest
+
+    def test_tagged_structure_reading_order_language_alt_and_actual_text(self) -> None:
+        observation = verifier.verify_tagged_pdf_structure(self.pdf, self.manifest)
+        self.assertEqual(observation["catalog_language"], "en-US")
+        self.assertEqual(observation["reading_order"], list(range(87)))
+        self.assertEqual(
+            set(observation["roles"]),
+            {
+                "Caption", "Document", "Em", "Exercise", "Figure", "Formula",
+                "H1", "H2", "H3", "H4", "H5", "H6", "L", "LBody", "LI",
+                "Lbl", "Link", "Note", "P", "Proof", "Reference", "Result",
+                "Span", "Strong", "TBody", "TD", "TH", "THead", "TR", "Table",
+            },
+        )
+        self.assertIn({"role": "Figure", "text": "PNG image"}, observation["alternatives"])
+        self.assertEqual(observation["actual_text"], ["x squared", "x plus one"])
+        self.assertEqual(
+            [
+                record["actual_text"]
+                for page in observation["marked_pages"]
+                for record in page
+                if record.get("actual_text") is not None
+            ],
+            ["x plus one", "x squared"],
+        )
+        self.assertEqual(observation["artifact_count"], 4)
+        self.assertEqual(observation["outline_structure"], [1, 84])
+
+    def test_tagged_missing_extra_owner_order_page_and_mcid_tamper(self) -> None:
+        mutations: list[tuple[str, Callable[[dict], object]]] = [
+            (
+                "missing",
+                lambda value: value["marked_content"]["records"].pop(),
+            ),
+            (
+                "extra",
+                lambda value: value["marked_content"]["records"].append(
+                    {
+                        **copy.deepcopy(value["marked_content"]["records"][-1]),
+                        "selected_paint_ids": [
+                            sum(
+                                len(record["selected_paint_ids"])
+                                for record in value["marked_content"]["records"]
+                            )
+                        ],
+                        "paint_ordinal_start": sum(
+                            len(record["selected_paint_ids"])
+                            for record in value["marked_content"]["records"]
+                            if record["page_index"] == 1
+                        ),
+                    }
+                ),
+            ),
+            (
+                "owner",
+                lambda value: value["marked_content"]["records"][0]["owner"].update(
+                    {"structure_node_id": 1, "role": "H1"}
+                ),
+            ),
+            (
+                "order",
+                lambda value: value["marked_content"]["records"].__setitem__(
+                    slice(0, 2), list(reversed(value["marked_content"]["records"][0:2]))
+                ),
+            ),
+            (
+                "page",
+                lambda value: value["marked_content"]["records"][0].update(
+                    {"page_index": 1}
+                ),
+            ),
+            (
+                "MCID",
+                lambda value: value["marked_content"]["records"][0]["owner"].update(
+                    {"mcid": 9}
+                ),
+            ),
+        ]
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                manifest = copy.deepcopy(self.manifest)
+                mutate(manifest)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure(self.pdf, manifest)
+
+    def test_tagged_role_alternative_and_language_tamper(self) -> None:
+        role = copy.deepcopy(self.manifest)
+        role["structure"][1]["role"] = "H2"
+        with self.assertRaisesRegex(verifier.PdfValidationError, "structure element 1 /S"):
+            verifier.verify_tagged_pdf_structure(self.pdf, role)
+
+        alternative = copy.deepcopy(self.manifest)
+        alternative["structure"][25]["alternative"] = "wrong image"
+        with self.assertRaisesRegex(verifier.PdfValidationError, "alternative"):
+            verifier.verify_tagged_pdf_structure(self.pdf, alternative)
+
+        language = copy.deepcopy(self.manifest)
+        language["structure"][55]["language"] = "ja-JP"
+        with self.assertRaises(verifier.PdfValidationError):
+            verifier.verify_tagged_pdf_structure(self.pdf, language)
+
+    def test_tagged_pdf_bytes_parent_tree_and_objr_tamper(self) -> None:
+        for original, replacement in [
+            (b"/ParentTree 15 0 R", b"/ParentTree 16 0 R"),
+            (b"/Type /OBJR", b"/Type /MCR "),
+            (b"/StructParent 2", b"/StructParent 9"),
+        ]:
+            with self.subTest(original=original):
+                tampered = self.pdf.replace(original, replacement, 1)
+                manifest = self.rebind_pdf_hashes(tampered, self.manifest)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure(tampered, manifest)
+
+    def test_tagged_header_relation_wrapper_outline_and_xmp_tamper(self) -> None:
+        header = copy.deepcopy(self.manifest)
+        data_cell = next(node for node in header["structure"] if node["role"] == "TD")
+        data_cell["table"]["header_ids"] = []
+        with self.assertRaisesRegex(verifier.PdfValidationError, "header"):
+            verifier.verify_tagged_pdf_structure(self.pdf, header)
+
+        relation = copy.deepcopy(self.manifest)
+        note = next(node for node in relation["structure"] if node["role"] == "Note")
+        note["related_nodes"] = []
+        with self.assertRaisesRegex(verifier.PdfValidationError, "relation"):
+            verifier.verify_tagged_pdf_structure(self.pdf, relation)
+
+        wrapper = copy.deepcopy(self.manifest)
+        generated = next(
+            node for node in wrapper["structure"] if node["owner"]["kind"] == "generated"
+        )
+        generated["source_span"]["source_id"] += 1
+        with self.assertRaisesRegex(verifier.PdfValidationError, "owner/span"):
+            verifier.verify_tagged_pdf_structure(self.pdf, wrapper)
+
+        numbering = copy.deepcopy(self.manifest)
+        list_node = next(node for node in numbering["structure"] if node["role"] == "L")
+        list_node["list_numbering"] = (
+            "disc" if list_node["list_numbering"] == "decimal" else "decimal"
+        )
+        with self.assertRaisesRegex(verifier.PdfValidationError, "List"):
+            verifier.verify_tagged_pdf_structure(self.pdf, numbering)
+
+        outline = copy.deepcopy(self.manifest)
+        outline["outline"][1]["parent_outline_id"] = None
+        with self.assertRaisesRegex(verifier.PdfValidationError, "outline"):
+            verifier.verify_tagged_pdf_structure(self.pdf, outline)
+
+        tampered_xmp = self.pdf.replace(
+            b"xmlns:pdfuaid=", b"xmlns:pdfuaix=", 1
+        )
+        manifest = self.rebind_pdf_hashes(tampered_xmp, self.manifest)
+        with self.assertRaises(verifier.PdfValidationError):
+            verifier.verify_tagged_pdf_structure(tampered_xmp, manifest)
+
+    def test_tagged_malformed_json_types_fail_closed(self) -> None:
+        mutations: list[tuple[str, Callable[[dict], object]]] = [
+            (
+                "generated owner slot",
+                lambda value: next(
+                    node for node in value["structure"]
+                    if node["owner"]["kind"] == "generated"
+                )["owner"].update({"slot": []}),
+            ),
+            (
+                "related node",
+                lambda value: value["structure"][0].update({"related_nodes": [{}]}),
+            ),
+            (
+                "outline relation",
+                lambda value: value["structure"][0].update({"outline_ids": [{}]}),
+            ),
+            (
+                "annotation destination",
+                lambda value: value["marked_content"]["annotations"][0].update(
+                    {"destination": []}
+                ),
+            ),
+        ]
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                manifest = copy.deepcopy(self.manifest)
+                mutate(manifest)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure(self.pdf, manifest)
+
+        manifest = copy.deepcopy(self.manifest)
+        manifest["marked_content"]["annotations"][0]["annotation_id"] = False
+        with tempfile.TemporaryDirectory() as directory:
+            expectation_path = Path(directory) / "manifest.json"
+            expectation_path.write_text(
+                json.dumps(
+                    manifest,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                status = verifier.main([str(TAGGED_PDF_PATH), str(expectation_path)])
+        self.assertEqual(status, 1)
+        self.assertIn("PDF structure validation failed:", error.getvalue())
+
+    def test_tagged_pdf_object_role_plan_is_exact(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["pdf"]["objects"][0]["role"] = "unexpected"
+        with self.assertRaisesRegex(verifier.PdfValidationError, "role plan"):
+            verifier.verify_tagged_pdf_structure(self.pdf, manifest)
+
+    def test_tagged_command_line_dispatches_to_accessibility_validator(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status = verifier.main([str(TAGGED_PDF_PATH), str(TAGGED_MANIFEST_PATH)])
+        self.assertEqual(status, 0)
+        decoded = json.loads(output.getvalue())
+        self.assertEqual(decoded["structure_count"], 87)
 
 
 if __name__ == "__main__":
