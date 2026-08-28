@@ -2,8 +2,9 @@ use super::*;
 use typaxis_document::{
     FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,
     SemanticContainerKind, StagingM4Block, StagingM4BlockCommon, StagingM4Document,
-    StagingM4FontFaceDeclaration, StagingM4FootnoteDefinition, StagingM4ImageDeclaration,
-    StagingM4ListItem, StagingM4ResourceCatalog, StagingM4TableCell, StagingM4TableRow,
+    StagingM4FigurePlacement, StagingM4FontFaceDeclaration, StagingM4FootnoteDefinition,
+    StagingM4ImageDeclaration, StagingM4ListItem, StagingM4ResourceCatalog, StagingM4TableCell,
+    StagingM4TableRow,
 };
 use typaxis_document_package::{
     DecodedStagingSemanticDocumentPackage, WireFontMediaType, WireImageMediaType,
@@ -32,6 +33,7 @@ pub enum StagingSemanticSyntaxError {
     InvalidBlock(NodeId),
     InvalidInline,
     InvalidResource,
+    InvalidPageGeometry,
     InvalidStyle,
     InapplicableStyle,
     AstNodeLimit,
@@ -68,6 +70,9 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
             ),
             Self::InvalidInline => formatter.write_str("L5100: invalid semantic inline nesting"),
             Self::InvalidResource => formatter.write_str("P1102: invalid declared-media resource"),
+            Self::InvalidPageGeometry => {
+                formatter.write_str("P1102: SafeVector requires one closed default page frame")
+            }
             Self::InvalidStyle => formatter.write_str("L5101: invalid semantic_container style"),
             Self::InapplicableStyle => {
                 formatter.write_str("L5101: inapplicable semantic_container property")
@@ -167,6 +172,286 @@ impl StagingSemanticContainerProfileView {
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs
     }
+}
+
+/// Dependency-inversion view retained by the profile owner and consumed by
+/// downstream private stages without a reverse dependency on
+/// `typaxis-machine-profile`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingSafeVectorProfileView {
+    base: StagingSemanticContainerProfileView,
+    limits_fingerprint: [u8; 32],
+    vector_resource_ids: Vec<ImageResourceId>,
+    figure_owners: Vec<NodeId>,
+    page_geometry: StagingM4PageGeometry,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingM4PageGeometry {
+    master_id: MasterId,
+    page_width: PositiveLength,
+    page_height: PositiveLength,
+    body: Rect,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingM4PageGeometry {
+    fn from_wire(
+        page_masters: &typaxis_document_package::WirePageMasterSet,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        if page_masters.masters.len() != 1 || !page_masters.selection_rules.is_empty() {
+            return Err(StagingSemanticSyntaxError::InvalidPageGeometry);
+        }
+        let master = &page_masters.masters[0];
+        if master.master_id != page_masters.default_master_id {
+            return Err(StagingSemanticSyntaxError::InvalidPageGeometry);
+        }
+        let page_width = positive_length(master.width)?;
+        let page_height = positive_length(master.height)?;
+        let body_width = positive_length(master.body.width)?;
+        let body_height = positive_length(master.body.height)?;
+        let body_x = Length::from_raw(master.body.x)
+            .filter(|value| value.raw() >= 0)
+            .ok_or(StagingSemanticSyntaxError::InvalidPageGeometry)?;
+        let body_y = Length::from_raw(master.body.y)
+            .filter(|value| value.raw() >= 0)
+            .ok_or(StagingSemanticSyntaxError::InvalidPageGeometry)?;
+        if body_x
+            .raw()
+            .checked_add(body_width.get().raw())
+            .map_or(true, |right| right > page_width.get().raw())
+            || body_y
+                .raw()
+                .checked_add(body_height.get().raw())
+                .map_or(true, |bottom| bottom > page_height.get().raw())
+        {
+            return Err(StagingSemanticSyntaxError::InvalidPageGeometry);
+        }
+        let master_id = MasterId::new(master.master_id.clone())
+            .map_err(|_| StagingSemanticSyntaxError::InvalidPageGeometry)?;
+        let body = Rect::new(body_x, body_y, body_width, body_height);
+        let canonical_jcs = encode_page_geometry(&master_id, page_width, page_height, body);
+        Ok(Self {
+            master_id,
+            page_width,
+            page_height,
+            body,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        })
+    }
+
+    pub const fn master_id(&self) -> &MasterId {
+        &self.master_id
+    }
+    pub const fn page_width(&self) -> PositiveLength {
+        self.page_width
+    }
+    pub const fn page_height(&self) -> PositiveLength {
+        self.page_height
+    }
+    pub const fn body(&self) -> Rect {
+        self.body
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+fn positive_length(raw: i64) -> Result<PositiveLength, StagingSemanticSyntaxError> {
+    Length::from_raw(raw)
+        .and_then(PositiveLength::new)
+        .ok_or(StagingSemanticSyntaxError::InvalidPageGeometry)
+}
+
+fn encode_page_geometry(
+    master_id: &MasterId,
+    page_width: PositiveLength,
+    page_height: PositiveLength,
+    body: Rect,
+) -> String {
+    let mut output = String::from(
+        "{\"algorithm\":\"typaxis.safe-vector-page-geometry/1\",\"body\":{\"height\":",
+    );
+    output.push_str(&body.height().get().raw().to_string());
+    output.push_str(",\"width\":");
+    output.push_str(&body.width().get().raw().to_string());
+    output.push_str(",\"x\":");
+    output.push_str(&body.x().raw().to_string());
+    output.push_str(",\"y\":");
+    output.push_str(&body.y().raw().to_string());
+    output.push_str("},\"master_id\":");
+    push_jcs_string(&mut output, master_id.as_str());
+    output.push_str(",\"page_height\":");
+    output.push_str(&page_height.get().raw().to_string());
+    output.push_str(",\"page_width\":");
+    output.push_str(&page_width.get().raw().to_string());
+    output.push('}');
+    output
+}
+
+impl StagingSafeVectorProfileView {
+    pub fn new(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        let base = StagingSemanticContainerProfileView::new(package, limits.base())?;
+        let page_geometry =
+            StagingM4PageGeometry::from_wire(package.checked_wire()?.page_masters())?;
+        let vector_resource_ids: Vec<_> = package
+            .resources()
+            .images
+            .iter()
+            .filter_map(|image| {
+                (image.media == ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1))
+                    .then_some(image.image_id)
+            })
+            .collect();
+        let vector_set: BTreeSet<_> = vector_resource_ids.iter().copied().collect();
+        let mut figure_owners = Vec::new();
+        collect_vector_figure_owners(
+            &package.document().blocks,
+            package,
+            &vector_set,
+            &mut figure_owners,
+        )?;
+        for footnote in &package.document().footnotes {
+            collect_vector_figure_owners(
+                &footnote.blocks,
+                package,
+                &vector_set,
+                &mut figure_owners,
+            )?;
+        }
+        let canonical_jcs = encode_safe_vector_profile_view(
+            package,
+            base.profile_fingerprint(),
+            limits.fingerprint(),
+            &vector_resource_ids,
+            &figure_owners,
+            page_geometry.fingerprint(),
+        );
+        Ok(Self {
+            base,
+            limits_fingerprint: limits.fingerprint(),
+            vector_resource_ids,
+            figure_owners,
+            page_geometry,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        })
+    }
+
+    pub const fn base(&self) -> &StagingSemanticContainerProfileView {
+        &self.base
+    }
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+    pub fn vector_resource_ids(&self) -> &[ImageResourceId] {
+        &self.vector_resource_ids
+    }
+    pub fn figure_owners(&self) -> &[NodeId] {
+        &self.figure_owners
+    }
+    pub const fn page_geometry(&self) -> &StagingM4PageGeometry {
+        &self.page_geometry
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+fn collect_vector_figure_owners(
+    blocks: &[StagingM4Block],
+    package: &ValidatedStagingSemanticPackage,
+    vectors: &BTreeSet<ImageResourceId>,
+    output: &mut Vec<NodeId>,
+) -> Result<(), StagingSemanticSyntaxError> {
+    for block in blocks {
+        match block {
+            StagingM4Block::Figure {
+                common,
+                image_id,
+                caption,
+                ..
+            } => {
+                let declaration = package
+                    .resources()
+                    .images
+                    .get(image_id.get() as usize)
+                    .filter(|image| image.image_id == *image_id)
+                    .ok_or(StagingSemanticSyntaxError::InvalidResource)?;
+                if declaration.media == ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1) {
+                    if !vectors.contains(image_id) {
+                        return Err(StagingSemanticSyntaxError::InvalidResource);
+                    }
+                    output.push(common.node_id);
+                }
+                collect_vector_figure_owners(caption, package, vectors, output)?;
+            }
+            StagingM4Block::List { items, .. } => {
+                for item in items {
+                    collect_vector_figure_owners(&item.blocks, package, vectors, output)?;
+                }
+            }
+            StagingM4Block::Table { head, body, .. } => {
+                for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                    collect_vector_figure_owners(&cell.blocks, package, vectors, output)?;
+                }
+            }
+            StagingM4Block::SemanticContainer { blocks, .. } => {
+                collect_vector_figure_owners(blocks, package, vectors, output)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn encode_safe_vector_profile_view(
+    package: &ValidatedStagingSemanticPackage,
+    base: [u8; 32],
+    limits: [u8; 32],
+    resources: &[ImageResourceId],
+    figures: &[NodeId],
+    page_geometry: [u8; 32],
+) -> String {
+    let mut output = String::from(
+        "{\"algorithm\":\"typaxis.production-book-safe-vector-authorization/1\",\"base_profile_fingerprint\":",
+    );
+    push_hash(&mut output, base);
+    output.push_str(",\"figure_owners\":[");
+    for (index, owner) in figures.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&owner.get().to_string());
+    }
+    output.push_str("],\"limits_fingerprint\":");
+    push_hash(&mut output, limits);
+    output.push_str(",\"package_fingerprint\":");
+    push_hash(&mut output, package.semantic_fingerprint());
+    output.push_str(",\"page_geometry_fingerprint\":");
+    push_hash(&mut output, page_geometry);
+    output.push_str(",\"vector_resource_ids\":[");
+    for (index, id) in resources.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&id.get().to_string());
+    }
+    output.push_str("]}");
+    output
 }
 
 fn validate_profile_container_domain(
@@ -602,6 +887,7 @@ fn lower_blocks(
                 }
             }
             WireStagingM4Block::Figure {
+                image_id,
                 placement,
                 alt,
                 caption,
@@ -612,6 +898,13 @@ fn lower_blocks(
                 }
                 StagingM4Block::Figure {
                     common,
+                    image_id: ImageResourceId::new(*image_id),
+                    placement: match placement.as_str() {
+                        "block" => StagingM4FigurePlacement::Block,
+                        "float" => StagingM4FigurePlacement::Float,
+                        _ => unreachable!("placement was checked above"),
+                    },
+                    alternative: alt.clone(),
                     has_nonempty_alternative: !alt.is_empty(),
                     caption: lower_blocks(caption, validator, Some(span), depth + 1)?,
                 }
@@ -871,6 +1164,7 @@ fn lower_resources(
             expected_sha256: parse_optional_hash(image.expected_sha256.as_deref())?,
             media: ImageMediaDeclaration::Declared(match image.media_type {
                 WireImageMediaType::Png => ImageMediaType::Png,
+                WireImageMediaType::SvgSafe1 => ImageMediaType::SvgSafe1,
             }),
         });
     }
@@ -1347,6 +1641,7 @@ mod tests {
     };
 
     const FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/document-package.json"));
+    const VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/vector-media/job/document-package.json"));
 
     fn parse(bytes: &[u8]) -> Result<ValidatedStagingSemanticPackage, Box<dyn std::error::Error>> {
         let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
@@ -1391,6 +1686,55 @@ mod tests {
                 .raw(),
             7
         );
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(package.checked_wire().unwrap())
+            .unwrap();
+        let reparsed = parse(encoded.as_bytes()).unwrap();
+        assert_eq!(
+            package.semantic_fingerprint(),
+            reparsed.semantic_fingerprint()
+        );
+    }
+
+    #[test]
+    fn vector_media_lowering_retains_resource_figure_and_round_trip_identity() {
+        let package = parse(VECTOR_FIXTURE).unwrap();
+        assert_eq!(package.resources().images.len(), 2);
+        assert_eq!(
+            package.resources().images[0].media,
+            ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1)
+        );
+        let StagingM4Block::SemanticContainer { blocks, .. } = &package.document().blocks[0] else {
+            panic!("fixture root must be a semantic container")
+        };
+        let StagingM4Block::Figure {
+            common,
+            image_id,
+            placement,
+            alternative,
+            ..
+        } = &blocks[0]
+        else {
+            panic!("fixture child must be a figure")
+        };
+        assert_eq!(common.node_id, NodeId::new(2));
+        assert_eq!(*image_id, ImageResourceId::new(0));
+        assert_eq!(*placement, StagingM4FigurePlacement::Block);
+        assert_eq!(alternative, "Blue vector geometry");
+
+        let limits = M4EffectiveResourceLimits::defaults_for(package.limits());
+        let profile = StagingSafeVectorProfileView::new(&package, &limits).unwrap();
+        assert_eq!(
+            profile.vector_resource_ids(),
+            [ImageResourceId::new(0), ImageResourceId::new(1)]
+        );
+        assert_eq!(profile.figure_owners(), [NodeId::new(2)]);
+        assert_eq!(profile.page_geometry().body().x().raw(), 100 * 65_536);
+        assert_eq!(
+            profile.page_geometry().body().width().get().raw(),
+            800 * 65_536
+        );
+
         let encoded = StagingSemanticDocumentPackageEncoder::new()
             .encode(package.checked_wire().unwrap())
             .unwrap();

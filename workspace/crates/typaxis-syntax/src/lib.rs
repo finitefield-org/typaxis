@@ -8,8 +8,8 @@ pub use advanced::{
     ValidatedStagingAdvancedPackage,
 };
 pub use semantic_container::{
-    StagingSemanticContainerProfileView, StagingSemanticPackageParser, StagingSemanticSyntaxError,
-    ValidatedStagingSemanticPackage,
+    StagingM4PageGeometry, StagingSafeVectorProfileView, StagingSemanticContainerProfileView,
+    StagingSemanticPackageParser, StagingSemanticSyntaxError, ValidatedStagingSemanticPackage,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};
@@ -17,10 +17,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
     document_fingerprint_from_jcs, push_generated_buffer_key_jcs, push_jcs_string, sha256,
     style_fingerprint_from_jcs, AnchorId, DocumentFingerprint, FontFaceId, FootnoteId,
-    GeneratedBufferKey, GenerationKind, ImageResourceId, JsonPointer, Length, MasterId, NodeId,
-    PageName, PortablePath, PositiveLength, Rect, ReferenceFingerprint, SafeUri, SafeUriError,
-    SourceId, SourceSpan, StyleFingerprint, StyleId, TextBufferId, TextSpan, Utf8ByteOffset,
-    Utf8ByteRange, ValidatedResourceLimits, COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
+    GeneratedBufferKey, GenerationKind, ImageResourceId, JsonPointer, Length,
+    M4EffectiveResourceLimits, MasterId, NodeId, PageName, PortablePath, PositiveLength, Rect,
+    ReferenceFingerprint, SafeUri, SafeUriError, SourceId, SourceSpan, StyleFingerprint, StyleId,
+    TextBufferId, TextSpan, Utf8ByteOffset, Utf8ByteRange, ValidatedResourceLimits,
+    COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
 };
 use typaxis_diagnostics::{
     AdvisoryDiagnostic, Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticFlow,

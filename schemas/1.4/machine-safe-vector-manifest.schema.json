@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-safe-vector-manifest.schema.json",
+  "title": "Typaxis SafeVector Manifest 1.4",
+  "description": "Private MI4 SafeVector declaration, admission, layout, Display, Form-plan, and PDF closure projection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "admitted_fingerprint",
+    "algorithm",
+    "declared_media_fingerprint",
+    "display_fingerprint",
+    "form_plans_fingerprint",
+    "limits_fingerprint",
+    "package_fingerprint",
+    "pdf_fingerprint",
+    "pdf_sha256",
+    "profile_fingerprint",
+    "resources",
+    "selected_layout_fingerprint"
+  ],
+  "properties": {
+    "admitted_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "algorithm": {"const": "typaxis.safe-vector-manifest/1"},
+    "declared_media_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "display_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "form_plans_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "limits_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "package_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "pdf_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "pdf_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "profile_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "resources": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/resource"}
+    },
+    "selected_layout_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "nullable_sha256": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/sha256"}
+      ]
+    },
+    "nullable_id32": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/id32"}
+      ]
+    },
+    "nullable_resource_name": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^V(?:0|[1-9][0-9]*)$"}
+      ]
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alternative_sha256",
+        "bounds",
+        "display_command_fingerprint",
+        "occurrence",
+        "owner",
+        "page_index",
+        "pdf_content_object_number",
+        "pdf_page_object_number",
+        "scale",
+        "selected_placement_fingerprint"
+      ],
+      "properties": {
+        "alternative_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "bounds": {"$ref": "common.schema.json#/$defs/rect"},
+        "display_command_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "occurrence": {"$ref": "common.schema.json#/$defs/id32"},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "pdf_content_object_number": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "pdf_page_object_number": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "scale": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "selected_placement_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "admitted_sha256",
+        "allocation_charge",
+        "allocation_charge_algorithm",
+        "attested_media_kind",
+        "declared_media_type",
+        "form_plan_fingerprint",
+        "image_id",
+        "intrinsic_height",
+        "intrinsic_width",
+        "ir_algorithm",
+        "ir_fingerprint",
+        "ir_fingerprint_algorithm",
+        "pdf_form_object_number",
+        "pdf_resource_name",
+        "safe_svg_parser",
+        "uri",
+        "usages"
+      ],
+      "properties": {
+        "admitted_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "allocation_charge": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "allocation_charge_algorithm": {"const": "typaxis.safe-vector-allocation-charge/1"},
+        "attested_media_kind": {"const": "svg-safe-1"},
+        "declared_media_type": {"const": "svg-safe-1"},
+        "form_plan_fingerprint": {"$ref": "#/$defs/nullable_sha256"},
+        "image_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "intrinsic_height": {"$ref": "common.schema.json#/$defs/positive_length"},
+        "intrinsic_width": {"$ref": "common.schema.json#/$defs/positive_length"},
+        "ir_algorithm": {"const": "typaxis.safe-vector-ir/1"},
+        "ir_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "ir_fingerprint_algorithm": {"const": "typaxis.safe-vector-ir-fingerprint/1"},
+        "pdf_form_object_number": {"$ref": "#/$defs/nullable_id32"},
+        "pdf_resource_name": {"$ref": "#/$defs/nullable_resource_name"},
+        "safe_svg_parser": {"const": "typaxis.safe-svg-parser/1"},
+        "uri": {"$ref": "common.schema.json#/$defs/portable_relative_path"},
+        "usages": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/usage"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"usages": {"maxItems": 0}}},
+          "then": {
+            "properties": {
+              "form_plan_fingerprint": {"type": "null"},
+              "pdf_form_object_number": {"type": "null"},
+              "pdf_resource_name": {"type": "null"}
+            }
+          },
+          "else": {
+            "properties": {
+              "form_plan_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+              "pdf_form_object_number": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+              "pdf_resource_name": {"type": "string", "pattern": "^V(?:0|[1-9][0-9]*)$"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1472,3 +1472,38 @@ fn semantic_container_staging_contract_and_profile_remain_private() {
         .unwrap()
         .contains("unknown machine PDF profile `typaxis.machine-pdf/production-book-1`"));
 }
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_vector_staging_slice_is_not_advertised_by_the_public_cli() {
+    let repository = repository_root();
+    let fixture = repository.join("samples/machine-package/staging/production-book-1/vector-media");
+    let help = run(&repository, &strings(&["build-package", "--help"]));
+    assert!(help.status.success());
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(!help.contains("svg-safe-1"));
+    assert!(!help.contains("production-book-1"));
+
+    let current_schema = fs::read(repository.join("schemas/document-package.schema.json")).unwrap();
+    assert!(!String::from_utf8(current_schema)
+        .unwrap()
+        .contains("svg-safe-1"));
+    let rejected = run(
+        &fixture,
+        &strings(&[
+            "build-package",
+            "job/document-package.json",
+            "--package-root",
+            "job",
+            "--profile",
+            "typaxis.machine-pdf/paragraph-1",
+            "-o",
+            "vector.pdf",
+        ]),
+    );
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(String::from_utf8(rejected.stderr)
+        .unwrap()
+        .contains("P1103: unknown DocumentPackage contract at /contract"));
+    assert!(!fixture.join("vector.pdf").exists());
+}

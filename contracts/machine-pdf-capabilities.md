@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes, ADR-0032 base plus ADR-0033 math/safe-vector target on non-current contract 1.4 | Private semantic-container/base-media staging only; math/safe-vector are pending MI4-04/05 | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes, ADR-0032 base plus ADR-0033 math/safe-vector target on non-current contract 1.4 | Private semantic-container/base-media and SafeVector admission/PDF staging; math remains pending MI4-05 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -596,9 +596,9 @@ parser and `typaxis.safe-vector-ir/1` issuer remain in
 `typaxis-resource-admission`; resource finalization alone creates a frozen Form
 plan, and PDF alone assigns/serializes the Form XObject. No external math,
 XML, SVG, CSS, browser, speech, or network dependency/tool is part of the `/1`
-identities. MI4-04/05 implement these facts privately; public capabilities,
-current Schema aliases, old profiles, and default remain unchanged until
-MI4-13.
+identities. MI4-04 implements the SafeVector branch privately; MI4-05 owns the
+remaining math branch. Public capabilities, current Schema aliases, old
+profiles, and default remain unchanged until MI4-13.
 
 ## Compatible changes
 

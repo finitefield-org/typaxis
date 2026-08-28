@@ -4,6 +4,7 @@ mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
+mod safe_vector;
 mod semantic_container;
 
 pub use advanced_columns::{
@@ -19,6 +20,11 @@ pub use advanced_header_footer::{
     serialize_header_footer_pdf, serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,
     StagingHeaderFooterPdfClosureReceipt, StagingHeaderFooterPdfError,
     StagingHeaderFooterPdfPageObservation, STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
+};
+pub use safe_vector::{
+    write_staging_safe_vector_pdf, StagingSafeVectorPdf, StagingSafeVectorPdfError,
+    StagingSafeVectorPdfFormObject, StagingSafeVectorPdfReceipt, StagingSafeVectorPdfUsage,
+    STAGING_SAFE_VECTOR_PDF_ALGORITHM,
 };
 pub use semantic_container::{
     write_staging_semantic_container_pdf, StagingSemanticContainerPdf,

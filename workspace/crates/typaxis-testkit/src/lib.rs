@@ -252,14 +252,6 @@ mod tests {
             .map_or(name, |(package, _)| package.to_owned())
     }
 
-    fn workspace_dependencies(manifest: &Path) -> Vec<String> {
-        workspace_dependency_declarations(manifest)
-            .into_iter()
-            .map(|(name, declaration)| declared_package_name(name, &declaration))
-            .filter(|name| name.starts_with("typaxis-"))
-            .collect()
-    }
-
     fn is_denied(from: &str, to: &str) -> bool {
         if from == "typaxis-testkit" {
             return false;
@@ -357,9 +349,14 @@ mod tests {
     fn forbidden_edges(crate_name: &str, manifest: &str) -> Vec<String> {
         dependency_declarations(manifest)
             .into_iter()
-            .map(|(name, declaration)| declared_package_name(name, &declaration))
-            .filter_map(|dependency| {
-                (dependency.starts_with("typaxis-") && is_denied(crate_name, &dependency))
+            .filter_map(|(name, declaration)| {
+                let dependency = declared_package_name(name, &declaration);
+                let forbidden_workspace_edge =
+                    dependency.starts_with("typaxis-") && is_denied(crate_name, &dependency);
+                let forbidden_parser_supply_chain = crate_name == "typaxis-resource-admission"
+                    && !dependency.starts_with("typaxis-")
+                    && !(dependency == "png" && declaration == "\"=0.18.1\"");
+                (forbidden_workspace_edge || forbidden_parser_supply_chain)
                     .then(|| format!("{crate_name} -> {dependency}"))
             })
             .collect()
@@ -389,17 +386,69 @@ mod tests {
                 continue;
             }
             let crate_name = entry.file_name().to_string_lossy().into_owned();
-            let manifest = entry.path().join("Cargo.toml");
-            for dependency in workspace_dependencies(&manifest) {
-                if is_denied(&crate_name, &dependency) {
-                    violations.push(format!("{crate_name} -> {dependency}"));
-                }
-            }
+            let manifest = fs::read_to_string(entry.path().join("Cargo.toml"))
+                .expect("workspace manifest must be readable");
+            violations.extend(forbidden_edges(&crate_name, &manifest));
         }
         assert!(
             violations.is_empty(),
             "forbidden workspace dependencies: {violations:?}"
         );
+    }
+
+    #[test]
+    fn forbidden_dependency_edges_exclude_safe_vector_parser_supply_chain() {
+        const FORBIDDEN_PACKAGES: [&str; 20] = [
+            "cssparser",
+            "curl",
+            "fantoccini",
+            "headless_chrome",
+            "html5ever",
+            "hyper",
+            "libxml",
+            "quick-xml",
+            "reqwest",
+            "resvg",
+            "roxmltree",
+            "scraper",
+            "selenium",
+            "surf",
+            "svg",
+            "ureq",
+            "usvg",
+            "webkit2gtk",
+            "xml-rs",
+            "xmltree",
+        ];
+        let lock = fs::read_to_string(workspace_root().join("Cargo.lock"))
+            .expect("workspace lockfile must be readable");
+        for package in FORBIDDEN_PACKAGES {
+            let lock_entry = format!("name = \"{package}\"");
+            assert!(
+                !lock.lines().any(|line| line == lock_entry),
+                "forbidden SafeVector parser dependency is locked: {package}"
+            );
+        }
+
+        let source = fs::read_to_string(
+            workspace_root().join("crates/typaxis-resource-admission/src/safe_vector.rs"),
+        )
+        .expect("SafeVector parser source must be readable");
+        for forbidden_api in [
+            "std::fs",
+            "std::net",
+            "std::process",
+            "Command::",
+            "TcpStream",
+            "UdpSocket",
+            "libloading",
+            "extern \"C\"",
+        ] {
+            assert!(
+                !source.contains(forbidden_api),
+                "SafeVector parser uses forbidden host API: {forbidden_api}"
+            );
+        }
     }
 
     #[test]
@@ -429,6 +478,16 @@ mod tests {
                 "typaxis-machine-input",
                 "[dependencies]\nsyntax_alias = { package = \"typaxis-syntax\", path = \"../typaxis-syntax\" }\n",
                 "typaxis-machine-input -> typaxis-syntax",
+            ),
+            (
+                "typaxis-resource-admission",
+                "[dependencies]\nroxmltree = \"=0.20.0\"\n",
+                "typaxis-resource-admission -> roxmltree",
+            ),
+            (
+                "typaxis-resource-admission",
+                "[dependencies]\npng = \"0.18.1\"\n",
+                "typaxis-resource-admission -> png",
             ),
         ];
 

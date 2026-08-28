@@ -18,6 +18,7 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
     package: &typaxis_syntax::ValidatedStagingSemanticPackage,
     media: &typaxis_resources::StagingDeclaredMediaLedger,
 ) -> Result<String, String> {
+    use typaxis_document::ImageMediaType;
     use typaxis_document_package::{
         StagingSemanticDocumentPackageEncoder, WireFontMediaType, WireImageMediaType,
     };
@@ -53,6 +54,11 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
     for (declaration, attestation) in resources.images.iter_mut().zip(media.images()) {
         if declaration.image_id != attestation.image_id().get()
             || declaration.uri != attestation.uri().as_str()
+            || !matches!(
+                (declaration.media_type, attestation.declared()),
+                (WireImageMediaType::Png, ImageMediaType::Png)
+                    | (WireImageMediaType::SvgSafe1, ImageMediaType::SvgSafe1)
+            )
             || declaration
                 .expected_sha256
                 .as_deref()
@@ -62,6 +68,7 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
         }
         declaration.media_type = match attestation.attested() {
             AdmittedImageMediaKind::Png => WireImageMediaType::Png,
+            AdmittedImageMediaKind::SafeVector => WireImageMediaType::SvgSafe1,
         };
     }
     let document = wire.document().clone();

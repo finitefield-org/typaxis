@@ -16,3 +16,4 @@ typaxis-syntax = { path = "../typaxis-syntax" }
 
 [dev-dependencies]
 typaxis-display-list = { path = "../typaxis-display-list", features = ["staging-fixtures"] }
+typaxis-resources = { path = "../typaxis-resources", features = ["staging-fixtures"] }

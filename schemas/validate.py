@@ -86,6 +86,12 @@ STAGING_SEMANTIC_CONTAINER_FIXTURE_DIR = (
     / "production-book-1"
     / "semantic-container"
 )
+STAGING_SAFE_VECTOR_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "production-book-1"
+    / "vector-media"
+)
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
@@ -5131,6 +5137,7 @@ def main() -> int:
             raise ValidationFailure("the versioned 1.3 registry has a missing or extra schema")
         expected_private_m4 = {
             *expected_versioned_current,
+            "machine-safe-vector-manifest.schema.json",
             "machine-semantic-container-manifest.schema.json",
         }
         if set(private_m4_schemas) != expected_private_m4:
@@ -5338,6 +5345,111 @@ def main() -> int:
             raise ValidationFailure(
                 "private 1.4 manifest accepted declared/attested media mismatch"
             )
+
+        vector_document_path = STAGING_SAFE_VECTOR_FIXTURE_DIR / "job" / "document-package.json"
+        vector_manifest_path = STAGING_SAFE_VECTOR_FIXTURE_DIR / "manifest.json"
+        vector_document = load_json(vector_document_path)
+        vector_manifest = load_json(vector_manifest_path)
+        vector_document_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], vector_document
+        )
+        if vector_document_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the SafeVector fixture: "
+                + " | ".join(vector_document_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            vector_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private SafeVector fixture"
+            )
+        vector_manifest_errors = schema_errors(
+            private_m4_validators["machine-safe-vector-manifest.schema.json"],
+            vector_manifest,
+        )
+        if vector_manifest_errors:
+            raise ValidationFailure(
+                "private 1.4 SafeVector manifest was rejected: "
+                + " | ".join(vector_manifest_errors)
+            )
+        for path, value, label in (
+            (vector_document_path, vector_document, "SafeVector DocumentPackage"),
+            (vector_manifest_path, vector_manifest, "SafeVector manifest"),
+        ):
+            if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
+                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+        vector_declarations = vector_document["resources"]["images"]
+        vector_resources = vector_manifest["resources"]
+        if len(vector_declarations) != len(vector_resources):
+            raise ValidationFailure("private 1.4 SafeVector resource coverage is incomplete")
+        vector_job = STAGING_SAFE_VECTOR_FIXTURE_DIR / "job"
+        for declaration, record in zip(vector_declarations, vector_resources, strict=True):
+            resource_bytes = (vector_job / declaration["uri"]).read_bytes()
+            if (
+                declaration["media_type"] != "svg-safe-1"
+                or record["image_id"] != declaration["image_id"]
+                or record["uri"] != declaration["uri"]
+                or record["declared_media_type"] != declaration["media_type"]
+                or record["attested_media_kind"] != declaration["media_type"]
+                or record["admitted_sha256"] != hashlib.sha256(resource_bytes).hexdigest()
+                or record["admitted_sha256"] != declaration["expected_sha256"]
+                or bool(record["usages"]) != (record["form_plan_fingerprint"] is not None)
+                or bool(record["usages"]) != (record["pdf_form_object_number"] is not None)
+                or bool(record["usages"]) != (record["pdf_resource_name"] is not None)
+            ):
+                raise ValidationFailure("private 1.4 SafeVector closure drifted")
+        wrong_vector_media = copy.deepcopy(vector_document)
+        wrong_vector_media["resources"]["images"][0]["media_type"] = "image/svg+xml"
+        if not schema_errors(
+            private_m4_validators["document-package.schema.json"], wrong_vector_media
+        ):
+            raise ValidationFailure("private 1.4 accepted unknown SafeVector media")
+        mismatched_vector_manifest = copy.deepcopy(vector_manifest)
+        mismatched_vector_manifest["resources"][0]["attested_media_kind"] = "png"
+        if not schema_errors(
+            private_m4_validators["machine-safe-vector-manifest.schema.json"],
+            mismatched_vector_manifest,
+        ):
+            raise ValidationFailure("private 1.4 SafeVector manifest accepted media mismatch")
+
+        m4_config = load_instance(MINIMAL_DIR / "typaxis.toml")
+        m4_config["contract"] = "typaxis.contract/1.4"
+        m4_limit_defaults = {
+            "max_vector_nodes": 100_000,
+            "max_vector_path_segments": 1_000_000,
+            "max_vector_nesting_depth": 32,
+            "max_math_layout_units": 1_000_000,
+        }
+        m4_config["limits"].update(m4_limit_defaults)
+        m4_config_errors = schema_errors(
+            private_m4_validators["package-config.schema.json"], m4_config
+        )
+        if m4_config_errors:
+            raise ValidationFailure(
+                "private 1.4 package config rejected M4 limit defaults: "
+                + " | ".join(m4_config_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["package-config.schema.json"], m4_config
+        ):
+            raise ValidationFailure("versioned 1.3 package config accepted private M4 limits")
+        for limit_name, maximum in (
+            ("max_vector_nodes", 1_000_000),
+            ("max_vector_path_segments", 10_000_000),
+            ("max_vector_nesting_depth", 64),
+            ("max_math_layout_units", 10_000_000),
+        ):
+            for invalid in (0, maximum + 1):
+                invalid_config = copy.deepcopy(m4_config)
+                invalid_config["limits"][limit_name] = invalid
+                if not schema_errors(
+                    private_m4_validators["package-config.schema.json"], invalid_config
+                ):
+                    raise ValidationFailure(
+                        f"private 1.4 accepted {limit_name}={invalid}"
+                    )
 
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         advanced_fixture_roots = (

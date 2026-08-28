@@ -2038,7 +2038,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-04 Safe vector/SVG resource admissionとPDF paintを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-03
 - Design inputs: docs/25 §7 SVG assets、§13.4 safe vector
 - Primary files:
@@ -2087,6 +2087,10 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_vector --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-28, Linux):
+  - non-current contract 1.4だけへ`svg-safe-1`のWire/Schema/domain loweringとprivate `production-book-1` SafeVector preflightを追加した。stable-read bytes、declared media、content hash、M4 limits、profile fingerprintを一つのadmission receiptへbindし、decoderだけが`AdmittedImageMediaKind::SafeVector`とcanonical `typaxis.safe-vector-ir/1`を発行する。public current contract/Schema alias、七profile、1.3 `ResourceLimits` JCS/hashは変更していない。
+  - XML/SVG/browser/network dependencyを追加せず、in-tree iterative scanner/parserでclosed namespace/element/attribute、solid RGB fill/stroke、path/points、transform、clip subsetだけを受理する。duplicate/unknown/entity/external reference/script/animation/text/font/CSS/filterとunsupported paintをfail closedにし、combined clip/use transform、effective stroke width、coordinate/decoded allocationをchecked fixed-pointで検証した。private M4 extensionはinclusive node/path/depth/math defaultsとhard maximumを別receiptへ固定し、`R7120` / `R7121` / `R7122` / `L5111`を所有する。
+  - existing `ImageResourceId`のままintrinsic ratioとdefault page-master body geometryからFigure placementを選び、`DrawVector`、deduplicated Form plan、PDF Form XObject/page use、SafeVector manifestへpackage/profile/limits/admitted/IR/usage/object fingerprintを閉じた。unused admitted vectorはmanifestへ残しつつplan/PDF objectを生成しない。allowed/forbidden、separator/transform/clip/stroke、exact/max+1、hash/media/profile/tamper、used/unused、deterministic PDF、public CLI isolationをfixtureで覆い、指定10 gate、workspace全target/all-feature check/test、strict clippy、format、Schema validator、diff/whitespace reviewをlocal exit 0で確認した。
 - Non-goals:
   - external resource参照
   - unrestricted SVG filter/text/CSS

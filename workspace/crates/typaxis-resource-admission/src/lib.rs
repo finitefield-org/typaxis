@@ -1,12 +1,21 @@
 #![forbid(unsafe_code)]
 
+mod safe_vector;
+
+pub use safe_vector::{
+    SafeVectorClipDefinition, SafeVectorClipUse, SafeVectorDraw, SafeVectorFillRule, SafeVectorIr,
+    SafeVectorLineCap, SafeVectorLineJoin, SafeVectorPath, SafeVectorPoint, SafeVectorSegment,
+    SafeVectorStroke, SafeVectorTransform, SAFE_SVG_PARSER_ID, SAFE_VECTOR_ALLOCATION_CHARGE_ID,
+    SAFE_VECTOR_IR_FINGERPRINT_ID, SAFE_VECTOR_IR_ID,
+};
+
 use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use typaxis_core::{
     admitted_resource_fingerprint_from_jcs, push_jcs_string, sha256, AdmittedResourceFingerprint,
-    EffectiveConfig, FontFaceId, HostAdmissionContext, ImageResourceId, PortablePath,
-    ValidatedResourceLimits,
+    EffectiveConfig, FontFaceId, HostAdmissionContext, ImageResourceId, M4EffectiveResourceLimits,
+    PortablePath, PositiveLength, ValidatedResourceLimits,
 };
 use typaxis_diagnostics::{DiagnosticSubject, PublicMachineError, ResourceErrorSubject};
 use typaxis_document::{
@@ -129,12 +138,14 @@ impl AdmittedFontMediaKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdmittedImageMediaKind {
     Png,
+    SafeVector,
 }
 
 impl AdmittedImageMediaKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::SafeVector => "svg-safe-1",
         }
     }
 }
@@ -149,6 +160,9 @@ pub struct AdmittedImage {
     width: NonZeroU32,
     height: NonZeroU32,
     decoded_bytes: u64,
+    safe_vector: Option<Arc<SafeVectorIr>>,
+    m4_limits_fingerprint: Option<[u8; 32]>,
+    m4_profile_fingerprint: Option<[u8; 32]>,
 }
 impl AdmittedImage {
     #[allow(clippy::too_many_arguments)] // exact identity, bytes, media, and decoded facts
@@ -171,6 +185,34 @@ impl AdmittedImage {
             width,
             height,
             decoded_bytes,
+            safe_vector: None,
+            m4_limits_fingerprint: None,
+            m4_profile_fingerprint: None,
+        }
+    }
+    fn from_verified_safe_vector(
+        image_id: ImageResourceId,
+        uri: PortablePath,
+        bytes: Vec<u8>,
+        sha256: [u8; 32],
+        ir: SafeVectorIr,
+        m4_limits_fingerprint: [u8; 32],
+        m4_profile_fingerprint: [u8; 32],
+    ) -> Self {
+        Self {
+            image_id,
+            uri,
+            bytes,
+            sha256,
+            media_kind: AdmittedImageMediaKind::SafeVector,
+            // Raster dimensions are deliberately not derived from vector
+            // source. Callers must use `safe_vector` intrinsic geometry.
+            width: NonZeroU32::MIN,
+            height: NonZeroU32::MIN,
+            decoded_bytes: ir.allocation_charge(),
+            safe_vector: Some(Arc::new(ir)),
+            m4_limits_fingerprint: Some(m4_limits_fingerprint),
+            m4_profile_fingerprint: Some(m4_profile_fingerprint),
         }
     }
     pub const fn image_id(&self) -> ImageResourceId {
@@ -200,6 +242,24 @@ impl AdmittedImage {
     pub const fn decoded_bytes(&self) -> u64 {
         self.decoded_bytes
     }
+    pub fn safe_vector(&self) -> Option<&SafeVectorIr> {
+        self.safe_vector.as_deref()
+    }
+    pub fn safe_vector_arc(&self) -> Option<Arc<SafeVectorIr>> {
+        self.safe_vector.clone()
+    }
+    pub const fn m4_limits_fingerprint(&self) -> Option<[u8; 32]> {
+        self.m4_limits_fingerprint
+    }
+    pub const fn m4_profile_fingerprint(&self) -> Option<[u8; 32]> {
+        self.m4_profile_fingerprint
+    }
+    pub fn intrinsic_width(&self) -> Option<PositiveLength> {
+        self.safe_vector().map(SafeVectorIr::intrinsic_width)
+    }
+    pub fn intrinsic_height(&self) -> Option<PositiveLength> {
+        self.safe_vector().map(SafeVectorIr::intrinsic_height)
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResourceAdmissionError {
@@ -227,6 +287,11 @@ pub enum ResourceAdmissionError {
     ResourceNotRegularFile,
     ResourceLockUnavailable,
     DeclaredMediaMismatch,
+    InvalidSafeVector,
+    VectorNodeLimit,
+    VectorPathSegmentLimit,
+    VectorNestingLimit,
+    DecodedImageLimit,
 }
 
 impl ResourceAdmissionError {
@@ -260,9 +325,22 @@ impl ResourceAdmissionError {
             Self::DeclaredMediaMismatch => {
                 "declared media type does not match the stable resource bytes"
             }
+            Self::InvalidSafeVector => "safe vector bytes contain a forbidden or invalid feature",
+            Self::VectorNodeLimit => "R7120: safe vector node limit was exceeded",
+            Self::VectorPathSegmentLimit => "R7121: safe vector path segment limit was exceeded",
+            Self::VectorNestingLimit => "R7122: safe vector nesting limit was exceeded",
+            Self::DecodedImageLimit => "R7111: decoded image allocation limit was exceeded",
         }
     }
 }
+
+impl std::fmt::Display for ResourceAdmissionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.canonical_message())
+    }
+}
+
+impl std::error::Error for ResourceAdmissionError {}
 
 /// A resource admission error paired with the logical font/image/URI that
 /// caused it. The machine diagnostic mapper consumes this typed subject and
@@ -325,6 +403,7 @@ impl ResourceAdmissionFailure {
     pub fn public_error(&self) -> Option<PublicMachineError> {
         match self.error {
             ResourceAdmissionError::InvalidMetadata
+            | ResourceAdmissionError::InvalidSafeVector
             | ResourceAdmissionError::DeclaredMediaMismatch => Some(
                 PublicMachineError::UnsupportedResource(self.subject.clone()),
             ),
@@ -606,6 +685,12 @@ enum VerifiedMetadata {
         height: NonZeroU32,
         decoded_bytes: u64,
     },
+    SafeVector {
+        source: PendingResourceBytes,
+        ir: Box<SafeVectorIr>,
+        m4_limits_fingerprint: [u8; 32],
+        m4_profile_fingerprint: [u8; 32],
+    },
 }
 
 /// Unforgeable proof that a crate-owned parser derived metadata from the exact
@@ -658,6 +743,23 @@ impl VerifiedMetadataReceiptOwner {
             width,
             height,
             decoded_bytes,
+        }))
+    }
+    fn issue_safe_vector(
+        &self,
+        source: PendingResourceBytes,
+        ir: SafeVectorIr,
+        m4_limits_fingerprint: [u8; 32],
+        m4_profile_fingerprint: [u8; 32],
+    ) -> Result<VerifiedMetadataReceipt, ResourceAdmissionError> {
+        if source.image_id().is_none() || ir.draws().is_empty() || ir.allocation_charge() == 0 {
+            return Err(ResourceAdmissionError::InvalidSafeVector);
+        }
+        Ok(VerifiedMetadataReceipt(VerifiedMetadata::SafeVector {
+            source,
+            ir: Box::new(ir),
+            m4_limits_fingerprint,
+            m4_profile_fingerprint,
         }))
     }
 }
@@ -732,6 +834,10 @@ pub struct AdmittedResourceResolver<'roots> {
     attempted_images: BTreeSet<ImageResourceId>,
     fonts: BTreeMap<FontFaceId, AdmittedFont>,
     images: BTreeMap<ImageResourceId, AdmittedImage>,
+    m4_limits: Option<M4EffectiveResourceLimits>,
+    m4_profile_fingerprint: Option<[u8; 32]>,
+    vector_nodes_used: u64,
+    vector_path_work_used: u64,
 }
 impl AdmittedResourceResolver<'static> {
     /// Safe empty-package workflow for lower crates that must not depend on
@@ -786,6 +892,25 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         Ok(resolver)
     }
 
+    /// Contract-1.4 resolver with the combined, sealed base/extension limit
+    /// receipt required by the SafeVector decoder.
+    pub fn new_with_declared_roots_and_m4_limits(
+        declarations: &StagingDeclaredBaseCatalog,
+        limits: &M4EffectiveResourceLimits,
+        profile_fingerprint: [u8; 32],
+        roots: HostRootSetToken<'roots>,
+    ) -> Result<Self, ResourceAdmissionError> {
+        let mut resolver =
+            Self::new_inner(declarations.resource_catalog(), limits.base(), Some(roots))?;
+        resolver.declared_media_policy = Some(Arc::new(DeclaredMediaPolicy {
+            fonts: declarations.font_media.clone(),
+            images: declarations.image_media.clone(),
+        }));
+        resolver.m4_limits = Some(limits.clone());
+        resolver.m4_profile_fingerprint = Some(profile_fingerprint);
+        Ok(resolver)
+    }
+
     fn new_inner(
         declarations: &ResourceCatalog,
         limits: &ValidatedResourceLimits,
@@ -803,6 +928,10 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             attempted_images: BTreeSet::new(),
             fonts: BTreeMap::new(),
             images: BTreeMap::new(),
+            m4_limits: None,
+            m4_profile_fingerprint: None,
+            vector_nodes_used: 0,
+            vector_path_work_used: 0,
         })
     }
     pub fn read_font(
@@ -1031,11 +1160,128 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
+            ImageMediaType::SvgSafe1 => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
         };
         if observed != expected {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         }
         self.parse_and_bind_png_after_policy(source)
+    }
+
+    /// Stable-byte-only SafeVector path. The declaration/hash/limit receipt is
+    /// checked before the first IR allocation; no PNG or general-XML fallback
+    /// is attempted.
+    pub fn parse_and_bind_declared_safe_vector(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionError> {
+        self.ensure_session(&source)?;
+        let PendingResourceId::Image(image_id) = source.id else {
+            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+        };
+        let declared = *self
+            .declared_media_policy
+            .as_ref()
+            .and_then(|policy| policy.images.get(image_id.get() as usize))
+            .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
+        if declared != ImageMediaType::SvgSafe1 {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        let declaration = self
+            .declarations
+            .images
+            .get(image_id.get() as usize)
+            .filter(|declaration| declaration.image_id == image_id)
+            .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        if declaration
+            .expected_sha256
+            .is_some_and(|expected| expected != source.content_hash())
+        {
+            return Err(ResourceAdmissionError::ExpectedHashMismatch);
+        }
+        if attest_image_media_kind(source.bytes()) == Ok(AdmittedImageMediaKind::Png) {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        let limits = self
+            .m4_limits
+            .as_ref()
+            .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        if self.declared_media_policy.as_ref().is_some_and(|policy| {
+            policy.images[..image_id.get() as usize]
+                .iter()
+                .zip(&self.declarations.images[..image_id.get() as usize])
+                .any(|(media, declaration)| {
+                    *media == ImageMediaType::SvgSafe1
+                        && !self.images.contains_key(&declaration.image_id)
+                })
+        }) {
+            return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+        }
+        let remaining_nodes = limits
+            .extension()
+            .get()
+            .max_vector_nodes
+            .checked_sub(self.vector_nodes_used)
+            .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
+        if remaining_nodes == 0 {
+            return Err(ResourceAdmissionError::VectorNodeLimit);
+        }
+        let remaining_path_work = limits
+            .extension()
+            .get()
+            .max_vector_path_segments
+            .checked_sub(self.vector_path_work_used)
+            .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
+        let decoded = safe_vector::decode_with_work_budget(
+            source.bytes(),
+            limits,
+            remaining_nodes,
+            remaining_path_work,
+        )?;
+        let next_nodes = self
+            .vector_nodes_used
+            .checked_add(decoded.work.nodes)
+            .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
+        if next_nodes > limits.extension().get().max_vector_nodes {
+            return Err(ResourceAdmissionError::VectorNodeLimit);
+        }
+        let next_path_work = self
+            .vector_path_work_used
+            .checked_add(decoded.work.path_work)
+            .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
+        if next_path_work > limits.extension().get().max_vector_path_segments {
+            return Err(ResourceAdmissionError::VectorPathSegmentLimit);
+        }
+        let limits_fingerprint = limits.fingerprint();
+        let profile_fingerprint = self
+            .m4_profile_fingerprint
+            .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        let owner = VerifiedMetadataReceiptOwner::new();
+        let receipt =
+            owner.issue_safe_vector(source, decoded.ir, limits_fingerprint, profile_fingerprint)?;
+        self.bind_verified_metadata(receipt)?;
+        self.vector_nodes_used = next_nodes;
+        self.vector_path_work_used = next_path_work;
+        Ok(())
+    }
+
+    pub fn parse_and_bind_declared_image(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionError> {
+        let image_id = source
+            .image_id()
+            .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+        match self
+            .declared_media_policy
+            .as_ref()
+            .and_then(|policy| policy.images.get(image_id.get() as usize))
+            .copied()
+            .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?
+        {
+            ImageMediaType::Png => self.parse_and_bind_declared_png(source),
+            ImageMediaType::SvgSafe1 => self.parse_and_bind_declared_safe_vector(source),
+        }
     }
 
     pub fn parse_and_bind_sfnt_with_subject(
@@ -1071,6 +1317,15 @@ impl<'roots> AdmittedResourceResolver<'roots> {
     ) -> Result<(), ResourceAdmissionFailureOutcome> {
         let subject = source.error_subject();
         self.parse_and_bind_declared_png(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
+    pub fn parse_and_bind_declared_safe_vector_with_subject(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = source.error_subject();
+        self.parse_and_bind_declared_safe_vector(source)
             .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
     }
 
@@ -1166,6 +1421,56 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 let replaced = self.images.insert(id, image);
                 debug_assert!(replaced.is_none());
             }
+            VerifiedMetadata::SafeVector {
+                source,
+                ir,
+                m4_limits_fingerprint,
+                m4_profile_fingerprint,
+            } => {
+                self.ensure_session(&source)?;
+                let id = source
+                    .image_id()
+                    .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+                let declaration = self
+                    .declarations
+                    .images
+                    .get(id.get() as usize)
+                    .filter(|candidate| candidate.image_id == id)
+                    .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+                if source.uri() != &declaration.uri || source.face_index().is_some() {
+                    return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+                }
+                if declaration
+                    .expected_sha256
+                    .is_some_and(|expected| expected != source.content_hash())
+                {
+                    return Err(ResourceAdmissionError::ExpectedHashMismatch);
+                }
+                if self
+                    .m4_limits
+                    .as_ref()
+                    .map_or(true, |limits| limits.fingerprint() != m4_limits_fingerprint)
+                {
+                    return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+                }
+                if self.m4_profile_fingerprint != Some(m4_profile_fingerprint) {
+                    return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+                }
+                if self.images.contains_key(&id) {
+                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
+                }
+                let image = AdmittedImage::from_verified_safe_vector(
+                    id,
+                    source.uri,
+                    source.bytes,
+                    source.sha256,
+                    *ir,
+                    m4_limits_fingerprint,
+                    m4_profile_fingerprint,
+                );
+                let replaced = self.images.insert(id, image);
+                debug_assert!(replaced.is_none());
+            }
         }
         Ok(())
     }
@@ -1175,9 +1480,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         receipt: VerifiedMetadataReceipt,
     ) -> Result<(), ResourceAdmissionFailureOutcome> {
         let subject = match &receipt.0 {
-            VerifiedMetadata::Font { source, .. } | VerifiedMetadata::Image { source, .. } => {
-                source.error_subject()
-            }
+            VerifiedMetadata::Font { source, .. }
+            | VerifiedMetadata::Image { source, .. }
+            | VerifiedMetadata::SafeVector { source, .. } => source.error_subject(),
         };
         self.bind_verified_metadata(receipt)
             .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
@@ -1675,7 +1980,40 @@ impl AdmittedResourceLedger {
             if index > 0 {
                 canonical.push(',');
             }
-            canonical.push_str("{\"decoded_bytes\":");
+            canonical.push('{');
+            if let Some(vector) = image.safe_vector() {
+                canonical.push_str("\"allocation_charge\":");
+                canonical.push_str(&vector.allocation_charge().to_string());
+                canonical.push_str(",\"image_id\":");
+                canonical.push_str(&image.image_id().get().to_string());
+                canonical.push_str(",\"intrinsic_height\":");
+                canonical.push_str(&vector.intrinsic_height().get().raw().to_string());
+                canonical.push_str(",\"intrinsic_width\":");
+                canonical.push_str(&vector.intrinsic_width().get().raw().to_string());
+                canonical.push_str(",\"ir_fingerprint\":");
+                push_hash_hex(&mut canonical, vector.fingerprint());
+                canonical.push_str(",\"limits_fingerprint\":");
+                push_hash_hex(
+                    &mut canonical,
+                    image
+                        .m4_limits_fingerprint()
+                        .expect("SafeVector admission carries its limits identity"),
+                );
+                canonical.push_str(",\"media_kind\":");
+                push_jcs_string(&mut canonical, image.media_kind().as_str());
+                canonical.push_str(",\"profile_fingerprint\":");
+                push_hash_hex(
+                    &mut canonical,
+                    image
+                        .m4_profile_fingerprint()
+                        .expect("SafeVector admission carries its profile identity"),
+                );
+                canonical.push_str(",\"sha256\":");
+                push_hash_hex(&mut canonical, image.content_hash());
+                canonical.push('}');
+                continue;
+            }
+            canonical.push_str("\"decoded_bytes\":");
             canonical.push_str(&image.decoded_bytes().to_string());
             canonical.push_str(",\"image_id\":");
             canonical.push_str(&image.image_id().get().to_string());
@@ -1739,6 +2077,10 @@ pub struct StagingDeclaredImageAttestation {
     declared: ImageMediaType,
     attested: AdmittedImageMediaKind,
     sha256: [u8; 32],
+    safe_vector_ir_fingerprint: Option<[u8; 32]>,
+    safe_vector_allocation_charge: Option<u64>,
+    m4_limits_fingerprint: Option<[u8; 32]>,
+    m4_profile_fingerprint: Option<[u8; 32]>,
 }
 
 impl StagingDeclaredImageAttestation {
@@ -1756,6 +2098,18 @@ impl StagingDeclaredImageAttestation {
     }
     pub const fn content_hash(&self) -> [u8; 32] {
         self.sha256
+    }
+    pub const fn safe_vector_ir_fingerprint(&self) -> Option<[u8; 32]> {
+        self.safe_vector_ir_fingerprint
+    }
+    pub const fn safe_vector_allocation_charge(&self) -> Option<u64> {
+        self.safe_vector_allocation_charge
+    }
+    pub const fn m4_limits_fingerprint(&self) -> Option<[u8; 32]> {
+        self.m4_limits_fingerprint
+    }
+    pub const fn m4_profile_fingerprint(&self) -> Option<[u8; 32]> {
+        self.m4_profile_fingerprint
     }
 }
 
@@ -1943,6 +2297,7 @@ pub fn close_staging_declared_media(
         };
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
+            ImageMediaType::SvgSafe1 => AdmittedImageMediaKind::SafeVector,
         };
         if image.image_id() != declaration.image_id
             || image.uri() != &declaration.uri
@@ -1959,6 +2314,10 @@ pub fn close_staging_declared_media(
             declared,
             attested: image.media_kind(),
             sha256: image.content_hash(),
+            safe_vector_ir_fingerprint: image.safe_vector().map(SafeVectorIr::fingerprint),
+            safe_vector_allocation_charge: image.safe_vector().map(SafeVectorIr::allocation_charge),
+            m4_limits_fingerprint: image.m4_limits_fingerprint(),
+            m4_profile_fingerprint: image.m4_profile_fingerprint(),
         });
     }
     let canonical_jcs = encode_staging_declared_media(&fonts, &images);
@@ -2007,6 +2366,22 @@ fn encode_staging_declared_media(
         push_jcs_string(&mut output, image.declared.as_str());
         output.push_str(",\"image_id\":");
         output.push_str(&image.image_id.get().to_string());
+        if let Some(charge) = image.safe_vector_allocation_charge {
+            output.push_str(",\"safe_vector_allocation_charge\":");
+            output.push_str(&charge.to_string());
+        }
+        if let Some(fingerprint) = image.safe_vector_ir_fingerprint {
+            output.push_str(",\"safe_vector_ir_fingerprint\":");
+            push_hash_hex(&mut output, fingerprint);
+        }
+        if let Some(fingerprint) = image.m4_limits_fingerprint {
+            output.push_str(",\"safe_vector_limits_fingerprint\":");
+            push_hash_hex(&mut output, fingerprint);
+        }
+        if let Some(fingerprint) = image.m4_profile_fingerprint {
+            output.push_str(",\"safe_vector_profile_fingerprint\":");
+            push_hash_hex(&mut output, fingerprint);
+        }
         output.push_str(",\"sha256\":");
         push_hash_hex(&mut output, image.sha256);
         output.push_str(",\"uri\":");
@@ -2247,9 +2622,9 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
     use typaxis_core::{
-        sha256, ConfigResourceRoot, EffectiveDataVersions, HostPath, PdfStreamCompression,
-        ResourceLimits, DEFAULT_ALLOWED_URI_SCHEMES, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
-        REGISTERED_UNICODE_VERSION,
+        sha256, ConfigResourceRoot, EffectiveDataVersions, HostPath, M4ResourceLimits,
+        PdfStreamCompression, ResourceLimits, DEFAULT_ALLOWED_URI_SCHEMES,
+        REGISTERED_JAPANESE_LINE_BREAK_VERSION, REGISTERED_UNICODE_VERSION,
     };
     use typaxis_document::{FontFaceDeclaration, ImageDeclaration};
 
@@ -3229,5 +3604,287 @@ mod tests {
             Err(ResourceAdmissionError::DeclaredMediaMismatch)
         );
         assert!(resolver.progress_token().fonts().is_empty());
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn vector_stable_read_binds_hash_media_limits_ir_and_attestation() {
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/vector-media/job/art.vector"
+        ));
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: vec![typaxis_document::StagingM4ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("art.vector").unwrap(),
+                expected_sha256: Some(sha256(bytes)),
+                media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1),
+            }],
+        };
+        let catalog = staging_declared_base_catalog(&declarations).unwrap();
+        let tree = TempTree::new("safe-vector");
+        fs::write(tree.path().join("art.vector"), bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let limits = M4EffectiveResourceLimits::defaults_for(config.limits());
+        let profile_fingerprint = sha256(b"typaxis.test-safe-vector-profile/1");
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &limits,
+            profile_fingerprint,
+            host.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_declared_image(pending).unwrap();
+        let ledger = resolver.finish().unwrap();
+        let image = ledger.image(ImageResourceId::new(0)).unwrap();
+        assert_eq!(image.media_kind(), AdmittedImageMediaKind::SafeVector);
+        assert_eq!(image.content_hash(), sha256(bytes));
+        assert_eq!(image.m4_limits_fingerprint(), Some(limits.fingerprint()));
+        assert_eq!(image.m4_profile_fingerprint(), Some(profile_fingerprint));
+        let ir = image.safe_vector().unwrap();
+        assert!(!ir.draws().is_empty());
+        assert_eq!(
+            ir.fingerprint(),
+            safe_vector::decode(bytes, &limits)
+                .unwrap()
+                .ir
+                .fingerprint()
+        );
+
+        let closed = close_staging_declared_media(&ledger, &declarations).unwrap();
+        assert_eq!(
+            closed.images()[0].attested(),
+            AdmittedImageMediaKind::SafeVector
+        );
+        assert_eq!(
+            closed.images()[0].safe_vector_ir_fingerprint(),
+            Some(ir.fingerprint())
+        );
+        assert_eq!(
+            closed.images()[0].m4_profile_fingerprint(),
+            Some(profile_fingerprint)
+        );
+        let canonical = closed.canonical_jcs();
+        assert!(
+            canonical.find("safe_vector_ir_fingerprint").unwrap()
+                < canonical.find("sha256").unwrap()
+        );
+        assert!(canonical.contains("safe_vector_profile_fingerprint"));
+
+        let altered_limits = M4EffectiveResourceLimits::new(
+            config.limits().clone(),
+            M4ResourceLimits {
+                max_vector_nodes: M4ResourceLimits::default().max_vector_nodes - 1,
+                ..M4ResourceLimits::default()
+            },
+        )
+        .unwrap();
+        let altered_host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut altered_resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &altered_limits,
+            profile_fingerprint,
+            altered_host.roots(),
+        )
+        .unwrap();
+        let pending = altered_resolver
+            .read_image(altered_host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        altered_resolver
+            .parse_and_bind_declared_image(pending)
+            .unwrap();
+        let altered_ledger = altered_resolver.finish().unwrap();
+        assert_ne!(ledger.fingerprint(), altered_ledger.fingerprint());
+
+        let wrong_declarations = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: vec![typaxis_document::StagingM4ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("art.vector").unwrap(),
+                expected_sha256: Some(sha256(bytes)),
+                media: ImageMediaDeclaration::Declared(ImageMediaType::Png),
+            }],
+        };
+        let wrong_catalog = staging_declared_base_catalog(&wrong_declarations).unwrap();
+        let wrong_host = HostResourceAdmissionSession::new(
+            &host_context(tree.path(), &[]),
+            &config,
+            &wrong_catalog,
+        )
+        .unwrap();
+        let mut wrong_resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &wrong_catalog,
+            &limits,
+            profile_fingerprint,
+            wrong_host.roots(),
+        )
+        .unwrap();
+        let pending = wrong_resolver
+            .read_image(wrong_host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            wrong_resolver.parse_and_bind_declared_image(pending),
+            Err(ResourceAdmissionError::DeclaredMediaMismatch)
+        );
+        assert!(wrong_resolver.progress_token().images().is_empty());
+
+        let png_bytes = png(1, 1);
+        fs::write(tree.path().join("wrong.vector"), &png_bytes).unwrap();
+        let png_as_vector = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: vec![typaxis_document::StagingM4ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("wrong.vector").unwrap(),
+                expected_sha256: Some(sha256(&png_bytes)),
+                media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1),
+            }],
+        };
+        let png_as_vector_catalog = staging_declared_base_catalog(&png_as_vector).unwrap();
+        let png_as_vector_host = HostResourceAdmissionSession::new(
+            &host_context(tree.path(), &[]),
+            &config,
+            &png_as_vector_catalog,
+        )
+        .unwrap();
+        let mut png_as_vector_resolver =
+            AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+                &png_as_vector_catalog,
+                &limits,
+                profile_fingerprint,
+                png_as_vector_host.roots(),
+            )
+            .unwrap();
+        let pending = png_as_vector_resolver
+            .read_image(
+                png_as_vector_host
+                    .open_image(ImageResourceId::new(0))
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            png_as_vector_resolver.parse_and_bind_declared_image(pending),
+            Err(ResourceAdmissionError::DeclaredMediaMismatch)
+        );
+        assert!(png_as_vector_resolver.progress_token().images().is_empty());
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn vector_hash_mismatch_precedes_ir_and_session_aggregate_is_monotonic() {
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/vector-media/job/art.vector"
+        ));
+        let single = safe_vector::decode(
+            bytes,
+            &M4EffectiveResourceLimits::defaults_for(&limits(ResourceLimits::default())),
+        )
+        .unwrap();
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: (0..2)
+                .map(|id| typaxis_document::StagingM4ImageDeclaration {
+                    image_id: ImageResourceId::new(id),
+                    uri: PortablePath::new(format!("art-{id}.vector")).unwrap(),
+                    expected_sha256: Some(sha256(bytes)),
+                    media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1),
+                })
+                .collect(),
+        };
+        let catalog = staging_declared_base_catalog(&declarations).unwrap();
+        let tree = TempTree::new("safe-vector-aggregate");
+        fs::write(tree.path().join("art-0.vector"), bytes).unwrap();
+        fs::write(tree.path().join("art-1.vector"), bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let aggregate_limits = M4EffectiveResourceLimits::new(
+            config.limits().clone(),
+            M4ResourceLimits {
+                max_vector_nodes: single.work.nodes,
+                max_vector_path_segments: single.work.path_work,
+                ..M4ResourceLimits::default()
+            },
+        )
+        .unwrap();
+        let profile_fingerprint = sha256(b"typaxis.test-safe-vector-profile/1");
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let out_of_order_host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut out_of_order = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &aggregate_limits,
+            profile_fingerprint,
+            out_of_order_host.roots(),
+        )
+        .unwrap();
+        let second = out_of_order
+            .read_image(
+                out_of_order_host
+                    .open_image(ImageResourceId::new(1))
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            out_of_order.parse_and_bind_declared_safe_vector(second),
+            Err(ResourceAdmissionError::ReceiptIdentityMismatch)
+        );
+        assert!(out_of_order.progress_token().images().is_empty());
+
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &aggregate_limits,
+            profile_fingerprint,
+            host.roots(),
+        )
+        .unwrap();
+        let first = resolver
+            .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_declared_safe_vector(first).unwrap();
+        let second = resolver
+            .read_image(host.open_image(ImageResourceId::new(1)).unwrap())
+            .unwrap();
+        assert_eq!(
+            resolver.parse_and_bind_declared_safe_vector(second),
+            Err(ResourceAdmissionError::VectorNodeLimit)
+        );
+        assert_eq!(resolver.progress_token().images().len(), 1);
+
+        let mut wrong_hash = declarations.clone();
+        wrong_hash.images.truncate(1);
+        wrong_hash.images[0].expected_sha256 = Some([0; 32]);
+        let wrong_catalog = staging_declared_base_catalog(&wrong_hash).unwrap();
+        let wrong_host = HostResourceAdmissionSession::new(
+            &host_context(tree.path(), &[]),
+            &config,
+            &wrong_catalog,
+        )
+        .unwrap();
+        let mut wrong_resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &wrong_catalog,
+            &aggregate_limits,
+            profile_fingerprint,
+            wrong_host.roots(),
+        )
+        .unwrap();
+        let pending = wrong_resolver
+            .read_image(wrong_host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            wrong_resolver.parse_and_bind_declared_safe_vector(pending),
+            Err(ResourceAdmissionError::ExpectedHashMismatch)
+        );
+        assert!(wrong_resolver.progress_token().images().is_empty());
     }
 }

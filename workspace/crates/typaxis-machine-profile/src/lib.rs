@@ -18,6 +18,7 @@ mod basic_styles;
 mod capabilities;
 mod descriptor;
 mod preflight;
+mod safe_vector;
 mod semantic_container;
 
 #[cfg(test)]
@@ -77,6 +78,10 @@ pub use preflight::{
     preflight_advanced_machine_pdf, AdvancedMachinePdfPreflightError, HostCapabilityPreflightError,
     MachinePdfPreflight, MachinePdfPreflightFailure, MachinePdfPreflightReceipt,
     MachinePdfReceiptMismatch, BASIC_PROFILE_RECEIPT_ALGORITHM, TABLE_PROFILE_RECEIPT_ALGORITHM,
+};
+pub use safe_vector::{
+    preflight_staging_safe_vector_profile, StagingSafeVectorProfileError,
+    StagingSafeVectorProfileReceipt, STAGING_SAFE_VECTOR_PROFILE_ALGORITHM,
 };
 pub use semantic_container::{
     preflight_staging_semantic_container_profile, StagingSemanticContainerParentKind,

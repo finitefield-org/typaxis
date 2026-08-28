@@ -101,7 +101,11 @@
         "max_fragments",
         "max_spool_bytes",
         "max_pdf_objects",
-        "max_output_bytes"
+        "max_output_bytes",
+        "max_vector_nodes",
+        "max_vector_path_segments",
+        "max_vector_nesting_depth",
+        "max_math_layout_units"
       ],
       "properties": {
         "max_input_bytes": {
@@ -268,6 +272,26 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 9999999999
+        },
+        "max_vector_nodes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "max_vector_path_segments": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000000
+        },
+        "max_vector_nesting_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_math_layout_units": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000000
         }
       }
     }

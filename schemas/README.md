@@ -14,8 +14,8 @@
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
-| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: private twenty-one-schema staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | No: private Schema/Rust slices are assigned to MI4-04/05 | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: private twenty-two-schema staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Partial: MI4-04 SafeVector Schema/Rust/PDF slice is implemented; MI4-05 math remains pending | No; current aliases remain 1.3 | No, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -46,8 +46,9 @@ the non-current 1.4 semantic-container/declared-media target and
 `production-book-1`; MI4-02 implements them only in the private staging
 registry and does not create a current alias or public descriptor.
 [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) fixes
-the `typaxis-math` source/alternative receipt and `svg-safe-1` subset, but adds
-no Schema definition until their private MI4-04/05 implementation slices.
+the `typaxis-math` source/alternative receipt and `svg-safe-1` subset. MI4-04
+implements the private SafeVector declaration/manifest/config slice; the math
+Schema and Rust slice remain assigned to MI4-05.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
 Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
@@ -81,11 +82,20 @@ the current aliases atomically.
 The independent `schemas/1.4/` registry begins with MI4-02 private staging and
 is not frozen until MI4-13. Its base DocumentPackage shape adds
 the closed block-only `semantic_container` with
-`semantic_kind = result|proof|exercise` and will require
-`resources.images[*].media_type = png` plus
+`semantic_kind = result|proof|exercise` and requires
+`resources.images[*].media_type = png|svg-safe-1` plus
 `resources.font_faces[*].media_type = sfnt-truetype-glyf|ttc-truetype-glyf`.
 Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
+
+MI4-04 adds the private `machine-safe-vector-manifest` and a separate M4
+effective-limit extension for vector nodes, path segments, nesting depth, and
+math layout units. The SafeVector fixture closes every declared resource over
+stable-byte hash, decoder attestation, canonical IR, selected use, Form plan,
+and PDF object, including the adopted parser/IR/charge identities; an unused
+admitted vector has no plan or PDF object. These
+private limit members do not alter the current 1.3 `ResourceLimits` JCS or
+fingerprint.
 
 The private semantic-container manifest projection uses a closed
 `media_declaration` tagged union. `kind = declared` requires typed
@@ -176,6 +186,11 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   required PNG/sfnt/TTC declarations, opaque-suffix resource hashes,
   declaration/attestation equality, dense selected fragments, and canonical
   Display/PDF/raster manifest projection while proving 1.3 rejection;
+- validates MI4-04's private `svg-safe-1` declaration and SafeVector manifest,
+  canonical fixture JCS, exact declared/stable-byte hash/attestation coverage,
+  used-resource Form/PDF closure, unused-resource plan/object omission, unknown media
+  rejection, attestation mismatch rejection, private M4 limit default/zero/
+  hard-max-plus-one behavior, and 1.3 isolation;
 - checks that `samples/invalid/expected-errors.json` indexes every invalid fixture;
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;

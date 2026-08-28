@@ -4366,13 +4366,18 @@ fn map_pagination_error(error: PaginationError) -> Failure {
 fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Failure {
     use typaxis_resources::ResourceAdmissionError as Error;
     match error {
-        Error::ResourceLimit => {
+        Error::ResourceLimit
+        | Error::VectorNodeLimit
+        | Error::VectorPathSegmentLimit
+        | Error::VectorNestingLimit
+        | Error::DecodedImageLimit => {
             Failure::limit(format!("resource admission limit exceeded: {error:?}"))
         }
         Error::MissingLogicalResource
         | Error::ConflictingLogicalResource
         | Error::ExpectedHashMismatch
         | Error::InvalidMetadata
+        | Error::InvalidSafeVector
         | Error::DeclaredMediaMismatch
         | Error::InvalidFontFamily
         | Error::MissingResourceCandidate
@@ -7222,6 +7227,182 @@ pub(crate) mod tests {
             .decode(
                 exported.as_bytes(),
                 &wire::DocumentPackageDecodePolicy::new(config.limits())
+            )
+            .is_err());
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    struct StagingMachineVectorRun {
+        limits: typaxis_core::M4EffectiveResourceLimits,
+        package: typaxis_syntax::ValidatedStagingSemanticPackage,
+        profile: typaxis_machine_profile::StagingSafeVectorProfileReceipt,
+        admitted: typaxis_resources::AdmittedResourceLedger,
+        media: typaxis_resources::StagingDeclaredMediaLedger,
+        selected: typaxis_layout::StagingSafeVectorSelectedLayout,
+        display: typaxis_display_list::StagingSafeVectorDisplay,
+        plans: typaxis_resources::StagingSafeVectorFormPlans,
+        pdf: typaxis_pdf::StagingSafeVectorPdf,
+        manifest: typaxis_manifest::StagingSafeVectorManifest,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_vector() -> StagingMachineVectorRun {
+        use typaxis_core::{M4EffectiveResourceLimits, M4ResourceLimits};
+        use typaxis_machine_profile::{
+            preflight_staging_safe_vector_profile, StagingSemanticContainerSessionIdentity,
+        };
+        use typaxis_resources::{close_staging_declared_media, staging_declared_base_catalog};
+
+        let job = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/machine-package/staging/production-book-1/vector-media/job");
+        let package_path = job.join("document-package.json");
+        let bytes = fs::read(&package_path).unwrap();
+        let config = config();
+        let limits =
+            M4EffectiveResourceLimits::new(config.limits().clone(), M4ResourceLimits::default())
+                .unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                &bytes,
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let package = typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse(decoded, config.limits())
+            .unwrap();
+        let profile = preflight_staging_safe_vector_profile(
+            &package,
+            &limits,
+            &StagingSemanticContainerSessionIdentity::fresh(),
+        )
+        .unwrap();
+
+        // Only the profile-authorized declared catalog can create host-open
+        // candidates; the decoder receives stable bytes and the same limits.
+        let base = staging_declared_base_catalog(package.resources()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(job).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let session = HostResourceAdmissionSession::new(&admission, &config, &base).unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &base,
+            &limits,
+            profile.authorization().profile_fingerprint(),
+            session.roots(),
+        )
+        .unwrap();
+        for declaration in &package.resources().images {
+            let pending = resolver
+                .read_image(session.open_image(declaration.image_id).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_image(pending).unwrap();
+        }
+        let admitted = resolver.finish().unwrap();
+        let media = close_staging_declared_media(&admitted, package.resources()).unwrap();
+        let selected = typaxis_layout::layout_staging_safe_vectors(
+            &package,
+            profile.authorization(),
+            &limits,
+            &admitted,
+        )
+        .unwrap();
+        let display = typaxis_display_list::build_staging_safe_vector_display(
+            &package,
+            profile.authorization(),
+            &limits,
+            &selected,
+        )
+        .unwrap();
+        let plans =
+            typaxis_resources::finalize_staging_safe_vector_forms(&display, &admitted, &limits)
+                .unwrap();
+        let pdf = typaxis_pdf::write_staging_safe_vector_pdf(&display, &plans, &limits).unwrap();
+        let manifest = typaxis_manifest::build_staging_safe_vector_manifest(
+            &package, &profile, &limits, &admitted, &media, &selected, &display, &plans, &pdf,
+        )
+        .unwrap();
+        StagingMachineVectorRun {
+            limits,
+            package,
+            profile,
+            admitted,
+            media,
+            selected,
+            display,
+            plans,
+            pdf,
+            manifest,
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_vector_closes_stable_bytes_ir_display_form_pdf_and_manifest() {
+        let first = run_staging_machine_vector();
+        let second = run_staging_machine_vector();
+        assert_eq!(first.pdf.bytes(), second.pdf.bytes());
+        assert_eq!(first.manifest, second.manifest);
+        assert_eq!(
+            first.manifest.canonical_jcs(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/vector-media/manifest.json"
+            ))
+            .trim_end()
+        );
+        assert_eq!(
+            first.profile.vector_resource_ids(),
+            [ImageResourceId::new(0), ImageResourceId::new(1)]
+        );
+        assert_eq!(first.selected.placements().len(), 1);
+        assert_eq!(first.display.receipt().command_count(), 1);
+        assert_eq!(first.plans.plans().len(), 1);
+        assert_eq!(first.pdf.forms().len(), 1);
+        assert_eq!(first.manifest.resources().len(), 2);
+        assert!(first.manifest.resources()[1].usages().is_empty());
+        assert_eq!(first.manifest.resources()[1].pdf_form_object_number(), None);
+        assert!(first
+            .pdf
+            .bytes()
+            .windows(b"/Subtype /Form".len())
+            .any(|window| window == b"/Subtype /Form"));
+        assert!(!first
+            .pdf
+            .bytes()
+            .windows(b"/Subtype /Image".len())
+            .any(|window| window == b"/Subtype /Image"));
+        first
+            .manifest
+            .verify(
+                &first.package,
+                &first.profile,
+                &first.limits,
+                &first.admitted,
+                &first.media,
+                &first.selected,
+                &first.display,
+                &first.plans,
+                &first.pdf,
+            )
+            .unwrap();
+
+        let exported = crate::artifacts::staging_m4_document_package_from_attested_media(
+            &first.package,
+            &first.media,
+        )
+        .unwrap();
+        assert!(exported.contains("\"media_type\":\"svg-safe-1\""));
+        assert!(wire::StrictDocumentPackageDecoder::new()
+            .decode(
+                exported.as_bytes(),
+                &wire::DocumentPackageDecodePolicy::new(first.limits.base())
             )
             .is_err());
         assert_eq!(

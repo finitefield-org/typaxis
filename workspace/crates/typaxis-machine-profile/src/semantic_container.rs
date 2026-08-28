@@ -36,8 +36,8 @@ impl StagingSemanticContainerProfileDescriptor {
         ]
     }
 
-    pub const fn image_media(self) -> [ImageMediaType; 1] {
-        [ImageMediaType::Png]
+    pub const fn image_media(self) -> [ImageMediaType; 2] {
+        [ImageMediaType::Png, ImageMediaType::SvgSafe1]
     }
 
     pub const fn font_media(self) -> [FontMediaType; 2] {

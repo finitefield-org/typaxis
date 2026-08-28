@@ -1,7 +1,10 @@
 //! Private contract-1.4 carrier for MI4 staging. The public strict decoder and
 //! current aliases remain on contract 1.3 until MI4-13.
 
-use crate::{DocumentPackageDecodePolicy, JsonPreflightError, StrictJsonPreflight, WireSourceSpan};
+use crate::{
+    DocumentPackageDecodePolicy, JsonPreflightError, StrictJsonPreflight, WirePageMasterSet,
+    WireSourceSpan,
+};
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Number, Value};
@@ -50,12 +53,14 @@ impl Serialize for WireStagingSemanticContainerKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WireImageMediaType {
     Png,
+    SvgSafe1,
 }
 
 impl WireImageMediaType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::SvgSafe1 => "svg-safe-1",
         }
     }
 }
@@ -64,6 +69,7 @@ impl<'de> Deserialize<'de> for WireImageMediaType {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         match String::deserialize(deserializer)?.as_str() {
             "png" => Ok(Self::Png),
+            "svg-safe-1" => Ok(Self::SvgSafe1),
             _ => Err(de::Error::custom("unknown image media_type")),
         }
     }
@@ -477,6 +483,7 @@ pub struct WireStagingM4DocumentPackage {
     sources: Vec<WireStagingM4Source>,
     style_sheet: WireStagingStyleSheet,
     text_buffers: Vec<WireStagingM4TextBuffer>,
+    page_masters: WirePageMasterSet,
     carrier: Value,
     limits: ValidatedResourceLimits,
 }
@@ -500,6 +507,10 @@ impl WireStagingM4DocumentPackage {
 
     pub fn text_buffers(&self) -> &[WireStagingM4TextBuffer] {
         &self.text_buffers
+    }
+
+    pub const fn page_masters(&self) -> &WirePageMasterSet {
+        &self.page_masters
     }
 
     pub fn replace_typed_regions(
@@ -673,7 +684,7 @@ impl StagingSemanticDocumentPackageDecoder {
                 "coordinate_unit must be pdf_point_1_65536",
             ));
         }
-        validate_frozen_carrier(&root, policy)?;
+        let page_masters = validate_frozen_carrier(&root, policy)?;
         let document: WireStagingM4Document = serde_json::from_value(
             object
                 .get("document")
@@ -741,6 +752,7 @@ impl StagingSemanticDocumentPackageDecoder {
                 sources,
                 style_sheet,
                 text_buffers,
+                page_masters,
                 carrier: root,
                 limits: policy.resource_limits().clone(),
             },
@@ -759,7 +771,7 @@ impl StagingSemanticDocumentPackageDecoder {
 fn validate_frozen_carrier(
     root: &Value,
     policy: &DocumentPackageDecodePolicy<'_>,
-) -> Result<(), StagingSemanticDecodeError> {
+) -> Result<WirePageMasterSet, StagingSemanticDecodeError> {
     let mut compatibility = root.clone();
     let object = compatibility
         .as_object_mut()
@@ -808,12 +820,13 @@ fn validate_frozen_carrier(
         }
     }
     let bytes = canonicalize_value(&compatibility, 0)?;
-    crate::StagingAdvancedDocumentPackageDecoder::new()
+    let decoded = crate::StagingAdvancedDocumentPackageDecoder::new()
         .decode(bytes.as_bytes(), policy)
         .map_err(|_| {
             StagingSemanticDecodeError::Shape("unchanged contract-1.3 carrier is invalid")
         })?;
-    Ok(())
+    let (wire, _, _, _, _, _) = decoded.into_parts();
+    Ok(wire.page_masters)
 }
 
 fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecodeError> {
@@ -1312,6 +1325,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/document-package.json"
     ));
+    const VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/vector-media/job/document-package.json"
+    ));
 
     fn policy() -> DocumentPackageDecodePolicy<'static> {
         let limits = Box::leak(Box::new(
@@ -1335,6 +1352,43 @@ mod tests {
         assert!(encoded.contains("\"media_type\":\"png\""));
         assert!(encoded.contains("\"media_type\":\"sfnt-truetype-glyf\""));
         assert!(encoded.contains("\"media_type\":\"ttc-truetype-glyf\""));
+    }
+
+    #[test]
+    fn vector_media_wire_round_trip_is_private_closed_and_typed() {
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(VECTOR_FIXTURE, &policy())
+            .unwrap();
+        assert_eq!(decoded.wire().resources().images.len(), 2);
+        assert_eq!(decoded.wire().page_masters().masters.len(), 1);
+        assert_eq!(decoded.wire().page_masters().masters[0].width, 65_536_000);
+        assert_eq!(
+            decoded.wire().resources().images[0].media_type,
+            WireImageMediaType::SvgSafe1
+        );
+        assert_eq!(
+            decoded.wire().resources().images[1].media_type,
+            WireImageMediaType::SvgSafe1
+        );
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(decoded.wire())
+            .unwrap();
+        assert_eq!(encoded, decoded.canonical_jcs());
+        assert!(encoded.contains("\"media_type\":\"svg-safe-1\""));
+
+        let unknown = String::from_utf8(VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replacen("svg-safe-1", "image/svg+xml", 1);
+        assert!(StagingSemanticDocumentPackageDecoder::new()
+            .decode(unknown.as_bytes(), &policy())
+            .is_err());
+        assert!(crate::StrictDocumentPackageDecoder::new()
+            .decode(VECTOR_FIXTURE, &policy())
+            .is_err());
+        assert_eq!(
+            typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
     }
 
     #[test]

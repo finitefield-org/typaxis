@@ -25,12 +25,14 @@ impl SemanticContainerKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ImageMediaType {
     Png,
+    SvgSafe1,
 }
 
 impl ImageMediaType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::SvgSafe1 => "svg-safe-1",
         }
     }
 }
@@ -118,6 +120,9 @@ pub enum StagingM4Block {
     },
     Figure {
         common: StagingM4BlockCommon,
+        image_id: ImageResourceId,
+        placement: StagingM4FigurePlacement,
+        alternative: String,
         has_nonempty_alternative: bool,
         caption: Vec<StagingM4Block>,
     },
@@ -129,6 +134,24 @@ pub enum StagingM4Block {
         semantic_kind: SemanticContainerKind,
         blocks: Vec<StagingM4Block>,
     },
+}
+
+/// Closed contract-1.4 Figure placement. Retaining the typed value and the
+/// use-specific alternative keeps vector admission facts separate from layout
+/// and accessibility facts.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StagingM4FigurePlacement {
+    Block,
+    Float,
+}
+
+impl StagingM4FigurePlacement {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::Float => "float",
+        }
+    }
 }
 
 impl StagingM4Block {

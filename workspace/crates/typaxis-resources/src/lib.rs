@@ -1,5 +1,15 @@
 #![forbid(unsafe_code)]
 
+mod safe_vector;
+
+pub use safe_vector::{
+    finalize_staging_safe_vector_forms, FrozenSafeVectorFormPlan, StagingSafeVectorFormPlans,
+    StagingSafeVectorResourceError, StagingSafeVectorUsage,
+    STAGING_SAFE_VECTOR_FORM_PLANS_ALGORITHM, STAGING_SAFE_VECTOR_FORM_PLAN_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use safe_vector::{staging_safe_vector_resource_fixture, StagingSafeVectorResourceFixture};
+
 use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{DisplayTextSpan, FontInstanceId, ImageResourceId, ValidatedResourceLimits};

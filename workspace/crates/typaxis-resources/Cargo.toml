@@ -8,6 +8,9 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+staging-fixtures = ["typaxis-display-list/staging-fixtures"]
+
 [dependencies]
 png = "=0.18.1"
 typaxis-core = { path = "../typaxis-core" }
@@ -18,6 +21,7 @@ typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 
 [dev-dependencies]
 read-fonts = "=0.31.3"
+typaxis-display-list = { path = "../typaxis-display-list", features = ["staging-fixtures"] }
 typaxis-layout = { path = "../typaxis-layout" }
 typaxis-pagination = { path = "../typaxis-pagination" }
 typaxis-style = { path = "../typaxis-style" }

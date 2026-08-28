@@ -921,6 +921,14 @@ pub enum HostPathError {
     Empty,
 }
 
+impl fmt::Display for HostPathError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for HostPathError {}
+
 impl HostPath {
     pub fn new(value: impl Into<PathBuf>) -> Result<Self, HostPathError> {
         let value = value.into();
@@ -1595,6 +1603,14 @@ pub enum ResourceLimitsError {
     OutputExceedsClassicXref,
 }
 
+impl fmt::Display for ResourceLimitsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for ResourceLimitsError {}
+
 impl ResourceLimits {
     pub fn validate(&self) -> Result<(), ResourceLimitsError> {
         let positive = [
@@ -1704,12 +1720,165 @@ impl ValidatedResourceLimits {
     }
 }
 
+/// Private contract-1.4 work limits adopted by ADR-0033. This extension is
+/// intentionally separate from `ResourceLimits`: public/current config bytes
+/// and fingerprints must remain frozen until the 1.4 publication gate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct M4ResourceLimits {
+    pub max_vector_nodes: u64,
+    pub max_vector_path_segments: u64,
+    pub max_vector_nesting_depth: u32,
+    pub max_math_layout_units: u64,
+}
+
+pub const M4_HARD_MAX_VECTOR_NODES: u64 = 1_000_000;
+pub const M4_HARD_MAX_VECTOR_PATH_SEGMENTS: u64 = 10_000_000;
+pub const M4_HARD_MAX_VECTOR_NESTING_DEPTH: u32 = 64;
+pub const M4_HARD_MAX_MATH_LAYOUT_UNITS: u64 = 10_000_000;
+
+impl Default for M4ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_vector_nodes: 100_000,
+            max_vector_path_segments: 1_000_000,
+            max_vector_nesting_depth: 32,
+            max_math_layout_units: 1_000_000,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum M4ResourceLimitsError {
+    ZeroLimit,
+    VectorNodesExceedHardMaximum,
+    VectorPathSegmentsExceedHardMaximum,
+    VectorNestingDepthExceedsHardMaximum,
+    MathLayoutUnitsExceedHardMaximum,
+}
+
+impl fmt::Display for M4ResourceLimitsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for M4ResourceLimitsError {}
+
+impl M4ResourceLimits {
+    pub fn validate(self) -> Result<(), M4ResourceLimitsError> {
+        if self.max_vector_nodes == 0
+            || self.max_vector_path_segments == 0
+            || self.max_vector_nesting_depth == 0
+            || self.max_math_layout_units == 0
+        {
+            return Err(M4ResourceLimitsError::ZeroLimit);
+        }
+        if self.max_vector_nodes > M4_HARD_MAX_VECTOR_NODES {
+            return Err(M4ResourceLimitsError::VectorNodesExceedHardMaximum);
+        }
+        if self.max_vector_path_segments > M4_HARD_MAX_VECTOR_PATH_SEGMENTS {
+            return Err(M4ResourceLimitsError::VectorPathSegmentsExceedHardMaximum);
+        }
+        if self.max_vector_nesting_depth > M4_HARD_MAX_VECTOR_NESTING_DEPTH {
+            return Err(M4ResourceLimitsError::VectorNestingDepthExceedsHardMaximum);
+        }
+        if self.max_math_layout_units > M4_HARD_MAX_MATH_LAYOUT_UNITS {
+            return Err(M4ResourceLimitsError::MathLayoutUnitsExceedHardMaximum);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedM4ResourceLimits(M4ResourceLimits);
+
+impl ValidatedM4ResourceLimits {
+    pub fn new(limits: M4ResourceLimits) -> Result<Self, M4ResourceLimitsError> {
+        limits.validate()?;
+        Ok(Self(limits))
+    }
+
+    pub const fn get(&self) -> &M4ResourceLimits {
+        &self.0
+    }
+}
+
+/// One sealed fingerprint over the frozen base and private extension limits.
+/// Consumers compare this receipt instead of independently consulting ambient
+/// defaults.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct M4EffectiveResourceLimits {
+    base: ValidatedResourceLimits,
+    extension: ValidatedM4ResourceLimits,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl M4EffectiveResourceLimits {
+    pub const ALGORITHM_ID: &'static str = "typaxis.m4-effective-resource-limits/1";
+
+    pub fn new(
+        base: ValidatedResourceLimits,
+        extension: M4ResourceLimits,
+    ) -> Result<Self, M4ResourceLimitsError> {
+        let extension = ValidatedM4ResourceLimits::new(extension)?;
+        let mut canonical_jcs = String::from("{\"algorithm\":");
+        push_jcs_string(&mut canonical_jcs, Self::ALGORITHM_ID);
+        canonical_jcs.push_str(",\"base\":{");
+        push_limits_jcs(&mut canonical_jcs, base.get());
+        canonical_jcs.push_str("},\"extension\":{\"max_math_layout_units\":");
+        canonical_jcs.push_str(&extension.get().max_math_layout_units.to_string());
+        canonical_jcs.push_str(",\"max_vector_nesting_depth\":");
+        canonical_jcs.push_str(&extension.get().max_vector_nesting_depth.to_string());
+        canonical_jcs.push_str(",\"max_vector_nodes\":");
+        canonical_jcs.push_str(&extension.get().max_vector_nodes.to_string());
+        canonical_jcs.push_str(",\"max_vector_path_segments\":");
+        canonical_jcs.push_str(&extension.get().max_vector_path_segments.to_string());
+        canonical_jcs.push_str("}}");
+        let fingerprint = sha256(canonical_jcs.as_bytes());
+        Ok(Self {
+            base,
+            extension,
+            canonical_jcs,
+            fingerprint,
+        })
+    }
+
+    pub fn defaults_for(base: &ValidatedResourceLimits) -> Self {
+        Self::new(base.clone(), M4ResourceLimits::default()).expect("contract defaults are valid")
+    }
+
+    pub const fn base(&self) -> &ValidatedResourceLimits {
+        &self.base
+    }
+
+    pub const fn extension(&self) -> &ValidatedM4ResourceLimits {
+        &self.extension
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EffectiveConfigError {
     ResourceLimits(ResourceLimitsError),
     NonCanonicalResourceRoots,
     InvalidAllowedUriSchemes,
 }
+
+impl fmt::Display for EffectiveConfigError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for EffectiveConfigError {}
 
 /// Canonical, fully validated configuration facts. Its fingerprint is always
 /// computed from this value's contract-defined JCS representation.
@@ -2503,5 +2672,118 @@ mod tests {
             ),
             Err(EffectiveConfigError::NonCanonicalResourceRoots)
         );
+    }
+
+    #[test]
+    fn m4_limits_validate_defaults_exact_hard_maxima_and_max_plus_one() {
+        let defaults = M4ResourceLimits::default();
+        assert!(ValidatedM4ResourceLimits::new(defaults).is_ok());
+        assert!(ValidatedM4ResourceLimits::new(M4ResourceLimits {
+            max_vector_nodes: M4_HARD_MAX_VECTOR_NODES,
+            max_vector_path_segments: M4_HARD_MAX_VECTOR_PATH_SEGMENTS,
+            max_vector_nesting_depth: M4_HARD_MAX_VECTOR_NESTING_DEPTH,
+            max_math_layout_units: M4_HARD_MAX_MATH_LAYOUT_UNITS,
+        })
+        .is_ok());
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_vector_nodes: M4_HARD_MAX_VECTOR_NODES + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::VectorNodesExceedHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_vector_path_segments: M4_HARD_MAX_VECTOR_PATH_SEGMENTS + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::VectorPathSegmentsExceedHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_vector_nesting_depth: M4_HARD_MAX_VECTOR_NESTING_DEPTH + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::VectorNestingDepthExceedsHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_math_layout_units: M4_HARD_MAX_MATH_LAYOUT_UNITS + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::MathLayoutUnitsExceedHardMaximum)
+        );
+        for limits in [
+            M4ResourceLimits {
+                max_vector_nodes: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_vector_path_segments: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_vector_nesting_depth: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_math_layout_units: 0,
+                ..defaults
+            },
+        ] {
+            assert_eq!(
+                ValidatedM4ResourceLimits::new(limits),
+                Err(M4ResourceLimitsError::ZeroLimit)
+            );
+        }
+    }
+
+    #[test]
+    fn m4_limits_bind_base_and_extension_without_mutating_public_config_bytes() {
+        let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let receipt = M4EffectiveResourceLimits::defaults_for(&base);
+        assert_eq!(
+            receipt.fingerprint(),
+            sha256(receipt.canonical_jcs().as_bytes())
+        );
+        assert!(receipt
+            .canonical_jcs()
+            .contains("\"max_vector_nodes\":100000"));
+
+        let versions =
+            EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap();
+        let public = EffectiveConfig::new(
+            true,
+            PdfStreamCompression::Flate,
+            vec![ConfigResourceRoot::ProjectRoot],
+            ["http", "https", "mailto"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            versions,
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let public_hash: String = public
+            .fingerprint()
+            .bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert_eq!(
+            public_hash,
+            "cb9e13152f2b46cabdb2ccaa881ca906f50e8b2f726c7f6bacaa7e262764e85b"
+        );
+        assert!(!public.canonical_jcs().contains("max_vector_nodes"));
+
+        let altered = M4EffectiveResourceLimits::new(
+            base,
+            M4ResourceLimits {
+                max_vector_nodes: 99_999,
+                ..M4ResourceLimits::default()
+            },
+        )
+        .unwrap();
+        assert_ne!(receipt.fingerprint(), altered.fingerprint());
     }
 }

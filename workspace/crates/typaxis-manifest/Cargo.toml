@@ -27,4 +27,5 @@ typaxis-text = { path = "../typaxis-text" }
 [dev-dependencies]
 typaxis-display-list = { path = "../typaxis-display-list", features = ["staging-fixtures"] }
 typaxis-diagnostics = { path = "../typaxis-diagnostics" }
+typaxis-resources = { path = "../typaxis-resources", features = ["staging-fixtures"] }
 typaxis-style = { path = "../typaxis-style" }

@@ -4,6 +4,7 @@ mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
+mod safe_vector;
 mod semantic_container;
 
 #[cfg(any(test, feature = "staging-fixtures"))]
@@ -30,6 +31,13 @@ pub use advanced_header_footer::{
     StagingHeaderFooterDisplayReceipt, StagingHeaderFooterPaintCommand, StagingPdfPageBox,
     StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
 };
+pub use safe_vector::{
+    build_staging_safe_vector_display, StagingDrawVector, StagingSafeVectorDisplay,
+    StagingSafeVectorDisplayError, StagingSafeVectorDisplayPage, StagingSafeVectorDisplayReceipt,
+    STAGING_DRAW_VECTOR_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use safe_vector::{staging_safe_vector_display_fixture, StagingSafeVectorDisplayFixture};
 #[cfg(feature = "staging-fixtures")]
 pub use semantic_container::build_staging_semantic_container_display_fixture;
 pub use semantic_container::{
