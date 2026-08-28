@@ -17,6 +17,7 @@ typaxis-layout = { path = "../typaxis-layout" }
 typaxis-layout-contract = { path = "../typaxis-layout-contract" }
 typaxis-machine-input = { path = "../typaxis-machine-input" }
 typaxis-machine-profile = { path = "../typaxis-machine-profile" }
+typaxis-math = { path = "../typaxis-math" }
 typaxis-pagination = { path = "../typaxis-pagination" }
 typaxis-pdf = { path = "../typaxis-pdf" }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }

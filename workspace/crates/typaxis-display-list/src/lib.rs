@@ -4,6 +4,7 @@ mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
+mod math;
 mod safe_vector;
 mod semantic_container;
 
@@ -31,6 +32,12 @@ pub use advanced_header_footer::{
     StagingHeaderFooterDisplayReceipt, StagingHeaderFooterPaintCommand, StagingPdfPageBox,
     StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
 };
+pub use math::{
+    build_staging_math_display, StagingMathDisplay, StagingMathDisplayError, StagingMathDraw,
+    MATH_DISPLAY_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use math::{staging_math_display_fixture, StagingMathDisplayFixture};
 pub use safe_vector::{
     build_staging_safe_vector_display, StagingDrawVector, StagingSafeVectorDisplay,
     StagingSafeVectorDisplayError, StagingSafeVectorDisplayPage, StagingSafeVectorDisplayReceipt,

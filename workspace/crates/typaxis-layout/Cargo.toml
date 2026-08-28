@@ -14,6 +14,8 @@ staging-fixtures = []
 [dependencies]
 typaxis-core = { path = "../typaxis-core" }
 typaxis-document = { path = "../typaxis-document" }
+typaxis-font = { path = "../typaxis-font" }
+typaxis-math = { path = "../typaxis-math" }
 typaxis-style = { path = "../typaxis-style" }
 typaxis-linebreak = { path = "../typaxis-linebreak" }
 typaxis-layout-contract = { path = "../typaxis-layout-contract" }

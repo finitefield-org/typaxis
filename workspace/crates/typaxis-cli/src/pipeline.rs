@@ -7410,4 +7410,197 @@ pub(crate) mod tests {
             "typaxis.contract/1.3"
         );
     }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    struct StagingMachineMathRun {
+        limits: typaxis_core::M4EffectiveResourceLimits,
+        package: typaxis_syntax::ValidatedStagingSemanticPackage,
+        profile: typaxis_machine_profile::StagingMathProfileReceipt,
+        admitted: typaxis_resources::AdmittedResourceLedger,
+        layout: typaxis_layout::StagingMathLayout,
+        display: typaxis_display_list::StagingMathDisplay,
+        pdf: typaxis_pdf::StagingMathPdf,
+        manifest: typaxis_manifest::StagingMathManifest,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_math() -> StagingMachineMathRun {
+        use typaxis_core::{M4EffectiveResourceLimits, M4ResourceLimits};
+        use typaxis_machine_profile::{
+            preflight_staging_math_profile, StagingSemanticContainerSessionIdentity,
+        };
+        use typaxis_resources::staging_declared_base_catalog;
+
+        let job = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/machine-package/staging/production-book-1/math/job");
+        let package_path = job.join("document-package.json");
+        let bytes = fs::read(&package_path).unwrap();
+        let config = config();
+        let limits =
+            M4EffectiveResourceLimits::new(config.limits().clone(), M4ResourceLimits::default())
+                .unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                &bytes,
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let package = typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse(decoded, config.limits())
+            .unwrap();
+        let profile = preflight_staging_math_profile(
+            &package,
+            &limits,
+            &StagingSemanticContainerSessionIdentity::fresh(),
+        )
+        .unwrap();
+
+        let base = staging_declared_base_catalog(package.resources()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(job).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let session = HostResourceAdmissionSession::new(&admission, &config, &base).unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &base,
+            &limits,
+            profile.authorization().profile_fingerprint(),
+            session.roots(),
+        )
+        .unwrap();
+        for declaration in &package.resources().font_faces {
+            let pending = resolver
+                .read_font(session.open_font(declaration.font_face_id).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_sfnt(pending).unwrap();
+        }
+        let admitted = resolver.finish().unwrap();
+        let layout = typaxis_layout::layout_staging_math(
+            &package,
+            profile.authorization(),
+            &limits,
+            &admitted,
+        )
+        .unwrap();
+        let display = typaxis_display_list::build_staging_math_display(
+            &package,
+            profile.authorization(),
+            &limits,
+            &admitted,
+            &layout,
+        )
+        .unwrap();
+        let pdf = typaxis_pdf::write_staging_math_pdf(
+            &package,
+            profile.authorization(),
+            &limits,
+            &admitted,
+            &display,
+        )
+        .unwrap();
+        let manifest = typaxis_manifest::build_staging_math_manifest(
+            &package, &profile, &limits, &admitted, &layout, &display, &pdf,
+        )
+        .unwrap();
+        StagingMachineMathRun {
+            limits,
+            package,
+            profile,
+            admitted,
+            layout,
+            display,
+            pdf,
+            manifest,
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_math_closes_source_font_vector_alternative_pdf_and_manifest() {
+        let first = run_staging_machine_math();
+        let second = run_staging_machine_math();
+        assert_eq!(first.pdf.bytes(), second.pdf.bytes());
+        assert_eq!(first.manifest, second.manifest);
+        assert_eq!(first.layout.receipts().len(), 2);
+        assert_eq!(first.layout.display_flows().len(), 1);
+        assert_eq!(first.display.draws().len(), 2);
+        assert_eq!(first.pdf.observations().len(), 2);
+        assert_eq!(first.manifest.facts().len(), 2);
+        for (((receipt, placement), draw), fact) in first
+            .layout
+            .receipts()
+            .iter()
+            .zip(first.layout.placements())
+            .zip(first.display.draws())
+            .zip(first.manifest.facts())
+        {
+            assert_eq!(receipt.key(), placement.receipt_key());
+            assert_eq!(receipt.key(), draw.receipt_key());
+            assert_eq!(receipt.key(), fact.receipt_key());
+            assert_eq!(
+                receipt.computation().vector_fingerprint(),
+                fact.vector_fingerprint()
+            );
+            assert_eq!(placement.page_index(), fact.page_index());
+        }
+        assert!(first
+            .pdf
+            .bytes()
+            .windows(b"/ActualText <FEFF".len())
+            .any(|window| window == b"/ActualText <FEFF"));
+        assert!(first
+            .pdf
+            .bytes()
+            .windows(b"/FontFile2".len())
+            .any(|window| window == b"/FontFile2"));
+        assert!(!first
+            .pdf
+            .bytes()
+            .windows(b"/Subtype /Image".len())
+            .any(|window| window == b"/Subtype /Image"));
+        first
+            .manifest
+            .verify(
+                &first.package,
+                &first.profile,
+                &first.limits,
+                &first.admitted,
+                &first.layout,
+                &first.display,
+                &first.pdf,
+            )
+            .unwrap();
+        assert_eq!(
+            first.manifest.canonical_jcs(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/math/manifest.json"
+            ))
+            .trim_end()
+        );
+
+        let private_package = fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+                "../../../samples/machine-package/staging/production-book-1/math/job/document-package.json",
+            ),
+        )
+        .unwrap();
+        assert!(wire::StrictDocumentPackageDecoder::new()
+            .decode(
+                &private_package,
+                &wire::DocumentPackageDecodePolicy::new(first.limits.base())
+            )
+            .is_err());
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+        let capabilities = typaxis_machine_profile::encode_capabilities_canonical(
+            typaxis_machine_profile::HostCapabilityDescriptor::compiled(),
+        );
+        assert!(!capabilities.contains("inline_math"));
+        assert!(!capabilities.contains("display_math"));
+    }
 }

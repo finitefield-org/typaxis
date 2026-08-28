@@ -260,6 +260,7 @@ mod tests {
         match from {
             "typaxis-host-admission" => return to != "typaxis-core",
             "typaxis-document-package" => return to != "typaxis-core",
+            "typaxis-math" => return !matches!(to, "typaxis-core" | "typaxis-font"),
             "typaxis-machine-input" => {
                 return !matches!(
                     to,
@@ -356,7 +357,11 @@ mod tests {
                 let forbidden_parser_supply_chain = crate_name == "typaxis-resource-admission"
                     && !dependency.starts_with("typaxis-")
                     && !(dependency == "png" && declaration == "\"=0.18.1\"");
-                (forbidden_workspace_edge || forbidden_parser_supply_chain)
+                let forbidden_math_supply_chain =
+                    crate_name == "typaxis-math" && !dependency.starts_with("typaxis-");
+                (forbidden_workspace_edge
+                    || forbidden_parser_supply_chain
+                    || forbidden_math_supply_chain)
                     .then(|| format!("{crate_name} -> {dependency}"))
             })
             .collect()
@@ -447,6 +452,58 @@ mod tests {
             assert!(
                 !source.contains(forbidden_api),
                 "SafeVector parser uses forbidden host API: {forbidden_api}"
+            );
+        }
+    }
+
+    #[test]
+    fn forbidden_dependency_edges_pin_the_math_parser_supply_chain() {
+        let manifest = fs::read_to_string(workspace_root().join("crates/typaxis-math/Cargo.toml"))
+            .expect("math manifest must be readable");
+        let mut dependencies: Vec<_> = dependency_declarations(&manifest)
+            .into_iter()
+            .map(|(name, declaration)| declared_package_name(name, &declaration))
+            .collect();
+        dependencies.sort();
+        assert_eq!(dependencies, ["typaxis-core", "typaxis-font"]);
+
+        let lock = fs::read_to_string(workspace_root().join("Cargo.lock"))
+            .expect("workspace lockfile must be readable");
+        for package in [
+            "harfbuzz_rs",
+            "katex",
+            "latex2mathml",
+            "mathjax",
+            "mathml",
+            "quick-xml",
+            "resvg",
+            "roxmltree",
+            "tectonic",
+            "usvg",
+            "xmlparser",
+        ] {
+            assert!(
+                !lock
+                    .lines()
+                    .any(|line| line == format!("name = \"{package}\"")),
+                "forbidden math parser/renderer dependency is locked: {package}"
+            );
+        }
+        let source = fs::read_to_string(workspace_root().join("crates/typaxis-math/src/lib.rs"))
+            .expect("math parser source must be readable");
+        for forbidden_api in [
+            "std::fs",
+            "std::net",
+            "std::process",
+            "Command::",
+            "TcpStream",
+            "UdpSocket",
+            "libloading",
+            "extern \"C\"",
+        ] {
+            assert!(
+                !source.contains(forbidden_api),
+                "math parser uses forbidden host API: {forbidden_api}"
             );
         }
     }

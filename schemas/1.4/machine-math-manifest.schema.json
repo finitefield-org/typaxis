@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-math-manifest.schema.json",
+  "title": "Typaxis Math Manifest 1.4",
+  "description": "Private MI4 math source, alternative, font, vector, selected-placement, Display, and PDF observation closure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "admitted_fingerprint",
+    "algorithm",
+    "display_fingerprint",
+    "facts",
+    "layout_fingerprint",
+    "limits_fingerprint",
+    "package_fingerprint",
+    "pdf_fingerprint",
+    "pdf_sha256",
+    "profile_authorization_fingerprint",
+    "profile_fingerprint"
+  ],
+  "properties": {
+    "admitted_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "algorithm": {"const": "typaxis.math-manifest/1"},
+    "display_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "facts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/fact"}
+    },
+    "layout_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "limits_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "package_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "pdf_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "pdf_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "profile_authorization_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "profile_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["advance", "ascent", "axis", "baseline", "bbox", "descent"],
+      "properties": {
+        "advance": {"$ref": "common.schema.json#/$defs/positive_length"},
+        "ascent": {"$ref": "common.schema.json#/$defs/positive_length"},
+        "axis": {"$ref": "common.schema.json#/$defs/length"},
+        "baseline": {"$ref": "common.schema.json#/$defs/positive_length"},
+        "bbox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"$ref": "common.schema.json#/$defs/length"}
+        },
+        "descent": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"}
+      }
+    },
+    "nullable_id32": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/id32"}
+      ]
+    },
+    "pdf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "content_object",
+        "font_object",
+        "marked_content_sha256",
+        "observation_fingerprint",
+        "page_object"
+      ],
+      "properties": {
+        "content_object": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "font_object": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "marked_content_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "observation_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "page_object": {"type": "integer", "minimum": 1, "maximum": 4294967295}
+      }
+    },
+    "selected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline_y",
+        "display_flow_id",
+        "fragment_ordinal",
+        "frame_index",
+        "origin_x",
+        "page_index",
+        "paint_ordinal",
+        "parent_flow_id",
+        "placement_fingerprint"
+      ],
+      "properties": {
+        "baseline_y": {"$ref": "common.schema.json#/$defs/length"},
+        "display_flow_id": {"$ref": "#/$defs/nullable_id32"},
+        "fragment_ordinal": {"$ref": "common.schema.json#/$defs/id32"},
+        "frame_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "origin_x": {"$ref": "common.schema.json#/$defs/length"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "paint_ordinal": {"$ref": "common.schema.json#/$defs/id32"},
+        "parent_flow_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "placement_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "sha256", "source_span", "text_span", "version"],
+      "properties": {
+        "language": {"const": "typaxis-math"},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "source_span": {"$ref": "common.schema.json#/$defs/source_span"},
+        "text_span": {"$ref": "common.schema.json#/$defs/text_span"},
+        "version": {"const": "1"}
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actual_text_sha256",
+        "ast_fingerprint",
+        "ast_fingerprint_algorithm",
+        "binding_algorithm",
+        "computation_fingerprint",
+        "dimensions",
+        "display_draw_fingerprint",
+        "face_index",
+        "font_face_id",
+        "font_sha256",
+        "formatter",
+        "kind",
+        "layout_algorithm",
+        "layout_work",
+        "layout_work_algorithm",
+        "math_table_fingerprint",
+        "node_id",
+        "occurrence",
+        "parsed_fingerprint",
+        "parser",
+        "pdf",
+        "receipt_key",
+        "selected",
+        "source",
+        "source_identity",
+        "speech_sha256",
+        "vector_algorithm",
+        "vector_fingerprint"
+      ],
+      "properties": {
+        "actual_text_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "ast_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "ast_fingerprint_algorithm": {"const": "typaxis.math-ast-fingerprint/1"},
+        "binding_algorithm": {"const": "typaxis.math-binding/1"},
+        "computation_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "dimensions": {"$ref": "#/$defs/dimensions"},
+        "display_draw_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "face_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "font_face_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "font_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "formatter": {"const": "typaxis.math-formatter/1"},
+        "kind": {"enum": ["inline_math", "display_math"]},
+        "layout_algorithm": {"const": "typaxis.math-layout/1"},
+        "layout_work": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "layout_work_algorithm": {"const": "typaxis.math-layout-work/1"},
+        "math_table_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "occurrence": {"$ref": "common.schema.json#/$defs/id32"},
+        "parsed_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "parser": {"const": "typaxis.math-parser/1"},
+        "pdf": {"$ref": "#/$defs/pdf"},
+        "receipt_key": {"$ref": "common.schema.json#/$defs/sha256"},
+        "selected": {"$ref": "#/$defs/selected"},
+        "source": {"$ref": "#/$defs/source"},
+        "source_identity": {"const": "typaxis.math-source/1"},
+        "speech_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "vector_algorithm": {"const": "typaxis.math-vector-ir/1"},
+        "vector_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    }
+  }
+}

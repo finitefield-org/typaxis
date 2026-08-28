@@ -8,8 +8,11 @@ pub use advanced::{
     ValidatedStagingAdvancedPackage,
 };
 pub use semantic_container::{
-    StagingM4PageGeometry, StagingSafeVectorProfileView, StagingSemanticContainerProfileView,
-    StagingSemanticPackageParser, StagingSemanticSyntaxError, ValidatedStagingSemanticPackage,
+    StagingM4PageGeometry, StagingMathLayoutBudgetGuard, StagingMathProfileAuthorization,
+    StagingMathProfileProgressToken, StagingMathProfileSessionIdentity, StagingMathProfileView,
+    StagingSafeVectorProfileView, StagingSemanticContainerProfileView,
+    StagingSemanticPackageParser, StagingSemanticSyntaxError, ValidatedStagingMathNode,
+    ValidatedStagingSemanticPackage,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};

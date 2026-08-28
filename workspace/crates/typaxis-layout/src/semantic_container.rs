@@ -38,6 +38,7 @@ pub enum StagingSemanticContainerFlowItemKind {
     Table,
     Figure,
     PageBreak,
+    DisplayMath,
     SemanticContainer,
     FootnoteDefinition,
 }
@@ -51,6 +52,7 @@ impl StagingSemanticContainerFlowItemKind {
             Self::Table => "table",
             Self::Figure => "figure",
             Self::PageBreak => "page_break",
+            Self::DisplayMath => "display_math",
             Self::SemanticContainer => "semantic_container",
             Self::FootnoteDefinition => "footnote_definition",
         }
@@ -724,6 +726,7 @@ fn block_item_kind(block: &StagingM4Block) -> StagingSemanticContainerFlowItemKi
         StagingM4Block::Table { .. } => StagingSemanticContainerFlowItemKind::Table,
         StagingM4Block::Figure { .. } => StagingSemanticContainerFlowItemKind::Figure,
         StagingM4Block::PageBreak { .. } => StagingSemanticContainerFlowItemKind::PageBreak,
+        StagingM4Block::DisplayMath { .. } => StagingSemanticContainerFlowItemKind::DisplayMath,
         StagingM4Block::SemanticContainer { .. } => {
             StagingSemanticContainerFlowItemKind::SemanticContainer
         }

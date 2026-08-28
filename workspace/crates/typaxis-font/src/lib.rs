@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod math;
+
+pub use math::{MathFontConstants, MathFontError, MathFontFace, MATH_TABLE_FINGERPRINT_ALGORITHM};
+
 use core::num::NonZeroU16;
 use std::collections::BTreeMap;
 use typaxis_core::{FontFaceId, FontInstanceId, OpenTypeTag};

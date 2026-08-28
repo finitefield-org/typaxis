@@ -92,6 +92,12 @@ STAGING_SAFE_VECTOR_FIXTURE_DIR = (
     / "production-book-1"
     / "vector-media"
 )
+STAGING_MATH_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "production-book-1"
+    / "math"
+)
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
@@ -5137,6 +5143,7 @@ def main() -> int:
             raise ValidationFailure("the versioned 1.3 registry has a missing or extra schema")
         expected_private_m4 = {
             *expected_versioned_current,
+            "machine-math-manifest.schema.json",
             "machine-safe-vector-manifest.schema.json",
             "machine-semantic-container-manifest.schema.json",
         }
@@ -5413,6 +5420,207 @@ def main() -> int:
             mismatched_vector_manifest,
         ):
             raise ValidationFailure("private 1.4 SafeVector manifest accepted media mismatch")
+
+        math_document_path = STAGING_MATH_FIXTURE_DIR / "job" / "document-package.json"
+        math_page_document_path = (
+            STAGING_MATH_FIXTURE_DIR / "job" / "page-document-package.json"
+        )
+        math_keep_document_path = (
+            STAGING_MATH_FIXTURE_DIR / "job" / "keep-document-package.json"
+        )
+        math_manifest_path = STAGING_MATH_FIXTURE_DIR / "manifest.json"
+        math_document = load_json(math_document_path)
+        math_page_document = load_json(math_page_document_path)
+        math_keep_document = load_json(math_keep_document_path)
+        math_manifest = load_json(math_manifest_path)
+        math_document_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], math_document
+        )
+        if math_document_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the math fixture: "
+                + " | ".join(math_document_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            math_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private math fixture"
+            )
+        math_page_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], math_page_document
+        )
+        if math_page_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the math page fixture: "
+                + " | ".join(math_page_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            math_page_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private math page fixture"
+            )
+        math_keep_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], math_keep_document
+        )
+        if math_keep_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the math keep fixture: "
+                + " | ".join(math_keep_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            math_keep_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private math keep fixture"
+            )
+        math_manifest_errors = schema_errors(
+            private_m4_validators["machine-math-manifest.schema.json"],
+            math_manifest,
+        )
+        if math_manifest_errors:
+            raise ValidationFailure(
+                "private 1.4 math manifest was rejected: "
+                + " | ".join(math_manifest_errors)
+            )
+        for path, value, label in (
+            (math_document_path, math_document, "math DocumentPackage"),
+            (math_page_document_path, math_page_document, "math page DocumentPackage"),
+            (math_keep_document_path, math_keep_document, "math keep DocumentPackage"),
+            (math_manifest_path, math_manifest, "math manifest"),
+        ):
+            if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
+                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+        math_font = (STAGING_MATH_FIXTURE_DIR / "job" / "math.ttf").read_bytes()
+        for fixture, source_name, label in (
+            (math_document, "input.tsf", "math"),
+            (math_page_document, "input.tsf", "math page"),
+            (math_keep_document, "keep-input.tsf", "math keep"),
+        ):
+            source_bytes = (
+                STAGING_MATH_FIXTURE_DIR / "job" / source_name
+            ).read_bytes()
+            if (
+                len(fixture["sources"]) != 1
+                or len(fixture["text_buffers"]) != 1
+                or len(fixture["resources"]["font_faces"]) != 1
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 {label} fixture catalog closure drifted"
+                )
+            source_declaration = fixture["sources"][0]
+            font_declaration = fixture["resources"]["font_faces"][0]
+            if (
+                source_declaration["source_id"] != 0
+                or source_declaration["uri"] != source_name
+                or source_declaration["utf8_byte_length"] != len(source_bytes)
+                or source_declaration["sha256"]
+                != hashlib.sha256(source_bytes).hexdigest()
+                or fixture["text_buffers"][0]["utf8"].encode("utf-8")
+                != source_bytes
+                or font_declaration["font_face_id"] != 0
+                or font_declaration["face_index"] != 0
+                or font_declaration["uri"] != "math.ttf"
+                or font_declaration["media_type"] != "sfnt-truetype-glyf"
+                or font_declaration["expected_sha256"]
+                != hashlib.sha256(math_font).hexdigest()
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 {label} source/font declaration drifted"
+                )
+        math_source = (STAGING_MATH_FIXTURE_DIR / "job" / "input.tsf").read_bytes()
+        math_nodes = [
+            math_document["document"]["blocks"][0]["blocks"][0]["children"][0],
+            math_document["document"]["blocks"][0]["blocks"][1],
+        ]
+        if len(math_nodes) != len(math_manifest["facts"]):
+            raise ValidationFailure("private 1.4 math occurrence coverage is incomplete")
+        for occurrence, (node, fact) in enumerate(
+            zip(math_nodes, math_manifest["facts"], strict=True)
+        ):
+            source_span = node["span"]
+            text_span = node["math_source"]["text_span"]
+            selected = math_source[text_span["start_byte"] : text_span["end_byte"]]
+            if (
+                fact["occurrence"] != occurrence
+                or fact["node_id"] != node["node_id"]
+                or fact["kind"] != node["kind"]
+                or fact["source"]["language"] != node["math_source"]["language"]
+                or fact["source"]["version"] != node["math_source"]["version"]
+                or fact["source"]["source_span"] != source_span
+                or fact["source"]["text_span"] != text_span
+                or fact["source"]["sha256"] != hashlib.sha256(selected).hexdigest()
+                or fact["speech_sha256"]
+                != hashlib.sha256(node["speech"].encode("utf-8")).hexdigest()
+                or fact["actual_text_sha256"] != fact["speech_sha256"]
+                or fact["selected"]["page_index"] < 0
+                or fact["pdf"]["page_object"] <= 0
+            ):
+                raise ValidationFailure("private 1.4 math receipt closure drifted")
+        wrong_math_version = copy.deepcopy(math_document)
+        wrong_math_version["document"]["blocks"][0]["blocks"][1]["math_source"][
+            "version"
+        ] = "2"
+        if not schema_errors(
+            private_m4_validators["document-package.schema.json"], wrong_math_version
+        ):
+            raise ValidationFailure("private 1.4 accepted an unknown math source version")
+        whitespace_math_speech = copy.deepcopy(math_document)
+        whitespace_math_speech["document"]["blocks"][0]["blocks"][0][
+            "children"
+        ][0]["speech"] = "\u2007"
+        if not schema_errors(
+            private_m4_validators["document-package.schema.json"],
+            whitespace_math_speech,
+        ):
+            raise ValidationFailure("private 1.4 accepted whitespace-only math speech")
+        page_region_math = copy.deepcopy(math_document)
+        page_region_master = page_region_math["page_masters"]["masters"][0]
+        page_region_master["header"] = copy.deepcopy(page_region_master["body"])
+        page_region_paragraph = copy.deepcopy(
+            math_document["document"]["blocks"][0]["blocks"][0]
+        )
+        page_region_paragraph["children"] = [
+            {
+                "kind": "text",
+                "node_id": 3,
+                "span": {"end_byte": 5, "source_id": 0, "start_byte": 0},
+                "text_span": {"end_byte": 5, "start_byte": 0, "text_id": 0},
+            }
+        ]
+        page_region_master["header_content"] = {
+            "blocks": [page_region_paragraph],
+            "node_id": 1,
+            "span": {"end_byte": 5, "source_id": 0, "start_byte": 0},
+        }
+        page_region_text_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], page_region_math
+        )
+        if page_region_text_errors:
+            raise ValidationFailure(
+                "private 1.4 rejected the valid restricted page-region control: "
+                + " | ".join(page_region_text_errors)
+            )
+        page_region_paragraph["children"] = [
+            copy.deepcopy(
+                math_document["document"]["blocks"][0]["blocks"][0]["children"][0]
+            )
+        ]
+        if not schema_errors(
+            private_m4_validators["document-package.schema.json"], page_region_math
+        ):
+            raise ValidationFailure("private 1.4 accepted math in a page region")
+        wrong_math_parser = copy.deepcopy(math_manifest)
+        wrong_math_parser["facts"][0]["parser"] = "host.math-parser/1"
+        if not schema_errors(
+            private_m4_validators["machine-math-manifest.schema.json"],
+            wrong_math_parser,
+        ):
+            raise ValidationFailure("private 1.4 math manifest accepted a foreign parser")
 
         m4_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         m4_config["contract"] = "typaxis.contract/1.4"

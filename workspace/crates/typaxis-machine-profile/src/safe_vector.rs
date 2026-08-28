@@ -6,8 +6,9 @@ use typaxis_syntax::machine_profile_boundary::{
 use typaxis_syntax::{StagingSafeVectorProfileView, ValidatedStagingSemanticPackage};
 
 use crate::{
-    preflight_staging_semantic_container_profile, StagingSemanticContainerPreflightReceipt,
-    StagingSemanticContainerSessionIdentity,
+    preflight_staging_semantic_container_profile,
+    semantic_container::preflight_staging_semantic_container_profile_for_math,
+    StagingSemanticContainerPreflightReceipt, StagingSemanticContainerSessionIdentity,
 };
 
 pub const STAGING_SAFE_VECTOR_PROFILE_ALGORITHM: &str =
@@ -18,6 +19,7 @@ pub enum StagingSafeVectorProfileError {
     BaseProfile,
     MissingImage(ImageResourceId),
     WrongMedia(ImageResourceId),
+    UnsupportedMath,
     ReceiptMismatch,
 }
 
@@ -35,6 +37,9 @@ impl std::fmt::Display for StagingSafeVectorProfileError {
                 "R7100: Figure image {} is not declared svg-safe-1",
                 id.get()
             ),
+            Self::UnsupportedMath => {
+                formatter.write_str("L5100: SafeVector profile does not admit math")
+            }
             Self::ReceiptMismatch => {
                 formatter.write_str("I9190: SafeVector profile receipt mismatch")
             }
@@ -51,6 +56,7 @@ pub struct StagingSafeVectorProfileReceipt {
     vector_resource_ids: Vec<ImageResourceId>,
     figure_owners: Vec<NodeId>,
     page_geometry_fingerprint: [u8; 32],
+    math_extension: bool,
     canonical_jcs: String,
     fingerprint: [u8; 32],
     authorization: StagingSafeVectorProfileView,
@@ -88,6 +94,10 @@ impl StagingSafeVectorProfileReceipt {
         limits: &M4EffectiveResourceLimits,
     ) -> Result<(), StagingSafeVectorProfileError> {
         let (vector_resource_ids, figure_owners) = collect_vector_contract(package)?;
+        let has_math = !package.math_nodes().is_empty();
+        if self.math_extension != has_math {
+            return Err(StagingSafeVectorProfileError::UnsupportedMath);
+        }
         let expected_authorization = StagingSafeVectorProfileView::new(package, limits)
             .map_err(|_| StagingSafeVectorProfileError::ReceiptMismatch)?;
         let canonical_jcs = encode(
@@ -97,6 +107,7 @@ impl StagingSafeVectorProfileReceipt {
             &vector_resource_ids,
             &figure_owners,
             expected_authorization.page_geometry().fingerprint(),
+            self.math_extension,
         );
         if self.base.package_sha256() != package.canonical_jcs_sha256()
             || self.base.semantic_fingerprint() != package.semantic_fingerprint()
@@ -133,8 +144,35 @@ pub fn preflight_staging_safe_vector_profile(
     limits: &M4EffectiveResourceLimits,
     session: &StagingSemanticContainerSessionIdentity,
 ) -> Result<StagingSafeVectorProfileReceipt, StagingSafeVectorProfileError> {
-    let base = preflight_staging_semantic_container_profile(package, limits.base(), session)
-        .map_err(|_| StagingSafeVectorProfileError::BaseProfile)?;
+    if !package.math_nodes().is_empty() {
+        return Err(StagingSafeVectorProfileError::UnsupportedMath);
+    }
+    preflight_staging_safe_vector_profile_inner(package, limits, session, false)
+}
+
+pub(crate) fn preflight_staging_safe_vector_profile_for_math(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &M4EffectiveResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+) -> Result<StagingSafeVectorProfileReceipt, StagingSafeVectorProfileError> {
+    if package.math_nodes().is_empty() {
+        return Err(StagingSafeVectorProfileError::UnsupportedMath);
+    }
+    preflight_staging_safe_vector_profile_inner(package, limits, session, true)
+}
+
+fn preflight_staging_safe_vector_profile_inner(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &M4EffectiveResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+    math_extension: bool,
+) -> Result<StagingSafeVectorProfileReceipt, StagingSafeVectorProfileError> {
+    let base = if math_extension {
+        preflight_staging_semantic_container_profile_for_math(package, limits.base(), session)
+    } else {
+        preflight_staging_semantic_container_profile(package, limits.base(), session)
+    }
+    .map_err(|_| StagingSafeVectorProfileError::BaseProfile)?;
     let (vector_resource_ids, figure_owners) = collect_vector_contract(package)?;
     let authorization = StagingSafeVectorProfileView::new(package, limits)
         .map_err(|_| StagingSafeVectorProfileError::ReceiptMismatch)?;
@@ -146,6 +184,7 @@ pub fn preflight_staging_safe_vector_profile(
         &vector_resource_ids,
         &figure_owners,
         page_geometry_fingerprint,
+        math_extension,
     );
     let receipt = StagingSafeVectorProfileReceipt {
         base,
@@ -153,6 +192,7 @@ pub fn preflight_staging_safe_vector_profile(
         vector_resource_ids,
         figure_owners,
         page_geometry_fingerprint,
+        math_extension,
         fingerprint: sha256(canonical_jcs.as_bytes()),
         canonical_jcs,
         authorization,
@@ -241,6 +281,7 @@ fn encode(
     resources: &[ImageResourceId],
     figures: &[NodeId],
     page_geometry: [u8; 32],
+    math_extension: bool,
 ) -> String {
     let mut output = String::from("{\"algorithm\":");
     push_jcs_string(&mut output, STAGING_SAFE_VECTOR_PROFILE_ALGORITHM);
@@ -255,6 +296,9 @@ fn encode(
     }
     output.push_str("],\"limits_fingerprint\":");
     push_hash(&mut output, limits_fingerprint);
+    if math_extension {
+        output.push_str(",\"math_extension\":\"typaxis.production-book-math-profile/1\"");
+    }
     output.push_str(",\"package_fingerprint\":");
     push_hash(&mut output, package.semantic_fingerprint());
     output.push_str(",\"page_geometry_fingerprint\":");

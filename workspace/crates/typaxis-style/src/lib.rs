@@ -735,6 +735,111 @@ fn close_semantic_inheritance_style(
     })
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StagingMathStyleKind {
+    Inline,
+    Display,
+}
+
+impl StagingMathStyleKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inline => "inline_math",
+            Self::Display => "display_math",
+        }
+    }
+}
+
+/// Closed style consumed by the private M4 math binding. It contains no raw
+/// declaration channel, and therefore source commands cannot alter layout.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingMathComputedStyle {
+    kind: StagingMathStyleKind,
+    block: ComputedMachineBlockStyle,
+    font_families: Vec<String>,
+    font_size: PositiveLength,
+    line_height: PositiveLength,
+    page_name: Option<PageName>,
+}
+
+impl StagingMathComputedStyle {
+    pub const fn kind(&self) -> StagingMathStyleKind {
+        self.kind
+    }
+    pub const fn block_style(&self) -> ComputedMachineBlockStyle {
+        self.block
+    }
+    pub fn font_families(&self) -> &[String] {
+        &self.font_families
+    }
+    pub const fn font_size(&self) -> PositiveLength {
+        self.font_size
+    }
+    pub const fn line_height(&self) -> PositiveLength {
+        self.line_height
+    }
+    pub const fn page_name(&self) -> Option<&PageName> {
+        self.page_name.as_ref()
+    }
+}
+
+/// Inline math has no selector or classes. The owning text/block cascade is
+/// already closed before this conversion, so the exact inherited font triple
+/// is the only independent math style input.
+pub fn close_staging_inline_math_style(
+    owner: &SemanticContainerInheritanceStyle,
+) -> Result<StagingMathComputedStyle, StyleValidationError> {
+    close_staging_math_style(StagingMathStyleKind::Inline, owner.clone(), None)
+}
+
+/// Syntax passes an isolated sheet where `display_math` has been remapped to
+/// the paragraph-shaped applicability engine. Known figure-only properties
+/// remain typed but fail closed for math.
+pub fn cascade_staging_display_math_style(
+    classes: &[String],
+    sheet: &StyleSheet,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+) -> Result<StagingMathComputedStyle, StyleValidationError> {
+    sheet.validate_basic_document_styles()?;
+    let computed = sheet.cascade_validated(BasicStyleBlockKind::Paragraph.as_str(), classes)?;
+    let inheritance = close_semantic_inheritance_style(&computed, parent)?;
+    if inheritance.block_style.width() != MachineFigureWidth::Auto
+        || !inheritance.block_style.keep_caption()
+    {
+        return Err(StyleValidationError::InapplicableProperty);
+    }
+    close_staging_math_style(
+        StagingMathStyleKind::Display,
+        inheritance,
+        computed.page_name()?,
+    )
+}
+
+fn close_staging_math_style(
+    kind: StagingMathStyleKind,
+    inheritance: SemanticContainerInheritanceStyle,
+    page_name: Option<PageName>,
+) -> Result<StagingMathComputedStyle, StyleValidationError> {
+    let font_families = inheritance
+        .font_families
+        .filter(|families| valid_font_family_list(families))
+        .ok_or(StyleValidationError::MissingTextProperty)?;
+    let font_size = inheritance
+        .font_size
+        .ok_or(StyleValidationError::MissingTextProperty)?;
+    let line_height = inheritance
+        .line_height
+        .ok_or(StyleValidationError::MissingTextProperty)?;
+    Ok(StagingMathComputedStyle {
+        kind,
+        block: inheritance.block_style,
+        font_families,
+        font_size,
+        line_height,
+        page_name,
+    })
+}
+
 /// Complete computed style for a generated list marker. Marker shaping uses
 /// the same required text triple as paragraph text, while marker placement
 /// consumes the list block's typed spacing and indents.
@@ -1740,5 +1845,82 @@ mod tests {
                 Err(expected)
             );
         }
+    }
+
+    #[test]
+    fn math_styles_inherit_inline_text_and_close_display_applicability() {
+        let mut owner = rule("math-owner", None, "paragraph", 0);
+        owner.declarations.extend([
+            machine_declaration(
+                "font_family",
+                StyleValue::FontFamilyList(vec!["Math".to_owned()]),
+            ),
+            machine_declaration(
+                "font_size",
+                StyleValue::Length(Length::from_raw(12 * 65_536).unwrap()),
+            ),
+            machine_declaration(
+                "line_height",
+                StyleValue::Length(Length::from_raw(16 * 65_536).unwrap()),
+            ),
+            machine_declaration(
+                "space_before",
+                StyleValue::Length(Length::from_raw(2 * 65_536).unwrap()),
+            ),
+        ]);
+        let owner = cascade_staging_semantic_container_style(
+            SemanticContainerStyleKind::Result,
+            &[],
+            &StyleSheet { rules: vec![owner] },
+            None,
+        )
+        .unwrap();
+        let inline = close_staging_inline_math_style(owner.inheritance_style()).unwrap();
+        assert_eq!(inline.kind(), StagingMathStyleKind::Inline);
+        assert_eq!(inline.font_families(), ["Math"]);
+        assert_eq!(inline.font_size().get().raw(), 12 * 65_536);
+        assert_eq!(inline.line_height().get().raw(), 16 * 65_536);
+        assert_eq!(inline.block_style().space_before().get().raw(), 2 * 65_536);
+
+        let mut display = rule("equation", None, "paragraph.equation", 0);
+        display.declarations.extend([
+            machine_declaration("text_align", StyleValue::Keyword("center".to_owned())),
+            machine_declaration(
+                "start_indent",
+                StyleValue::Length(Length::from_raw(4 * 65_536).unwrap()),
+            ),
+            machine_declaration(
+                "end_indent",
+                StyleValue::Length(Length::from_raw(4 * 65_536).unwrap()),
+            ),
+        ]);
+        let display = cascade_staging_display_math_style(
+            &["equation".to_owned()],
+            &StyleSheet {
+                rules: vec![display],
+            },
+            Some(owner.inheritance_style()),
+        )
+        .unwrap();
+        assert_eq!(display.kind(), StagingMathStyleKind::Display);
+        assert_eq!(display.font_families(), ["Math"]);
+        assert_eq!(display.block_style().text_align(), MachineTextAlign::Center);
+        assert_eq!(display.block_style().start_indent().get().raw(), 4 * 65_536);
+
+        let mut inapplicable = rule("bad-math", None, "paragraph", 0);
+        inapplicable.declarations.push(machine_declaration(
+            "width",
+            StyleValue::Length(Length::from_raw(10).unwrap()),
+        ));
+        assert_eq!(
+            cascade_staging_display_math_style(
+                &[],
+                &StyleSheet {
+                    rules: vec![inapplicable]
+                },
+                Some(owner.inheritance_style())
+            ),
+            Err(StyleValidationError::InapplicableProperty)
+        );
     }
 }

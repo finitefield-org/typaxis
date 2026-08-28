@@ -1,5 +1,5 @@
 use core::num::NonZeroU16;
-use typaxis_core::{FontFaceId, ImageResourceId, NodeId, PortablePath, SourceSpan};
+use typaxis_core::{FontFaceId, ImageResourceId, NodeId, PortablePath, SourceSpan, TextSpan};
 
 /// Closed contract-1.4 semantic-container vocabulary adopted by ADR-0032.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -74,6 +74,38 @@ pub struct StagingM4BlockCommon {
     pub classes: Vec<String>,
 }
 
+/// The owning node, never delimiter syntax, closes the math layout mode.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StagingM4MathKind {
+    Inline,
+    Display,
+}
+
+impl StagingM4MathKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inline => "inline_math",
+            Self::Display => "display_math",
+        }
+    }
+}
+
+/// Lossless private contract-1.4 math domain. Syntax proves the TextMap
+/// ownership and replaces none of these authored bytes with formatted text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingM4MathNode {
+    pub node_id: NodeId,
+    pub owner_node_id: NodeId,
+    pub kind: StagingM4MathKind,
+    pub span: SourceSpan,
+    pub text_span: TextSpan,
+    pub language: String,
+    pub version: String,
+    pub source: String,
+    pub speech: String,
+    pub classes: Vec<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingM4ListItem {
     pub node_id: NodeId,
@@ -129,6 +161,9 @@ pub enum StagingM4Block {
     PageBreak {
         common: StagingM4BlockCommon,
     },
+    DisplayMath {
+        common: StagingM4BlockCommon,
+    },
     SemanticContainer {
         common: StagingM4BlockCommon,
         semantic_kind: SemanticContainerKind,
@@ -163,6 +198,7 @@ impl StagingM4Block {
             | Self::Table { common, .. }
             | Self::Figure { common, .. }
             | Self::PageBreak { common }
+            | Self::DisplayMath { common }
             | Self::SemanticContainer { common, .. } => common,
         }
     }
@@ -227,6 +263,7 @@ impl StagingM4Block {
             Self::SemanticContainer { blocks, .. } => {
                 blocks.iter().any(Self::is_semantically_nonempty)
             }
+            Self::DisplayMath { .. } => true,
             Self::PageBreak { .. } => false,
         }
     }

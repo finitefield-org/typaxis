@@ -2097,7 +2097,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-05 Inline/display mathをsource・vector・alternativeへbindする
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-04
 - Design inputs: docs/25 §7 math/accessibility、§13.4
 - Primary files:
@@ -2151,6 +2151,10 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf math_actual_text --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_math --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-28, Linux):
+  - non-current contract 1.4だけへclosed `inline_math` / `display_math` Wire/Schema/domain loweringを追加し、required `typaxis-math` version `1` TextSpan/SourceSpan、exact source bytes、producer `speech`をsyntax-owned parsed receiptへbindした。allocation-free grammar preflightでAST node/depthのmax+1をtyped AST allocation前に拒否し、in-tree parser/formatterのtyped round tripと再計測したAST accountingを封印する。public current contract/Schema alias、七profile、CLI grammar/capability bytesは変更していない。
+  - `typaxis-math`はworkspace内`typaxis-core` / `typaxis-font`だけに依存し、closed grammarからMATH constants、cmap、metrics、italic correction、vertical variantを使うchecked fixed-point dimensions/glyph/rule IRを生成する。TrueType/TTCのUnicode cmap、PostScript name、required glyph outline/component closure、MATH tableをboundedに検証し、source/speech/style/font/hash/face/AST/dimensions/work/vector/LayoutEpochをowner-issued `MathReceiptKey`へ結合した。profile authorizationはpackage/limit/session boundで、dense NodeId順のone-time aggregate math-layout budgetをretryやforeign sessionでresetできない。
+  - inlineをbreak内部候補を持たないatomic item、displayをdense独立`MathFlowId`/terminalとして登録し、wrap、oversize、named page、page split、adjacent keep、document-body/container subflowをtyped selected placementへ閉じた。Display paintとexact producer speech、embedded admitted TrueType program、PDF UTF-16BE `/ActualText` marked-content observation、versioned math manifestを同じreceipt keyへ接続し、missing/extra/source/source-span-only/alternative/vector/page/session tamperを個別に拒否する。deterministic fixture generator/goldenとexternal renderer/extractor evidenceを含め、指定12 gate、workspace全target test、all-target/all-feature check、strict clippy、format、Schema validator、dependency audit、diff/whitespace reviewをlocal exit 0で確認した。
 - Non-goals:
   - MI4-03で採択していないmath dialect
 

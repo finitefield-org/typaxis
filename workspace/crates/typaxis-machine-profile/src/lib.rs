@@ -17,6 +17,7 @@ mod basic_page_breaks;
 mod basic_styles;
 mod capabilities;
 mod descriptor;
+mod math;
 mod preflight;
 mod safe_vector;
 mod semantic_container;
@@ -73,6 +74,10 @@ pub use descriptor::{
     MachinePageFrame, MachinePageMasterCapability, MachinePageValue, MachinePdfFeature,
     MachineProfileDescriptor, MachineReferenceFormat, MachineSourceClosure, MachineStyleProperty,
     SourceCountBounds,
+};
+pub use math::{
+    preflight_staging_math_profile, StagingMathProfileError, StagingMathProfileReceipt,
+    STAGING_MATH_PROFILE_ALGORITHM,
 };
 pub use preflight::{
     preflight_advanced_machine_pdf, AdvancedMachinePdfPreflightError, HostCapabilityPreflightError,

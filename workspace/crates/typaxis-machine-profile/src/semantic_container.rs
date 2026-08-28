@@ -5,7 +5,7 @@ use typaxis_syntax::machine_profile_boundary::{
     SemanticContainerKind, SemanticContainerStyleKind, StagingM4Block,
     ValidatedStagingSemanticPackage,
 };
-use typaxis_syntax::StagingSemanticContainerProfileView;
+use typaxis_syntax::{StagingMathProfileSessionIdentity, StagingSemanticContainerProfileView};
 
 pub const STAGING_PRODUCTION_BOOK_PROFILE_ID: &str = "typaxis.machine-pdf/production-book-1";
 pub const STAGING_PRODUCTION_BOOK_PROFILE_RECEIPT_ALGORITHM: &str =
@@ -82,12 +82,23 @@ impl StagingSemanticContainerProfileDescriptor {
     }
 }
 
+#[derive(Debug)]
+struct StagingSemanticContainerSessionState {
+    math_profile: StagingMathProfileSessionIdentity,
+}
+
 #[derive(Clone)]
-pub struct StagingSemanticContainerSessionIdentity(Arc<()>);
+pub struct StagingSemanticContainerSessionIdentity(Arc<StagingSemanticContainerSessionState>);
 
 impl StagingSemanticContainerSessionIdentity {
     pub fn fresh() -> Self {
-        Self(Arc::new(()))
+        Self(Arc::new(StagingSemanticContainerSessionState {
+            math_profile: StagingMathProfileSessionIdentity::fresh(),
+        }))
+    }
+
+    pub(crate) fn math_profile_session(&self) -> &StagingMathProfileSessionIdentity {
+        &self.0.math_profile
     }
 }
 
@@ -113,6 +124,7 @@ pub enum StagingSemanticContainerPreflightError {
     MissingDeclaration,
     DisallowedMedia,
     StyleMismatch(NodeId),
+    UnsupportedMath,
     ReceiptMismatch,
 }
 
@@ -145,6 +157,9 @@ impl std::fmt::Display for StagingSemanticContainerPreflightError {
                 "L5101: semantic container style mismatch at node {}",
                 owner.get()
             ),
+            Self::UnsupportedMath => {
+                formatter.write_str("L5100: semantic-container profile does not admit math")
+            }
             Self::ReceiptMismatch => {
                 formatter.write_str("I9190: semantic profile receipt mismatch")
             }
@@ -161,6 +176,7 @@ pub struct StagingSemanticContainerPreflightReceipt {
     limits: ValidatedResourceLimits,
     session: StagingSemanticContainerSessionIdentity,
     container_count: u32,
+    math_extension: bool,
     authorization: StagingSemanticContainerProfileView,
     canonical_jcs: String,
     fingerprint: [u8; 32],
@@ -198,7 +214,9 @@ impl StagingSemanticContainerPreflightReceipt {
         let authorization = StagingSemanticContainerProfileView::new(package, limits)
             .map_err(|_| StagingSemanticContainerPreflightError::ReceiptMismatch)?;
         let canonical = authorization.canonical_jcs();
-        if self.package_sha256 != package.canonical_jcs_sha256()
+        let has_math = !package.math_nodes().is_empty();
+        if self.math_extension != has_math
+            || self.package_sha256 != package.canonical_jcs_sha256()
             || self.semantic_fingerprint != package.semantic_fingerprint()
             || self.limits != *limits
             || self.session != *session
@@ -217,6 +235,29 @@ pub fn preflight_staging_semantic_container_profile(
     package: &ValidatedStagingSemanticPackage,
     limits: &ValidatedResourceLimits,
     session: &StagingSemanticContainerSessionIdentity,
+) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    if !package.math_nodes().is_empty() {
+        return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
+    }
+    preflight_staging_semantic_container_profile_inner(package, limits, session, false)
+}
+
+pub(crate) fn preflight_staging_semantic_container_profile_for_math(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &ValidatedResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    if package.math_nodes().is_empty() {
+        return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
+    }
+    preflight_staging_semantic_container_profile_inner(package, limits, session, true)
+}
+
+fn preflight_staging_semantic_container_profile_inner(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &ValidatedResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+    math_extension: bool,
 ) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
     if package.limits() != limits {
         return Err(StagingSemanticContainerPreflightError::ReceiptMismatch);
@@ -252,6 +293,7 @@ pub fn preflight_staging_semantic_container_profile(
         limits: limits.clone(),
         session: session.clone(),
         container_count: count,
+        math_extension,
         fingerprint: authorization.profile_fingerprint(),
         authorization,
         canonical_jcs,
@@ -514,6 +556,7 @@ mod tests {
                     children.iter_mut().for_each(remove_inline_content);
                 }
                 WireStagingM4Inline::Anchor { .. }
+                | WireStagingM4Inline::InlineMath { .. }
                 | WireStagingM4Inline::SoftBreak { .. }
                 | WireStagingM4Inline::HardBreak { .. } => {}
             }
@@ -545,7 +588,8 @@ mod tests {
                     WireStagingM4Block::SemanticContainer { blocks, .. } => {
                         remove_authored_content(blocks);
                     }
-                    WireStagingM4Block::PageBreak { .. } => {}
+                    WireStagingM4Block::PageBreak { .. }
+                    | WireStagingM4Block::DisplayMath { .. } => {}
                 }
             }
         }

@@ -220,6 +220,40 @@
         }
       ]
     },
+    "math_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "version",
+        "text_span"
+      ],
+      "properties": {
+        "language": {
+          "const": "typaxis-math"
+        },
+        "version": {
+          "const": "1"
+        },
+        "text_span": {
+          "$ref": "common.schema.json#/$defs/text_span"
+        }
+      }
+    },
+    "math_speech": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "[\\u0000-\\u001F\\u007F-\\u009F]"
+          },
+          {
+            "pattern": "^[\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]*$"
+          }
+        ]
+      }
+    },
     "inline": {
       "oneOf": [
         {
@@ -243,6 +277,34 @@
             },
             "text_span": {
               "$ref": "common.schema.json#/$defs/text_span"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
+            "math_source",
+            "speech"
+          ],
+          "properties": {
+            "kind": {
+              "const": "inline_math"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "math_source": {
+              "$ref": "#/$defs/math_source"
+            },
+            "speech": {
+              "$ref": "#/$defs/math_speech"
             }
           }
         },
@@ -862,6 +924,38 @@
             "kind",
             "node_id",
             "span",
+            "classes",
+            "math_source",
+            "speech"
+          ],
+          "properties": {
+            "kind": {
+              "const": "display_math"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "classes": {
+              "$ref": "#/$defs/class_list"
+            },
+            "math_source": {
+              "$ref": "#/$defs/math_source"
+            },
+            "speech": {
+              "$ref": "#/$defs/math_speech"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "node_id",
+            "span",
             "classes"
           ],
           "properties": {
@@ -1402,7 +1496,7 @@
         },
         "selector": {
           "type": "string",
-          "pattern": "^(?:paragraph|heading|list|table|figure|page_break|semantic_container)(?:\\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+          "pattern": "^(?:paragraph|heading|list|table|figure|page_break|semantic_container|display_math)(?:\\.[A-Za-z_][A-Za-z0-9_-]*)*$",
           "not": {
             "pattern": "[\\u0000-\\u001F\\u007F]"
           }

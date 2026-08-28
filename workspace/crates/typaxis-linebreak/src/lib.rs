@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+mod math;
+
+pub use math::{AtomicMathInlineItem, AtomicMathPlacement, MathAtomicItemError};
+
 mod unicode_linebreak;
 
 pub use unicode_linebreak::{

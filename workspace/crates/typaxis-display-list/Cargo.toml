@@ -18,11 +18,12 @@ typaxis-text = { path = "../typaxis-text" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-layout = { path = "../typaxis-layout" }
 typaxis-linebreak = { path = "../typaxis-linebreak" }
+typaxis-math = { path = "../typaxis-math" }
 typaxis-pagination = { path = "../typaxis-pagination" }
 typaxis-shaping = { path = "../typaxis-shaping" }
 typaxis-style = { path = "../typaxis-style" }
 typaxis-syntax = { path = "../typaxis-syntax" }
+typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 
 [dev-dependencies]
 typaxis-pagination = { path = "../typaxis-pagination", features = ["staging-fixtures"] }
-typaxis-resource-admission = { path = "../typaxis-resource-admission" }

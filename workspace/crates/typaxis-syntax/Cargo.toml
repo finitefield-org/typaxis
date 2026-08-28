@@ -13,6 +13,7 @@ typaxis-core = { path = "../typaxis-core" }
 typaxis-diagnostics = { path = "../typaxis-diagnostics" }
 typaxis-document-package = { path = "../typaxis-document-package" }
 typaxis-machine-input = { path = "../typaxis-machine-input" }
+typaxis-math = { path = "../typaxis-math" }
 typaxis-text = { path = "../typaxis-text" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-style = { path = "../typaxis-style" }

@@ -12,6 +12,7 @@ members = [
   "crates/typaxis-style",
   "crates/typaxis-syntax",
   "crates/typaxis-font",
+  "crates/typaxis-math",
   "crates/typaxis-resource-admission",
   "crates/typaxis-layout-contract",
   "crates/typaxis-shaping",

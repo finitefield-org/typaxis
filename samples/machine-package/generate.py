@@ -43,7 +43,7 @@ def checksum(payload: bytes) -> int:
     ) & 0xFFFF_FFFF
 
 
-def synthetic_ascii_ttf() -> bytes:
+def synthetic_ascii_ttf(*, include_math: bool = False) -> bytes:
     glyphs = 96
     head = bytearray(54)
     head[0:4] = (0x0001_0000).to_bytes(4, "big")
@@ -114,6 +114,122 @@ def synthetic_ascii_ttf() -> bytes:
         b"name": bytes(name),
         b"post": bytes(post),
     }
+    if include_math:
+        # Preserve the frozen ASCII-only cmap for existing fixtures. The
+        # private math face adds a format-12 subtable for the non-ASCII
+        # symbols exercised by the closed math grammar; the synthetic outline
+        # is intentionally shared because these bytes test binding, not art.
+        math_scalars = sorted(
+            {
+                ord(value)
+                for value in (
+                    "±∓×÷·≠≤≥≈≡∼∝∈∉∋⊂⊆⊃⊇∪∩∧∨¬∀∃∅∞∂∇∑∏∫→←↔↦‖"
+                    "αβγδεζηθικλμνξοπρστυφχψω"
+                    "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩϑϕϖϱϵ√"
+                )
+            }
+        )
+        format4 = bytes(cmap[12:44])
+        format12 = bytearray(16 + len(math_scalars) * 12)
+        format12[0:2] = (12).to_bytes(2, "big")
+        format12[4:8] = len(format12).to_bytes(4, "big")
+        format12[12:16] = len(math_scalars).to_bytes(4, "big")
+        for index, scalar in enumerate(math_scalars):
+            record = 16 + index * 12
+            format12[record : record + 4] = scalar.to_bytes(4, "big")
+            format12[record + 4 : record + 8] = scalar.to_bytes(4, "big")
+            format12[record + 8 : record + 12] = (1).to_bytes(4, "big")
+        cmap = bytearray(20)
+        cmap[2:4] = (2).to_bytes(2, "big")
+        cmap[4:6] = (3).to_bytes(2, "big")
+        cmap[6:8] = (1).to_bytes(2, "big")
+        cmap[8:12] = (20).to_bytes(4, "big")
+        cmap[12:14] = (3).to_bytes(2, "big")
+        cmap[14:16] = (10).to_bytes(2, "big")
+        cmap[16:20] = (20 + len(format4)).to_bytes(4, "big")
+        cmap.extend(format4)
+        cmap.extend(format12)
+        tables[b"cmap"] = bytes(cmap)
+
+        glyph = bytearray()
+        glyph.extend((1).to_bytes(2, "big", signed=True))
+        for value in (0, 0, 500, 700):
+            glyph.extend(value.to_bytes(2, "big", signed=True))
+        glyph.extend((3).to_bytes(2, "big"))
+        glyph.extend((0).to_bytes(2, "big"))
+        glyph.extend(bytes([1, 1, 1, 1]))
+        for value in (0, 500, 0, -500, 0, 0, 700, 0):
+            glyph.extend(value.to_bytes(2, "big", signed=True))
+        glyph.extend(bytes((-len(glyph)) % 4))
+        assert len(glyph) == 36
+        tables[b"glyf"] = bytes(glyph) * glyphs
+        tables[b"loca"] = b"".join(
+            (index * len(glyph)).to_bytes(4, "big")
+            for index in range(glyphs + 1)
+        )
+        math_maxp = bytearray(tables[b"maxp"])
+        math_maxp[6:8] = (4).to_bytes(2, "big")
+        math_maxp[8:10] = (1).to_bytes(2, "big")
+        math_maxp[14:16] = (1).to_bytes(2, "big")
+        tables[b"maxp"] = bytes(math_maxp)
+        # OpenType MATH 1.0 with complete fixed constants, a static italic
+        # correction for ASCII x (gid 89), and a vertical construction for
+        # the shared non-ASCII glyph (gid 1 -> gid 2). Device/variation and
+        # assembly offsets remain zero for one deterministic interpretation.
+        constants = bytearray(214)
+        constants[0:2] = (80).to_bytes(2, "big", signed=True)
+        constants[2:4] = (60).to_bytes(2, "big", signed=True)
+        constants[4:6] = (1000).to_bytes(2, "big")
+        constants[6:8] = (1300).to_bytes(2, "big")
+        values = [50] * 51
+        values[1] = 250
+        values[4] = 150
+        values[5] = 300
+        values[6] = 100
+        values[7] = 350
+        values[8] = 400
+        values[9] = 100
+        values[10] = 400
+        values[11] = 200
+        values[12] = 100
+        values[36] = 100
+        values[38] = 40
+        values[39] = 100
+        values[47] = 100
+        values[49] = 40
+        for index, value in enumerate(values):
+            offset = 8 + index * 4
+            constants[offset : offset + 2] = value.to_bytes(2, "big", signed=True)
+        constants[212:214] = (60).to_bytes(2, "big", signed=True)
+        glyph_info = bytearray(22)
+        glyph_info[0:2] = (8).to_bytes(2, "big")
+        glyph_info[8:10] = (8).to_bytes(2, "big")
+        glyph_info[10:12] = (1).to_bytes(2, "big")
+        glyph_info[12:14] = (20).to_bytes(2, "big", signed=True)
+        glyph_info[16:18] = (1).to_bytes(2, "big")
+        glyph_info[18:20] = (1).to_bytes(2, "big")
+        glyph_info[20:22] = (89).to_bytes(2, "big")
+        variants = bytearray(26)
+        variants[0:2] = (40).to_bytes(2, "big")
+        variants[2:4] = (20).to_bytes(2, "big")
+        variants[6:8] = (1).to_bytes(2, "big")
+        variants[10:12] = (12).to_bytes(2, "big")
+        variants[14:16] = (1).to_bytes(2, "big")
+        variants[16:18] = (2).to_bytes(2, "big")
+        variants[18:20] = (1400).to_bytes(2, "big")
+        variants[20:22] = (1).to_bytes(2, "big")
+        variants[22:24] = (1).to_bytes(2, "big")
+        variants[24:26] = (1).to_bytes(2, "big")
+        math = bytearray(10)
+        math[0:4] = (0x0001_0000).to_bytes(4, "big")
+        math[4:6] = (10).to_bytes(2, "big")
+        math[6:8] = (224).to_bytes(2, "big")
+        math[8:10] = (246).to_bytes(2, "big")
+        math.extend(constants)
+        math.extend(glyph_info)
+        math.extend(variants)
+        assert len(math) == 272
+        tables[b"MATH"] = bytes(math)
     count = len(tables)
     directory_length = 12 + count * 16
     payload_length = sum((len(value) + 3) & ~3 for value in tables.values())

@@ -3,6 +3,7 @@
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
+mod math;
 mod safe_vector;
 mod semantic_container;
 
@@ -35,6 +36,13 @@ pub use advanced_header_footer::{
     StagingPageRegionKind, StagingPageRegionLayout, StagingRegionBlockLayout,
     ADVANCED_FLOW_REGISTRY_ALGORITHM,
 };
+pub use math::{
+    layout_staging_math, MathFlowId, MathReceiptKey, StagingMathFlow, StagingMathLayout,
+    StagingMathLayoutEpoch, StagingMathLayoutError, StagingMathPlacement, ValidatedMathReceipt,
+    MATH_BINDING_ALGORITHM, MATH_DISPLAY_FLOW_ALGORITHM, MATH_SELECTED_LAYOUT_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use math::{staging_math_layout_fixture, StagingMathLayoutFixture};
 pub use safe_vector::{
     layout_staging_safe_vectors, StagingSafeVectorLayoutError, StagingSafeVectorPlacement,
     StagingSafeVectorSelectedLayout, StagingSafeVectorSelectedLayoutReceipt,

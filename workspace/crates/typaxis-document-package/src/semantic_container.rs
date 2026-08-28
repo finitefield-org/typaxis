@@ -136,12 +136,26 @@ pub struct WireStagingTextSpan {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireStagingMathSource {
+    pub language: String,
+    pub version: String,
+    pub text_span: WireStagingTextSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WireStagingM4Inline {
     Text {
         node_id: u32,
         span: WireStagingSourceSpan,
         text_span: WireStagingTextSpan,
+    },
+    InlineMath {
+        node_id: u32,
+        span: WireStagingSourceSpan,
+        math_source: WireStagingMathSource,
+        speech: String,
     },
     Emphasis {
         node_id: u32,
@@ -189,6 +203,7 @@ impl WireStagingM4Inline {
     pub const fn node_id(&self) -> u32 {
         match self {
             Self::Text { node_id, .. }
+            | Self::InlineMath { node_id, .. }
             | Self::Emphasis { node_id, .. }
             | Self::Strong { node_id, .. }
             | Self::Link { node_id, .. }
@@ -203,6 +218,7 @@ impl WireStagingM4Inline {
     pub const fn span(&self) -> WireStagingSourceSpan {
         match self {
             Self::Text { span, .. }
+            | Self::InlineMath { span, .. }
             | Self::Emphasis { span, .. }
             | Self::Strong { span, .. }
             | Self::Link { span, .. }
@@ -288,6 +304,13 @@ pub enum WireStagingM4Block {
         span: WireStagingSourceSpan,
         classes: Vec<String>,
     },
+    DisplayMath {
+        node_id: u32,
+        span: WireStagingSourceSpan,
+        classes: Vec<String>,
+        math_source: WireStagingMathSource,
+        speech: String,
+    },
     SemanticContainer {
         node_id: u32,
         span: WireStagingSourceSpan,
@@ -306,6 +329,7 @@ impl WireStagingM4Block {
             | Self::Table { node_id, .. }
             | Self::Figure { node_id, .. }
             | Self::PageBreak { node_id, .. }
+            | Self::DisplayMath { node_id, .. }
             | Self::SemanticContainer { node_id, .. } => *node_id,
         }
     }
@@ -318,6 +342,7 @@ impl WireStagingM4Block {
             | Self::Table { span, .. }
             | Self::Figure { span, .. }
             | Self::PageBreak { span, .. }
+            | Self::DisplayMath { span, .. }
             | Self::SemanticContainer { span, .. } => span,
         };
         span.into_public()
@@ -331,6 +356,7 @@ impl WireStagingM4Block {
             | Self::Table { classes, .. }
             | Self::Figure { classes, .. }
             | Self::PageBreak { classes, .. }
+            | Self::DisplayMath { classes, .. }
             | Self::SemanticContainer { classes, .. } => classes,
         }
     }
@@ -693,6 +719,7 @@ impl StagingSemanticDocumentPackageDecoder {
         )
         .map_err(StagingSemanticDecodeError::Json)?;
         validate_semantic_container_shape(&document)?;
+        validate_math_wire(&document)?;
         let resources: WireStagingM4ResourceCatalog = serde_json::from_value(
             object
                 .get("resources")
@@ -798,6 +825,32 @@ fn validate_frozen_carrier(
                     "footnote blocks are required",
                 ))?;
             flatten_semantic_blocks(blocks)?;
+        }
+    }
+    let style_rules = object
+        .get_mut("style_sheet")
+        .and_then(Value::as_object_mut)
+        .and_then(|sheet| sheet.get_mut("rules"))
+        .and_then(Value::as_array_mut)
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "style_sheet rules are required",
+        ))?;
+    for rule in style_rules {
+        let selector = rule
+            .as_object_mut()
+            .and_then(|rule| rule.get_mut("selector"))
+            .and_then(|value| value.as_str())
+            .ok_or(StagingSemanticDecodeError::Shape(
+                "style selector is required",
+            ))?
+            .to_owned();
+        if let Some(classes) = selector.strip_prefix("display_math") {
+            rule.as_object_mut()
+                .and_then(|rule| rule.get_mut("selector"))
+                .ok_or(StagingSemanticDecodeError::Shape(
+                    "style selector is required",
+                ))?
+                .clone_from(&Value::String(format!("paragraph{classes}")));
         }
     }
     let resources = object
@@ -912,10 +965,66 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                 flatten_semantic_blocks(caption)?;
                 flattened.push(block);
             }
+            Some("paragraph" | "heading") => {
+                let children =
+                    object
+                        .get_mut("children")
+                        .ok_or(StagingSemanticDecodeError::Shape(
+                            "inline children are required",
+                        ))?;
+                rewrite_math_inlines(children)?;
+                flattened.push(block);
+            }
+            Some("display_math") => {
+                object.insert("kind".to_owned(), Value::String("page_break".to_owned()));
+                object.remove("math_source");
+                object.remove("speech");
+                flattened.push(block);
+            }
             _ => flattened.push(block),
         }
     }
     *blocks = flattened;
+    Ok(())
+}
+
+fn rewrite_math_inlines(value: &mut Value) -> Result<(), StagingSemanticDecodeError> {
+    let values = value
+        .as_array_mut()
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "inline collection must be an array",
+        ))?;
+    for value in values {
+        let object = value
+            .as_object_mut()
+            .ok_or(StagingSemanticDecodeError::Shape(
+                "inline must be an object",
+            ))?;
+        match object.get("kind").and_then(Value::as_str) {
+            Some("inline_math") => {
+                let text_span = object
+                    .remove("math_source")
+                    .and_then(|source| source.as_object().cloned())
+                    .and_then(|mut source| source.remove("text_span"))
+                    .ok_or(StagingSemanticDecodeError::Shape(
+                        "math_source text_span is required",
+                    ))?;
+                object.insert("kind".to_owned(), Value::String("text".to_owned()));
+                object.insert("text_span".to_owned(), text_span);
+                object.remove("speech");
+            }
+            Some("emphasis" | "strong" | "link") => {
+                let children =
+                    object
+                        .get_mut("children")
+                        .ok_or(StagingSemanticDecodeError::Shape(
+                            "inline children are required",
+                        ))?;
+                rewrite_math_inlines(children)?;
+            }
+            _ => {}
+        }
+    }
     Ok(())
 }
 
@@ -946,6 +1055,7 @@ fn validate_semantic_container_shape(
                 WireStagingM4Block::Figure { caption, .. } => visit(caption)?,
                 WireStagingM4Block::Paragraph { .. }
                 | WireStagingM4Block::Heading { .. }
+                | WireStagingM4Block::DisplayMath { .. }
                 | WireStagingM4Block::PageBreak { .. } => {}
             }
         }
@@ -987,6 +1097,7 @@ impl StagingSemanticDocumentPackageEncoder {
             return Err(StagingSemanticDecodeError::Limit);
         }
         validate_semantic_container_shape(&package.document)?;
+        validate_math_wire(&package.document)?;
         validate_supporting_shapes(&package.sources, &package.text_buffers)?;
         reject_page_region_semantic_containers(&package.carrier["page_masters"])?;
         let canonical = canonicalize_value(&package.materialize()?, 0)?;
@@ -1036,9 +1147,12 @@ fn reject_page_region_semantic_containers(value: &Value) -> Result<(), StagingSe
     while let Some(value) = stack.pop() {
         match value {
             Value::Object(object) => {
-                if object.get("kind").and_then(Value::as_str) == Some("semantic_container") {
+                if matches!(
+                    object.get("kind").and_then(Value::as_str),
+                    Some("semantic_container" | "display_math" | "inline_math")
+                ) {
                     return Err(StagingSemanticDecodeError::Shape(
-                        "semantic_container cannot occur in a page region",
+                        "semantic_container or math cannot occur in a page region",
                     ));
                 }
                 stack.extend(object.values());
@@ -1046,6 +1160,69 @@ fn reject_page_region_semantic_containers(value: &Value) -> Result<(), StagingSe
             Value::Array(values) => stack.extend(values),
             _ => {}
         }
+    }
+    Ok(())
+}
+
+fn validate_math_wire(document: &WireStagingM4Document) -> Result<(), StagingSemanticDecodeError> {
+    fn source(value: &WireStagingMathSource) -> Result<(), StagingSemanticDecodeError> {
+        if value.language != "typaxis-math" || value.version != "1" {
+            return Err(StagingSemanticDecodeError::Shape(
+                "math_source language/version is unsupported",
+            ));
+        }
+        Ok(())
+    }
+
+    fn inlines(values: &[WireStagingM4Inline]) -> Result<(), StagingSemanticDecodeError> {
+        for value in values {
+            match value {
+                WireStagingM4Inline::InlineMath { math_source, .. } => source(math_source)?,
+                WireStagingM4Inline::Emphasis { children, .. }
+                | WireStagingM4Inline::Strong { children, .. }
+                | WireStagingM4Inline::Link { children, .. } => inlines(children)?,
+                WireStagingM4Inline::Text { .. }
+                | WireStagingM4Inline::Anchor { .. }
+                | WireStagingM4Inline::Reference { .. }
+                | WireStagingM4Inline::FootnoteReference { .. }
+                | WireStagingM4Inline::SoftBreak { .. }
+                | WireStagingM4Inline::HardBreak { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn blocks(values: &[WireStagingM4Block]) -> Result<(), StagingSemanticDecodeError> {
+        for value in values {
+            match value {
+                WireStagingM4Block::Paragraph { children, .. }
+                | WireStagingM4Block::Heading { children, .. } => inlines(children)?,
+                WireStagingM4Block::List { items, .. } => {
+                    for item in items {
+                        blocks(&item.blocks)?;
+                    }
+                }
+                WireStagingM4Block::Table { head, body, .. } => {
+                    for row in head.iter().chain(body) {
+                        for cell in &row.cells {
+                            blocks(&cell.blocks)?;
+                        }
+                    }
+                }
+                WireStagingM4Block::Figure { caption, .. }
+                | WireStagingM4Block::SemanticContainer {
+                    blocks: caption, ..
+                } => blocks(caption)?,
+                WireStagingM4Block::DisplayMath { math_source, .. } => source(math_source)?,
+                WireStagingM4Block::PageBreak { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    blocks(&document.blocks)?;
+    for footnote in &document.footnotes {
+        blocks(&footnote.blocks)?;
     }
     Ok(())
 }
@@ -1146,7 +1323,7 @@ fn document_node_count(
                         max_depth,
                     )?;
                 }
-                WireStagingM4Block::PageBreak { .. } => {}
+                WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
             }
         }
         Ok(())
@@ -1193,6 +1370,7 @@ fn count_inline_nodes(
                     .ok_or(StagingSemanticDecodeError::Limit)?;
                 stack.extend(children.iter().rev().map(|child| (child, child_depth)));
             }
+            WireStagingM4Inline::InlineMath { .. } => {}
             _ => {}
         }
     }
@@ -1329,6 +1507,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/vector-media/job/document-package.json"
     ));
+    const MATH_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/math/job/document-package.json"
+    ));
 
     fn policy() -> DocumentPackageDecodePolicy<'static> {
         let limits = Box::leak(Box::new(
@@ -1389,6 +1571,61 @@ mod tests {
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
             "typaxis.contract/1.3"
         );
+    }
+
+    #[test]
+    fn math_wire_round_trip_is_typed_versioned_and_private() {
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(MATH_FIXTURE, &policy())
+            .unwrap();
+        let WireStagingM4Block::SemanticContainer { blocks, .. } =
+            &decoded.wire().document().blocks[0]
+        else {
+            panic!("math fixture root must be a semantic container")
+        };
+        let WireStagingM4Block::Paragraph { children, .. } = &blocks[0] else {
+            panic!("first math owner must be a paragraph")
+        };
+        let WireStagingM4Inline::InlineMath {
+            math_source,
+            speech,
+            ..
+        } = &children[0]
+        else {
+            panic!("paragraph child must remain inline math")
+        };
+        assert_eq!(math_source.language, "typaxis-math");
+        assert_eq!(math_source.version, "1");
+        assert_eq!(math_source.text_span.start_byte, 0);
+        assert_eq!(math_source.text_span.end_byte, 5);
+        assert_eq!(speech, "x squared");
+        let WireStagingM4Block::DisplayMath {
+            math_source,
+            speech,
+            ..
+        } = &blocks[1]
+        else {
+            panic!("second math owner must remain display math")
+        };
+        assert_eq!(math_source.text_span.start_byte, 5);
+        assert_eq!(math_source.text_span.end_byte, 8);
+        assert_eq!(speech, "x plus one");
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(decoded.wire())
+            .unwrap();
+        assert_eq!(encoded, decoded.canonical_jcs());
+        assert!(crate::StrictDocumentPackageDecoder::new()
+            .decode(MATH_FIXTURE, &policy())
+            .is_err());
+
+        let wrong_version = String::from_utf8(MATH_FIXTURE.to_vec()).unwrap().replacen(
+            "\"version\":\"1\"",
+            "\"version\":\"2\"",
+            1,
+        );
+        assert!(StagingSemanticDocumentPackageDecoder::new()
+            .decode(wrong_version.as_bytes(), &policy())
+            .is_err());
     }
 
     #[test]

@@ -12,6 +12,7 @@ workspace = true
 typaxis-core = { path = "../typaxis-core" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-layout-contract = { path = "../typaxis-layout-contract" }
+typaxis-math = { path = "../typaxis-math" }
 typaxis-shaping = { path = "../typaxis-shaping" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 typaxis-text = { path = "../typaxis-text" }

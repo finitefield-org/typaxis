@@ -49,8 +49,9 @@ pub use semantic_container::{
     WireStagingM4Footnote, WireStagingM4Image, WireStagingM4Inline, WireStagingM4LinkTarget,
     WireStagingM4ListItem, WireStagingM4ReferenceFormat, WireStagingM4ResourceCatalog,
     WireStagingM4Source, WireStagingM4TableCell, WireStagingM4TableRow, WireStagingM4TextBuffer,
-    WireStagingSemanticContainerKind, WireStagingSourceSpan, WireStagingStyleDeclaration,
-    WireStagingStyleRule, WireStagingStyleSheet, WireStagingStyleValue, WireStagingTextMapKind,
-    WireStagingTextMapSegment, WireStagingTextSpan, STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT,
+    WireStagingMathSource, WireStagingSemanticContainerKind, WireStagingSourceSpan,
+    WireStagingStyleDeclaration, WireStagingStyleRule, WireStagingStyleSheet,
+    WireStagingStyleValue, WireStagingTextMapKind, WireStagingTextMapSegment, WireStagingTextSpan,
+    STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT,
 };
 pub use typaxis_core::{DocumentPackageContractId, JsonPointer, MachineInputLimitBounds};

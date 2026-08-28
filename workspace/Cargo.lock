@@ -445,6 +445,7 @@ dependencies = [
  "typaxis-font",
  "typaxis-layout",
  "typaxis-linebreak",
+ "typaxis-math",
  "typaxis-pagination",
  "typaxis-resource-admission",
  "typaxis-shaping",
@@ -492,8 +493,10 @@ version = "0.1.0"
 dependencies = [
  "typaxis-core",
  "typaxis-document",
+ "typaxis-font",
  "typaxis-layout-contract",
  "typaxis-linebreak",
+ "typaxis-math",
  "typaxis-resource-admission",
  "typaxis-style",
  "typaxis-syntax",
@@ -517,6 +520,7 @@ dependencies = [
  "typaxis-core",
  "typaxis-document",
  "typaxis-layout-contract",
+ "typaxis-math",
  "typaxis-resource-admission",
  "typaxis-shaping",
  "typaxis-syntax",
@@ -554,6 +558,7 @@ dependencies = [
  "typaxis-layout-contract",
  "typaxis-machine-input",
  "typaxis-machine-profile",
+ "typaxis-math",
  "typaxis-pagination",
  "typaxis-pdf",
  "typaxis-resource-admission",
@@ -561,6 +566,14 @@ dependencies = [
  "typaxis-style",
  "typaxis-syntax",
  "typaxis-text",
+]
+
+[[package]]
+name = "typaxis-math"
+version = "0.1.0"
+dependencies = [
+ "typaxis-core",
+ "typaxis-font",
 ]
 
 [[package]]
@@ -584,6 +597,9 @@ version = "0.1.0"
 dependencies = [
  "typaxis-core",
  "typaxis-display-list",
+ "typaxis-font",
+ "typaxis-math",
+ "typaxis-resource-admission",
  "typaxis-resources",
  "typaxis-syntax",
 ]
@@ -651,6 +667,7 @@ dependencies = [
  "typaxis-document",
  "typaxis-document-package",
  "typaxis-machine-input",
+ "typaxis-math",
  "typaxis-style",
  "typaxis-text",
 ]
