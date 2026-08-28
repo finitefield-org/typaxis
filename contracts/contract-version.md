@@ -73,3 +73,38 @@ profile error. The new `header-footer-1`, `columns-1`, and `float-1` profiles
 require raw 1.3. All canonical output uses 1.3, while 1.0, 1.1, and 1.2
 registries remain independent and frozen. The default remains
 `typaxis.machine-pdf/paragraph-1`; no raw contract or profile falls forward.
+
+## Adopted 1.4 migration target
+
+[ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) reserves
+the next minor identifier `typaxis.contract/1.4`, DocumentPackage Schema `$id`
+`https://schemas.typaxis.invalid/1.4/document-package.schema.json`, and target
+profile `typaxis.machine-pdf/production-book-1`. Contract 1.4 adds the closed
+block-only `semantic_container` record and requires typed `media_type` on every
+image/font-face declaration. Base values are `png`,
+`sfnt-truetype-glyf`, and `ttc-truetype-glyf`.
+
+These are target facts, not current support. MI4-02 through MI4-12 may extend
+only an independent crate-private 1.4 staging registry. Until MI4-13, public
+contract 1.4 input remains `P1103`, the target profile is unknown to public
+commands, top-level Schema aliases and canonical output remain 1.3, and the
+seven-profile array/default remain unchanged. Frozen 1.0 through 1.3 registries
+must not receive target definitions.
+
+The domain compatibility representation is the closed
+`LegacyUnspecified|Declared(typed media)` union. Only provenance-bound syntax
+lowering may issue the legacy variant; raw 1.4 requires a declaration and the
+production profile rejects legacy before resource open. Resource admission
+alone issues bytes-derived media attestation and exact-matches it to the
+declaration. Source-mode `dump-ast` may populate 1.4 only from that same stable
+attestation, never a path suffix or source string.
+
+MI4-13 is the only publication transaction. It must validate the complete
+independent 1.4 registry and atomically switch/register decoder, encoder,
+resource-attested `dump-ast`, config, diagnostics, manifest version dispatch,
+current Schema aliases, capabilities, normal profile dispatch/help, fixtures,
+and evidence. Old raw-contract/profile artifact encoders remain on frozen 1.3
+so their manifest goldens do not acquire M4 resource fields; raw 1.4 or an M4
+profile request uses the 1.4 artifact registry. The default remains
+`paragraph-1`, every old profile's accepted raw-contract set remains frozen,
+and raw 1.4 requires explicit `production-book-1` selection.

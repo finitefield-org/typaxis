@@ -1894,7 +1894,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-01 M4 contract versioningとsemantic container ADRを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-12
 - Design inputs: docs/25 §7 semantic requirements、§13.4、§13.5
 - Primary files:
@@ -1926,6 +1926,13 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - old profileのmanifest bytesを変えず、new M4 manifestのsuccessではdeclared/attested mediaが必ず非nullで一致する。
 - Verification:
   - `rg -n "semantic|ownership|source span|contract|schema|profile|migration|media_type|PNG|TrueType|TTC" adr docs/22-contract-matrix.md schemas/README.md`
+- Implementation notes (2026-08-28, Linux):
+  - 次の空き番号`ADR-0032`をAccepted targetとして登録し、non-current `typaxis.contract/1.4`、`https://schemas.typaxis.invalid/1.4/document-package.schema.json`、`typaxis.machine-pdf/production-book-1`を予約した。MI4-01はSchema/Rust/public CLI bytesを変更せず、MI4-02〜12をcrate-private staging、MI4-13だけをatomic publication gateとした。
+  - contract 1.4のgeneric `semantic_container`をrequired `kind`/NodeId/SourceSpan/classes/`semantic_kind`/nonempty blocksを持つblock-only recordとし、kindは`result`、`proof`、`exercise`のclosed enumに固定した。open extension、inline/page-region配置、empty/recursively-empty、paragraph/class/text/raster fallbackを採用しない。
+  - containerごとにparent/position/package/style/profile/LayoutEpochへbindした独立FlowIdを発行し、通常child itemは同flow、既存subflow ownerとnested containerだけは独立child flowとする。page splitは一つのtyped boundary/structure ownerをfirst/middle/last fragmentで維持し、outlineはcontainer entryなし、tag roleは`/Result`、`/Proof`、`/Exercise`から`/Div`へのmappingとした。
+  - 1.4 image/font declarationへrequired `media_type`を追加する方針を採択し、base値を`png`、`sfnt-truetype-glyf`、`ttc-truetype-glyf`へ固定した。domainはnullable/raw stringでなくprovenance-bound `LegacyUnspecified` / `Declared(typed media)`、policyはmachine-profile、stable bytesからのattestation/exact matchはresource-admission、source-mode `dump-ast` populationは同じattestationのconsumerだけとした。
+  - migration tableはold raw-contract/profile artifactをfrozen 1.3 encoder/Schemaでbyte維持し、raw 1.4またはM4 profile requestだけを1.4 artifact registryへrouteする。old profileのaccepted-contract集合は凍結し、raw 1.4は明示的な`production-book-1`指定だけで受理する。new production manifestのresource branchだけがtagged `media_declaration`とM4 font attestationを追加し、既存imageのrequired PNG `attested_media_kind`はそのまま維持する。built successはdeclared/non-null/exact match、pre-resource old-contract M4 failureだけがlegacy/nullを許可し、defaultは`paragraph-1`のままである。
+  - required vocabulary `rg`、changed Markdownのlocal link/table/JSON fenceとI-001〜I-078連番検査、`python3 schemas/validate.py`、locked workspace全target test、strict clippy、format、diff/whitespaceをlocal exit 0で確認した。Rust/Schema definition/public CLIは変更せず、currentとversioned 1.3 DocumentPackage Schemaは同じSHA-256 `cd6dc1d69e407317687d1b192e6f2f4da086fa4f920a05cc4b1b0c611e7d3796`を維持した。
 - Non-goals:
   - planned field owner/versioning判断を超えるmath node、vector payload、tagged PDFの具体wire
 

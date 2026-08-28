@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the seven normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices.
+This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) separately reserves a non-current M4 target; it is not a public eighth descriptor.
 
 ## Status axes
 
@@ -13,6 +13,7 @@ This document records the seven normative closed machine-PDF profiles adopted by
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
+| `production-book-1` | Yes, ADR-0032 base target on non-current contract 1.4 | No: MI4 staging begins at MI4-02 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -61,7 +62,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns all seven closed public descriptors. The implementation derives all of the following from the registered descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns all seven closed public descriptors. ADR-0032 reserves `production-book-1`, but the constant, parser branch, public descriptor, and normal dispatch are forbidden until MI4-13. The implementation derives all of the following from registered public descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -438,6 +439,81 @@ conditional trace/manifest member, removed the private runners, and published
 `m3-all.json`. The default remains `paragraph-1`; full migration details are
 normative in ADR-0031 and docs/22.
 
+## Contract-defined M4 semantic-container and declared-media target
+
+ADR-0032 reserves `typaxis.contract/1.4`, Schema namespace
+`https://schemas.typaxis.invalid/1.4/`, and
+`typaxis.machine-pdf/production-book-1`. MI4-01 changes only the
+contract-defined axis. Public capabilities continue to report contract 1.3 and
+the same seven descriptors until MI4-13.
+
+The target DocumentPackage adds the block-only `semantic_container` with
+closed `semantic_kind = result|proof|exercise`, a NodeId/SourceSpan, classes,
+and one or more child blocks. It is allowed only in general block positions,
+never inline or in the restricted page-region grammar. It owns an independent
+FlowId and exact terminal; ordinary paragraph/heading/page-break/Figure child
+items remain in that flow, while nested containers and the already adopted
+list-item/caption/table-cell/footnote subflow owners retain independent child
+flows. Page splitting preserves one typed container boundary and one structure
+owner across all fragments.
+
+The selector type is `semantic_container`. Kind is retained in a typed
+computed style, selected state, and structure binding, but does not generate a
+label, outline entry, implicit decoration, or raw kind-specific selector.
+Contained headings keep their ordinary outline identity. Tagged structure uses
+`/Result`, `/Proof`, or `/Exercise`, each role-mapped to `/Div`; MI4-08 owns the
+full marked-content policy without permission to flatten the wrapper.
+
+Structurally empty blocks, unknown kinds, inline occurrences, and invalid
+source/owner shapes are `P1102`. Semantically empty or unsupported/nested
+content is `L5100` at profile preflight, known inapplicable style is `L5101`,
+and closure/progress contradiction is `I9190`. No old profile accepts the node,
+and there is no paragraph/class/text/raster fallback.
+
+Contract 1.4 also requires `media_type` on every image and font-face resource.
+The base closed values and exact decoder attestations are:
+
+| Resource declaration | Decoder-issued kind |
+| --- | --- |
+| image `png` | `AdmittedImageMediaKind::Png` |
+| font `sfnt-truetype-glyf` | `AdmittedFontMediaKind::SfntTrueTypeGlyf` |
+| font `ttc-truetype-glyf` | `AdmittedFontMediaKind::TtcTrueTypeGlyf` |
+
+The domain type is
+`LegacyUnspecified|Declared(ImageMediaType|FontMediaType)`, never null or a raw
+string. Only provenance-bound syntax lowering may issue legacy absence for a
+frozen old contract. Raw 1.4 requires a declaration; the production target
+rejects legacy with `R7100` before resource open. Machine-profile preflight
+owns the allowed declared set. Resource admission alone attests stable bytes
+and exact-matches the declaration before expensive decode/outline work. URI
+suffix, caller JSON, PDF subtype, and manifest text have no attestation
+authority.
+
+Source-mode 1.4 `dump-ast` must populate declarations only from the same stable
+decoder attestation and fail before stdout if one is unavailable. It cannot
+infer from `.png`, `.ttf`, `.ttc`, emit legacy absence, or fall back to 1.3.
+MI4-03 may add the adopted safe-vector image value privately; MI4-10 may add
+the adopted JPEG and OTF/CFF values. Neither may change the three base values.
+
+Only the 1.4 production-manifest branch adds tagged `media_declaration` and the
+M4 font attestation. Built production resources require `declared`, nonnull
+`attested_media_kind`, and exact equality. The field name already exists as
+required `png` attestation on current image records; old image branches retain
+that exact meaning while old font branches remain unchanged.
+`legacy_unspecified` plus null attestation is limited to a sealed old-contract
+M4 request rejected before resource admission. Frozen old-profile branches
+gain no declaration or changed attestation field and retain their bytes.
+
+The target default remains `paragraph-1`, and every old profile's exact
+accepted raw-contract set remains frozen. Raw 1.4 must explicitly select
+`production-book-1`; omission or any old profile is `P1103` at `/contract`
+before resource open. A source `dump-ast -> build-package` round trip therefore
+passes that profile explicitly after MI4-13. Old raw-contract/profile artifacts
+retain frozen 1.3 encoders. Raw 1.4 or an M4-profile request uses the 1.4
+artifact registry.
+Complete migration rows and the atomic switch order are normative in ADR-0032
+and docs/22.
+
 ## Compatible changes
 
 The following changes are compatible with the same profile ID when they preserve observable semantics and existing fixtures:
@@ -463,10 +539,12 @@ The following changes are incompatible and require a new profile ID or an explic
 
 `paragraph-1` is never broadened in place. M2 is governed by ADR-0028; the M3
 table, footnote, and advanced-pagination slices are governed by ADR-0029,
-ADR-0030, and ADR-0031 respectively. Other later capabilities require their
-own decision-gate ADR fixing a new profile ID, closed domain, limits,
-fallback/oversize behavior, publication semantics, fixtures, and migration
-rule before implementation begins.
+ADR-0030, and ADR-0031 respectively. ADR-0032 fixes the M4 base target; its
+remaining math/vector/metadata/tagging/media decisions require their assigned
+ADRs before the production profile can be published. Any other later
+capability requires a decision-gate ADR fixing a new profile ID, closed domain,
+limits, fallback/oversize behavior, publication semantics, fixtures, and
+migration rule before implementation begins.
 
 ## Contract and release gating
 
@@ -489,3 +567,9 @@ the exact neutral 1.3 encoding of their frozen behavior; and the new profiles
 are raw-1.3-only. Neutral means full-media trim, null page-region content and
 columns, block Figure placement, and the profile's unchanged auxiliary-frame
 rules.
+
+ADR-0032's contract 1.4 and `production-book-1` are target facts only. They are
+absent from the public capability artifact, accepted-contract array, profile
+parser/help, and current Schema aliases until MI4-13 atomically publishes the
+complete M4 registry and combined evidence. MI4-02 through MI4-12 use no hidden
+public selector or partially exposed decoder.

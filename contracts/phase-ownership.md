@@ -2,7 +2,7 @@
 
 ## Implemented public machine-input ownership
 
-The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), and [ADR-0030](../adr/ADR-0030-footnote-profile.md). Public package commands and local host evidence cover all four immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
+The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). Public package commands and local host evidence cover all seven immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -13,7 +13,7 @@ The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machi
 | strict JSON lexical preflight, caller-constructible `WireDocumentPackage`, decoder-issued `DecodedDocumentPackage`, JSON location index, and package JCS hash | `typaxis-document-package` | portable decode/export only; never issue host or trusted syntax authority |
 | raw PACKAGE receipt, decoded binding, exact single companion-source set, read budgets, and monotonic machine-input progress | `typaxis-machine-input` | issue `AdmittedMachinePackage`; reject cross-session raw/decoded/source receipt substitution |
 | DTO lowering, actual source/TextMap/AST/style/master/resource validation, entry-only closure, and trusted package issuance | sealed `typaxis-syntax::DocumentPackageParser` | issue `ValidatedMachinePackage { ValidatedParsedPackage, provenance }`; no public DTO promotion path |
-| immutable `paragraph-1` / `basic-document-1` / `footnote-1` / `table-1` descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
+| seven immutable public descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
 | all safe declared resource candidates before capability preflight | `typaxis-host-admission::HostReadIdentityLedger`, populated by machine orchestration | prevent requested diagnostics/manifest/PDF targets from aliasing existing or missing input candidates without opening resource bytes |
 | logical font/image binding, bytes-derived metadata, partial progress, and complete resource ledger | `typaxis-resource-admission` using generic host receipts | capability-success path only; layout/finalization receives complete ledger, failed manifest may receive sealed progress |
 | typed phase diagnostic code/category/subject and command-wide 256-record budget | originating phase plus `typaxis-diagnostics` materializer | map subjects through package JSON/source indexes; stderr and canonical sidecar read the same typed diagnostic, never parse `Debug` strings |
@@ -128,6 +128,45 @@ PdfGraphFrozen`. A column frame is a view over the body source cursor; a page
 region and Float FlowId have their own terminals. Parent edges express typed
 ownership and nesting, never permission to flatten those cursors into the body
 continuation.
+
+## Adopted M4 semantic-container and declared-media ownership
+
+These target rows are adopted by
+[ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) but have no
+implemented public Rust type, Schema file, or CLI surface at MI4-01. MI4-02
+through MI4-12 may implement them only behind the non-current 1.4 staging
+boundary; MI4-13 alone may move them into public ownership.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| reserved contract 1.4, independent staging Schema registry, and atomic publication/version dispatch | document-package and Schema integration owners under the MI4-13 gate | keep current/frozen 1.0 through 1.3 isolated; no partial decoder, alias, artifact, or profile exposure |
+| untrusted semantic-container Wire DTO and closed `SemanticContainerKind` | `typaxis-document-package` | require the exact block-only record and reject unknown/missing/extra members before domain lowering |
+| untrusted `ImageMediaType` / `FontMediaType` wire enums and version-exact omission/encoding | `typaxis-document-package` | decode required 1.4 declarations; old encoders omit only provenance-bound legacy absence and never drop declared values |
+| trusted `LegacyUnspecified` / `Declared(typed media)` declarations and semantic-container node | `typaxis-document`, issued only by sealed `typaxis-syntax` lowering | bind raw contract provenance, NodeId/SourceSpan/child ownership, and prevent callers from attaching legacy absence to 1.4 |
+| production-profile admission of the three typed container kinds, semantic nonempty/nesting policy, allowed style-property set, and allowed media set | `typaxis-machine-profile` descriptor/preflight owner | issue a profile/package/style/declaration/session-bound policy receipt before resource open or flow allocation |
+| `semantic_container` selector parsing, cascade/inheritance/applicability, and `SemanticContainerComputedStyle` | `typaxis-style` | retain typed kind/style in the layout receipt so Display/PDF never compare the raw wire kind |
+| one canonical container FlowId, parent edge, terminal, fragment sequence, and typed grouping/structure binding | flow-registry, pagination, and selected-state owners | preserve the wrapper across page splits; ordinary child items stay in the container flow while existing/nested subflow owners retain independent FlowIds |
+| stable resource bytes plus decoder-issued actual image/font container and outline kind | `typaxis-resource-admission` | exact-match the profile-permitted declaration before expensive media decode/font outline work; URI suffix and caller strings have no authority |
+| reference-source 1.4 `media_type` population | shared `dump-ast` exporter consuming same-session resource-admission attestation | emit a declared value only after stable attestation; failure writes no partial JSON and never emits legacy absence |
+| `/Result`, `/Proof`, `/Exercise` to `/Div` role mapping and one structure owner across all selected fragments | semantic-container structure-binding owner; full marked-content policy remains MI4-08 | retain canonical child reading order and prevent outline/tag reconstruction from paint or PDF object order |
+| declaration/attestation resource projection in the M4 manifest branch | manifest owned-facts owner | built M4 records require declared/non-null exact match; pre-resource legacy failure alone may carry legacy/null; frozen old images retain their existing PNG attestation and old fonts gain no new field |
+
+Target progress extends the public chain only after publication:
+
+```text
+PackageValidated
+  -> M4CapabilityValidated
+  -> DeclaredMediaPolicyValidated
+  -> MediaAttested
+  -> SemanticContainerFlowRegistryValidated
+  -> LayoutSelected
+  -> StructureBound
+```
+
+Candidate registration remains before capability preflight, but is not a
+resource open or attestation. A downstream owner cannot infer a semantic kind
+from classes/text, infer media from a path/PDF object, synthesize a declaration
+from legacy input, or flatten the container continuation into its parent.
 
 ## Shared base ownership (originating in contract 1.0)
 

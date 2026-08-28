@@ -14,6 +14,7 @@
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
+| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | No Schema files at MI4-01; private staging begins MI4-02 | No; current aliases remain 1.3 | No, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -38,8 +39,12 @@ in-process receipt.
 and [ADR-0029](../adr/ADR-0029-table-profile.md) defines the table profile on
 that unchanged wire. [ADR-0030](../adr/ADR-0030-footnote-profile.md) defines
 the public footnote profile, and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md)
-defines the public advanced-pagination profiles. `schemas/1.0/`, `schemas/1.1/`,
-and `schemas/1.2/` contain frozen independent compatibility registries.
+defines the public advanced-pagination profiles.
+[ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) reserves
+the non-current 1.4 semantic-container/declared-media target and
+`production-book-1`; it does not create a Schema file or public descriptor at
+MI4-01. `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
+independent compatibility registries.
 Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
 capability, fixture/matrix, and machine host-evidence Schemas. Current
 generators emit 1.3, while the typed DocumentPackage parser recognizes 1.0
@@ -67,6 +72,27 @@ MI3-07 added `machine-footnote-manifest.schema.json` and the conditional
 and forbidden for the other profiles. MI3-12 added the conditional
 `advanced_pagination` projection, froze the complete 1.3 registry, and switched
 the current aliases atomically.
+
+The future independent `schemas/1.4/` registry begins only with MI4-02 private
+staging and is not frozen until MI4-13. Its base DocumentPackage shape will add
+the closed block-only `semantic_container` with
+`semantic_kind = result|proof|exercise` and will require
+`resources.images[*].media_type = png` plus
+`resources.font_faces[*].media_type = sfnt-truetype-glyf|ttc-truetype-glyf`.
+Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
+media values are decode failures rather than legacy absence or defaults.
+
+The target 1.4 production-manifest resource branch will use a closed
+`media_declaration` tagged union. `kind = declared` requires typed
+`media_type`; `kind = legacy_unspecified` forbids it. The separate
+`attested_media_kind` is decoder-issued, nonnull, and equal on every built M4
+record. Current image records already require that field with value `png`; the
+1.4 target preserves the name and adds M4 font attestation without modifying
+old resource shapes. Legacy/null is permitted only for a sealed old-contract
+M4 request rejected before resource admission. Frozen old-profile
+success/failure Schemas gain no declaration or changed attestation member and
+retain their golden bytes. MI4-13 must validate the complete 1.4 registry
+independently before switching any top-level alias.
 
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/`,
 `https://schemas.typaxis.invalid/1.1/`,

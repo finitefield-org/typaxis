@@ -23,7 +23,8 @@
 | contract 1.3 generated artifacts | Yes | Yes, current output with frozen 1.0/1.1/1.2 input | Yes | Yes |
 | M2 `basic-document-1` and M3 `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined fixtures | Yes, profile gates |
 | M3 `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 on current contract 1.3 | Yes: selected-state and artifact closure | Yes, combined fixtures | Yes, MI3-12 gate |
-| remaining M4-M5 profiles | No: decision-gate ADR pending | No | No | No |
+| M4 contract 1.4 / semantic-container / declared-media / `production-book-1` base target | Yes, ADR-0032 | No: private implementation starts MI4-02 | No; current public surface remains 1.3 | No, MI4-13 gate |
+| remaining M4 math/vector/metadata/tagging/media decisions and M5 gates | No until their assigned ADRs | No | No | No |
 
 現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2E、producer guide、再現性・external PDF gate、同一revision/source/artifactのmacOS/Linux actual evidence集約は完了した。GitHub Actionsは使用していない。
 
@@ -39,8 +40,11 @@
 8. MI3-08: contract 1.3とadvanced-pagination profile splitを採択するが、current 1.2/public descriptorsは変更しない。
 9. MI3-09〜MI3-11: header/footer、columns、floatをcrate-private stagingとして実装する。
 10. MI3-12: full 1.3 Schema/encoder/decoder/artifact migration、3 profile、`m3-all.json`を一つのpublication gateで公開する。
+11. MI4-01: non-current contract 1.4、closed semantic container、required declared media、`production-book-1`とatomic migrationを採択する。
+12. MI4-02〜MI4-12: M4 ADR群が採択したsliceをcrate-private 1.4 stagingとして実装し、current 1.3/public bytesを維持する。
+13. MI4-13: complete 1.4 registry、resource-attested export、artifact version dispatch、production fixture/profileを一つのpublication gateで公開する。
 
-未採択のmath/vector/book publicationは各decision-gate ADRがAcceptedになるまでcontract-definedへ昇格しない。ADR-0031で採択したadvanced paginationはMI3-09〜MI3-11のprivate implementationをMI3-12で一括公開した。既存`paragraph-1`、`basic-document-1`、`table-1`、`footnote-1`の意味とdefaultは変更していない。
+ADR-0032はM4のbase contract/container/media ownershipだけをcontract-definedへ昇格した。math/vector、metadata/outline、tagged PDF、JPEG/OTF-CFFの具体policyは各decision-gate ADRがAcceptedになるまで未採択である。ADR-0031で採択したadvanced paginationはMI3-09〜MI3-11のprivate implementationをMI3-12で一括公開した。既存7 profileの意味と`paragraph-1` defaultは変更していない。
 
 ## Existing reference capability history (not completion status)
 

@@ -1,6 +1,6 @@
 # typaxis
 
-Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はcurrent contract 1.3と、凍結した1.0/1.1/1.2 input互換契約を記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。公開machine inputの範囲は[producer guide](docs/26-machine-input-cli.md)、M2以降の計画と状態は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
+Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンです。このリポジトリの文書はcurrent contract 1.3、凍結した1.0/1.1/1.2 input互換契約、ならびに非公開の1.4 design targetを記述します。契約・Schema・内部receiptの実装状況と、参照CLIからPDFまで到達できる機能範囲は同一ではありません。公開machine inputの範囲は[producer guide](docs/26-machine-input-cli.md)、M2以降の計画と状態は[Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)を参照してください。
 
 ## 現行inputとmachine delivery status
 
@@ -15,6 +15,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.3 generated artifacts | Yes | Yes | Yes | Yes |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: selected-state, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
+| contract 1.4 / `production-book-1` target | Yes, ADR-0032 base decision | No; private staging begins MI4-02 | No; public CLI remains 1.3/seven-profile | No, MI4-13 gate |
 
 `Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。M1は、明示的に管理するLinux・macOS hostで同一revision/source/artifactのactual evidenceを生成・集約して`Release-supported`となった。GitHub Actionsは使用していない。
 
