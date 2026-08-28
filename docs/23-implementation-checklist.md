@@ -13,7 +13,7 @@
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed capability contracts | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.3 output | Yes | Yes, current output | Yes | Yes |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: public selected-state and artifact closure | Yes | Yes, MI3-12 gate |
-| contract 1.4 / `production-book-1` target | Yes through ADR-0035 for base/media, math/safe-vector, metadata/language/outline, and tagged PDF/PDF/UA-1 validation | Partial private MI4-02/04/05/07/09 slices, including tagged structure and independent PDF validation | No | No, MI4-13 gate |
+| contract 1.4 / `production-book-1` target | Yes through ADR-0036 for base/media, math/safe-vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and separate baseline-JPEG/CFF1 resources | Partial private MI4-02/04/05/07/09 slices, including tagged structure and independent PDF validation; JPEG/CFF implementation remains MI4-11/12 | No | No, MI4-13 gate |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
@@ -33,6 +33,8 @@
 - [x] MI4-07 implements the private 1.4 metadata/language/outline Wire-to-PDF/manifest/independent-validator closure while keeping current aliases, public descriptors, help, and default unchanged
 - [x] ADR-0035 fixes exhaustive source-bound PDF/UA-1 roles in a layout-contract-owned registry, logical reading order, selected-paint/artifact/MCID closure, alternatives/language/table/note/link/outline relations, `book-xmp/2`, existing-limit reuse, and exact veraPDF/Matterhorn evidence
 - [x] MI4-09 implements the private structure registry, selected-paint/artifact binding, dense MCID/ParentTree plan, tagged PDF/manifest closure, writer-independent validator, combined fixture, and old-public-surface isolation; MI4-13 publication and external release evidence remain unchecked gates
+- [x] ADR-0036 fixes independent immutable PNG/SafeVector/baseline-JPEG/TrueType/CFF1 component IDs, exact `jpeg-baseline` and `sfnt-cff1` declarations/attestations, bounded color/metadata/container/operator domains, deterministic JPEG APP0 removal and hint-stripped CID subset, embedding-permission rejection, FontFile3/DCTDecode plans, inclusive limits, exact-pinned dependency edges, same-resource closure, and MI4-11/12/13 gates
+- [ ] MI4-11 and MI4-12 implement the JPEG and CFF1 components privately; MI4-13 publishes only their complete combined resource set with the other M4 slices
 
 The ADR-0027/ownership/paragraph items are contract-boundary decisions; the
 command and evidence items are implementation/public/release claims backed by
@@ -134,7 +136,7 @@ public 1.3 registry, normal CLI dispatch, three combined fixtures, and
 - [x] font keys are `(font, admitted SHA-256, FontInstanceId)`, image keys are `(image, admitted SHA-256, ImageResourceId)`, and duplicate keys after dedupe fail
 - [x] per-plan PDF object traversal follows declared type order
 - [x] selected Display LayoutEpoch admitted fingerprint exactly matches the ledger used by finalization
-- [x] every font plan has the complete Type0/CIDFont/descriptor/program/ToUnicode/CIDToGIDMap object blueprint and validated descriptor metrics
+- [x] every current TrueType font plan has the complete Type0/CIDFontType2/descriptor/FontFile2/ToUnicode/CIDToGIDMap object blueprint and validated descriptor metrics; ADR-0036 separately fixes CFF1's six-role CIDFontType0/FontFile3/ToUnicode/CIDSet blueprint
 
 ## PDF
 
@@ -143,7 +145,7 @@ public 1.3 registry, normal CLI dispatch, three combined fixtures, and
 - [x] Length/Filter/DecodeParms are serializer-owned
 - [x] Catalog points to a parentless root Pages node; Page parent/count/cycle invariants are validated
 - [x] empty documents materialize one default-master blank page; Display/PDF page collections and built page_count are nonempty
-- [x] CIDToGIDMap/W/ToUnicode share one plan
+- [x] current TrueType CIDToGIDMap/W/ToUnicode share one plan; the non-current CFF1 plan proves CID equals subset GID and closes W/ToUnicode/CIDSet without CIDToGIDMap
 - [x] subsetter rewrites and re-extracts the embedded PostScript name, and Type0/CIDFont/FontDescriptor share that receipt-bound collision-free deterministic six-letter subset name
 - [x] ActualText is cluster-scoped and non-overlapping
 - [x] classic xref output bound is enforced

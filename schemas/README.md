@@ -18,6 +18,7 @@
 | contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Yes: MI4-04 SafeVector and MI4-05 math Schema/Rust/PDF slices in the private twenty-three-schema registry | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | No: MI4-11/12 must add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -61,6 +62,12 @@ PDF/UA-1 structure/marked-content/artifact projection, `book-xmp/2`, and exact
 validator evidence. It adds no DocumentPackage member or Schema bytes at ADR
 adoption; MI4-09 adds only the private versioned manifest/expectation
 shapes needed for the implementation, without changing current/frozen aliases.
+[ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) fixes
+exact future `jpeg-baseline` and `sfnt-cff1` declarations, five distinct
+resource component IDs, bounded decode/evaluation and embedding policy,
+deterministic JPEG/CFF transforms, PDF plans, limits, and dependency identities.
+ADR adoption changes no Schema: MI4-11 and MI4-12 own those private additions,
+and MI4-13 alone may switch aliases or advertise the complete resource set.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
 Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
@@ -99,6 +106,15 @@ the closed block-only `semantic_container` with
 `resources.font_faces[*].media_type = sfnt-truetype-glyf|ttc-truetype-glyf`.
 Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
+
+ADR-0036 contract-defines later additions `jpeg-baseline` and `sfnt-cff1`,
+but the private registry intentionally does not accept or advertise them at
+MI4-10 adoption. MI4-11 must add only the JPEG enum/attestation/decoded/
+sanitized/DCT-plan manifest facts. MI4-12 must separately add only the CFF
+enum/attestation/table/license/glyph/subset/FontFile3 facts and the six private
+font-limit members. Each addition must update every private 1.4 fixture and
+semantic check atomically while leaving top-level/current and frozen 1.0-1.3
+bytes unchanged.
 
 MI4-04 adds the private `machine-safe-vector-manifest` and a separate M4
 effective-limit extension for vector nodes, path segments, nesting depth, and

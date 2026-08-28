@@ -814,10 +814,11 @@ help, capabilities, default profile, old profile domains, or frozen artifacts.
 
 ADR-0035 consumes the reserved `/Formula` owner, exact producer alternative,
 and ADR-0034 computed-language receipt in its fixed structure policy; MI4-09
-must implement that policy rather than revisiting these bindings. MI4-10 may
-add other media types but cannot broaden `svg-safe-1`. MI4-13 may publish only
-the complete contract/profile and remove all private staging entrances in the
-atomic order fixed by ADR-0032.
+must implement that policy rather than revisiting these bindings. ADR-0036
+adds separate `jpeg-baseline` and `sfnt-cff1` resource components but cannot
+broaden `svg-safe-1`. MI4-13 may publish only the complete contract/profile
+and remove all private staging entrances in the atomic order fixed by
+ADR-0032.
 
 ## Rejected alternatives
 

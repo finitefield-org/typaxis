@@ -23,8 +23,8 @@
 | contract 1.3 generated artifacts | Yes | Yes, current output with frozen 1.0/1.1/1.2 input | Yes | Yes |
 | M2 `basic-document-1` and M3 `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined fixtures | Yes, profile gates |
 | M3 `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 on current contract 1.3 | Yes: selected-state and artifact closure | Yes, combined fixtures | Yes, MI3-12 gate |
-| M4 contract 1.4 / `production-book-1` assembled target | Yes through ADR-0035 for base/media, math/safe-vector, metadata/language/outline, and tagged PDF/PDF/UA-1 validation; JPEG/OTF-CFF decisions pending | Partial private MI4-02/04/05/07/09 slices, including tagged structure and writer-independent PDF validation | No; current public surface remains 1.3 | No, MI4-13 gate |
-| remaining M4 JPEG/OTF-CFF decisions and M5 gates | No until their assigned ADRs | No | No | No |
+| M4 contract 1.4 / `production-book-1` assembled target | Yes through ADR-0036 for base/media, math/safe-vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct `jpeg-baseline`/`sfnt-cff1` resource components | Partial private MI4-02/04/05/07/09 slices, including tagged structure and writer-independent PDF validation; resource implementations remain MI4-11/12 | No; current public surface remains 1.3 | No, MI4-13 gate |
+| remaining M4 JPEG/OTF-CFF implementation and M5 gates | JPEG/CFF contract fixed by ADR-0036; M5 decisions remain assigned later | No JPEG/CFF runtime yet | No | No |
 
 現行`build` INPUTはreference TSFで、DocumentPackage JSONは別の公開`build-package`/`check-package`へ入力する。`capabilities --format json`を含むpublic CLI E2E、producer guide、再現性・external PDF gate、同一revision/source/artifactのmacOS/Linux actual evidence集約は完了した。GitHub Actionsは使用していない。
 
@@ -44,7 +44,7 @@
 12. MI4-02〜MI4-12: M4 ADR群が採択したsliceをcrate-private 1.4 stagingとして実装し、current 1.3/public bytesを維持する。
 13. MI4-13: complete 1.4 registry、resource-attested export、artifact version dispatch、production fixture/profileを一つのpublication gateで公開する。
 
-ADR-0032はM4のbase contract/container/media ownership、ADR-0033はmath/safe-vector/alternative、ADR-0034はmetadata/language/outline、ADR-0035はsource-boundでlayout-contract-ownedのtagged PDF registry、artifact/MCID closure、PDF/UA-1 validation evidenceをcontract-definedへ昇格した。MI4-02/04/05/07/09はこれらのsliceをprivate 1.4 stagingへ実装済みである。JPEG/OTF-CFFの具体policyは後続decision gateに属する。ADR-0031で採択したadvanced paginationはMI3-09〜MI3-11のprivate implementationをMI3-12で一括公開した。既存7 profileの意味と`paragraph-1` defaultは変更していない。
+ADR-0032はM4のbase contract/container/media ownership、ADR-0033はmath/safe-vector/alternative、ADR-0034はmetadata/language/outline、ADR-0035はsource-boundでlayout-contract-ownedのtagged PDF registry、artifact/MCID closure、PDF/UA-1 validation evidence、ADR-0036は独立したbounded baseline-JPEGとstandalone CFF1 profile、deterministic transform/subset、embedding permission、limit/dependency policyをcontract-definedへ昇格した。MI4-02/04/05/07/09は先行sliceをprivate 1.4 stagingへ実装済みで、JPEG/CFF runtimeはMI4-11/12に属する。ADR-0031で採択したadvanced paginationはMI3-09〜MI3-11のprivate implementationをMI3-12で一括公開した。既存7 profileの意味と`paragraph-1` defaultは変更していない。
 
 ## Existing reference capability history (not completion status)
 

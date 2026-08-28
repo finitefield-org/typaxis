@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md), and [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
+This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md), [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md), and [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
 
 ## Status axes
 
@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, ADR-0034 metadata/language/outline, and ADR-0035 tagged PDF/PDF/UA-1 validation target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, metadata/language/outline, and tagged-PDF slices through MI4-09 | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes through ADR-0036: base/declared media, math/safe-vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, metadata/language/outline, and tagged-PDF slices through MI4-09; JPEG/CFF implementation remains MI4-11/12 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -491,10 +491,15 @@ authority.
 
 Source-mode 1.4 `dump-ast` must populate declarations only from the same stable
 decoder attestation and fail before stdout if one is unavailable. It cannot
-infer from `.png`, `.ttf`, `.ttc`, emit legacy absence, or fall back to 1.3.
+infer from `.png`, `.jpg`, `.jpeg`, `.ttf`, `.ttc`, `.otf`, emit legacy
+absence, or fall back to 1.3.
 [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) adopts
-the private `svg-safe-1` image value for MI4-04; MI4-10 may add the adopted JPEG
-and OTF/CFF values. Neither may change the three base values.
+the private `svg-safe-1` image value for MI4-04.
+[ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md)
+independently adopts image `jpeg-baseline` mapped to
+`AdmittedImageMediaKind::JpegBaseline` and font `sfnt-cff1` mapped to
+`AdmittedFontMediaKind::SfntCff1`. Neither changes the three base values or
+broadens SafeVector. Generic `jpeg`/`otf` aliases do not exist.
 
 Only the 1.4 production-manifest branch adds tagged `media_declaration` and the
 M4 font attestation. Built production resources require `declared`, nonnull
@@ -599,6 +604,81 @@ XML, SVG, CSS, browser, speech, or network dependency/tool is part of the `/1`
 identities. MI4-04 implements the SafeVector branch privately and MI4-05
 implements the math branch. Public capabilities, current Schema aliases, old
 profiles, and default remain unchanged until MI4-13.
+
+### Adopted M4 JPEG and OpenType/CFF resource components
+
+[ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) fixes
+five distinct immutable component descriptors under
+`typaxis.production-book-resource-set/1`: PNG, SafeVector, baseline JPEG,
+TrueType `glyf`, and standalone sfnt/CFF1. The target media arrays are exactly
+images `png|svg-safe-1|jpeg-baseline` and fonts
+`sfnt-truetype-glyf|ttc-truetype-glyf|sfnt-cff1`. The combined resource set
+and component arrays become public only with the complete profile at MI4-13;
+they do not create independently selectable profiles or broaden an old one.
+
+`jpeg-baseline` is a strict JFIF subset: SOI, one immediate valid JFIF APP0,
+one 8-bit Huffman SOF0 frame, and one all-component baseline scan. It accepts
+Gray or component-1/2/3 YCbCr with 4:4:4, 4:2:2, 4:4:0, or 4:2:0 sampling.
+It rejects progressive/extended/lossless/arithmetic/hierarchical coding,
+CMYK/YCCK/RGB ambiguity, EXIF orientation, ICC, Adobe APP14, XMP, other
+APP/COM data, thumbnails, unknown markers, multiple scans, truncation, and
+trailing streams. URI suffix and MIME never select it.
+
+An iterative in-tree marker preflight proves dimensions, tables, entropy and
+restart structure, decoded-size bounds, and exact metadata policy before the
+exact-pinned platform-independent `jpeg-decoder = 0.3.2` may allocate. The
+decoder supplies a Gray8/RGB8 pixel hash observation, not media authority.
+The one deterministic transform removes the mandatory JFIF APP0 byte range
+and otherwise preserves every DCT/table/entropy byte through EOI. PDF embeds
+that sanitized stream with DCTDecode, DeviceGray/ColorTransform 0 or
+DeviceRGB/ColorTransform 1, exact 8-bit dimensions, and no ICC, mask,
+orientation, recompression, PNG fallback, or alternate decode.
+
+`sfnt-cff1` is exactly standalone `OTTO`, `face_index = 0`, `unitsPerEm =
+1000`, an exact default CFF FontMatrix, a checked name-keyed CFF1 program, and
+the required `CFF `, `OS/2`, `cmap`, `head`,
+`hhea`, `hmtx`, `maxp`, `name`, and `post` tables. Only the closed
+BASE/GDEF/GPOS/GSUB/JSTF/MATH/kern optional set is admitted. Bare/CID-keyed
+source CFF, TTC/OTC, CFF2, WOFF, unknown tables, variations, color/bitmap,
+vertical metrics, and TrueType outlines are rejected. Directory/table
+bounds, alignment, checksums, glyph counts, Unicode cmap, metrics, names, and
+CFF indexes/dicts/subroutines cross-check before shaping or outline work.
+
+The only accepted `OS/2.fsType` values are 0, 0x0004, and 0x0008. Restricted,
+no-subsetting, bitmap-only, reserved, or contradictory bits fail before
+shaping/subset/PDF; there is no full-font or legal-confirmation fallback. A
+bounded iterative Type 2 evaluator rejects random/deprecated/unknown operators
+and seac, validates source hints, expands selected outlines, and deterministically
+strips hints/subroutines. Each FontInstanceId glyph closure is `.notdef` plus
+the ascending union of receipt-selected shaping/generated/math glyph IDs;
+outline evaluation is shared once per distinct face/source-GID pair. Output
+CIDs/GIDs are dense and each canonical `OTTO` instance subset has exactly nine
+fixed-order tables and the existing deterministic subset name.
+
+The CFF PDF plan is Type0 `/Identity-H`, descendant `/CIDFontType0`, and
+FontDescriptor `/FontFile3` `/Subtype /OpenType`; its canonical CID-keyed CFF
+charset makes CID equal subset GID, so no CIDToGIDMap is emitted. Widths,
+CIDSet, ToUnicode, names, subset hash, and object observations consume the
+same glyph closure. A FontFile2/CIDFontType2 plan is a mismatch.
+
+JPEG reuses inclusive image bytes/pixels/decoded/spool/PDF/output limits.
+The private M4 extension gains `max_font_tables`, `max_font_glyphs`,
+`max_cff_subroutines`, `max_cff_charstring_operations`,
+`max_cff_outline_segments`, and `max_font_subset_bytes`, with private codes
+`R7130` through `R7135`. Defaults/hard maxima and exact one-time charges are
+normative in ADR-0036; current config and diagnostic aliases do not gain them.
+Malformed, unsupported, mismatch, or embedding-policy failure is `R7100` at
+the typed resource; limit failures use their owning code; cross-ID/hash/face/
+glyph/subset/plan/object contradiction is `I9190`.
+
+Every JPEG manifest record separately binds declaration/attestation, source
+and sanitized hashes, decoded facts, selected uses, DCT plan, and image object
+to one ImageResourceId. Every CFF record binds declaration/attestation,
+source/face/table/license facts, selected glyph set, subset hash/name, PDF font
+plan, and objects to one FontFaceId/FontInstanceId chain. Unused resources have
+admission evidence but no plan/object. MI4-11 implements only JPEG and MI4-12
+implements only CFF in private staging; exact dependency feature/checksum/MSRV
+audits and old-public-surface isolation are required for both.
 
 ### Adopted M4 document metadata, language, and outline extension
 
@@ -803,9 +883,9 @@ table, footnote, and advanced-pagination slices are governed by ADR-0029,
 ADR-0030, and ADR-0031 respectively. ADR-0032 fixes the M4 base target and
 ADR-0033 fixes its math/safe-vector/alternative domain; ADR-0034 fixes its
 metadata/language/outline domain; ADR-0035 fixes its tagged-structure and
-PDF/UA-1 validation domain. The remaining JPEG and OTF/CFF decisions require
-their assigned ADRs before the production profile can be published. Any other
-later capability requires a decision-gate ADR
+PDF/UA-1 validation domain; ADR-0036 fixes its independent baseline-JPEG and
+standalone-CFF1 resource components. Any other later capability requires a
+decision-gate ADR
 fixing a new profile ID, closed domain, limits, fallback/oversize behavior,
 publication semantics, fixtures, and migration rule before implementation
 begins.
@@ -834,7 +914,8 @@ rules.
 
 ADR-0032's contract 1.4 and `production-book-1`, including ADR-0033's
 math/safe-vector, ADR-0034's metadata/language/outline, and ADR-0035's tagged
-PDF/accessibility-validation extensions, are target facts only. They are
+PDF/accessibility-validation extensions plus ADR-0036's JPEG/CFF resource set,
+are target facts only. They are
 absent from the public capability artifact,
 accepted-contract array, profile parser/help, and current Schema aliases until
 MI4-13 atomically publishes the complete M4 registry and combined evidence.

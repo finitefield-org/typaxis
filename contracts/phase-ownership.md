@@ -205,7 +205,8 @@ PackageValidated (including MathSourceValidated,
   OutlineRegistryValidated)
   -> M4CapabilityValidated
   -> DeclaredMediaPolicyValidated
-  -> MediaAttested (including SafeVectorAttested)
+  -> MediaAttested (including SafeVectorAttested,
+       JpegDecodedAndSanitized, SfntCff1AttestedAndPermitted)
   -> SemanticContainerFlowRegistryValidated
   -> MathFontAndLayoutBound
   -> MathFlowRegistryValidated
@@ -213,6 +214,8 @@ PackageValidated (including MathSourceValidated,
   -> BookNavigationSelected
   -> TaggedStructureBound (including FormulaStructureBound)
   -> DisplayClosed
+  -> FontGlyphClosureBound
+  -> ResourcePlansFrozen
   -> PdfGraphFrozen
   -> PdfBytesVerified
   -> BookNavigationPdfObserved
@@ -230,6 +233,47 @@ Safe SVG and math paint are separate typed paths: a math node never acquires
 an ImageResourceId, while a SafeVector image never acquires a math source or
 alternative. Neither path may reconstruct authority from trace, manifest,
 coordinates, PDF objects, a URI suffix, or caller-authored hashes.
+
+## Adopted M4 JPEG and OpenType/CFF resource ownership
+
+These target rows are adopted by
+[ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md).
+MI4-11 and MI4-12 implement the two components separately in independent
+non-current 1.4 staging; MI4-13 alone may advertise their combined resource
+set or move it into public ownership.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| exact `jpeg-baseline` and `sfnt-cff1` Wire values and versioned required-member encoding | contract-1.4 `typaxis-document-package` decoder/encoder | reject alias/missing/null/unknown values as `P1102`; preserve the existing PNG/SafeVector/TrueType values and frozen encoders |
+| trusted `ImageMediaType::JpegBaseline` / `FontMediaType::SfntCff1` declaration plus raw-contract provenance | sealed `typaxis-syntax` lowering into `typaxis-document` | issue declared values only for 1.4 and prevent suffix/MIME/caller text from acquiring typed authority |
+| five exact resource-component IDs, ordered `typaxis.production-book-resource-set/1`, admitted media arrays, and old-profile rejection | `typaxis-machine-profile` descriptor/preflight owner | issue a package/session/declaration/effective-limits policy receipt before resource open; no generic image/font flag or partial component set |
+| stable JPEG marker/frame/scan/table/entropy facts and `AdmittedImageMediaKind::JpegBaseline` | iterative in-tree `typaxis-resource-admission` marker preflight | exact-match the declaration and acquire bytes/pixels/decoded/scratch permits before constructing the external decoder |
+| exact Gray8/RGB8 decoded byte count/hash under `jpeg-decoder = 0.3.2` platform-independent code | `typaxis-resource-admission` decoder wrapper consuming the marker receipt | issue validity evidence only; it cannot choose media, metadata, geometry, sanitizer bytes, or PDF policy |
+| exact JFIF APP0 removal, otherwise byte-preserved normalized stream length/hash | in-tree `typaxis.jpeg-segment-sanitizer/1` under `typaxis-resource-admission` | issue one deterministic sanitized-stream receipt after full decode and before any DCTDecode plan; never re-encode pixels |
+| standalone `OTTO` directory/table/CFF1 cross-check and `AdmittedFontMediaKind::SfntCff1` | `typaxis-font` bounded sfnt/CFF admission owner, invoked only by `typaxis-resource-admission` over stable bytes | attest only face-index-zero name-keyed CFF1 with the closed table/operator domain; `read-fonts` supplies typed views but no policy receipt |
+| exact `OS/2.fsType` CFF1 embedding decision | `typaxis.cff1-embedding-permission/1` under the same font admission owner | accept only 0/0x0004/0x0008 and seal the raw value; reject restricted/no-subset/bitmap/reserved state before shaping, subset, or PDF without revising the existing TrueType component |
+| private font-table/glyph/subroutine/operation/outline/subset limits and base-plus-extension fingerprint | contract-1.4 config decoder plus sealed core M4-limit validator/budget owners | apply inclusive max/max+1 rules exactly once in dense FontFaceId/source-GID order; keep current config and old descriptors unchanged |
+| per-FontInstanceId selected source-GID union, `.notdef`, ascending dense CID/GID map, and same-face/epoch closure | `typaxis.cff1-glyph-closure/1` in `typaxis-font`, consuming sealed shaping/generated/math/Display usage | issue one immutable CFF1 instance glyph-closure receipt; no PDF/manifest/cmap scan may invent or remove a selected glyph |
+| one bounded Type 2 outline observation per distinct selected face/source-GID and one canonical hint/subroutine-stripped CID-keyed CFF1 subset bytes/hash/name per instance | `typaxis.cff1-charstring-evaluator/1` and `typaxis.cff1-subset/1` in `typaxis-font` | consume permission, instance glyph closure, limits, and stable face; share only sealed same-face outlines and write fixed table/CID order with no platform writer, full-font, or raster fallback |
+| JPEG DCTDecode and CFF FontFile3/OpenType/CIDFontType0 frozen resource plans | `typaxis-resources` late finalizer consuming selected Display usage and the sealed admission/subset receipts | issue backend-name/object-free plans; unused admitted resources get no plan, and TrueType/JPEG/PNG/CFF plan substitution is impossible |
+| image XObject and Type0/CIDFont/descriptor/program/ToUnicode/CIDSet objects | PDF graph/serializer owners alone | assign canonical resource names/object IDs, serialize only the frozen plan, and issue exact dictionary/stream observations over final PDF bytes |
+| declaration/attestation/source/decoded-or-glyph/transform-or-subset/permission/plan/object facts | versioned M4 manifest owned-facts owner | require bidirectional same-ImageResourceId or same-FontFaceId/FontInstanceId closure; JSON cannot create any upstream fact |
+| exact versions/checksums/licenses/features/MSRV/direct and forbidden dependency edges | `typaxis-testkit` locked dependency/supply-chain audit | fail unexpected feature/package/native edge or advisory evidence; an upgrade or replacement requires an identity/ADR review |
+
+JPEG and CFF share neither a parser nor a generic embedding plan. The JPEG
+path closes one ImageResourceId from source hash through decoded observation,
+sanitized hash, selected DrawImage, and DCTDecode object. The CFF path closes
+one FontFaceId/FontInstanceId from source/face/license through selected glyphs,
+subset hash, FontFile3 plan, and all composite-font objects. Equal source bytes
+or hashes do not permit receipt reuse across logical IDs.
+
+The source exporter consumes the same successful admission/permission receipt
+as package validation; failure writes no partial JSON. A malformed,
+unsupported, declaration-mismatched, restricted, max+1, or closure-invalid
+resource is terminal with no alternate decoder, PNG/TrueType/full-font/raster
+fallback, partial plan, or manifest repair. These owners occupy the
+`MediaAttested`, `FontGlyphClosureBound`, and `ResourcePlansFrozen` stages in
+the combined M4 progress chain above.
 
 ## Adopted M4 metadata, language, and outline ownership
 
@@ -314,7 +358,7 @@ neither receipt is public or release-supported.
 | page paint, destinations, annotations, and selected-layout identity | display-list builder | derive destinations exactly from selected placed anchors and issue selected-bound validated Display; bare wire validation is not a trusted phase token |
 | parsed/generated span remap to dense DisplayTextBufferId | display-list builder | consume a package/selected-bound DisplayTextMap and expose only DisplayDocument's canonical text-buffer table plus DisplayTextSpan |
 | logical resource usage union and duplicate-use elimination | resource collector | pass one usage record per logical ID to finalization |
-| PDF-profile subset, CID/CIDToGIDMap, extraction, image encoding, descriptor metrics, and indirect-object blueprint | late resource finalizer / verified encoder receipt | bind the selected epoch ledger and issue backend-identity-free `FrozenPdfResourcePlans`; caller-supplied encoded bytes are untrusted |
+| PDF-profile subset, CID and type-specific CID/GID mapping, extraction, image encoding, descriptor metrics, and indirect-object blueprint | late resource finalizer / verified encoder receipt | bind the selected epoch ledger and issue backend-identity-free `FrozenPdfResourcePlans`; require CIDToGIDMap only for a profile such as current CIDFontType2, and prove direct CFF charset mapping where its plan omits that object; caller-supplied encoded bytes are untrusted |
 | embedded subset PostScript name/tag | deterministic subsetter + late resource finalizer | rewrite the font `name` table, re-extract and bind the exact name in a sealed receipt, then verify the FontInstanceId-derived value |
 | PDF resource names, destination/annotation materialization, and object IDs | PDF backend canonical allocator | preflight all typed object roles, consume selected-bound Display/frozen plans, reuse the verified subset PostScript name, then allocate dense IDs/resource names internally |
 | stream Filter/DecodeParms/Length dictionary materialization | PDF serializer | derive from frozen encoding policy and encoded bytes |

@@ -321,9 +321,11 @@ extension or arbitrary MIME string.
 
 [ADR-0033](ADR-0033-math-safe-vector-and-alternative-binding.md) adopts the
 private `svg-safe-1` image value and assigns its implementation to MI4-04.
-MI4-10 alone may add the adopted JPEG and OTF/CFF values. Neither decision may
-rename or broaden the three base values. Any later media value after 1.4
-publication requires a contract/profile migration.
+[ADR-0036](ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) independently
+adopts image `jpeg-baseline` and font `sfnt-cff1`, assigning their private
+implementations to MI4-11 and MI4-12. Neither decision renames or broadens the
+three base values. Any later media value after 1.4 publication requires a
+contract/profile migration.
 
 Contract 1.3 and every earlier frozen ResourceCatalog shape remain unchanged
 and forbid `media_type`. Contract 1.4 requires it even when the resource is

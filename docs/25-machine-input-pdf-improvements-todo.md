@@ -2337,7 +2337,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-10 JPEG、OTF/CFF media/font profile ADRを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-01, MI4-03
 - Design inputs: docs/25 §7 asset/font、§13.4
 - Primary files:
@@ -2365,6 +2365,13 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - declared media type、decoder-attested format、PDF embedding planの取り違えを各resource ID単位で検出できる。
 - Verification:
   - `rg -n "media_type|JPEG|color space|OTF|CFF|glyph|subset|embedding|license|profile|limit" adr contracts/phase-ownership.md contracts/machine-pdf-capabilities.md docs/22-contract-matrix.md schemas/README.md`
+- Implementation notes (2026-08-29, Linux):
+  - `ADR-0036`をAccepted targetとして追加し、既存`png` / `svg-safe-1` / `sfnt-truetype-glyf` / `ttc-truetype-glyf`を変更せず、exact `jpeg-baseline` / `ImageMediaType::JpegBaseline` / `AdmittedImageMediaKind::JpegBaseline`と`sfnt-cff1` / `FontMediaType::SfntCff1` / `AdmittedFontMediaKind::SfntCff1`を採択した。suffix/MIME alias、bare CFF、collection、CFF2は受理せず、同じstable-byte attestationだけがpackage validationとsource `dump-ast`宣言を発行し、attestation不能時はstdout前にfail closedとした。
+  - JPEGはsingle immediate JFIF APP0、8-bit Huffman SOF0、one frame/one all-component scan、Grayまたはclosed YCbCr samplingだけを受理する。progressive/extended/lossless/arithmetic、CMYK/YCCK/RGB ambiguity、EXIF orientation、ICC、Adobe/XMP/APP/COM metadataを拒否し、full bounded Gray8/RGB8 decode後にJFIF APP0だけを除去してDCT/table/entropy bytesを保持するdeterministic sanitizerと、DeviceGray/DeviceRGB + explicit ColorTransformのDCTDecode planを固定した。
+  - CFFはface zeroのstandalone `OTTO`、exact required/optional table set、single name-keyed CFF1だけを受理する。OS/2 fsTypeは0/0x0004/0x0008だけをsubset-embedding可とし、それ以外をshaping/subset/PDF前に拒否する。FontInstanceIdごとのselected glyph union + `.notdef`をsource GID順dense CID/GIDへ写像し、face/source GIDごとのbounded iterative Type 2 evaluationからhint/subroutineを除いたcanonical CID-keyed `OTTO` subset、FontFile3 `/OpenType`、CIDFontType0、Identity-H、ToUnicode/CIDSet closureを固定した。
+  - PNG/SafeVector/JPEG/TrueType/CFF1を独立immutable componentとして`typaxis.production-book-resource-set/1`へexact orderで合成し、bytes/pixels/decode/spool既存上限と、private `max_font_tables` / `max_font_glyphs` / `max_cff_subroutines` / `max_cff_charstring_operations` / `max_cff_outline_segments` / `max_font_subset_bytes`、inclusive `R7130`〜`R7135`を採択した。declaration、attestation、source/normalized/subset hash、face/license/glyph、selected use、manifest、PDF plan/objectを同じtyped resourceとfont-instance chainへ双方向closureし、fallback/repairを禁止した。
+  - JPEG decoderはexact `jpeg-decoder = 0.3.2`、checksum `00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07`、default off + `platform_independent`、resource-admission direct edgeに限定した。font typed viewは既存exact `read-fonts = 0.31.3`、checksum `5b8250b8f09ed4b9ba9271e06f10e7b1f03e8f8e3619e2368a991ecb25efa204`をnew direct edgeではdefault off + `std`だけで要求し、workspace-resolved featureは既存direct userとHarfrust edge由来のexact `default,libm,std`として監査する。CFF policy/evaluator/subsetterはfloating/libm APIを使わないin-tree ownerとし、両dependencyのlicense、Rust 1.75 compatibility、feature/edge/checksum/advisory evidenceをtestkit gateへ固定した。
+  - 指定`rg`、17 changed Markdown / 67 table / 133 local-link check、Schema validator（7/11/19 frozen、14 current、20 versioned 1.3、25 private 1.4）、dependency firewall 4 test、Python 39 test、locked workspace全target/all-feature test、strict clippy、format、diff/18-path whitespace、crate archive checksum/isolation checkをlocal exit 0で確認した。Rust/Cargo/Schema JSON、current/frozen/public artifact、七profile/default、`.github/workflows/`は変更していない。
 - Non-goals:
   - variation/color fontをADRが採択しない場合のsupport
 

@@ -108,6 +108,17 @@ sufficient. MI4-09 implements the private manifest/expectation schemas and
 tagged slice; current aliases, frozen registries, and public descriptors stay
 unchanged.
 
+[ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) adds the
+exact image value `jpeg-baseline` and font value `sfnt-cff1` without changing
+the existing PNG/SafeVector/TrueType values. The target resource descriptor
+keeps five distinct immutable component IDs under
+`typaxis.production-book-resource-set/1`. JPEG is the closed baseline-JFIF
+Gray/YCbCr subset with deterministic APP0 removal and DCTDecode embedding;
+`sfnt-cff1` is standalone `OTTO` plus name-keyed CFF1 with embedding-permission
+preflight and a deterministic hint-stripped CID-keyed FontFile3/OpenType
+subset. MI4-11 and MI4-12 implement these components separately in private
+staging; no current/frozen Schema or public descriptor changes at adoption.
+
 These are target facts, not current support. MI4-02 through MI4-12 may extend
 only an independent crate-private 1.4 staging registry. Until MI4-13, public
 contract 1.4 input remains `P1103`, the target profile is unknown to public

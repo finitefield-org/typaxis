@@ -758,10 +758,10 @@ goldens remain unchanged.
 MI4-09 privately implements the structure registry, selected bindings,
 marked-content plan, PDF graph, manifest, in-tree validator, and exact external
 gate. It must consume ADR-0032's container roles, ADR-0033's math alternative,
-and ADR-0034's language/outline receipts without revising them. MI4-10 through
-MI4-12 may add media implementations but cannot change this role/validator
-policy. MI4-13 may publish only the complete profile and validation evidence in
-ADR-0032's atomic order.
+and ADR-0034's language/outline receipts without revising them. ADR-0036 and
+MI4-11/12 may add the closed JPEG/CFF resource components but cannot change
+this role/validator policy. MI4-13 may publish only the complete profile and
+validation evidence in ADR-0032's atomic order.
 
 ## Rejected alternatives
 
