@@ -26,8 +26,8 @@ except ImportError as error:  # pragma: no cover - dependency guidance
 SCHEMA_DIR = Path(__file__).resolve().parent
 FROZEN_SCHEMA_DIR = SCHEMA_DIR / "1.0"
 PREVIOUS_SCHEMA_DIR = SCHEMA_DIR / "1.1"
-STAGING_SCHEMA_DIR = SCHEMA_DIR / "1.2"
-ADVANCED_STAGING_SCHEMA_DIR = SCHEMA_DIR / "1.3"
+FROZEN_1_2_SCHEMA_DIR = SCHEMA_DIR / "1.2"
+VERSIONED_CURRENT_SCHEMA_DIR = SCHEMA_DIR / "1.3"
 REPOSITORY_ROOT = SCHEMA_DIR.parent
 MINIMAL_DIR = REPOSITORY_ROOT / "samples" / "minimal"
 CONFORMANCE_DIR = REPOSITORY_ROOT / "samples" / "conformance"
@@ -106,6 +106,27 @@ PREVIOUS_SCHEMA_SHA256 = {
     "machine-fixture-matrix.schema.json": "1e306b97e3f8dd506633973787cbeb76f424893f86702d8d8c3b42960e7e6cff",
     "machine-profile-evidence.schema.json": "eb3609a6b197c3d9b0cc4550d245085e5a630f8043f111de6609405467462c83",
     "package-config.schema.json": "f5c5c85a7e50f01d316a5bf4b298680f75ba57bbb92c0ec059479ec618475e16",
+}
+FROZEN_1_2_SCHEMA_SHA256 = {
+    "build-manifest.schema.json": "1e7119f9e49c600e0236b171a3cc992d41b2a7ab323a49936969f03eb48a8612",
+    "common.schema.json": "b328201dee245f9a094e63639c5af9359ec874119a3906f4b8df6185946f86a1",
+    "diagnostics.schema.json": "fb8cf302ae581a7e361f1d00776a3002be92bb6eeffaa73eeb127dceef1c78cb",
+    "display-list.schema.json": "c1c7527e6e5de6437109e0461092d5ddca5888e24667c227ecf1027ad2ea97b0",
+    "document-package.schema.json": "de407de17438ca09b1a9d7af24dfc2ed46ef0ec36d4a748a6179fe8b996f288a",
+    "layout-trace.schema.json": "2952df047bb58c921ba3e577977968f5a3f029387ef87f50f40d469e9f91a874",
+    "machine-block-style-manifest.schema.json": "83c08c829b943a3f8d3890a8317d9259789851f68ed592732558ec6ca9118b71",
+    "machine-capabilities.schema.json": "c3dbaaf9bf3a9940ce4957288e1d67047b8742a8b58581e8a9fba654291263c6",
+    "machine-figure-manifest.schema.json": "67cb5f330dcd30319c6f8aa95c61c632e063b755337b71a019a758b90c7ec16c",
+    "machine-fixture-expectation.schema.json": "924ffa9e45a64b20032ef94c0118067ab067ffd3d59b06c2c8f87b8840c452ff",
+    "machine-fixture-matrix.schema.json": "747d12b0cfa527ba89c873ad76d9f905cb887685c971af0e5781d4dd5321f88e",
+    "machine-footnote-manifest.schema.json": "1dc01f7f8163e7c6506230059f0a142f84685f257fe38c6cd6a95c4d58e8f3fd",
+    "machine-forced-page-break-manifest.schema.json": "4f55ac91f2a32803ae3555c41cc8a61b1b97407f5519bd094b177ba4b00f8a25",
+    "machine-forced-page-break-trace.schema.json": "a1bf9f8bda0b8e7bbdd1360a4b56d72f99ea6b003372fb5dd5631e2ef8ccdf54",
+    "machine-link-manifest.schema.json": "0489fdd2dd903234a8408197f35b410d18ba861582a6f761643851052c365dca",
+    "machine-list-manifest.schema.json": "0fc53d7e703b75be348e18043d7f978e05fbd3fa586eb6618edf2ad25c2fef4e",
+    "machine-profile-evidence.schema.json": "36937f83bdac31de3e66604f50e1f1eca3abe39e7d8f8c7ca3121bcb40f5b829",
+    "machine-table-manifest.schema.json": "0b4ca658ae7cd0d5c044ff13d0fe0e6b5c2f70089353b5b385754204efb8ba0e",
+    "package-config.schema.json": "7ea50014c09cfdd73873089514d59990497ba106aab969b00781c790bbcc1f9c",
 }
 
 POSITIVE_FIXTURES = {
@@ -4518,22 +4539,67 @@ def machine_advertised_items(
     items.update(f"style_block_type:{item}" for item in profile["style_block_types"])
     items.update(f"style_property:{item}" for item in profile["style_properties"])
     items.update(f"style_selector:{item}" for item in profile["style_selectors"])
+    items.update(
+        f"page_frame:{item}" for item in profile["page_master"]["optional_frames"]
+    )
+    advanced = profile.get("advanced_pagination")
+    if isinstance(advanced, dict):
+        balance = advanced["balance"]
+        items.add(f"advanced_balance:{balance}")
+        column_count = advanced["column_count"]
+        if column_count is None:
+            items.add("advanced_column_count:none")
+        else:
+            items.add(
+                "advanced_column_count:"
+                f"{column_count['minimum']}-{column_count['maximum']}"
+            )
+        items.add(
+            f"advanced_custom_trim:{str(advanced['custom_trim']).lower()}"
+        )
+        items.add(
+            f"advanced_header_footer:{str(advanced['header_footer']).lower()}"
+        )
+        items.update(
+            f"advanced_float_class:{item}" for item in advanced["float_classes"]
+        )
+        items.update(
+            f"advanced_master_selection:{item}"
+            for item in advanced["master_selection"]
+        )
+        items.update(
+            f"advanced_page_box:{item}" for item in advanced["page_boxes"]
+        )
+        items.add(f"advanced_page_progression:{advanced['page_progression']}")
+        items.add(f"advanced_writing_mode:{advanced['writing_mode']}")
     return sorted(items, key=utf8_sort_key)
 
 
-def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[str]:
+def combined_fixture_items(
+    package: dict[str, Any], fixture_root: Path, profile_id: str
+) -> list[str]:
     items = {"source_closure:entry_only", "page_master:default"}
     saw_anchor = False
     saw_figure = False
     saw_link = False
     saw_text = False
     stack = list(reversed(package["document"]["blocks"]))
+    for definition in reversed(package["document"].get("footnotes", [])):
+        stack.extend(reversed(definition.get("blocks", [])))
     while stack:
         node = stack.pop()
         kind = node.get("kind")
         if kind in {"figure", "heading", "list", "page_break", "paragraph", "table"}:
             items.add(f"block:{kind}")
-        if kind in {"anchor", "hard_break", "link", "reference", "soft_break", "text"}:
+        if kind in {
+            "anchor",
+            "footnote_reference",
+            "hard_break",
+            "link",
+            "reference",
+            "soft_break",
+            "text",
+        }:
             items.add(f"inline:{kind}")
         if kind == "anchor":
             saw_anchor = True
@@ -4591,6 +4657,68 @@ def combined_fixture_items(package: dict[str, Any], fixture_root: Path) -> list[
         items.add("image_format:png")
         if saw_figure:
             items.add("pdf_feature:png-xobjects")
+    page_masters = package["page_masters"]
+    if any(master.get("footnote") is not None for master in page_masters["masters"]):
+        items.add("page_frame:footnote")
+    advanced_profiles = {
+        "typaxis.machine-pdf/columns-1",
+        "typaxis.machine-pdf/float-1",
+        "typaxis.machine-pdf/header-footer-1",
+    }
+    if profile_id in advanced_profiles:
+        masters = page_masters["masters"]
+        items.add(f"advanced_page_progression:{page_masters['page_progression']}")
+        items.add(f"advanced_writing_mode:{page_masters['writing_mode']}")
+        items.update(
+            f"advanced_page_box:{box}" for box in ("crop", "media", "trim")
+        )
+        custom_trim = any(
+            master["trim"]
+            != {
+                "x": 0,
+                "y": 0,
+                "width": master["width"],
+                "height": master["height"],
+            }
+            for master in masters
+        )
+        items.add(f"advanced_custom_trim:{str(custom_trim).lower()}")
+        header_footer = any(
+            master["header_content"] is not None
+            or master["footer_content"] is not None
+            for master in masters
+        )
+        items.add(f"advanced_header_footer:{str(header_footer).lower()}")
+        layouts = [
+            master["column_layout"]
+            for master in masters
+            if master["column_layout"] is not None
+        ]
+        if layouts:
+            items.add("advanced_column_count:1-65535")
+            balances = {layout["balance"] for layout in layouts}
+            items.update(f"advanced_balance:{balance}" for balance in balances)
+        else:
+            items.add("advanced_column_count:none")
+            items.add("advanced_balance:forbidden")
+        items.add("advanced_master_selection:single")
+        if (
+            len(masters) >= 3
+            and any(rule.get("first") is True for rule in page_masters["selection_rules"])
+            and any(
+                rule.get("parity") == "even"
+                for rule in page_masters["selection_rules"]
+            )
+        ):
+            items.add("advanced_master_selection:first_left_right")
+        if any(
+            block.get("kind") == "figure" and block.get("placement") == "float"
+            for block in package["document"]["blocks"]
+        ):
+            items.update(
+                f"advanced_float_class:{value}"
+                for value in ("here", "top", "bottom", "next_page")
+            )
     return sorted(items, key=utf8_sort_key)
 
 
@@ -4678,6 +4806,26 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             "table-1.combined",
             "Basic document internal external First item Second entry PNG caption Header A Header B alpha beta Header A delta Header B gamma",
         ),
+        (
+            "typaxis.machine-pdf/footnote-1",
+            "footnote-1.combined",
+            "Basic document internal external First item Second entry Z first Z second A note A tail PNG caption Z third Z fourth Z fifth",
+        ),
+        (
+            "typaxis.machine-pdf/columns-1",
+            "columns-1.combined",
+            "Basic document internal external First item Second entry PNG caption",
+        ),
+        (
+            "typaxis.machine-pdf/float-1",
+            "float-1.combined",
+            "Basic document internal external First item Second entry PNG caption",
+        ),
+        (
+            "typaxis.machine-pdf/header-footer-1",
+            "header-footer-1.combined",
+            "First header Basic document internal external First item Second entry First footer Left header PNG caption Left footer Right header Right footer",
+        ),
     )
     for profile_id, fixture_id, expected_text in combined_profiles:
         advertised = machine_advertised_items(capabilities, profile_id)
@@ -4688,7 +4836,7 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             )
         combined_package = load_json(combined_path.parent / combined["package"])
         observed_items = combined_fixture_items(
-            combined_package, combined_path.parent / "job"
+            combined_package, combined_path.parent / "job", profile_id
         )
         if observed_items != advertised:
             raise ValidationFailure(
@@ -4833,6 +4981,7 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
     observed_decoder_rows: dict[str, tuple[str, tuple[str, ...]]] = {}
     for path in matrix_paths:
         matrix = load_json(path)
+        is_m3_aggregate = path.name == "m3-all.json"
         errors = schema_errors(matrix_validator, matrix)
         if errors:
             raise ValidationFailure(f"{path}: matrix rejected: " + " | ".join(errors))
@@ -4847,6 +4996,21 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
         if fixture_ids != sorted(fixture_ids, key=utf8_sort_key):
             raise ValidationFailure(f"{path}: fixture entries are not in canonical ID order")
         entry_ids = set(fixture_ids)
+        if is_m3_aggregate:
+            required_m3_combined = {
+                "columns-1.combined",
+                "float-1.combined",
+                "footnote-1.combined",
+                "header-footer-1.combined",
+                "table-1.combined",
+            }
+            if (
+                matrix["profile"] != "typaxis.machine-pdf/m3-all"
+                or entry_ids != required_m3_combined
+            ):
+                raise ValidationFailure(
+                    f"{path}: aggregate M3 matrix differs from the complete public set"
+                )
         row_ids = [row["id"] for row in matrix["rows"]]
         tests = [row["test"] for row in matrix["rows"]]
         if len(row_ids) != len(set(row_ids)) or len(tests) != len(set(tests)):
@@ -4873,11 +5037,12 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             expected = expectations.get(fixture_id)
             if expected is None or expected[0] != expected_path:
                 raise ValidationFailure(f"{path}: fixture path/ID mismatch for {fixture_id}")
-            if expected[1]["profile"] != matrix["profile"]:
+            if not is_m3_aggregate and expected[1]["profile"] != matrix["profile"]:
                 raise ValidationFailure(f"{path}: profile mismatch for {fixture_id}")
-            if expected_path in listed_paths:
+            if not is_m3_aggregate and expected_path in listed_paths:
                 raise ValidationFailure(f"{path}: expectation is duplicated across matrices")
-            listed_paths.add(expected_path)
+            if not is_m3_aggregate:
+                listed_paths.add(expected_path)
     if observed_decoder_rows != required_decoder_rows:
         raise ValidationFailure(
             "M1 decoder matrix rows differ from docs/25 §15.1: "
@@ -4901,12 +5066,12 @@ def main() -> int:
         previous_schemas, previous_validators, previous_reference_count = load_schema_registry(
             PREVIOUS_SCHEMA_DIR, "1.1"
         )
-        schemas, validators, reference_count = load_schema_registry(SCHEMA_DIR, "1.2")
+        schemas, validators, reference_count = load_schema_registry(SCHEMA_DIR, "1.3")
         staging_schemas, staging_validators, staging_reference_count = load_schema_registry(
-            STAGING_SCHEMA_DIR, "1.2"
+            FROZEN_1_2_SCHEMA_DIR, "1.2"
         )
-        advanced_staging_schemas, advanced_staging_validators, advanced_staging_reference_count = (
-            load_schema_registry(ADVANCED_STAGING_SCHEMA_DIR, "1.3")
+        versioned_current_schemas, versioned_current_validators, versioned_current_reference_count = (
+            load_schema_registry(VERSIONED_CURRENT_SCHEMA_DIR, "1.3")
         )
         if set(staging_schemas) != {
             "build-manifest.schema.json",
@@ -4930,12 +5095,37 @@ def main() -> int:
             "package-config.schema.json",
         }:
             raise ValidationFailure("the versioned 1.2 registry has a missing or extra schema")
-        if set(advanced_staging_schemas) != {
+        expected_current_aliases = {
+            "build-manifest.schema.json",
             "common.schema.json",
+            "diagnostics.schema.json",
+            "display-list.schema.json",
             "document-package.schema.json",
+            "layout-trace.schema.json",
             "machine-advanced-pagination-manifest.schema.json",
-        }:
-            raise ValidationFailure("the private 1.3 staging registry has a missing or extra schema")
+            "machine-capabilities.schema.json",
+            "machine-fixture-expectation.schema.json",
+            "machine-fixture-matrix.schema.json",
+            "machine-footnote-manifest.schema.json",
+            "machine-profile-evidence.schema.json",
+            "machine-table-manifest.schema.json",
+            "package-config.schema.json",
+        }
+        expected_versioned_current = {
+            *set(staging_schemas),
+            "machine-advanced-pagination-manifest.schema.json",
+        }
+        if set(schemas) != expected_current_aliases:
+            raise ValidationFailure("the current 1.3 alias registry has a missing or extra schema")
+        if set(versioned_current_schemas) != expected_versioned_current:
+            raise ValidationFailure("the versioned 1.3 registry has a missing or extra schema")
+        for filename in schemas:
+            if (SCHEMA_DIR / filename).read_bytes() != (
+                VERSIONED_CURRENT_SCHEMA_DIR / filename
+            ).read_bytes():
+                raise ValidationFailure(
+                    f"the current 1.3 alias differs from its versioned schema: {filename}"
+                )
         if set(frozen_schemas) != set(FROZEN_SCHEMA_SHA256):
             raise ValidationFailure("the frozen 1.0 registry has a missing or extra schema")
         for filename, expected_digest in FROZEN_SCHEMA_SHA256.items():
@@ -4956,6 +5146,16 @@ def main() -> int:
                 raise ValidationFailure(
                     f"the frozen 1.1 schema bytes changed: {filename}"
                 )
+        if set(staging_schemas) != set(FROZEN_1_2_SCHEMA_SHA256):
+            raise ValidationFailure("the frozen 1.2 registry has a missing or extra schema")
+        for filename, expected_digest in FROZEN_1_2_SCHEMA_SHA256.items():
+            observed_digest = hashlib.sha256(
+                (FROZEN_1_2_SCHEMA_DIR / filename).read_bytes()
+            ).hexdigest()
+            if observed_digest != expected_digest:
+                raise ValidationFailure(
+                    f"the frozen 1.2 schema bytes changed: {filename}"
+                )
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         advanced_fixture_roots = (
             ("header/footer", STAGING_HEADER_FOOTER_FIXTURE_ROOT),
@@ -4969,12 +5169,12 @@ def main() -> int:
                 )
                 advanced_document = load_json(advanced_document_path)
                 advanced_document_errors = schema_errors(
-                    advanced_staging_validators["document-package.schema.json"],
+                    versioned_current_validators["document-package.schema.json"],
                     advanced_document,
                 )
                 if advanced_document_errors:
                     raise ValidationFailure(
-                        f"the private 1.3 {fixture_label} {fixture_name} fixture was rejected: "
+                        f"the versioned 1.3 {fixture_label} {fixture_name} fixture was rejected: "
                         + " | ".join(advanced_document_errors)
                     )
             advanced_manifest_path = (
@@ -4982,21 +5182,21 @@ def main() -> int:
             )
             advanced_manifest = load_json(advanced_manifest_path)
             advanced_manifest_errors = schema_errors(
-                advanced_staging_validators[
+                versioned_current_validators[
                     "machine-advanced-pagination-manifest.schema.json"
                 ],
                 advanced_manifest,
             )
             if advanced_manifest_errors:
                 raise ValidationFailure(
-                    f"the private 1.3 {fixture_label} advanced-pagination projection was rejected: "
+                    f"the versioned 1.3 {fixture_label} advanced-pagination projection was rejected: "
                     + " | ".join(advanced_manifest_errors)
                 )
             if advanced_manifest_path.read_bytes().rstrip(b"\n") != jcs_bytes(
                 advanced_manifest
             ):
                 raise ValidationFailure(
-                    f"the private 1.3 {fixture_label} projection is not canonical JCS"
+                    f"the versioned 1.3 {fixture_label} projection is not canonical JCS"
                 )
         minimal_document = load_json(MINIMAL_DIR / "document-package.json")
         minimal_display = load_json(MINIMAL_DIR / "display-list.json")
@@ -5671,7 +5871,7 @@ def main() -> int:
         if not schema_errors(
             validators["document-package.schema.json"], compatibility_document
         ):
-            raise ValidationFailure("the 1.0 DocumentPackage was registered as current 1.2")
+            raise ValidationFailure("the 1.0 DocumentPackage was registered as current 1.3")
         compatibility_jcs = jcs_bytes(compatibility_document)
         if (
             compatibility_document.get("contract") != "typaxis.contract/1.0"
@@ -6063,9 +6263,9 @@ def main() -> int:
         print(
             "validated "
             f"{len(frozen_schemas)} frozen 1.0, {len(previous_schemas)} frozen 1.1, "
-            f"{len(schemas)} current 1.2 aliases, and {len(staging_schemas)} versioned 1.2 schemas, "
-            f"{len(advanced_staging_schemas)} private staging 1.3 schemas, "
-            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count + advanced_staging_reference_count} refs, "
+            f"{len(staging_schemas)} frozen 1.2, {len(schemas)} current 1.3 aliases, and "
+            f"{len(versioned_current_schemas)} versioned 1.3 schemas, "
+            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count + versioned_current_reference_count} refs, "
             f"{len(POSITIVE_FIXTURES)} artifact and "
             f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
             f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "

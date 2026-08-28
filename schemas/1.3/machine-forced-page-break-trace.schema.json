@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.3/machine-forced-page-break-trace.schema.json",
+  "title": "Typaxis Forced Page Break Trace Staging Facts 1.3",
+  "description": "Non-current MI2-05 forced-boundary source, cursor progress, produced-page, and blank-page trace facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "break_usage_sha256",
+    "contract",
+    "flow_registry_sha256",
+    "forced_page_breaks",
+    "layout_epoch",
+    "page_count",
+    "pages",
+    "policy_version"
+  ],
+  "properties": {
+    "algorithm": {
+      "const": "typaxis.forced-page-break-trace/1"
+    },
+    "break_usage_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "flow_registry_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "forced_page_breaks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "machine-forced-page-break-manifest.schema.json#/$defs/forced_page_break"
+      }
+    },
+    "layout_epoch": {
+      "$ref": "common.schema.json#/$defs/layout_epoch"
+    },
+    "page_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "machine-forced-page-break-manifest.schema.json#/$defs/page"
+      }
+    },
+    "policy_version": {
+      "const": "typaxis.basic-forced-page-break-policy/1"
+    }
+  }
+}

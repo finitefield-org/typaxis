@@ -4,16 +4,16 @@
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| DocumentPackage portable shape | Yes, current 1.2 plus frozen 1.0/1.1 input | Yes: independent Schema/offline semantic validation | Yes, package commands | Yes |
-| `dump-ast` DocumentPackage export | Yes, current 1.2 | Yes, shared converter/encoder | Yes, supported package round trip | Yes |
+| DocumentPackage portable shape | Yes, current 1.3 plus frozen 1.0/1.1/1.2 input | Yes: independent Schema/offline semantic validation | Yes, package commands | Yes |
+| `dump-ast` DocumentPackage export | Yes, current 1.3 | Yes, shared converter/encoder | Yes, supported package round trip | Yes |
 | sealed package/source admission | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `typaxis.machine-pdf/basic-document-1` | Yes, ADR-0028 | Yes: full profile, receipt, multi-flow, style/list/break/figure/link closure | Yes, combined PDF/sidecars | Yes |
 | `typaxis.machine-pdf/table-1` | Yes, ADR-0029 | Yes: grid/cell-flow, fragmentation/header, Display/PDF, trace/manifest closure | Yes, table-only and combined PDF/sidecars | Yes, MI3-04 gate |
 | `typaxis.machine-pdf/footnote-1` | Yes, ADR-0030 | Yes: discovery/reflow, dedicated carry, Display/PDF, trace/manifest closure | Yes, zero and combined PDF/sidecars | Yes, MI3-07 gate |
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
-| contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: current aliases plus complete independent nineteen-schema versioned registry | Yes | Yes |
-| contract 1.3 advanced-pagination registry | Yes, ADR-0031 target | Yes: private three-schema staging registry with header/footer, columns, and float goldens | No; current aliases remain 1.2 | No, MI3-12 gate |
+| contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
+| contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -37,15 +37,18 @@ in-process receipt.
 [ADR-0028](../adr/ADR-0028-basic-document-profile.md) define the input/profile migrations,
 and [ADR-0029](../adr/ADR-0029-table-profile.md) defines the table profile on
 that unchanged wire. [ADR-0030](../adr/ADR-0030-footnote-profile.md) defines
-the public footnote profile. `schemas/1.0/` contains the frozen seven-schema
-registry and `schemas/1.1/` contains the frozen former-current eleven-schema
-registry. Top-level `schemas/*.schema.json` files are current 1.2 aliases,
-including capability, fixture/matrix, and machine host-evidence Schemas. Current
-generators emit 1.2, while the typed DocumentPackage parser recognizes 1.0,
-1.1, and 1.2. The public `build-package`, `check-package`, and capability CLI
-surface supports all four immutable profiles.
+the public footnote profile, and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md)
+defines the public advanced-pagination profiles. `schemas/1.0/`, `schemas/1.1/`,
+and `schemas/1.2/` contain frozen independent compatibility registries.
+Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
+capability, fixture/matrix, and machine host-evidence Schemas. Current
+generators emit 1.3, while the typed DocumentPackage parser recognizes 1.0
+through 1.3. The public `build-package`, `check-package`, and capability CLI
+surface supports all seven immutable profiles.
 
-`schemas/1.2/` is the complete current versioned registry. MI2-02 added
+`schemas/1.3/` is the complete current versioned registry. It preserves the
+1.2 artifact families described below and adds the required advanced package,
+capability, trace, and manifest shapes. MI2-02 added
 canonical multi-flow trace/manifest projections; MI2-03 added the additive
 DocumentPackage property tags and the selected typed-style manifest fact;
 MI2-04 added selected list-flow, marker-usage, fragment, geometry, and PDF hash
@@ -61,11 +64,14 @@ projection to trace/build-manifest Schemas: it is required for a built
 `table-1` artifact and forbidden for older profiles, preserving their bytes.
 MI3-07 added `machine-footnote-manifest.schema.json` and the conditional
 `footnote_layout` projection: it is required for a built `footnote-1` artifact
-and forbidden for the other profiles.
+and forbidden for the other profiles. MI3-12 added the conditional
+`advanced_pagination` projection, froze the complete 1.3 registry, and switched
+the current aliases atomically.
 
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/`,
-`https://schemas.typaxis.invalid/1.1/`, and
-`https://schemas.typaxis.invalid/1.2/` are logical, offline
+`https://schemas.typaxis.invalid/1.1/`,
+`https://schemas.typaxis.invalid/1.2/`, and
+`https://schemas.typaxis.invalid/1.3/` are logical, offline
 identifiers. They are not fetch URLs. A validator must build independent
 registries for each version and register every `*.schema.json` file by its
 `$id` before resolving relative `$ref` values.
@@ -78,7 +84,7 @@ python3 schemas/validate.py
 
 It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 
-- meta-validates the frozen 1.0/1.1 and current/versioned 1.2 Draft
+- meta-validates the frozen 1.0/1.1/1.2 and current/versioned 1.3 Draft
   2020-12 registries and resolves every registered `$ref` without
   cross-registering versions;
 - proves that the canonical 1.0 compatibility fixture is accepted by the
@@ -126,10 +132,13 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   combined fixtures, identical trace/manifest table projections, dense cell
   FlowIds/row pieces/header repetitions, old-profile table rejection, and
   zero-decoration publication matrix;
-- validates MI3-07's exact four-profile descriptor, zero and complete-M2
+- validates MI3-07's frozen four-profile meanings, zero and complete-M2
   footnote fixtures, identical trace/manifest body/paint hashes, dense
   assignments and FootnoteFlowIds, split/multi-page carry closure, old-profile
   rejection, and fixed separator publication matrix;
+- validates MI3-12's exact seven-profile descriptor, three advanced combined
+  fixtures, bidirectional descriptor coverage, dense page/frame/queue progress,
+  exact advanced limits, and the aggregate `m3-all.json` publication matrix;
 - checks that `samples/invalid/expected-errors.json` indexes every invalid fixture;
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;
@@ -140,15 +149,15 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   selected-page-count, strict-fallback, and output-file relationships; and
 - verifies file facts used by the minimal manifest and manifest-order fixture.
 
-`package-config.schema.json` describes the fully merged 1.2 `EffectiveConfig` data
+`package-config.schema.json` describes the fully merged 1.3 `EffectiveConfig` data
 model that is hashed and passed to later phases. A user-authored `typaxis.toml`
 is a partial input and is not validated directly against this schema. The
 implementation first resolves defaults, the partial TOML file, environment
 overrides, and CLI overrides; it then validates and serializes the resulting
 complete `EffectiveConfig`. Its `allowed_uri_schemes` and `resource_roots`
-arrays are unique and sorted by UTF-8 bytes. Raw 1.0 input receives the two
-machine-input limit defaults before overrides and normalizes to the same 1.2
-JCS bytes/hash as semantically equal raw 1.1/1.2 input. Canonical document packages also
+arrays are unique and sorted by UTF-8 bytes. Earlier raw inputs receive later
+compatible defaults before overrides and normalize to the same 1.3 JCS
+bytes/hash as semantically equal raw 1.3 input. Canonical document packages also
 write an explicit ordered-list `start`; an omitted source value resolves to
 `1`, while unordered lists write `null`.
 

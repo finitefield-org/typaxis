@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). The first four are implemented, public, and release-gated. MI3-09 through MI3-11 implement ADR-0031's header/footer, columns, and float targets privately; all three advanced profiles remain non-public and unsupported until MI3-12.
+This document records the seven normative closed machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices.
 
 ## Status axes
 
@@ -10,16 +10,16 @@ This document records the normative closed machine-PDF profiles adopted by [ADR-
 | `basic-document-1` | Yes, ADR-0028 | Yes | Yes | Yes |
 | `table-1` | Yes, ADR-0029 | Yes | Yes, combined PDF/sidecars | Yes, MI3-04 gate |
 | `footnote-1` | Yes, ADR-0030 | Yes: discovery, reflow, carry, paint, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-07 gate |
-| `header-footer-1` | Yes, ADR-0031 on target contract 1.3 | Yes: private MI3-09 vertical slice | No; public profile ID is rejected | No, MI3-12 gate |
-| `columns-1` | Yes, ADR-0031 on target contract 1.3 | Yes: private MI3-10 column/balance/artifact vertical slice | No; public profile ID is rejected | No, MI3-12 gate |
-| `float-1` | Yes, ADR-0031 on target contract 1.3 | Yes: private MI3-11 queue/placement/carry/artifact vertical slice | No; public profile ID is rejected | No, MI3-12 gate |
+| `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
+| `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
+| `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
 ## Identity and default
 
 - Profile ID: `typaxis.machine-pdf/paragraph-1`
-- Current contract 1.2 default profile: `typaxis.machine-pdf/paragraph-1`
+- Current contract 1.3 default profile: `typaxis.machine-pdf/paragraph-1`
 - Source closure: exactly one source, `source_id = 0`, entry-only
 - Unknown profile handling: usage exit 2; never fall back to the default or newest profile
 - Manifest rule: record the resolved profile ID and require exact agreement with the preflight receipt
@@ -61,7 +61,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns the closed public `PARAGRAPH_1`, `BASIC_DOCUMENT_1`, `FOOTNOTE_1`, and `TABLE_1` descriptors. ADR-0031 reserves three future descriptors but does not permit their public constants or dispatch before MI3-12. The implementation derives all of the following from the registered descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns all seven closed public descriptors. The implementation derives all of the following from the registered descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -95,12 +95,12 @@ When any required token is unavailable, `profiles[].available` is `false`. Missi
 
 The capability artifact is generated from compiled descriptors only. It does not read config, filesystem contents, ambient locale, or per-job overrides. Built-in package byte/depth defaults and hard maxima come from the same core limit descriptor used by decode; effective per-job config remains bound separately by its config fingerprint.
 
-The current 1.2 artifact publishes these descriptor facts from their sole constant/type owners:
+The current 1.3 artifact publishes these descriptor facts from their sole constant/type owners:
 
 | Fact | Value |
 | --- | --- |
 | coordinate unit | `pdf_point_1_65536` |
-| accepted DocumentPackage contracts | `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2` |
+| accepted DocumentPackage contracts | `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2`, `typaxis.contract/1.3` |
 | `max_resource_roots` | 64 |
 | `max_read_candidates` | 131,072 |
 | `max_document_package_bytes` default / hard maximum | 134,217,728 / 9,007,199,254,740,991 |
@@ -349,9 +349,9 @@ determinism, documented-host evidence, and old-profile rejection. Contract
 1.2 and DocumentPackage Schema bytes remain unchanged. Any needed wire/style
 field first requires a separate migration and new profile.
 
-## Contract-defined M3 advanced-pagination profiles
+## Public M3 advanced-pagination profiles
 
-ADR-0031 reserves `typaxis.contract/1.3` and these immutable target profiles:
+ADR-0031 defines `typaxis.contract/1.3` and these immutable public profiles:
 
 | Full profile ID | Additional closed domain | Publication gate |
 | --- | --- | --- |
@@ -431,12 +431,10 @@ queue-after facts. Old profiles forbid that member. Display and PDF owners
 reopen exact frame commands and actual page dictionaries; presentation JSON
 cannot issue a receipt.
 
-At ADR adoption none of this target is recognized by public input, help, or
-capabilities. Public raw 1.3 is `P1103` and the new profile IDs are usage
-errors. MI3-12 must atomically validate/freeze the independent 1.3 registry,
-switch every current encoder/Schema/config/artifact identity, register all
-three descriptors and normal dispatch, add `G6003`/`G6004`, require the
-conditional trace/manifest member, remove private runners, and publish
+MI3-12 atomically validated and froze the independent 1.3 registry, switched
+every current encoder/Schema/config/artifact identity, registered all three
+descriptors and normal dispatch, added `G6003`/`G6004`, required the
+conditional trace/manifest member, removed the private runners, and published
 `m3-all.json`. The default remains `paragraph-1`; full migration details are
 normative in ADR-0031 and docs/22.
 
@@ -472,25 +470,20 @@ rule before implementation begins.
 
 ## Contract and release gating
 
-The public capability artifact and current Schema use `typaxis.contract/1.2`.
-Its profile array is exactly `basic-document-1`, `footnote-1`, `paragraph-1`,
-then `table-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the
+The public capability artifact and current Schema use `typaxis.contract/1.3`.
+Its profile array is exactly `basic-document-1`, `columns-1`, `float-1`,
+`footnote-1`, `header-footer-1`, `paragraph-1`, then `table-1`, while
+`default_profile` remains `paragraph-1`. MI2-08 froze the
 complete former 1.1 registry and published
 `samples/machine-package/matrices/m2-basic.json`; MI3-04 published the table
 descriptor and `samples/machine-package/matrices/m3-table.json` without
 changing DocumentPackage Schema bytes. MI3-07 subsequently published the
 footnote descriptor and `samples/machine-package/matrices/m3-footnote.json`
-on the same wire; the default remains `paragraph-1`. Future features may not
-broaden any public profile in place.
+on the same 1.2 wire. MI3-12 published ADR-0031's three profiles and
+`samples/machine-package/matrices/m3-all.json` with the current 1.3 switch.
+Future features may not broaden any public profile in place.
 
-ADR-0031's contract 1.3 and three profile IDs remain non-public target facts.
-MI3-09 through MI3-11 add private header/footer, columns, and float decoders,
-preflights, layout/pagination, Display/PDF, manifest, Schema, and fixture gates. Until
-MI3-12, all three IDs are absent from the public capability artifact and current
-Schema aliases.
-At MI3-12 the profile array becomes byte ordered `basic-document-1`,
-`columns-1`, `float-1`, `footnote-1`, `header-footer-1`, `paragraph-1`,
-`table-1`, while the default remains `paragraph-1`. `paragraph-1` accepts the
+`paragraph-1` accepts the
 neutral 1.3 semantic subset; the other old profiles accept raw 1.2 plus only
 the exact neutral 1.3 encoding of their frozen behavior; and the new profiles
 are raw-1.3-only. Neutral means full-media trim, null page-region content and

@@ -1,19 +1,21 @@
 #![forbid(unsafe_code)]
 
 mod advanced_columns;
+mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
 
 pub use advanced_columns::{
-    serialize_staging_columns_pdf, StagingColumnsPdf, StagingColumnsPdfClosureReceipt,
-    StagingColumnsPdfError, StagingColumnsPdfPageObservation,
+    serialize_columns_pdf, serialize_staging_columns_pdf, StagingColumnsPdf,
+    StagingColumnsPdfClosureReceipt, StagingColumnsPdfError, StagingColumnsPdfPageObservation,
 };
 pub use advanced_float::{
-    serialize_staging_float_pdf, StagingFloatPdf, StagingFloatPdfClosureReceipt,
-    StagingFloatPdfError, StagingFloatPdfObjectUsage, StagingFloatPdfPageObservation,
+    serialize_float_pdf, serialize_staging_float_pdf, StagingFloatPdf,
+    StagingFloatPdfClosureReceipt, StagingFloatPdfError, StagingFloatPdfObjectUsage,
+    StagingFloatPdfPageObservation,
 };
 pub use advanced_header_footer::{
-    serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,
+    serialize_header_footer_pdf, serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,
     StagingHeaderFooterPdfClosureReceipt, StagingHeaderFooterPdfError,
     StagingHeaderFooterPdfPageObservation, STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
 };

@@ -7,10 +7,13 @@ contract 1.2 all-advertised package for the public basic profile.
 `profiles/table-1/only` and `profiles/table-1/combined` cover the table-only and
 complete M2-plus-table domains. `profiles/footnote-1/zero` and
 `profiles/footnote-1/combined` cover empty assignment and complete
-M2-plus-footnote domains. `invalid/` and `scenarios/` contain typed
+M2-plus-footnote domains. `profiles/columns-1/combined`,
+`profiles/float-1/combined`, and `profiles/header-footer-1/combined` are the
+contract 1.3 all-advertised advanced packages. `invalid/` and `scenarios/` contain typed
 failure expectations. The matrices bind every expectation exactly once to the
-profile closure tests; `m2-basic.json`, `m3-table.json`, and
-`m3-footnote.json` are the corresponding public release-verifier inputs.
+profile closure tests; `m2-basic.json`, `m3-table.json`, `m3-footnote.json`,
+the three focused advanced matrices, and aggregate `m3-all.json` are the
+corresponding public release-verifier inputs.
 
 ## Run the combined fixture
 
@@ -60,8 +63,9 @@ workspace/target/debug/typaxis capabilities --format json
 ```
 
 Its bytes MUST equal `samples/machine-package/capabilities.json`, advertise
-exactly `basic-document-1`, `footnote-1`, `paragraph-1`, and `table-1` in canonical order,
-retain `paragraph-1` as the default, and validate against
+exactly `basic-document-1`, `columns-1`, `float-1`, `footnote-1`,
+`header-footer-1`, `paragraph-1`, and `table-1` in canonical order, retain
+`paragraph-1` as the default, and validate against
 `schemas/machine-capabilities.schema.json`.
 
 The focused MI2-03 slice fixture is under
@@ -135,6 +139,17 @@ destinations, and annotations. Poppler-normalized combined text is exactly
 `Basic document internal external First item Second entry Z first A note A
 tail PNG caption Z second Z third Z fourth Z fifth`.
 
+The public MI3-12 advanced fixtures each inherit the complete M2 advertised
+coverage on contract 1.3. `columns-1/combined` exercises two sequential
+columns and selects its second exact final-page balance candidate.
+`float-1/combined` exercises FIFO here/top placement, column/page carry, an
+exact queue maximum of 33, and a carry maximum of 2. `header-footer-1/combined`
+selects first, left, and right masters across three pages and binds each
+header/body/footer repetition in paint and extraction order. Their trace and
+manifest `advanced_pagination` members are byte-identical. The focused
+matrices and aggregate `matrices/m3-all.json` drive the normal public CLI;
+there is no private advanced runner or hidden selector.
+
 ## Regenerate hashes and expectations
 
 The bundle is generated, not hand-rehashed. Edit the generator inputs and run:
@@ -175,6 +190,16 @@ python3 tools/verify_machine_profile.py \
 
 The frozen basic-document compatibility gate uses
 `--matrix samples/machine-package/matrices/m2-basic.json` with the same options.
+
+The complete M3 publication gate, including table, footnote, and all three
+advanced combined fixtures, is:
+
+```text
+python3 tools/verify_machine_profile.py \
+  --repository . \
+  --matrix samples/machine-package/matrices/m3-all.json \
+  --runs 2 --require-external-tools
+```
 
 MuPDF `mutool` and Poppler `pdfinfo`/`pdftotext` are required. On success the
 only per-host evidence writer atomically creates

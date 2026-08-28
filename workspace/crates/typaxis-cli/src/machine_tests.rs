@@ -20,7 +20,7 @@ use typaxis_syntax::{DocumentPackageParser, MachineParseOutcome, PackageValidati
 
 const PROFILE: MachinePdfProfileId = MachinePdfProfileId::PARAGRAPH_1;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum TestJson {
     Null,
     Bool(bool),
@@ -574,7 +574,7 @@ fn assert_fixture_outcome(run: &FixtureRun) {
             failure.message
         );
         let diagnostics = read_json(&run.artifacts.join("diagnostics.json"));
-        assert_eq!(diagnostics["contract"], "typaxis.contract/1.2");
+        assert_eq!(diagnostics["contract"], "typaxis.contract/1.3");
         assert_eq!(diagnostics["diagnostics"][0]["code"], code);
         assert_diagnostic_location(
             outcome["location"].as_str().unwrap(),
@@ -721,7 +721,22 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
     let profiles = capabilities["machine_input"]["profiles"]
         .as_array()
         .unwrap();
-    assert_eq!(profiles.len(), 4);
+    assert_eq!(profiles.len(), 7);
+    assert_eq!(
+        profiles
+            .iter()
+            .map(|profile| profile["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "typaxis.machine-pdf/basic-document-1",
+            "typaxis.machine-pdf/columns-1",
+            "typaxis.machine-pdf/float-1",
+            "typaxis.machine-pdf/footnote-1",
+            "typaxis.machine-pdf/header-footer-1",
+            "typaxis.machine-pdf/paragraph-1",
+            "typaxis.machine-pdf/table-1",
+        ]
+    );
     assert_eq!(
         capabilities["machine_input"]["default_profile"],
         "typaxis.machine-pdf/paragraph-1"
@@ -732,6 +747,7 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
             "typaxis.contract/1.0",
             "typaxis.contract/1.1",
             "typaxis.contract/1.2",
+            "typaxis.contract/1.3",
         ]
     );
     let profile = profiles
@@ -752,6 +768,50 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
         ["footnote"]
     );
     assert!(json_strings(&footnote["inlines"]["kinds"]).contains(&"footnote_reference"));
+    for (id, balance, header_footer, float_classes) in [
+        (
+            MachinePdfProfileId::COLUMNS_1,
+            "last_page",
+            false,
+            Vec::<&str>::new(),
+        ),
+        (
+            MachinePdfProfileId::FLOAT_1,
+            "none",
+            false,
+            vec!["here", "top", "bottom", "next_page"],
+        ),
+        (
+            MachinePdfProfileId::HEADER_FOOTER_1,
+            "forbidden",
+            true,
+            Vec::<&str>::new(),
+        ),
+    ] {
+        let advanced = profiles
+            .iter()
+            .find(|profile| profile["id"] == id.as_str())
+            .expect("advanced profile is advertised");
+        assert_eq!(advanced["advanced_pagination"]["balance"], balance);
+        assert_eq!(
+            advanced["advanced_pagination"]["header_footer"].as_bool(),
+            Some(header_footer)
+        );
+        assert_eq!(
+            json_strings(&advanced["advanced_pagination"]["float_classes"]),
+            float_classes
+        );
+    }
+    assert!(profiles
+        .iter()
+        .filter(|profile| !profile.has_member("advanced_pagination"))
+        .all(|profile| matches!(
+            profile["id"].as_str(),
+            Some("typaxis.machine-pdf/basic-document-1")
+                | Some("typaxis.machine-pdf/footnote-1")
+                | Some("typaxis.machine-pdf/paragraph-1")
+                | Some("typaxis.machine-pdf/table-1")
+        )));
     for future in [
         "list",
         "figure",
@@ -766,6 +826,190 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
         assert!(!json_strings(&profile["inlines"]["kinds"]).contains(&future));
         assert!(!json_strings(&profile["style_properties"]).contains(&future));
     }
+}
+
+fn assert_advanced_combined_fixture(relative: &str, profile: MachinePdfProfileId) -> FixtureRun {
+    let run = assert_success_fixture(relative);
+    let pdf = fs::read(run.artifacts.join("output.pdf")).unwrap();
+    for marker in [
+        b"/ActualText".as_slice(),
+        b"/Dests".as_slice(),
+        b"/Subtype /Image".as_slice(),
+        b"/Subtype /Link".as_slice(),
+    ] {
+        assert!(
+            pdf.windows(marker.len()).any(|window| window == marker),
+            "{relative} omitted advertised PDF feature marker {}",
+            String::from_utf8_lossy(marker)
+        );
+    }
+    let trace = read_json(&run.artifacts.join("trace.json"));
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    let trace_facts = &trace["advanced_pagination"];
+    let manifest_facts = &manifest["advanced_pagination"];
+    assert_eq!(trace_facts, manifest_facts);
+    assert_eq!(
+        manifest_facts["algorithm"],
+        "typaxis.advanced-pagination-manifest/1"
+    );
+    assert_eq!(manifest_facts["profile"], profile.as_str());
+    for member in [
+        "flow_registry_sha256",
+        "paint_closure_sha256",
+        "profile_receipt_sha256",
+        "selected_layout_sha256",
+    ] {
+        assert_eq!(manifest_facts[member].as_str().unwrap().len(), 64);
+    }
+    let pages = manifest_facts["pages"].as_array().unwrap();
+    assert_eq!(
+        pages.len(),
+        run.expected["expected"]["page_count"].as_i64().unwrap() as usize
+    );
+    for (page_index, page) in pages.iter().enumerate() {
+        assert_eq!(page["page_index"].as_i64(), Some(page_index as i64));
+        let frames = page["frames"].as_array().unwrap();
+        assert!(!frames.is_empty());
+        for frame in frames {
+            let before = frame["before_position"]["ordinal"].as_i64().unwrap();
+            let after = frame["after_position"]["ordinal"].as_i64().unwrap();
+            assert!(after >= before, "selected frame regressed without progress");
+        }
+    }
+    run
+}
+
+#[test]
+fn machine_columns_1_combined_public_profile() {
+    let run = assert_advanced_combined_fixture(
+        "profiles/columns-1/combined",
+        MachinePdfProfileId::COLUMNS_1,
+    );
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    let pages = manifest["advanced_pagination"]["pages"].as_array().unwrap();
+    let balance = &pages.last().unwrap()["balance"];
+    assert_eq!(balance["algorithm"], "typaxis.column-balance-candidates/1");
+    assert_eq!(balance["candidate_count"], 2);
+    assert!(pages[..pages.len() - 1]
+        .iter()
+        .all(|page| page["balance"].is_null()));
+}
+
+#[test]
+fn machine_float_1_combined_public_profile() {
+    let run =
+        assert_advanced_combined_fixture("profiles/float-1/combined", MachinePdfProfileId::FLOAT_1);
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    let pages = manifest["advanced_pagination"]["pages"].as_array().unwrap();
+    let classes: BTreeSet<_> = pages
+        .iter()
+        .flat_map(|page| page["float_placements"].as_array().unwrap())
+        .map(|placement| placement["class"].as_str().unwrap())
+        .collect();
+    assert!(classes.contains("here"));
+    assert!(classes.contains("top"));
+    assert!(pages
+        .iter()
+        .any(|page| !page["float_carries"].as_array().unwrap().is_empty()));
+    assert!(pages.last().unwrap()["float_queue_after"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn machine_header_footer_1_combined_public_profile() {
+    let run = assert_advanced_combined_fixture(
+        "profiles/header-footer-1/combined",
+        MachinePdfProfileId::HEADER_FOOTER_1,
+    );
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    let pages = manifest["advanced_pagination"]["pages"].as_array().unwrap();
+    assert_eq!(
+        pages
+            .iter()
+            .map(|page| page["master_id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["first", "left", "right"]
+    );
+    for page in pages {
+        assert_eq!(pages_frame_kinds(page), ["header", "body", "footer"]);
+    }
+}
+
+fn pages_frame_kinds(page: &TestJson) -> Vec<&str> {
+    page["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|frame| frame["kind"].as_str().unwrap())
+        .collect()
+}
+
+#[test]
+fn machine_m3_all_combined_public_profiles() {
+    for (relative, profile) in [
+        (
+            "profiles/columns-1/combined",
+            MachinePdfProfileId::COLUMNS_1,
+        ),
+        ("profiles/float-1/combined", MachinePdfProfileId::FLOAT_1),
+        (
+            "profiles/header-footer-1/combined",
+            MachinePdfProfileId::HEADER_FOOTER_1,
+        ),
+    ] {
+        assert_advanced_combined_fixture(relative, profile);
+    }
+    assert_success_fixture("profiles/footnote-1/combined");
+    assert_success_fixture("profiles/table-1/combined");
+}
+
+fn assert_public_limit_failure(relative: &str, limit: &str, value: u64, code: &str) {
+    let (tree, job, artifacts, expected) = copy_fixture(relative, "m3-limit-max-plus-one");
+    let mut options = build_options(&job, &artifacts, &expected);
+    if let Some(existing) = options
+        .common
+        .limits
+        .iter_mut()
+        .find(|(name, _)| name == limit)
+    {
+        existing.1 = value;
+    } else {
+        options.common.limits.push((limit.to_owned(), value));
+    }
+    let failure = match run_build_package(options) {
+        Err(failure) => failure,
+        Ok(()) => panic!("{relative} accepted max+1 limit {limit}={value}"),
+    };
+    assert!(failure.message.starts_with(code), "{}", failure.message);
+    assert!(!artifacts.join("output.pdf").exists());
+    assert!(!artifacts.join("trace.json").exists());
+    assert_eq!(
+        read_json(&artifacts.join("manifest.json"))["status"],
+        "failed"
+    );
+    drop(tree);
+}
+
+#[test]
+fn machine_m3_public_exact_limits_reject_max_plus_one_before_publication() {
+    // The combined fixtures themselves run at the exact successful limits.
+    assert_public_limit_failure("profiles/table-1/combined", "max-pages", 2, "L5110");
+    assert_public_limit_failure("profiles/footnote-1/combined", "max-pages", 2, "I9000");
+    assert_public_limit_failure(
+        "profiles/columns-1/combined",
+        "max-column-balance-candidates",
+        1,
+        "G6003",
+    );
+    assert_public_limit_failure("profiles/float-1/combined", "max-float-queue", 32, "G6004");
+    assert_public_limit_failure(
+        "profiles/float-1/combined",
+        "max-float-carry-pages",
+        1,
+        "G6004",
+    );
 }
 
 #[test]

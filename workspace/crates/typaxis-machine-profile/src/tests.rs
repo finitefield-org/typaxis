@@ -76,6 +76,7 @@ fn base_wire() -> wire::WireDocumentPackage {
     wire::WireDocumentPackage {
         contract: DocumentPackageContractId::V1_0,
         coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+        advanced: None,
         sources: vec![wire::WireSource {
             source_id: 0,
             uri: "input.tsf".to_owned(),
@@ -497,12 +498,12 @@ fn capabilities_are_the_exact_canonical_descriptor_projection() {
         "\"unsupported_pdf_features\":[\"heading-semantics\",\"outlines\",\"tagged-pdf\"]}"
     );
     assert!(encoded.starts_with(concat!(
-        "{\"contract\":\"typaxis.contract/1.2\",",
+        "{\"contract\":\"typaxis.contract/1.3\",",
         "\"engine\":{\"name\":\"typaxis\",\"version\":\"0.1.0\"},",
         "\"machine_input\":{",
         "\"coordinate_units\":[\"pdf_point_1_65536\"],",
         "\"default_profile\":\"typaxis.machine-pdf/paragraph-1\",",
-        "\"document_package_contracts\":[\"typaxis.contract/1.0\",\"typaxis.contract/1.1\",\"typaxis.contract/1.2\"],"
+        "\"document_package_contracts\":[\"typaxis.contract/1.0\",\"typaxis.contract/1.1\",\"typaxis.contract/1.2\",\"typaxis.contract/1.3\"],"
     )));
     assert!(encoded.contains(&format!("{paragraph_1},")));
     assert!(encoded.ends_with(&format!("{table_1}]}}}}")));

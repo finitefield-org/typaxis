@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.typaxis.invalid/1.2/document-package.schema.json",
-  "title": "Typaxis Canonical Document Package 1.2",
-  "description": "Current DocumentPackage wire schema for the paragraph-1 and basic-document-1 profiles.",
+  "$id": "https://schemas.typaxis.invalid/1.3/document-package.schema.json",
+  "title": "Typaxis Canonical Document Package 1.3",
+  "description": "Canonical DocumentPackage wire schema for the current contract.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -778,6 +778,7 @@
             "span",
             "classes",
             "image_id",
+            "placement",
             "alt",
             "caption"
           ],
@@ -796,6 +797,12 @@
             },
             "image_id": {
               "$ref": "common.schema.json#/$defs/id32"
+            },
+            "placement": {
+              "enum": [
+                "block",
+                "float"
+              ]
             },
             "alt": {
               "type": "string"
@@ -1386,6 +1393,103 @@
         }
       }
     },
+    "page_region_inline": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "node_id", "span", "text_span"],
+          "properties": {
+            "kind": {"const": "text"},
+            "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "span": {"$ref": "common.schema.json#/$defs/source_span"},
+            "text_span": {"$ref": "common.schema.json#/$defs/text_span"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "node_id", "span"],
+          "properties": {
+            "kind": {"const": "soft_break"},
+            "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "span": {"$ref": "common.schema.json#/$defs/source_span"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "node_id", "span"],
+          "properties": {
+            "kind": {"const": "hard_break"},
+            "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "span": {"$ref": "common.schema.json#/$defs/source_span"}
+          }
+        }
+      ]
+    },
+    "page_region_block": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "node_id", "span", "classes", "children"],
+          "properties": {
+            "kind": {"const": "paragraph"},
+            "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "span": {"$ref": "common.schema.json#/$defs/source_span"},
+            "classes": {"$ref": "#/$defs/class_list"},
+            "children": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/page_region_inline"}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind", "node_id", "span", "classes", "level", "anchor_id", "children"
+          ],
+          "properties": {
+            "kind": {"const": "heading"},
+            "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "span": {"$ref": "common.schema.json#/$defs/source_span"},
+            "classes": {"$ref": "#/$defs/class_list"},
+            "level": {"type": "integer", "minimum": 1, "maximum": 6},
+            "anchor_id": {"type": "null"},
+            "children": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/page_region_inline"}
+            }
+          }
+        }
+      ]
+    },
+    "page_region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "span", "blocks"],
+      "properties": {
+        "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "span": {"$ref": "common.schema.json#/$defs/source_span"},
+        "blocks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/page_region_block"}
+        }
+      }
+    },
+    "column_layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["balance", "count", "fill", "gap"],
+      "properties": {
+        "balance": {"enum": ["none", "last_page"]},
+        "count": {"type": "integer", "minimum": 2, "maximum": 65535},
+        "fill": {"const": "sequential"},
+        "gap": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"}
+      }
+    },
     "page_master": {
       "type": "object",
       "additionalProperties": false,
@@ -1396,7 +1500,11 @@
         "body",
         "header",
         "footer",
-        "footnote"
+        "footnote",
+        "trim",
+        "header_content",
+        "footer_content",
+        "column_layout"
       ],
       "properties": {
         "master_id": {
@@ -1440,8 +1548,45 @@
               "type": "null"
             }
           ]
+        },
+        "trim": {
+          "$ref": "common.schema.json#/$defs/rect"
+        },
+        "header_content": {
+          "oneOf": [
+            {"$ref": "#/$defs/page_region"},
+            {"type": "null"}
+          ]
+        },
+        "footer_content": {
+          "oneOf": [
+            {"$ref": "#/$defs/page_region"},
+            {"type": "null"}
+          ]
+        },
+        "column_layout": {
+          "oneOf": [
+            {"$ref": "#/$defs/column_layout"},
+            {"type": "null"}
+          ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"header_content": {"type": "object"}},
+            "required": ["header_content"]
+          },
+          "then": {"properties": {"header": {"$ref": "common.schema.json#/$defs/rect"}}}
+        },
+        {
+          "if": {
+            "properties": {"footer_content": {"type": "object"}},
+            "required": ["footer_content"]
+          },
+          "then": {"properties": {"footer": {"$ref": "common.schema.json#/$defs/rect"}}}
+        }
+      ]
     },
     "master_rule": {
       "type": "object",
@@ -1490,12 +1635,20 @@
       "additionalProperties": false,
       "required": [
         "default_master_id",
+        "page_progression",
+        "writing_mode",
         "masters",
         "selection_rules"
       ],
       "properties": {
         "default_master_id": {
           "$ref": "common.schema.json#/$defs/master_id"
+        },
+        "page_progression": {
+          "const": "ltr"
+        },
+        "writing_mode": {
+          "const": "horizontal-tb"
         },
         "masters": {
           "type": "array",

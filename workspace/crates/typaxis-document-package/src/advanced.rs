@@ -1,10 +1,8 @@
-//! Private contract-1.3 carrier used by the MI3 advanced-pagination slices.
-//!
-//! The public decoder deliberately continues to reject 1.3.  This module
+//! Contract-1.3 carrier originally introduced by the MI3 advanced-pagination
+//! slices and now used internally by the public strict decoder. This bridge
 //! removes only the additions adopted by ADR-0031, decodes the remaining
-//! frozen 1.2 shape through the production strict decoder, and retains every
-//! removed fact in typed DTOs.  MI3-12 can replace this bridge with the public
-//! exhaustive 1.3 dialect without changing downstream ownership.
+//! frozen 1.2 shape through the shared strict decoder, and retains every
+//! removed fact in typed DTOs.
 
 use crate::{
     DecodedDocumentPackage, DocumentPackageDecodeError, DocumentPackageDecodePolicy,
@@ -61,7 +59,7 @@ impl std::error::Error for StagingAdvancedDecodeError {
     }
 }
 
-/// Decoder-issued private receipt.  The exact admitted 1.3 bytes and their
+/// Decoder-issued internal receipt. The exact admitted 1.3 bytes and their
 /// canonical typed JSON are bound independently from the inherited 1.2
 /// carrier so a caller cannot substitute a neutral package after preflight.
 pub struct DecodedStagingAdvancedDocumentPackage {
@@ -166,12 +164,22 @@ impl StagingAdvancedDocumentPackageDecoder {
             Value::String("typaxis.contract/1.2".to_owned()),
         );
 
-        let base_nodes = count_raw_base_nodes(
-            root_object
-                .get("document")
-                .ok_or(StagingAdvancedDecodeError::Shape("document is required"))?,
-            policy.resource_limits().get().max_ast_nodes,
-        )?;
+        let document = root_object
+            .get("document")
+            .ok_or(StagingAdvancedDecodeError::Shape("document is required"))?;
+        let maximum_nodes = policy.resource_limits().get().max_ast_nodes;
+        let (base_nodes, advanced_node_limit) = match count_raw_base_nodes(document, maximum_nodes)
+        {
+            Ok(count) => (count, maximum_nodes),
+            Err(StagingAdvancedDecodeError::Limit) => {
+                // The inherited strict decoder below owns base-node limit
+                // diagnostics and their exact JSON pointers. Finish the
+                // structural projection without applying the limit a second
+                // time so that decoder can issue its typed error.
+                (count_raw_base_nodes(document, u64::MAX)?, u64::MAX)
+            }
+            Err(error) => return Err(error),
+        };
         let mut total_nodes = base_nodes;
 
         let page_masters_value =
@@ -215,7 +223,10 @@ impl StagingAdvancedDocumentPackageDecoder {
             .checked_add(selection_rule_count)
             .and_then(|value| u64::try_from(value).ok())
             .ok_or(StagingAdvancedDecodeError::Limit)?;
-        if master_rule_count > policy.resource_limits().get().max_style_rules {
+        let maximum_style_rules = policy.resource_limits().get().max_style_rules;
+        if u64::try_from(masters.len()).unwrap_or(u64::MAX) <= maximum_style_rules
+            && master_rule_count > maximum_style_rules
+        {
             return Err(StagingAdvancedDecodeError::Limit);
         }
         let mut advanced_masters = Vec::new();
@@ -235,17 +246,17 @@ impl StagingAdvancedDocumentPackageDecoder {
             let header_content = parse_region(
                 required_remove(object, "header_content")?,
                 &mut total_nodes,
-                policy.resource_limits().get().max_ast_nodes,
+                advanced_node_limit,
             )?;
             let footer_content = parse_region(
                 required_remove(object, "footer_content")?,
                 &mut total_nodes,
-                policy.resource_limits().get().max_ast_nodes,
+                advanced_node_limit,
             )?;
             let column_layout = parse_column_layout(
                 required_remove(object, "column_layout")?,
                 &mut total_nodes,
-                policy.resource_limits().get().max_ast_nodes,
+                advanced_node_limit,
             )?;
             advanced_masters.push(WireAdvancedPageMaster {
                 master_id,
@@ -404,23 +415,14 @@ fn canonicalize_value(
             Value::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
             Value::Number(value) => {
                 if let Some(value) = value.as_i64() {
-                    if value.unsigned_abs() > JSON_SAFE_INTEGER_MAX as u64 {
-                        return Err(StagingAdvancedDecodeError::Shape(
-                            "integer is outside the JSON-safe range",
-                        ));
-                    }
                     output.push_str(&value.to_string());
                 } else if let Some(value) = value.as_u64() {
-                    if value > JSON_SAFE_INTEGER_MAX as u64 {
-                        return Err(StagingAdvancedDecodeError::Shape(
-                            "integer is outside the JSON-safe range",
-                        ));
-                    }
                     output.push_str(&value.to_string());
                 } else {
-                    return Err(StagingAdvancedDecodeError::Shape(
-                        "contract-1.3 numbers must be integers",
-                    ));
+                    // Typed base/advanced field decoders below own integer
+                    // grammar and exact location diagnostics. This temporary
+                    // representation is never issued as a successful receipt.
+                    output.push_str(&value.to_string());
                 }
             }
             Value::String(value) => push_jcs_string(output, value),

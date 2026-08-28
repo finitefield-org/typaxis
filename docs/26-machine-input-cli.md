@@ -19,8 +19,9 @@ The complete grammar is emitted by `typaxis help build-package`,
 `typaxis help check-package`, and `typaxis help capabilities`. `build` continues
 to accept bounded reference TSF; it never sniffs JSON or switches to machine
 mode. The public profiles are `typaxis.machine-pdf/paragraph-1`,
-`typaxis.machine-pdf/basic-document-1`, `typaxis.machine-pdf/footnote-1`, and
-`typaxis.machine-pdf/table-1`.
+`typaxis.machine-pdf/basic-document-1`, `typaxis.machine-pdf/columns-1`,
+`typaxis.machine-pdf/float-1`, `typaxis.machine-pdf/footnote-1`,
+`typaxis.machine-pdf/header-footer-1`, and `typaxis.machine-pdf/table-1`.
 `paragraph-1` remains the default when `--profile` is omitted; Typaxis never
 infers a profile from package contents.
 
@@ -45,7 +46,7 @@ then opened relative to one contained root using no-follow, stable-read host
 admission. Symlinks, non-regular files, root escapes, read mutation, and declared
 length/hash mismatches fail closed.
 
-Source and resource roots are intentionally separate. All four public profiles
+Source and resource roots are intentionally separate. All seven public profiles
 accept exactly one source declaration, `SourceId` 0, with entry-only closure. Its URI is resolved
 only beneath the package root. Font resources are resolved only from explicit
 `--resource-root DIR` values and configured resource roots; a package root is
@@ -78,8 +79,9 @@ exactly `Typaxis machine input`.
 
 ### `basic-document-1`
 
-`typaxis.machine-pdf/basic-document-1` requires a raw
-`typaxis.contract/1.2` package and accepts the exact additional descriptor set:
+`typaxis.machine-pdf/basic-document-1` accepts a raw
+`typaxis.contract/1.2` package or its exact neutral 1.3 encoding and accepts the
+exact additional descriptor set:
 
 - list, figure, and forced `page_break` blocks, including independent list-item
   and figure-caption flows;
@@ -95,14 +97,15 @@ exactly `Typaxis machine input`.
 
 It still rejects tables, footnotes, emphasis/strong, nested or unpainted links,
 named-page/master behavior, JPEG/SVG/vector/float content, OTF/CFF, outlines,
-tagged PDF, math, and every M3-or-later feature. Raw 1.0/1.1 packages selected
-with this profile fail at `/contract`; Typaxis does not synthesize 1.2 values.
+tagged PDF, math, and advanced pagination. Raw 1.0/1.1 packages selected with
+this profile fail at `/contract`; Typaxis does not synthesize 1.2 values.
 The combined fixture renders two pages and Poppler-normalized text exactly
 `Basic document internal external First item Second entry PNG caption`.
 
 ### `table-1`
 
-`typaxis.machine-pdf/table-1` requires a raw `typaxis.contract/1.2` package,
+`typaxis.machine-pdf/table-1` accepts raw `typaxis.contract/1.2` or its exact
+neutral 1.3 encoding,
 inherits the complete `basic-document-1` domain, and adds direct document-body
 tables. It must be selected explicitly. `paragraph-1` stays the default, and
 both older profiles continue to reject every table.
@@ -136,7 +139,8 @@ Header A Header B alpha beta Header A delta Header B gamma`.
 
 ### `footnote-1`
 
-`typaxis.machine-pdf/footnote-1` requires raw contract 1.2, inherits the
+`typaxis.machine-pdf/footnote-1` accepts raw contract 1.2 or its exact neutral
+1.3 encoding, inherits the
 complete `basic-document-1` domain, and adds body/list-item/caption footnote
 references plus Document-owned paragraph/heading definitions. Tables and
 nested footnotes remain rejected. Definitions use the existing M2 inline/style
@@ -155,6 +159,52 @@ FootnoteFlowIds, fragment cursors, reservations, and carry edges. The combined
 fixture renders three pages and extracts exactly `Basic document internal
 external First item Second entry Z first Z second A note A tail PNG caption Z
 third Z fourth Z fifth`.
+
+### `columns-1`
+
+`typaxis.machine-pdf/columns-1` requires raw contract 1.3 and inherits the
+complete `basic-document-1` content, style, resource, and PDF domain. Every 1.3
+page-master set explicitly declares `writing_mode = horizontal-tb` and
+`page_progression = ltr`; every master declares trim, nullable region content,
+and nullable column layout; every Figure declares `placement`.
+
+This profile accepts one default master, full-media trim, no auxiliary region
+or footnote content, no floating Figure, and either one body column (null
+layout) or 2..65,535 left-to-right sequential columns. A non-null layout uses
+`balance = last_page`. Only the final nonempty page is balanced, and candidate
+targets strictly increase. The inclusive `max_column_balance_candidates`
+maximum may win; `G6003` is emitted before max+1 or on oscillation. Trace and
+manifest carry identical selected column frames and balance facts.
+
+### `float-1`
+
+`typaxis.machine-pdf/float-1` requires raw contract 1.3 and inherits the same
+complete basic domain. It uses one full-media default master and one or more
+left-to-right sequential columns with `balance = none`. A Figure with
+`placement = float` must be a direct document-body child; its image and caption
+are one unsplittable unit.
+
+Floats are evaluated FIFO in `here`, `top`, `bottom`, `next_page` order without
+side wrapping, bypass, scaling, clipping, or block fallback. Queue length and
+per-float page carry are inclusively bounded by `max_float_queue` and
+`max_float_carry_pages`; `G6004` is emitted before max+1. Selected placements,
+queue transitions, carries, Display commands, and PDF object usage share one
+closure.
+
+### `header-footer-1`
+
+`typaxis.machine-pdf/header-footer-1` requires raw contract 1.3 and inherits
+the complete basic domain. It accepts a checked custom trim and either one
+default master or exactly the canonical first/left/right set. The latter has a
+right default, a dense first rule followed by an even-page left rule, and no
+named pages. Columns, floats, and footnotes are rejected.
+
+Each non-null header/footer rectangle has matching static region content made
+only from paragraph/heading blocks and text/soft-break/hard-break inlines. Its
+MasterId-bound FlowId restarts at source start for each selected repetition and
+must reach terminal in that one region frame. Selected pages serialize
+explicit MediaBox, CropBox, and TrimBox facts; trace and manifest bind the same
+header/body/footer frame and repetition order used by Display and PDF.
 
 ## Checking and building
 
@@ -198,6 +248,18 @@ typaxis check-package job/document-package.json \
   --emit-diagnostics check-diagnostics.json
 ```
 
+For a contract 1.3 advanced package, select its matching immutable profile;
+the default never infers advanced behavior. For example:
+
+```text
+typaxis check-package job/document-package.json \
+  --package-root job \
+  --profile typaxis.machine-pdf/columns-1 \
+  --resource-root job \
+  --max-column-balance-candidates 2 \
+  --emit-diagnostics check-diagnostics.json
+```
+
 A successful check guarantees stable package/source admission, strict bounded
 JSON decoding, semantic source/TextMap validation, profile preflight, resource
 metadata admission, computed styles, and font-family resolution. It does not
@@ -235,7 +297,7 @@ errors.
 
 ## Diagnostics and locations
 
-Machine diagnostics are canonical JSON under `typaxis.contract/1.2`. A primary
+Machine diagnostics are canonical JSON under `typaxis.contract/1.3`. A primary
 location is either `byte` offset, package JSON Pointer, source byte location, or
 global/null. The main public code families are:
 
@@ -246,6 +308,7 @@ global/null. The main public code families are:
 | `L5100`, `L5101`, `L5110` | unsupported document/style capability or layout limit |
 | `R7100`, `R7110`, `R7111` | unsupported resource, image pixels, or decoded-image bytes |
 | `T2100`, `T2101`, `G6100` | text-buffer/text-total or PDF object limit |
+| `G6003`, `G6004` | column-balance candidate or float queue/carry bound |
 | `I9100`, `I9101`, `I9102` | package bytes, JSON depth, or host work limit |
 | `I9110`–`I9113` | host unavailable, unsafe package/source open, or stable-read/alias failure |
 | `I9190` | internal receipt/phase contradiction; producers MUST NOT retry as another input mode |
@@ -278,7 +341,11 @@ after layout selection and repeats the matching profile receipt hash. For
 canonical all-flow registry hash. Successful `table-1` artifacts contain the
 same canonical `table_layouts` projection, while successful `footnote-1`
 artifacts contain the same canonical `footnote_layout` projection. Other
-profiles omit those conditional members so their artifact bytes remain frozen.
+old profiles omit those conditional members so their artifact bytes remain
+frozen. A built advanced profile requires a byte-identical
+`advanced_pagination` projection in trace and manifest; it binds profile,
+complete flow registry, selected pages/frames/repetitions/balance/float state,
+and Display/PDF paint closure. Old profiles forbid that member.
 Receipt/profile/package/session substitution is an internal `I9190` failure,
 not a producer-recoverable fallback. A built manifest binds the file/stdout sink, PDF bytes,
 SHA-256, page count, and object count. A failed manifest has `output: null` and
@@ -299,7 +366,7 @@ typaxis dump-ast input.tsf --format json > document-package.json
 typaxis build-package document-package.json -o output.pdf
 ```
 
-`dump-ast` emits contract 1.2. Because its reference-TSF subset is also within
+`dump-ast` emits contract 1.3. Because its neutral reference-TSF subset is also within
 `paragraph-1`, the default profile remains valid for this round trip.
 
 Whitespace and object-member order may change raw JSON bytes and the raw hash;
@@ -333,6 +400,17 @@ The public footnote release gate is:
 python3 tools/verify_machine_profile.py \
   --repository . \
   --matrix samples/machine-package/matrices/m3-footnote.json \
+  --runs 2 \
+  --require-external-tools
+```
+
+The complete public M3 gate runs the table, footnote, columns, float, and
+header/footer combined fixtures together:
+
+```text
+python3 tools/verify_machine_profile.py \
+  --repository . \
+  --matrix samples/machine-package/matrices/m3-all.json \
   --runs 2 \
   --require-external-tools
 ```

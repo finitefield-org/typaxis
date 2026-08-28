@@ -1,6 +1,15 @@
-use typaxis_core::{push_jcs_string, sha256, MasterId, ValidatedResourceLimits};
+use typaxis_core::{
+    push_jcs_string, sha256, EffectiveConfig, LayoutStateFingerprint, MasterId,
+    PdfStreamCompression, ValidatedResourceLimits,
+};
 use typaxis_display_list::{
-    StagingHeaderFooterDisplay, StagingPdfPageBox, StagingSelectedPageBoxes,
+    StagingAdvancedContentBinding, StagingHeaderFooterDisplay, StagingHeaderFooterDisplayPage,
+    StagingPdfPageBox, StagingSelectedPageBoxes,
+};
+use typaxis_resources::AdmittedResourceLedger;
+
+use crate::advanced_content::{
+    prepare_advanced_pdf_content, AdvancedPdfContentObservation, AdvancedPdfContentPlan,
 };
 
 pub const STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM: &str =
@@ -68,7 +77,9 @@ impl StagingHeaderFooterPdfClosureReceipt {
 pub struct StagingHeaderFooterPdf {
     bytes: Vec<u8>,
     pages: Vec<StagingHeaderFooterPdfPageObservation>,
+    content: Option<AdvancedPdfContentObservation>,
     receipt: StagingHeaderFooterPdfClosureReceipt,
+    stream_compression: PdfStreamCompression,
 }
 
 impl StagingHeaderFooterPdf {
@@ -80,6 +91,25 @@ impl StagingHeaderFooterPdf {
     }
     pub const fn receipt(&self) -> &StagingHeaderFooterPdfClosureReceipt {
         &self.receipt
+    }
+
+    pub fn into_verified_receipt(
+        self,
+        selected_layout_sha256: [u8; 32],
+        config: &EffectiveConfig,
+    ) -> crate::VerifiedPdfBytesReceipt {
+        crate::VerifiedPdfBytesReceipt {
+            sha256: self.receipt.pdf_sha256,
+            selected_layout_fingerprint: LayoutStateFingerprint::from_untrusted_bytes(
+                selected_layout_sha256,
+            ),
+            footnote_display_sha256: None,
+            page_count: u32::try_from(self.pages.len()).expect("advanced page count is bounded"),
+            object_count: self.receipt.object_count,
+            stream_compression: self.stream_compression,
+            config_fingerprint: config.fingerprint(),
+            bytes: self.bytes,
+        }
     }
 
     pub fn verify_receipt(
@@ -112,11 +142,23 @@ impl StagingHeaderFooterPdf {
                 return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
             }
         }
-        let expected_objects = u32::try_from(self.pages.len())
+        let base_objects = u32::try_from(self.pages.len())
             .ok()
             .and_then(|pages| pages.checked_mul(2))
             .and_then(|pages| pages.checked_add(2))
             .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+        let expected_objects = base_objects
+            .checked_add(
+                self.content
+                    .as_ref()
+                    .map_or(0, AdvancedPdfContentObservation::extra_object_count),
+            )
+            .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+        match (&self.content, display.content()) {
+            (None, None) => {}
+            (Some(observation), Some(binding)) => observation.verify(binding, &self.bytes)?,
+            _ => return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch),
+        }
         let pdf_sha256 = sha256(&self.bytes);
         let canonical = encode_pdf_closure(
             display.receipt().paint_closure_sha256(),
@@ -163,17 +205,60 @@ pub fn serialize_staging_header_footer_pdf(
     display: &StagingHeaderFooterDisplay,
     limits: &ValidatedResourceLimits,
 ) -> Result<StagingHeaderFooterPdf, StagingHeaderFooterPdfError> {
+    serialize_header_footer_pdf_with_compression(display, limits, PdfStreamCompression::None, None)
+}
+
+pub fn serialize_header_footer_pdf(
+    display: &StagingHeaderFooterDisplay,
+    config: &EffectiveConfig,
+    admitted: &AdmittedResourceLedger,
+) -> Result<StagingHeaderFooterPdf, StagingHeaderFooterPdfError> {
+    serialize_header_footer_pdf_with_compression(
+        display,
+        config.limits(),
+        config.stream_compression(),
+        Some(admitted),
+    )
+}
+
+fn serialize_header_footer_pdf_with_compression(
+    display: &StagingHeaderFooterDisplay,
+    limits: &ValidatedResourceLimits,
+    stream_compression: PdfStreamCompression,
+    admitted: Option<&AdmittedResourceLedger>,
+) -> Result<StagingHeaderFooterPdf, StagingHeaderFooterPdfError> {
     display
         .verify_receipt()
         .map_err(|_| StagingHeaderFooterPdfError::DisplayClosureMismatch)?;
+    validate_advanced_content_resources(display.content(), admitted, display.pages().len())?;
     if display.pages().is_empty() {
         return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
     }
     let page_count = u32::try_from(display.pages().len())
         .map_err(|_| StagingHeaderFooterPdfError::ArithmeticOverflow)?;
-    let object_count = page_count
+    let base_object_count = page_count
         .checked_mul(2)
         .and_then(|value| value.checked_add(2))
+        .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
+    let page_boxes = display
+        .pages()
+        .iter()
+        .map(StagingHeaderFooterDisplayPage::boxes)
+        .collect::<Vec<_>>();
+    let content_plan = prepare_content_plan(
+        display.content(),
+        admitted,
+        &page_boxes,
+        base_object_count,
+        limits,
+        stream_compression,
+    )?;
+    let object_count = base_object_count
+        .checked_add(
+            content_plan
+                .as_ref()
+                .map_or(0, |plan| plan.observation().extra_object_count()),
+        )
         .ok_or(StagingHeaderFooterPdfError::ArithmeticOverflow)?;
     if object_count > limits.get().max_pdf_objects {
         return Err(StagingHeaderFooterPdfError::PageObjectLimit);
@@ -186,9 +271,15 @@ pub fn serialize_staging_header_footer_pdf(
         .try_reserve_exact(object_capacity)
         .map_err(|_| StagingHeaderFooterPdfError::AllocationFailure)?;
     let mut staged_payload_bytes = 0u64;
+    let catalog = format!(
+        "<< /Type /Catalog /Pages 2 0 R{} >>",
+        content_plan
+            .as_ref()
+            .map_or("", AdvancedPdfContentPlan::catalog_suffix)
+    );
     push_object(
         &mut objects,
-        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        catalog.into_bytes(),
         &mut staged_payload_bytes,
         limits.get().max_output_bytes,
     )?;
@@ -284,22 +375,32 @@ pub fn serialize_staging_header_footer_pdf(
                 limits.get().max_output_bytes,
             )?;
         }
-        let content_object = format!("<< /Length {} >>\nstream\n", content.len());
-        let mut content_bytes = Vec::new();
-        append_limited(
-            &mut content_bytes,
-            content_object.as_bytes(),
-            limits.get().max_output_bytes,
-        )?;
-        append_limited(&mut content_bytes, &content, limits.get().max_output_bytes)?;
-        append_limited(
-            &mut content_bytes,
-            b"endstream",
+        if let Some(plan) = content_plan
+            .as_ref()
+            .and_then(|plan| plan.page(page.page_index()))
+        {
+            append_limited(
+                &mut content,
+                plan.stream_suffix(),
+                limits.get().max_output_bytes,
+            )?;
+        }
+        let content_bytes = generated_stream_object(
+            "",
+            &content,
+            stream_compression,
             limits.get().max_output_bytes,
         )?;
         let boxes = page.boxes();
+        let (resources, annotations) = match content_plan
+            .as_ref()
+            .and_then(|plan| plan.page(page.page_index()))
+        {
+            Some(plan) => (plan.resources(), plan.annotation_suffix()),
+            None => ("/Resources << >>", ""),
+        };
         let page_object = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox {} /CropBox {} /TrimBox {} /Resources << >> /Contents {content_object_id} 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox {} /CropBox {} /TrimBox {} {resources} /Contents {content_object_id} 0 R{annotations} >>",
             pdf_box(boxes.media_box()),
             pdf_box(boxes.crop_box()),
             pdf_box(boxes.trim_box()),
@@ -325,6 +426,16 @@ pub fn serialize_staging_header_footer_pdf(
             command_count: page.command_count(),
         });
     }
+    if let Some(plan) = &content_plan {
+        for object in plan.objects() {
+            push_object(
+                &mut objects,
+                object.clone(),
+                &mut staged_payload_bytes,
+                limits.get().max_output_bytes,
+            )?;
+        }
+    }
     if objects.len() != object_capacity {
         return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
     }
@@ -346,10 +457,128 @@ pub fn serialize_staging_header_footer_pdf(
     let pdf = StagingHeaderFooterPdf {
         bytes,
         pages: observations,
+        content: content_plan.as_ref().map(|plan| plan.observation().clone()),
         receipt,
+        stream_compression,
     };
     pdf.verify_receipt(display)?;
     Ok(pdf)
+}
+
+fn prepare_content_plan(
+    content: Option<&StagingAdvancedContentBinding>,
+    admitted: Option<&AdmittedResourceLedger>,
+    page_boxes: &[StagingSelectedPageBoxes],
+    base_object_count: u32,
+    limits: &ValidatedResourceLimits,
+    stream_compression: PdfStreamCompression,
+) -> Result<Option<AdvancedPdfContentPlan>, StagingHeaderFooterPdfError> {
+    match (content, admitted) {
+        (None, None) => Ok(None),
+        (Some(content), Some(admitted)) => prepare_advanced_pdf_content(
+            content,
+            admitted,
+            page_boxes,
+            base_object_count,
+            limits,
+            stream_compression,
+        )
+        .map(Some),
+        _ => Err(StagingHeaderFooterPdfError::DisplayClosureMismatch),
+    }
+}
+
+pub(crate) fn validate_advanced_content_resources(
+    content: Option<&StagingAdvancedContentBinding>,
+    admitted: Option<&AdmittedResourceLedger>,
+    page_count: usize,
+) -> Result<(), StagingHeaderFooterPdfError> {
+    match (content, admitted) {
+        (None, None) => Ok(()),
+        (Some(content), Some(admitted)) => {
+            content
+                .verify(page_count)
+                .map_err(|_| StagingHeaderFooterPdfError::DisplayClosureMismatch)?;
+            if content.resource_ledger_sha256() != admitted.fingerprint().bytes()
+                || content
+                    .pages()
+                    .iter()
+                    .flat_map(|page| page.images())
+                    .any(|usage| admitted.image(usage.image_id()).is_none())
+            {
+                return Err(StagingHeaderFooterPdfError::DisplayClosureMismatch);
+            }
+            Ok(())
+        }
+        _ => Err(StagingHeaderFooterPdfError::DisplayClosureMismatch),
+    }
+}
+
+pub(crate) fn append_actual_text(
+    output: &mut Vec<u8>,
+    text: &str,
+    max_output_bytes: u64,
+) -> Result<(), StagingHeaderFooterPdfError> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    append_limited(output, b"/Span << /ActualText <FEFF", max_output_bytes)?;
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    for unit in text.encode_utf16() {
+        let bytes = unit.to_be_bytes();
+        let encoded = [
+            HEX[usize::from(bytes[0] >> 4)],
+            HEX[usize::from(bytes[0] & 0x0f)],
+            HEX[usize::from(bytes[1] >> 4)],
+            HEX[usize::from(bytes[1] & 0x0f)],
+        ];
+        append_limited(output, &encoded, max_output_bytes)?;
+    }
+    append_limited(
+        output,
+        b"> >> BDC\nBT /F0 8 Tf 0 Tr 1 8 Td <",
+        max_output_bytes,
+    )?;
+    for character in text.chars() {
+        let byte = if character.is_ascii() && !character.is_ascii_control() {
+            u8::try_from(u32::from(character))
+                .map_err(|_| StagingHeaderFooterPdfError::DisplayClosureMismatch)?
+        } else {
+            b'?'
+        };
+        let encoded = [HEX[usize::from(byte >> 4)], HEX[usize::from(byte & 0x0f)]];
+        append_limited(output, &encoded, max_output_bytes)?;
+    }
+    append_limited(output, b"> Tj ET\nEMC\n", max_output_bytes)
+}
+
+pub(super) fn generated_stream_object(
+    dictionary_entries: &str,
+    raw_data: &[u8],
+    compression: PdfStreamCompression,
+    max_output_bytes: u64,
+) -> Result<Vec<u8>, StagingHeaderFooterPdfError> {
+    let encoded;
+    let (data, filter) = match compression {
+        PdfStreamCompression::None => (raw_data, ""),
+        PdfStreamCompression::Flate => {
+            encoded = crate::zlib_stored(raw_data, max_output_bytes)
+                .map_err(|_| StagingHeaderFooterPdfError::OutputLimit)?;
+            (encoded.as_slice(), " /Filter /FlateDecode")
+        }
+    };
+    let mut output = Vec::new();
+    let header = format!(
+        "<<{dictionary_entries}{filter} /Length {} >>\nstream\n",
+        data.len()
+    );
+    append_limited(&mut output, header.as_bytes(), max_output_bytes)?;
+    append_limited(&mut output, data, max_output_bytes)?;
+    if !data.ends_with(b"\n") {
+        append_limited(&mut output, b"\n", max_output_bytes)?;
+    }
+    append_limited(&mut output, b"endstream", max_output_bytes)?;
+    Ok(output)
 }
 
 pub(super) fn push_object(

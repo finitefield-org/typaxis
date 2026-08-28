@@ -507,7 +507,7 @@ fn public_machine_commands_execute_fixtures_and_capabilities_ignore_ambient_inpu
     assert!(manifest_text.contains("\"input_profile\":\"typaxis.machine-pdf/paragraph-1\""));
     assert_eq!(
         fs::read_to_string(&diagnostics).unwrap(),
-        "{\"contract\":\"typaxis.contract/1.2\",\"diagnostics\":[]}"
+        "{\"contract\":\"typaxis.contract/1.3\",\"diagnostics\":[]}"
     );
 
     let check_diagnostics = output.path().join("check-diagnostics.json");
@@ -646,7 +646,7 @@ fn basic_document_profile_executes_the_combined_public_fixture() {
     assert!(manifest.contains("\"flow_registry_sha256\":\""));
     assert_eq!(
         fs::read_to_string(diagnostics).unwrap(),
-        "{\"contract\":\"typaxis.contract/1.2\",\"diagnostics\":[]}"
+        "{\"contract\":\"typaxis.contract/1.3\",\"diagnostics\":[]}"
     );
 
     let rejected_by_paragraph = run(
@@ -755,7 +755,7 @@ fn empty_build_publishes_pdf_trace_and_manifest_atomically() {
     let first_manifest = fs::read(&manifest).unwrap();
     assert!(first_pdf.starts_with(b"%PDF-1.7\n"));
     assert!(first_pdf.ends_with(b"%%EOF\n"));
-    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.2\""));
+    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.3\""));
     assert!(first_manifest
         .windows(16)
         .any(|window| window == b"\"status\":\"built\""));
@@ -983,7 +983,7 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(ast.status.success());
     let ast = String::from_utf8(ast.stdout).unwrap();
-    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
+    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.3\""));
     assert!(ast.contains("\"anchor_id\":\"target\""));
     assert!(!ast.ends_with('\n'));
 
@@ -1007,7 +1007,7 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(layout.status.success());
     let layout = String::from_utf8(layout.stdout).unwrap();
-    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
+    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.3\""));
     assert!(layout.contains("\"fragments\":[{"));
     assert!(!layout.ends_with('\n'));
 

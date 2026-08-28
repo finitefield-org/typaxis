@@ -3,34 +3,33 @@
 Canonical current-output wire identifier:
 
 ```text
-typaxis.contract/1.2
+typaxis.contract/1.3
 ```
 
 Current canonical JSON encoders and normalized `EffectiveConfig` values emit
-this exact value. Top-level `schemas/*.schema.json` files are the current 1.2
-aliases. The complete independent 1.2 registry is under `schemas/1.2/`; the
-former eleven-schema 1.1 registry and the seven-schema 1.0 registry are frozen
-byte-for-byte under `schemas/1.1/` and `schemas/1.0/`. A frozen registry is
-never populated with a later shape. The design-package release is `1.0.0`; the
-reference Rust workspace uses crate version `0.1.0`. Neither version substitutes
-for the wire-contract identifier.
+this exact value. Top-level `schemas/*.schema.json` files are the current 1.3
+aliases. The complete independent 1.3 registry is under `schemas/1.3/`;
+the nineteen-schema 1.2 registry, eleven-schema 1.1 registry, and seven-schema
+1.0 registry are frozen byte-for-byte in their version directories. A frozen
+registry is never populated with a later shape. The design-package release is
+`1.0.0`; the reference Rust workspace uses crate version `0.1.0`. Neither
+version substitutes for the wire-contract identifier.
 
-DocumentPackage input parsing recognizes exactly `typaxis.contract/1.0`,
-`typaxis.contract/1.1`, and `typaxis.contract/1.2`. The default
-`typaxis.machine-pdf/paragraph-1` profile accepts all three identifiers while
-retaining its frozen semantic subset. Explicit
-`typaxis.machine-pdf/basic-document-1`, `typaxis.machine-pdf/footnote-1`, and
-`typaxis.machine-pdf/table-1` require raw contract 1.2; a 1.0 or 1.1 package is
-rejected at `/contract` and is never upgraded by synthesizing additive style,
-footnote, or table semantics. Unknown identifiers never fall back to the
-current contract or newest profile.
+DocumentPackage input parsing recognizes exactly `typaxis.contract/1.0`
+through `typaxis.contract/1.3`. The default
+`typaxis.machine-pdf/paragraph-1` accepts all four identifiers while retaining
+its frozen semantic subset. Explicit `basic-document-1`, `footnote-1`, and
+`table-1` accept raw 1.2 and the exact neutral 1.3 encoding of the same frozen
+semantics; raw 1.0/1.1 and non-neutral 1.3 are rejected. The public
+`header-footer-1`, `columns-1`, and `float-1` profiles require raw 1.3.
+Unknown identifiers never fall back to the current contract or newest profile.
 
-Raw configuration input recognizes the same closed contract set. A raw 1.0
-configuration receives defaults for fields added after 1.0. Semantically equal
-1.0, 1.1, and 1.2 inputs normalize to the same current 1.2 `EffectiveConfig`
-before hashing. Compatibility input never changes the producer rule:
-diagnostics, manifests, traces, display lists, normalized configs,
-capabilities, and `dump-ast` output use 1.2.
+Raw configuration input recognizes the same closed contract set. Earlier raw
+configurations receive the defaults added by later compatible contracts.
+Semantically equal 1.0, 1.1, 1.2, and 1.3 inputs normalize to the same current
+1.3 `EffectiveConfig` before hashing. Compatibility input never changes the
+producer rule: diagnostics, manifests, traces, display lists, normalized
+configs, capabilities, and `dump-ast` output use 1.3.
 
 Contract 1.2 adds the closed style-property names `space_before`,
 `space_after`, `start_indent`, `end_indent`, `text_align`, `width`,
@@ -50,28 +49,27 @@ backward-compatible additive wire change requires a new minor value. Editorial
 changes that do not alter observable contract meaning do not increment the
 value. A new shape must never be published under a frozen identifier.
 
-## Adopted 1.3 migration target
+## Published 1.3 migration
 
-[ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md) reserves the next
-minor identifier `typaxis.contract/1.3` and DocumentPackage Schema `$id`
+[ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md) adopted the minor
+identifier `typaxis.contract/1.3` and DocumentPackage Schema `$id`
 `https://schemas.typaxis.invalid/1.3/document-package.schema.json`. Contract
 1.3 adds explicit horizontal/LTR page progression, trim, master-owned
 header/footer content, column layout, and Figure `block`/`float` placement.
-Those additions are contract-defined but are not current or public at ADR
-adoption. MI3-09 through MI3-11 use crate-private staging; MI3-12 alone may
-freeze `schemas/1.3/` and switch current aliases and encoders.
+MI3-09 through MI3-11 implemented the three vertical slices privately; MI3-12
+froze `schemas/1.3/` and switched the current aliases and encoders atomically.
 
-MI3-12 must switch the contract enum/decoder, serializer, `dump-ast`, normalized
-config, diagnostics, trace, manifest, capabilities, top-level Schema aliases,
-profile dispatch, and public help in one repository change set. Before that
-gate, public input 1.3 is `P1103`, all canonical output remains 1.2, and the
-public profile/default set is unchanged.
+The publication switched the contract enum/decoder, serializer, `dump-ast`,
+normalized config, diagnostics, trace, manifest, capabilities, top-level
+Schema aliases, profile dispatch, and public help in one repository change
+set. Dedicated private advanced runners were removed; all three profiles use
+the ordinary package pipeline and the default remains unchanged.
 
-After the gate, `paragraph-1` accepts raw 1.0 through 1.3 only for its frozen
+`paragraph-1` accepts raw 1.0 through 1.3 only for its frozen
 semantic subset. `basic-document-1`, `table-1`, and `footnote-1` accept raw
 1.2 and the exact neutral 1.3 encoding of the same frozen semantics; any
 custom trim, page-region content, column layout, or floating Figure remains a
 profile error. The new `header-footer-1`, `columns-1`, and `float-1` profiles
-require raw 1.3. All canonical output then uses 1.3, while 1.0, 1.1, and 1.2
+require raw 1.3. All canonical output uses 1.3, while 1.0, 1.1, and 1.2
 registries remain independent and frozen. The default remains
 `typaxis.machine-pdf/paragraph-1`; no raw contract or profile falls forward.

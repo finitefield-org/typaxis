@@ -15,7 +15,7 @@ use typaxis_core::{
     GeneratedBufferKey, GenerationKind, ImageResourceId, JsonPointer, Length, MasterId, NodeId,
     PageName, PortablePath, PositiveLength, Rect, ReferenceFingerprint, SafeUri, SafeUriError,
     SourceId, SourceSpan, StyleFingerprint, StyleId, TextBufferId, TextSpan, Utf8ByteOffset,
-    Utf8ByteRange, ValidatedResourceLimits, CONTRACT, COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
+    Utf8ByteRange, ValidatedResourceLimits, COORDINATE_UNIT, DEFAULT_ALLOWED_URI_SCHEMES,
 };
 use typaxis_diagnostics::{
     AdvisoryDiagnostic, Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticFlow,
@@ -116,9 +116,13 @@ impl std::error::Error for DocumentPackageConversionError {}
 fn parsed_package_to_wire(
     package: &ParsedPackage,
 ) -> Result<WireDocumentPackage, DocumentPackageConversionError> {
+    let document = wire_document(&package.document);
+    let page_masters = wire_page_masters(&package.page_masters);
+    let advanced = neutral_wire_advanced_extension(&document, &page_masters);
     Ok(WireDocumentPackage {
         contract: typaxis_core::DocumentPackageContractId::CURRENT,
         coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+        advanced: Some(advanced),
         sources: package
             .sources
             .records()
@@ -152,11 +156,87 @@ fn parsed_package_to_wire(
                     .collect(),
             })
             .collect(),
-        document: wire_document(&package.document),
+        document,
         style_sheet: wire_style_sheet(&package.style_sheet)?,
-        page_masters: wire_page_masters(&package.page_masters),
+        page_masters,
         resources: wire_resources(&package.resources),
     })
+}
+
+fn neutral_wire_advanced_extension(
+    document: &wire::WireDocument,
+    page_masters: &wire::WirePageMasterSet,
+) -> wire::WireAdvancedDocumentPackageExtension {
+    let mut figure_placements = Vec::new();
+    for block in &document.blocks {
+        collect_neutral_figure_placements(block, &mut figure_placements);
+    }
+    for footnote in &document.footnotes {
+        for block in &footnote.blocks {
+            collect_neutral_figure_placements(block, &mut figure_placements);
+        }
+    }
+    figure_placements.sort_by_key(|record| record.node_id);
+    wire::WireAdvancedDocumentPackageExtension {
+        page_masters: wire::WireAdvancedPageMasterSet {
+            page_progression: wire::WirePageProgression::LeftToRight,
+            writing_mode: wire::WirePageWritingMode::HorizontalTopToBottom,
+            masters: page_masters
+                .masters
+                .iter()
+                .map(|master| wire::WireAdvancedPageMaster {
+                    master_id: master.master_id.clone(),
+                    trim: wire::WireRect {
+                        x: 0,
+                        y: 0,
+                        width: master.width,
+                        height: master.height,
+                    },
+                    header_content: None,
+                    footer_content: None,
+                    column_layout: None,
+                })
+                .collect(),
+        },
+        figure_placements,
+    }
+}
+
+fn collect_neutral_figure_placements(
+    block: &wire::WireBlock,
+    output: &mut Vec<wire::WireFigurePlacementRecord>,
+) {
+    match block {
+        wire::WireBlock::Figure {
+            node_id, caption, ..
+        } => {
+            output.push(wire::WireFigurePlacementRecord {
+                node_id: *node_id,
+                placement: wire::WireFigurePlacement::Block,
+            });
+            for block in caption {
+                collect_neutral_figure_placements(block, output);
+            }
+        }
+        wire::WireBlock::List { items, .. } => {
+            for block in items.iter().flat_map(|item| &item.blocks) {
+                collect_neutral_figure_placements(block, output);
+            }
+        }
+        wire::WireBlock::Table { head, body, .. } => {
+            for block in head
+                .iter()
+                .chain(body)
+                .flat_map(|row| &row.cells)
+                .flat_map(|cell| &cell.blocks)
+            {
+                collect_neutral_figure_placements(block, output);
+            }
+        }
+        wire::WireBlock::Paragraph { .. }
+        | wire::WireBlock::Heading { .. }
+        | wire::WireBlock::PageBreak { .. } => {}
+    }
 }
 
 fn wire_document(document: &Document) -> wire::WireDocument {
@@ -1063,7 +1143,11 @@ fn encode_document_fingerprint_record(package: &ParsedPackage) -> String {
     let mut output = String::from("{\"algorithm\":");
     push_jcs_string(&mut output, DocumentFingerprint::ALGORITHM_ID);
     output.push_str(",\"contract\":");
-    push_jcs_string(&mut output, CONTRACT);
+    // This fingerprint algorithm was published with the 1.2 normalized
+    // document domain. Contract 1.3 adds syntax-owned pagination facts that
+    // are bound by their own receipts; changing this discriminator would
+    // silently rewrite every frozen 1.0--1.2 document identity.
+    push_jcs_string(&mut output, "typaxis.contract/1.2");
     output.push_str(",\"coordinate_unit\":");
     push_jcs_string(&mut output, COORDINATE_UNIT);
     output.push_str(",\"document\":");
@@ -2164,6 +2248,7 @@ pub enum MachineParseFailureKind {
     InvalidLength,
     InvalidTableShape,
     InvalidUri,
+    AdvancedSyntax(StagingAdvancedSyntaxFailure),
     PackageValidation(PackageValidationError),
 }
 
@@ -2196,6 +2281,7 @@ impl MachineParseFailureKind {
                 | PackageValidationError::IncludeGraphMismatch
                 | PackageValidationError::UnresolvedIncludeDirective,
             ) => PublicMachineError::SourceProfile,
+            Self::AdvancedSyntax(_) => PublicMachineError::PackageMember,
             _ => PublicMachineError::PackageMember,
         }
     }
@@ -2228,6 +2314,37 @@ impl MachineParseFailureKind {
             Self::InvalidLength => "length is invalid",
             Self::InvalidTableShape => "table shape is invalid",
             Self::InvalidUri => "URI is invalid",
+            Self::AdvancedSyntax(error) => match error {
+                StagingAdvancedSyntaxFailure::MasterExtensionMismatch => {
+                    "advanced page-master extension does not match"
+                }
+                StagingAdvancedSyntaxFailure::InvalidLength => {
+                    "advanced fixed-point length is invalid"
+                }
+                StagingAdvancedSyntaxFailure::InvalidNodeOrder => {
+                    "advanced node ID order is not canonical"
+                }
+                StagingAdvancedSyntaxFailure::InvalidSourceSpan => {
+                    "advanced source span is invalid"
+                }
+                StagingAdvancedSyntaxFailure::InvalidTextSpan => "advanced text span is invalid",
+                StagingAdvancedSyntaxFailure::InvalidClass => "advanced block class is invalid",
+                StagingAdvancedSyntaxFailure::InvalidHeadingLevel => {
+                    "advanced heading level is invalid"
+                }
+                StagingAdvancedSyntaxFailure::InvalidFigurePlacement => {
+                    "advanced Figure placement registry does not match"
+                }
+                StagingAdvancedSyntaxFailure::AstNodeLimit => {
+                    "advanced AST node limit was exceeded"
+                }
+                StagingAdvancedSyntaxFailure::AstDepthLimit => {
+                    "advanced AST nesting depth limit was exceeded"
+                }
+                StagingAdvancedSyntaxFailure::ArithmeticOverflow => {
+                    "advanced syntax arithmetic overflowed"
+                }
+            },
             Self::PackageValidation(error) => package_validation_canonical_message(error),
         }
     }
@@ -2480,6 +2597,7 @@ impl ValidatedMachineProvenance {
 #[derive(Debug)]
 pub struct ValidatedMachinePackage {
     package: ValidatedParsedPackage,
+    advanced: Option<ValidatedStagingAdvancedPackage>,
     provenance: ValidatedMachineProvenance,
 }
 
@@ -2490,6 +2608,12 @@ impl ValidatedMachinePackage {
 
     pub const fn provenance(&self) -> &ValidatedMachineProvenance {
         &self.provenance
+    }
+
+    /// Contract-1.3 facts issued by the ordinary syntax owner. Older raw
+    /// contracts have no advanced view and are never upgraded implicitly.
+    pub const fn advanced_view(&self) -> Option<&ValidatedStagingAdvancedPackage> {
+        self.advanced.as_ref()
     }
 
     /// Raw contract selected by the strict decoder. Compatibility input keeps
@@ -2503,16 +2627,19 @@ impl ValidatedMachinePackage {
     }
 
     /// Issue the syntax-owned view consumed by the immutable basic-document
-    /// slices. Only raw contract 1.2 input can cross this boundary; 1.0/1.1
-    /// compatibility input is never upgraded by the selected profile.
+    /// slices. Raw 1.3 can cross only after its extension has been validated;
+    /// profile preflight separately requires its exact neutral encoding.
     pub fn basic_document_view(&self) -> Option<ValidatedBasicDocumentPackage> {
-        (self.contract() == typaxis_core::DocumentPackageContractId::V1_2).then(|| {
-            ValidatedStagingStylePackage {
-                package: self.package.clone(),
-                raw_sha256: self.provenance.raw_sha256,
-                canonical_jcs_sha256: self.provenance.canonical_jcs_sha256,
-                locations: self.provenance.locations.clone(),
-            }
+        matches!(
+            self.contract(),
+            typaxis_core::DocumentPackageContractId::V1_2
+                | typaxis_core::DocumentPackageContractId::V1_3
+        )
+        .then(|| ValidatedStagingStylePackage {
+            package: self.package.clone(),
+            raw_sha256: self.provenance.raw_sha256,
+            canonical_jcs_sha256: self.provenance.canonical_jcs_sha256,
+            locations: self.provenance.locations.clone(),
         })
     }
 }
@@ -2551,10 +2678,11 @@ impl DocumentPackageParser {
     ) -> MachineParseOutcome {
         let (decoded, sources, admission) = input.into_parts();
         match lower_machine_package(decoded, sources, &admission, policy) {
-            Ok((package, raw_sha256, canonical_jcs_sha256, locations)) => {
+            Ok((package, advanced, raw_sha256, canonical_jcs_sha256, locations)) => {
                 MachineParseOutcome::Parsed {
                     package: Box::new(ValidatedMachinePackage {
                         package,
+                        advanced,
                         provenance: ValidatedMachineProvenance {
                             admission,
                             raw_sha256,
@@ -3989,6 +4117,7 @@ impl StagingStylePackageParser {
         let WireDocumentPackage {
             contract: _,
             coordinate_unit: _,
+            advanced: _,
             sources,
             text_buffers,
             document,
@@ -4081,6 +4210,7 @@ fn lower_machine_package(
 ) -> Result<
     (
         ValidatedParsedPackage,
+        Option<ValidatedStagingAdvancedPackage>,
         RawDocumentPackageSha256,
         CanonicalDocumentPackageJcsSha256,
         JsonLocationIndex,
@@ -4098,10 +4228,15 @@ fn lower_machine_package(
     )?;
     preflight_wire_semantics(&wire, policy.limits, &locations)?;
 
-    let extended_style_contract = wire.contract == typaxis_core::DocumentPackageContractId::V1_2;
+    let extended_style_contract = matches!(
+        wire.contract,
+        typaxis_core::DocumentPackageContractId::V1_2
+            | typaxis_core::DocumentPackageContractId::V1_3
+    );
     let WireDocumentPackage {
         contract: _,
         coordinate_unit: _,
+        advanced,
         sources,
         text_buffers,
         document,
@@ -4138,7 +4273,30 @@ fn lower_machine_package(
         extended_style_contract,
         |package, error| machine_validation_failure(package, error, &locations),
     )?;
-    Ok((package, raw_sha256, canonical_jcs_sha256, locations))
+    let advanced = advanced
+        .map(|extension| {
+            advanced::validate_current_advanced_extension(
+                package.clone(),
+                extension,
+                raw_sha256.into_bytes(),
+                canonical_jcs_sha256.into_bytes(),
+                policy.limits,
+            )
+            .map_err(|error| {
+                MachineParseFailure::package(
+                    MachineParseFailureKind::AdvancedSyntax(error),
+                    JsonPointer::root(),
+                )
+            })
+        })
+        .transpose()?;
+    Ok((
+        package,
+        advanced,
+        raw_sha256,
+        canonical_jcs_sha256,
+        locations,
+    ))
 }
 
 fn recheck_machine_admission(
@@ -7570,6 +7728,7 @@ mod tests {
         WireDocumentPackage {
             contract: typaxis_core::DocumentPackageContractId::CONTRACT_1_0,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "input.tsf".to_owned(),

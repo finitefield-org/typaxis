@@ -83,16 +83,34 @@ impl From<StagingAdvancedSyntaxFailure> for StagingAdvancedPackageParseError {
     }
 }
 
-/// Syntax-issued private 1.3 package.  Public `ValidatedMachinePackage`
-/// remains tied to the current decoder and therefore cannot be forged from or
-/// silently upgraded to this receipt.
-#[derive(Debug, Eq, PartialEq)]
+/// Syntax-issued current 1.3 extension receipt. `ValidatedMachinePackage`
+/// retains it behind the ordinary public pipeline boundary, so callers cannot
+/// forge or silently upgrade an older-contract package into this state.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatedStagingAdvancedPackage {
     package: ValidatedParsedPackage,
     page_masters: AdvancedPageMasterSet,
     figure_placements: BTreeMap<NodeId, FigurePlacement>,
     raw_sha256: [u8; 32],
     canonical_jcs_sha256: [u8; 32],
+}
+
+pub(super) fn validate_current_advanced_extension(
+    package: ValidatedParsedPackage,
+    extension: wire::WireAdvancedDocumentPackageExtension,
+    raw_sha256: [u8; 32],
+    canonical_jcs_sha256: [u8; 32],
+    limits: &ValidatedResourceLimits,
+) -> Result<ValidatedStagingAdvancedPackage, StagingAdvancedSyntaxFailure> {
+    let page_masters = lower_advanced_page_masters(&package, extension.page_masters, limits)?;
+    let figure_placements = validate_figure_placements(&package, extension.figure_placements)?;
+    Ok(ValidatedStagingAdvancedPackage {
+        package,
+        page_masters,
+        figure_placements,
+        raw_sha256,
+        canonical_jcs_sha256,
+    })
 }
 
 impl ValidatedStagingAdvancedPackage {
@@ -123,6 +141,29 @@ impl ValidatedStagingAdvancedPackage {
     pub const fn canonical_jcs_sha256(&self) -> [u8; 32] {
         self.canonical_jcs_sha256
     }
+
+    pub fn is_neutral_extension(&self) -> bool {
+        self.page_masters.masters.iter().all(|extension| {
+            self.package
+                .package()
+                .page_masters
+                .masters
+                .iter()
+                .find(|master| master.master_id == extension.master_id)
+                .is_some_and(|master| {
+                    extension.trim.x().raw() == 0
+                        && extension.trim.y().raw() == 0
+                        && extension.trim.width().get() == master.width.get()
+                        && extension.trim.height().get() == master.height.get()
+                        && extension.header_content.is_none()
+                        && extension.footer_content.is_none()
+                        && extension.column_layout.is_none()
+                })
+        }) && self
+            .figure_placements
+            .values()
+            .all(|placement| *placement == FigurePlacement::Block)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -145,6 +186,7 @@ impl StagingAdvancedPackageParser {
         let wire::WireDocumentPackage {
             contract: _,
             coordinate_unit: _,
+            advanced: _,
             sources,
             text_buffers,
             document,

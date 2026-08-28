@@ -5,7 +5,11 @@ use typaxis_pagination::{
     StagingAdvancedPageFrameKind, StagingFloatSelectedLayout, StagingPdfPageBox,
     StagingSelectedPageBoxes,
 };
+use typaxis_syntax::ValidatedStagingAdvancedPackage;
 
+use crate::advanced_content::{
+    bind_advanced_content, push_content_binding, StagingAdvancedContentBinding,
+};
 use crate::advanced_header_footer::ADVANCED_PAINT_CLOSURE_ALGORITHM;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,6 +144,7 @@ impl StagingFloatDisplayReceipt {
 pub struct StagingFloatDisplay {
     pages: Vec<StagingFloatDisplayPage>,
     commands: Vec<StagingFloatPaintCommand>,
+    content: Option<StagingAdvancedContentBinding>,
     receipt: StagingFloatDisplayReceipt,
 }
 
@@ -150,8 +155,61 @@ impl StagingFloatDisplay {
     pub fn commands(&self) -> &[StagingFloatPaintCommand] {
         &self.commands
     }
+    pub const fn content(&self) -> Option<&StagingAdvancedContentBinding> {
+        self.content.as_ref()
+    }
     pub const fn receipt(&self) -> &StagingFloatDisplayReceipt {
         &self.receipt
+    }
+
+    pub fn bind_package_content(
+        &mut self,
+        package: &ValidatedStagingAdvancedPackage,
+        resource_ledger_sha256: [u8; 32],
+    ) -> Result<(), StagingFloatDisplayError> {
+        if self.content.is_some() {
+            return Err(StagingFloatDisplayError::SelectedLayoutMismatch);
+        }
+        let mut page_nodes = Vec::new();
+        page_nodes
+            .try_reserve_exact(self.pages.len())
+            .map_err(|_| StagingFloatDisplayError::AllocationFailure)?;
+        for page in &self.pages {
+            let first = usize::try_from(page.first_command)
+                .map_err(|_| StagingFloatDisplayError::ArithmeticOverflow)?;
+            let end = first
+                .checked_add(
+                    usize::try_from(page.command_count)
+                        .map_err(|_| StagingFloatDisplayError::ArithmeticOverflow)?,
+                )
+                .ok_or(StagingFloatDisplayError::ArithmeticOverflow)?;
+            page_nodes.push(
+                self.commands
+                    .get(first..end)
+                    .ok_or(StagingFloatDisplayError::PaintClosure)?
+                    .iter()
+                    .map(StagingFloatPaintCommand::node_id)
+                    .collect(),
+            );
+        }
+        self.content = Some(
+            bind_advanced_content(package, resource_ledger_sha256, page_nodes)
+                .map_err(|_| StagingFloatDisplayError::SelectedLayoutMismatch)?,
+        );
+        self.reissue_receipt();
+        self.verify_receipt()
+    }
+
+    fn reissue_receipt(&mut self) {
+        self.receipt.canonical_jcs = encode_display(
+            self.receipt.profile_receipt_sha256,
+            self.receipt.flow_registry_sha256,
+            self.receipt.selected_layout_sha256,
+            &self.pages,
+            &self.commands,
+            self.content.as_ref(),
+        );
+        self.receipt.paint_closure_sha256 = sha256(self.receipt.canonical_jcs.as_bytes());
     }
 
     pub fn verify_receipt(&self) -> Result<(), StagingFloatDisplayError> {
@@ -231,7 +289,15 @@ impl StagingFloatDisplay {
             self.receipt.selected_layout_sha256,
             &self.pages,
             &self.commands,
+            self.content.as_ref(),
         );
+        if self
+            .content
+            .as_ref()
+            .is_some_and(|content| content.verify(self.pages.len()).is_err())
+        {
+            return Err(StagingFloatDisplayError::SelectedLayoutMismatch);
+        }
         if canonical != self.receipt.canonical_jcs
             || sha256(canonical.as_bytes()) != self.receipt.paint_closure_sha256
         {
@@ -388,6 +454,7 @@ pub fn build_staging_float_display(
         selected.receipt().selected_layout_sha256(),
         &pages,
         &commands,
+        None,
     );
     let receipt = StagingFloatDisplayReceipt {
         profile_receipt_sha256: selected.receipt().profile_receipt_sha256(),
@@ -399,6 +466,7 @@ pub fn build_staging_float_display(
     let display = StagingFloatDisplay {
         pages,
         commands,
+        content: None,
         receipt,
     };
     display.verify_receipt()?;
@@ -430,6 +498,7 @@ fn encode_display(
     selected_layout_sha256: [u8; 32],
     pages: &[StagingFloatDisplayPage],
     commands: &[StagingFloatPaintCommand],
+    content: Option<&StagingAdvancedContentBinding>,
 ) -> String {
     let mut output = String::from("{\"algorithm\":");
     push_jcs_string(&mut output, ADVANCED_PAINT_CLOSURE_ALGORITHM);
@@ -470,7 +539,13 @@ fn encode_display(
         output.push_str(&command.source_flow_id.get().to_string());
         output.push('}');
     }
-    output.push_str("],\"flow_registry_sha256\":");
+    if let Some(content) = content {
+        output.push_str("],\"content\":");
+        push_content_binding(&mut output, content);
+    } else {
+        output.push(']');
+    }
+    output.push_str(",\"flow_registry_sha256\":");
     push_hex(&mut output, flow_registry_sha256);
     output.push_str(",\"pages\":[");
     for (index, page) in pages.iter().enumerate() {

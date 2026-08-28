@@ -15,7 +15,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 PROFILE = "typaxis.machine-pdf/paragraph-1"
 BASIC_PROFILE = "typaxis.machine-pdf/basic-document-1"
+COLUMNS_PROFILE = "typaxis.machine-pdf/columns-1"
+FLOAT_PROFILE = "typaxis.machine-pdf/float-1"
 FOOTNOTE_PROFILE = "typaxis.machine-pdf/footnote-1"
+HEADER_FOOTER_PROFILE = "typaxis.machine-pdf/header-footer-1"
 TABLE_PROFILE = "typaxis.machine-pdf/table-1"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 PHRASE = "Typaxis machine input"
@@ -651,6 +654,239 @@ def basic_document_combined_package(
     return package
 
 
+def advanced_package_base(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    """Encode the complete M2 domain in the required neutral 1.3 shape."""
+    package = basic_document_combined_package(ttf, ttc, png)
+    package["contract"] = "typaxis.contract/1.3"
+    page_masters = package["page_masters"]
+    page_masters["page_progression"] = "ltr"
+    page_masters["writing_mode"] = "horizontal-tb"
+    for master in page_masters["masters"]:
+        master["trim"] = {
+            "x": 0,
+            "y": 0,
+            "width": master["width"],
+            "height": master["height"],
+        }
+        master["header_content"] = None
+        master["footer_content"] = None
+        master["column_layout"] = None
+
+    def add_block_placement(block: dict[str, Any]) -> None:
+        kind = block["kind"]
+        if kind == "figure":
+            block["placement"] = "block"
+            for caption in block["caption"]:
+                add_block_placement(caption)
+        elif kind == "list":
+            for item in block["items"]:
+                for child in item["blocks"]:
+                    add_block_placement(child)
+        elif kind == "table":
+            for row in [*block["head"], *block["body"]]:
+                for cell in row["cells"]:
+                    for child in cell["blocks"]:
+                        add_block_placement(child)
+
+    for block in package["document"]["blocks"]:
+        add_block_placement(block)
+    for definition in package["document"]["footnotes"]:
+        for block in definition["blocks"]:
+            add_block_placement(block)
+    return package
+
+
+def columns_document_combined_package(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    package = advanced_package_base(ttf, ttc, png)
+    package["page_masters"]["masters"][0]["column_layout"] = {
+        "balance": "last_page",
+        "count": 2,
+        "fill": "sequential",
+        "gap": 65_536,
+    }
+    return package
+
+
+def float_document_combined_package(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    package = advanced_package_base(ttf, ttc, png)
+    package["page_masters"]["masters"][0]["column_layout"] = {
+        "balance": "none",
+        "count": 2,
+        "fill": "sequential",
+        "gap": 65_536,
+    }
+    package["style_sheet"]["rules"].append(
+        {
+            "style_id": "floating-figure",
+            "extends": None,
+            "selector": "figure.float",
+            "source_order": len(package["style_sheet"]["rules"]),
+            "declarations": [
+                {
+                    "name": name,
+                    "value": {"kind": "length", "value": 0},
+                    "important": False,
+                }
+                for name in [
+                    "space_before",
+                    "space_after",
+                    "start_indent",
+                    "end_indent",
+                ]
+            ],
+        }
+    )
+    for node_id in range(25, 65):
+        package["document"]["blocks"].append(
+            {
+                "kind": "figure",
+                "node_id": node_id,
+                "span": span(),
+                "classes": ["float"],
+                "image_id": 0,
+                "alt": f"queue float {node_id}",
+                "caption": [],
+                "placement": "float",
+            }
+        )
+    return package
+
+
+def header_footer_document_combined_package(
+    ttf: bytes, ttc: bytes, png: bytes
+) -> dict[str, Any]:
+    package = advanced_package_base(ttf, ttc, png)
+    package["document"]["blocks"].append(
+        {"kind": "page_break", "node_id": 25, "span": span(), "classes": []}
+    )
+    region_texts = [
+        "First header",
+        "First footer",
+        "Left header",
+        "Left footer",
+        "Right header",
+        "Right footer",
+    ]
+    first_text_id = len(package["text_buffers"])
+    package["text_buffers"].extend(
+        {
+            "text_id": first_text_id + ordinal,
+            "utf8": value,
+            "mappings": [
+                {
+                    "text_range": {
+                        "start_byte": 0,
+                        "end_byte": len(value.encode("utf-8")),
+                    },
+                    "kind": "inserted",
+                    "source_span": None,
+                }
+            ],
+        }
+        for ordinal, value in enumerate(region_texts)
+    )
+
+    next_node_id = 26
+
+    def region(text_ordinal: int) -> dict[str, Any]:
+        nonlocal next_node_id
+        root_id = next_node_id
+        block_id = root_id + 1
+        text_node_id = root_id + 2
+        next_node_id += 3
+        value = region_texts[text_ordinal]
+        return {
+            "node_id": root_id,
+            "span": span(),
+            "blocks": [
+                {
+                    "kind": "paragraph",
+                    "node_id": block_id,
+                    "span": span(),
+                    "classes": [],
+                    "children": [
+                        {
+                            "kind": "text",
+                            "node_id": text_node_id,
+                            "span": span(),
+                            "text_span": {
+                                "text_id": first_text_id + text_ordinal,
+                                "start_byte": 0,
+                                "end_byte": len(value.encode("utf-8")),
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def master(master_id: str, text_ordinal: int) -> dict[str, Any]:
+        return {
+            "master_id": master_id,
+            "width": 40_000_000,
+            "height": 50_000_000,
+            "body": {
+                "x": 3_000_000,
+                "y": 6_000_000,
+                "width": 34_000_000,
+                "height": 38_000_000,
+            },
+            "header": {
+                "x": 3_000_000,
+                "y": 2_000_000,
+                "width": 34_000_000,
+                "height": 3_000_000,
+            },
+            "footer": {
+                "x": 3_000_000,
+                "y": 45_000_000,
+                "width": 34_000_000,
+                "height": 3_000_000,
+            },
+            "footnote": None,
+            "trim": {
+                "x": 1_000_000,
+                "y": 1_000_000,
+                "width": 38_000_000,
+                "height": 48_000_000,
+            },
+            "header_content": region(text_ordinal),
+            "footer_content": region(text_ordinal + 1),
+            "column_layout": None,
+        }
+
+    page_masters = package["page_masters"]
+    page_masters["default_master_id"] = "right"
+    page_masters["masters"] = [
+        master("first", 0),
+        master("left", 2),
+        master("right", 4),
+    ]
+    page_masters["selection_rules"] = [
+        {
+            "master_id": "first",
+            "parity": "any",
+            "first": True,
+            "named_page": None,
+            "source_order": 0,
+        },
+        {
+            "master_id": "left",
+            "parity": "even",
+            "first": None,
+            "named_page": None,
+            "source_order": 1,
+        },
+    ]
+    return package
+
+
 def add_footnote_frame(package: dict[str, Any]) -> None:
     master = package["page_masters"]["masters"][0]
     body = master["body"]
@@ -1127,6 +1363,15 @@ def table_arguments(profile: str) -> list[str]:
     ]
 
 
+def profile_arguments(profile: str, *limits: tuple[str, int]) -> list[str]:
+    arguments = table_arguments(profile)
+    insert_at = arguments.index("--emit-build-manifest")
+    for name, value in limits:
+        arguments[insert_at:insert_at] = [f"--{name}", str(value)]
+        insert_at += 2
+    return arguments
+
+
 ADVERTISED_COVERAGE = sorted(
     [
         "block:heading",
@@ -1194,6 +1439,55 @@ FOOTNOTE_ADVERTISED_COVERAGE = sorted(
         *BASIC_ADVERTISED_COVERAGE,
         "inline:footnote_reference",
         "page_frame:footnote",
+    ]
+)
+
+ADVANCED_SHARED_COVERAGE = [
+    "advanced_page_box:crop",
+    "advanced_page_box:media",
+    "advanced_page_box:trim",
+    "advanced_page_progression:ltr",
+    "advanced_writing_mode:horizontal-tb",
+]
+
+COLUMNS_ADVERTISED_COVERAGE = sorted(
+    [
+        *BASIC_ADVERTISED_COVERAGE,
+        *ADVANCED_SHARED_COVERAGE,
+        "advanced_balance:last_page",
+        "advanced_column_count:1-65535",
+        "advanced_custom_trim:false",
+        "advanced_header_footer:false",
+        "advanced_master_selection:single",
+    ]
+)
+
+FLOAT_ADVERTISED_COVERAGE = sorted(
+    [
+        *BASIC_ADVERTISED_COVERAGE,
+        *ADVANCED_SHARED_COVERAGE,
+        "advanced_balance:none",
+        "advanced_column_count:1-65535",
+        "advanced_custom_trim:false",
+        "advanced_float_class:bottom",
+        "advanced_float_class:here",
+        "advanced_float_class:next_page",
+        "advanced_float_class:top",
+        "advanced_header_footer:false",
+        "advanced_master_selection:single",
+    ]
+)
+
+HEADER_FOOTER_ADVERTISED_COVERAGE = sorted(
+    [
+        *BASIC_ADVERTISED_COVERAGE,
+        *ADVANCED_SHARED_COVERAGE,
+        "advanced_balance:forbidden",
+        "advanced_column_count:none",
+        "advanced_custom_trim:true",
+        "advanced_header_footer:true",
+        "advanced_master_selection:first_left_right",
+        "advanced_master_selection:single",
     ]
 )
 
@@ -1560,6 +1854,92 @@ def main() -> None:
         resources={"body.ttf": ttf, "collection.ttc": ttc, "figure.data": png},
     )
 
+    advanced_resources = {
+        "body.ttf": ttf,
+        "collection.ttc": ttc,
+        "figure.data": png,
+    }
+    advanced_resource_hashes = [
+        {"bytes": len(ttf), "sha256": sha256(ttf), "uri": "body.ttf"},
+        {"bytes": len(ttc), "sha256": sha256(ttc), "uri": "collection.ttc"},
+        {"bytes": len(png), "sha256": sha256(png), "uri": "figure.data"},
+    ]
+
+    columns_combined = columns_document_combined_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "columns-1.combined",
+        contract="typaxis.contract/1.3",
+        text="Basic document internal external First item Second entry PNG caption",
+        profile=COLUMNS_PROFILE,
+    )
+    expected["arguments"] = profile_arguments(
+        COLUMNS_PROFILE, ("max-column-balance-candidates", 2)
+    )
+    expected["advertised_item_coverage"] = COLUMNS_ADVERTISED_COVERAGE
+    expected["expected"]["page_count"] = 2
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["expected"]["visible_artifacts"].append("trace")
+    expected["expected"]["visible_artifacts"].sort()
+    expected["resource_hashes"] = copy.deepcopy(advanced_resource_hashes)
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/columns-1/combined",
+        jcs(columns_combined),
+        expected,
+        sources={"input.tsf": b""},
+        resources=advanced_resources,
+    )
+
+    float_combined = float_document_combined_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "float-1.combined",
+        contract="typaxis.contract/1.3",
+        text="Basic document internal external First item Second entry PNG caption",
+        profile=FLOAT_PROFILE,
+    )
+    expected["arguments"] = profile_arguments(
+        FLOAT_PROFILE,
+        ("max-float-queue", 33),
+        ("max-float-carry-pages", 2),
+    )
+    expected["advertised_item_coverage"] = FLOAT_ADVERTISED_COVERAGE
+    expected["expected"]["page_count"] = 4
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["expected"]["visible_artifacts"].append("trace")
+    expected["expected"]["visible_artifacts"].sort()
+    expected["resource_hashes"] = copy.deepcopy(advanced_resource_hashes)
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/float-1/combined",
+        jcs(float_combined),
+        expected,
+        sources={"input.tsf": b""},
+        resources=advanced_resources,
+    )
+
+    header_footer_combined = header_footer_document_combined_package(ttf, ttc, png)
+    expected = valid_outcome(
+        "header-footer-1.combined",
+        contract="typaxis.contract/1.3",
+        text=(
+            "First header Basic document internal external First item Second entry "
+            "First footer Left header PNG caption Left footer Right header Right footer"
+        ),
+        profile=HEADER_FOOTER_PROFILE,
+    )
+    expected["arguments"] = profile_arguments(HEADER_FOOTER_PROFILE)
+    expected["advertised_item_coverage"] = HEADER_FOOTER_ADVERTISED_COVERAGE
+    expected["expected"]["page_count"] = 3
+    expected["expected"]["side_effects"]["resource_opened"] = True
+    expected["expected"]["visible_artifacts"].append("trace")
+    expected["expected"]["visible_artifacts"].sort()
+    expected["resource_hashes"] = copy.deepcopy(advanced_resource_hashes)
+    fixtures[expected["fixture_id"]] = write_fixture(
+        "profiles/header-footer-1/combined",
+        jcs(header_footer_combined),
+        expected,
+        sources={"input.tsf": b""},
+        resources=advanced_resources,
+    )
+
     footnote_zero = footnote_document_zero_package(ttf, ttc, png)
     expected = valid_outcome(
         "footnote-1.zero",
@@ -1595,7 +1975,11 @@ def main() -> None:
         ),
         profile=FOOTNOTE_PROFILE,
     )
-    expected["arguments"] = table_arguments(FOOTNOTE_PROFILE)
+    expected["arguments"] = profile_arguments(
+        FOOTNOTE_PROFILE,
+        ("max-pages", 3),
+        ("max-footnote-reflows-per-page", 2),
+    )
     expected["advertised_item_coverage"] = FOOTNOTE_ADVERTISED_COVERAGE
     expected["expected"]["page_count"] = 3
     expected["expected"]["side_effects"]["resource_opened"] = True
@@ -1678,7 +2062,7 @@ def main() -> None:
         ),
         profile=TABLE_PROFILE,
     )
-    expected["arguments"] = table_arguments(TABLE_PROFILE)
+    expected["arguments"] = profile_arguments(TABLE_PROFILE, ("max-pages", 3))
     expected["advertised_item_coverage"] = TABLE_ADVERTISED_COVERAGE
     expected["expected"]["page_count"] = 3
     expected["expected"]["side_effects"]["resource_opened"] = True
@@ -2277,6 +2661,68 @@ def main() -> None:
         "verification_commands": m2_matrix["verification_commands"],
     }
     (ROOT / "matrices/m3-footnote.json").write_bytes(jcs(footnote_matrix))
+
+    for profile, slug, fixture_id, test in [
+        (
+            COLUMNS_PROFILE,
+            "columns-1",
+            "columns-1.combined",
+            "machine_tests::machine_columns_1_combined_public_profile",
+        ),
+        (
+            FLOAT_PROFILE,
+            "float-1",
+            "float-1.combined",
+            "machine_tests::machine_float_1_combined_public_profile",
+        ),
+        (
+            HEADER_FOOTER_PROFILE,
+            "header-footer-1",
+            "header-footer-1.combined",
+            "machine_tests::machine_header_footer_1_combined_public_profile",
+        ),
+    ]:
+        advanced_matrix = {
+            "contract": "typaxis.machine-fixture-matrix/1",
+            "fixtures": [
+                {"expected": fixtures[fixture_id], "fixture_id": fixture_id}
+            ],
+            "profile": profile,
+            "rows": [
+                {
+                    "fixture_ids": [fixture_id],
+                    "id": f"m3-{slug}-combined",
+                    "test": test,
+                }
+            ],
+            "verification_commands": m2_matrix["verification_commands"],
+        }
+        (ROOT / f"matrices/m3-{slug}.json").write_bytes(jcs(advanced_matrix))
+
+    aggregate_fixture_ids = [
+        "columns-1.combined",
+        "float-1.combined",
+        "footnote-1.combined",
+        "header-footer-1.combined",
+        "table-1.combined",
+    ]
+    all_m3_matrix = {
+        "contract": "typaxis.machine-fixture-matrix/1",
+        "fixtures": [
+            {"expected": fixtures[fixture_id], "fixture_id": fixture_id}
+            for fixture_id in aggregate_fixture_ids
+        ],
+        "profile": "typaxis.machine-pdf/m3-all",
+        "rows": [
+            {
+                "fixture_ids": aggregate_fixture_ids,
+                "id": "m3-all-combined",
+                "test": "machine_tests::machine_m3_all_combined_public_profiles",
+            }
+        ],
+        "verification_commands": m2_matrix["verification_commands"],
+    }
+    (ROOT / "matrices/m3-all.json").write_bytes(jcs(all_m3_matrix))
 
 
 if __name__ == "__main__":

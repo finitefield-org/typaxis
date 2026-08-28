@@ -140,6 +140,9 @@ pub fn project_staging_columns_manifest(
         flow_registry_sha256,
         selected_layout_sha256,
         paint_closure_sha256,
+        typaxis_core::MachinePdfProfileId::COLUMNS_1,
+        u32::try_from(selected.pages().len())
+            .map_err(|_| StagingAdvancedPaginationManifestError::ArithmeticOverflow)?,
     ))
 }
 

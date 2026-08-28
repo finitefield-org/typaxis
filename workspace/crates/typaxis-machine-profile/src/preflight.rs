@@ -5,7 +5,7 @@ use crate::descriptor::{
 use crate::HostCapabilityDescriptor;
 use typaxis_core::{
     sha256, DocumentFingerprint, FontFaceId, JsonPointer, MachineInputFingerprint,
-    MachinePdfProfileId, NodeId, PortablePath, StyleFingerprint,
+    MachinePdfProfileId, NodeId, PortablePath, StyleFingerprint, ValidatedResourceLimits,
 };
 use typaxis_diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLocation, GlobalDiagnosticScope,
@@ -152,6 +152,23 @@ pub struct MachinePdfPreflightReceipt {
     package_input: MachineInputFingerprint,
     session: MachineInputSessionIdentity,
     profile_receipt_sha256: [u8; 32],
+    advanced: Option<AdvancedProfileBinding>,
+}
+
+#[derive(Debug)]
+enum AdvancedProfileBinding {
+    Columns {
+        receipt: crate::StagingColumnsPreflightReceipt,
+        session: crate::StagingColumnsSessionIdentity,
+    },
+    Float {
+        receipt: crate::StagingFloatPreflightReceipt,
+        session: crate::StagingFloatSessionIdentity,
+    },
+    HeaderFooter {
+        receipt: crate::StagingHeaderFooterPreflightReceipt,
+        session: crate::StagingHeaderFooterSessionIdentity,
+    },
 }
 
 impl MachinePdfPreflightReceipt {
@@ -210,8 +227,47 @@ impl MachinePdfPreflightReceipt {
         if self.session != *package.provenance().session_identity() {
             return Err(MachinePdfReceiptMismatch::Session);
         }
-        if self.profile_receipt_sha256 != profile_receipt_fingerprint(profile, package) {
-            return Err(MachinePdfReceiptMismatch::ProfileReceipt);
+        match (&self.advanced, package.advanced_view()) {
+            (None, _)
+                if matches!(
+                    profile,
+                    MachinePdfProfileId::Columns1
+                        | MachinePdfProfileId::Float1
+                        | MachinePdfProfileId::HeaderFooter1
+                ) =>
+            {
+                return Err(MachinePdfReceiptMismatch::ProfileReceipt)
+            }
+            (None, _) => {
+                if self.profile_receipt_sha256 != profile_receipt_fingerprint(profile, package) {
+                    return Err(MachinePdfReceiptMismatch::ProfileReceipt);
+                }
+            }
+            (Some(_), None) => return Err(MachinePdfReceiptMismatch::ProfileReceipt),
+            (Some(AdvancedProfileBinding::Columns { receipt, session }), Some(advanced)) => {
+                if profile != MachinePdfProfileId::COLUMNS_1
+                    || receipt.profile_receipt_sha256() != self.profile_receipt_sha256
+                    || receipt.verify(advanced, receipt.limits(), session).is_err()
+                {
+                    return Err(MachinePdfReceiptMismatch::ProfileReceipt);
+                }
+            }
+            (Some(AdvancedProfileBinding::Float { receipt, session }), Some(advanced)) => {
+                if profile != MachinePdfProfileId::FLOAT_1
+                    || receipt.profile_receipt_sha256() != self.profile_receipt_sha256
+                    || receipt.verify(advanced, receipt.limits(), session).is_err()
+                {
+                    return Err(MachinePdfReceiptMismatch::ProfileReceipt);
+                }
+            }
+            (Some(AdvancedProfileBinding::HeaderFooter { receipt, session }), Some(advanced)) => {
+                if profile != MachinePdfProfileId::HEADER_FOOTER_1
+                    || receipt.profile_receipt_sha256() != self.profile_receipt_sha256
+                    || receipt.verify(advanced, receipt.limits(), session).is_err()
+                {
+                    return Err(MachinePdfReceiptMismatch::ProfileReceipt);
+                }
+            }
         }
         Ok(())
     }
@@ -246,6 +302,85 @@ impl std::fmt::Display for MachinePdfReceiptMismatch {
 
 impl std::error::Error for MachinePdfReceiptMismatch {}
 
+#[derive(Debug)]
+pub enum AdvancedMachinePdfPreflightError {
+    WrongContract,
+    Columns(crate::StagingColumnsPreflightError),
+    Float(crate::StagingFloatPreflightError),
+    HeaderFooter(crate::StagingHeaderFooterPreflightError),
+}
+
+impl std::fmt::Display for AdvancedMachinePdfPreflightError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WrongContract => {
+                formatter.write_str("P1103: advanced profiles require raw contract 1.3")
+            }
+            Self::Columns(error) => error.fmt(formatter),
+            Self::Float(error) => error.fmt(formatter),
+            Self::HeaderFooter(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for AdvancedMachinePdfPreflightError {}
+
+/// Apply one ADR-0031 gate to the syntax-owned 1.3 extension and issue the
+/// ordinary admission-session-bound receipt used by all later owners.
+pub fn preflight_advanced_machine_pdf(
+    package: &ValidatedMachinePackage,
+    profile: MachinePdfProfileId,
+    limits: &ValidatedResourceLimits,
+) -> Result<MachinePdfPreflightReceipt, AdvancedMachinePdfPreflightError> {
+    if package.contract() != typaxis_core::DocumentPackageContractId::V1_3 {
+        return Err(AdvancedMachinePdfPreflightError::WrongContract);
+    }
+    let advanced = package
+        .advanced_view()
+        .ok_or(AdvancedMachinePdfPreflightError::WrongContract)?;
+    let (profile_receipt_sha256, binding) = match profile {
+        MachinePdfProfileId::Columns1 => {
+            let session = crate::StagingColumnsSessionIdentity::fresh();
+            let receipt = crate::preflight_staging_columns_profile(advanced, limits, &session)
+                .map_err(AdvancedMachinePdfPreflightError::Columns)?;
+            (
+                receipt.profile_receipt_sha256(),
+                AdvancedProfileBinding::Columns { receipt, session },
+            )
+        }
+        MachinePdfProfileId::Float1 => {
+            let session = crate::StagingFloatSessionIdentity::fresh();
+            let receipt = crate::preflight_staging_float_profile(advanced, limits, &session)
+                .map_err(AdvancedMachinePdfPreflightError::Float)?;
+            (
+                receipt.profile_receipt_sha256(),
+                AdvancedProfileBinding::Float { receipt, session },
+            )
+        }
+        MachinePdfProfileId::HeaderFooter1 => {
+            let session = crate::StagingHeaderFooterSessionIdentity::fresh();
+            let receipt =
+                crate::preflight_staging_header_footer_profile(advanced, limits, &session)
+                    .map_err(AdvancedMachinePdfPreflightError::HeaderFooter)?;
+            (
+                receipt.profile_receipt_sha256(),
+                AdvancedProfileBinding::HeaderFooter { receipt, session },
+            )
+        }
+        _ => return Err(AdvancedMachinePdfPreflightError::WrongContract),
+    };
+    let epoch = package.package().epoch_identity();
+    Ok(MachinePdfPreflightReceipt {
+        profile,
+        document: epoch.document(),
+        style: epoch.style(),
+        package_input: package.provenance().fingerprint(),
+        session: package.provenance().session_identity().clone(),
+        profile_receipt_sha256,
+        advanced: Some(binding),
+    })
+}
+
 /// Deterministic, pre-resource/pre-layout gate for a closed machine profile.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MachinePdfPreflight {
@@ -254,7 +389,10 @@ pub struct MachinePdfPreflight {
 
 impl MachinePdfPreflight {
     pub const BASIC_DOCUMENT_1: Self = Self::new(MachineProfileDescriptor::BASIC_DOCUMENT_1);
+    pub const COLUMNS_1: Self = Self::new(MachineProfileDescriptor::COLUMNS_1);
+    pub const FLOAT_1: Self = Self::new(MachineProfileDescriptor::FLOAT_1);
     pub const FOOTNOTE_1: Self = Self::new(MachineProfileDescriptor::FOOTNOTE_1);
+    pub const HEADER_FOOTER_1: Self = Self::new(MachineProfileDescriptor::HEADER_FOOTER_1);
     pub const PARAGRAPH_1: Self = Self::new(MachineProfileDescriptor::PARAGRAPH_1);
     pub const TABLE_1: Self = Self::new(MachineProfileDescriptor::TABLE_1);
 
@@ -312,6 +450,7 @@ impl MachinePdfPreflight {
             package_input: package.provenance().fingerprint(),
             session: package.provenance().session_identity().clone(),
             profile_receipt_sha256: profile_receipt_fingerprint(self.descriptor.id(), package),
+            advanced: None,
         })
     }
 
@@ -588,7 +727,10 @@ fn profile_receipt_fingerprint(
     let epoch = package.package().epoch_identity();
     let mut bytes = Vec::with_capacity(192);
     let algorithm = match profile {
+        MachinePdfProfileId::Columns1 => crate::COLUMNS_PROFILE_RECEIPT_ALGORITHM,
+        MachinePdfProfileId::Float1 => crate::FLOAT_PROFILE_RECEIPT_ALGORITHM,
         MachinePdfProfileId::Footnote1 => FOOTNOTE_PROFILE_RECEIPT_ALGORITHM,
+        MachinePdfProfileId::HeaderFooter1 => crate::HEADER_FOOTER_PROFILE_RECEIPT_ALGORITHM,
         MachinePdfProfileId::Table1 => TABLE_PROFILE_RECEIPT_ALGORITHM,
         MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Paragraph1 => {
             BASIC_PROFILE_RECEIPT_ALGORITHM

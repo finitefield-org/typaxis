@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.typaxis.invalid/1.3/document-package.schema.json",
-  "title": "Typaxis Canonical Document Package 1.3 (private staging)",
-  "description": "Private advanced-pagination staging schema. Current public aliases remain contract 1.2 until MI3-12.",
+  "title": "Typaxis Canonical Document Package 1.3",
+  "description": "Canonical DocumentPackage wire schema for the current contract.",
   "type": "object",
   "additionalProperties": false,
   "required": [

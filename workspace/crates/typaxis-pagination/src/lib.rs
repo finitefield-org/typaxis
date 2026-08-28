@@ -10791,6 +10791,7 @@ mod tests {
         let package = wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_2,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "footnote-reflow.tsf".to_owned(),
@@ -11584,6 +11585,7 @@ mod tests {
         let package = wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_2,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "table-fragmentation.tsf".to_owned(),
@@ -11976,6 +11978,7 @@ mod tests {
         let package = wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_1,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "input.tsf".to_owned(),
@@ -12155,6 +12158,7 @@ mod tests {
         let package = wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_1,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "input.tsf".to_owned(),
@@ -12439,6 +12443,7 @@ mod tests {
         let wire_package = wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_1,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "input.tsf".to_owned(),

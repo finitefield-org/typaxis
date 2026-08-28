@@ -136,6 +136,10 @@ impl StagingColumnsPreflightReceipt {
         self.profile_receipt_sha256
     }
 
+    pub const fn limits(&self) -> &ValidatedResourceLimits {
+        &self.limits
+    }
+
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs
     }

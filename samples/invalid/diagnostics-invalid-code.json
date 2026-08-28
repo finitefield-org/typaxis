@@ -1,5 +1,5 @@
 {
-  "contract": "typaxis.contract/1.2",
+  "contract": "typaxis.contract/1.3",
   "diagnostics": [
     {
       "code": "P2000",

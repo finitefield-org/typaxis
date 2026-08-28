@@ -196,12 +196,12 @@ impl fmt::Display for ConfigError {
             }
             Self::MissingContract { path } => write!(
                 formatter,
-                "raw config `{}` must contain a known 1.0, 1.1, or 1.2 `contract`",
+                "raw config `{}` must contain a known 1.0, 1.1, 1.2, or 1.3 `contract`",
                 path.display()
             ),
             Self::ContractMismatch { origin, found } => write!(
                 formatter,
-                "configuration contract in {origin} is `{found}`, expected `typaxis.contract/1.0`, `typaxis.contract/1.1`, or `{CONTRACT}`"
+                "configuration contract in {origin} is `{found}`, expected `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2`, or `{CONTRACT}`"
             ),
             Self::InvalidValue {
                 origin,
@@ -1585,10 +1585,10 @@ max_pages = 20
     }
 
     #[test]
-    fn raw_1_0_1_1_and_1_2_configs_normalize_to_the_same_current_jcs() {
+    fn raw_1_0_through_1_3_configs_normalize_to_the_same_current_jcs() {
         let legacy =
             TempConfig::new(b"contract = \"typaxis.contract/1.0\"\n[limits]\nmax_pages = 321\n");
-        let current = TempConfig::new(
+        let contract_1_1 = TempConfig::new(
             format!(
                 "contract = \"typaxis.contract/1.1\"\n[limits]\nmax_document_package_bytes = {}\nmax_json_nesting_depth = {}\nmax_pages = 321\n",
                 typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
@@ -1596,7 +1596,7 @@ max_pages = 20
             )
             .as_bytes(),
         );
-        let published = TempConfig::new(
+        let contract_1_2 = TempConfig::new(
             format!(
                 "contract = \"typaxis.contract/1.2\"\n[limits]\nmax_document_package_bytes = {}\nmax_json_nesting_depth = {}\nmax_pages = 321\n",
                 typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
@@ -1604,15 +1604,40 @@ max_pages = 20
             )
             .as_bytes(),
         );
+        let contract_1_3 = TempConfig::new(
+            format!(
+                "contract = \"typaxis.contract/1.3\"\n[limits]\nmax_document_package_bytes = {}\nmax_json_nesting_depth = {}\nmax_pages = 321\n",
+                typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_DOCUMENT_PACKAGE_BYTES,
+                typaxis_core::MachineInputLimitBounds::DEFAULT_MAX_JSON_NESTING_DEPTH,
+            )
+            .as_bytes(),
+        );
         let environment = [("TYPAXIS_LIMITS__MAX_PAGES", "654")];
         let legacy = load(Some(&legacy.0), environment, &ConfigOverrides::default()).unwrap();
-        let current = load(Some(&current.0), environment, &ConfigOverrides::default()).unwrap();
-        let published = load(Some(&published.0), environment, &ConfigOverrides::default()).unwrap();
-        assert_eq!(legacy, current);
-        assert_eq!(current, published);
+        let contract_1_1 = load(
+            Some(&contract_1_1.0),
+            environment,
+            &ConfigOverrides::default(),
+        )
+        .unwrap();
+        let contract_1_2 = load(
+            Some(&contract_1_2.0),
+            environment,
+            &ConfigOverrides::default(),
+        )
+        .unwrap();
+        let contract_1_3 = load(
+            Some(&contract_1_3.0),
+            environment,
+            &ConfigOverrides::default(),
+        )
+        .unwrap();
+        assert_eq!(legacy, contract_1_1);
+        assert_eq!(contract_1_1, contract_1_2);
+        assert_eq!(contract_1_2, contract_1_3);
         assert!(legacy
             .canonical_jcs()
-            .contains("\"contract\":\"typaxis.contract/1.2\""));
+            .contains("\"contract\":\"typaxis.contract/1.3\""));
     }
 
     #[test]

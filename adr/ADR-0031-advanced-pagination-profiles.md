@@ -2,21 +2,21 @@
 
 ## Status
 
-Accepted on 2026-08-28 as the target contract for the M3 advanced-pagination
-slice.
+Accepted on 2026-08-28 and published by MI3-12 as the current contract for the
+M3 advanced-pagination slice.
 
-This ADR is a decision gate. It reserves contract and profile identities but
-does not change the current contract, add a public Schema, register a public
-descriptor, or claim implementation, CLI E2E, or release support. MI3-09,
-MI3-10, and MI3-11 may expose the target only through crate-private staging
-entry points. MI3-12 is the sole publication gate.
+This ADR began as a decision gate: MI3-09, MI3-10, and MI3-11 implemented the
+reserved identities only through crate-private staging entry points. MI3-12
+completed the sole publication gate by freezing the full 1.3 registry,
+registering normal public dispatch, removing those runners, and publishing the
+combined release matrix.
 
 | Status axis | `header-footer-1` | `columns-1` | `float-1` |
 | --- | --- | --- | --- |
 | contract-defined | Yes: this ADR | Yes: this ADR | Yes: this ADR |
-| implemented | No | No | No |
-| public CLI E2E | No | No | No |
-| release-supported | No | No | No |
+| implemented | Yes | Yes | Yes |
+| public CLI E2E | Yes | Yes | Yes |
+| release-supported | Yes, MI3-12 | Yes, MI3-12 | Yes, MI3-12 |
 
 At adoption, the public contract remains `typaxis.contract/1.2`; the public
 profile array remains exactly `basic-document-1`, `footnote-1`, `paragraph-1`,

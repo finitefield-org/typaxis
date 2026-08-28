@@ -1,5 +1,5 @@
 {
-  "contract": "typaxis.contract/1.2",
+  "contract": "typaxis.contract/1.3",
   "coordinate_unit": "pdf_point_1_65536",
   "sources": [
     {
@@ -196,10 +196,21 @@
         },
         "header": null,
         "footer": null,
-        "footnote": null
+        "footnote": null,
+        "trim": {
+          "x": 0,
+          "y": 0,
+          "width": 39011981,
+          "height": 55174088
+        },
+        "header_content": null,
+        "footer_content": null,
+        "column_layout": null
       }
     ],
-    "selection_rules": []
+    "selection_rules": [],
+    "page_progression": "ltr",
+    "writing_mode": "horizontal-tb"
   },
   "resources": {
     "font_faces": [

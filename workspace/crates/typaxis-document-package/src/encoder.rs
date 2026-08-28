@@ -136,15 +136,18 @@ impl DocumentPackageEncoder {
         package: &WireDocumentPackage,
         output: W,
     ) -> Result<u64, JcsEncodeError> {
-        if package.contract != typaxis_core::DocumentPackageContractId::V1_2
-            && package.style_sheet.rules.iter().any(|rule| {
-                rule.declarations
-                    .iter()
-                    .any(|declaration| !declaration.name.is_legacy())
-            })
-        {
+        if !matches!(
+            package.contract,
+            typaxis_core::DocumentPackageContractId::V1_2
+                | typaxis_core::DocumentPackageContractId::V1_3
+        ) && package.style_sheet.rules.iter().any(|rule| {
+            rule.declarations
+                .iter()
+                .any(|declaration| !declaration.name.is_legacy())
+        }) {
             return Err(JcsEncodeError::NonCurrentStyleDeclaration);
         }
+        validate_advanced_extension(package)?;
         let mut writer = JcsWriter::new(output, self.max_bytes);
         encode_package(&mut writer, package, package.contract.as_str())?;
         Ok(writer.bytes_written())
@@ -159,9 +162,8 @@ impl Default for DocumentPackageEncoder {
     }
 }
 
-/// Canonical compatibility encoder retained for focused contract 1.2 slice
-/// tests. The public encoder now emits the same current contract and property
-/// set through the ordinary package path.
+/// Canonical compatibility encoder retained for focused frozen-contract 1.2
+/// slice tests. The ordinary public encoder owns current-contract 1.3 output.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StagingStyleDocumentPackageEncoder {
     max_bytes: u64,
@@ -215,6 +217,9 @@ impl StagingStyleDocumentPackageEncoder {
         package: &WireDocumentPackage,
         output: W,
     ) -> Result<u64, JcsEncodeError> {
+        if package.advanced.is_some() {
+            return Err(JcsEncodeError::AdvancedExtensionForbidden);
+        }
         let mut writer = JcsWriter::new(output, self.max_bytes);
         encode_package(&mut writer, package, Self::CONTRACT)?;
         Ok(writer.bytes_written())
@@ -236,6 +241,9 @@ pub enum JcsEncodeError {
     JsonNestingDepthExceeded { maximum: u16 },
     IntegerOutOfRange { field: &'static str },
     NonCurrentStyleDeclaration,
+    AdvancedExtensionRequired,
+    AdvancedExtensionForbidden,
+    AdvancedExtensionMismatch,
     NonCanonicalMemberOrder { previous: String, current: String },
     OutputTooLargeForPlatform,
     NonDeterministicEncoding,
@@ -265,6 +273,14 @@ impl fmt::Display for JcsEncodeError {
             }
             Self::NonCurrentStyleDeclaration => formatter.write_str(
                 "the current DocumentPackage encoder cannot emit a contract 1.2 style declaration",
+            ),
+            Self::AdvancedExtensionRequired => formatter
+                .write_str("contract 1.3 requires the complete advanced DocumentPackage extension"),
+            Self::AdvancedExtensionForbidden => formatter.write_str(
+                "contracts before 1.3 cannot contain the advanced DocumentPackage extension",
+            ),
+            Self::AdvancedExtensionMismatch => formatter.write_str(
+                "the advanced DocumentPackage extension does not close over masters and figures",
             ),
             Self::NonCanonicalMemberOrder { previous, current } => write!(
                 formatter,
@@ -523,21 +539,140 @@ fn utf16_cmp(left: &str, right: &str) -> Ordering {
     left.encode_utf16().cmp(right.encode_utf16())
 }
 
+fn validate_advanced_extension(package: &WireDocumentPackage) -> Result<(), JcsEncodeError> {
+    let advanced = match (package.contract, package.advanced.as_ref()) {
+        (typaxis_core::DocumentPackageContractId::V1_3, Some(advanced)) => advanced,
+        (typaxis_core::DocumentPackageContractId::V1_3, None) => {
+            return Err(JcsEncodeError::AdvancedExtensionRequired)
+        }
+        (_, Some(_)) => return Err(JcsEncodeError::AdvancedExtensionForbidden),
+        (_, None) => return Ok(()),
+    };
+    if advanced.page_masters.masters.len() != package.page_masters.masters.len()
+        || advanced
+            .page_masters
+            .masters
+            .iter()
+            .zip(&package.page_masters.masters)
+            .any(|(extension, base)| extension.master_id != base.master_id)
+        || advanced
+            .figure_placements
+            .windows(2)
+            .any(|pair| pair[0].node_id >= pair[1].node_id)
+    {
+        return Err(JcsEncodeError::AdvancedExtensionMismatch);
+    }
+    let figure_count = package
+        .document
+        .blocks
+        .iter()
+        .map(count_block_figures)
+        .chain(
+            package
+                .document
+                .footnotes
+                .iter()
+                .flat_map(|footnote| footnote.blocks.iter().map(count_block_figures)),
+        )
+        .try_fold(0usize, usize::checked_add)
+        .ok_or(JcsEncodeError::AdvancedExtensionMismatch)?;
+    if figure_count != advanced.figure_placements.len()
+        || package
+            .document
+            .blocks
+            .iter()
+            .any(|block| !block_figures_are_registered(block, &advanced.figure_placements))
+        || package.document.footnotes.iter().any(|footnote| {
+            footnote
+                .blocks
+                .iter()
+                .any(|block| !block_figures_are_registered(block, &advanced.figure_placements))
+        })
+    {
+        return Err(JcsEncodeError::AdvancedExtensionMismatch);
+    }
+    Ok(())
+}
+
+fn count_block_figures(block: &WireBlock) -> usize {
+    match block {
+        WireBlock::Figure { caption, .. } => 1usize.saturating_add(
+            caption
+                .iter()
+                .map(count_block_figures)
+                .fold(0usize, usize::saturating_add),
+        ),
+        WireBlock::List { items, .. } => items
+            .iter()
+            .flat_map(|item| &item.blocks)
+            .map(count_block_figures)
+            .fold(0usize, usize::saturating_add),
+        WireBlock::Table { head, body, .. } => head
+            .iter()
+            .chain(body)
+            .flat_map(|row| &row.cells)
+            .flat_map(|cell| &cell.blocks)
+            .map(count_block_figures)
+            .fold(0usize, usize::saturating_add),
+        WireBlock::Paragraph { .. } | WireBlock::Heading { .. } | WireBlock::PageBreak { .. } => 0,
+    }
+}
+
+fn block_figures_are_registered(
+    block: &WireBlock,
+    placements: &[WireFigurePlacementRecord],
+) -> bool {
+    match block {
+        WireBlock::Figure {
+            node_id, caption, ..
+        } => {
+            placements
+                .binary_search_by_key(node_id, |record| record.node_id)
+                .is_ok()
+                && caption
+                    .iter()
+                    .all(|block| block_figures_are_registered(block, placements))
+        }
+        WireBlock::List { items, .. } => items
+            .iter()
+            .flat_map(|item| &item.blocks)
+            .all(|block| block_figures_are_registered(block, placements)),
+        WireBlock::Table { head, body, .. } => head
+            .iter()
+            .chain(body)
+            .flat_map(|row| &row.cells)
+            .flat_map(|cell| &cell.blocks)
+            .all(|block| block_figures_are_registered(block, placements)),
+        WireBlock::Paragraph { .. } | WireBlock::Heading { .. } | WireBlock::PageBreak { .. } => {
+            true
+        }
+    }
+}
+
 fn encode_package<W: Write>(
     writer: &mut JcsWriter<W>,
     package: &WireDocumentPackage,
     contract: &str,
 ) -> Result<(), JcsEncodeError> {
+    let advanced = package.advanced.as_ref();
     writer.object(|object| {
         object.member("contract", |writer| writer.string(contract))?;
         object.member("coordinate_unit", |writer| {
             writer.string(package.coordinate_unit.as_str())
         })?;
         object.member("document", |writer| {
-            encode_document(writer, &package.document)
+            encode_document(
+                writer,
+                &package.document,
+                advanced.map(|value| value.figure_placements.as_slice()),
+            )
         })?;
         object.member("page_masters", |writer| {
-            encode_page_masters(writer, &package.page_masters)
+            encode_page_masters(
+                writer,
+                &package.page_masters,
+                advanced.map(|value| &value.page_masters),
+            )
         })?;
         object.member("resources", |writer| {
             encode_resources(writer, &package.resources)
@@ -599,13 +734,18 @@ fn encode_text_mapping<W: Write>(
 fn encode_document<W: Write>(
     writer: &mut JcsWriter<W>,
     document: &WireDocument,
+    placements: Option<&[WireFigurePlacementRecord]>,
 ) -> Result<(), JcsEncodeError> {
     writer.object(|object| {
         object.member("blocks", |writer| {
-            writer.array(&document.blocks, encode_block)
+            writer.array(&document.blocks, |writer, block| {
+                encode_block(writer, block, placements)
+            })
         })?;
         object.member("footnotes", |writer| {
-            writer.array(&document.footnotes, encode_footnote)
+            writer.array(&document.footnotes, |writer, footnote| {
+                encode_footnote(writer, footnote, placements)
+            })
         })?;
         object.member("node_id", |writer| writer.u32(document.node_id))
     })
@@ -614,6 +754,7 @@ fn encode_document<W: Write>(
 fn encode_block<W: Write>(
     writer: &mut JcsWriter<W>,
     block: &WireBlock,
+    placements: Option<&[WireFigurePlacementRecord]>,
 ) -> Result<(), JcsEncodeError> {
     match block {
         WireBlock::Paragraph {
@@ -657,7 +798,11 @@ fn encode_block<W: Write>(
             items,
         } => writer.object(|object| {
             object.member("classes", |writer| encode_strings(writer, classes))?;
-            object.member("items", |writer| writer.array(items, encode_list_item))?;
+            object.member("items", |writer| {
+                writer.array(items, |writer, item| {
+                    encode_list_item(writer, item, placements)
+                })
+            })?;
             object.member("kind", |writer| writer.string("list"))?;
             object.member("node_id", |writer| writer.u32(*node_id))?;
             object.member("ordered", |writer| writer.boolean(*ordered))?;
@@ -672,12 +817,20 @@ fn encode_block<W: Write>(
             head,
             body,
         } => writer.object(|object| {
-            object.member("body", |writer| writer.array(body, encode_table_row))?;
+            object.member("body", |writer| {
+                writer.array(body, |writer, row| {
+                    encode_table_row(writer, row, placements)
+                })
+            })?;
             object.member("classes", |writer| encode_strings(writer, classes))?;
             object.member("columns", |writer| {
                 writer.array(columns, encode_table_column)
             })?;
-            object.member("head", |writer| writer.array(head, encode_table_row))?;
+            object.member("head", |writer| {
+                writer.array(head, |writer, row| {
+                    encode_table_row(writer, row, placements)
+                })
+            })?;
             object.member("kind", |writer| writer.string("table"))?;
             object.member("node_id", |writer| writer.u32(*node_id))?;
             object.member("span", |writer| encode_source_span(writer, *span))
@@ -691,11 +844,25 @@ fn encode_block<W: Write>(
             caption,
         } => writer.object(|object| {
             object.member("alt", |writer| writer.string(alt))?;
-            object.member("caption", |writer| writer.array(caption, encode_block))?;
+            object.member("caption", |writer| {
+                writer.array(caption, |writer, block| {
+                    encode_block(writer, block, placements)
+                })
+            })?;
             object.member("classes", |writer| encode_strings(writer, classes))?;
             object.member("image_id", |writer| writer.u32(*image_id))?;
             object.member("kind", |writer| writer.string("figure"))?;
             object.member("node_id", |writer| writer.u32(*node_id))?;
+            if let Some(placements) = placements {
+                let placement = placements
+                    .binary_search_by_key(node_id, |record| record.node_id)
+                    .ok()
+                    .and_then(|index| placements.get(index))
+                    .ok_or(JcsEncodeError::AdvancedExtensionMismatch)?;
+                object.member("placement", |writer| {
+                    writer.string(placement.placement.as_str())
+                })?;
+            }
             object.member("span", |writer| encode_source_span(writer, *span))
         }),
         WireBlock::PageBreak {
@@ -825,9 +992,14 @@ fn encode_link_target<W: Write>(
 fn encode_list_item<W: Write>(
     writer: &mut JcsWriter<W>,
     item: &WireListItem,
+    placements: Option<&[WireFigurePlacementRecord]>,
 ) -> Result<(), JcsEncodeError> {
     writer.object(|object| {
-        object.member("blocks", |writer| writer.array(&item.blocks, encode_block))?;
+        object.member("blocks", |writer| {
+            writer.array(&item.blocks, |writer, block| {
+                encode_block(writer, block, placements)
+            })
+        })?;
         object.member("node_id", |writer| writer.u32(item.node_id))?;
         object.member("span", |writer| encode_source_span(writer, item.span))
     })
@@ -856,10 +1028,13 @@ fn encode_table_column<W: Write>(
 fn encode_table_row<W: Write>(
     writer: &mut JcsWriter<W>,
     row: &WireTableRow,
+    placements: Option<&[WireFigurePlacementRecord]>,
 ) -> Result<(), JcsEncodeError> {
     writer.object(|object| {
         object.member("cells", |writer| {
-            writer.array(&row.cells, encode_table_cell)
+            writer.array(&row.cells, |writer, cell| {
+                encode_table_cell(writer, cell, placements)
+            })
         })?;
         object.member("node_id", |writer| writer.u32(row.node_id))?;
         object.member("span", |writer| encode_source_span(writer, row.span))
@@ -869,9 +1044,14 @@ fn encode_table_row<W: Write>(
 fn encode_table_cell<W: Write>(
     writer: &mut JcsWriter<W>,
     cell: &WireTableCell,
+    placements: Option<&[WireFigurePlacementRecord]>,
 ) -> Result<(), JcsEncodeError> {
     writer.object(|object| {
-        object.member("blocks", |writer| writer.array(&cell.blocks, encode_block))?;
+        object.member("blocks", |writer| {
+            writer.array(&cell.blocks, |writer, block| {
+                encode_block(writer, block, placements)
+            })
+        })?;
         object.member("colspan", |writer| {
             writer.u16("document.blocks[].rows[].cells[].colspan", cell.colspan)
         })?;
@@ -886,10 +1066,13 @@ fn encode_table_cell<W: Write>(
 fn encode_footnote<W: Write>(
     writer: &mut JcsWriter<W>,
     footnote: &WireFootnote,
+    placements: Option<&[WireFigurePlacementRecord]>,
 ) -> Result<(), JcsEncodeError> {
     writer.object(|object| {
         object.member("blocks", |writer| {
-            writer.array(&footnote.blocks, encode_block)
+            writer.array(&footnote.blocks, |writer, block| {
+                encode_block(writer, block, placements)
+            })
         })?;
         object.member("footnote_id", |writer| writer.string(&footnote.footnote_id))?;
         object.member("node_id", |writer| writer.u32(footnote.node_id))?;
@@ -1000,43 +1183,200 @@ fn encode_kind_string_value<W: Write>(
 fn encode_page_masters<W: Write>(
     writer: &mut JcsWriter<W>,
     page_masters: &WirePageMasterSet,
+    advanced: Option<&WireAdvancedPageMasterSet>,
 ) -> Result<(), JcsEncodeError> {
     writer.object(|object| {
         object.member("default_master_id", |writer| {
             writer.string(&page_masters.default_master_id)
         })?;
         object.member("masters", |writer| {
-            writer.array(&page_masters.masters, encode_page_master)
+            writer.array(&page_masters.masters, |writer, master| {
+                let extension = advanced.and_then(|value| {
+                    value
+                        .masters
+                        .iter()
+                        .find(|candidate| candidate.master_id == master.master_id)
+                });
+                encode_page_master(writer, master, extension)
+            })
         })?;
+        if let Some(advanced) = advanced {
+            object.member("page_progression", |writer| {
+                writer.string(advanced.page_progression.as_str())
+            })?;
+        }
         object.member("selection_rules", |writer| {
             writer.array(&page_masters.selection_rules, encode_page_master_rule)
-        })
+        })?;
+        if let Some(advanced) = advanced {
+            object.member("writing_mode", |writer| {
+                writer.string(advanced.writing_mode.as_str())
+            })?;
+        }
+        Ok(())
     })
 }
 
 fn encode_page_master<W: Write>(
     writer: &mut JcsWriter<W>,
     master: &WirePageMaster,
+    advanced: Option<&WireAdvancedPageMaster>,
 ) -> Result<(), JcsEncodeError> {
+    if advanced.is_some_and(|value| value.master_id != master.master_id) {
+        return Err(JcsEncodeError::AdvancedExtensionMismatch);
+    }
     writer.object(|object| {
         object.member("body", |writer| encode_rect(writer, master.body))?;
+        if let Some(advanced) = advanced {
+            object.member("column_layout", |writer| {
+                encode_optional_column_layout(writer, advanced.column_layout)
+            })?;
+        }
         object.member("footer", |writer| {
             encode_optional_rect(writer, master.footer)
         })?;
+        if let Some(advanced) = advanced {
+            object.member("footer_content", |writer| {
+                encode_optional_page_region(writer, advanced.footer_content.as_ref())
+            })?;
+        }
         object.member("footnote", |writer| {
             encode_optional_rect(writer, master.footnote)
         })?;
         object.member("header", |writer| {
             encode_optional_rect(writer, master.header)
         })?;
+        if let Some(advanced) = advanced {
+            object.member("header_content", |writer| {
+                encode_optional_page_region(writer, advanced.header_content.as_ref())
+            })?;
+        }
         object.member("height", |writer| {
             writer.positive_i64("page_masters.masters[].height", master.height)
         })?;
         object.member("master_id", |writer| writer.string(&master.master_id))?;
+        if let Some(advanced) = advanced {
+            object.member("trim", |writer| encode_rect(writer, advanced.trim))?;
+        }
         object.member("width", |writer| {
             writer.positive_i64("page_masters.masters[].width", master.width)
         })
     })
+}
+
+fn encode_optional_column_layout<W: Write>(
+    writer: &mut JcsWriter<W>,
+    layout: Option<WireColumnLayout>,
+) -> Result<(), JcsEncodeError> {
+    let Some(layout) = layout else {
+        return writer.null();
+    };
+    writer.object(|object| {
+        object.member("balance", |writer| writer.string(layout.balance.as_str()))?;
+        object.member("count", |writer| {
+            writer.u16("page_masters.masters[].column_layout.count", layout.count)
+        })?;
+        object.member("fill", |writer| writer.string(layout.fill.as_str()))?;
+        object.member("gap", |writer| {
+            writer.safe_i64("page_masters.masters[].column_layout.gap", layout.gap)
+        })
+    })
+}
+
+fn encode_optional_page_region<W: Write>(
+    writer: &mut JcsWriter<W>,
+    region: Option<&WirePageRegion>,
+) -> Result<(), JcsEncodeError> {
+    match region {
+        Some(region) => encode_page_region(writer, region),
+        None => writer.null(),
+    }
+}
+
+fn encode_page_region<W: Write>(
+    writer: &mut JcsWriter<W>,
+    region: &WirePageRegion,
+) -> Result<(), JcsEncodeError> {
+    writer.object(|object| {
+        object.member("blocks", |writer| {
+            writer.array(&region.blocks, encode_page_region_block)
+        })?;
+        object.member("node_id", |writer| writer.u32(region.node_id))?;
+        object.member("span", |writer| encode_source_span(writer, region.span))
+    })
+}
+
+fn encode_page_region_block<W: Write>(
+    writer: &mut JcsWriter<W>,
+    block: &WirePageRegionBlock,
+) -> Result<(), JcsEncodeError> {
+    match block {
+        WirePageRegionBlock::Paragraph {
+            node_id,
+            span,
+            classes,
+            children,
+        } => writer.object(|object| {
+            object.member("children", |writer| {
+                writer.array(children, encode_page_region_inline)
+            })?;
+            object.member("classes", |writer| encode_strings(writer, classes))?;
+            object.member("kind", |writer| writer.string("paragraph"))?;
+            object.member("node_id", |writer| writer.u32(*node_id))?;
+            object.member("span", |writer| encode_source_span(writer, *span))
+        }),
+        WirePageRegionBlock::Heading {
+            node_id,
+            span,
+            classes,
+            level,
+            children,
+        } => writer.object(|object| {
+            object.member("anchor_id", |writer| writer.null())?;
+            object.member("children", |writer| {
+                writer.array(children, encode_page_region_inline)
+            })?;
+            object.member("classes", |writer| encode_strings(writer, classes))?;
+            object.member("kind", |writer| writer.string("heading"))?;
+            object.member("level", |writer| {
+                writer.u8_range("page_masters.masters[].region.level", *level, 1, 6)
+            })?;
+            object.member("node_id", |writer| writer.u32(*node_id))?;
+            object.member("span", |writer| encode_source_span(writer, *span))
+        }),
+    }
+}
+
+fn encode_page_region_inline<W: Write>(
+    writer: &mut JcsWriter<W>,
+    inline: &WirePageRegionInline,
+) -> Result<(), JcsEncodeError> {
+    match inline {
+        WirePageRegionInline::Text {
+            node_id,
+            span,
+            text_span,
+        } => writer.object(|object| {
+            object.member("kind", |writer| writer.string("text"))?;
+            object.member("node_id", |writer| writer.u32(*node_id))?;
+            object.member("span", |writer| encode_source_span(writer, *span))?;
+            object.member("text_span", |writer| encode_text_span(writer, *text_span))
+        }),
+        WirePageRegionInline::SoftBreak { node_id, span }
+        | WirePageRegionInline::HardBreak { node_id, span } => writer.object(|object| {
+            object.member("kind", |writer| {
+                writer.string(
+                    if matches!(inline, WirePageRegionInline::SoftBreak { .. }) {
+                        "soft_break"
+                    } else {
+                        "hard_break"
+                    },
+                )
+            })?;
+            object.member("node_id", |writer| writer.u32(*node_id))?;
+            object.member("span", |writer| encode_source_span(writer, *span))
+        }),
+    }
 }
 
 fn encode_page_master_rule<W: Write>(
@@ -1363,6 +1703,25 @@ mod tests {
         WireDocumentPackage {
             contract: DocumentPackageContractId::CURRENT,
             coordinate_unit: WireCoordinateUnit::PdfPoint1_65536,
+            advanced: Some(WireAdvancedDocumentPackageExtension {
+                page_masters: WireAdvancedPageMasterSet {
+                    page_progression: WirePageProgression::LeftToRight,
+                    writing_mode: WirePageWritingMode::HorizontalTopToBottom,
+                    masters: vec![WireAdvancedPageMaster {
+                        master_id: "default".to_owned(),
+                        trim: WireRect {
+                            x: 0,
+                            y: 0,
+                            width: 100,
+                            height: 100,
+                        },
+                        header_content: None,
+                        footer_content: None,
+                        column_layout: None,
+                    }],
+                },
+                figure_placements: vec![],
+            }),
             sources: vec![],
             text_buffers: vec![],
             document: WireDocument {
@@ -1404,7 +1763,7 @@ mod tests {
         let bytes = encoder.to_jcs_vec(&package).unwrap();
         assert_eq!(stats.bytes(), bytes.len() as u64);
         assert_eq!(stats.sha256(), sha256(&bytes));
-        assert!(bytes.starts_with(b"{\"contract\":\"typaxis.contract/1.2\""));
+        assert!(bytes.starts_with(b"{\"contract\":\"typaxis.contract/1.3\""));
     }
 
     #[test]

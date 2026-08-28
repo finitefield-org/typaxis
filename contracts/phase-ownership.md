@@ -52,7 +52,7 @@ These rows are the public contract 1.2 ownership adopted by [ADR-0028](../adr/AD
 | figure width/aspect geometry, caption FlowId, keep and oversize outcome | typed style/layout figure owner | issue one selected figure placement consumed by Display, finalization, PDF, and manifest |
 | link logical cluster range and selected page/line rectangle union | itemizer then selected-layout link owner | issue canonical nonempty rectangles; Display/PDF cannot infer links from coordinates or raw URI text |
 | selected body/subflow state and full basic-document artifact closure | selected-state owner | bind preflight, registry, flow cursors, breaks, markers, figures, links, and resource ledger into trace/Display/PDF/manifest |
-| versioned/current 1.2 registry and frozen 1.1 registry | Schema/contract integration owner | keep each registry independent; current aliases, decoder, help, capabilities, fixtures, and generated artifacts switch only at an atomic publication milestone |
+| frozen 1.2 registry and current 1.3 registry | Schema/contract integration owner | keep every version independent; current aliases, decoder, help, capabilities, fixtures, and generated artifacts switch only at an atomic publication milestone |
 
 The M2 progress suffix is `ResourcesAdmitted -> FlowRegistryValidated -> LayoutSelected`. A downstream phase cannot reconstruct a flow registry from trace JSON, infer PNG from a path, normalize a URI again, relax keep/oversize policy, or fabricate profile/registry hashes for manifest output.
 
@@ -102,18 +102,16 @@ different identities. A downstream phase cannot renumber markers from layout,
 derive reservation from coordinates, merge carry into the body cursor, or use
 trace/manifest JSON as a receipt.
 
-## Contract-defined M3 advanced-pagination ownership
+## Public M3 advanced-pagination ownership
 
-These rows are the target ownership adopted by
-[ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). They are not
-implemented or public at adoption. MI3-09 through MI3-11 may issue only
-crate-private staging receipts, and MI3-12 is the sole owner of the public 1.3
-migration and descriptor registration.
+These rows are the ownership adopted by
+[ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md), implemented in
+private slices by MI3-09 through MI3-11, and published together by MI3-12.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
 | closed `header-footer-1`, `columns-1`, and `float-1` domains and their immutable profile-receipt fingerprints | `typaxis-machine-profile` advanced descriptor/preflight owner | derive the target capability entries, typed contract-1.3 preflight, rejection matrix, and one combined fixture per profile |
-| independent 1.3 DTO/decoder/encoder and complete versioned Schema registry | `typaxis-document-package` version-dispatch owner plus Schema integration owner | keep staging isolated from current 1.2; populate every required neutral field by typed conversion and publish all current aliases only at MI3-12 |
+| independent 1.3 DTO/decoder/encoder and complete versioned Schema registry | `typaxis-document-package` version-dispatch owner plus Schema integration owner | keep frozen 1.0/1.1/1.2 registries isolated; populate every required neutral field by typed conversion and expose the current 1.3 aliases |
 | horizontal/LTR master shape, checked trim/body/margin relation, first/left/right selection, and PDF page boxes | page-master geometry/selection owner | issue selected MasterId and MediaBox/CropBox/TrimBox receipts; Display/PDF cannot infer boxes from paint bounds |
 | page-region NodeIds/content closure and dense header/footer repetition | syntax index then canonical flow-registry and pagination owners | allocate one MasterId-bound source FlowId per present region, re-evaluate it independently on selected pages, and reject split/carry or body-cursor substitution |
 | checked column count/gap partition, last-column residual, and Column FlowIds | column-frame registry owner | issue exact left-to-right frame geometry and source-body before/after cursors without caller or worker ordering |
@@ -121,10 +119,10 @@ migration and descriptor registration.
 | Figure anchor consumption, FIFO queue identity, finite here/top/bottom decisions, and next-page carry | float queue owner under pagination | issue `typaxis.float-queue/1`; keep Float FlowId/caption progress separate from body and emit `G6004` before queue/carry max+1 |
 | selected master/boxes, canonical header/body-column/footer frames, repetitions, balance, float placements/carries, and terminal closure | advanced selected-layout owner | issue `typaxis.advanced-pagination-selected-layout/1`; reject missing/extra/reordered/same-position facts as `I9190` |
 | exact frame/float Display commands and reopened PDF page-box/command observations | Display owner then PDF graph/serializer owners | issue `typaxis.advanced-pagination-paint-closure/1` bound to the selected layout rather than coordinate-sorted or caller-authored observations |
-| byte-identical conditional `advanced_pagination` trace/manifest projection | manifest owned-facts owner | require the member for built advanced profiles after MI3-12, forbid it for old profiles, and serialize no discarded candidate or uncommitted queue state |
-| current-contract switch, public profile registration, private-runner removal, and `m3-all.json` publication | MI3-12 integration gate | atomically expose 1.3 only after independent Schema, exact-limit, tamper, PDF, reproducibility, and documented-host closure |
+| byte-identical conditional `advanced_pagination` trace/manifest projection | manifest owned-facts owner | require the member for built advanced profiles, forbid it for old profiles, and serialize no discarded candidate or uncommitted queue state |
+| current-contract switch, public profile registration, private-runner removal, and `m3-all.json` publication | MI3-12 integration gate | atomically exposed 1.3 after independent Schema, exact-limit, tamper, PDF, reproducibility, and documented-host closure |
 
-The target progress suffix is `ResourcesAdmitted ->
+The public progress suffix is `ResourcesAdmitted ->
 AdvancedFlowRegistryValidated -> AdvancedPaginationSelected -> DisplayClosed ->
 PdfGraphFrozen`. A column frame is a view over the body source cursor; a page
 region and Float FlowId have their own terminals. Parent edges express typed

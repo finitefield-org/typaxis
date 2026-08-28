@@ -71,7 +71,10 @@ impl HostCapabilityDescriptor {
     pub const fn profile_available(self, profile: MachinePdfProfileId) -> bool {
         match profile {
             MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Columns1
+            | MachinePdfProfileId::Float1
             | MachinePdfProfileId::Footnote1
+            | MachinePdfProfileId::HeaderFooter1
             | MachinePdfProfileId::Paragraph1
             | MachinePdfProfileId::Table1 => {
                 self.atomic_file_publish
@@ -107,7 +110,10 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
     let default_profile = MachineProfileDescriptor::PARAGRAPH_1;
     let profiles = [
         MachineProfileDescriptor::BASIC_DOCUMENT_1,
+        MachineProfileDescriptor::COLUMNS_1,
+        MachineProfileDescriptor::FLOAT_1,
         MachineProfileDescriptor::FOOTNOTE_1,
+        MachineProfileDescriptor::HEADER_FOOTER_1,
         MachineProfileDescriptor::PARAGRAPH_1,
         MachineProfileDescriptor::TABLE_1,
     ];
@@ -128,6 +134,8 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
     push_jcs_string(&mut output, DocumentPackageContractId::V1_1.as_str());
     output.push(',');
     push_jcs_string(&mut output, DocumentPackageContractId::V1_2.as_str());
+    output.push(',');
+    push_jcs_string(&mut output, DocumentPackageContractId::V1_3.as_str());
     output.push_str("],\"host_features\":{\"atomic_file_publish\":");
     push_bool(&mut output, host.atomic_file_publish());
     output.push_str(",\"contained_package_open\":");
@@ -164,7 +172,18 @@ fn push_profile(
     profile: MachineProfileDescriptor,
     host: HostCapabilityDescriptor,
 ) {
-    output.push_str("{\"available\":");
+    output.push('{');
+    if matches!(
+        profile.id(),
+        MachinePdfProfileId::Columns1
+            | MachinePdfProfileId::Float1
+            | MachinePdfProfileId::HeaderFooter1
+    ) {
+        output.push_str("\"advanced_pagination\":");
+        push_advanced_pagination(output, profile.id());
+        output.push(',');
+    }
+    output.push_str("\"available\":");
     push_bool(output, host.profile_available(profile.id()));
     output.push_str(",\"blocks\":");
     push_named_values(output, profile.accepted_blocks(), |value| value.as_str());
@@ -224,6 +243,38 @@ fn push_profile(
         value.as_str()
     });
     output.push('}');
+}
+
+fn push_advanced_pagination(output: &mut String, profile: MachinePdfProfileId) {
+    output.push_str("{\"balance\":");
+    push_jcs_string(
+        output,
+        match profile {
+            MachinePdfProfileId::HeaderFooter1 => "forbidden",
+            MachinePdfProfileId::Columns1 => "last_page",
+            MachinePdfProfileId::Float1 => "none",
+            _ => unreachable!("only advanced profiles have this descriptor"),
+        },
+    );
+    output.push_str(",\"column_count\":");
+    if profile == MachinePdfProfileId::HEADER_FOOTER_1 {
+        output.push_str("null");
+    } else {
+        output.push_str("{\"maximum\":65535,\"minimum\":1}");
+    }
+    output.push_str(",\"custom_trim\":");
+    push_bool(output, profile == MachinePdfProfileId::HEADER_FOOTER_1);
+    output.push_str(",\"float_classes\":[");
+    if profile == MachinePdfProfileId::FLOAT_1 {
+        output.push_str("\"here\",\"top\",\"bottom\",\"next_page\"");
+    }
+    output.push_str("],\"header_footer\":");
+    push_bool(output, profile == MachinePdfProfileId::HEADER_FOOTER_1);
+    output.push_str(",\"master_selection\":[\"single\"");
+    if profile == MachinePdfProfileId::HEADER_FOOTER_1 {
+        output.push_str(",\"first_left_right\"");
+    }
+    output.push_str("],\"page_boxes\":[\"crop\",\"media\",\"trim\"],\"page_progression\":\"ltr\",\"writing_mode\":\"horizontal-tb\"}");
 }
 
 fn push_bool(output: &mut String, value: bool) {

@@ -252,6 +252,63 @@ fn run_build_package_with_host(
         terminal_read,
     } = prepared;
     let (receipt, preparation) = checked.into_parts();
+    if matches!(
+        receipt.profile(),
+        typaxis_core::MachinePdfProfileId::Columns1
+            | typaxis_core::MachinePdfProfileId::Float1
+            | typaxis_core::MachinePdfProfileId::HeaderFooter1
+    ) {
+        let advanced = {
+            let result = {
+                let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Layout)?;
+                pipeline::build_advanced_machine_pdf(&package, &receipt, &preparation, &config)
+            };
+            match result {
+                Ok(advanced) => advanced,
+                Err(primary) => {
+                    return Err(publish_machine_processing_failure(
+                        &execution,
+                        diagnostics,
+                        output,
+                        publication,
+                        manifest,
+                        None,
+                        FailedMachineCommand {
+                            primary,
+                            sidecar_read: Some(sidecar_read),
+                            terminal_read: Some(terminal_read),
+                        },
+                    ));
+                }
+            }
+        };
+        {
+            let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Pdf)?;
+        }
+        {
+            let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Publication)?;
+        }
+        let (pdf, advanced_manifest) = advanced.into_parts();
+        let trace_json = options
+            .trace
+            .as_ref()
+            .map(|_| artifacts::advanced_machine_layout_trace_json(&advanced_manifest));
+        drop(manifest);
+        return publish_advanced_machine_success(
+            &execution,
+            diagnostics,
+            output,
+            publication,
+            &package,
+            &receipt,
+            &preparation,
+            pdf,
+            advanced_manifest,
+            trace_json.as_deref(),
+            sidecar_read,
+            terminal_read,
+        );
+    }
     let layout = {
         let result = {
             let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Layout)?;
@@ -1461,6 +1518,109 @@ fn publish_machine_success(
         },
     };
 
+    finish_machine_success_publication(
+        execution,
+        terminal,
+        diagnostics_json,
+        trace_json,
+        sidecar_read,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn publish_advanced_machine_success(
+    execution: &BuildExecutionContext,
+    diagnostics: MachineDiagnosticBudget,
+    output: BuildOutputCommitContext,
+    publication: Option<ManifestPublicationContext>,
+    package: &ValidatedMachinePackage,
+    receipt: &typaxis_machine_profile::MachinePdfPreflightReceipt,
+    preparation: &pipeline::MachinePackagePreparation,
+    pdf: typaxis_pdf::VerifiedPdfBytesReceipt,
+    advanced: typaxis_manifest::StagingAdvancedPaginationManifest,
+    trace_json: Option<&str>,
+    sidecar_read: PublicationReadLedgerToken,
+    terminal_read: PublicationReadLedgerToken,
+) -> Result<(), Failure> {
+    let diagnostics_json = encode_diagnostics_canonical(diagnostics.finish().diagnostics());
+    let terminal = match publication {
+        Some(publication) => {
+            drop(terminal_read);
+            let prepared = match publication.prepare_advanced_machine_built(
+                package,
+                receipt,
+                preparation.admitted().token(),
+                advanced,
+                pdf,
+            ) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    let primary = Failure::internal(format!(
+                        "advanced machine built-manifest preflight failed: {error:?}"
+                    ));
+                    let diagnostics = publish_machine_diagnostics_bytes(
+                        execution,
+                        &diagnostics_json,
+                        Some(&sidecar_read),
+                    );
+                    return Err(combine_machine_publication_failures(
+                        primary,
+                        diagnostics.err(),
+                        None,
+                    ));
+                }
+            };
+            match output.stage_prepared_built(prepared) {
+                Ok(staged) => PreparedMachineTerminal::Manifest(Box::new(staged)),
+                Err(error) => {
+                    let primary = map_built_staging_error(error);
+                    let diagnostics = publish_machine_diagnostics_bytes(
+                        execution,
+                        &diagnostics_json,
+                        Some(&sidecar_read),
+                    );
+                    return Err(combine_machine_publication_failures(
+                        primary,
+                        diagnostics.err(),
+                        None,
+                    ));
+                }
+            }
+        }
+        None => match output.prepare_pdf_without_manifest_with_read_ledger(pdf, terminal_read) {
+            Ok(prepared) => PreparedMachineTerminal::PdfOnly(Box::new(prepared)),
+            Err(error) => {
+                let primary = map_pdf_commit_error(error);
+                let diagnostics = publish_machine_diagnostics_bytes(
+                    execution,
+                    &diagnostics_json,
+                    Some(&sidecar_read),
+                );
+                return Err(combine_machine_publication_failures(
+                    primary,
+                    diagnostics.err(),
+                    None,
+                ));
+            }
+        },
+    };
+
+    finish_machine_success_publication(
+        execution,
+        terminal,
+        diagnostics_json,
+        trace_json,
+        sidecar_read,
+    )
+}
+
+fn finish_machine_success_publication(
+    execution: &BuildExecutionContext,
+    terminal: PreparedMachineTerminal,
+    diagnostics_json: String,
+    trace_json: Option<&str>,
+    sidecar_read: PublicationReadLedgerToken,
+) -> Result<(), Failure> {
     // Every requested file has a complete, fsynced temporary before the first
     // visible success artifact. Publication below is deliberately individual,
     // not a multi-file transaction.
@@ -2991,7 +3151,7 @@ mod tests {
                 .starts_with(b"%PDF-"));
             assert!(fs::read_to_string(tree.path().join("trace.json"))
                 .unwrap()
-                .contains("\"contract\":\"typaxis.contract/1.2\""));
+                .contains("\"contract\":\"typaxis.contract/1.3\""));
             let manifest = fs::read_to_string(tree.path().join("manifest.json")).unwrap();
             assert!(manifest.contains("\"status\":\"built\""));
             assert!(manifest.contains("\"input_profile\":\"typaxis.machine-pdf/paragraph-1\""));

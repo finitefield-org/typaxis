@@ -1,8 +1,16 @@
-use typaxis_core::{push_jcs_string, sha256, MasterId, ValidatedResourceLimits};
+use typaxis_core::{
+    push_jcs_string, sha256, EffectiveConfig, LayoutStateFingerprint, MasterId,
+    PdfStreamCompression, ValidatedResourceLimits,
+};
 use typaxis_display_list::{StagingColumnsDisplay, StagingPdfPageBox, StagingSelectedPageBoxes};
+use typaxis_resources::AdmittedResourceLedger;
 
+use crate::advanced_content::{
+    prepare_advanced_pdf_content, AdvancedPdfContentObservation, AdvancedPdfContentPlan,
+};
 use crate::advanced_header_footer::{
-    append_limited, pdf_box, pdf_fixed, push_object, write_classic_pdf,
+    append_limited, generated_stream_object, pdf_box, pdf_fixed, push_object,
+    validate_advanced_content_resources, write_classic_pdf,
     STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
 };
 
@@ -68,7 +76,9 @@ impl StagingColumnsPdfClosureReceipt {
 pub struct StagingColumnsPdf {
     bytes: Vec<u8>,
     pages: Vec<StagingColumnsPdfPageObservation>,
+    content: Option<AdvancedPdfContentObservation>,
     receipt: StagingColumnsPdfClosureReceipt,
+    stream_compression: PdfStreamCompression,
 }
 
 impl StagingColumnsPdf {
@@ -80,6 +90,25 @@ impl StagingColumnsPdf {
     }
     pub const fn receipt(&self) -> &StagingColumnsPdfClosureReceipt {
         &self.receipt
+    }
+
+    pub fn into_verified_receipt(
+        self,
+        selected_layout_sha256: [u8; 32],
+        config: &EffectiveConfig,
+    ) -> crate::VerifiedPdfBytesReceipt {
+        crate::VerifiedPdfBytesReceipt {
+            sha256: self.receipt.pdf_sha256,
+            selected_layout_fingerprint: LayoutStateFingerprint::from_untrusted_bytes(
+                selected_layout_sha256,
+            ),
+            footnote_display_sha256: None,
+            page_count: u32::try_from(self.pages.len()).expect("advanced page count is bounded"),
+            object_count: self.receipt.object_count,
+            stream_compression: self.stream_compression,
+            config_fingerprint: config.fingerprint(),
+            bytes: self.bytes,
+        }
     }
 
     pub fn verify_receipt(
@@ -112,11 +141,25 @@ impl StagingColumnsPdf {
                 return Err(StagingColumnsPdfError::DisplayClosureMismatch);
             }
         }
-        let expected_objects = u32::try_from(self.pages.len())
+        let base_objects = u32::try_from(self.pages.len())
             .ok()
             .and_then(|pages| pages.checked_mul(2))
             .and_then(|pages| pages.checked_add(2))
             .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
+        let expected_objects = base_objects
+            .checked_add(
+                self.content
+                    .as_ref()
+                    .map_or(0, AdvancedPdfContentObservation::extra_object_count),
+            )
+            .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
+        match (&self.content, display.content()) {
+            (None, None) => {}
+            (Some(observation), Some(binding)) => observation
+                .verify(binding, &self.bytes)
+                .map_err(map_common_error)?,
+            _ => return Err(StagingColumnsPdfError::DisplayClosureMismatch),
+        }
         let pdf_sha256 = sha256(&self.bytes);
         let canonical = encode_pdf_closure(
             display.receipt().paint_closure_sha256(),
@@ -163,17 +206,68 @@ pub fn serialize_staging_columns_pdf(
     display: &StagingColumnsDisplay,
     limits: &ValidatedResourceLimits,
 ) -> Result<StagingColumnsPdf, StagingColumnsPdfError> {
+    serialize_columns_pdf_with_compression(display, limits, PdfStreamCompression::None, None)
+}
+
+pub fn serialize_columns_pdf(
+    display: &StagingColumnsDisplay,
+    config: &EffectiveConfig,
+    admitted: &AdmittedResourceLedger,
+) -> Result<StagingColumnsPdf, StagingColumnsPdfError> {
+    serialize_columns_pdf_with_compression(
+        display,
+        config.limits(),
+        config.stream_compression(),
+        Some(admitted),
+    )
+}
+
+fn serialize_columns_pdf_with_compression(
+    display: &StagingColumnsDisplay,
+    limits: &ValidatedResourceLimits,
+    stream_compression: PdfStreamCompression,
+    admitted: Option<&AdmittedResourceLedger>,
+) -> Result<StagingColumnsPdf, StagingColumnsPdfError> {
     display
         .verify_receipt()
         .map_err(|_| StagingColumnsPdfError::DisplayClosureMismatch)?;
+    validate_advanced_content_resources(display.content(), admitted, display.pages().len())
+        .map_err(map_common_error)?;
     if display.pages().is_empty() {
         return Err(StagingColumnsPdfError::DisplayClosureMismatch);
     }
     let page_count = u32::try_from(display.pages().len())
         .map_err(|_| StagingColumnsPdfError::ArithmeticOverflow)?;
-    let object_count = page_count
+    let base_object_count = page_count
         .checked_mul(2)
         .and_then(|value| value.checked_add(2))
+        .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
+    let page_boxes = display
+        .pages()
+        .iter()
+        .map(|page| page.boxes())
+        .collect::<Vec<_>>();
+    let content_plan = match (display.content(), admitted) {
+        (None, None) => None,
+        (Some(content), Some(admitted)) => Some(
+            prepare_advanced_pdf_content(
+                content,
+                admitted,
+                &page_boxes,
+                base_object_count,
+                limits,
+                stream_compression,
+            )
+            .map_err(map_common_error)?,
+        ),
+        _ => return Err(StagingColumnsPdfError::DisplayClosureMismatch),
+    };
+    let object_count = base_object_count
+        .checked_add(
+            content_plan
+                .as_ref()
+                .map_or(0, |plan| plan.observation().extra_object_count()),
+        )
         .ok_or(StagingColumnsPdfError::ArithmeticOverflow)?;
     if object_count > limits.get().max_pdf_objects {
         return Err(StagingColumnsPdfError::PageObjectLimit);
@@ -186,9 +280,15 @@ pub fn serialize_staging_columns_pdf(
         .try_reserve_exact(object_capacity)
         .map_err(|_| StagingColumnsPdfError::AllocationFailure)?;
     let mut staged_payload_bytes = 0u64;
+    let catalog = format!(
+        "<< /Type /Catalog /Pages 2 0 R{} >>",
+        content_plan
+            .as_ref()
+            .map_or("", AdvancedPdfContentPlan::catalog_suffix)
+    );
     push_object(
         &mut objects,
-        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        catalog.into_bytes(),
         &mut staged_payload_bytes,
         limits.get().max_output_bytes,
     )
@@ -289,25 +389,34 @@ pub fn serialize_staging_columns_pdf(
             )
             .map_err(map_common_error)?;
         }
-        let content_header = format!("<< /Length {} >>\nstream\n", content.len());
-        let mut content_bytes = Vec::new();
-        append_limited(
-            &mut content_bytes,
-            content_header.as_bytes(),
-            limits.get().max_output_bytes,
-        )
-        .map_err(map_common_error)?;
-        append_limited(&mut content_bytes, &content, limits.get().max_output_bytes)
+        if let Some(plan) = content_plan
+            .as_ref()
+            .and_then(|plan| plan.page(page.page_index()))
+        {
+            append_limited(
+                &mut content,
+                plan.stream_suffix(),
+                limits.get().max_output_bytes,
+            )
             .map_err(map_common_error)?;
-        append_limited(
-            &mut content_bytes,
-            b"endstream",
+        }
+        let content_bytes = generated_stream_object(
+            "",
+            &content,
+            stream_compression,
             limits.get().max_output_bytes,
         )
         .map_err(map_common_error)?;
         let boxes = page.boxes();
+        let (resources, annotations) = match content_plan
+            .as_ref()
+            .and_then(|plan| plan.page(page.page_index()))
+        {
+            Some(plan) => (plan.resources(), plan.annotation_suffix()),
+            None => ("/Resources << >>", ""),
+        };
         let page_object = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox {} /CropBox {} /TrimBox {} /Resources << >> /Contents {content_object_id} 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox {} /CropBox {} /TrimBox {} {resources} /Contents {content_object_id} 0 R{annotations} >>",
             pdf_box(boxes.media_box()),
             pdf_box(boxes.crop_box()),
             pdf_box(boxes.trim_box()),
@@ -335,6 +444,17 @@ pub fn serialize_staging_columns_pdf(
             command_count: page.command_count(),
         });
     }
+    if let Some(plan) = &content_plan {
+        for object in plan.objects() {
+            push_object(
+                &mut objects,
+                object.clone(),
+                &mut staged_payload_bytes,
+                limits.get().max_output_bytes,
+            )
+            .map_err(map_common_error)?;
+        }
+    }
     if objects.len() != object_capacity {
         return Err(StagingColumnsPdfError::DisplayClosureMismatch);
     }
@@ -357,7 +477,9 @@ pub fn serialize_staging_columns_pdf(
     let pdf = StagingColumnsPdf {
         bytes,
         pages: observations,
+        content: content_plan.as_ref().map(|plan| plan.observation().clone()),
         receipt,
+        stream_compression,
     };
     pdf.verify_receipt(display)?;
     Ok(pdf)

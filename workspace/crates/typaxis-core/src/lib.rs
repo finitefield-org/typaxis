@@ -88,20 +88,23 @@ pub enum DocumentPackageContractId {
     V1_0,
     V1_1,
     V1_2,
+    V1_3,
 }
 
 impl DocumentPackageContractId {
     pub const CONTRACT_1_0: Self = Self::V1_0;
     pub const CONTRACT_1_1: Self = Self::V1_1;
     pub const CONTRACT_1_2: Self = Self::V1_2;
+    pub const CONTRACT_1_3: Self = Self::V1_3;
     /// Contract emitted by every current generated artifact.
-    pub const CURRENT: Self = Self::V1_2;
+    pub const CURRENT: Self = Self::V1_3;
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::V1_0 => "typaxis.contract/1.0",
             Self::V1_1 => "typaxis.contract/1.1",
             Self::V1_2 => "typaxis.contract/1.2",
+            Self::V1_3 => "typaxis.contract/1.3",
         }
     }
 }
@@ -137,6 +140,7 @@ impl std::str::FromStr for DocumentPackageContractId {
             "typaxis.contract/1.0" => Ok(Self::V1_0),
             "typaxis.contract/1.1" => Ok(Self::V1_1),
             "typaxis.contract/1.2" => Ok(Self::V1_2),
+            "typaxis.contract/1.3" => Ok(Self::V1_3),
             _ => Err(UnknownDocumentPackageContractId),
         }
     }
@@ -146,7 +150,10 @@ impl std::str::FromStr for DocumentPackageContractId {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachinePdfProfileId {
     BasicDocument1,
+    Columns1,
+    Float1,
     Footnote1,
+    HeaderFooter1,
     Paragraph1,
     Table1,
 }
@@ -154,7 +161,10 @@ pub enum MachinePdfProfileId {
 impl MachinePdfProfileId {
     pub const PARAGRAPH_1: Self = Self::Paragraph1;
     pub const BASIC_DOCUMENT_1: Self = Self::BasicDocument1;
+    pub const COLUMNS_1: Self = Self::Columns1;
+    pub const FLOAT_1: Self = Self::Float1;
     pub const FOOTNOTE_1: Self = Self::Footnote1;
+    pub const HEADER_FOOTER_1: Self = Self::HeaderFooter1;
     pub const TABLE_1: Self = Self::Table1;
     /// The CLI default remains the frozen paragraph profile after the 1.2
     /// contract migration. A wider profile is always an explicit request.
@@ -163,7 +173,10 @@ impl MachinePdfProfileId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::BasicDocument1 => "typaxis.machine-pdf/basic-document-1",
+            Self::Columns1 => "typaxis.machine-pdf/columns-1",
+            Self::Float1 => "typaxis.machine-pdf/float-1",
             Self::Footnote1 => "typaxis.machine-pdf/footnote-1",
+            Self::HeaderFooter1 => "typaxis.machine-pdf/header-footer-1",
             Self::Paragraph1 => "typaxis.machine-pdf/paragraph-1",
             Self::Table1 => "typaxis.machine-pdf/table-1",
         }
@@ -199,7 +212,10 @@ impl std::str::FromStr for MachinePdfProfileId {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "typaxis.machine-pdf/basic-document-1" => Ok(Self::BasicDocument1),
+            "typaxis.machine-pdf/columns-1" => Ok(Self::Columns1),
+            "typaxis.machine-pdf/float-1" => Ok(Self::Float1),
             "typaxis.machine-pdf/footnote-1" => Ok(Self::Footnote1),
+            "typaxis.machine-pdf/header-footer-1" => Ok(Self::HeaderFooter1),
             "typaxis.machine-pdf/paragraph-1" => Ok(Self::Paragraph1),
             "typaxis.machine-pdf/table-1" => Ok(Self::Table1),
             _ => Err(UnknownMachinePdfProfileId),
@@ -1974,9 +1990,13 @@ mod tests {
             DocumentPackageContractId::from_str("typaxis.contract/1.2"),
             Ok(DocumentPackageContractId::CONTRACT_1_2)
         );
+        assert_eq!(
+            DocumentPackageContractId::from_str("typaxis.contract/1.3"),
+            Ok(DocumentPackageContractId::CONTRACT_1_3)
+        );
         assert!(DocumentPackageContractId::from_str("typaxis.contract/2.0").is_err());
         assert_eq!(DocumentPackageContractId::CURRENT.as_str(), CONTRACT);
-        assert_eq!(CONTRACT, "typaxis.contract/1.2");
+        assert_eq!(CONTRACT, "typaxis.contract/1.3");
 
         assert_eq!(
             MachinePdfProfileId::from_str("typaxis.machine-pdf/paragraph-1"),
@@ -1989,6 +2009,18 @@ mod tests {
         assert_eq!(
             MachinePdfProfileId::from_str("typaxis.machine-pdf/table-1"),
             Ok(MachinePdfProfileId::TABLE_1)
+        );
+        assert_eq!(
+            MachinePdfProfileId::from_str("typaxis.machine-pdf/columns-1"),
+            Ok(MachinePdfProfileId::COLUMNS_1)
+        );
+        assert_eq!(
+            MachinePdfProfileId::from_str("typaxis.machine-pdf/float-1"),
+            Ok(MachinePdfProfileId::FLOAT_1)
+        );
+        assert_eq!(
+            MachinePdfProfileId::from_str("typaxis.machine-pdf/header-footer-1"),
+            Ok(MachinePdfProfileId::HEADER_FOOTER_1)
         );
         assert!(MachinePdfProfileId::from_str("typaxis.machine-pdf/general").is_err());
     }
@@ -2452,7 +2484,7 @@ mod tests {
             .collect();
         assert_eq!(
             sample_hash,
-            "778591657cd2b4d7b946778a81efcd413eda4827b2aeecc56b57637fe914d21e"
+            "cb9e13152f2b46cabdb2ccaa881ca906f50e8b2f726c7f6bacaa7e262764e85b"
         );
         assert_eq!(
             EffectiveConfig::new(

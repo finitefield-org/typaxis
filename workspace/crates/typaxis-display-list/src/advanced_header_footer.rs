@@ -1,6 +1,12 @@
 use typaxis_core::{push_jcs_string, sha256, MasterId, NodeId, Rect};
+use typaxis_document::Block;
 use typaxis_layout::{FlowId, StagingPageRegionKind};
 use typaxis_pagination::{StagingAdvancedPageFrameKind, StagingHeaderFooterSelectedLayout};
+use typaxis_syntax::ValidatedStagingAdvancedPackage;
+
+use crate::advanced_content::{
+    bind_advanced_content, push_content_binding, StagingAdvancedContentBinding,
+};
 pub use typaxis_pagination::{StagingPdfPageBox, StagingSelectedPageBoxes};
 
 pub const ADVANCED_PAINT_CLOSURE_ALGORITHM: &str = "typaxis.advanced-pagination-paint-closure/1";
@@ -106,6 +112,7 @@ impl StagingHeaderFooterDisplayReceipt {
 pub struct StagingHeaderFooterDisplay {
     pages: Vec<StagingHeaderFooterDisplayPage>,
     commands: Vec<StagingHeaderFooterPaintCommand>,
+    content: Option<StagingAdvancedContentBinding>,
     receipt: StagingHeaderFooterDisplayReceipt,
 }
 
@@ -116,8 +123,95 @@ impl StagingHeaderFooterDisplay {
     pub fn commands(&self) -> &[StagingHeaderFooterPaintCommand] {
         &self.commands
     }
+    pub const fn content(&self) -> Option<&StagingAdvancedContentBinding> {
+        self.content.as_ref()
+    }
     pub const fn receipt(&self) -> &StagingHeaderFooterDisplayReceipt {
         &self.receipt
+    }
+
+    pub fn bind_package_content(
+        &mut self,
+        package: &ValidatedStagingAdvancedPackage,
+        selected: &StagingHeaderFooterSelectedLayout,
+        resource_ledger_sha256: [u8; 32],
+    ) -> Result<(), StagingHeaderFooterDisplayError> {
+        if self.content.is_some() || selected.pages().len() != self.pages.len() {
+            return Err(StagingHeaderFooterDisplayError::SelectedLayoutMismatch);
+        }
+        selected
+            .verify_receipt()
+            .map_err(|_| StagingHeaderFooterDisplayError::SelectedLayoutMismatch)?;
+        let body = &package.package().package().document.blocks;
+        let mut page_nodes = Vec::new();
+        page_nodes
+            .try_reserve_exact(self.pages.len())
+            .map_err(|_| StagingHeaderFooterDisplayError::AllocationFailure)?;
+        for (page, selected_page) in self.pages.iter().zip(selected.pages()) {
+            if page.page_index != selected_page.page_index() {
+                return Err(StagingHeaderFooterDisplayError::SelectedLayoutMismatch);
+            }
+            let first = usize::try_from(page.first_command)
+                .map_err(|_| StagingHeaderFooterDisplayError::ArithmeticOverflow)?;
+            let end = first
+                .checked_add(
+                    usize::try_from(page.command_count)
+                        .map_err(|_| StagingHeaderFooterDisplayError::ArithmeticOverflow)?,
+                )
+                .ok_or(StagingHeaderFooterDisplayError::ArithmeticOverflow)?;
+            let commands = self
+                .commands
+                .get(first..end)
+                .ok_or(StagingHeaderFooterDisplayError::FragmentClosure)?;
+            let body_frame = selected_page
+                .frames()
+                .iter()
+                .find(|frame| frame.kind() == StagingAdvancedPageFrameKind::Body)
+                .ok_or(StagingHeaderFooterDisplayError::FrameOrder)?;
+            let body_start = usize::try_from(body_frame.before_position().ordinal())
+                .map_err(|_| StagingHeaderFooterDisplayError::ArithmeticOverflow)?;
+            let body_end = usize::try_from(body_frame.after_position().ordinal())
+                .map_err(|_| StagingHeaderFooterDisplayError::ArithmeticOverflow)?;
+            let selected_body = body
+                .get(body_start..body_end)
+                .ok_or(StagingHeaderFooterDisplayError::FragmentClosure)?;
+            let mut nodes = Vec::new();
+            nodes
+                .try_reserve_exact(commands.len().saturating_add(selected_body.len()))
+                .map_err(|_| StagingHeaderFooterDisplayError::AllocationFailure)?;
+            nodes.extend(
+                commands
+                    .iter()
+                    .filter(|command| command.kind == StagingPageRegionKind::Header)
+                    .map(|command| command.block_node_id),
+            );
+            nodes.extend(selected_body.iter().map(block_node_id));
+            nodes.extend(
+                commands
+                    .iter()
+                    .filter(|command| command.kind == StagingPageRegionKind::Footer)
+                    .map(|command| command.block_node_id),
+            );
+            page_nodes.push(nodes);
+        }
+        self.content = Some(
+            bind_advanced_content(package, resource_ledger_sha256, page_nodes)
+                .map_err(|_| StagingHeaderFooterDisplayError::SelectedLayoutMismatch)?,
+        );
+        self.reissue_receipt();
+        self.verify_receipt()
+    }
+
+    fn reissue_receipt(&mut self) {
+        self.receipt.canonical_jcs = encode_display(
+            self.receipt.profile_receipt_sha256,
+            self.receipt.flow_registry_sha256,
+            self.receipt.selected_layout_sha256,
+            &self.pages,
+            &self.commands,
+            self.content.as_ref(),
+        );
+        self.receipt.paint_closure_sha256 = sha256(self.receipt.canonical_jcs.as_bytes());
     }
 
     pub fn verify_receipt(&self) -> Result<(), StagingHeaderFooterDisplayError> {
@@ -166,7 +260,15 @@ impl StagingHeaderFooterDisplay {
             self.receipt.selected_layout_sha256,
             &self.pages,
             &self.commands,
+            self.content.as_ref(),
         );
+        if self
+            .content
+            .as_ref()
+            .is_some_and(|content| content.verify(self.pages.len()).is_err())
+        {
+            return Err(StagingHeaderFooterDisplayError::SelectedLayoutMismatch);
+        }
         if canonical != self.receipt.canonical_jcs
             || sha256(canonical.as_bytes()) != self.receipt.paint_closure_sha256
         {
@@ -346,6 +448,7 @@ pub fn build_staging_header_footer_display(
         selected.receipt().selected_layout_sha256(),
         &pages,
         &commands,
+        None,
     );
     let receipt = StagingHeaderFooterDisplayReceipt {
         profile_receipt_sha256: selected.receipt().profile_receipt_sha256(),
@@ -357,6 +460,7 @@ pub fn build_staging_header_footer_display(
     let display = StagingHeaderFooterDisplay {
         pages,
         commands,
+        content: None,
         receipt,
     };
     display.verify_receipt()?;
@@ -417,6 +521,7 @@ fn encode_display(
     selected_layout_sha256: [u8; 32],
     pages: &[StagingHeaderFooterDisplayPage],
     commands: &[StagingHeaderFooterPaintCommand],
+    content: Option<&StagingAdvancedContentBinding>,
 ) -> String {
     let mut output = String::from("{\"algorithm\":");
     push_jcs_string(&mut output, ADVANCED_PAINT_CLOSURE_ALGORITHM);
@@ -445,7 +550,13 @@ fn encode_display(
         output.push_str(&command.source_node_id.get().to_string());
         output.push('}');
     }
-    output.push_str("],\"flow_registry_sha256\":");
+    if let Some(content) = content {
+        output.push_str("],\"content\":");
+        push_content_binding(&mut output, content);
+    } else {
+        output.push(']');
+    }
+    output.push_str(",\"flow_registry_sha256\":");
     push_hex(&mut output, flow_registry_sha256);
     output.push_str(",\"pages\":[");
     for (index, page) in pages.iter().enumerate() {
@@ -474,6 +585,17 @@ fn encode_display(
     push_hex(&mut output, selected_layout_sha256);
     output.push('}');
     output
+}
+
+fn block_node_id(block: &Block) -> NodeId {
+    match block {
+        Block::Paragraph { node_id, .. }
+        | Block::Heading { node_id, .. }
+        | Block::List { node_id, .. }
+        | Block::Table { node_id, .. }
+        | Block::Figure { node_id, .. }
+        | Block::PageBreak { node_id, .. } => *node_id,
+    }
 }
 
 fn push_rect(output: &mut String, value: Rect) {

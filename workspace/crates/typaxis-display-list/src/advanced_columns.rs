@@ -4,7 +4,11 @@ use typaxis_pagination::{
     StagingAdvancedPageFrameKind, StagingColumnsSelectedLayout, StagingPdfPageBox,
     StagingSelectedPageBoxes,
 };
+use typaxis_syntax::ValidatedStagingAdvancedPackage;
 
+use crate::advanced_content::{
+    bind_advanced_content, push_content_binding, StagingAdvancedContentBinding,
+};
 use crate::advanced_header_footer::ADVANCED_PAINT_CLOSURE_ALGORITHM;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -104,6 +108,7 @@ impl StagingColumnsDisplayReceipt {
 pub struct StagingColumnsDisplay {
     pages: Vec<StagingColumnsDisplayPage>,
     commands: Vec<StagingColumnPaintCommand>,
+    content: Option<StagingAdvancedContentBinding>,
     receipt: StagingColumnsDisplayReceipt,
 }
 
@@ -114,8 +119,61 @@ impl StagingColumnsDisplay {
     pub fn commands(&self) -> &[StagingColumnPaintCommand] {
         &self.commands
     }
+    pub const fn content(&self) -> Option<&StagingAdvancedContentBinding> {
+        self.content.as_ref()
+    }
     pub const fn receipt(&self) -> &StagingColumnsDisplayReceipt {
         &self.receipt
+    }
+
+    pub fn bind_package_content(
+        &mut self,
+        package: &ValidatedStagingAdvancedPackage,
+        resource_ledger_sha256: [u8; 32],
+    ) -> Result<(), StagingColumnsDisplayError> {
+        if self.content.is_some() {
+            return Err(StagingColumnsDisplayError::SelectedLayoutMismatch);
+        }
+        let mut page_nodes = Vec::new();
+        page_nodes
+            .try_reserve_exact(self.pages.len())
+            .map_err(|_| StagingColumnsDisplayError::AllocationFailure)?;
+        for page in &self.pages {
+            let first = usize::try_from(page.first_command)
+                .map_err(|_| StagingColumnsDisplayError::ArithmeticOverflow)?;
+            let end = first
+                .checked_add(
+                    usize::try_from(page.command_count)
+                        .map_err(|_| StagingColumnsDisplayError::ArithmeticOverflow)?,
+                )
+                .ok_or(StagingColumnsDisplayError::ArithmeticOverflow)?;
+            page_nodes.push(
+                self.commands
+                    .get(first..end)
+                    .ok_or(StagingColumnsDisplayError::FragmentClosure)?
+                    .iter()
+                    .map(StagingColumnPaintCommand::block_node_id)
+                    .collect(),
+            );
+        }
+        self.content = Some(
+            bind_advanced_content(package, resource_ledger_sha256, page_nodes)
+                .map_err(|_| StagingColumnsDisplayError::SelectedLayoutMismatch)?,
+        );
+        self.reissue_receipt();
+        self.verify_receipt()
+    }
+
+    fn reissue_receipt(&mut self) {
+        self.receipt.canonical_jcs = encode_display(
+            self.receipt.profile_receipt_sha256,
+            self.receipt.flow_registry_sha256,
+            self.receipt.selected_layout_sha256,
+            &self.pages,
+            &self.commands,
+            self.content.as_ref(),
+        );
+        self.receipt.paint_closure_sha256 = sha256(self.receipt.canonical_jcs.as_bytes());
     }
 
     pub fn verify_receipt(&self) -> Result<(), StagingColumnsDisplayError> {
@@ -164,7 +222,15 @@ impl StagingColumnsDisplay {
             self.receipt.selected_layout_sha256,
             &self.pages,
             &self.commands,
+            self.content.as_ref(),
         );
+        if self
+            .content
+            .as_ref()
+            .is_some_and(|content| content.verify(self.pages.len()).is_err())
+        {
+            return Err(StagingColumnsDisplayError::SelectedLayoutMismatch);
+        }
         if canonical != self.receipt.canonical_jcs
             || sha256(canonical.as_bytes()) != self.receipt.paint_closure_sha256
         {
@@ -284,6 +350,7 @@ pub fn build_staging_columns_display(
         selected.receipt().selected_layout_sha256(),
         &pages,
         &commands,
+        None,
     );
     let receipt = StagingColumnsDisplayReceipt {
         profile_receipt_sha256: selected.receipt().profile_receipt_sha256(),
@@ -295,6 +362,7 @@ pub fn build_staging_columns_display(
     let display = StagingColumnsDisplay {
         pages,
         commands,
+        content: None,
         receipt,
     };
     display.verify_receipt()?;
@@ -345,6 +413,7 @@ fn encode_display(
     selected_layout_sha256: [u8; 32],
     pages: &[StagingColumnsDisplayPage],
     commands: &[StagingColumnPaintCommand],
+    content: Option<&StagingAdvancedContentBinding>,
 ) -> String {
     let mut output = String::from("{\"algorithm\":");
     push_jcs_string(&mut output, ADVANCED_PAINT_CLOSURE_ALGORITHM);
@@ -371,7 +440,13 @@ fn encode_display(
         output.push_str(&command.source_flow_id.get().to_string());
         output.push('}');
     }
-    output.push_str("],\"flow_registry_sha256\":");
+    if let Some(content) = content {
+        output.push_str("],\"content\":");
+        push_content_binding(&mut output, content);
+    } else {
+        output.push(']');
+    }
+    output.push_str(",\"flow_registry_sha256\":");
     push_hex(&mut output, flow_registry_sha256);
     output.push_str(",\"pages\":[");
     for (index, page) in pages.iter().enumerate() {

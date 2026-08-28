@@ -1,4 +1,4 @@
-use typaxis_core::{push_jcs_string, sha256, Rect};
+use typaxis_core::{push_jcs_string, sha256, MachinePdfProfileId, Rect};
 use typaxis_display_list::StagingHeaderFooterDisplay;
 use typaxis_machine_profile::STAGING_HEADER_FOOTER_PROFILE_ID;
 use typaxis_pagination::{
@@ -17,6 +17,8 @@ pub struct StagingAdvancedPaginationManifest {
     flow_registry_sha256: [u8; 32],
     selected_layout_sha256: [u8; 32],
     paint_closure_sha256: [u8; 32],
+    profile: MachinePdfProfileId,
+    page_count: u32,
 }
 
 impl StagingAdvancedPaginationManifest {
@@ -26,6 +28,8 @@ impl StagingAdvancedPaginationManifest {
         flow_registry_sha256: [u8; 32],
         selected_layout_sha256: [u8; 32],
         paint_closure_sha256: [u8; 32],
+        profile: MachinePdfProfileId,
+        page_count: u32,
     ) -> Self {
         Self {
             fingerprint: sha256(canonical_jcs.as_bytes()),
@@ -34,6 +38,8 @@ impl StagingAdvancedPaginationManifest {
             flow_registry_sha256,
             selected_layout_sha256,
             paint_closure_sha256,
+            profile,
+            page_count,
         }
     }
 
@@ -54,6 +60,12 @@ impl StagingAdvancedPaginationManifest {
     }
     pub const fn paint_closure_sha256(&self) -> [u8; 32] {
         self.paint_closure_sha256
+    }
+    pub const fn profile(&self) -> MachinePdfProfileId {
+        self.profile
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
     }
 
     /// Both artifact owners embed this exact byte sequence.  They do not
@@ -218,6 +230,9 @@ pub fn project_staging_header_footer_manifest(
         flow_registry_sha256,
         selected_layout_sha256,
         paint_closure_sha256,
+        profile: MachinePdfProfileId::HEADER_FOOTER_1,
+        page_count: u32::try_from(selected.pages().len())
+            .map_err(|_| StagingAdvancedPaginationManifestError::ArithmeticOverflow)?,
     })
 }
 

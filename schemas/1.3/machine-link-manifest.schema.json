@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.3/machine-link-manifest.schema.json",
+  "title": "Typaxis Machine Link Manifest Staging Facts 1.3",
+  "description": "Non-current MI2-07 logical-cluster, selected rectangle, named-destination, link-annotation, and serialized PDF closure facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "annotation_count",
+    "cluster_receipt_sha256",
+    "contract",
+    "destination_count",
+    "destinations",
+    "display_sha256",
+    "layout_epoch",
+    "layout_state_sha256",
+    "links",
+    "object_count",
+    "package_sha256",
+    "page_count",
+    "pages",
+    "pdf_byte_length",
+    "pdf_sha256",
+    "policy_version",
+    "profile",
+    "selected_state_sha256",
+    "usage_sha256"
+  ],
+  "properties": {
+    "algorithm": {
+      "const": "typaxis.machine-link-manifest/1"
+    },
+    "annotation_count": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "cluster_receipt_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "destination_count": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "destinations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/destination"
+      }
+    },
+    "display_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "layout_epoch": {
+      "$ref": "common.schema.json#/$defs/layout_epoch"
+    },
+    "layout_state_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "links": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/link"
+      }
+    },
+    "object_count": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "package_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "page_count": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/page"
+      }
+    },
+    "pdf_byte_length": {
+      "$ref": "common.schema.json#/$defs/positive_safe_integer"
+    },
+    "pdf_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "policy_version": {
+      "const": "typaxis.basic-link-policy/1"
+    },
+    "profile": {
+      "const": "typaxis.machine-pdf/basic-document-1"
+    },
+    "selected_state_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "usage_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor_id",
+        "owner_node_id",
+        "page_index",
+        "point"
+      ],
+      "properties": {
+        "anchor_id": {
+          "$ref": "common.schema.json#/$defs/anchor_id"
+        },
+        "owner_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "point": {
+          "$ref": "common.schema.json#/$defs/point"
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "link_node_id",
+        "logical_cluster_count",
+        "logical_cluster_end",
+        "logical_cluster_start",
+        "paragraph_node_id",
+        "rectangles",
+        "target"
+      ],
+      "properties": {
+        "link_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "logical_cluster_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "logical_cluster_end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "logical_cluster_start": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "paragraph_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "rectangles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/rectangle"
+          }
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotation_count",
+        "height",
+        "page_index",
+        "width"
+      ],
+      "properties": {
+        "annotation_count": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "height": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "width": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        }
+      }
+    },
+    "rectangle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotation_object_id",
+        "line_ordinal",
+        "page_index",
+        "rect"
+      ],
+      "properties": {
+        "annotation_object_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "line_ordinal": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "rect": {
+          "$ref": "common.schema.json#/$defs/rect"
+        }
+      }
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "anchor_id",
+            "anchor_owner_node_id",
+            "kind"
+          ],
+          "properties": {
+            "anchor_id": {
+              "$ref": "common.schema.json#/$defs/anchor_id"
+            },
+            "anchor_owner_node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "kind": {
+              "const": "internal"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "uri"
+          ],
+          "properties": {
+            "kind": {
+              "const": "external"
+            },
+            "uri": {
+              "$ref": "common.schema.json#/$defs/allowed_uri"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

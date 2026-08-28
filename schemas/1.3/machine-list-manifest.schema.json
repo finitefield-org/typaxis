@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.3/machine-list-manifest.schema.json",
+  "title": "Typaxis Machine List Manifest Staging Facts 1.3",
+  "description": "Non-current MI2-04 selected list-flow, marker usage, fragment, and PDF closure facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "contract",
+    "flow_registry_sha256",
+    "items",
+    "list_flows",
+    "marker_usage_sha256",
+    "package_sha256",
+    "page_count",
+    "pdf_content_sha256",
+    "pdf_observation_sha256",
+    "policy_version"
+  ],
+  "properties": {
+    "algorithm": {
+      "const": "typaxis.machine-list-manifest/1"
+    },
+    "contract": {
+      "$ref": "common.schema.json#/$defs/contract"
+    },
+    "flow_registry_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    },
+    "list_flows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/list_flow"
+      }
+    },
+    "marker_usage_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "package_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "page_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "pdf_content_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "pdf_observation_sha256": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "policy_version": {
+      "const": "typaxis.basic-list-policy/1"
+    }
+  },
+  "$defs": {
+    "generated_marker_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generation_kind",
+        "owner",
+        "owner_local_ordinal"
+      ],
+      "properties": {
+        "generation_kind": {
+          "const": "list_marker"
+        },
+        "owner": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "owner_local_ordinal": {
+          "const": 0
+        }
+      }
+    },
+    "list_flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "end_indent",
+        "item_frame_inline_size",
+        "list_flow_id",
+        "list_node_id",
+        "marker_column_width",
+        "marker_gap",
+        "start_indent"
+      ],
+      "properties": {
+        "end_indent": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "item_frame_inline_size": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "list_flow_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "list_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "marker_column_width": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "marker_gap": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "start_indent": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "block_offset",
+        "content_inline_size",
+        "content_physical_left",
+        "first_line_block_size",
+        "first_line_fragment_id",
+        "first_line_inline_size",
+        "fragment_ids",
+        "item_flow_id",
+        "item_index",
+        "item_node_id",
+        "list_flow_id",
+        "list_node_id",
+        "marker_column_width",
+        "marker_fragment_id",
+        "marker_inline_size",
+        "marker_key",
+        "marker_physical_left",
+        "marker_utf8",
+        "page_index"
+      ],
+      "properties": {
+        "block_offset": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "content_inline_size": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "content_physical_left": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "first_line_block_size": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "first_line_fragment_id": {
+          "$ref": "common.schema.json#/$defs/nonnegative_safe_integer"
+        },
+        "first_line_inline_size": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "fragment_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/nonnegative_safe_integer"
+          }
+        },
+        "item_flow_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "item_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "item_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "list_flow_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "list_node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "marker_column_width": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "marker_fragment_id": {
+          "$ref": "common.schema.json#/$defs/nonnegative_safe_integer"
+        },
+        "marker_inline_size": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "marker_key": {
+          "$ref": "#/$defs/generated_marker_key"
+        },
+        "marker_physical_left": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "marker_utf8": {
+          "type": "string",
+          "minLength": 1
+        },
+        "page_index": {
+          "$ref": "common.schema.json#/$defs/id32"
+        }
+      }
+    }
+  }
+}

@@ -73,8 +73,8 @@ pub use descriptor::{
     SourceCountBounds,
 };
 pub use preflight::{
-    HostCapabilityPreflightError, MachinePdfPreflight, MachinePdfPreflightFailure,
-    MachinePdfPreflightReceipt, MachinePdfReceiptMismatch, BASIC_PROFILE_RECEIPT_ALGORITHM,
-    TABLE_PROFILE_RECEIPT_ALGORITHM,
+    preflight_advanced_machine_pdf, AdvancedMachinePdfPreflightError, HostCapabilityPreflightError,
+    MachinePdfPreflight, MachinePdfPreflightFailure, MachinePdfPreflightReceipt,
+    MachinePdfReceiptMismatch, BASIC_PROFILE_RECEIPT_ALGORITHM, TABLE_PROFILE_RECEIPT_ALGORITHM,
 };
 pub use typaxis_core::{MachineInputLimitBounds, MachinePdfProfileId};

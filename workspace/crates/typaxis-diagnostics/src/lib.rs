@@ -75,6 +75,8 @@ pub const L5100: DiagnosticCode = DiagnosticCode(*b"L5100");
 pub const L5101: DiagnosticCode = DiagnosticCode(*b"L5101");
 pub const L5110: DiagnosticCode = DiagnosticCode(*b"L5110");
 pub const G6002: DiagnosticCode = DiagnosticCode(*b"G6002");
+pub const G6003: DiagnosticCode = DiagnosticCode(*b"G6003");
+pub const G6004: DiagnosticCode = DiagnosticCode(*b"G6004");
 pub const R7100: DiagnosticCode = DiagnosticCode(*b"R7100");
 pub const I9100: DiagnosticCode = DiagnosticCode(*b"I9100");
 pub const I9101: DiagnosticCode = DiagnosticCode(*b"I9101");
@@ -1310,7 +1312,7 @@ mod tests {
         assert_eq!(
             encode_diagnostics_canonical(&[package, global]),
             concat!(
-                "{\"contract\":\"typaxis.contract/1.2\",\"diagnostics\":[",
+                "{\"contract\":\"typaxis.contract/1.3\",\"diagnostics\":[",
                 "{\"code\":\"P1102\",\"location\":{\"byte_offset\":1942,",
                 "\"json_pointer\":\"/document/blocks/3\",\"kind\":\"package_json\",",
                 "\"uri\":\"document-package.json\"},\"message\":\"package member is invalid\",",

@@ -331,6 +331,9 @@ impl StrictDocumentPackageDecoder {
         let report = preflight
             .check(input)
             .map_err(DocumentPackageDecodeError::preflight)?;
+        if input_declares_current_advanced_contract(input) {
+            return decode_current_advanced(input, policy);
+        }
         let mut context = DecodeContext::new(policy, report, DecodeDialect::Current)
             .map_err(|pending| DocumentPackageDecodeError::typed(pending.into_error(input, 0)))?;
 
@@ -388,6 +391,136 @@ impl StrictDocumentPackageDecoder {
             _binding: DecoderIssuedBinding,
         })
     }
+}
+
+fn input_declares_current_advanced_contract(input: &[u8]) -> bool {
+    let path = [DecodePathSegment::Static("contract")];
+    let Some(offset) =
+        RawJsonLocator::new(input).locate(&path, DocumentPackageDecodePrimary::Value)
+    else {
+        return false;
+    };
+    let mut json = serde_json::Deserializer::from_slice(&input[offset..]);
+    <&str>::deserialize(&mut json).ok() == Some(DocumentPackageContractId::V1_3.as_str())
+}
+
+fn decode_current_advanced(
+    input: &[u8],
+    policy: &DocumentPackageDecodePolicy<'_>,
+) -> Result<DecodedDocumentPackage, DocumentPackageDecodeError> {
+    let decoded = crate::StagingAdvancedDocumentPackageDecoder::new()
+        .decode(input, policy)
+        .map_err(|error| map_advanced_decode_error(input, policy, error))?;
+    let (mut wire, page_masters, figure_placements, raw, canonical, locations) =
+        decoded.into_parts();
+    wire.contract = DocumentPackageContractId::V1_3;
+    wire.advanced = Some(WireAdvancedDocumentPackageExtension {
+        page_masters,
+        figure_placements,
+    });
+    Ok(DecodedDocumentPackage {
+        wire,
+        raw_sha256: RawDocumentPackageSha256::new(raw),
+        canonical_jcs_sha256: CanonicalDocumentPackageJcsSha256::new(canonical),
+        locations,
+        _binding: DecoderIssuedBinding,
+    })
+}
+
+fn map_advanced_decode_error(
+    input: &[u8],
+    policy: &DocumentPackageDecodePolicy<'_>,
+    error: crate::StagingAdvancedDecodeError,
+) -> DocumentPackageDecodeError {
+    match error {
+        crate::StagingAdvancedDecodeError::Preflight(error) => {
+            DocumentPackageDecodeError::preflight(error)
+        }
+        crate::StagingAdvancedDecodeError::Base(error) => {
+            remap_inherited_decode_error(input, error)
+        }
+        crate::StagingAdvancedDecodeError::Limit => {
+            let limit = policy.resource_limits().get().max_ast_nodes;
+            let pending = PendingDecodeError {
+                kind: DocumentPackageTypedDecodeErrorKind::LimitExceeded {
+                    limit_kind: DocumentPackageDecodeLimit::AstNodes,
+                    limit,
+                    attempted: limit.saturating_add(1),
+                },
+                path: Vec::new(),
+                primary: DocumentPackageDecodePrimary::ContainingObject,
+            };
+            DocumentPackageDecodeError::typed(pending.into_error(input, 0))
+        }
+        crate::StagingAdvancedDecodeError::Contract => {
+            let pending = PendingDecodeError {
+                kind: DocumentPackageTypedDecodeErrorKind::UnknownContract,
+                path: vec![DecodePathSegment::Static("contract")],
+                primary: DocumentPackageDecodePrimary::Value,
+            };
+            DocumentPackageDecodeError::typed(pending.into_error(input, 0))
+        }
+        crate::StagingAdvancedDecodeError::Json(_)
+        | crate::StagingAdvancedDecodeError::Shape(_) => {
+            let pending = PendingDecodeError {
+                kind: DocumentPackageTypedDecodeErrorKind::InvalidValue,
+                path: Vec::new(),
+                primary: DocumentPackageDecodePrimary::ContainingObject,
+            };
+            DocumentPackageDecodeError::typed(pending.into_error(input, 0))
+        }
+    }
+}
+
+fn remap_inherited_decode_error(
+    input: &[u8],
+    error: DocumentPackageDecodeError,
+) -> DocumentPackageDecodeError {
+    let Some(typed) = error.typed_error() else {
+        return error;
+    };
+    let Some(path) = decode_pointer_path(typed.location().json_pointer().as_str()) else {
+        return error;
+    };
+    DocumentPackageDecodeError::typed(
+        PendingDecodeError {
+            kind: typed.kind(),
+            path,
+            primary: typed.location().primary(),
+        }
+        .into_error(input, typed.location().byte_offset()),
+    )
+}
+
+fn decode_pointer_path(pointer: &str) -> Option<Vec<DecodePathSegment>> {
+    if pointer.is_empty() {
+        return Some(Vec::new());
+    }
+    let mut path = Vec::new();
+    for encoded in pointer.strip_prefix('/')?.split('/') {
+        let mut decoded = String::new();
+        let mut characters = encoded.chars();
+        while let Some(character) = characters.next() {
+            if character != '~' {
+                decoded.push(character);
+                continue;
+            }
+            decoded.push(match characters.next()? {
+                '0' => '~',
+                '1' => '/',
+                _ => return None,
+            });
+        }
+        if !decoded.is_empty()
+            && decoded.bytes().all(|byte| byte.is_ascii_digit())
+            && (decoded == "0" || !decoded.starts_with('0'))
+        {
+            path.push(DecodePathSegment::Index(decoded.parse().ok()?));
+        } else {
+            path.push(DecodePathSegment::Owned(decoded));
+        }
+    }
+    Some(path)
 }
 
 /// Compatibility receipt retained for focused contract 1.2 slice tests. The
@@ -1462,6 +1595,7 @@ impl<'de> Decode<'de> for WireDocumentPackage {
                 Ok(WireDocumentPackage {
                     contract: required(contract, context)?,
                     coordinate_unit: required(coordinate_unit, context)?,
+                    advanced: None,
                     sources: required(sources, context)?,
                     text_buffers: required(text_buffers, context)?,
                     document: required(document, context)?,
@@ -3590,25 +3724,28 @@ mod tests {
         let minimal = decode(MINIMAL, &limits).expect("minimal Schema fixture");
         assert_eq!(
             minimal.wire().contract,
-            DocumentPackageContractId::CONTRACT_1_2
+            DocumentPackageContractId::CONTRACT_1_3
         );
         decode(RICH, &limits).expect("rich Schema fixture");
 
-        let current = String::from_utf8(MINIMAL.to_vec()).expect("fixture UTF-8");
-        for (wire_contract, contract, canonical_sha256) in [
+        for (contract, canonical_sha256) in [
             (
-                "typaxis.contract/1.0",
                 DocumentPackageContractId::CONTRACT_1_0,
                 "797e2522187b12d48c47866fa13cde09819817d4fd61748d352564f563932152",
             ),
             (
-                "typaxis.contract/1.1",
                 DocumentPackageContractId::CONTRACT_1_1,
                 "8f01dd947733db349290d235624f9d979b2a6dc9be56657cc85c795c0e40ac8c",
             ),
+            (
+                DocumentPackageContractId::CONTRACT_1_2,
+                "c782b04f8db5c00b806d8ada9f55b96bb638c71815bbcd8f4a5852c697ae7617",
+            ),
         ] {
-            let compatible = current.replacen("typaxis.contract/1.2", wire_contract, 1);
-            let decoded = decode(compatible.as_bytes(), &limits).expect("compatibility input");
+            let mut compatible = minimal.wire().clone();
+            compatible.contract = contract;
+            compatible.advanced = None;
+            let decoded = decode(&encode(&compatible), &limits).expect("compatibility input");
             assert_eq!(decoded.wire().contract, contract);
             assert_eq!(decoded.canonical_jcs_sha256().to_string(), canonical_sha256);
         }
@@ -3875,6 +4012,14 @@ mod tests {
             uri: "image.png".to_owned(),
             expected_sha256: Some([0xcd; 32]),
         }];
+        package
+            .advanced
+            .as_mut()
+            .expect("current package has its required advanced extension")
+            .figure_placements = vec![WireFigurePlacementRecord {
+            node_id: 5,
+            placement: WireFigurePlacement::Block,
+        }];
 
         let limits = validated_limits();
         let decoded = decode(&encode(&package), &limits).expect("all wire variants");
@@ -3913,7 +4058,7 @@ mod tests {
         let canonical = String::from_utf8(encode(&minimal_wire())).expect("canonical UTF-8");
 
         let unknown_contract =
-            canonical.replacen("typaxis.contract/1.2", "typaxis.contract/9.9", 1);
+            canonical.replacen("typaxis.contract/1.3", "typaxis.contract/9.9", 1);
         let error = decode(unknown_contract.as_bytes(), &limits).expect_err("unknown contract");
         let typed = typed_error(&error);
         assert_eq!(
@@ -4130,6 +4275,20 @@ mod tests {
             .page_masters
             .masters
             .push(too_many_masters.page_masters.masters[0].clone());
+        let repeated_advanced_master = too_many_masters
+            .advanced
+            .as_ref()
+            .unwrap()
+            .page_masters
+            .masters[0]
+            .clone();
+        too_many_masters
+            .advanced
+            .as_mut()
+            .unwrap()
+            .page_masters
+            .masters
+            .push(repeated_advanced_master);
         assert_limit_error(
             decode(&encode(&too_many_masters), &style_limits),
             DocumentPackageDecodeLimit::PageMasters,
@@ -4224,6 +4383,15 @@ mod tests {
             .page_masters
             .masters
             .push(indexed.page_masters.masters[0].clone());
+        let repeated_advanced_master =
+            indexed.advanced.as_ref().unwrap().page_masters.masters[0].clone();
+        indexed
+            .advanced
+            .as_mut()
+            .unwrap()
+            .page_masters
+            .masters
+            .push(repeated_advanced_master);
         indexed.resources.font_faces = vec![
             WireFontFace {
                 font_face_id: u32::MAX,
@@ -4338,7 +4506,7 @@ mod tests {
     }
 
     #[test]
-    fn current_machine_properties_are_exact_for_both_encoder_entry_points() {
+    fn current_and_frozen_1_2_machine_properties_are_exact() {
         let mut package = minimal_wire();
         package.style_sheet.rules = vec![WireStyleRule {
             style_id: "typed".to_owned(),
@@ -4397,12 +4565,23 @@ mod tests {
         let current_bytes = DocumentPackageEncoder::default()
             .to_jcs_vec(&package)
             .unwrap();
-        let bytes = StagingStyleDocumentPackageEncoder::default()
-            .to_jcs_vec(&package)
+        assert!(current_bytes.starts_with(b"{\"contract\":\"typaxis.contract/1.3\""));
+        assert!(matches!(
+            StagingStyleDocumentPackageEncoder::default().to_jcs_vec(&package),
+            Err(JcsEncodeError::AdvancedExtensionForbidden)
+        ));
+
+        let mut frozen = package.clone();
+        frozen.contract = DocumentPackageContractId::V1_2;
+        frozen.advanced = None;
+        let frozen_public_bytes = DocumentPackageEncoder::default()
+            .to_jcs_vec(&frozen)
             .unwrap();
-        assert_eq!(bytes, current_bytes);
-        let canonical = String::from_utf8(bytes.clone()).unwrap();
-        assert!(canonical.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
+        let bytes = StagingStyleDocumentPackageEncoder::default()
+            .to_jcs_vec(&frozen)
+            .unwrap();
+        assert_eq!(bytes, frozen_public_bytes);
+        assert!(bytes.starts_with(b"{\"contract\":\"typaxis.contract/1.2\""));
         let limits = validated_limits();
         let policy = DocumentPackageDecodePolicy::new(&limits);
         let decoded = StagingStyleDocumentPackageDecoder::new()
@@ -4414,6 +4593,7 @@ mod tests {
             .unwrap();
         assert_eq!(decoded.wire().style_sheet.rules[0].declarations.len(), 8);
 
+        let canonical = String::from_utf8(current_bytes).unwrap();
         for invalid in [
             canonical.replacen("9007199254740991", "9007199254740992", 1),
             canonical.replacen("\"space_before\"", "\"future_property\"", 1),

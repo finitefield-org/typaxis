@@ -1833,7 +1833,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ### MI3-12 M3 selected-state closureと公開profileを統合する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI3-04, MI3-07, MI3-09, MI3-10, MI3-11
 - Design inputs: docs/25 §8 M3、§13.1、§13.5
 - Primary files:
@@ -1880,6 +1880,11 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
   - `cargo clippy --manifest-path workspace/Cargo.toml --workspace --all-targets --locked -- -D warnings`
   - `python3 schemas/validate.py`
   - `python3 tools/verify_machine_profile.py --repository . --matrix samples/machine-package/matrices/m3-all.json --runs 2 --require-external-tools`
+- Implementation notes (2026-08-28, Linux):
+  - previous current 1.2 Schemaをversion directoryへbyte-for-byte freezeし、`typaxis.contract/1.3`、current Schema alias、closed contract/profile registry、strict decoder、canonical Wire encoder、`dump-ast`、config、diagnostics、capability、trace/build manifestを一つのchange setで切り替えた。defaultは`paragraph-1`のまま、1.0〜1.2と既存4 profileの受理/拒否集合をfrozen fixtureで維持し、新しい`header-footer-1`、`columns-1`、`float-1`を通常`build-package`/`check-package` pipelineへ登録した。advanced pagination専用runner入口またはhidden selectorは残していない。
+  - body、list item、caption、table cell、footnote、header/footer、column、floatを含むcanonical全Flow registryとterminalをselected-stateへbindし、profile/package/session/flow、selected fragment/repetition/carry、Display paint、trace/manifestの双方向closureを`I9190` tamper testsで閉じた。advanced profileではselected node/text/image/anchor/linkとadmitted resource ledgerを追加bindingとし、PDF bytesへActualText、実PNG image XObject/soft mask、internal/external Link annotation、named destinationを発行してserialized object countと再照合する。
+  - 7 public profileのdescriptor coverageとcombined fixture coverageをexact双方向照合し、table/footnote/advanced paginationのexact/max/max+1、zero progress、balance、float queue/carryをpublic CLI E2Eへ追加した。全M3 combined fixtureを`m3-all.json`へ登録し、禁止compositionはresource/layout開始前のprofile preflightで拒否する。release verifierもadvertised PNG XObject、Link annotation、named destinationの実serialized markerを要求する。
+  - fixture generatorは二回目にcontent差分なし、Schema validatorは7 frozen 1.0、11 frozen 1.1、19 frozen 1.2、14 current 1.3 alias、20 versioned 1.3 Schema、54 machine expectationsを検証した。workspace全target test、strict clippy、format、whitespace/diff、二重build、異名checkout、Poppler text/page、MuPDF raster/PDF policy gateはすべてlocal exit 0で、host evidenceは`target/machine-e2e/host-evidence/x86_64-unknown-linux-gnu.json`へcanonical publishされた。
 - Non-goals:
   - M4 model/publication feature advertising
 

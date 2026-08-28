@@ -58,9 +58,22 @@ REQUIRED_CHECKS = {
 REQUIRED_TOOLS = {"cargo", "mutool", "pdfinfo", "pdftotext", "python", "rustc"}
 PUBLIC_PROFILES = {
     "typaxis.machine-pdf/basic-document-1",
+    "typaxis.machine-pdf/columns-1",
+    "typaxis.machine-pdf/float-1",
     "typaxis.machine-pdf/footnote-1",
+    "typaxis.machine-pdf/header-footer-1",
     "typaxis.machine-pdf/paragraph-1",
     "typaxis.machine-pdf/table-1",
+}
+ADVANCED_PROFILES = {
+    "typaxis.machine-pdf/columns-1",
+    "typaxis.machine-pdf/float-1",
+    "typaxis.machine-pdf/header-footer-1",
+}
+ADVERTISED_PDF_FEATURE_MARKERS = {
+    "pdf_feature:link-annotations": b"/Subtype /Link",
+    "pdf_feature:named-destinations": b"/Dests",
+    "pdf_feature:png-xobjects": b"/Subtype /Image",
 }
 
 
@@ -302,9 +315,10 @@ def _assert_profile_closure(
         "typaxis.contract/1.0",
         "typaxis.contract/1.1",
         "typaxis.contract/1.2",
+        "typaxis.contract/1.3",
     ]:
         raise MachineProfileError("capabilities changed the accepted contract migration set")
-    if capabilities.get("contract") != "typaxis.contract/1.2":
+    if capabilities.get("contract") != "typaxis.contract/1.3":
         raise MachineProfileError("capabilities are not published under the current contract")
     if not requested_profiles or not requested_profiles <= profile_ids:
         raise MachineProfileError("fixture requests a profile absent from capabilities")
@@ -337,7 +351,10 @@ def _assert_profile_receipt_closure(
         raise MachineProfileError("flow registry differs between trace and manifest")
     if profile in {
         "typaxis.machine-pdf/basic-document-1",
+        "typaxis.machine-pdf/columns-1",
+        "typaxis.machine-pdf/float-1",
         "typaxis.machine-pdf/footnote-1",
+        "typaxis.machine-pdf/header-footer-1",
         "typaxis.machine-pdf/table-1",
     }:
         if not isinstance(manifest_flow, str) or len(manifest_flow) != 64:
@@ -362,6 +379,84 @@ def _assert_profile_receipt_closure(
             raise MachineProfileError("footnote-1 lacks selected footnote layout facts")
     elif manifest_footnotes is not None or trace_footnotes is not None:
         raise MachineProfileError("an older profile unexpectedly carries footnote layout facts")
+    manifest_advanced = manifest.get("advanced_pagination")
+    trace_advanced = trace.get("advanced_pagination")
+    if manifest_advanced != trace_advanced:
+        raise MachineProfileError("advanced selected state differs between trace and manifest")
+    if profile in ADVANCED_PROFILES:
+        if not isinstance(manifest_advanced, dict):
+            raise MachineProfileError("advanced profile lacks selected pagination facts")
+        if (
+            manifest_advanced.get("algorithm")
+            != "typaxis.advanced-pagination-manifest/1"
+            or manifest_advanced.get("profile") != profile
+            or manifest_advanced.get("profile_receipt_sha256") != receipt
+            or manifest_advanced.get("flow_registry_sha256") != manifest_flow
+            or manifest_advanced.get("selected_layout_sha256")
+            != layout.get("final_fingerprint")
+            or not isinstance(manifest_advanced.get("paint_closure_sha256"), str)
+            or len(manifest_advanced["paint_closure_sha256"]) != 64
+        ):
+            raise MachineProfileError("advanced receipt graph is incomplete or inconsistent")
+        pages = manifest_advanced.get("pages")
+        output = manifest.get("output")
+        if (
+            not isinstance(pages, list)
+            or not pages
+            or not isinstance(output, dict)
+            or output.get("page_count") != len(pages)
+        ):
+            raise MachineProfileError("advanced page closure differs from the PDF output")
+        previous_queue: list[Any] = []
+        for page_index, page in enumerate(pages):
+            frames = page.get("frames") if isinstance(page, dict) else None
+            if (
+                not isinstance(page, dict)
+                or page.get("page_index") != page_index
+                or not isinstance(frames, list)
+                or not frames
+                or page.get("float_queue_before") != previous_queue
+            ):
+                raise MachineProfileError("advanced page/frame/queue order is incomplete")
+            for frame in frames:
+                before = frame.get("before_position") if isinstance(frame, dict) else None
+                after = frame.get("after_position") if isinstance(frame, dict) else None
+                if (
+                    not isinstance(before, dict)
+                    or not isinstance(after, dict)
+                    or before.get("flow_id") != after.get("flow_id")
+                    or type(before.get("ordinal")) is not int
+                    or type(after.get("ordinal")) is not int
+                    or after["ordinal"] < before["ordinal"]
+                ):
+                    raise MachineProfileError("advanced frame cursor regressed or changed flow")
+            next_queue = page.get("float_queue_after")
+            if not isinstance(next_queue, list):
+                raise MachineProfileError("advanced page lacks its outgoing float queue")
+            previous_queue = next_queue
+        if previous_queue:
+            raise MachineProfileError("advanced selected state ends with a nonterminal float queue")
+        if profile == "typaxis.machine-pdf/columns-1":
+            balances = [page.get("balance") for page in pages]
+            if (
+                not isinstance(balances[-1], dict)
+                or balances[-1].get("algorithm")
+                != "typaxis.column-balance-candidates/1"
+                or any(balance is not None for balance in balances[:-1])
+            ):
+                raise MachineProfileError("columns final-page balance closure is incomplete")
+        elif profile == "typaxis.machine-pdf/header-footer-1":
+            if any(
+                page.get("balance") is not None
+                or page.get("float_queue_before")
+                or page.get("float_placements")
+                or page.get("float_carries")
+                or page.get("float_queue_after")
+                for page in pages
+            ):
+                raise MachineProfileError("header/footer profile carries forbidden column/float state")
+    elif manifest_advanced is not None or trace_advanced is not None:
+        raise MachineProfileError("an older profile unexpectedly carries advanced pagination facts")
 
 
 def _assert_footnote_layout_facts(
@@ -800,6 +895,18 @@ def _assert_footnote_separator_paint(
         raise MachineProfileError("footnote PDF separator paint count/policy differs")
 
 
+def _assert_advertised_pdf_features(expected: dict[str, Any], pdf: Path) -> None:
+    coverage = expected.get("advertised_item_coverage")
+    if not isinstance(coverage, list) or not all(isinstance(item, str) for item in coverage):
+        raise MachineProfileError("positive fixture lacks advertised item coverage")
+    payload = pdf.read_bytes()
+    for feature, marker in ADVERTISED_PDF_FEATURE_MARKERS.items():
+        if feature in coverage and marker not in payload:
+            raise MachineProfileError(
+                f"advertised PDF feature {feature!r} is absent from {pdf}"
+            )
+
+
 def _verify_fixture(
     repository: Path,
     expected_path: Path,
@@ -905,6 +1012,7 @@ def _verify_fixture(
     except (OSError, pdf_differential.PdfDifferentialError) as error:
         raise MachineProfileError(f"external PDF differential failed: {error}") from error
     for directory in run_directories:
+        _assert_advertised_pdf_features(expected, directory / "output.pdf")
         _assert_table_zero_decoration(
             expected,
             directory / "output.pdf",

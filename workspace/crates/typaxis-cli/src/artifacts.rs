@@ -170,6 +170,23 @@ pub fn machine_layout_trace_json(
     )
 }
 
+pub fn advanced_machine_layout_trace_json(
+    manifest: &typaxis_manifest::StagingAdvancedPaginationManifest,
+) -> String {
+    let mut json = String::from("{\"advanced_pagination\":");
+    json.push_str(manifest.canonical_jcs());
+    json.push_str(",\"contract\":");
+    push_jcs_string(&mut json, CONTRACT);
+    json.push_str(",\"coordinate_unit\":");
+    push_jcs_string(&mut json, COORDINATE_UNIT);
+    json.push_str(",\"flow_registry_sha256\":");
+    push_hex(&mut json, manifest.flow_registry_sha256());
+    json.push_str(",\"profile_receipt_sha256\":");
+    push_hex(&mut json, manifest.profile_receipt_sha256());
+    json.push('}');
+    json
+}
+
 struct LayoutTraceProfileProjection<'a> {
     machine_binding: Option<([u8; 32], Option<[u8; 32]>)>,
     table_layouts: Option<&'a [StagingTableLayoutFacts]>,
@@ -713,7 +730,7 @@ mod tests {
             config.limits(),
         )
         .unwrap();
-        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.2\""));
+        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.3\""));
         assert!(json.contains("\"kind\":\"text\""));
         assert!(json.contains("\"anchor_id\":\"target\""));
         assert!(!json.contains("text:hello"));

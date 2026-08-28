@@ -1,18 +1,18 @@
 # Implementation checklist
 
-このchecklistの`[x]`は、current contract 1.2のinvariantまたは明記したdelivery gateにRust type、Schema、validator、public E2Eの対応証拠があることを表す。非公開の1.3 targetはprivate sliceとして明示し、public/release completionとは数えない。公開範囲は[producer guide](26-machine-input-cli.md)、milestone completionとrich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
+このchecklistの`[x]`は、current contract 1.3のinvariantまたは明記したdelivery gateにRust type、Schema、validator、public E2Eの対応証拠があることを表す。公開範囲は[producer guide](26-machine-input-cli.md)、milestone completionとrich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
 
 ## Machine input delivery gates
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| reference TSF pipeline | Yes, current 1.2 | Yes, bounded subset | Yes | No |
-| DocumentPackage portable Schema/export | Yes, current 1.2 plus frozen 1.0/1.1 input | Yes | Yes, package round trip | Yes |
+| reference TSF pipeline | Yes, current 1.3 | Yes, bounded subset | Yes | No |
+| DocumentPackage portable Schema/export | Yes, current 1.3 plus frozen 1.0/1.1/1.2 input | Yes | Yes, package round trip | Yes |
 | sealed machine ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed capability contracts | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
-| contract 1.2 output | Yes | Yes, current output | Yes | Yes |
-| contract 1.3 advanced-pagination targets | Yes, ADR-0031 | Yes: private `header-footer-1`, `columns-1`, and `float-1` vertical slices | No | No, MI3-12 gate |
+| contract 1.3 output | Yes | Yes, current output | Yes | Yes |
+| `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: public selected-state and artifact closure | Yes | Yes, MI3-12 gate |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
@@ -24,14 +24,14 @@
 - [x] MI3-09 privately implements and closes header/footer subflows, canonical page-master selection, page boxes, repetition, and artifact receipts without changing public 1.2
 - [x] MI3-10 privately implements exact sequential columns, canonical column FlowIds, bounded final-page balance, and artifact closure without changing public 1.2
 - [x] MI3-11 privately implements canonical FIFO float placement, bounded carry, nonwrapping exclusion, and Display/PDF/manifest closure without changing public 1.2
-- [ ] MI3-12 completes 1.3 publication and release-gates all ADR-0031 targets
+- [x] MI3-12 completes 1.3 publication and release-gates all ADR-0031 targets
 
 The ADR-0027/ownership/paragraph items are contract-boundary decisions; the
 command and evidence items are implementation/public/release claims backed by
-canonical macOS/Linux aggregation rather than a synthetic host. ADR-0031 is a
-completed decision, and the checked MI3-09 through MI3-11 items are explicitly private
-implementation evidence only. The remaining unchecked item prevents that
-target from being read as public or release evidence.
+canonical macOS/Linux aggregation rather than a synthetic host. ADR-0031's
+private MI3-09 through MI3-11 slices were promoted together by MI3-12; the
+public 1.3 registry, normal CLI dispatch, three combined fixtures, and
+`m3-all.json` now form one release gate.
 
 ## Source and text
 

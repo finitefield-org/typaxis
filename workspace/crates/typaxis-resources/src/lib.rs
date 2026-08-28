@@ -1173,6 +1173,67 @@ impl ResourceFinalizer for ReferenceResourceFinalizer {
     }
 }
 
+/// Freeze the exact admitted PNG union selected by the advanced-pagination
+/// Display receipt. This is the resource bridge for the dedicated advanced
+/// page serializer: callers provide logical IDs only, while byte decoding,
+/// media attestation, dimensions, alpha separation, and the simultaneous
+/// encoded-payload budget remain owned here.
+pub fn freeze_admitted_png_images_for_pdf(
+    admitted: &AdmittedResourceLedger,
+    selected_image_ids: &[ImageResourceId],
+    limits: &ValidatedResourceLimits,
+) -> Result<Vec<FrozenPdfImagePlan>, ResourceError> {
+    let selected: BTreeSet<_> = selected_image_ids.iter().copied().collect();
+    let mut plans = Vec::new();
+    plans
+        .try_reserve_exact(selected.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    let mut aggregate_plan_bytes = 0u64;
+    for image_id in selected {
+        let image = admitted
+            .image(image_id)
+            .ok_or(ResourceError::MissingLogicalResource)?;
+        let output = decode_png_for_pdf(image)?;
+        let encoded_bytes =
+            u64::try_from(output.encoded_bytes.len()).map_err(|_| ResourceError::ResourceLimit)?;
+        aggregate_plan_bytes = aggregate_plan_bytes
+            .checked_add(encoded_bytes)
+            .ok_or(ResourceError::ResourceLimit)?;
+        let alpha_mask = match output.alpha_mask {
+            Some(mask) => {
+                let mask_bytes = u64::try_from(mask.encoded_bytes.len())
+                    .map_err(|_| ResourceError::ResourceLimit)?;
+                aggregate_plan_bytes = aggregate_plan_bytes
+                    .checked_add(mask_bytes)
+                    .ok_or(ResourceError::ResourceLimit)?;
+                Some(FrozenPdfAlphaMask {
+                    encoded_bytes: mask.encoded_bytes,
+                    width: mask.width,
+                    height: mask.height,
+                    bits_per_component: mask.bits_per_component,
+                    encoding: mask.encoding,
+                })
+            }
+            None => None,
+        };
+        if aggregate_plan_bytes > limits.get().max_spool_bytes {
+            return Err(ResourceError::ResourceLimit);
+        }
+        plans.push(FrozenPdfImagePlan {
+            image_id: output.image_id,
+            admitted_sha256: output.admitted_sha256,
+            encoded_bytes: output.encoded_bytes,
+            width: output.width,
+            height: output.height,
+            color_space: output.color_space,
+            bits_per_component: output.bits_per_component,
+            encoding: output.encoding,
+            alpha_mask,
+        });
+    }
+    Ok(plans)
+}
+
 fn decode_png_for_pdf(admitted: &AdmittedImage) -> Result<ImageEncoderOutput, ResourceError> {
     if admitted.media_kind() != AdmittedImageMediaKind::Png {
         return Err(ResourceError::InvalidImagePlan);

@@ -18,7 +18,7 @@ pub const FLOAT_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.float-profile-receipt
 pub struct StagingFloatSessionIdentity(Arc<()>);
 
 impl StagingFloatSessionIdentity {
-    /// Allocate an opaque identity for one private advanced-pagination run.
+    /// Allocate an opaque identity for one advanced-pagination run.
     pub fn fresh() -> Self {
         Self(Arc::new(()))
     }
@@ -146,6 +146,9 @@ impl StagingFloatPreflightReceipt {
     }
     pub const fn profile_receipt_sha256(&self) -> [u8; 32] {
         self.profile_receipt_sha256
+    }
+    pub const fn limits(&self) -> &ValidatedResourceLimits {
+        &self.limits
     }
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs

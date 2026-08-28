@@ -1,1 +1,1 @@
-{"$fixture":"cross_artifacts","mutations":[{"artifact":"config","path":["limits","max_output_bytes"],"value":429},{"artifact":"manifest","path":["config_sha256"],"value":"e7a4f7ef8243176949ccbe2e70352fdb7b943fc3837b54478336e8fe7edfddbb"}]}
+{"$fixture":"cross_artifacts","mutations":[{"artifact":"config","path":["limits","max_output_bytes"],"value":429},{"artifact":"manifest","path":["config_sha256"],"value":"8d3e6345bac6749f3c7f6a405e4921abeb0c90e6eef2708a7957ddba1c548684"}]}

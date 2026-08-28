@@ -569,6 +569,24 @@ impl MachineProfileDescriptor {
         unsupported_pdf_features: BASIC_UNSUPPORTED_PDF_FEATURES,
     };
 
+    /// Contract-1.3 sequential-column profile adopted by ADR-0031.
+    pub const COLUMNS_1: Self = Self {
+        id: MachinePdfProfileId::COLUMNS_1,
+        ..Self::BASIC_DOCUMENT_1
+    };
+
+    /// Contract-1.3 FIFO float profile adopted by ADR-0031.
+    pub const FLOAT_1: Self = Self {
+        id: MachinePdfProfileId::FLOAT_1,
+        ..Self::BASIC_DOCUMENT_1
+    };
+
+    /// Contract-1.3 page-region profile adopted by ADR-0031.
+    pub const HEADER_FOOTER_1: Self = Self {
+        id: MachinePdfProfileId::HEADER_FOOTER_1,
+        ..Self::BASIC_DOCUMENT_1
+    };
+
     /// Immutable, closed M3 footnote profile adopted by ADR-0030. It contains
     /// the complete basic-document domain and adds only body references plus
     /// document-owned paragraph/heading definitions.
@@ -655,7 +673,10 @@ impl MachineProfileDescriptor {
     pub const fn for_id(id: MachinePdfProfileId) -> Self {
         match id {
             MachinePdfProfileId::BasicDocument1 => Self::BASIC_DOCUMENT_1,
+            MachinePdfProfileId::Columns1 => Self::COLUMNS_1,
+            MachinePdfProfileId::Float1 => Self::FLOAT_1,
             MachinePdfProfileId::Footnote1 => Self::FOOTNOTE_1,
+            MachinePdfProfileId::HeaderFooter1 => Self::HEADER_FOOTER_1,
             MachinePdfProfileId::Paragraph1 => Self::PARAGRAPH_1,
             MachinePdfProfileId::Table1 => Self::TABLE_1,
         }
@@ -779,7 +800,10 @@ impl MachineProfileDescriptor {
         let extended = matches!(
             self.id,
             MachinePdfProfileId::BasicDocument1
+                | MachinePdfProfileId::Columns1
+                | MachinePdfProfileId::Float1
                 | MachinePdfProfileId::Footnote1
+                | MachinePdfProfileId::HeaderFooter1
                 | MachinePdfProfileId::Table1
         );
         let block = if extended {

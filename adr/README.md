@@ -46,4 +46,4 @@
 - [ADR-0028: Basic document machine-PDF profile](ADR-0028-basic-document-profile.md) — M2 targetとしてAccepted。contract 1.2と`basic-document-1`はMI2-08で公開済み。
 - [ADR-0029: Table machine-PDF profile](ADR-0029-table-profile.md) — M3 table targetとしてAccepted。current contract 1.2を変更せず、`table-1`はMI3-04で公開済み。
 - [ADR-0030: Footnote machine-PDF profile](ADR-0030-footnote-profile.md) — M3 footnote targetとしてAccepted。current contract 1.2上の`footnote-1`はMI3-07で公開済み。
-- [ADR-0031: Advanced pagination contract and profile split](ADR-0031-advanced-pagination-profiles.md) — M3 advanced-pagination targetとしてAccepted。contract 1.3と`header-footer-1`、`columns-1`、`float-1`を予約し、MI3-12までは非公開。
+- [ADR-0031: Advanced pagination contract and profile split](ADR-0031-advanced-pagination-profiles.md) — M3 advanced-paginationとしてAccepted。MI3-12がcurrent contract 1.3とpublic `header-footer-1`、`columns-1`、`float-1`を一括公開。

@@ -72,7 +72,10 @@ pub enum BuildStatus {
 pub enum BuildInputProfile {
     ReferenceSource1,
     MachinePdfBasicDocument1,
+    MachinePdfColumns1,
+    MachinePdfFloat1,
     MachinePdfFootnote1,
+    MachinePdfHeaderFooter1,
     MachinePdfParagraph1,
     MachinePdfTable1,
 }
@@ -82,7 +85,10 @@ impl BuildInputProfile {
         match self {
             Self::ReferenceSource1 => REFERENCE_INPUT_PROFILE,
             Self::MachinePdfBasicDocument1 => MachinePdfProfileId::BASIC_DOCUMENT_1.as_str(),
+            Self::MachinePdfColumns1 => MachinePdfProfileId::COLUMNS_1.as_str(),
+            Self::MachinePdfFloat1 => MachinePdfProfileId::FLOAT_1.as_str(),
             Self::MachinePdfFootnote1 => MachinePdfProfileId::FOOTNOTE_1.as_str(),
+            Self::MachinePdfHeaderFooter1 => MachinePdfProfileId::HEADER_FOOTER_1.as_str(),
             Self::MachinePdfParagraph1 => MachinePdfProfileId::PARAGRAPH_1.as_str(),
             Self::MachinePdfTable1 => MachinePdfProfileId::TABLE_1.as_str(),
         }
@@ -92,7 +98,10 @@ impl BuildInputProfile {
         match self {
             Self::ReferenceSource1 => None,
             Self::MachinePdfBasicDocument1 => Some(MachinePdfProfileId::BASIC_DOCUMENT_1),
+            Self::MachinePdfColumns1 => Some(MachinePdfProfileId::COLUMNS_1),
+            Self::MachinePdfFloat1 => Some(MachinePdfProfileId::FLOAT_1),
             Self::MachinePdfFootnote1 => Some(MachinePdfProfileId::FOOTNOTE_1),
+            Self::MachinePdfHeaderFooter1 => Some(MachinePdfProfileId::HEADER_FOOTER_1),
             Self::MachinePdfParagraph1 => Some(MachinePdfProfileId::PARAGRAPH_1),
             Self::MachinePdfTable1 => Some(MachinePdfProfileId::TABLE_1),
         }
@@ -101,7 +110,10 @@ impl BuildInputProfile {
     fn from_descriptor(descriptor: MachineProfileDescriptor) -> Self {
         match descriptor.id() {
             MachinePdfProfileId::BasicDocument1 => Self::MachinePdfBasicDocument1,
+            MachinePdfProfileId::Columns1 => Self::MachinePdfColumns1,
+            MachinePdfProfileId::Float1 => Self::MachinePdfFloat1,
             MachinePdfProfileId::Footnote1 => Self::MachinePdfFootnote1,
+            MachinePdfProfileId::HeaderFooter1 => Self::MachinePdfHeaderFooter1,
             MachinePdfProfileId::Paragraph1 => Self::MachinePdfParagraph1,
             MachinePdfProfileId::Table1 => Self::MachinePdfTable1,
         }
@@ -163,7 +175,10 @@ impl LayoutRecord {
     ) -> Result<Self, BuildManifestError> {
         match capability.profile() {
             MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Columns1
+            | MachinePdfProfileId::Float1
             | MachinePdfProfileId::Footnote1
+            | MachinePdfProfileId::HeaderFooter1
             | MachinePdfProfileId::Table1
                 if flow_registry_sha256.is_none() =>
             {
@@ -173,7 +188,10 @@ impl LayoutRecord {
                 return Err(BuildManifestError::MachineCapabilityMismatch)
             }
             MachinePdfProfileId::BasicDocument1
+            | MachinePdfProfileId::Columns1
+            | MachinePdfProfileId::Float1
             | MachinePdfProfileId::Footnote1
+            | MachinePdfProfileId::HeaderFooter1
             | MachinePdfProfileId::Paragraph1
             | MachinePdfProfileId::Table1 => {}
         }
@@ -2568,6 +2586,7 @@ impl OutputRecord {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BuildManifest {
+    advanced_pagination: Option<String>,
     contract: String,
     status: BuildStatus,
     deterministic: bool,
@@ -2641,6 +2660,7 @@ pub enum BuildManifestError {
     IncompleteLayoutAdmission,
     ReadLedgerAlreadyBound,
     ReadLedgerUnavailable,
+    AdvancedPaginationMismatch,
 }
 
 /// Per-build owner of the configured PDF sink. This context exists whether
@@ -3399,6 +3419,103 @@ impl ManifestPublicationContext {
         )?;
         let manifest_bytes = manifest.manifest().to_canonical_json_bytes();
         let failed_manifest = ValidatedBuildManifest::failed(&self, &ledger, Some(pagination))?;
+        let failed_manifest_bytes = failed_manifest.manifest().to_canonical_json_bytes();
+        let read_ledger = package
+            .provenance()
+            .admission()
+            .read_ledger_token()
+            .map_err(|_| BuildManifestError::ReadLedgerUnavailable)?;
+        Ok(PreparedBuiltPublication {
+            binding: self.binding(),
+            manifest,
+            manifest_bytes,
+            failed_manifest,
+            failed_manifest_bytes,
+            pdf,
+            output,
+            read_ledger: Some(read_ledger),
+        })
+    }
+
+    /// Contract-1.3 terminal preflight for an ADR-0031 selected-layout
+    /// receipt. The advanced projector has already reopened Display and PDF;
+    /// this owner binds that projection to admission, resources, output, and
+    /// the ordinary machine capability receipt before any publication I/O.
+    pub fn prepare_advanced_machine_built(
+        self,
+        package: &ValidatedMachinePackage,
+        capability: &MachinePdfPreflightReceipt,
+        admitted: AdmittedResourceLedgerToken<'_>,
+        advanced: StagingAdvancedPaginationManifest,
+        pdf: VerifiedPdfBytesReceipt,
+    ) -> Result<PreparedBuiltPublication, BuildManifestError> {
+        let profile = capability.profile();
+        if self.input_profile.machine_profile() != Some(profile)
+            || !matches!(
+                profile,
+                MachinePdfProfileId::Columns1
+                    | MachinePdfProfileId::Float1
+                    | MachinePdfProfileId::HeaderFooter1
+            )
+            || package.contract() != typaxis_core::DocumentPackageContractId::V1_3
+            || package.advanced_view().is_none()
+            || advanced.profile() != profile
+            || advanced.profile_receipt_sha256() != capability.profile_receipt_sha256()
+            || capability.verify(profile, package).is_err()
+        {
+            return Err(BuildManifestError::MachineCapabilityMismatch);
+        }
+        let selected_fingerprint =
+            LayoutStateFingerprint::from_untrusted_bytes(advanced.selected_layout_sha256());
+        let output = validate_pdf_receipt_facts(
+            self.config_fingerprint,
+            self.stream_compression,
+            &self.limits,
+            self.output_sink(),
+            &pdf,
+        )?;
+        if output.selected_fingerprint != selected_fingerprint
+            || output.page_count != advanced.page_count()
+        {
+            return Err(BuildManifestError::PdfGraphReceiptMismatch);
+        }
+        let layout = LayoutRecord::new(
+            LayoutStatus::Converged,
+            NonZeroU16::new(1).expect("one is nonzero"),
+            NonZeroU16::new(1).expect("one is nonzero"),
+            selected_fingerprint,
+        )
+        .ok_or(BuildManifestError::IncompleteLayoutAdmission)?
+        .bind_machine_capability(capability, Some(advanced.flow_registry_sha256()))?;
+
+        let mut ledger = self.begin_admission_ledger();
+        ledger.admit_validated_machine_package(package)?;
+        ledger.admit_machine_capability(package, capability)?;
+        validate_complete_resource_closure(package.package(), admitted)?;
+        ledger.admit_resources(admitted)?;
+        let records = ledger.manifest_records();
+        let output_record = OutputRecord {
+            sink: output.sink,
+            bytes: output.bytes,
+            sha256: output.sha256,
+            page_count: output.page_count,
+            pdf_object_count: output.pdf_object_count,
+        };
+        let manifest = BuildManifest::terminal(
+            &self,
+            BuildStatus::Built,
+            records,
+            Some(layout),
+            Some(output_record),
+            ManifestProfileFacts {
+                advanced_pagination: Some(advanced.canonical_jcs().to_owned()),
+                ..ManifestProfileFacts::default()
+            },
+        );
+        let manifest =
+            ValidatedBuildManifest::new(manifest, ManifestExpectations::from_publication(&self))?;
+        let manifest_bytes = manifest.manifest().to_canonical_json_bytes();
+        let failed_manifest = ValidatedBuildManifest::failed(&self, &ledger, None)?;
         let failed_manifest_bytes = failed_manifest.manifest().to_canonical_json_bytes();
         let read_ledger = package
             .provenance()
@@ -5031,6 +5148,13 @@ impl<'a> ManifestExpectations<'a> {
     }
 }
 
+#[derive(Debug, Default)]
+struct ManifestProfileFacts {
+    table_layouts: Vec<StagingTableLayoutFacts>,
+    footnote_layout: Option<StagingFootnoteLayoutFacts>,
+    advanced_pagination: Option<String>,
+}
+
 impl BuildManifest {
     fn terminal(
         publication: &ManifestPublicationContext,
@@ -5038,10 +5162,15 @@ impl BuildManifest {
         records: ManifestTerminalRecords,
         layout: Option<LayoutRecord>,
         output: Option<OutputRecord>,
-        table_layouts: Vec<StagingTableLayoutFacts>,
-        footnote_layout: Option<StagingFootnoteLayoutFacts>,
+        profile_facts: ManifestProfileFacts,
     ) -> Self {
+        let ManifestProfileFacts {
+            table_layouts,
+            footnote_layout,
+            advanced_pagination,
+        } = profile_facts;
         Self {
+            advanced_pagination,
             contract: CONTRACT.to_owned(),
             status,
             deterministic: true,
@@ -5064,6 +5193,9 @@ impl BuildManifest {
 
     pub fn contract(&self) -> &str {
         &self.contract
+    }
+    pub fn advanced_pagination(&self) -> Option<&str> {
+        self.advanced_pagination.as_deref()
     }
     pub const fn status(&self) -> BuildStatus {
         self.status
@@ -5149,6 +5281,17 @@ impl BuildManifest {
         if self.input_profile != expectations.publication.input_profile {
             return Err(BuildManifestError::InputProfileMismatch);
         }
+        let advanced_profile = matches!(
+            self.input_profile,
+            BuildInputProfile::MachinePdfColumns1
+                | BuildInputProfile::MachinePdfFloat1
+                | BuildInputProfile::MachinePdfHeaderFooter1
+        );
+        if (self.status == BuildStatus::Built && advanced_profile)
+            != self.advanced_pagination.is_some()
+        {
+            return Err(BuildManifestError::AdvancedPaginationMismatch);
+        }
         match (self.input_profile, self.status, self.package_input.as_ref()) {
             (BuildInputProfile::ReferenceSource1, _, None) => {}
             (BuildInputProfile::ReferenceSource1, _, Some(_)) => {
@@ -5156,7 +5299,10 @@ impl BuildManifest {
             }
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfColumns1
+                | BuildInputProfile::MachinePdfFloat1
                 | BuildInputProfile::MachinePdfFootnote1
+                | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
@@ -5166,7 +5312,10 @@ impl BuildManifest {
                 && self.inputs.len() == 1 => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfColumns1
+                | BuildInputProfile::MachinePdfFloat1
                 | BuildInputProfile::MachinePdfFootnote1
+                | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
@@ -5174,7 +5323,10 @@ impl BuildManifest {
             ) => return Err(BuildManifestError::MachinePackageMismatch),
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfColumns1
+                | BuildInputProfile::MachinePdfFloat1
                 | BuildInputProfile::MachinePdfFootnote1
+                | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
@@ -5182,7 +5334,10 @@ impl BuildManifest {
             ) if package.contract.is_some() == package.canonical_sha256.is_some() => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfColumns1
+                | BuildInputProfile::MachinePdfFloat1
                 | BuildInputProfile::MachinePdfFootnote1
+                | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
@@ -5190,7 +5345,10 @@ impl BuildManifest {
             ) => {}
             (
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfColumns1
+                | BuildInputProfile::MachinePdfFloat1
                 | BuildInputProfile::MachinePdfFootnote1
+                | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
@@ -5222,7 +5380,10 @@ impl BuildManifest {
                     }
                 }
                 BuildInputProfile::MachinePdfBasicDocument1
+                | BuildInputProfile::MachinePdfColumns1
+                | BuildInputProfile::MachinePdfFloat1
                 | BuildInputProfile::MachinePdfFootnote1
+                | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfTable1 => {
                     let layout = self
                         .layout
@@ -5444,7 +5605,13 @@ impl BuildManifest {
 fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     let mut json = String::new();
     json.push('{');
-    push_json_member_name(&mut json, "config_sha256", true);
+    let mut first = true;
+    if let Some(advanced) = manifest.advanced_pagination.as_deref() {
+        push_json_member_name(&mut json, "advanced_pagination", first);
+        json.push_str(advanced);
+        first = false;
+    }
+    push_json_member_name(&mut json, "config_sha256", first);
     push_json_hex(&mut json, &manifest.config_sha256);
     push_json_member_name(&mut json, "contract", false);
     push_json_string(&mut json, &manifest.contract);
@@ -6033,8 +6200,7 @@ fn prepare_built_manifest(
         records,
         Some(layout),
         Some(output),
-        Vec::new(),
-        None,
+        ManifestProfileFacts::default(),
     );
     ValidatedBuildManifest::new(
         manifest,
@@ -6104,8 +6270,11 @@ fn prepare_machine_built_manifest(
         records,
         Some(layout),
         Some(output),
-        table_layouts,
-        footnote_layout,
+        ManifestProfileFacts {
+            table_layouts,
+            footnote_layout,
+            advanced_pagination: None,
+        },
     );
     let validated = ValidatedBuildManifest::new(
         manifest,
@@ -6160,8 +6329,7 @@ impl ValidatedBuildManifest {
             records,
             layout,
             None,
-            Vec::new(),
-            None,
+            ManifestProfileFacts::default(),
         );
         Self::new(
             manifest,
@@ -6372,6 +6540,7 @@ mod tests {
         wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_0,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "input.tsf".to_owned(),
@@ -6542,6 +6711,7 @@ mod tests {
 
     fn failed_manifest_for(config: &EffectiveConfig) -> BuildManifest {
         BuildManifest {
+            advanced_pagination: None,
             contract: CONTRACT.to_owned(),
             status: BuildStatus::Failed,
             deterministic: true,
@@ -6587,6 +6757,7 @@ mod tests {
         let wire_package = wire::WireDocumentPackage {
             contract: DocumentPackageContractId::V1_2,
             coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
+            advanced: None,
             sources: vec![wire::WireSource {
                 source_id: 0,
                 uri: "manifest-table.tsf".to_owned(),
