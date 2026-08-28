@@ -41,17 +41,24 @@ pub use preflight::{
     DocumentPackageByteLimit, DocumentPackagePreflightLimits, JsonNestingDepthLimit,
     JsonPreflightReport, StrictJsonPreflight,
 };
+#[cfg(feature = "staging-fixtures")]
+#[doc(hidden)]
 pub use semantic_container::{
-    DecodedStagingSemanticDocumentPackage, StagingSemanticDecodeError,
-    StagingSemanticDocumentPackageDecoder, StagingSemanticDocumentPackageEncoder,
-    WireFontMediaType, WireImageMediaType, WireStagingByteRange, WireStagingM4Block,
-    WireStagingM4Document, WireStagingM4DocumentPackage, WireStagingM4FontFace,
-    WireStagingM4Footnote, WireStagingM4Image, WireStagingM4Inline, WireStagingM4LinkTarget,
-    WireStagingM4ListItem, WireStagingM4ReferenceFormat, WireStagingM4ResourceCatalog,
-    WireStagingM4Source, WireStagingM4TableCell, WireStagingM4TableRow, WireStagingM4TextBuffer,
-    WireStagingMathSource, WireStagingSemanticContainerKind, WireStagingSourceSpan,
-    WireStagingStyleDeclaration, WireStagingStyleRule, WireStagingStyleSheet,
-    WireStagingStyleValue, WireStagingTextMapKind, WireStagingTextMapSegment, WireStagingTextSpan,
-    STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT,
+    staging_book_navigation_page_region_fixture, staging_book_navigation_wrong_parent_fixture,
+    staging_math_document_body_fixture,
+};
+pub use semantic_container::{
+    staging_m4_wire_ast_node_count, DecodedStagingSemanticDocumentPackage,
+    StagingSemanticDecodeError, StagingSemanticDocumentPackageDecoder,
+    StagingSemanticDocumentPackageEncoder, WireDocumentMetadata, WireDocumentOutline,
+    WireFontMediaType, WireImageMediaType, WireOutlineEntry, WireOutlineSourceKind,
+    WireStagingByteRange, WireStagingM4Block, WireStagingM4Document, WireStagingM4DocumentPackage,
+    WireStagingM4FontFace, WireStagingM4Footnote, WireStagingM4Image, WireStagingM4Inline,
+    WireStagingM4LinkTarget, WireStagingM4ListItem, WireStagingM4ReferenceFormat,
+    WireStagingM4ResourceCatalog, WireStagingM4Source, WireStagingM4TableCell,
+    WireStagingM4TableRow, WireStagingM4TextBuffer, WireStagingMathSource,
+    WireStagingSemanticContainerKind, WireStagingSourceSpan, WireStagingStyleDeclaration,
+    WireStagingStyleRule, WireStagingStyleSheet, WireStagingStyleValue, WireStagingTextMapKind,
+    WireStagingTextMapSegment, WireStagingTextSpan, STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT,
 };
 pub use typaxis_core::{DocumentPackageContractId, JsonPointer, MachineInputLimitBounds};

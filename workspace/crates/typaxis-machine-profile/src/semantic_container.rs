@@ -177,6 +177,7 @@ pub struct StagingSemanticContainerPreflightReceipt {
     session: StagingSemanticContainerSessionIdentity,
     container_count: u32,
     math_extension: bool,
+    book_navigation_extension: bool,
     authorization: StagingSemanticContainerProfileView,
     canonical_jcs: String,
     fingerprint: [u8; 32],
@@ -216,6 +217,7 @@ impl StagingSemanticContainerPreflightReceipt {
         let canonical = authorization.canonical_jcs();
         let has_math = !package.math_nodes().is_empty();
         if self.math_extension != has_math
+            || (!self.book_navigation_extension && !has_neutral_book_navigation(package))
             || self.package_sha256 != package.canonical_jcs_sha256()
             || self.semantic_fingerprint != package.semantic_fingerprint()
             || self.limits != *limits
@@ -239,7 +241,10 @@ pub fn preflight_staging_semantic_container_profile(
     if !package.math_nodes().is_empty() {
         return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
     }
-    preflight_staging_semantic_container_profile_inner(package, limits, session, false)
+    if !has_neutral_book_navigation(package) {
+        return Err(StagingSemanticContainerPreflightError::ReceiptMismatch);
+    }
+    preflight_staging_semantic_container_profile_inner(package, limits, session, false, false)
 }
 
 pub(crate) fn preflight_staging_semantic_container_profile_for_math(
@@ -250,7 +255,21 @@ pub(crate) fn preflight_staging_semantic_container_profile_for_math(
     if package.math_nodes().is_empty() {
         return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
     }
-    preflight_staging_semantic_container_profile_inner(package, limits, session, true)
+    if !has_neutral_book_navigation(package) {
+        return Err(StagingSemanticContainerPreflightError::ReceiptMismatch);
+    }
+    preflight_staging_semantic_container_profile_inner(package, limits, session, true, false)
+}
+
+pub(crate) fn preflight_staging_semantic_container_profile_for_book_navigation(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &ValidatedResourceLimits,
+    session: &StagingSemanticContainerSessionIdentity,
+) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    if !package.math_nodes().is_empty() {
+        return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
+    }
+    preflight_staging_semantic_container_profile_inner(package, limits, session, false, true)
 }
 
 fn preflight_staging_semantic_container_profile_inner(
@@ -258,6 +277,7 @@ fn preflight_staging_semantic_container_profile_inner(
     limits: &ValidatedResourceLimits,
     session: &StagingSemanticContainerSessionIdentity,
     math_extension: bool,
+    book_navigation_extension: bool,
 ) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
     if package.limits() != limits {
         return Err(StagingSemanticContainerPreflightError::ReceiptMismatch);
@@ -294,10 +314,80 @@ fn preflight_staging_semantic_container_profile_inner(
         session: session.clone(),
         container_count: count,
         math_extension,
+        book_navigation_extension,
         fingerprint: authorization.profile_fingerprint(),
         authorization,
         canonical_jcs,
     })
+}
+
+fn has_neutral_book_navigation(package: &ValidatedStagingSemanticPackage) -> bool {
+    use typaxis_syntax::machine_profile_boundary::wire::{
+        WireStagingM4Block as WireBlock, WireStagingM4Inline as WireInline,
+    };
+
+    fn inlines(values: &[WireInline]) -> bool {
+        values.iter().all(|value| {
+            let neutral = value.language().is_none();
+            neutral
+                && match value {
+                    WireInline::Emphasis { children, .. }
+                    | WireInline::Strong { children, .. }
+                    | WireInline::Link { children, .. } => inlines(children),
+                    _ => true,
+                }
+        })
+    }
+
+    fn blocks(values: &[WireBlock]) -> bool {
+        values.iter().all(|value| {
+            if value.language().is_some() {
+                return false;
+            }
+            match value {
+                WireBlock::Paragraph { children, .. } | WireBlock::Heading { children, .. } => {
+                    inlines(children)
+                }
+                WireBlock::List { items, .. } => items
+                    .iter()
+                    .all(|item| item.language.is_none() && blocks(&item.blocks)),
+                WireBlock::Table { head, body, .. } => head.iter().chain(body).all(|row| {
+                    row.language.is_none()
+                        && row
+                            .cells
+                            .iter()
+                            .all(|cell| cell.language.is_none() && blocks(&cell.blocks))
+                }),
+                WireBlock::Figure { caption, .. } => blocks(caption),
+                WireBlock::SemanticContainer {
+                    anchor_id,
+                    blocks: children,
+                    ..
+                } => anchor_id.is_none() && blocks(children),
+                WireBlock::PageBreak { .. } | WireBlock::DisplayMath { .. } => true,
+            }
+        })
+    }
+
+    let Ok(wire) = package.checked_wire() else {
+        return false;
+    };
+    let metadata = wire.metadata();
+    metadata.author.is_none()
+        && metadata.created.is_none()
+        && metadata.identifier.is_none()
+        && metadata.keywords.is_empty()
+        && metadata.modified.is_none()
+        && metadata.subject.is_none()
+        && metadata.title.is_none()
+        && wire.document().language == "und"
+        && wire.outline().entries.is_empty()
+        && blocks(&wire.document().blocks)
+        && wire
+            .document()
+            .footnotes
+            .iter()
+            .all(|footnote| footnote.language.is_none() && blocks(&footnote.blocks))
 }
 
 fn validate_media_declarations(

@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, and ADR-0034 metadata/language/outline target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector admission/PDF, and math source/vector/alternative staging; metadata/navigation implementation remains MI4-07 | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes, ADR-0032 base, ADR-0033 math/safe-vector, and ADR-0034 metadata/language/outline target on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, and metadata/language/outline navigation slices through MI4-07 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 

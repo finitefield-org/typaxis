@@ -11,6 +11,8 @@
     "sources",
     "text_buffers",
     "document",
+    "metadata",
+    "outline",
     "style_sheet",
     "page_masters",
     "resources"
@@ -37,6 +39,12 @@
     "document": {
       "$ref": "#/$defs/document"
     },
+    "metadata": {
+      "$ref": "#/$defs/document_metadata"
+    },
+    "outline": {
+      "$ref": "#/$defs/document_outline"
+    },
     "style_sheet": {
       "$ref": "#/$defs/style_sheet"
     },
@@ -48,6 +56,94 @@
     }
   },
   "$defs": {
+    "language_tag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+    },
+    "metadata_string": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\uFFFE\\uFFFF]"
+          },
+          {
+            "pattern": "^[\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]*$"
+          }
+        ]
+      }
+    },
+    "utc_second": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    },
+    "document_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "author",
+        "created",
+        "identifier",
+        "keywords",
+        "modified",
+        "subject",
+        "title"
+      ],
+      "properties": {
+        "author": {"oneOf": [{"$ref": "#/$defs/metadata_string"}, {"type": "null"}]},
+        "created": {"oneOf": [{"$ref": "#/$defs/utc_second"}, {"type": "null"}]},
+        "identifier": {"oneOf": [{"$ref": "#/$defs/metadata_string"}, {"type": "null"}]},
+        "keywords": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/metadata_string"}
+        },
+        "modified": {"oneOf": [{"$ref": "#/$defs/utc_second"}, {"type": "null"}]},
+        "subject": {"oneOf": [{"$ref": "#/$defs/metadata_string"}, {"type": "null"}]},
+        "title": {"oneOf": [{"$ref": "#/$defs/metadata_string"}, {"type": "null"}]}
+      }
+    },
+    "outline_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destination",
+        "label",
+        "level",
+        "outline_id",
+        "parent_outline_id",
+        "source_kind",
+        "source_node_id"
+      ],
+      "properties": {
+        "destination": {"$ref": "common.schema.json#/$defs/anchor_id"},
+        "label": {"$ref": "#/$defs/metadata_string"},
+        "level": {"type": "integer", "minimum": 1, "maximum": 6},
+        "outline_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "parent_outline_id": {
+          "oneOf": [
+            {"$ref": "common.schema.json#/$defs/id32"},
+            {"type": "null"}
+          ]
+        },
+        "source_kind": {"enum": ["heading", "semantic_container"]},
+        "source_node_id": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "document_outline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/outline_entry"}
+        }
+      }
+    },
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -277,6 +373,9 @@
             },
             "text_span": {
               "$ref": "common.schema.json#/$defs/text_span"
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -305,6 +404,9 @@
             },
             "speech": {
               "$ref": "#/$defs/math_speech"
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -335,6 +437,9 @@
               "items": {
                 "$ref": "#/$defs/inline"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -366,6 +471,9 @@
               "items": {
                 "$ref": "#/$defs/inline"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -422,6 +530,9 @@
                 "page",
                 "number"
               ]
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -446,6 +557,9 @@
             },
             "footnote_id": {
               "$ref": "common.schema.json#/$defs/footnote_id"
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -494,6 +608,9 @@
           "items": {
             "$ref": "#/$defs/block"
           }
+        },
+        "language": {
+          "$ref": "#/$defs/language_tag"
         }
       }
     },
@@ -567,6 +684,9 @@
           "items": {
             "$ref": "#/$defs/block"
           }
+        },
+        "language": {
+          "$ref": "#/$defs/language_tag"
         }
       }
     },
@@ -590,6 +710,9 @@
           "items": {
             "$ref": "#/$defs/table_cell"
           }
+        },
+        "language": {
+          "$ref": "#/$defs/language_tag"
         }
       }
     },
@@ -618,6 +741,7 @@
             "span",
             "classes",
             "semantic_kind",
+            "anchor_id",
             "blocks"
           ],
           "properties": {
@@ -640,12 +764,21 @@
                 "exercise"
               ]
             },
+            "anchor_id": {
+              "oneOf": [
+                {"$ref": "common.schema.json#/$defs/anchor_id"},
+                {"type": "null"}
+              ]
+            },
             "blocks": {
               "type": "array",
               "minItems": 1,
               "items": {
                 "$ref": "#/$defs/block"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -677,6 +810,9 @@
               "items": {
                 "$ref": "#/$defs/inline"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -725,6 +861,9 @@
               "items": {
                 "$ref": "#/$defs/inline"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -776,6 +915,9 @@
               "items": {
                 "$ref": "#/$defs/list_item"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           },
           "allOf": [
@@ -852,6 +994,9 @@
               "items": {
                 "$ref": "#/$defs/table_row"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           },
           "anyOf": [
@@ -914,6 +1059,9 @@
               "items": {
                 "$ref": "#/$defs/block"
               }
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -946,6 +1094,9 @@
             },
             "speech": {
               "$ref": "#/$defs/math_speech"
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
             }
           }
         },
@@ -999,6 +1150,9 @@
           "items": {
             "$ref": "#/$defs/block"
           }
+        },
+        "language": {
+          "$ref": "#/$defs/language_tag"
         }
       }
     },
@@ -1008,7 +1162,8 @@
       "required": [
         "node_id",
         "blocks",
-        "footnotes"
+        "footnotes",
+        "language"
       ],
       "properties": {
         "node_id": {
@@ -1025,6 +1180,9 @@
           "items": {
             "$ref": "#/$defs/footnote"
           }
+        },
+        "language": {
+          "$ref": "#/$defs/language_tag"
         }
       }
     },

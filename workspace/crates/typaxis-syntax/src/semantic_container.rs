@@ -2670,27 +2670,9 @@ mod tests {
 
     #[test]
     fn math_is_admitted_directly_in_the_document_body() {
-        let mut top_level = String::from_utf8(MATH_FIXTURE.to_vec()).unwrap();
-        top_level = top_level.replacen(
-            "\"document\":{\"blocks\":[{\"blocks\":[",
-            "\"document\":{\"blocks\":[",
-            1,
-        );
-        top_level = top_level.replacen(
-            "],\"classes\":[\"math-section\"],\"kind\":\"semantic_container\",\"node_id\":1,\"semantic_kind\":\"result\",\"span\":{\"end_byte\":8,\"source_id\":0,\"start_byte\":0}}],\"footnotes\"",
-            "],\"footnotes\"",
-            1,
-        );
-        top_level = top_level
-            .replacen("\"node_id\":2", "\"node_id\":1", 1)
-            .replacen("\"node_id\":3", "\"node_id\":2", 1)
-            .replacen("\"node_id\":4", "\"node_id\":3", 1)
-            .replacen(
-                "\"selector\":\"semantic_container\"",
-                "\"selector\":\"paragraph\"",
-                1,
-            );
-        let package = parse(top_level.as_bytes()).unwrap();
+        let top_level =
+            typaxis_document_package::staging_math_document_body_fixture(MATH_FIXTURE).unwrap();
+        let package = parse(&top_level).unwrap();
         assert_eq!(package.semantic_container_count(), 0);
         assert_eq!(package.math_nodes().len(), 2);
         assert_eq!(package.math_nodes()[0].domain().node_id, NodeId::new(2));

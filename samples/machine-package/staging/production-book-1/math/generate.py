@@ -25,6 +25,16 @@ def span(start: int, end: int) -> dict[str, int]:
 package = {
     "contract": "typaxis.contract/1.4",
     "coordinate_unit": "pdf_point_1_65536",
+    "metadata": {
+        "author": None,
+        "created": None,
+        "identifier": None,
+        "keywords": [],
+        "modified": None,
+        "subject": None,
+        "title": None,
+    },
+    "outline": {"entries": []},
     "document": {
         "blocks": [
             {
@@ -73,10 +83,12 @@ package = {
                 "kind": "semantic_container",
                 "node_id": 1,
                 "semantic_kind": "result",
+                "anchor_id": None,
                 "span": span(0, 8),
             }
         ],
         "footnotes": [],
+        "language": "und",
         "node_id": 0,
     },
     "page_masters": {

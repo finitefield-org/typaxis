@@ -2200,7 +2200,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-07 Metadata、language、outlineをPDF validatorまで実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-06
 - Design inputs: docs/25 §7 book navigation、§13.4
 - Primary files:
@@ -2241,6 +2241,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `python3 -m unittest tools/test_pdf_structure.py -v`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_book_navigation_external --locked -- --ignored`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-08-29, Linux):
+  - non-current 1.4のclosed Wire DTOとversioned Schemaへrequired metadata/document language/outline、semantic ownerのoptional language/anchorを追加し、exact JSON Pointer付きstrict decode、canonical round-trip、旧private fixture migrationを完了した。current alias/contract constant、frozen 1.0〜1.3 Schema、七つのpublic profile/default/helpは変更せず、`production-book-1`はprivate staging dispatchだけに留めた。
+  - syntax ownerがexact metadata、UTC-second、registry-independent BCP 47 canonicalization、logical-owner language inheritance、dense source-preorder outline hierarchy、package-global AnchorId ownershipを検証し、package/epoch/source-bound receiptを発行する。machine profile、selected destination/language paint、Display、PDF、manifestまでbidirectional closureを張り、receipt setをstrict UTF-8 orderで固定し、missing/extra/duplicate/wrong-owner、receipt swap/tamperとwire/page-region/parsed-mathを合算する既存inclusive AST/depth/text/fragment/PDF/output/spool limitのexact/max+1を拒否する。explicit languageのraw/canonical bytesが同一なら一度、異なる場合だけ双方をaggregateへ課金する。
+  - PDF writerはcaller supplied objectを受けず、receiptからdeterministic Info、fixed-order/no-packet XMP、catalog `/Lang`、UTF-16BE outline tree、named-destination name tree、owner-bound language marked content、internal linkを固定順で発行する。selected top-left座標をchecked PDF bottom-left座標へ変換し、link rectangleを含むexact destination/annotation bytesを閉じ、verify時にも全object payloadと最終PDF bytesをreceiptから再導出する。raw XMPとserialized objectの同時live bytesもspool limitへ課金し、empty outlineはoutline graphを発行しない。
+  - `production-book-1/book-navigation` fixture、versioned manifest/schema、CLI path-alias/double-build golden、独立strict PDF parser/validatorを追加した。validatorはcanonical expectation、contiguous object/xref/footer、strict string/stream encoding、metadata/XMP/catalog language、outline source preorder/parent/sibling/count/target、named destination/link rectangleの双方向一致を検査する。
+  - 指定8 verification、Display book-navigation、dependency-firewall、workspace all-target/all-feature `cargo check` / `cargo test`、strict clippy、format、Schema 24件/invalid fixture 208件、diff/whitespaceをlocal exit 0で確認した。`.github/workflows/`は変更していない。
 - Non-goals:
   - tagged structure tree
 

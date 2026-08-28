@@ -7603,4 +7603,249 @@ pub(crate) mod tests {
         assert!(!capabilities.contains("inline_math"));
         assert!(!capabilities.contains("display_math"));
     }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    struct StagingMachineBookNavigationRun {
+        limits: typaxis_core::ValidatedResourceLimits,
+        package: typaxis_syntax::ValidatedStagingSemanticPackage,
+        navigation: typaxis_syntax::ValidatedStagingBookNavigation,
+        session: typaxis_machine_profile::StagingSemanticContainerSessionIdentity,
+        profile: typaxis_machine_profile::StagingBookNavigationProfileReceipt,
+        selected: typaxis_display_list::BookNavigationSelectedReceipt,
+        pdf: typaxis_pdf::StagingBookNavigationPdf,
+        manifest: typaxis_manifest::StagingBookNavigationManifest,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_book_navigation_from_bytes(
+        bytes: &[u8],
+    ) -> StagingMachineBookNavigationRun {
+        use typaxis_core::{AnchorId, EngineIdentity, NodeId, Point, ValidatedResourceLimits};
+        use typaxis_display_list::{
+            select_staging_book_navigation, BookInternalLinkInput, BookLanguagePaintInput,
+            BookNavigationDestinationBinding, BookNavigationSelectedPage, DestinationView,
+            NamedDestination,
+        };
+        use typaxis_machine_profile::{
+            preflight_staging_book_navigation_profile, StagingSemanticContainerSessionIdentity,
+        };
+        use typaxis_syntax::{validate_staging_book_navigation, StagingSemanticPackageParser};
+
+        const SCALE: i64 = 65_536;
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(bytes, &wire::DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let package = StagingSemanticPackageParser::new()
+            .parse(decoded, &limits)
+            .unwrap();
+        let navigation = validate_staging_book_navigation(&package, &limits).unwrap();
+        let session = StagingSemanticContainerSessionIdentity::fresh();
+        let profile =
+            preflight_staging_book_navigation_profile(&package, &navigation, &limits, &session)
+                .unwrap();
+        let pages = [
+            BookNavigationSelectedPage {
+                page_index: 0,
+                width_raw: 1_000 * SCALE,
+                height_raw: 800 * SCALE,
+            },
+            BookNavigationSelectedPage {
+                page_index: 1,
+                width_raw: 1_000 * SCALE,
+                height_raw: 800 * SCALE,
+            },
+        ];
+        let destination =
+            |anchor: &str, source: u32, frame_id: u32, page_index: u32, x: i64, y: i64| {
+                BookNavigationDestinationBinding {
+                    source_node_id: NodeId::new(source),
+                    frame_id,
+                    destination: NamedDestination {
+                        anchor_id: AnchorId::new(anchor).unwrap(),
+                        page_index,
+                        view: DestinationView::Xyz {
+                            point: Point {
+                                x: Length::from_raw(x * SCALE).unwrap(),
+                                y: Length::from_raw(y * SCALE).unwrap(),
+                            },
+                        },
+                    },
+                }
+            };
+        let destinations = [
+            destination("chapter-1", 2, 1, 0, 100, 700),
+            destination("exercise-1", 7, 2, 1, 100, 700),
+            destination("part-1", 1, 0, 0, 0, 800),
+        ];
+        let paints = [
+            BookLanguagePaintInput {
+                owner_node_id: NodeId::new(3),
+                occurrence: 0,
+                page_index: 0,
+            },
+            BookLanguagePaintInput {
+                owner_node_id: NodeId::new(6),
+                occurrence: 0,
+                page_index: 0,
+            },
+            BookLanguagePaintInput {
+                owner_node_id: NodeId::new(9),
+                occurrence: 0,
+                page_index: 1,
+            },
+        ];
+        let links = [BookInternalLinkInput {
+            owner_node_id: NodeId::new(5),
+            page_index: 0,
+            destination: AnchorId::new("chapter-1").unwrap(),
+            x_raw: 100 * SCALE,
+            y_raw: 650 * SCALE,
+            width_raw: 60 * SCALE,
+            height_raw: 20 * SCALE,
+        }];
+        let selected = select_staging_book_navigation(
+            &navigation,
+            profile.authorization(),
+            &limits,
+            sha256(b"selected-book-layout"),
+            3,
+            &pages,
+            &destinations,
+            &paints,
+            &links,
+        )
+        .unwrap();
+        let engine = EngineIdentity::compiled();
+        let pdf = typaxis_pdf::write_staging_book_navigation_pdf(
+            &navigation,
+            profile.authorization(),
+            &selected,
+            &limits,
+            &engine,
+        )
+        .unwrap();
+        let manifest = typaxis_manifest::build_staging_book_navigation_manifest(
+            &package,
+            &navigation,
+            &profile,
+            &session,
+            &selected,
+            &pdf,
+            &limits,
+            &engine,
+        )
+        .unwrap();
+        StagingMachineBookNavigationRun {
+            limits,
+            package,
+            navigation,
+            session,
+            profile,
+            selected,
+            pdf,
+            manifest,
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_book_navigation() -> StagingMachineBookNavigationRun {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../samples/machine-package/staging/production-book-1/book-navigation/job/document-package.json",
+        );
+        run_staging_machine_book_navigation_from_bytes(&fs::read(fixture).unwrap())
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_book_navigation_closes_source_selected_pdf_and_manifest() {
+        let first = run_staging_machine_book_navigation();
+        let second = run_staging_machine_book_navigation();
+        assert_eq!(first.pdf.bytes(), second.pdf.bytes());
+        assert_eq!(first.manifest, second.manifest);
+        assert_eq!(first.navigation.languages().document_language(), "en-US");
+        assert_eq!(first.navigation.outline().entries().len(), 3);
+        assert_eq!(first.selected.entries().len(), 3);
+        assert_eq!(first.selected.profile_sha256(), first.profile.fingerprint());
+        assert_eq!(first.pdf.observation().outline_items().len(), 3);
+        assert_eq!(first.pdf.observation().links().len(), 1);
+        first
+            .manifest
+            .verify(
+                &first.package,
+                &first.navigation,
+                &first.profile,
+                &first.session,
+                &first.selected,
+                &first.pdf,
+                &first.limits,
+                &typaxis_core::EngineIdentity::compiled(),
+            )
+            .unwrap();
+        assert_eq!(
+            first.manifest.canonical_jcs(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/book-navigation/manifest.json"
+            ))
+            .trim_end()
+        );
+        let fixture = fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+                "../../../samples/machine-package/staging/production-book-1/book-navigation/job/document-package.json",
+            ),
+        )
+        .unwrap();
+        assert!(wire::StrictDocumentPackageDecoder::new()
+            .decode(
+                &fixture,
+                &wire::DocumentPackageDecodePolicy::new(&first.limits),
+            )
+            .is_err());
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+        let capabilities = typaxis_machine_profile::encode_capabilities_canonical(
+            typaxis_machine_profile::HostCapabilityDescriptor::compiled(),
+        );
+        assert!(!capabilities.contains("book_navigation"));
+        assert!(!capabilities.contains("metadata_outline"));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    #[ignore = "runs the independent Python PDF structure validator"]
+    fn machine_book_navigation_external_validator_and_path_alias_are_deterministic() {
+        let first = run_staging_machine_book_navigation();
+        let root = MachineFixtureRoot::new("mi4-07-external");
+        let alias = root.path().join("different-checkout-name");
+        fs::create_dir_all(&alias).unwrap();
+        let fixture_bytes = fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+                "../../../samples/machine-package/staging/production-book-1/book-navigation/job/document-package.json",
+            ),
+        )
+        .unwrap();
+        let alias_package = alias.join("document-package.json");
+        fs::write(&alias_package, &fixture_bytes).unwrap();
+        let aliased =
+            run_staging_machine_book_navigation_from_bytes(&fs::read(&alias_package).unwrap());
+        assert_eq!(first.pdf.bytes(), aliased.pdf.bytes());
+        assert_eq!(first.manifest, aliased.manifest);
+
+        let pdf_path = root.path().join("book.pdf");
+        fs::write(&pdf_path, first.pdf.bytes()).unwrap();
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let expectation = repository.join(
+            "samples/machine-package/staging/production-book-1/book-navigation/pdf-expectation.json",
+        );
+        let status = std::process::Command::new("python3")
+            .arg(repository.join("tools/verify_pdf_structure.py"))
+            .arg(&pdf_path)
+            .arg(expectation)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
 }

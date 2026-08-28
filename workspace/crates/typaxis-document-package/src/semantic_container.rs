@@ -2,8 +2,8 @@
 //! current aliases remain on contract 1.3 until MI4-13.
 
 use crate::{
-    DocumentPackageDecodePolicy, JsonPreflightError, StrictJsonPreflight, WirePageMasterSet,
-    WireSourceSpan,
+    DocumentPackageDecodePolicy, JsonPreflightError, StrictJsonPreflight,
+    WireAdvancedPageMasterSet, WirePageMasterSet, WireSourceSpan,
 };
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
@@ -144,34 +144,90 @@ pub struct WireStagingMathSource {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireDocumentMetadata {
+    pub author: Option<String>,
+    pub created: Option<String>,
+    pub identifier: Option<String>,
+    pub keywords: Vec<String>,
+    pub modified: Option<String>,
+    pub subject: Option<String>,
+    pub title: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WireOutlineSourceKind {
+    Heading,
+    SemanticContainer,
+}
+
+impl WireOutlineSourceKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Heading => "heading",
+            Self::SemanticContainer => "semantic_container",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireOutlineEntry {
+    pub destination: String,
+    pub label: String,
+    pub level: u8,
+    pub outline_id: u32,
+    pub parent_outline_id: Option<u32>,
+    pub source_kind: WireOutlineSourceKind,
+    pub source_node_id: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireDocumentOutline {
+    pub entries: Vec<WireOutlineEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WireStagingM4Inline {
     Text {
         node_id: u32,
         span: WireStagingSourceSpan,
         text_span: WireStagingTextSpan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     InlineMath {
         node_id: u32,
         span: WireStagingSourceSpan,
         math_source: WireStagingMathSource,
         speech: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     Emphasis {
         node_id: u32,
         span: WireStagingSourceSpan,
         children: Vec<WireStagingM4Inline>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     Strong {
         node_id: u32,
         span: WireStagingSourceSpan,
         children: Vec<WireStagingM4Inline>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     Link {
         node_id: u32,
         span: WireStagingSourceSpan,
         target: WireStagingM4LinkTarget,
         children: Vec<WireStagingM4Inline>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     Anchor {
         node_id: u32,
@@ -183,11 +239,15 @@ pub enum WireStagingM4Inline {
         span: WireStagingSourceSpan,
         target: String,
         format: WireStagingM4ReferenceFormat,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     FootnoteReference {
         node_id: u32,
         span: WireStagingSourceSpan,
         footnote_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     SoftBreak {
         node_id: u32,
@@ -229,6 +289,19 @@ impl WireStagingM4Inline {
             | Self::HardBreak { span, .. } => *span,
         }
     }
+
+    pub fn language(&self) -> Option<&str> {
+        match self {
+            Self::Text { language, .. }
+            | Self::InlineMath { language, .. }
+            | Self::Emphasis { language, .. }
+            | Self::Strong { language, .. }
+            | Self::Link { language, .. }
+            | Self::Reference { language, .. }
+            | Self::FootnoteReference { language, .. } => language.as_deref(),
+            Self::Anchor { .. } | Self::SoftBreak { .. } | Self::HardBreak { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -237,6 +310,8 @@ pub struct WireStagingM4ListItem {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
     pub blocks: Vec<WireStagingM4Block>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -247,6 +322,8 @@ pub struct WireStagingM4TableCell {
     pub colspan: u16,
     pub rowspan: u16,
     pub blocks: Vec<WireStagingM4Block>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -255,6 +332,8 @@ pub struct WireStagingM4TableRow {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
     pub cells: Vec<WireStagingM4TableCell>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -265,6 +344,8 @@ pub enum WireStagingM4Block {
         span: WireStagingSourceSpan,
         classes: Vec<String>,
         children: Vec<WireStagingM4Inline>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     Heading {
         node_id: u32,
@@ -273,6 +354,8 @@ pub enum WireStagingM4Block {
         level: u8,
         anchor_id: Option<String>,
         children: Vec<WireStagingM4Inline>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     List {
         node_id: u32,
@@ -281,6 +364,8 @@ pub enum WireStagingM4Block {
         ordered: bool,
         start: Option<u32>,
         items: Vec<WireStagingM4ListItem>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     Table {
         node_id: u32,
@@ -289,6 +374,8 @@ pub enum WireStagingM4Block {
         columns: Vec<Value>,
         head: Vec<WireStagingM4TableRow>,
         body: Vec<WireStagingM4TableRow>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     Figure {
         node_id: u32,
@@ -298,6 +385,8 @@ pub enum WireStagingM4Block {
         placement: String,
         alt: String,
         caption: Vec<WireStagingM4Block>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     PageBreak {
         node_id: u32,
@@ -310,13 +399,18 @@ pub enum WireStagingM4Block {
         classes: Vec<String>,
         math_source: WireStagingMathSource,
         speech: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
     SemanticContainer {
         node_id: u32,
         span: WireStagingSourceSpan,
         classes: Vec<String>,
         semantic_kind: WireStagingSemanticContainerKind,
+        anchor_id: Option<String>,
         blocks: Vec<WireStagingM4Block>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
     },
 }
 
@@ -360,6 +454,19 @@ impl WireStagingM4Block {
             | Self::SemanticContainer { classes, .. } => classes,
         }
     }
+
+    pub fn language(&self) -> Option<&str> {
+        match self {
+            Self::Paragraph { language, .. }
+            | Self::Heading { language, .. }
+            | Self::List { language, .. }
+            | Self::Table { language, .. }
+            | Self::Figure { language, .. }
+            | Self::DisplayMath { language, .. }
+            | Self::SemanticContainer { language, .. } => language.as_deref(),
+            Self::PageBreak { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -387,6 +494,8 @@ pub struct WireStagingM4Footnote {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
     pub blocks: Vec<WireStagingM4Block>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -395,6 +504,7 @@ pub struct WireStagingM4Document {
     pub node_id: u32,
     pub blocks: Vec<WireStagingM4Block>,
     pub footnotes: Vec<WireStagingM4Footnote>,
+    pub language: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -505,11 +615,14 @@ pub struct WireStagingStyleSheet {
 #[derive(Clone, Debug, PartialEq)]
 pub struct WireStagingM4DocumentPackage {
     document: WireStagingM4Document,
+    metadata: WireDocumentMetadata,
+    outline: WireDocumentOutline,
     resources: WireStagingM4ResourceCatalog,
     sources: Vec<WireStagingM4Source>,
     style_sheet: WireStagingStyleSheet,
     text_buffers: Vec<WireStagingM4TextBuffer>,
     page_masters: WirePageMasterSet,
+    advanced_page_masters: WireAdvancedPageMasterSet,
     carrier: Value,
     limits: ValidatedResourceLimits,
 }
@@ -521,6 +634,14 @@ impl WireStagingM4DocumentPackage {
 
     pub const fn resources(&self) -> &WireStagingM4ResourceCatalog {
         &self.resources
+    }
+
+    pub const fn metadata(&self) -> &WireDocumentMetadata {
+        &self.metadata
+    }
+
+    pub const fn outline(&self) -> &WireDocumentOutline {
+        &self.outline
     }
 
     pub fn sources(&self) -> &[WireStagingM4Source] {
@@ -539,6 +660,10 @@ impl WireStagingM4DocumentPackage {
         &self.page_masters
     }
 
+    pub const fn advanced_page_masters(&self) -> &WireAdvancedPageMasterSet {
+        &self.advanced_page_masters
+    }
+
     pub fn replace_typed_regions(
         &mut self,
         document: WireStagingM4Document,
@@ -552,6 +677,15 @@ impl WireStagingM4DocumentPackage {
         self.style_sheet = style_sheet;
     }
 
+    pub fn replace_book_navigation(
+        &mut self,
+        metadata: WireDocumentMetadata,
+        outline: WireDocumentOutline,
+    ) {
+        self.metadata = metadata;
+        self.outline = outline;
+    }
+
     fn materialize(&self) -> Result<Value, StagingSemanticDecodeError> {
         let mut value = self.carrier.clone();
         let object = value
@@ -562,6 +696,14 @@ impl WireStagingM4DocumentPackage {
         object.insert(
             "document".to_owned(),
             serde_json::to_value(&self.document).map_err(StagingSemanticDecodeError::Json)?,
+        );
+        object.insert(
+            "metadata".to_owned(),
+            serde_json::to_value(&self.metadata).map_err(StagingSemanticDecodeError::Json)?,
+        );
+        object.insert(
+            "outline".to_owned(),
+            serde_json::to_value(&self.outline).map_err(StagingSemanticDecodeError::Json)?,
         );
         object.insert(
             "resources".to_owned(),
@@ -589,7 +731,22 @@ pub enum StagingSemanticDecodeError {
     Json(serde_json::Error),
     Contract,
     Shape(&'static str),
+    BookNavigationShape {
+        pointer: String,
+        message: &'static str,
+    },
     Limit,
+}
+
+impl StagingSemanticDecodeError {
+    pub fn pointer(&self) -> Option<&str> {
+        match self {
+            Self::BookNavigationShape { pointer, .. } => Some(pointer),
+            Self::Preflight(_) | Self::Json(_) | Self::Contract | Self::Shape(_) | Self::Limit => {
+                None
+            }
+        }
+    }
 }
 
 impl fmt::Display for StagingSemanticDecodeError {
@@ -599,6 +756,12 @@ impl fmt::Display for StagingSemanticDecodeError {
             Self::Json(error) => write!(formatter, "invalid contract-1.4 JSON: {error}"),
             Self::Contract => formatter.write_str("expected private typaxis.contract/1.4"),
             Self::Shape(message) => write!(formatter, "invalid contract-1.4 shape: {message}"),
+            Self::BookNavigationShape { pointer, message } => {
+                write!(
+                    formatter,
+                    "P1102: invalid contract-1.4 shape at {pointer}: {message}"
+                )
+            }
             Self::Limit => formatter.write_str("contract-1.4 package exceeds a resource limit"),
         }
     }
@@ -609,7 +772,9 @@ impl std::error::Error for StagingSemanticDecodeError {
         match self {
             Self::Preflight(error) => Some(error),
             Self::Json(error) => Some(error),
-            Self::Contract | Self::Shape(_) | Self::Limit => None,
+            Self::Contract | Self::Shape(_) | Self::BookNavigationShape { .. } | Self::Limit => {
+                None
+            }
         }
     }
 }
@@ -683,10 +848,18 @@ impl StagingSemanticDocumentPackageDecoder {
         let object = root
             .as_object()
             .ok_or(StagingSemanticDecodeError::Shape("root must be an object"))?;
+        if object.get("contract").and_then(Value::as_str)
+            != Some(STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT)
+        {
+            return Err(StagingSemanticDecodeError::Contract);
+        }
+        validate_book_navigation_wire_shape(&root)?;
         let expected: BTreeSet<&str> = [
             "contract",
             "coordinate_unit",
             "document",
+            "metadata",
+            "outline",
             "page_masters",
             "resources",
             "sources",
@@ -700,17 +873,12 @@ impl StagingSemanticDocumentPackageDecoder {
                 "root members differ from the contract-1.4 scaffold",
             ));
         }
-        if object.get("contract").and_then(Value::as_str)
-            != Some(STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT)
-        {
-            return Err(StagingSemanticDecodeError::Contract);
-        }
         if object.get("coordinate_unit").and_then(Value::as_str) != Some("pdf_point_1_65536") {
             return Err(StagingSemanticDecodeError::Shape(
                 "coordinate_unit must be pdf_point_1_65536",
             ));
         }
-        let page_masters = validate_frozen_carrier(&root, policy)?;
+        let (page_masters, advanced_page_masters) = validate_frozen_carrier(&root, policy)?;
         let document: WireStagingM4Document = serde_json::from_value(
             object
                 .get("document")
@@ -720,6 +888,20 @@ impl StagingSemanticDocumentPackageDecoder {
         .map_err(StagingSemanticDecodeError::Json)?;
         validate_semantic_container_shape(&document)?;
         validate_math_wire(&document)?;
+        let metadata: WireDocumentMetadata = serde_json::from_value(
+            object
+                .get("metadata")
+                .cloned()
+                .ok_or(StagingSemanticDecodeError::Shape("metadata is required"))?,
+        )
+        .map_err(StagingSemanticDecodeError::Json)?;
+        let outline: WireDocumentOutline = serde_json::from_value(
+            object
+                .get("outline")
+                .cloned()
+                .ok_or(StagingSemanticDecodeError::Shape("outline is required"))?,
+        )
+        .map_err(StagingSemanticDecodeError::Json)?;
         let resources: WireStagingM4ResourceCatalog = serde_json::from_value(
             object
                 .get("resources")
@@ -750,10 +932,19 @@ impl StagingSemanticDocumentPackageDecoder {
         reject_page_region_semantic_containers(object.get("page_masters").ok_or(
             StagingSemanticDecodeError::Shape("page_masters is required"),
         )?)?;
-        if document_node_count(
+        if staging_m4_ast_node_count_parts(
             &document,
+            &advanced_page_masters,
+            metadata.keywords.len(),
+            outline.entries.len(),
             policy.resource_limits().get().max_ast_nesting_depth,
         )? > policy.resource_limits().get().max_ast_nodes
+            || policy.resource_limits().get().max_ast_nesting_depth < 2
+            || outline.entries.iter().any(|entry| {
+                u32::from(entry.level).checked_add(2).map_or(true, |depth| {
+                    depth > policy.resource_limits().get().max_ast_nesting_depth
+                })
+            })
             || u64::try_from(resources.font_faces.len())
                 .map_err(|_| StagingSemanticDecodeError::Limit)?
                 > u64::from(policy.resource_limits().get().max_fonts)
@@ -775,11 +966,14 @@ impl StagingSemanticDocumentPackageDecoder {
         Ok(DecodedStagingSemanticDocumentPackage {
             wire: WireStagingM4DocumentPackage {
                 document,
+                metadata,
+                outline,
                 resources,
                 sources,
                 style_sheet,
                 text_buffers,
                 page_masters,
+                advanced_page_masters,
                 carrier: root,
                 limits: policy.resource_limits().clone(),
             },
@@ -798,7 +992,7 @@ impl StagingSemanticDocumentPackageDecoder {
 fn validate_frozen_carrier(
     root: &Value,
     policy: &DocumentPackageDecodePolicy<'_>,
-) -> Result<WirePageMasterSet, StagingSemanticDecodeError> {
+) -> Result<(WirePageMasterSet, WireAdvancedPageMasterSet), StagingSemanticDecodeError> {
     let mut compatibility = root.clone();
     let object = compatibility
         .as_object_mut()
@@ -807,20 +1001,28 @@ fn validate_frozen_carrier(
         "contract".to_owned(),
         Value::String("typaxis.contract/1.3".to_owned()),
     );
+    object.remove("metadata");
+    object.remove("outline");
     let document = object
         .get_mut("document")
         .and_then(Value::as_object_mut)
         .ok_or(StagingSemanticDecodeError::Shape(
             "document must be an object",
         ))?;
+    document.remove("language");
     flatten_semantic_blocks(document.get_mut("blocks").ok_or(
         StagingSemanticDecodeError::Shape("document blocks are required"),
     )?)?;
     if let Some(footnotes) = document.get_mut("footnotes").and_then(Value::as_array_mut) {
         for footnote in footnotes {
-            let blocks = footnote
+            let footnote = footnote
                 .as_object_mut()
-                .and_then(|footnote| footnote.get_mut("blocks"))
+                .ok_or(StagingSemanticDecodeError::Shape(
+                    "footnote must be an object",
+                ))?;
+            footnote.remove("language");
+            let blocks = footnote
+                .get_mut("blocks")
                 .ok_or(StagingSemanticDecodeError::Shape(
                     "footnote blocks are required",
                 ))?;
@@ -878,8 +1080,8 @@ fn validate_frozen_carrier(
         .map_err(|_| {
             StagingSemanticDecodeError::Shape("unchanged contract-1.3 carrier is invalid")
         })?;
-    let (wire, _, _, _, _, _) = decoded.into_parts();
-    Ok(wire.page_masters)
+    let (wire, advanced_page_masters, _, _, _, _) = decoded.into_parts();
+    Ok((wire.page_masters, advanced_page_masters))
 }
 
 fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecodeError> {
@@ -896,6 +1098,7 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
         let object = block
             .as_object_mut()
             .ok_or(StagingSemanticDecodeError::Shape("block must be an object"))?;
+        object.remove("language");
         match object.get("kind").and_then(Value::as_str) {
             Some("semantic_container") => {
                 let mut children =
@@ -918,12 +1121,17 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                     .and_then(Value::as_array_mut)
                     .ok_or(StagingSemanticDecodeError::Shape("list items are required"))?;
                 for item in items {
-                    let children = item
+                    let item = item
                         .as_object_mut()
-                        .and_then(|item| item.get_mut("blocks"))
                         .ok_or(StagingSemanticDecodeError::Shape(
-                            "list-item blocks are required",
+                            "list item must be an object",
                         ))?;
+                    item.remove("language");
+                    let children =
+                        item.get_mut("blocks")
+                            .ok_or(StagingSemanticDecodeError::Shape(
+                                "list-item blocks are required",
+                            ))?;
                     flatten_semantic_blocks(children)?;
                 }
                 flattened.push(block);
@@ -935,20 +1143,27 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                         .and_then(Value::as_array_mut)
                         .ok_or(StagingSemanticDecodeError::Shape("table rows are required"))?;
                     for row in rows {
-                        let cells = row
+                        let row = row
                             .as_object_mut()
-                            .and_then(|row| row.get_mut("cells"))
-                            .and_then(Value::as_array_mut)
                             .ok_or(StagingSemanticDecodeError::Shape(
-                                "table cells are required",
+                                "table row must be an object",
                             ))?;
+                        row.remove("language");
+                        let cells = row.get_mut("cells").and_then(Value::as_array_mut).ok_or(
+                            StagingSemanticDecodeError::Shape("table cells are required"),
+                        )?;
                         for cell in cells {
-                            let children = cell
-                                .as_object_mut()
-                                .and_then(|cell| cell.get_mut("blocks"))
-                                .ok_or(StagingSemanticDecodeError::Shape(
-                                    "table-cell blocks are required",
-                                ))?;
+                            let cell =
+                                cell.as_object_mut()
+                                    .ok_or(StagingSemanticDecodeError::Shape(
+                                        "table cell must be an object",
+                                    ))?;
+                            cell.remove("language");
+                            let children =
+                                cell.get_mut("blocks")
+                                    .ok_or(StagingSemanticDecodeError::Shape(
+                                        "table-cell blocks are required",
+                                    ))?;
                             flatten_semantic_blocks(children)?;
                         }
                     }
@@ -1000,6 +1215,7 @@ fn rewrite_math_inlines(value: &mut Value) -> Result<(), StagingSemanticDecodeEr
             .ok_or(StagingSemanticDecodeError::Shape(
                 "inline must be an object",
             ))?;
+        object.remove("language");
         match object.get("kind").and_then(Value::as_str) {
             Some("inline_math") => {
                 let text_span = object
@@ -1069,6 +1285,253 @@ fn validate_semantic_container_shape(
     Ok(())
 }
 
+fn validate_book_navigation_wire_shape(root: &Value) -> Result<(), StagingSemanticDecodeError> {
+    fn shape(pointer: impl Into<String>, message: &'static str) -> StagingSemanticDecodeError {
+        StagingSemanticDecodeError::BookNavigationShape {
+            pointer: pointer.into(),
+            message,
+        }
+    }
+
+    fn pointer_member(pointer: &str, member: &str) -> String {
+        let escaped = member.replace('~', "~0").replace('/', "~1");
+        if pointer.is_empty() {
+            format!("/{escaped}")
+        } else {
+            format!("{pointer}/{escaped}")
+        }
+    }
+
+    fn exact_members(
+        value: &Value,
+        expected: &[&str],
+        pointer: &str,
+        message: &'static str,
+    ) -> Result<(), StagingSemanticDecodeError> {
+        let object = value.as_object().ok_or_else(|| shape(pointer, message))?;
+        let actual = object.keys().map(String::as_str).collect::<BTreeSet<_>>();
+        let expected = expected.iter().copied().collect::<BTreeSet<_>>();
+        if actual != expected {
+            let responsible = expected
+                .difference(&actual)
+                .next()
+                .copied()
+                .or_else(|| actual.difference(&expected).next().copied())
+                .map_or_else(
+                    || pointer.to_owned(),
+                    |member| pointer_member(pointer, member),
+                );
+            return Err(shape(responsible, message));
+        }
+        Ok(())
+    }
+
+    fn unsigned(value: Option<&Value>, maximum: u64) -> bool {
+        value
+            .and_then(Value::as_u64)
+            .is_some_and(|number| number <= maximum)
+    }
+
+    fn visit_languages(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        match value {
+            Value::Object(object) => {
+                if let Some(language) = object.get("language") {
+                    if !language.is_string() {
+                        return Err(shape(
+                            pointer_member(pointer, "language"),
+                            "node language must be a string",
+                        ));
+                    }
+                    if matches!(
+                        object.get("kind").and_then(Value::as_str),
+                        Some("anchor" | "soft_break" | "hard_break" | "page_break")
+                    ) {
+                        return Err(shape(
+                            pointer_member(pointer, "language"),
+                            "node kind does not admit language",
+                        ));
+                    }
+                }
+                if object.get("kind").and_then(Value::as_str) == Some("semantic_container") {
+                    let anchor_pointer = pointer_member(pointer, "anchor_id");
+                    match object.get("anchor_id") {
+                        Some(Value::String(_) | Value::Null) => {}
+                        Some(_) => {
+                            return Err(shape(
+                                anchor_pointer,
+                                "semantic_container anchor_id must be a string or null",
+                            ));
+                        }
+                        None => {
+                            return Err(shape(
+                                anchor_pointer,
+                                "semantic_container anchor_id is required",
+                            ));
+                        }
+                    }
+                }
+                for (member, child) in object {
+                    visit_languages(child, &pointer_member(pointer, member))?;
+                }
+            }
+            Value::Array(values) => {
+                for (index, child) in values.iter().enumerate() {
+                    visit_languages(child, &format!("{pointer}/{index}"))?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    let object = root
+        .as_object()
+        .ok_or(StagingSemanticDecodeError::Shape("root must be an object"))?;
+    let metadata = object
+        .get("metadata")
+        .ok_or_else(|| shape("/metadata", "metadata is required"))?;
+    exact_members(
+        metadata,
+        &[
+            "author",
+            "created",
+            "identifier",
+            "keywords",
+            "modified",
+            "subject",
+            "title",
+        ],
+        "/metadata",
+        "metadata must contain exactly the seven contract members",
+    )?;
+    let metadata = metadata
+        .as_object()
+        .ok_or_else(|| shape("/metadata", "metadata must be an object"))?;
+    for member in [
+        "author",
+        "created",
+        "identifier",
+        "modified",
+        "subject",
+        "title",
+    ] {
+        if !matches!(metadata.get(member), Some(Value::String(_) | Value::Null)) {
+            return Err(shape(
+                pointer_member("/metadata", member),
+                "nullable metadata member must be a string or null",
+            ));
+        }
+    }
+    let keywords = metadata
+        .get("keywords")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            shape(
+                "/metadata/keywords",
+                "metadata keywords must be an array of strings",
+            )
+        })?;
+    for (index, keyword) in keywords.iter().enumerate() {
+        if !keyword.is_string() {
+            return Err(shape(
+                format!("/metadata/keywords/{index}"),
+                "metadata keyword must be a string",
+            ));
+        }
+    }
+
+    let outline = object
+        .get("outline")
+        .ok_or_else(|| shape("/outline", "outline is required"))?;
+    exact_members(
+        outline,
+        &["entries"],
+        "/outline",
+        "outline must contain exactly entries",
+    )?;
+    let entries = outline
+        .get("entries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| shape("/outline/entries", "outline entries must be an array"))?;
+    for (index, entry) in entries.iter().enumerate() {
+        let pointer = format!("/outline/entries/{index}");
+        exact_members(
+            entry,
+            &[
+                "destination",
+                "label",
+                "level",
+                "outline_id",
+                "parent_outline_id",
+                "source_kind",
+                "source_node_id",
+            ],
+            &pointer,
+            "outline entry members differ from the contract",
+        )?;
+        let entry = entry
+            .as_object()
+            .ok_or_else(|| shape(&pointer, "outline entry must be an object"))?;
+        for member in ["destination", "label"] {
+            if !entry.get(member).is_some_and(Value::is_string) {
+                return Err(shape(
+                    pointer_member(&pointer, member),
+                    "outline text member must be a string",
+                ));
+            }
+        }
+        if !unsigned(entry.get("level"), u64::from(u8::MAX)) {
+            return Err(shape(
+                pointer_member(&pointer, "level"),
+                "outline level must be an unsigned byte",
+            ));
+        }
+        if !unsigned(entry.get("outline_id"), u64::from(u32::MAX)) {
+            return Err(shape(
+                pointer_member(&pointer, "outline_id"),
+                "outline ID must be an id32",
+            ));
+        }
+        if !matches!(entry.get("parent_outline_id"), Some(Value::Null))
+            && !unsigned(entry.get("parent_outline_id"), u64::from(u32::MAX))
+        {
+            return Err(shape(
+                pointer_member(&pointer, "parent_outline_id"),
+                "outline parent must be an id32 or null",
+            ));
+        }
+        if !matches!(
+            entry.get("source_kind").and_then(Value::as_str),
+            Some("heading" | "semantic_container")
+        ) {
+            return Err(shape(
+                pointer_member(&pointer, "source_kind"),
+                "outline source_kind is unsupported",
+            ));
+        }
+        if !unsigned(entry.get("source_node_id"), u64::from(u32::MAX)) {
+            return Err(shape(
+                pointer_member(&pointer, "source_node_id"),
+                "outline source node ID must be an id32",
+            ));
+        }
+    }
+
+    let document_value = object
+        .get("document")
+        .ok_or_else(|| shape("/document", "document must be an object"))?;
+    let document = document_value
+        .as_object()
+        .ok_or_else(|| shape("/document", "document must be an object"))?;
+    if !document.get("language").is_some_and(Value::is_string) {
+        return Err(shape(
+            "/document/language",
+            "document language must be a string",
+        ));
+    }
+    visit_languages(document_value, "/document")
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StagingSemanticDocumentPackageEncoder;
 
@@ -1082,8 +1545,14 @@ impl StagingSemanticDocumentPackageEncoder {
         package: &WireStagingM4DocumentPackage,
     ) -> Result<String, StagingSemanticDecodeError> {
         let limits = package.limits.get();
-        let node_count = document_node_count(&package.document, limits.max_ast_nesting_depth)?;
+        let node_count = staging_m4_wire_ast_node_count(package, limits.max_ast_nesting_depth)?;
         if node_count > limits.max_ast_nodes
+            || limits.max_ast_nesting_depth < 2
+            || package.outline.entries.iter().any(|entry| {
+                u32::from(entry.level)
+                    .checked_add(2)
+                    .map_or(true, |depth| depth > limits.max_ast_nesting_depth)
+            })
             || u64::try_from(package.resources.font_faces.len())
                 .map_err(|_| StagingSemanticDecodeError::Limit)?
                 > u64::from(limits.max_fonts)
@@ -1098,6 +1567,7 @@ impl StagingSemanticDocumentPackageEncoder {
         }
         validate_semantic_container_shape(&package.document)?;
         validate_math_wire(&package.document)?;
+        validate_book_navigation_wire_shape(&package.materialize()?)?;
         validate_supporting_shapes(&package.sources, &package.text_buffers)?;
         reject_page_region_semantic_containers(&package.carrier["page_masters"])?;
         let canonical = canonicalize_value(&package.materialize()?, 0)?;
@@ -1278,7 +1748,18 @@ fn document_node_count(
                         )?;
                     }
                 }
-                WireStagingM4Block::Table { head, body, .. } => {
+                WireStagingM4Block::Table {
+                    columns,
+                    head,
+                    body,
+                    ..
+                } => {
+                    *count = count
+                        .checked_add(
+                            u64::try_from(columns.len())
+                                .map_err(|_| StagingSemanticDecodeError::Limit)?,
+                        )
+                        .ok_or(StagingSemanticDecodeError::Limit)?;
                     for row in head.iter().chain(body) {
                         let row_depth = depth
                             .checked_add(1)
@@ -1344,6 +1825,83 @@ fn document_node_count(
         blocks(&footnote.blocks, &mut count, 3, max_depth)?;
     }
     Ok(count)
+}
+
+fn advanced_page_node_count(
+    page_masters: &WireAdvancedPageMasterSet,
+) -> Result<u64, StagingSemanticDecodeError> {
+    fn region(value: &crate::WirePageRegion) -> Result<u64, StagingSemanticDecodeError> {
+        let mut count = 1u64;
+        for block in &value.blocks {
+            count = count
+                .checked_add(1)
+                .ok_or(StagingSemanticDecodeError::Limit)?;
+            let children = match block {
+                crate::WirePageRegionBlock::Paragraph { children, .. }
+                | crate::WirePageRegionBlock::Heading { children, .. } => children,
+            };
+            count = count
+                .checked_add(
+                    u64::try_from(children.len()).map_err(|_| StagingSemanticDecodeError::Limit)?,
+                )
+                .ok_or(StagingSemanticDecodeError::Limit)?;
+        }
+        Ok(count)
+    }
+
+    let mut count = 0u64;
+    for master in &page_masters.masters {
+        for value in [
+            master.header_content.as_ref(),
+            master.footer_content.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            count = count
+                .checked_add(region(value)?)
+                .ok_or(StagingSemanticDecodeError::Limit)?;
+        }
+        if master.column_layout.is_some() {
+            count = count
+                .checked_add(1)
+                .ok_or(StagingSemanticDecodeError::Limit)?;
+        }
+    }
+    Ok(count)
+}
+
+/// Returns the complete contract-1.4 wire AST charge before parsed math AST
+/// nodes are added by the syntax owner.
+#[doc(hidden)]
+pub fn staging_m4_wire_ast_node_count(
+    package: &WireStagingM4DocumentPackage,
+    max_depth: u32,
+) -> Result<u64, StagingSemanticDecodeError> {
+    staging_m4_ast_node_count_parts(
+        &package.document,
+        &package.advanced_page_masters,
+        package.metadata.keywords.len(),
+        package.outline.entries.len(),
+        max_depth,
+    )
+}
+
+fn staging_m4_ast_node_count_parts(
+    document: &WireStagingM4Document,
+    page_masters: &WireAdvancedPageMasterSet,
+    keyword_count: usize,
+    outline_count: usize,
+    max_depth: u32,
+) -> Result<u64, StagingSemanticDecodeError> {
+    let navigation_nodes = 2u64
+        .checked_add(u64::try_from(keyword_count).map_err(|_| StagingSemanticDecodeError::Limit)?)
+        .and_then(|count| count.checked_add(u64::try_from(outline_count).ok()?))
+        .ok_or(StagingSemanticDecodeError::Limit)?;
+    document_node_count(document, max_depth)?
+        .checked_add(advanced_page_node_count(page_masters)?)
+        .and_then(|count| count.checked_add(navigation_nodes))
+        .ok_or(StagingSemanticDecodeError::Limit)
 }
 
 fn count_inline_nodes(
@@ -1494,6 +2052,149 @@ fn canonicalize_value(value: &Value, reserve: usize) -> Result<String, StagingSe
     Ok(output)
 }
 
+#[cfg(feature = "staging-fixtures")]
+#[doc(hidden)]
+pub fn staging_math_document_body_fixture(
+    input: &[u8],
+) -> Result<Vec<u8>, StagingSemanticDecodeError> {
+    fn shift_node_ids(value: &mut Value) -> Result<(), StagingSemanticDecodeError> {
+        match value {
+            Value::Object(object) => {
+                if let Some(node_id) = object.get_mut("node_id") {
+                    let shifted = node_id
+                        .as_u64()
+                        .and_then(|value| value.checked_sub(1))
+                        .ok_or(StagingSemanticDecodeError::Shape(
+                            "fixture node_id cannot be shifted",
+                        ))?;
+                    *node_id = Value::Number(Number::from(shifted));
+                }
+                for child in object.values_mut() {
+                    shift_node_ids(child)?;
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    shift_node_ids(child)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    let mut value: Value =
+        serde_json::from_slice(input).map_err(StagingSemanticDecodeError::Json)?;
+    let blocks = value
+        .get_mut("document")
+        .and_then(Value::as_object_mut)
+        .and_then(|document| document.get_mut("blocks"))
+        .and_then(Value::as_array_mut)
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "fixture document blocks are required",
+        ))?;
+    if blocks.len() != 1 {
+        return Err(StagingSemanticDecodeError::Shape(
+            "fixture must have one semantic-container root",
+        ));
+    }
+    let mut container = blocks.remove(0);
+    let container = container
+        .as_object_mut()
+        .filter(|object| object.get("kind").and_then(Value::as_str) == Some("semantic_container"))
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "fixture root must be a semantic container",
+        ))?;
+    let mut children = container.remove("blocks").filter(Value::is_array).ok_or(
+        StagingSemanticDecodeError::Shape("fixture semantic blocks are required"),
+    )?;
+    shift_node_ids(&mut children)?;
+    value["document"]["blocks"] = children;
+    let selector = value
+        .get_mut("style_sheet")
+        .and_then(Value::as_object_mut)
+        .and_then(|sheet| sheet.get_mut("rules"))
+        .and_then(Value::as_array_mut)
+        .and_then(|rules| rules.first_mut())
+        .and_then(Value::as_object_mut)
+        .and_then(|rule| rule.get_mut("selector"))
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "fixture style selector is required",
+        ))?;
+    *selector = Value::String("paragraph".to_owned());
+    serde_json::to_vec(&value).map_err(StagingSemanticDecodeError::Json)
+}
+
+#[cfg(feature = "staging-fixtures")]
+#[doc(hidden)]
+pub fn staging_book_navigation_page_region_fixture(
+    input: &[u8],
+) -> Result<Vec<u8>, StagingSemanticDecodeError> {
+    let mut value: Value =
+        serde_json::from_slice(input).map_err(StagingSemanticDecodeError::Json)?;
+    let master = value
+        .get_mut("page_masters")
+        .and_then(Value::as_object_mut)
+        .and_then(|page_masters| page_masters.get_mut("masters"))
+        .and_then(Value::as_array_mut)
+        .and_then(|masters| masters.first_mut())
+        .and_then(Value::as_object_mut)
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "fixture page master is required",
+        ))?;
+    master.insert(
+        "header".to_owned(),
+        serde_json::json!({
+            "height": 1_638_400,
+            "width": 52_428_800,
+            "x": 6_553_600,
+            "y": 3_276_800
+        }),
+    );
+    master.insert(
+        "header_content".to_owned(),
+        serde_json::json!({
+            "blocks": [{
+                "children": [{
+                    "kind": "text",
+                    "node_id": 12,
+                    "span": {"end_byte": 7, "source_id": 0, "start_byte": 0},
+                    "text_span": {"end_byte": 7, "start_byte": 0, "text_id": 0}
+                }],
+                "classes": [],
+                "kind": "paragraph",
+                "node_id": 11,
+                "span": {"end_byte": 7, "source_id": 0, "start_byte": 0}
+            }],
+            "node_id": 10,
+            "span": {"end_byte": 7, "source_id": 0, "start_byte": 0}
+        }),
+    );
+    serde_json::to_vec(&value).map_err(StagingSemanticDecodeError::Json)
+}
+
+#[cfg(feature = "staging-fixtures")]
+#[doc(hidden)]
+pub fn staging_book_navigation_wrong_parent_fixture(
+    input: &[u8],
+) -> Result<Vec<u8>, StagingSemanticDecodeError> {
+    let mut value: Value =
+        serde_json::from_slice(input).map_err(StagingSemanticDecodeError::Json)?;
+    let parent = value
+        .get_mut("outline")
+        .and_then(Value::as_object_mut)
+        .and_then(|outline| outline.get_mut("entries"))
+        .and_then(Value::as_array_mut)
+        .and_then(|entries| entries.get_mut(1))
+        .and_then(Value::as_object_mut)
+        .and_then(|entry| entry.get_mut("parent_outline_id"))
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "fixture second outline parent is required",
+        ))?;
+    *parent = Value::Null;
+    serde_json::to_vec(&value).map_err(StagingSemanticDecodeError::Json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1510,6 +2211,10 @@ mod tests {
     const MATH_FIXTURE: &[u8] = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/math/job/document-package.json"
+    ));
+    const BOOK_NAVIGATION_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/book-navigation/job/document-package.json"
     ));
 
     fn policy() -> DocumentPackageDecodePolicy<'static> {
@@ -1534,6 +2239,112 @@ mod tests {
         assert!(encoded.contains("\"media_type\":\"png\""));
         assert!(encoded.contains("\"media_type\":\"sfnt-truetype-glyf\""));
         assert!(encoded.contains("\"media_type\":\"ttc-truetype-glyf\""));
+    }
+
+    #[test]
+    fn book_navigation_wire_round_trip_is_typed_closed_and_private() {
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(BOOK_NAVIGATION_FIXTURE, &policy())
+            .unwrap();
+        assert_eq!(decoded.wire().document().language, "en-US");
+        assert_eq!(
+            decoded.wire().metadata().title.as_deref(),
+            Some("Typaxis Book")
+        );
+        assert_eq!(decoded.wire().outline().entries.len(), 3);
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(decoded.wire())
+            .unwrap();
+        assert_eq!(encoded, decoded.canonical_jcs());
+        assert!(encoded.contains("\"language\":\"FR-latn-fr\""));
+        assert!(encoded.contains("\"anchor_id\":\"part-1\""));
+        assert!(crate::StrictDocumentPackageDecoder::new()
+            .decode(BOOK_NAVIGATION_FIXTURE, &policy())
+            .is_err());
+
+        let mut missing_metadata: Value = serde_json::from_slice(BOOK_NAVIGATION_FIXTURE).unwrap();
+        missing_metadata.as_object_mut().unwrap().remove("metadata");
+        let missing_error = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&serde_json::to_vec(&missing_metadata).unwrap(), &policy())
+            .unwrap_err();
+        assert_eq!(missing_error.pointer(), Some("/metadata"));
+        assert!(missing_error.to_string().starts_with("P1102:"));
+
+        let mut null_override: Value = serde_json::from_slice(BOOK_NAVIGATION_FIXTURE).unwrap();
+        null_override["document"]["blocks"][0]["blocks"][0]["language"] = Value::Null;
+        let null_error = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&serde_json::to_vec(&null_override).unwrap(), &policy())
+            .unwrap_err();
+        assert_eq!(
+            null_error.pointer(),
+            Some("/document/blocks/0/blocks/0/language")
+        );
+
+        let mut wrong_outline: Value = serde_json::from_slice(BOOK_NAVIGATION_FIXTURE).unwrap();
+        wrong_outline["outline"]["entries"][1]["source_node_id"] = Value::String("2".into());
+        let outline_error = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&serde_json::to_vec(&wrong_outline).unwrap(), &policy())
+            .unwrap_err();
+        assert_eq!(
+            outline_error.pointer(),
+            Some("/outline/entries/1/source_node_id")
+        );
+
+        let mut ordered_outline: Value = serde_json::from_slice(BOOK_NAVIGATION_FIXTURE).unwrap();
+        ordered_outline["outline"]["entries"][1]["parent_outline_id"] = Value::String("0".into());
+        ordered_outline["outline"]["entries"][1]["source_node_id"] = Value::String("2".into());
+        let ordered_error = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&serde_json::to_vec(&ordered_outline).unwrap(), &policy())
+            .unwrap_err();
+        assert_eq!(
+            ordered_error.pointer(),
+            Some("/outline/entries/1/parent_outline_id")
+        );
+    }
+
+    #[test]
+    fn book_navigation_wire_combined_ast_limit_is_inclusive() {
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(BOOK_NAVIGATION_FIXTURE, &policy())
+            .unwrap();
+        let wire = decoded.wire();
+        let navigation_nodes = 2u64
+            + u64::try_from(wire.metadata().keywords.len()).unwrap()
+            + u64::try_from(wire.outline().entries.len()).unwrap();
+        let exact_nodes = document_node_count(
+            wire.document(),
+            ResourceLimits::default().max_ast_nesting_depth,
+        )
+        .unwrap()
+        .checked_add(advanced_page_node_count(wire.advanced_page_masters()).unwrap())
+        .unwrap()
+        .checked_add(navigation_nodes)
+        .unwrap();
+
+        let exact = ResourceLimits {
+            max_ast_nodes: exact_nodes,
+            ..ResourceLimits::default()
+        };
+        let exact = ValidatedResourceLimits::new(exact).unwrap();
+        StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                BOOK_NAVIGATION_FIXTURE,
+                &DocumentPackageDecodePolicy::new(&exact),
+            )
+            .unwrap();
+
+        let below = ResourceLimits {
+            max_ast_nodes: exact_nodes - 1,
+            ..ResourceLimits::default()
+        };
+        let below = ValidatedResourceLimits::new(below).unwrap();
+        assert!(matches!(
+            StagingSemanticDocumentPackageDecoder::new().decode(
+                BOOK_NAVIGATION_FIXTURE,
+                &DocumentPackageDecodePolicy::new(&below),
+            ),
+            Err(StagingSemanticDecodeError::Limit)
+        ));
     }
 
     #[test]

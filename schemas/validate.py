@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import base64
+import datetime
 import hashlib
 import json
 import re
@@ -97,6 +98,12 @@ STAGING_MATH_FIXTURE_DIR = (
     / "staging"
     / "production-book-1"
     / "math"
+)
+STAGING_BOOK_NAVIGATION_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "production-book-1"
+    / "book-navigation"
 )
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
@@ -5075,6 +5082,357 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
     return len(expected_paths), len(matrix_paths)
 
 
+_GRANDFATHERED_LANGUAGE_TAGS = {
+    value.lower(): value
+    for value in (
+        "art-lojban", "cel-gaulish", "en-GB-oed", "i-ami", "i-bnn",
+        "i-default", "i-enochian", "i-hak", "i-klingon", "i-lux",
+        "i-mingo", "i-navajo", "i-pwn", "i-tao", "i-tay", "i-tsu",
+        "no-bok", "no-nyn", "sgn-BE-FR", "sgn-BE-NL", "sgn-CH-DE",
+        "zh-guoyu", "zh-hakka", "zh-min", "zh-min-nan", "zh-xiang",
+    )
+}
+
+
+def canonical_book_language(value: str) -> str:
+    """Registry-independent RFC 5646 structural validation for MI4 evidence."""
+
+    if (
+        not value
+        or len(value.encode("utf-8")) > 255
+        or "_" in value
+        or any(ord(character) >= 128 for character in value)
+    ):
+        raise ValidationFailure("book-navigation language syntax is invalid")
+    parts = value.split("-")
+    if any(
+        not part
+        or len(part) > 8
+        or not all(character.isascii() and character.isalnum() for character in part)
+        for part in parts
+    ):
+        raise ValidationFailure("book-navigation language subtag is invalid")
+    lowered = "-".join(part.lower() for part in parts)
+    if lowered in _GRANDFATHERED_LANGUAGE_TAGS:
+        return _GRANDFATHERED_LANGUAGE_TAGS[lowered]
+    if parts[0].lower() == "x":
+        if len(parts) < 2:
+            raise ValidationFailure("book-navigation private-use language is empty")
+        return "-".join(part.lower() for part in parts)
+
+    first = parts[0]
+    if not first.isalpha() or not (2 <= len(first) <= 8):
+        raise ValidationFailure("book-navigation primary language is invalid")
+    index = 1
+    output = [first.lower()]
+    if len(first) in (2, 3):
+        extlang_count = 0
+        while (
+            index < len(parts)
+            and len(parts[index]) == 3
+            and parts[index].isalpha()
+            and extlang_count < 3
+        ):
+            output.append(parts[index].lower())
+            index += 1
+            extlang_count += 1
+    if index < len(parts) and len(parts[index]) == 4 and parts[index].isalpha():
+        output.append(parts[index][0].upper() + parts[index][1:].lower())
+        index += 1
+    if index < len(parts) and (
+        (len(parts[index]) == 2 and parts[index].isalpha())
+        or (len(parts[index]) == 3 and parts[index].isdigit())
+    ):
+        output.append(parts[index].upper() if parts[index].isalpha() else parts[index])
+        index += 1
+
+    variants: list[str] = []
+    while index < len(parts):
+        part = parts[index]
+        if (5 <= len(part) <= 8 and part.isalnum()) or (
+            len(part) == 4 and part[0].isdigit() and part[1:].isalnum()
+        ):
+            variant = part.lower()
+            if variant in variants:
+                raise ValidationFailure("book-navigation language variant is duplicated")
+            variants.append(variant)
+            index += 1
+        else:
+            break
+    output.extend(variants)
+
+    extensions: list[tuple[str, list[str]]] = []
+    singletons: set[str] = set()
+    while index < len(parts) and len(parts[index]) == 1 and parts[index].lower() != "x":
+        singleton = parts[index].lower()
+        if singleton in singletons:
+            raise ValidationFailure("book-navigation language singleton is duplicated")
+        singletons.add(singleton)
+        index += 1
+        values: list[str] = []
+        while index < len(parts) and 2 <= len(parts[index]) <= 8:
+            values.append(parts[index].lower())
+            index += 1
+        if not values:
+            raise ValidationFailure("book-navigation language extension is empty")
+        extensions.append((singleton, values))
+    for singleton, values in sorted(extensions):
+        output.append(singleton)
+        output.extend(values)
+    if index < len(parts) and parts[index].lower() == "x":
+        index += 1
+        if index == len(parts):
+            raise ValidationFailure("book-navigation private-use suffix is empty")
+        output.append("x")
+        output.extend(part.lower() for part in parts[index:])
+        index = len(parts)
+    if index != len(parts):
+        raise ValidationFailure("book-navigation language tail is invalid")
+    return "-".join(output)
+
+
+def _book_metadata_string(value: str, label: str) -> None:
+    whitespace = {
+        0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x0085,
+        0x00A0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+        *range(0x2000, 0x200B),
+    }
+    if (
+        not value
+        or all(ord(character) in whitespace for character in value)
+        or any(
+            ord(character) <= 0x1F
+            or 0x7F <= ord(character) <= 0x9F
+            or ord(character) in (0xFFFE, 0xFFFF)
+            for character in value
+        )
+    ):
+        raise ValidationFailure(f"book-navigation {label} is not a valid metadata string")
+
+
+def validate_book_navigation_semantics(
+    document: dict[str, Any], manifest: dict[str, Any] | None = None
+) -> None:
+    """Validate private MI4 rules that JSON Schema cannot express."""
+
+    metadata = document["metadata"]
+    for field in ("author", "identifier", "subject", "title"):
+        if metadata[field] is not None:
+            _book_metadata_string(metadata[field], f"metadata/{field}")
+    previous_keyword: bytes | None = None
+    for index, keyword in enumerate(metadata["keywords"]):
+        _book_metadata_string(keyword, f"metadata/keywords/{index}")
+        encoded = keyword.encode("utf-8")
+        if previous_keyword is not None and previous_keyword >= encoded:
+            raise ValidationFailure("book-navigation keywords are not strict UTF-8 order")
+        previous_keyword = encoded
+    for field in ("created", "modified"):
+        value = metadata[field]
+        if value is None:
+            continue
+        if not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            value,
+        ):
+            raise ValidationFailure(f"book-navigation metadata/{field} is not UTC-second")
+        try:
+            parsed = datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError as error:
+            raise ValidationFailure(
+                f"book-navigation metadata/{field} is not Gregorian"
+            ) from error
+        if parsed.year == 0:
+            raise ValidationFailure(f"book-navigation metadata/{field} year is zero")
+    if (
+        metadata["created"] is not None
+        and metadata["modified"] is not None
+        and metadata["modified"] < metadata["created"]
+    ):
+        raise ValidationFailure("book-navigation modified precedes created")
+
+    records: dict[int, dict[str, Any]] = {}
+    outline_owners: list[dict[str, Any]] = []
+    anchor_owners: dict[str, int] = {}
+
+    def add_anchor_owner(node: dict[str, Any]) -> None:
+        anchor_id = node.get("anchor_id")
+        if anchor_id is None:
+            return
+        if anchor_id in anchor_owners:
+            raise ValidationFailure("book-navigation AnchorId is duplicated")
+        anchor_owners[anchor_id] = node["node_id"]
+
+    def add_language_owner(
+        node: dict[str, Any], kind: str, parent_id: int | None, inherited: str | None
+    ) -> str:
+        explicit = node.get("language")
+        effective = canonical_book_language(explicit) if explicit is not None else inherited
+        if effective is None:
+            raise ValidationFailure("book-navigation document language is absent")
+        node_id = node["node_id"]
+        if node_id in records:
+            raise ValidationFailure("book-navigation language NodeId is duplicated")
+        records[node_id] = {
+            "effective_language": effective,
+            "explicit_language": (
+                canonical_book_language(explicit) if explicit is not None else None
+            ),
+            "logical_parent_node_id": parent_id,
+            "node_id": node_id,
+            "node_kind": kind,
+        }
+        return effective
+
+    def visit_inline(node: dict[str, Any], parent_id: int, inherited: str) -> None:
+        kind = node["kind"]
+        if kind in {"anchor", "soft_break", "hard_break"}:
+            if "language" in node:
+                raise ValidationFailure("book-navigation language override has no owner")
+            if kind == "anchor":
+                add_anchor_owner(node)
+            return
+        effective = add_language_owner(node, kind, parent_id, inherited)
+        for child in node.get("children", []):
+            visit_inline(child, node["node_id"], effective)
+
+    def visit_block(node: dict[str, Any], parent_id: int, inherited: str) -> None:
+        kind = node["kind"]
+        if kind == "page_break":
+            if "language" in node:
+                raise ValidationFailure("book-navigation page break has a language")
+            return
+        effective = add_language_owner(node, kind, parent_id, inherited)
+        if kind in {"heading", "semantic_container"}:
+            add_anchor_owner(node)
+            outline_owners.append(
+                {
+                    "anchor_id": node.get("anchor_id"),
+                    "heading_level": node.get("level"),
+                    "kind": kind,
+                    "language": effective,
+                    "node_id": node["node_id"],
+                }
+            )
+        if kind in {"paragraph", "heading"}:
+            for child in node["children"]:
+                visit_inline(child, node["node_id"], effective)
+        elif kind == "semantic_container":
+            for child in node["blocks"]:
+                visit_block(child, node["node_id"], effective)
+        elif kind == "list":
+            for item in node["items"]:
+                item_effective = add_language_owner(
+                    item, "list_item", node["node_id"], effective
+                )
+                for child in item["blocks"]:
+                    visit_block(child, item["node_id"], item_effective)
+        elif kind == "table":
+            for row in [*node["head"], *node["body"]]:
+                row_effective = add_language_owner(
+                    row, "table_row", node["node_id"], effective
+                )
+                for cell in row["cells"]:
+                    cell_effective = add_language_owner(
+                        cell, "table_cell", row["node_id"], row_effective
+                    )
+                    for child in cell["blocks"]:
+                        visit_block(child, cell["node_id"], cell_effective)
+        elif kind == "figure":
+            for child in node["caption"]:
+                visit_block(child, node["node_id"], effective)
+
+    root = document["document"]
+    document_language = add_language_owner(root, "document", None, None)
+    for block in root["blocks"]:
+        visit_block(block, root["node_id"], document_language)
+    for footnote in root["footnotes"]:
+        footnote_language = add_language_owner(
+            footnote, "footnote_definition", root["node_id"], document_language
+        )
+        for block in footnote["blocks"]:
+            visit_block(block, footnote["node_id"], footnote_language)
+    for master in document["page_masters"]["masters"]:
+        for region_name in ("header_content", "footer_content"):
+            region = master[region_name]
+            if region is None:
+                continue
+            for block in region["blocks"]:
+                block_language = add_language_owner(
+                    block, block["kind"], root["node_id"], document_language
+                )
+                for inline in block["children"]:
+                    if inline["kind"] == "text":
+                        add_language_owner(
+                            inline, "text", block["node_id"], block_language
+                        )
+    canonical_records = [records[node_id] for node_id in sorted(records)]
+
+    owner_by_id = {owner["node_id"]: owner for owner in outline_owners}
+    owner_order = {owner["node_id"]: index for index, owner in enumerate(outline_owners)}
+    previous_owner = -1
+    seen_sources: set[int] = set()
+    seen_destinations: set[str] = set()
+    stack: list[int] = []
+    entries = document["outline"]["entries"]
+    for index, entry in enumerate(entries):
+        if entry["outline_id"] != index:
+            raise ValidationFailure("book-navigation outline IDs are not dense")
+        level = entry["level"]
+        if level > len(stack) + 1:
+            raise ValidationFailure("book-navigation outline level jumps")
+        stack = stack[: level - 1]
+        expected_parent = stack[-1] if stack else None
+        if entry["parent_outline_id"] != expected_parent:
+            raise ValidationFailure("book-navigation outline parent disagrees with preorder")
+        stack.append(index)
+        owner = owner_by_id.get(entry["source_node_id"])
+        if owner is None or owner["kind"] != entry["source_kind"]:
+            raise ValidationFailure("book-navigation outline source owner differs")
+        if owner["anchor_id"] != entry["destination"]:
+            raise ValidationFailure("book-navigation outline destination differs from owner")
+        if anchor_owners.get(entry["destination"]) != entry["source_node_id"]:
+            raise ValidationFailure("book-navigation outline anchor owner differs")
+        if entry["source_kind"] == "heading" and owner["heading_level"] != level:
+            raise ValidationFailure("book-navigation outline heading level differs")
+        if entry["source_node_id"] in seen_sources or entry["destination"] in seen_destinations:
+            raise ValidationFailure("book-navigation outline source/destination is duplicated")
+        if owner_order[entry["source_node_id"]] <= previous_owner:
+            raise ValidationFailure("book-navigation outline is not source-owner preorder")
+        previous_owner = owner_order[entry["source_node_id"]]
+        seen_sources.add(entry["source_node_id"])
+        seen_destinations.add(entry["destination"])
+        _book_metadata_string(entry["label"], f"outline/{index}/label")
+
+    if manifest is None:
+        return
+    if manifest["metadata"] != metadata:
+        raise ValidationFailure("book-navigation manifest metadata differs from source")
+    if manifest["document_language"] != document_language:
+        raise ValidationFailure("book-navigation manifest document language differs")
+    if manifest["languages"] != canonical_records:
+        raise ValidationFailure("book-navigation manifest computed languages differ")
+    if len(manifest["outline"]) != len(entries):
+        raise ValidationFailure("book-navigation manifest outline coverage differs")
+    for source, fact in zip(entries, manifest["outline"], strict=True):
+        owner = owner_by_id[source["source_node_id"]]
+        for key in (
+            "destination", "label", "level", "outline_id",
+            "parent_outline_id", "source_node_id",
+        ):
+            if fact[key] != source[key]:
+                raise ValidationFailure("book-navigation manifest outline source differs")
+        if (
+            fact["source_kind"] != source["source_kind"]
+            or fact["source_language"] != owner["language"]
+        ):
+            raise ValidationFailure("book-navigation manifest outline owner differs")
+        if fact["pdf_object_number"] <= 0 or fact["page_index"] < 0:
+            raise ValidationFailure("book-navigation manifest selected/PDF target is invalid")
+    expected_producer = f'{manifest["engine"]["name"]} {manifest["engine"]["version"]}'
+    if manifest["pdf"]["producer"] != expected_producer:
+        raise ValidationFailure("book-navigation manifest producer differs")
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -5143,6 +5501,7 @@ def main() -> int:
             raise ValidationFailure("the versioned 1.3 registry has a missing or extra schema")
         expected_private_m4 = {
             *expected_versioned_current,
+            "machine-book-navigation-manifest.schema.json",
             "machine-math-manifest.schema.json",
             "machine-safe-vector-manifest.schema.json",
             "machine-semantic-container-manifest.schema.json",
@@ -5621,6 +5980,155 @@ def main() -> int:
             wrong_math_parser,
         ):
             raise ValidationFailure("private 1.4 math manifest accepted a foreign parser")
+
+        book_document_path = (
+            STAGING_BOOK_NAVIGATION_FIXTURE_DIR / "job" / "document-package.json"
+        )
+        book_manifest_path = STAGING_BOOK_NAVIGATION_FIXTURE_DIR / "manifest.json"
+        book_expectation_path = (
+            STAGING_BOOK_NAVIGATION_FIXTURE_DIR / "pdf-expectation.json"
+        )
+        book_document = load_json(book_document_path)
+        book_manifest = load_json(book_manifest_path)
+        book_expectation = load_json(book_expectation_path)
+        book_document_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], book_document
+        )
+        if book_document_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the book-navigation fixture: "
+                + " | ".join(book_document_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            book_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private book-navigation fixture"
+            )
+        book_manifest_errors = schema_errors(
+            private_m4_validators[
+                "machine-book-navigation-manifest.schema.json"
+            ],
+            book_manifest,
+        )
+        if book_manifest_errors:
+            raise ValidationFailure(
+                "private 1.4 book-navigation manifest was rejected: "
+                + " | ".join(book_manifest_errors)
+            )
+        for path, value, label in (
+            (book_document_path, book_document, "book-navigation DocumentPackage"),
+            (book_manifest_path, book_manifest, "book-navigation manifest"),
+            (book_expectation_path, book_expectation, "book-navigation PDF expectation"),
+        ):
+            if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
+                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+        validate_book_navigation_semantics(book_document, book_manifest)
+        if canonical_book_language("SGN-be-fr") != "sgn-BE-FR":
+            raise ValidationFailure(
+                "book-navigation grandfathered language casing drifted"
+            )
+
+        source_bytes = (
+            STAGING_BOOK_NAVIGATION_FIXTURE_DIR / "job" / "input.tsf"
+        ).read_bytes()
+        source = book_document["sources"][0]
+        if (
+            len(book_document["sources"]) != 1
+            or source["uri"] != "input.tsf"
+            or source["utf8_byte_length"] != len(source_bytes)
+            or source["sha256"] != hashlib.sha256(source_bytes).hexdigest()
+            or book_document["text_buffers"][0]["utf8"].encode("utf-8")
+            != source_bytes
+        ):
+            raise ValidationFailure("private 1.4 book-navigation source closure drifted")
+        if (
+            book_expectation["metadata"] != book_document["metadata"]
+            or book_expectation["document_language"]
+            != canonical_book_language(book_document["document"]["language"])
+            or len(book_expectation["outline"])
+            != len(book_document["outline"]["entries"])
+        ):
+            raise ValidationFailure("private 1.4 PDF expectation differs from source facts")
+
+        missing_book_metadata = copy.deepcopy(book_document)
+        del missing_book_metadata["metadata"]
+        null_book_language = copy.deepcopy(book_document)
+        null_book_language["document"]["blocks"][0]["blocks"][0][
+            "language"
+        ] = None
+        for label, invalid in (
+            ("missing metadata", missing_book_metadata),
+            ("null node language", null_book_language),
+        ):
+            if not schema_errors(
+                private_m4_validators["document-package.schema.json"], invalid
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 DocumentPackage accepted book-navigation {label}"
+                )
+
+        bad_book_date = copy.deepcopy(book_document)
+        bad_book_date["metadata"]["created"] = "2026-02-30T00:00:00Z"
+        unordered_book_keywords = copy.deepcopy(book_document)
+        unordered_book_keywords["metadata"]["keywords"] = [
+            "typesetting",
+            "determinism",
+        ]
+        bad_book_language = copy.deepcopy(book_document)
+        bad_book_language["document"]["blocks"][0]["blocks"][0][
+            "language"
+        ] = "fr_Latn_FR"
+        bad_book_parent = copy.deepcopy(book_document)
+        bad_book_parent["outline"]["entries"][2]["parent_outline_id"] = None
+        duplicate_book_destination = copy.deepcopy(book_document)
+        duplicate_book_destination["outline"]["entries"][2][
+            "destination"
+        ] = "chapter-1"
+        duplicate_book_anchor = copy.deepcopy(book_document)
+        duplicate_book_anchor["document"]["blocks"][0]["blocks"][2][
+            "anchor_id"
+        ] = "chapter-1"
+        for label, invalid in (
+            ("non-Gregorian date", bad_book_date),
+            ("unordered keywords", unordered_book_keywords),
+            ("malformed language", bad_book_language),
+            ("wrong outline parent", bad_book_parent),
+            ("duplicate outline destination", duplicate_book_destination),
+            ("duplicate package anchor", duplicate_book_anchor),
+        ):
+            try:
+                validate_book_navigation_semantics(invalid)
+            except ValidationFailure:
+                pass
+            else:
+                raise ValidationFailure(
+                    f"private 1.4 semantic validation accepted {label}"
+                )
+        mismatched_book_manifest = copy.deepcopy(book_manifest)
+        mismatched_book_manifest["metadata"]["title"] = "Foreign title"
+        try:
+            validate_book_navigation_semantics(
+                book_document, mismatched_book_manifest
+            )
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 manifest accepted mismatched source metadata"
+            )
+        zero_outline_root = copy.deepcopy(book_manifest)
+        zero_outline_root["pdf"]["outline_root_object"] = 0
+        if not schema_errors(
+            private_m4_validators[
+                "machine-book-navigation-manifest.schema.json"
+            ],
+            zero_outline_root,
+        ):
+            raise ValidationFailure(
+                "private 1.4 book-navigation manifest accepted object zero"
+            )
 
         m4_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         m4_config["contract"] = "typaxis.contract/1.4"

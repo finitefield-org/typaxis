@@ -4,6 +4,7 @@ mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
+mod book_navigation;
 mod math;
 mod safe_vector;
 mod semantic_container;
@@ -31,6 +32,12 @@ pub use advanced_header_footer::{
     StagingHeaderFooterDisplayError, StagingHeaderFooterDisplayPage,
     StagingHeaderFooterDisplayReceipt, StagingHeaderFooterPaintCommand, StagingPdfPageBox,
     StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
+};
+pub use book_navigation::{
+    select_staging_book_navigation, BookInternalLink, BookInternalLinkInput, BookLanguagePaint,
+    BookLanguagePaintInput, BookNavigationDestinationBinding, BookNavigationSelectedEntry,
+    BookNavigationSelectedError, BookNavigationSelectedPage, BookNavigationSelectedReceipt,
+    BOOK_DESTINATION_REGISTRY_ALGORITHM, BOOK_NAVIGATION_SELECTED_ALGORITHM,
 };
 pub use math::{
     build_staging_math_display, StagingMathDisplay, StagingMathDisplayError, StagingMathDraw,

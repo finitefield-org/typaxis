@@ -4,6 +4,7 @@ mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
+mod book_navigation;
 mod math;
 mod safe_vector;
 mod semantic_container;
@@ -21,6 +22,12 @@ pub use advanced_header_footer::{
     serialize_header_footer_pdf, serialize_staging_header_footer_pdf, StagingHeaderFooterPdf,
     StagingHeaderFooterPdfClosureReceipt, StagingHeaderFooterPdfError,
     StagingHeaderFooterPdfPageObservation, STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
+};
+pub use book_navigation::{
+    write_staging_book_navigation_pdf, BookNavigationPdfError, BookNavigationPdfLinkObservation,
+    BookNavigationPdfObjectObservation, BookNavigationPdfObservation,
+    BookNavigationPdfOutlineObservation, StagingBookNavigationPdf, BOOK_NAVIGATION_PDF_ALGORITHM,
+    BOOK_XMP_ALGORITHM,
 };
 pub use math::{
     write_staging_math_pdf, StagingMathPdf, StagingMathPdfError, StagingMathPdfObservation,

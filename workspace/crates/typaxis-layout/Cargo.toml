@@ -22,3 +22,6 @@ typaxis-layout-contract = { path = "../typaxis-layout-contract" }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 typaxis-text = { path = "../typaxis-text" }
+
+[dev-dependencies]
+typaxis-syntax = { path = "../typaxis-syntax", features = ["staging-fixtures"] }

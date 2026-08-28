@@ -3,6 +3,7 @@
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
+mod book_navigation;
 mod math;
 mod safe_vector;
 mod semantic_container;
@@ -12,6 +13,10 @@ pub use advanced_float::project_staging_float_manifest;
 pub use advanced_header_footer::{
     project_staging_header_footer_manifest, StagingAdvancedPaginationManifest,
     StagingAdvancedPaginationManifestError, ADVANCED_PAGINATION_MANIFEST_ALGORITHM,
+};
+pub use book_navigation::{
+    build_staging_book_navigation_manifest, StagingBookNavigationManifest,
+    StagingBookNavigationManifestError, STAGING_BOOK_NAVIGATION_MANIFEST_ALGORITHM,
 };
 pub use math::{
     build_staging_math_manifest, StagingMathManifest, StagingMathManifestError,

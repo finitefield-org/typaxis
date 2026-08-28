@@ -1,11 +1,20 @@
 #![forbid(unsafe_code)]
 
 mod advanced;
+mod book_navigation;
 mod semantic_container;
 
 pub use advanced::{
     StagingAdvancedPackageParseError, StagingAdvancedPackageParser, StagingAdvancedSyntaxFailure,
     ValidatedStagingAdvancedPackage,
+};
+pub use book_navigation::{
+    canonicalize_bcp47_language, validate_staging_book_navigation, BookNavigationSyntaxError,
+    BookNavigationSyntaxErrorKind, ComputedLanguageRegistryReceipt, DocumentMetadataReceipt,
+    StagingBookNavigationProfileAuthorization, StagingBookNavigationProfileView,
+    ValidatedOutlineRegistryReceipt, ValidatedStagingBookNavigation, BCP47_LANGUAGE_ALGORITHM,
+    BOOK_NAVIGATION_PROFILE_VIEW_ALGORITHM, COMPUTED_LANGUAGE_REGISTRY_ALGORITHM,
+    DOCUMENT_METADATA_ALGORITHM, OUTLINE_REGISTRY_ALGORITHM,
 };
 pub use semantic_container::{
     StagingM4PageGeometry, StagingMathLayoutBudgetGuard, StagingMathProfileAuthorization,
@@ -69,7 +78,8 @@ pub mod machine_profile_boundary {
         Block, ColumnBalance, ColumnFill, ColumnLayout, FigurePlacement, FloatPlacementClass,
         FontMediaDeclaration, FontMediaType, FootnoteDefinition, ImageMediaDeclaration,
         ImageMediaType, Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
-        SemanticContainerKind, StagingM4Block, StagingM4ResourceCatalog,
+        SemanticContainerKind, StagingLanguageNodeKind, StagingM4Block, StagingM4ResourceCatalog,
+        StagingOutlineSourceKind,
     };
     pub use typaxis_document_package as wire;
     pub use typaxis_machine_input::{

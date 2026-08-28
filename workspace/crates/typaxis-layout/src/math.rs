@@ -1313,26 +1313,12 @@ mod tests {
             ),
         )
         .unwrap();
-        let mut result = String::from_utf8(bytes).unwrap();
-        result = result.replacen(
-            "\"document\":{\"blocks\":[{\"blocks\":[",
-            "\"document\":{\"blocks\":[",
-            1,
-        );
-        result = result.replacen(
-            "],\"classes\":[\"math-section\"],\"kind\":\"semantic_container\",\"node_id\":1,\"semantic_kind\":\"result\",\"span\":{\"end_byte\":8,\"source_id\":0,\"start_byte\":0}}],\"footnotes\"",
-            "],\"footnotes\"",
-            1,
-        );
-        result
-            .replacen("\"node_id\":2", "\"node_id\":1", 1)
-            .replacen("\"node_id\":3", "\"node_id\":2", 1)
-            .replacen("\"node_id\":4", "\"node_id\":3", 1)
-            .replacen(
-                "\"selector\":\"semantic_container\"",
-                "\"selector\":\"paragraph\"",
-                1,
+        let bytes =
+            typaxis_syntax::machine_profile_boundary::wire::staging_math_document_body_fixture(
+                &bytes,
             )
+            .unwrap();
+        String::from_utf8(bytes).unwrap()
     }
 
     #[test]

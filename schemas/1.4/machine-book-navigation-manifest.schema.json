@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-book-navigation-manifest.schema.json",
+  "title": "Typaxis Book Navigation Manifest 1.4",
+  "description": "Private MI4 metadata, computed-language, selected-destination, outline, and PDF observation closure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "algorithm",
+    "contract",
+    "document_language",
+    "engine",
+    "fingerprints",
+    "languages",
+    "metadata",
+    "outline",
+    "pdf",
+    "profile_id",
+    "resource_limits"
+  ],
+  "properties": {
+    "algorithm": {"const": "typaxis.book-navigation-manifest/1"},
+    "contract": {"const": "typaxis.contract/1.4"},
+    "document_language": {"$ref": "#/$defs/language_tag"},
+    "engine": {"$ref": "#/$defs/engine"},
+    "fingerprints": {"$ref": "#/$defs/fingerprints"},
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/language_record"}
+    },
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "outline": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/outline_entry"}
+    },
+    "pdf": {"$ref": "#/$defs/pdf"},
+    "profile_id": {"const": "typaxis.machine-pdf/production-book-1"},
+    "resource_limits": {"$ref": "#/$defs/resource_limits"}
+  },
+  "$defs": {
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destination_registry_sha256",
+        "language_sha256",
+        "limits_sha256",
+        "metadata_sha256",
+        "outline_sha256",
+        "package_sha256",
+        "pdf_observation_sha256",
+        "pdf_sha256",
+        "profile_authorization_sha256",
+        "profile_preflight_sha256",
+        "selected_sha256",
+        "semantic_sha256",
+        "xmp_sha256"
+      ],
+      "properties": {
+        "destination_registry_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "language_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "limits_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "metadata_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "outline_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "package_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_observation_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "profile_authorization_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "profile_preflight_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "selected_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "semantic_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "xmp_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "language_tag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+    },
+    "nullable_language_tag": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/language_tag"}
+      ]
+    },
+    "nullable_id32": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/id32"}
+      ]
+    },
+    "nullable_object_number": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "integer", "minimum": 1, "maximum": 4294967295}
+      ]
+    },
+    "language_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effective_language",
+        "explicit_language",
+        "logical_parent_node_id",
+        "node_id",
+        "node_kind"
+      ],
+      "properties": {
+        "effective_language": {"$ref": "#/$defs/language_tag"},
+        "explicit_language": {"$ref": "#/$defs/nullable_language_tag"},
+        "logical_parent_node_id": {"$ref": "#/$defs/nullable_id32"},
+        "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "node_kind": {
+          "enum": [
+            "document",
+            "semantic_container",
+            "paragraph",
+            "heading",
+            "list",
+            "list_item",
+            "table",
+            "table_row",
+            "table_cell",
+            "figure",
+            "footnote_definition",
+            "text",
+            "emphasis",
+            "strong",
+            "link",
+            "reference",
+            "footnote_reference",
+            "inline_math",
+            "display_math"
+          ]
+        }
+      }
+    },
+    "metadata_string": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "[\\u0000-\\u001F\\u007F-\\u009F\\uFFFE\\uFFFF]"
+          },
+          {
+            "pattern": "^[\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]*$"
+          }
+        ]
+      }
+    },
+    "nullable_metadata_string": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/metadata_string"}
+      ]
+    },
+    "nullable_timestamp": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+        }
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["author", "created", "identifier", "keywords", "modified", "subject", "title"],
+      "properties": {
+        "author": {"$ref": "#/$defs/nullable_metadata_string"},
+        "created": {"$ref": "#/$defs/nullable_timestamp"},
+        "identifier": {"$ref": "#/$defs/nullable_metadata_string"},
+        "keywords": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/metadata_string"}
+        },
+        "modified": {"$ref": "#/$defs/nullable_timestamp"},
+        "subject": {"$ref": "#/$defs/nullable_metadata_string"},
+        "title": {"$ref": "#/$defs/nullable_metadata_string"}
+      }
+    },
+    "view": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "x", "y"],
+          "properties": {
+            "kind": {"const": "xyz"},
+            "x": {"$ref": "common.schema.json#/$defs/length"},
+            "y": {"$ref": "common.schema.json#/$defs/length"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "fit_page"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "top"],
+          "properties": {
+            "kind": {"const": "fit_width"},
+            "top": {
+              "oneOf": [
+                {"type": "null"},
+                {"$ref": "common.schema.json#/$defs/length"}
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "outline_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destination",
+        "frame_id",
+        "label",
+        "level",
+        "outline_id",
+        "page_index",
+        "parent_outline_id",
+        "pdf_object_number",
+        "source_kind",
+        "source_language",
+        "source_node_id",
+        "view"
+      ],
+      "properties": {
+        "destination": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$"},
+        "frame_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "label": {"$ref": "#/$defs/metadata_string"},
+        "level": {"type": "integer", "minimum": 1, "maximum": 6},
+        "outline_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "parent_outline_id": {"$ref": "#/$defs/nullable_id32"},
+        "pdf_object_number": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "source_kind": {"enum": ["heading", "semantic_container"]},
+        "source_language": {"$ref": "#/$defs/language_tag"},
+        "source_node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "view": {"$ref": "#/$defs/view"}
+      }
+    },
+    "pdf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["byte_length", "catalog_object", "info_object", "metadata_object", "outline_root_object", "producer"],
+      "properties": {
+        "byte_length": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "catalog_object": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "info_object": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "metadata_object": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "outline_root_object": {"$ref": "#/$defs/nullable_object_number"},
+        "producer": {"type": "string", "minLength": 1}
+      }
+    },
+    "resource_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_fragments", "max_output_bytes", "max_pdf_objects", "max_spool_bytes"],
+      "properties": {
+        "max_fragments": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "max_output_bytes": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "max_pdf_objects": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "max_spool_bytes": {"$ref": "common.schema.json#/$defs/positive_safe_integer"}
+      }
+    }
+  }
+}

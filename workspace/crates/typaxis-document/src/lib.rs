@@ -7,7 +7,13 @@ use typaxis_core::{
     NonNegativeLength, PortablePath, PositiveLength, Rect, SafeUri, SourceSpan, TextSpan,
 };
 
+mod book_navigation;
 mod semantic_container;
+
+pub use book_navigation::{
+    StagingComputedLanguageRecord, StagingDocumentMetadata, StagingLanguageNodeKind,
+    StagingOutlineEntry, StagingOutlineSource, StagingOutlineSourceKind,
+};
 
 pub use semantic_container::{
     FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,

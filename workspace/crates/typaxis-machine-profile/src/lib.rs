@@ -15,6 +15,7 @@ mod basic_links;
 mod basic_lists;
 mod basic_page_breaks;
 mod basic_styles;
+mod book_navigation;
 mod capabilities;
 mod descriptor;
 mod math;
@@ -67,6 +68,11 @@ pub use basic_page_breaks::{
 pub use basic_styles::{
     BasicDocumentStyleDescriptor, BasicDocumentStylePreflight, BasicDocumentStylePreflightFailure,
     BasicDocumentStylePreflightReceipt, BASIC_DOCUMENT_PROFILE_ID,
+};
+pub use book_navigation::{
+    preflight_staging_book_navigation_profile, StagingBookNavigationProfileDescriptor,
+    StagingBookNavigationProfileError, StagingBookNavigationProfileReceipt,
+    STAGING_BOOK_NAVIGATION_PROFILE_ALGORITHM,
 };
 pub use capabilities::{encode_capabilities_canonical, HostCapabilityDescriptor};
 pub use descriptor::{

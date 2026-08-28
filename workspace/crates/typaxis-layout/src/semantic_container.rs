@@ -1265,10 +1265,12 @@ mod tests {
             footnote_id: "note".to_owned(),
             node_id: 10,
             span,
+            language: None,
             blocks: vec![WireStagingM4Block::Paragraph {
                 node_id: 11,
                 span,
                 classes: Vec::new(),
+                language: None,
                 children: vec![WireStagingM4Inline::HardBreak { node_id: 12, span }],
             }],
         });

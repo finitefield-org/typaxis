@@ -13,7 +13,7 @@
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed capability contracts | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.3 output | Yes | Yes, current output | Yes | Yes |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: public selected-state and artifact closure | Yes | Yes, MI3-12 gate |
-| contract 1.4 / `production-book-1` target | Yes through ADR-0034 for base/media, math/safe-vector, and metadata/language/outline | Partial private MI4-02/04/05 slices; metadata/navigation remains MI4-07 | No | No, MI4-13 gate |
+| contract 1.4 / `production-book-1` target | Yes through ADR-0034 for base/media, math/safe-vector, and metadata/language/outline | Partial private MI4-02/04/05/07 slices, including metadata/navigation through PDF validation | No | No, MI4-13 gate |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
@@ -30,6 +30,7 @@
 - [x] MI4-02 implements the private 1.4 semantic-container/base-media slice without changing current aliases, public descriptors, help, or default
 - [x] ADR-0033 fixes math source/speech/vector/ActualText binding and the bounded `svg-safe-1` subset; MI4-04 and MI4-05 implement both private slices with public 1.3 isolation
 - [x] ADR-0034 fixes explicit metadata, stable BCP 47 inheritance, source-bound outline/named destinations, deterministic Info/XMP/catalog/outline mapping, limits, diagnostics, and the MI4-07/MI4-13 gates
+- [x] MI4-07 implements the private 1.4 metadata/language/outline Wire-to-PDF/manifest/independent-validator closure while keeping current aliases, public descriptors, help, and default unchanged
 
 The ADR-0027/ownership/paragraph items are contract-boundary decisions; the
 command and evidence items are implementation/public/release claims backed by
