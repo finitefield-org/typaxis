@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) separately reserves a non-current M4 target; it is not a public eighth descriptor.
+This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) and [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
 
 ## Status axes
 
@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes, ADR-0032 base target on non-current contract 1.4 | No: MI4 staging begins at MI4-02 | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes, ADR-0032 base plus ADR-0033 math/safe-vector target on non-current contract 1.4 | Private semantic-container/base-media staging only; math/safe-vector are pending MI4-04/05 | No; public profile ID is rejected | No, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -492,8 +492,9 @@ authority.
 Source-mode 1.4 `dump-ast` must populate declarations only from the same stable
 decoder attestation and fail before stdout if one is unavailable. It cannot
 infer from `.png`, `.ttf`, `.ttc`, emit legacy absence, or fall back to 1.3.
-MI4-03 may add the adopted safe-vector image value privately; MI4-10 may add
-the adopted JPEG and OTF/CFF values. Neither may change the three base values.
+[ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) adopts
+the private `svg-safe-1` image value for MI4-04; MI4-10 may add the adopted JPEG
+and OTF/CFF values. Neither may change the three base values.
 
 Only the 1.4 production-manifest branch adds tagged `media_declaration` and the
 M4 font attestation. Built production resources require `declared`, nonnull
@@ -513,6 +514,91 @@ retain frozen 1.3 encoders. Raw 1.4 or an M4-profile request uses the 1.4
 artifact registry.
 Complete migration rows and the atomic switch order are normative in ADR-0032
 and docs/22.
+
+### Adopted M4 math and safe-vector extension
+
+ADR-0033 adds two private contract-1.4 target nodes: `inline_math` in ordinary
+inline positions and styleable `display_math` in general block positions.
+Both require a closed `math_source` with language `typaxis-math`, version `1`,
+an exact admitted TextSpan mapped to the node SourceSpan, and a nonempty
+producer-authored `speech` string. The node kind, not `$`/`$$` or another
+source delimiter, distinguishes inline from display. Page-region math and any
+plain-text/PNG fallback remain rejected.
+
+`typaxis.math-parser/1` accepts the closed `typaxis.math-source/1` grammar:
+ASCII identifiers/numbers, the adopted literal operator/Greek set, nonempty
+groups, one subscript/superscript pair, and only `\frac`, `\sqrt`, and
+`\operator`. It has no macro, environment, package, file, URI, network, shell,
+or recovery semantics. `typaxis.math-formatter/1` provides a canonical typed
+round trip but never replaces or normalizes authored source bytes.
+
+Version 1 uses producer-supplied speech only. The layout binding owner issues
+one `typaxis.math-binding/1` MathReceiptKey covering package/profile/limits,
+NodeId, inline/display kind, source span/bytes/language/version, parsed AST,
+speech, admitted MATH-table font/hash, dimensions/baseline, LayoutEpoch, work,
+and vector paint fingerprint. Inline math is one atomic inline item;
+display math owns one independent `typaxis.math-flow/1` FlowId and atomic
+terminal. Selected flow/page/frame/fragment/paint ordinal/origin, Display
+glyph/rule/path paint, exact PDF `/ActualText`, manifest fact, and the future
+`/Formula` structure element with the same `/Alt` extend that receipt. Wrong
+source, alternative, vector, font, page, or structure owner is `I9190`.
+
+The target image declaration adds exactly `svg-safe-1`, mapped after stable
+bounded decode to `AdmittedImageMediaKind::SafeVector`. It is a strict
+UTF-8/in-tree subset, not arbitrary `image/svg+xml`: only `svg`, leading
+clip-only `defs`, `clipPath`, `g`, and path/basic geometry are accepted.
+Unknown elements/attributes, entities, external reference, non-clip local
+reference, script/event, animation, `foreignObject`, image/text/font, CSS,
+gradient/pattern/mask/filter, data URI, filesystem, and network fetch are
+terminal `R7100`, never ignored. URI suffix and host MIME cannot attest it.
+
+Safe SVG requires positive `width`/`height`, an aspect-matched `viewBox`, only
+unitless/`px`/`pt` root units, bounded decimal fixed-point coordinates, and
+checked axis-aligned matrix/translate/scale transforms. It lowers every
+supported shape to canonical Move/Line/Quadratic/Cubic/Close commands with a
+closed initial solid-RGB paint state and exactly one geometry per locally
+referenced clip.
+The root map, top-left/Y-down orientation, outer clip, and one page-root PDF
+Y conversion are fixed. SVG text/font primitives, float geometry, alpha, dash,
+rotate/skew, and browser paint are outside the profile. The decoder performs no
+implicit filesystem, network, or font lookup.
+
+The additional inclusive target limits are held in a sealed workspace-internal
+`M4ResourceLimits` extension until atomic publication; current config aliases,
+default JCS, and old descriptors do not encode them:
+
+| Limit | Default / hard maximum | Code |
+| --- | --- | --- |
+| `max_vector_nodes` | 100,000 / 1,000,000 | `R7120` |
+| `max_vector_path_segments` | 1,000,000 / 10,000,000 | `R7121` |
+| `max_vector_nesting_depth` | 32 / 64 | `R7122` |
+| `max_math_layout_units` | 1,000,000 / 10,000,000 | `L5111` |
+
+Vector node and path-segment limits are resolver-session aggregates consumed
+across SafeVector resources in dense ImageResourceId order; nesting depth is
+checked independently per resource. The math-layout limit is one
+package/session aggregate consumed in dense math NodeId order, and reuse of a
+sealed computation receipt does not recharge it. Starting a new resource,
+retrying layout, or presenting a foreign limit receipt never resets an
+aggregate.
+
+Encoded vector bytes reuse `max_image_bytes`/`max_resource_bytes` (`R7100`),
+the deterministic canonical-IR allocation charge reuses
+`max_decoded_image_bytes` (`R7111`), math source/alternative reuse text limits
+(`T2100`/`T2101`), math AST/depth reuse `max_ast_nodes`/
+`max_ast_nesting_depth` (`P1120`/`P1121`), and selected/PDF records reuse
+`max_fragments`/`max_pdf_objects` (`L5110`/`G6100`). Exact max succeeds;
+max+1 is refused before read, allocation, evaluation, or object issuance.
+
+The math parser/formatter/layout core is an in-tree `typaxis-math` crate with
+only `typaxis-core` and `typaxis-font` dependencies. The in-tree Safe-SVG
+parser and `typaxis.safe-vector-ir/1` issuer remain in
+`typaxis-resource-admission`; resource finalization alone creates a frozen Form
+plan, and PDF alone assigns/serializes the Form XObject. No external math,
+XML, SVG, CSS, browser, speech, or network dependency/tool is part of the `/1`
+identities. MI4-04/05 implement these facts privately; public capabilities,
+current Schema aliases, old profiles, and default remain unchanged until
+MI4-13.
 
 ## Compatible changes
 
@@ -539,12 +625,13 @@ The following changes are incompatible and require a new profile ID or an explic
 
 `paragraph-1` is never broadened in place. M2 is governed by ADR-0028; the M3
 table, footnote, and advanced-pagination slices are governed by ADR-0029,
-ADR-0030, and ADR-0031 respectively. ADR-0032 fixes the M4 base target; its
-remaining math/vector/metadata/tagging/media decisions require their assigned
-ADRs before the production profile can be published. Any other later
-capability requires a decision-gate ADR fixing a new profile ID, closed domain,
-limits, fallback/oversize behavior, publication semantics, fixtures, and
-migration rule before implementation begins.
+ADR-0030, and ADR-0031 respectively. ADR-0032 fixes the M4 base target and
+ADR-0033 fixes its math/safe-vector/alternative domain; the remaining
+metadata/navigation, tagged-structure, JPEG, and OTF/CFF decisions require
+their assigned ADRs before the production profile can be published. Any other
+later capability requires a decision-gate ADR fixing a new profile ID, closed
+domain, limits, fallback/oversize behavior, publication semantics, fixtures,
+and migration rule before implementation begins.
 
 ## Contract and release gating
 

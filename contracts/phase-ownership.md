@@ -168,6 +168,61 @@ resource open or attestation. A downstream owner cannot infer a semantic kind
 from classes/text, infer media from a path/PDF object, synthesize a declaration
 from legacy input, or flatten the container continuation into its parent.
 
+## Adopted M4 math, safe-vector, and alternative ownership
+
+These target rows are adopted by
+[ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md).
+MI4-04 and MI4-05 may implement them only in the independent non-current 1.4
+staging registry; MI4-13 alone may publish them with the complete production
+profile.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| closed `inline_math` / `display_math` Wire DTO, required `typaxis-math` version `1` source binding, and producer `speech` member | contract-1.4 `typaxis-document-package` decoder/encoder | reject missing/extra/wrong-typed members and another source version as versioned input; never infer kind from delimiters or text |
+| private `M4ResourceLimits`, hard maxima, and base-plus-extension effective-limit fingerprint | contract-1.4 config decoder plus the sealed core limit validator | issue session/package-bound vector and math permits; omit the extension from current aliases/default JCS and prevent resource/retry resets or foreign-limit substitution |
+| NodeId/SourceSpan/TextSpan identity, exact source bytes, and producer alternative | sealed `typaxis-syntax` lowering | issue a package-bound math-source input to the math parser during syntax validation; never generate speech or visual fallback |
+| `typaxis.math-parser/1`, `typaxis.math-formatter/1`, typed AST/fingerprint, fixed grammar, and math-computation receipt | in-tree `typaxis-math` | parse exact bytes before capability/resource work, prove canonical formatter round-trip, and later produce bounded font-metric-driven dimensions/glyph/rule/path output without package/PDF authority |
+| closed math node/version/placement support and old-profile rejection | machine-profile preflight consuming the validated package | reject page-region or unsupported profile use before resource open and bind the accepted math set into the target profile receipt |
+| admitted math font/MATH-table/glyph input and final `typaxis.math-binding/1` receipt | layout binding owner consuming the package/profile/limits/LayoutEpoch/resource chain and opaque math computation | bind source, span, kind, speech, font hash, dimensions, baseline, work, and vector fingerprint into one `MathReceiptKey` |
+| one atomic inline item or one independent display `MathFlowId` and terminal | inline itemizer or `typaxis.math-flow/1` registry owner | forbid breaks inside an expression; parent display flow advances only after the exact math terminal |
+| selected parent/math FlowIds, page/frame/fragment/paint ordinals, origin, and transform extension of the MathReceiptKey | selected-state owner | preserve one atomic math owner and reject wrong flow/page/fragment/font/vector/alternative substitution as `I9190` |
+| exact producer speech to PDF `/ActualText`, canonical glyph/rule/path commands, and observed serialized paint | Display owner then PDF graph/serializer owner | extract the same scalar sequence while retaining visual vector output; source text, glyph names, or generated speech cannot replace the alternative |
+| one future `/Formula` structure owner and `/Alt` equal to the same producer speech | MI4-08 structure-binding owner consuming the MathReceiptKey | add tree/MCID/language closure without changing, splitting, or regenerating the adopted alternative |
+| declared `ImageMediaType::SvgSafe1` wire value `svg-safe-1` and profile admission | document-package/domain lowering then machine-profile declared-media policy | reject missing/legacy/unknown/disallowed media before resource open; URI suffix and host MIME have no authority |
+| stable-byte `typaxis.safe-svg-parser/1`, fixed element/paint/geometry subset, inclusive vector permits, canonical `typaxis.safe-vector-ir/1`, and `AdmittedImageMediaKind::SafeVector` | `typaxis-resource-admission` | issue intrinsic size/view box/allocation charge/IR fingerprint attestation after bounded validation and before layout/PDF; perform no filesystem, network, font, CSS, script, or browser work |
+| logical SafeVector use, selected Figure placement, and final PDF-ready Form plan | layout/selected-state, Display usage, then `typaxis-resources` finalization owners | bind the existing ImageResourceId and admitted bytes/IR fingerprint to one DrawVector use and canonical Form plan |
+| dense PDF resource/object names and actual path/clip/fill/stroke Form XObject | PDF backend alone | serialize the frozen vector plan without reparsing SVG or raster fallback and reopen the actual object observation |
+| math/source/alternative/vector and SafeVector declaration/attestation/IR/usage/object facts | M4 manifest owned-facts owner | require bidirectional receipt closure and omit all fields from frozen old-profile artifact branches |
+| parser/formatter/IR dependency and tool identities | in-tree implementations plus `typaxis-testkit` dependency audit | permit only ADR-0033's workspace edges, forbid external math/XML/SVG/CSS/browser/speech/network dependencies, and fingerprint semantic algorithm identities |
+
+Target progress extends the private M4 chain as follows; publication exposes
+only the complete combined chain:
+
+```text
+PackageValidated (including MathSourceValidated)
+  -> M4CapabilityValidated
+  -> DeclaredMediaPolicyValidated
+  -> MediaAttested (including SafeVectorAttested)
+  -> SemanticContainerFlowRegistryValidated
+  -> MathFontAndLayoutBound
+  -> MathFlowRegistryValidated
+  -> MathAndVectorLayoutSelected
+  -> TaggedStructureBound (including FormulaStructureBound)
+  -> DisplayClosed
+  -> PdfGraphFrozen
+```
+
+MI4-04/05 slice-local runners may produce non-public vector/math Display and
+PDF evidence for their own tests, but those receipts do not issue
+`TaggedStructureBound`, cannot be promoted to this combined progress type, and
+cannot reach publication. Once the tagged owner exists, the combined target
+uses the order above without a bypass edge.
+
+Safe SVG and math paint are separate typed paths: a math node never acquires
+an ImageResourceId, while a SafeVector image never acquires a math source or
+alternative. Neither path may reconstruct authority from trace, manifest,
+coordinates, PDF objects, a URI suffix, or caller-authored hashes.
+
 ## Shared base ownership (originating in contract 1.0)
 
 | Data or decision | Sole owner | Downstream use |

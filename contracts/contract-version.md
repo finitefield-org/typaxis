@@ -84,6 +84,13 @@ block-only `semantic_container` record and requires typed `media_type` on every
 image/font-face declaration. Base values are `png`,
 `sfnt-truetype-glyf`, and `ttc-truetype-glyf`.
 
+[ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) extends
+that same private target with explicit `inline_math`/`display_math`, required
+`typaxis-math` version `1` source plus producer speech, and image media value
+`svg-safe-1`. The additions have no old-contract encoding or early public
+decoder; their exact receipt/vector semantics remain part of the MI4-13 atomic
+publication set.
+
 These are target facts, not current support. MI4-02 through MI4-12 may extend
 only an independent crate-private 1.4 staging registry. Until MI4-13, public
 contract 1.4 input remains `P1103`, the target profile is unknown to public

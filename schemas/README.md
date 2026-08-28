@@ -15,6 +15,7 @@
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
 | contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: private twenty-one-schema staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | No: private Schema/Rust slices are assigned to MI4-04/05 | No; current aliases remain 1.3 | No, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -44,6 +45,9 @@ defines the public advanced-pagination profiles.
 the non-current 1.4 semantic-container/declared-media target and
 `production-book-1`; MI4-02 implements them only in the private staging
 registry and does not create a current alias or public descriptor.
+[ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) fixes
+the `typaxis-math` source/alternative receipt and `svg-safe-1` subset, but adds
+no Schema definition until their private MI4-04/05 implementation slices.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
 Top-level `schemas/*.schema.json` files are current 1.3 aliases, including

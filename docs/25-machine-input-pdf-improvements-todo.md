@@ -1999,13 +1999,17 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-03 Math/vector/accessibility binding ADRを採択する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-01
 - Design inputs: docs/25 §7 math/vector/accessibility、§13.4
 - Primary files:
   - `adr/`
+  - `contracts/contract-version.md`
+  - `contracts/invariants.txt`
   - `contracts/phase-ownership.md`
   - `contracts/machine-pdf-capabilities.md`
+  - `docs/22-contract-matrix.md`
+  - `schemas/README.md`
 - Deliverables:
   - inline/display math source、speech/ActualText、vector paint、source spanのbinding contract。
   - safe vector IRまたはsafe SVG subsetの選択と禁止機能一覧。
@@ -2024,6 +2028,11 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - source、visual、alternative、spanの取り違えを検出できるreceipt keyが定義される。
 - Verification:
   - `rg -n "inline|display|speech|ActualText|source span|vector|external|script|network|limit|receipt" adr contracts/machine-pdf-capabilities.md`
+- Implementation notes (2026-08-28, Linux):
+  - `ADR-0033`をAccepted targetとして追加し、contract 1.4のprivate targetへclosed `inline_math` / `display_math`、required `typaxis-math` version `1` source/TextSpan/SourceSpan、producer-authored `speech`を固定した。sourceはdelimiter inference、macro/environment/package/file/network/recoveryを持たない小さいTeX-shaped grammarとし、exact bytesを保持したままin-tree `typaxis.math-parser/1`と`typaxis.math-formatter/1`のtyped round tripへbindする。
+  - speechはengine生成/照合を採用せずrequired producer alternativeだけとし、source kind/bytes/span、AST、admitted MATH-table font/hash、fixed-point dimensions/baseline/vector paint、LayoutEpoch/workをlayout owner発行の`MathReceiptKey`へ結合した。inlineはatomic item、displayは独立`MathFlowId`/terminalとし、selected page/frame/origin、Display paint、exact `/ActualText`、manifest、将来のsingle `/Formula` + same `/Alt`まで同じreceiptをextendする。plain text/PNG fallbackとsourceからのalternative生成はない。
+  - image media valueを`svg-safe-1`、decoder attestationを`AdmittedImageMediaKind::SafeVector`に固定した。stable bytesだけをin-tree iterative parserで、closed SVG namespace/element/attribute/path/clip/solid-RGB subset、no entity/external reference/script/animation/foreign object/text/font/CSS/filter/filesystem/networkとして検査し、checked fixed-point/viewBox/transform、exact curve lowering、canonical `typaxis.safe-vector-ir/1` fingerprintから既存ImageResourceId、DrawVector、frozen Form plan、PDF Form XObject、manifestへ双方向closureする。
+  - inclusive `max_vector_nodes` / `max_vector_path_segments` / `max_vector_nesting_depth` / `max_math_layout_units`とprivate codes `R7120` / `R7121` / `R7122` / `L5111`、既存byte/text/AST/fragment/PDF limitへのone-time chargeを採択した。math crateは`core + font`だけ、Safe-SVG parserはresource-admission owner、third-party math/XML/SVG/CSS/browser/speech/network dependencyなしとしてtestkit audit対象を固定した。指定vocabulary gate、local Markdown/link/table/JSON/invariant checks、Schema validator、workspace全target/all-feature check/test、strict clippy、format、diff/whitespaceをlocal exit 0で確認し、public current 1.3 Schema bytesと七profile/defaultは変更していない。
 - Non-goals:
   - arbitrary browser SVG/CSS compatibility
 
@@ -2035,6 +2044,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 - Primary files:
   - `workspace/Cargo.toml`
   - `workspace/Cargo.lock`
+  - `workspace/crates/typaxis-core/src/`
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-document/src/`
   - `workspace/crates/typaxis-syntax/src/`
@@ -2067,6 +2077,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - same bytes/profileから同じIR fingerprintとPDF bytesを得る。
   - missing/unknown/disallowed declared mediaとnon-advertised profileはresource open前、declared/actual mismatchはstable read後かつvector IR allocation前に拒否される。
 - Verification:
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-core m4_limits --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resource-admission vector --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package vector_media --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax vector_media --locked`
@@ -2089,9 +2100,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `workspace/Cargo.toml`
   - `workspace/Cargo.lock`
   - `workspace/crates/typaxis-math/`
+  - `workspace/crates/typaxis-core/src/`
+  - `workspace/crates/typaxis-font/src/`
   - `workspace/crates/typaxis-document-package/src/`
   - `workspace/crates/typaxis-document/src/`
   - `workspace/crates/typaxis-syntax/src/`
+  - `workspace/crates/typaxis-style/src/`
   - `workspace/crates/typaxis-machine-profile/src/`
   - `workspace/crates/typaxis-layout/src/`
   - `workspace/crates/typaxis-linebreak/src/`
@@ -2109,8 +2123,8 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   1. `typaxis-math` crateを追加し、MI4-03で採択したdependencyだけをexact pinしてtestkitのallowed/denied edge auditへ登録する。
   2. math Wire DTO/versioned Schema/domain/syntax loweringをMI4-01のnew contract stagingへ追加し、source language/version、source text/span、alternativeをcanonical JCSへ含める。public current Schema alias/contract constantは変えない。
   3. staging profile descriptor/preflightへinline/display、source version、alternative、required vector mediaのclosed受理集合を追加し、旧profileとpublic current capabilitiesは拒否状態を維持する。
-  4. parser/formatter identityとlimits下でmath sourceをbounded validated layout inputへ変換し、parser failureをstable code/locationへmapする。
-  5. inline mathをcluster/itemizationへ、display mathを独立block/subflowへtyped登録する。
+  4. parser/formatter identityとlimits下でmath sourceをbounded validated layout inputへ変換し、`typaxis-font`でadmitted faceのMATH table/required glyph/metricを検証し、failureをstable code/locationへmapする。
+  5. inline mathをcluster/itemizationへ、display mathを独立block/subflowへtyped登録し、採択済み`display_math` selector/property applicabilityとinline inherited text styleを`typaxis-style`のclosed registryへ追加する。
   6. computed dimensions/baselineとvector IR fingerprintをvalidated math receiptへbindする。
   7. source、speech/ActualText、source span、vector paint、selected page/fragment、manifest factをsame receipt keyでclosureする。
   8. missing/extra/wrong-source/wrong-alternative/wrong-vector/wrong-page tamperを拒否する。
@@ -2121,9 +2135,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - renderer/extractorでvisual contentとActualTextの双方が観測できる。
   - MI4-13より前のpublic contract/Schema/profile bytesは変わらず、旧profileはmathをpreflightで拒否する。
 - Verification:
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-core m4_limits --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-math --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-font math --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package math_wire --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax math --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-style math --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile math --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout math --locked`

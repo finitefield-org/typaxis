@@ -48,3 +48,4 @@
 - [ADR-0030: Footnote machine-PDF profile](ADR-0030-footnote-profile.md) — M3 footnote targetとしてAccepted。current contract 1.2上の`footnote-1`はMI3-07で公開済み。
 - [ADR-0031: Advanced pagination contract and profile split](ADR-0031-advanced-pagination-profiles.md) — M3 advanced-paginationとしてAccepted。MI3-12がcurrent contract 1.3とpublic `header-footer-1`、`columns-1`、`float-1`を一括公開。
 - [ADR-0032: M4 semantic container and declared-media contract](ADR-0032-semantic-container-and-declared-media.md) — M4 targetとしてAccepted。non-current contract 1.4、`production-book-1`、closed semantic container、required declared mediaを予約し、MI4-13までは非公開。
+- [ADR-0033: Math, safe-vector, and alternative binding](ADR-0033-math-safe-vector-and-alternative-binding.md) — M4 targetとしてAccepted。`typaxis-math` source/producer speech/visual receiptと`svg-safe-1` subsetを固定し、MI4-04/05はMI4-13まで非公開stagingで実装する。

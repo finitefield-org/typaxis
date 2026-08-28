@@ -307,10 +307,11 @@ collection whose selected in-range face has TrueType scaler and `glyf`
 outlines. The field is a typed format/container declaration, not a filename
 extension or arbitrary MIME string.
 
-MI4-03 alone may add the adopted safe-vector `ImageMediaType` value to the
-private 1.4 target. MI4-10 alone may add the adopted JPEG and OTF/CFF values.
-Neither task may rename or broaden the three base values. Any later media value
-after 1.4 publication requires a contract/profile migration.
+[ADR-0033](ADR-0033-math-safe-vector-and-alternative-binding.md) adopts the
+private `svg-safe-1` image value and assigns its implementation to MI4-04.
+MI4-10 alone may add the adopted JPEG and OTF/CFF values. Neither decision may
+rename or broaden the three base values. Any later media value after 1.4
+publication requires a contract/profile migration.
 
 Contract 1.3 and every earlier frozen ResourceCatalog shape remain unchanged
 and forbid `media_type`. Contract 1.4 requires it even when the resource is
@@ -510,9 +511,9 @@ The publication surfaces are therefore fixed independently:
 ## Atomic publication order
 
 MI4-02 first creates an independent non-current 1.4 staging registry containing
-the base declarations and container. Later M4 ADR implementation tasks extend
-that same private target only with their adopted fields and enum values. At
-every intermediate commit:
+the base declarations and container. ADR-0033 and later M4 decision gates
+extend that same private target only with their adopted fields and enum values.
+At every intermediate commit:
 
 - public contract 1.4 input is `P1103`;
 - `production-book-1` is absent from public parsing, help, capabilities, and
