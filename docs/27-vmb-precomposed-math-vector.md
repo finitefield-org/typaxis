@@ -423,8 +423,14 @@ scaled metricsまたはviewportを明示する。`keep_caption`は
 TextSpanを持つ通常textとしてshapeし、そのTextSpanは`source_tex`と重ならない
 identity mappingを持つ。数式SVG、数式`ActualText`、vector resource hashには
 含めない。Typaxisは番号を生成・increment・localizeせず、producerがTextSpanで
-渡したexact textだけを使う。NodeIdはownerを含む全source/generated NodeIdと
-異なり、
+渡したexact textだけを使う。存在する番号は`math_vector_block`唯一の
+source-owned childであり、leafとしてownerの直後のNodeIdを使い、depthは
+owner + 1とする。これはADR-0032のglobal dense typed preorderに従うため、
+番号NodeIdは単にuniqueな任意値ではない。nullではchildとNodeIdを消費しない。
+`source_tex.text_span`と番号TextSpanを覆う各identity TextMapの対応SourceSpanは
+owner SourceSpanと同じ`source_id`を持って包含される。formula-firstのpaint/
+structure順と一致するよう、formula mappingの対応SourceSpanについて
+`formula_source_span.end_byte <= equation_number.span.start_byte`とする。
 `minimum_gap`はpositive Lengthでなければならない。number TextSpanはnonempty
 UTF-8でUnicode 16.0 `White_Space`以外を少なくとも一scalar含み、C0/C1 controlを
 含まない。既存text pipelineで一つのnonwrapping line boxへshapeし、breakや
@@ -480,6 +486,12 @@ originは持たず、aligned viewport rectangle自体がblock paint geometryで�
 `math_vector_block.metrics.advance`はmanifest/bindingへ保持するが、blockの
 alignment/overflow geometryにはviewport widthを使う。blockのpaint/pagination
 heightは4.4の`Bh`であり、inline line box用の`ascent` / `descent`へ置換しない。
+
+四つの新kindはsemantic-containerの「authored contentあり」判定でいずれも
+nonemptyとして扱う。required meaningful `alt`と一つのatomic vector paintが
+その根拠であり、path数、`source_tex`、caption、equation numberの有無から
+empty/nonemptyを推測しない。これによりvectorだけを含むparagraphや、caption/
+番号なしのvector blockもdropまたはrecursively-empty errorにしない。
 
 ## 5. Baselineと配置式
 
@@ -730,14 +742,16 @@ clipは既存SafeVectorのlocal `clipPath` subsetだけを使い、root viewport
 | explicit/computed `language` | ADR-0034どおりraw/canonical spellingと各language-capable NodeIdのcomputed valueを一回だけ`max_text_buffer_bytes` / aggregate `max_text_bytes`へ課金 / `T2100`・`T2101`。`/2` registryへの移行でresetしない |
 | semantic vector/equation-number nodesとmath-vector block flow owner | 既存Document semantic count/depthの`max_ast_nodes` / `max_ast_nesting_depth` / `P1120`・`P1121`。各flowは対応するadmitted `math_vector_block` nodeにexactly oneで、別のAST chargeを加えず、registry countをそのnode数および`max_ast_nodes`以下とallocation前に照合する |
 | selected inline/block vector occurrence | containing fragmentとは別のexplicit auxiliary recordを`max_fragments`へ各occurrence一回 / `L5110` |
-| Form、ExtGState、page resource/object | issue前に`max_pdf_objects` / `G6100` |
+| vector Form/ExtGState plan role | content keyとalpha pairからrelative object-role count deltaをchecked計算する。ここではabsolute object numberを割り当てず、global object budgetへ課金しない |
+| complete final PDF indirect-object graph | vector以外を含む全actual objectへabsolute object numberを割り当てる直前に一回だけ`max_pdf_objects` / `G6100` |
 | Form plan/page spool/serialized bytes | ownerの同時live payloadへ`max_spool_bytes`、次のoutput writeへ`max_output_bytes` / 既存owner code |
 
 同じcontent keyを再利用してもencoded source bytesとcanonical IR chargeを
-resource declarationごとに免除しない。一方、Form plan/XObjectはdedupe後の
-一つだけをPDF object budgetへ課金する。TeX/alternative、selected occurrence、
-spool/outputの別owner chargeと混同せず、limitをpagination retryや別phaseで
-resetしない。
+resource declarationごとに免除しない。一方、Form plan/XObjectのrelative
+object-roleはdedupe後の一つだけを数え、complete final graph ownerがvector以外の
+actual indirect objectと合わせてPDF object budgetへ一回だけ課金する。
+TeX/alternative、selected occurrence、spool/outputの別owner chargeと混同せず、
+limitをpagination retryや別phaseでresetしない。
 
 ## 9. Vector PDF生成とresource deduplication
 
@@ -802,11 +816,14 @@ producer provenanceはForm paint semanticsを変えないためkeyへ含めな�
 `svg-safe-2`の異なるdeclarationで与えた場合は、異なるadmission semanticsを
 一つのFormへ混ぜず、別keyとする。
 
-Form object/resource nameは`VectorContentKey`のlexicographic byte orderで
-割り当てる。比較はtuple componentごとに、32-byte source hash、media UTF-8、
-parser ID UTF-8、IR ID UTF-8、32-byte IR fingerprintの順で行い、曖昧な文字列連結を
-keyにしない。hash map insertion、first use page、worker completion、resource
-catalog alias順をobject orderに使わない。
+Form planのrelative object-role orderとForm-local/page-local resource nameは
+`VectorContentKey`のlexicographic byte orderで割り当てる。比較はtuple
+componentごとに、32-byte source hash、media UTF-8、parser ID UTF-8、IR ID
+UTF-8、32-byte IR fingerprintの順で行い、曖昧な文字列連結をkeyにしない。
+このphaseではabsolute PDF object numberを発行しない。complete final object
+graph ownerが、vector以外を含む全roleを一つのcanonical orderへmergeして初めて
+absolute numberを割り当てる。hash map insertion、first use page、worker
+completion、resource catalog alias順をいずれのorderにも使わない。
 
 manifestはlogical `image_id`からcontent keyへのalias set、aliasごとのconditional
 provenance（`svg-safe-2` required、`svg-safe-1` absent）、conditional Form object、
@@ -937,7 +954,8 @@ Resource fact:
   `svg-safe-1`ではabsent）
 - Typaxis safe-SVG admission attestation fingerprint、parser ID、IR ID/fingerprint、
   allocation charge
-- intrinsic viewport、Form content key、selected時だけのobject/resource name
+- intrinsic viewport、Form content key、selected時だけのcomplete final graph由来の
+  absolute object/resource name（relative Form planから推測しない）
 - logical image ID aliases
 - total placement countとalias別placement count
 
@@ -993,7 +1011,9 @@ typaxis.resource-profile/sfnt-cff1/1
     "vector_figure"
   ],
   "image_formats": [
-    "svg-safe-2"
+    "jpeg",
+    "png",
+    "svg"
   ],
   "inlines": {
     "kinds": [
@@ -1066,7 +1086,12 @@ typaxis.resource-profile/sfnt-cff1/1
 
 既存fieldである`blocks`、`image_formats`、`inlines.kinds`、
 `style_block_types`、`style_selectors`について、このprojectionは追加値だけを
-示す。実際のprofile descriptorでは既存値とmergeした完全配列を出す。
+示す。ただし`image_formats`の語彙はdeclared media/profile名ではなくcoarseな
+machine image family (`jpeg|png|svg`) であるため、上の値はmerge後のcomplete
+production valueである。`svg-safe-1|svg-safe-2`のexact profile/media対応は
+`vector_profiles`、`vector_media_by_kind`、resource-set descriptorで公開する。
+実際のprofile descriptorでは他の既存fieldを既存値とmergeした完全配列として
+出す。
 新設`vector_*` memberは、array-valued memberもobject-valued memberも、示した値が
 完全値であり、別の暗黙値とmergeしない。
 
@@ -1097,9 +1122,10 @@ Schemaだけ、crate-private runnerだけ、またはunit testだけが存在す
 | malformed SVG、forbidden element/reference、unsupported feature | Safe-SVG admission、`R7100`、resource subject + typed reason |
 | vector node/path/depth limit | existing `R7120` / `R7121` / `R7122` |
 | canonical IR allocation、text/AST、selected occurrence、PDF object max+1 | respective `R7111`、`T2100`/`T2101`、`P1120`/`P1121`、`L5110`、`G6100` |
-| same declared/admitted SHA-256 with different full stable bytes | cross-resource collision check、`R7100` |
+| same declared SHA-256 with different full stable bytes | production stable-resource hash mismatch、`R7100` |
+| same injected admitted digest with different full stable bytes | owner-private collision guard、`R7100`。test-only seamで検査 |
 | inline logical/visual oversize、block/page width or height overflow | layout、`L5100`、NodeId/SourceSpan |
-| invalid equation-number text/NodeId/Span/minimum gap | syntax、`P1102`または既存text-map code |
+| invalid/non-dense equation-number text/NodeId/depth/Span/order/minimum gap | syntax、`P1102`または既存text-map code |
 | nonpositive equation-number shapeまたはformulaとのcollision | block layout、`L5100` |
 | flow/selected placement/Display/Form/PDF/manifest/structure receipt mismatch | internal closure、`I9190` |
 
@@ -1149,6 +1175,8 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
 - `2\nmid 8`
 - `(a,b)`
 - `\frac{1}{2}=\frac{2}{4}`
+- `\sum_{i=1}^{n} i`
+- `\int_0^1 x\,dx`
 - 上付き・下付き
 - 大きな括弧
 - 行列
@@ -1190,6 +1218,11 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
 - 複数のnative `display_math`と`math_vector_block`を交互に置き、native
   `MathFlowId`とproducer-composed `MathVectorFlowId`が独立してそれぞれdenseに
   なり、各blockがexact terminal `1`を一度だけ消費することを確認する。
+- 番号ありblockでは番号がowner直後のdense NodeIdかつ唯一のsource-owned leaf
+  childであり、同一source上でformula mappingの対応SourceSpanより後にあること、
+  番号なしblockではNodeIdを消費しないことを確認する。
+- vectorだけのparagraphと、caption/番号なしの各vector blockがauthored content
+  ありとして保持され、recursively-empty扱いでdrop/rejectされないことを確認する。
 
 ### 15.3 PDF assertions
 
@@ -1199,6 +1232,10 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
   matrixをmanifest期待値と照合する。
 - alpha 1のdrawもExtGStateを明示し、先行page/Form paintのalphaやcolorが
   currentColor placementへ漏れないことを確認する。
+- 現行production styleにauthored color propertyはないため、public end-to-endの
+  `currentColor`はexact blackへ解決する。同じFormを異なるresolved colorで再利用
+  できることはsealed paint planを注入するowner-private unit testで確認し、
+  このtestのために新しいpublic style propertyを追加しない。
 - 同じSVG hashのN回使用が1 Form object + N `Do`になることを確認する。
 - 200%、800%相当または複数render DPIでoutlineがvector sourceから再描画
   され、固定pixel resourceを参照していないことを確認する。
@@ -1234,7 +1271,7 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
 - noncanonical `currentColor`、invalid fill/stroke-opacity lexical/range、
   paint alphaがすべてzeroのresource
 - missing/wrong hash、same ID/different declaration、malformed/missing provenance、
-  same declared hash/different full bytes
+  same declared hash/different full bytes、test-only same admitted digest/different bytes
 - missing metric、zero/negative/overflow、baseline外、ascent/descent不足
 - intrinsic ratio不一致、nonuniform scale、page/frame width超過
 - empty/control-only alt/actual text、invalid TextSpan
@@ -1248,23 +1285,41 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
 - exact/max+1のIR allocation、text、AST、selected occurrence、PDF object limit
 - old profile rejectionとpublic capability isolation
 
+実SHA-256が同じでbytesだけが異なるfixtureを捏造してproduction parserへ通す
+ことはしない。content-key collision guardはowner-private/test-onlyのinjected
+admitted-record/digest seamで同じdigestと異なるstable bytesを与えて検証する。
+production経路は常にstable full bytesから実SHA-256を計算し、declared hashとの
+不一致を先に拒否する。
+
 ### 15.5 Reproducibility
 
-同じfixtureと同じlogical IDsを異なるcheckout pathからbuildし、PDFと全
-sidecarをbyte比較する。cross-ID dedupeは一つのpackage内で同じSVG hashを
+同一のpackage/resource bytesとlogical IDsを異なるcheckout pathからbuildし、
+PDFと全sidecarをbyte比較する。別testでは入力bytesとselected paint orderを
+固定したまま、owner-private candidate列挙順またはworker completion scheduleだけを
+変えてbyte比較する。wire上のresource declaration順やdense image ID順は入力契約の
+一部なので、これを入れ替えたbuildを「同じ入力」の決定性比較には使わない。
+cross-ID dedupeは一つのpackage内で同じSVG hashを
 異なるprovenanceを持つ二つのresource IDから参照し、alias provenanceは二件
 残る一方でForm objectだけが共有されることを別testで確認する。
 
 ## 16. 実装順
 
-以下はtechnical dependency順であり、現行
-[`docs/25` task plan](25-machine-input-pdf-improvements-todo.md)のmilestoneへは
-まだ割り当てられていない。現行MI4-11はJPEG、MI4-12はCFF、MI4-13はatomic
-publicationだけに閉じているため、この機能をそれらへ暗黙追加してはならない。
-採用decision-gateは、MI4-13より前に必要なprivate implementation/evidence
-milestoneとdependencyをdocs/25へ明示追加してからstep 1を開始する。既存
-MI4-13までにその順序を確保できない場合は、1章どおり公開済み1.4へ後付けせず
-新contract/profileへ送る。
+以下の順序と詳細な
+[V milestone/task plan](27-vmb-precomposed-math-vector-todo.md)は、この提案内では
+後者をtask detailのsingle sourceとする。ただし現行のauthoritative release plan
+である[`docs/25` task plan](25-machine-input-pdf-improvements-todo.md)にはまだ採用
+されておらず、decision-gate完了まではrelease schedulingに対してnon-normativeで
+ある。現行MI4-11はJPEG、MI4-12はCFF、MI4-13はatomic publicationだけに閉じて
+いるため、この機能をそれらへ暗黙追加してはならない。
+step 1のVMB corpus/interface確認はproduct codeを変えないpre-adoption evidence
+として先に実施できる。採用decision-gateであるstep 2は、MI4-13より前に必要な
+private implementation/evidence milestoneとdependencyをdocs/25へ明示追加し、
+step 3以降のproduct implementation前に完了しなければならない。既存MI4-13までに
+その順序を確保できない場合は、1章どおり公開済み1.4へ後付けせず新contract/
+profileへ送る。docs/25への登録はmilestone status、dependency、
+本task planへのlinkだけを持つ短いstubとし、詳細task/acceptanceを複製しない。
+採用後はdocs/25がrelease status/dependency、リンク先task planが詳細task/
+acceptanceのownerになる。
 
 1. VMBの代表`texToSvg` corpusと`svg-safe-2` lowering outputを固定し、VMBが
    `use`等を展開してrequired hash/metrics/provenanceを出せることをinterface
@@ -1275,20 +1330,24 @@ MI4-13までにその順序を確保できない場合は、1章どおり公開�
    computed-language/book-navigation `/2`、
    tagged-structure `/2`、
    diagnostic/capability identityを固定する。
-3. resource admissionへ`svg-safe-2`とcurrentColor/paint opacityを追加し、既存
-   `svg-safe-1` goldensがbyte-frozenであることを確認する。
-4. Form finalizationをcontent-key dedupeへ変更し、Figure経路のregressionを
-   閉じる。
-5. wire/domain/syntax/profileへ`inline_vector` / `math_vector`とsealed metrics
-   bindingを追加する。
-6. canonical paragraph itemizationへatomic vector、conditional spacing、dynamic
-   line ascent/descentを統合する。
-7. `vector_figure` / `math_vector_block`、nominal `MathVectorFlowId`、alignment、
-   number、atomic paginationを統合する。
-8. Display/PDF/manifest/tagged structureを同じversioned receipt chainへ閉じる。
-9. VMB combined fixture、negative corpus、independent PDF/extraction/accessibility、
-   deterministic two-build gateを完了する。
-10. MI4-13のcomplete production profileでのみpublic capabilityを有効にする。
+3. strict wire/Schema/domainへ4 kind、metrics、`svg-safe-2` provenanceを追加し、
+   全exhaustive consumerをexplicit fail-closed staging armで同時にcompile可能にする。
+4. resource-independent syntax/style/profile branchとSafe-SVG 2 admission branchを
+   dependency graphどおり進め、content candidate/dedupe planning後にresource-aware
+   metric/source/vector bindingで合流させる。既存`/1` goldenはbyte-frozenにする。
+5. bindingからinline atomic itemization/line metricsと、nominal
+   `MathVectorFlowId`/equation-number shape/block atomic paginationを実装する。
+6. selected inline/block occurrenceをlogical DrawVector Display `/2`へ閉じる。
+7. Displayとcontent candidateからrelative Form object-role/resource planを作り、
+   computed-language/tagged structure planと合流させる。complete final PDF graphで
+   初めて全absolute object numberとglobal object chargeを確定し、tagged PDF、
+   vector/navigation observationを同じfinal hashへsealする。
+8. SafeVector/math-vector/navigation/tagged/build manifestとprivate capability
+   projectionをfinal receipt chainへ閉じる。
+9. VMB combined fixture、negative/tamper、independent PDF/extraction/accessibility、
+   identical-input deterministic two-build/path-alias gateを完了する。
+10. external renderer/validator/managed-host evidenceとcomplete resource setを閉じ、
+    その後のMI4-13 atomic publicationでのみpublic capabilityを有効にする。
 
 各stepはcrate-private staging testから始める。partial wire、parserだけ、
 layoutだけをpublic profileへadvertiseしない。

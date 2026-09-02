@@ -2,13 +2,15 @@
 
 Source: `docs/27-vmb-precomposed-math-vector.md`
 
-- Design source commit: `7d9a03ca9f34fa2bb659c3ac92f9f028d57ac7ff`
+- Design baseline commit: `7d9a03ca9f34fa2bb659c3ac92f9f028d57ac7ff`（以後のreview fixは設計書と本書を同一change setで更新する）
 - 状態: Pending
 - 対象: 非公開の`typaxis.contract/1.4` / `typaxis.machine-pdf/production-book-1`
 - 公開owner: `MI4-13`
 - 前提: `MI4-02`、`MI4-04`、`MI4-05`、`MI4-07`、`MI4-09`、`MI4-10`がCompletedである現行repository
 
 この文書は、設計書で未割当だったproducer-composed vector機能を、既存M4 taskと衝突しない`MI4-V01`〜`MI4-V19`へ分解する。`MI4-V01`〜`MI4-V18`はcrate-privateな1.4 stagingだけを実装し、public current contract 1.3、七profile、default `paragraph-1`、公開Schema alias、CLI help、capability bytesを変更しない。`MI4-V19`は公開可能性を証明するfeature-local gateであり、public aliasと`production-book-1`を有効化する唯一のownerは、引き続きmaster planの`MI4-13`である。
+
+この提案内の詳細task/acceptanceは本書をsingle sourceとするが、authoritative release schedulingは`docs/25-machine-input-pdf-improvements-todo.md`である。`MI4-V02`がAccepted ADRと短いmilestone stub/dependency/linkをmasterへ登録するまでは本書はrelease planに対してnon-normativeであり、登録後も詳細taskをmasterへ複製しない。
 
 この文書の`Completed`は各milestoneの受け入れ条件を満たしたことだけを意味する。Wire DTO、Schema、parser、layout、PDF、manifestの一部が存在しても、`MI4-V18`のcombined gateと`MI4-V19`のpublication-readiness gateが完了するまではこの機能を利用可能と表明しない。
 
@@ -130,6 +132,8 @@ line widthは`advance`、visual frame fitは`origin_x .. origin_x + viewport.wid
 - `math_vector_block`の`font_family`、`font_size`、`line_height`はequation-number textだけに適用し、SVG metrics/scaleを変えない。
 - `width`は両kindでinapplicable、`keep_caption`は`math_vector_block`でinapplicableとし、`L5101`にする。
 - `MathVectorFlowId`はnative `MathFlowId`とnominalにも採番空間にも別で、validated documentの`math_vector_block` NodeId preorderから0始まりdenseに発行する。各flow terminalはexact `1`である。
+- nonnull `equation_number`は`math_vector_block`唯一のsource-owned leaf childで、owner直後のglobal dense typed-preorder NodeId、depth `owner + 1`を使う。nullはchild/NodeIdを消費しない。formula/number TextSpanを覆うidentity TextMapの対応SourceSpanはownerと同じ`source_id`で包含・非重複とし、`formula_source_span.end_byte <= equation_number.span.start_byte`を要求する。
+- 4 kindはいずれもsemantic-containerのauthored-content判定でnonemptyである。required meaningful `alt`とatomic vector paintを根拠とし、path数、TeX、caption、番号の有無で空判定しない。
 - blockはviewportまたは`Bh = max(Vh, Nh)`のatomic rectangleとして扱い、page/frameへfitしなければ全体を次frameへ送る。empty full frameにもfitしなければ`L5100`にする。
 - overflow policyは常に`error`。shrink、crop、分割、番号とのcollision回避、keepの暗黙解除をしない。
 
@@ -140,7 +144,7 @@ line widthは`advance`、visual frame fitは`origin_x .. origin_x + viewport.wid
 - opacity初期値はexact 1、child specified値はinherit値を置換し、親子で乗算しない。enabled fill/strokeのpositive alphaが一つもないresourceを拒否する。
 - Formはalpha pairごとのExtGStateを値の昇順で持ち、`(1, 1)`も明示する。CurrentColorはplacementのresolved text paintをstroking/nonstroking両方へ設定してから`Do`し、`q`/`Q`で隔離する。
 - Form dedupe keyはtuple `VectorContentKey(source_sha256, media_type, parser_id, ir_id, ir_fingerprint)`。曖昧な文字列連結、first-use順、resource ID、page、NodeId、provenance、resolved colorをkeyに含めない。
-- Form object/resource nameは`VectorContentKey`のcomponent-wise lexical order、Form-local ExtGState nameはalpha pair orderで割り当てる。
+- Form planのrelative object-role orderとresource nameは`VectorContentKey`のcomponent-wise lexical order、Form-local ExtGState nameはalpha pair orderで割り当てる。absolute PDF object numberはcomplete final graph ownerだけが割り当てる。
 - 同一keyの複数resource IDは一つのFormを共有するが、alias別provenance、usage、placement countを失わない。zero-use resourceはfactだけを残し、Form objectを作らない。
 
 ### 2.7 Alternative、language、tagged PDF
@@ -157,7 +161,7 @@ line widthは`advance`、visual frame fitは`origin_x .. origin_x + viewport.wid
 - SVG bytesは`max_image_bytes` / `max_resource_bytes`、vector node/path/depthは`max_vector_nodes` / `max_vector_path_segments` / `max_vector_nesting_depth`へone-time chargeし、それぞれ`R7120` / `R7121` / `R7122`で拒否する。IR allocationは`max_decoded_image_bytes`へ課金し、max+1を`R7111`で拒否する。
 - Safe-SVG 2 allocation chargeはchecked `64 * nodes + 80 * stored_segments + 48 * paint_or_clip_commands + source_clip_id_bytes`である。
 - TeX、alt、nonnull actual、language、equation-number textは`max_text_buffer_bytes` / `max_text_bytes`へexactly once課金する。math null fallbackはAltのaliasで再課金しない。
-- semantic vector/equation-number nodeは`max_ast_nodes` / `max_ast_nesting_depth`、selected vector occurrenceは`max_fragments`、Form/ExtGState/page resourceは`max_pdf_objects`へissue前に課金する。Form plan/page spoolは`max_spool_bytes`、final writeは`max_output_bytes`を既存ownerでconsumeする。
+- semantic vector/equation-number nodeは`max_ast_nodes` / `max_ast_nesting_depth`、selected vector occurrenceは`max_fragments`へ課金する。vector planning ownerはdedupe後のForm/ExtGState等のrelative object-role count deltaをchecked計算するだけでglobal object budgetをconsumeしない。complete final indirect-object graph ownerがvector以外を含む全actual objectへabsolute numberを割り当てる直前に一回だけ`max_pdf_objects`をconsumeする。Form plan/page spoolは`max_spool_bytes`、final writeは`max_output_bytes`を既存ownerでconsumeする。
 - duplicate ID、missing field、invalid metric/text/spanは`P1102`、profile media mismatchは`R7100`、SVG admissionはtyped reason付き`R7100`、vector limitsは`R7120`〜`R7122`、layout overflow/collisionは`L5100`、style applicabilityは`L5101`、selected countは`L5110`、PDF objectは`G6100`、receipt tamperは`I9190`とする。
 - `R7100` reasonは少なくとも`malformed_svg`、`forbidden_feature`、`external_reference`、`unsupported_feature`、`hash_mismatch`、`resource_conflict`を区別する。
 - terminal failureは既存atomic publication順に従い、partial PDF success、対象elementの欠落、空の合成receiptを出さない。
@@ -166,6 +170,7 @@ line widthは`advance`、visual frame fitは`origin_x .. origin_x + viewport.wid
 
 - canonical collectionは`BTreeMap`/`BTreeSet`または明示sortを使い、HashMap insertion、filesystem order、worker completion、first page useをartifact順へ使わない。
 - resource factはcontent key順、aliasはnumeric image ID順、usage/placementはselected paint order、math-vector flowはsource preorderで固定する。
+- byte-for-byte determinism比較は同一package/resource bytes、dense IDs、selected paint orderを使い、owner-private candidate列挙順またはworker completion scheduleだけを変える。wire resource declaration順は入力契約の一部なので、入替えをsame-input testに使わない。
 - generated PDF/sidecar/evidenceはversioned sample directoryへ書かず、test temporary directoryまたは`target/machine-e2e/`へ書く。
 - VMB positive corpusはversioned inputとしてcheck inし、生成物の再生成scriptがある場合もexpected SVG/hash/metricsを実行時に暗黙更新しない。
 - independent evidenceは既存のin-tree PDF parser、MuPDF/Poppler、pinned veraPDF、Matterhorn ledgerを使う。GitHub Actionsや`.github/workflows/`を作成・利用しない。
@@ -177,7 +182,7 @@ private production descriptorは既存値へ次のaddition/complete vector value
 - block addition: `math_vector_block`、`vector_figure`
 - inline kind addition: `inline_vector`、`math_vector`
 - style block/selector addition: `math_vector_block`、`vector_figure`
-- image-format addition: `svg-safe-2`
+- complete coarse `image_formats`: `jpeg`、`png`、`svg`。このfieldへ`svg-safe-1|svg-safe-2`を入れない
 - complete `vector_formats`: `svg`
 - complete `vector_profiles`: `svg-safe-1`、`svg-safe-2`
 - complete `vector_metrics`: `advance`、`ascent`、`baseline`、`descent`、`origin_x`、`viewport`
@@ -196,9 +201,10 @@ production resource component順は`typaxis.resource-profile/png/1`、`typaxis.r
 2. listed primary files以外へ変更が必要なら、責務境界とdependencyを再確認し、この文書を先に更新する。
 3. milestone固有のtargeted verificationを実行する。
 4. `cargo fmt --manifest-path workspace/Cargo.toml --all -- --check`と変更crateの全testを実行する。
-5. Wire、Schema、profile、artifactを変えるmilestoneはpositive、invalid、old-profile rejection、canonical round-tripを同じchange setへ含める。Schema pathをPrimary filesへ持つmilestoneでは`schemas/validate.py`もshared primary fileとし、新しいSchemaを追加・renameする場合は`schemas/README.md`も同じchange setで更新する。
-6. public/current isolation assertionを`MI4-V19`まで維持する。
-7. statusをCompletedへ変える前に、受け入れ条件をobservable evidenceで確認し、implementation commitと実行環境・command結果を追記する。
+5. closed enum/recordへvariantを追加するmilestoneは、workspace内の全exhaustive consumerを同じchange setで更新する。後続milestoneが機能を有効化するまではtyped terminal staging errorを返すexplicit armを置き、silent ignore、placeholder receipt、既存kindへのfallbackを使わない。`cargo check --manifest-path workspace/Cargo.toml --workspace --all-targets --all-features --locked`でincremental compile boundaryを閉じる。
+6. Wire、Schema、profile、artifactを変えるmilestoneはpositive、invalid、old-profile rejection、canonical round-tripを同じchange setへ含める。Schema pathをPrimary filesへ持つmilestoneでは`schemas/validate.py`もshared primary fileとし、新しいSchemaを追加・renameする場合は`schemas/README.md`も同じchange setで更新する。
+7. public/current isolation assertionを`MI4-V19`まで維持する。
+8. statusをCompletedへ変える前に、受け入れ条件をobservable evidenceで確認し、implementation commitと実行環境・command結果を追記する。
 
 ## 3. Dependency map
 
@@ -272,7 +278,7 @@ MI4-V19 -> MI4-13
   - source TeX、alt、actual text、language、fixed-point metrics、SVG SHA-256、engine/rules identityを結ぶcanonical corpus ledger。
   - VMB lowering責務とTypaxis受理責務のinterface gate。
 - Tasks:
-  1. `x+y`、`x\sim y`、`2\nmid 8`、`(a,b)`、`\frac{1}{2}=\frac{2}{4}`、上付き/下付き、大括弧、行列、複数行`aligned`、長いblock、equation number、currentColor、stroke、clip、fill/stroke opacityを個別caseとしてcheck inする。
+  1. `x+y`、`x\sim y`、`2\nmid 8`、`(a,b)`、`\frac{1}{2}=\frac{2}{4}`、`\sum_{i=1}^{n} i`、`\int_0^1 x\,dx`、上付き/下付き、大括弧、行列、複数行`aligned`、長いblock、equation number、currentColor、stroke、clip、fill/stroke opacityを個別caseとしてcheck inする。
   2. 各caseへexact source TeX bytes、alt、nullable actual text、language、`advance/ascent/descent/origin_x/baseline/viewport`、expected SHA-256、`engine_id`、`engine_version`、`rules_version`、intended kindを記録する。
   3. `defs/path/use`等をVMB側で展開し、SVGがSafe-SVG 2 subsetだけを使うことを確認する。Typaxis側にVMB固有preprocessorを追加しない。
   4. 同一SVG bytesを異なるresource ID/provenanceから参照するdedupe case、同一resourceを10回参照するcaseを用意する。
@@ -287,7 +293,7 @@ MI4-V19 -> MI4-13
   - corpusの生成元tool identityとrules identityが空でなく128-byte printable ASCII上限内である。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit vmb_precomposed_vector_corpus --locked`
-  - `rg -n 'x\\+y|x\\\\sim y|2\\\\nmid 8|frac|aligned|currentColor|fill-opacity|stroke-opacity' samples/machine-package/staging/production-book-1/precomposed-vector`
+  - `rg -n 'x\\+y|x\\\\sim y|2\\\\nmid 8|frac|sum|int|aligned|currentColor|fill-opacity|stroke-opacity' samples/machine-package/staging/production-book-1/precomposed-vector`
 - Non-goals:
   - Typaxis product code、Schema、capabilityの変更
   - VMBのTeX engine自体の再実装
@@ -298,7 +304,9 @@ MI4-V19 -> MI4-13
 - Depends on: MI4-V01
 - Design inputs: docs/27 §1、§3、§12、§16
 - Primary files:
+  - `README.md`
   - `adr/`
+  - `contracts/invariants.txt`
   - `contracts/phase-ownership.md`
   - `contracts/contract-version.md`
   - `contracts/machine-pdf-capabilities.md`
@@ -319,16 +327,19 @@ MI4-V19 -> MI4-13
   3. 1.4未公開なら設計§3の全identity、4 kind、`svg-safe-2`、metric/style/flow、resource-set `/2`、language/navigation `/2`、tagged-PDF `/2`を採択する。1.4公開済みなら§1.3の分岐に従い新contract/profileへ本書を改訂する。
   4. `svg-safe-1`、native math、book-navigation `/1`、tagged-PDF `/1`、public seven-profile bytesのimmutabilityをcompatibility tableへ記録する。
   5. full closed accepted/rejected SVG syntax、media-by-kind、metric relation、spacing、block property、equation-number、overflow、limit charge、diagnostic、dedupe order、alternative/language/structure mappingをADRへ固定する。
-  6. `docs/25-machine-input-pdf-improvements-todo.md`へ`MI4-V01`〜`MI4-V19`を追加し、`MI4-13`のDepends onへ`MI4-V19`を加える。`MI4-11` / `MI4-12`のscopeは変更しない。
-  7. roadmap、contract matrix、checklist、phase ownership、Schema registry docsを同じtarget状態へ更新する。
-  8. ADR結論が本書のID、primary files、dependency、公開単位を変えた場合、`MI4-V03`開始前に本書を更新してdocument reviewを再実行する。
+  6. `docs/25-machine-input-pdf-improvements-todo.md`へ`MI4-V01`〜`MI4-V19`のID/status/dependencyと本task planへのlinkだけを持つ短いstubを登録し、`MI4-13`のDepends onへ`MI4-V19`を加える。詳細task/acceptanceをmasterへ複製せず、`MI4-11` / `MI4-12`のscopeも変更しない。採用後はmasterがrelease status/dependency、本書が詳細task/acceptanceのownerになる。
+  7. Accepted ADRに伴うREADME support matrixと`contracts/invariants.txt`の次の連番invariantを追加し、capability/resource/profileの非公開stagingとatomic publication条件を同じ文言へ揃える。
+  8. roadmap、contract matrix、checklist、phase ownership、capability contract、Schema registry docsを同じtarget状態へ更新する。
+  9. ADR結論が本書のID、primary files、dependency、公開単位を変えた場合、`MI4-V03`開始前に本書を更新してdocument reviewを再実行する。
 - Acceptance criteria:
   - 実装者が新旧contract/profile分岐、全identity、accepted subset、error、limit、fallback禁止を追加判断せず実装できる。
   - master dependency graphが`MI4-V19 -> MI4-13`を持ち、循環せず、JPEG/CFF milestoneを横取りしない。
+  - masterと本書のowner分担が明示され、同じ詳細task/acceptanceの複製がない。
+  - README support matrix、normative invariant、capability contractがAccepted ADRと一致する。
   - current 1.3/public capabilities/default profileは変更されていない。
   - ADRがAcceptedになるまで`MI4-V03`以降を開始しない。
 - Verification:
-  - `rg -n 'svg-safe-2|precomposed-vector|math-vector-flow|safe-vector/2|book-navigation.*\/2|tagged-pdf.*\/2|MI4-V19' adr contracts docs/21-roadmap.md docs/22-contract-matrix.md docs/23-implementation-checklist.md docs/25-machine-input-pdf-improvements-todo.md schemas/README.md`
+  - `rg -n 'svg-safe-2|precomposed-vector|math-vector-flow|safe-vector/2|book-navigation.*\/2|tagged-pdf.*\/2|MI4-V19' README.md adr contracts docs/21-roadmap.md docs/22-contract-matrix.md docs/23-implementation-checklist.md docs/25-machine-input-pdf-improvements-todo.md schemas/README.md`
   - `python3 schemas/validate.py`
 - Non-goals:
   - Rust実装、private Schema shape、public alias切替
@@ -345,6 +356,17 @@ MI4-V19 -> MI4-13
   - `workspace/crates/typaxis-document/src/semantic_container.rs`
   - `workspace/crates/typaxis-document/src/book_navigation.rs`
   - `workspace/crates/typaxis-document/src/lib.rs`
+  - `workspace/crates/typaxis-syntax/src/book_navigation.rs`
+  - `workspace/crates/typaxis-syntax/src/semantic_container.rs`
+  - `workspace/crates/typaxis-syntax/src/tagged_structure.rs`
+  - `workspace/crates/typaxis-layout/src/semantic_container.rs`
+  - `workspace/crates/typaxis-layout/src/safe_vector.rs`
+  - `workspace/crates/typaxis-machine-profile/src/semantic_container.rs`
+  - `workspace/crates/typaxis-machine-profile/src/safe_vector.rs`
+  - `workspace/crates/typaxis-manifest/src/semantic_container.rs`
+  - `workspace/crates/typaxis-manifest/src/safe_vector.rs`
+  - `workspace/crates/typaxis-resource-admission/src/lib.rs`
+  - `workspace/crates/typaxis-cli/src/artifacts.rs`
   - `schemas/1.4/common.schema.json`
   - `schemas/1.4/document-package.schema.json`
   - `samples/machine-package/staging/production-book-1/precomposed-vector/`
@@ -358,19 +380,24 @@ MI4-V19 -> MI4-13
   3. `WirePrecomposedVectorMetrics` / domain counterpart、viewport、spacingを追加し、JSON integer/tag/unknown-member closureをSchemaとSerdeの両方で一致させる。
   4. `WireStagingM4Inline`へ`InlineVector` / `MathVector`、`WireStagingM4Block`へ`VectorFigure` / `MathVectorBlock`を追加し、domain enumへlossless lowerできる全fieldを持たせる。
   5. `math_vector` / `math_vector_block`は`source_tex` required、`inline_vector` / `vector_figure`は`source_tex` forbiddenとする。`inline_vector`、`math_vector`、`math_vector_block`の`actual_text`はrequired nullable、`vector_figure`ではforbidden、math blockの`equation_number`はrequired nullableとする。`caption`、`metrics` / `viewport`を含むrequired/null/forbidden matrixを§2.3どおりSchema conditionalで閉じる。
-  6. equation numberを独立NodeId、SourceSpan、TextSpan、positive `minimum_gap`を持つrequired-nullable recordとしてmodel化する。
-  7. new language-capable kindをdocument-level exhaustive enumへ追加するが、computed-language `/1` encoderへ混ぜない。
-  8. exact field orderingをJCS testで固定し、escaped duplicate key、unknown kind/member、wrong tag/type、missing/null/extra conditional fieldをinvalid fixture化する。
-  9. current/frozen 1.0〜1.3 Schema、public decoder、既存1.4 semantic/math/vector fixtureのgolden bytesが変わらないregressionを追加する。
+  6. equation numberを独立NodeId、SourceSpan、TextSpan、positive `minimum_gap`を持つrequired-nullable recordとしてmodel化する。nonnullだけがowner直後のsource-owned leaf childを一つ持ち、nullはNodeIdを消費しないshapeをdomain traversalへ公開する。
+  7. new language-capable kindをdocument-level exhaustive enumへ追加するが、computed-language `/1` encoderへ混ぜない。4 kindをauthored-content判定でnonemptyとし、vector-only paragraphやcaption/番号なしblockをdrop/rejectしない。
+  8. Wire/domain/media enumをmatchする全workspace consumerを同じchange setで列挙・更新する。V04以降のreceiptをまだ発行できないconsumerにはowner-specific typed terminal staging errorのexplicit armを置き、silent ignore、既存Figure/native mathへのprojection、dummy receiptを禁止する。
+  9. exact field orderingをJCS testで固定し、escaped duplicate key、unknown kind/member、wrong tag/type、missing/null/extra conditional fieldをinvalid fixture化する。
+  10. current/frozen 1.0〜1.3 Schema、public decoder、既存1.4 semantic/math/vector fixtureのgolden bytesが変わらないregressionを追加する。
 - Acceptance criteria:
   - 全4 kindがcanonical round tripで全fieldをlosslessに保持する。
   - invalid conditional shapeはexact JSON Pointerの`P1102`となり、resource openを開始しない。
   - same image IDのduplicate declarationはresource open前に拒否される。
   - new kind/mediaはprivate 1.4 decoderだけが受理し、public current inputは引き続き拒否する。
   - `source_tex`やprovenanceの禁止branchでunknown fieldとして見逃さずterminal errorになる。
+  - 全exhaustive consumerがexplicit new-kind/media armを持ち、workspace全target/featureがこのincremental milestone単独でcompileする。
+  - 4 kindだけをauthored contentに持つcontainerが保持され、後続未実装phaseへ到達した場合はtyped staging errorになる。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package precomposed_vector_wire --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-document precomposed_vector_domain --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax precomposed_vector_staging_dispatch --locked`
+  - `cargo check --manifest-path workspace/Cargo.toml --workspace --all-targets --all-features --locked`
   - `python3 schemas/validate.py`
 - Non-goals:
   - resource bytesのopen、SVG parse、metric relation/aspect validation
@@ -399,7 +426,7 @@ MI4-V19 -> MI4-13
   3. source_tex TextSpanのnonempty UTF-8、BOM/NUL、identity TextMap、owner SourceSpan containment、exact slice hashを検証し、parse/trim/normalizeしない。
   4. Altとnonnull ActualTextのmeaningful scalar/control規則、math null fallback、inline Figure null absenceをtyped resolved alternativeとして分離する。
   5. provenance各stringのnonempty printable ASCII / 128-byte上限を検査し、parser選択に使わずbinding inputへ保持する。
-  6. equation-number NodeId uniqueness、span containment、source_texとのnonoverlap、TextSpan identity、meaningful text、positive gapをlayout前に検査する。
+  6. equation-numberのglobal dense typed-preorder NodeId（owner直後）、leaf depth、唯一のsource-owned child、identity TextMapが対応付けるformula/number SourceSpanのsame-source owner containment、`formula_source_span.end_byte <= equation_number.span.start_byte`、meaningful text、positive gapをlayout前に検査する。nullではchild/NodeId/AST chargeがないことも検査する。
   7. 4 kindのoptional language overrideを既存BCP 47 parserでcanonicalizeし、`/2` registryへ渡すsource-owned recordを作る。equation numberを別language ownerにしない。
   8. TeX、Alt、nonnull ActualText、language、number text、semantic/equation nodeを§2.8のownerへmax+1前にexactly once課金する。
   9. field別`P1102` location、existing text-map error、`P1120/P1121/T2100/T2101`をpositive/exact/max/max+1/tamper testで固定する。
@@ -408,6 +435,7 @@ MI4-V19 -> MI4-13
   - authored bytesとresolved ActualTextを区別し、null fallbackでAlt bytesを再課金しない。
   - sealed receiptをraw field/fingerprintからcallerが構築・swapできない。
   - source validation失敗時にresource open、layout、PDFを開始しない。
+  - 番号あり/なしを混在させてもsource/generated NodeId全体がdense preorderとなり、formula-first source/structure順と一致する。
   - current computed-language `/1` recordとgolden bytesは変わらない。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax precomposed_vector_metrics --locked`
@@ -443,7 +471,7 @@ MI4-V19 -> MI4-13
   4. basic registry `/1`へnew selectorを渡すと拒否し、new registry receiptとbasic receiptをswapすると`I9190`となるtestを追加する。
   5. private `production-book-1` preflightへ4 kind、kind別media、required metric names、`svg-safe-2` provenance、SafeVector/resource-set `/2` identityをclosed登録する。
   6. old profileはnew kind/media/styleをresource open前に拒否し、private profileもkind/media mismatch、`math_vector` + `svg-safe-1`、existing `figure` + `svg-safe-2`を拒否する。
-  7. capability data modelへ設計§12のvector fieldを表現できるtyped valueを追加しても、public serializer/profile tupleへはまだ接続しない。private projection testだけを持つ。
+  7. capability data modelへ設計§12のvector fieldを表現できるtyped valueを追加する。既存`image_formats`はcoarse `jpeg|png|svg`だけ、Safe-SVG exact profile/mediaはnew vector fieldsだけに出す型境界を固定し、public serializer/profile tupleへはまだ接続しない。private projection testだけを持つ。
   8. property exact/min/max/max+1、inherit、override、inapplicable、wrong registry、profile rejectionをfixture化する。
 - Acceptance criteria:
   - new block kindの全propertyがexactly one typed consumerを持つ。
@@ -483,8 +511,8 @@ MI4-V19 -> MI4-13
   6. existing path/transform/viewBox/clip rulesをreuseし、root viewport clipを最外周へ固定する。unknown/unused/cyclic/forward/external clip reference、およびscript/event/animation/foreignObject/image/text/font/CSS/href/use/symbol/gradient/pattern/filter/entity/DOCTYPE/PI/unknown element/attributeをtyped reasonで拒否する。
   7. version-2 allocation chargeをchecked式`64 * nodes + 80 * stored_segments + 48 * paint_or_clip_commands + source_clip_id_bytes`へ変更し、issue/allocation前に既存inclusive limitをconsumeする。version-1式は凍結する。
   8. fill/stroke双方がdisabledまたはenabled paintのalphaが全てzeroとなるresourceを`R7100 forbidden_feature`相当のclosed reasonで拒否する。
-  9. same declared/admitted SHA-256でfull stable bytesが異なるresource aliasをledger completion時に`resource_conflict`として拒否する。hash比較だけでcollisionを成功扱いしない。
-  10. positive corpus、exact/max/max+1、malformed XML/path、全forbidden feature、alpha lexical/range/inheritance、clip forward/cycle/external、old `/1` goldenをtestする。
+  9. same admitted SHA-256でfull stable bytesが異なるresource aliasをledger completion時に`resource_conflict`として拒否する。productionはstable full bytesから実SHA-256を計算してdeclared hashを先に照合し、collision guardだけはowner-private/test-only injected admitted-record/digest seamで同一digest・異なるbytesを与えて検証する。偽の実SHA collision fixtureやpublic digest overrideを作らない。
+  10. positive corpus、exact/max/max+1、malformed XML/path、全forbidden feature、alpha lexical/range/inheritance、clip forward/cycle/external、declared hash mismatch、test-only collision guard、old `/1` goldenをtestする。
 - Acceptance criteria:
   - Safe-SVG 2のunknown/unsupported syntaxを一件もskipして成功しない。
   - parserはfilesystem、network、font、locale、platform SVG rendererへアクセスしない。
@@ -517,19 +545,20 @@ MI4-V19 -> MI4-13
 - Tasks:
   1. `VectorContentKey`を32-byte source hash、typed media、parser ID、IR ID、32-byte IR fingerprintのnominal tupleとして実装する。public raw tuple constructorを持たせずadmitted recordからだけ作る。
   2. admitted SafeVector aliasをcontent keyでgroup化する`VectorContentCandidateRegistry`相当のsealed registryを作る。source hashだけ、IR fingerprintだけ、文字列連結だけでdedupeしない。
-  3. key comparisonをtuple component順へ固定し、candidate orderをresource declaration、hash-map insertion、worker completionから独立させる。
+  3. key comparisonをtuple component順へ固定し、candidate orderをowner-private admitted-record列挙順、hash-map insertion、worker completionから独立させる。wire declaration順/dense image ID自体は書き換えない。
   4. content candidateにcanonical IR、intrinsic size/viewBox、source/media/parser/IR identity、sorted ExtGState alpha pairs、all alias IDsをbindする。selected usage、Form object/name、PDF hashはまだ持たせない。
   5. alias recordにimage ID、declared URI/expected hash、conditional provenance、admitted hash/profile/limitsを保持する。provenanceをForm keyへ含めず、alias別usage countはDisplay join後の`MI4-V13`だけが確定する。
-  6. ExtGState pairはfill/stroke unsigned 16.16のnumeric昇順で一意化し、alpha 1/1も含める。Form-local name/objectの最終割当は後続PDF ownerがこの順だけから行えるようにする。
+  6. ExtGState pairはfill/stroke unsigned 16.16のnumeric昇順で一意化し、alpha 1/1も含める。Form-local nameとrelative object-role orderは後続PDF ownerがこの順だけから決められるようにし、absolute object numberはまだ持たせない。
   7. selected usageとcandidateをjoinするprivate input typeを定義するが、Display `/2`を先取りしてconstructせず、final `safe-vector-form-plan(s)/2`は`MI4-V13`だけが発行する。
-  8. dedupe後のForm/ExtGState予定object countをchecked計算できるAPIを用意し、resource byte/IR admission chargeはaliasごとに免除しない。
+  8. dedupe後のForm/ExtGState relative object-role count deltaをchecked計算できるAPIを用意するが、global `max_pdf_objects`はconsumeしない。resource byte/IR admission chargeはaliasごとに免除しない。
   9. existing `finalize_staging_safe_vector_forms`と`typaxis.safe-vector-form-plan(s)/1`の結果を変えず、new candidate/planning typeをnominally分離する。
-  10. same ID/different content、same key/two IDs/different provenance、same hash/different media、same IR/different source hash、unused alias、candidate order permutationをtestする。
+  10. same ID/different content、same key/two IDs/different provenance、same hash/different media、same IR/different source hash、unused alias、同一alias recordsのowner-private candidate/worker order permutationをtestする。
 - Acceptance criteria:
   - same content keyのN aliasはexactly one content candidateになる。
   - same SVG hashでもmedia/parser/IR identityが異なれば別candidateになる。
   - alias provenanceがdedupe候補化後も失われない。
-  - input/worker orderを変えてもcandidate JCS/fingerprint/orderが一致する。
+  - wire input/alias recordsを固定したinternal candidate/worker order permutationでもcandidate JCS/fingerprint/orderが一致する。
+  - candidate receiptはrelative object-role/countだけを持ち、absolute object numberまたはglobal PDF-object chargeを先取りしない。
   - `/1` finalizer、Figure fixture、canonical bytesは変更前と一致する。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resources vector_content_key --locked`
@@ -650,12 +679,13 @@ MI4-V19 -> MI4-13
   6. shape width/heightがpositiveでない、wrapping/second lineが必要、glyph coverageがない場合はfallbackせず`L5100`またはexisting shaping errorにする。
   7. number childはowner math blockのcomputed language fingerprintを参照し、独立language override owner/countを作らない。
   8. number receiptをformula vector/source/alternative bindingから分離し、number textをSVG SHA-256、VectorContentKey、source-TeX slice hash、formula resolved ActualTextへ含めない。
-  9. numberなしではshape/rectangle/paint/structure childを作らない。numberありではexactly one shapeとchild ownershipを登録する。
+  9. numberなしではNodeId/shape/rectangle/paint/structure childを作らない。numberありではV04が検証したowner直後のdense NodeIdを再採番せず使い、exactly one leaf shapeとchild ownershipをformula-first順で登録する。
   10. native display mathとmath-vector blockを交互にしたfixtureで両ID空間が独立dense、各terminalが一回だけconsumeされることを検査する。
 - Acceptance criteria:
   - registration/worker/page orderを変えてもMathVectorFlowIdとregistry fingerprintが一致する。
   - parent flowはpage move中にterminalを消費せず、selected block成功時だけexactly once消費できる。
   - equation numberはproducer exact textを使い、生成・increment・normalizeしない。
+  - number childはowner直後のdense source NodeIdを保持し、null/presentで余分なgenerated NodeIdやgapを作らない。
   - native `typaxis.math-flow/1` recordとgolden bytesが変わらない。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout math_vector_flow --locked`
@@ -759,28 +789,28 @@ MI4-V19 -> MI4-13
   - `tools/test_pdf_differential.py`
   - `samples/machine-package/staging/production-book-1/precomposed-vector/`
 - Deliverables:
-  - SafeVector Form plan `/2`、PDF object/use contribution、final closure API。
+  - SafeVector Form plan `/2`、PDF relative-object-role/use contribution、final closure API。
   - vector-only Form XObject、Form-local ExtGState、page-local `Do`。
-  - content-key順object allocationとindependent vector assertions。
+  - content-key順relative object-role/resource-name planningとindependent vector assertions。
 - Tasks:
   1. DrawVector `/2` usageをimage IDからcontent candidateへjoinし、alias別/total usage countとselected paint-order usageを持つ`typaxis.safe-vector-form-plan(s)/2`を発行する。zero-use candidateはaudit inputへ残すがForm planを作らない。
-  2. version-2 Form plan順でPDF object/resource namesをallocateし、all Form/ExtGState/page object countを`max_pdf_objects`へissue前にconsumeする。first-use page/orderから割り当てない。
+  2. version-2 Form plan順でrelative object rolesとresource namesをallocateし、dedupe後のForm/ExtGState/page contribution count deltaをchecked計算する。absolute object numberを発行せず、`max_pdf_objects`もconsumeしない。first-use page/orderから割り当てない。
   3. Form `/BBox`をadmitted intrinsic viewport/viewBox mappingから作り、path、fill、stroke width/cap/join/miter、clipをPDF vector operatorへserializeする。image raster XObjectを生成しない。
   4. each drawを`q ... Q`で隔離し、FixedRgb8だけがcolor operatorを出す。CurrentColor drawはplacementから設定されたambient stroking/nonstroking colorを保持する。
   5. alpha pairごとのForm-local ExtGState dictionaryをnumeric orderで作り、`/Type /ExtGState`、`/ca`、`/CA`だけを出す。1/1もeach drawがexplicit `gs`で選択する。
   6. page usageは`q`、resolved RGB stroking/nonstroking、top-left placement matrix、`Do`、`Q`の順にする。docs/24 page-root Y flipを一度だけ適用し、viewBox/node/pageで二重flipしない。
   7. one content key = one Form object、N selected usages = N page-level `Do`をverifyし、zero-use keyにはobject/name/Doを作らない。
-  8. reusable writer contributionへDisplay、Form plan、object/resource name、usage/page/matrix、content-stream fingerprintをbindする。production `typaxis.safe-vector-pdf-closure/2`をsealするAPIはfinal writer bytes/hash/object tableをrequiredとし、`MI4-V16`より前にstandalone fixture hashをproduction receiptとして発行しない。
+  8. reusable writer contributionへDisplay、Form plan、relative object role/resource name、usage/page/matrix、content-stream fingerprintをbindする。production `typaxis.safe-vector-pdf-closure/2`をsealするAPIはfinal writer bytes/hash/object tableをrequiredとし、`MI4-V16`より前にstandalone fixture hashをproduction receiptとして発行しない。
   9. Form streamへMCID/Alt/ActualText/Langを入れず、後続tagging ownerがpage-level `Do`をwrapできるsemantic usage hookだけを渡す。
-  10. spool/output/object limitsをexisting ownerでmax+1前にconsumeし、partial object/PDF publicationを行わない。
-  11. isolated test writerとindependent parserでForm subtype/BBox/operator/clip/stroke/alpha/matrix、no raster、1 Form + 10 Do、different color shared Form、200%/800%相当renderを検査する。
+  10. Form contributionのspool allocationをexisting ownerでmax+1前にconsumeし、partial contribution/PDF publicationを行わない。global object/output limitはcomplete final writer ownerの`MI4-V16`へ委ねる。
+  11. isolated test writerとindependent parserでForm subtype/BBox/operator/clip/stroke/alpha/matrix、no raster、1 Form + 10 Do、200%/800%相当renderを検査する。public end-to-endのCurrentColorは現行style契約どおりexact blackで検査し、different-color shared Formはsealed paint planを注入するowner-private unit testだけで検査する。このtestのためにpublic color style propertyを追加しない。
   12. version-1 SafeVector PDF closure/goldenをbyte比較し、`/1` Form `/Resources << >>`等の意味を変更しない。
 - Acceptance criteria:
   - 数式輪郭がForm path operatorで保持され、fixed pixel imageを参照しない。
   - currentColor/alphaがpreceding page/Form drawから漏れず、placement間でFormを共有できる。
   - `/BBox`、viewBox、single scale、page-root transformがlayout matrixとexact一致する。
-  - Form/object/useのmissing/extra/wrong key/name/orderをwriter-contribution verificationが拒否する。
-  - same input/order permutationでPDF object planとcontent stream bytesが一致する。
+  - Form/relative-object-role/useのmissing/extra/wrong key/name/orderをwriter-contribution verificationが拒否する。
+  - 同一input/selected paint orderを保ったcandidate/worker order permutationでrelative object planとcontent stream bytesが一致する。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf safe_vector_pdf_contribution_v2 --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf safe_vector_current_color --locked`
@@ -788,7 +818,7 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf safe_vector_pdf_v1_frozen --locked`
   - `python3 -m unittest tools/test_pdf_differential.py -v`
 - Non-goals:
-  - tagged structure、ActualText、public capability
+  - complete final graphのabsolute object number/global object-budget charge、tagged structure、ActualText、public capability
 
 ### MI4-V14 Computed languageとbook-navigation chain `/2`を実装する
 
@@ -900,21 +930,24 @@ MI4-V19 -> MI4-13
   3. Figure kindはkind別ActualText absence規則を守り、language overrideだけ必要な場合はLang-only inner Spanを出す。AltはStructElem、ActualTextはmarked-contentへ分離する。
   4. Form XObject streamにMCID/Alt/ActualText/Langがないことをre-deriveして検査し、shared Formの各page usageだけに別MCID/semantic propertyを付ける。
   5. equation-number text MCR/SpanをFormula `/K`でvector MCRの直後に置き、normal text glyph/extraction receiptとparent computed languageを使う。
-  6. StructTreeRoot、RoleMap、StructElem、MCR、ParentTree、IDTree、page StructParentsをversion-2 registry/marked planだけからserializeし、object/MCID orderをselected planから固定する。
-  7. final tagged PDF hashから`typaxis.tagged-pdf-observation/2`と`typaxis.book-navigation-pdf/2`を発行し、両者が同じPDF hash、catalog Lang、outline/XMP observationを参照することを検証する。
-  8. same final bytes/hash/object tableで`typaxis.safe-vector-pdf-closure/2`をsealし、tagged/book-navigation observationsとPDF hashが一致しなければ拒否する。
-  9. writer-independent in-tree validator `/2`へnew roles、inner property Span、equation child、shared Form no-MCID規則を追加し、leaf-type/closure tamperをfail closedにする。
-  10. missing/wrong Alt/ActualText/Lang、wrong role/order/page/MCID/ParentTree、Form MCID injection、same-length stream tamper、`/1` receipt swapをnegative testにする。
-  11. independent text extractionでTeX tokenではなくresolved ActualTextが前後の日本語/句読点/numberとdocument orderで得られることを検査する。
-  12. existing tagged-PDF `/1`、book-navigation `/1`、book-xmp `/2` golden bytesをbyte比較する。
+  6. V13のrelative vector object rolesをfont/image/page/metadata/structure等の全writer contributionとcomplete final indirect-object graphへmergeし、canonical role orderを確定する。全actual object countをchecked計算し、absolute number割当前に`max_pdf_objects`をexactly once consumeしてから全objectを一度だけ採番する。max+1は`G6100`でpartial object/PDFなしに拒否する。
+  7. StructTreeRoot、RoleMap、StructElem、MCR、ParentTree、IDTree、page StructParentsをversion-2 registry/marked planだけからserializeし、object/MCID orderをselected planから固定する。complete final bytesは既存writer ownerで`max_output_bytes`を一回だけconsumeしてからatomic publicationへ渡す。
+  8. final tagged PDF hashから`typaxis.tagged-pdf-observation/2`と`typaxis.book-navigation-pdf/2`を発行し、両者が同じPDF hash、catalog Lang、outline/XMP observationを参照することを検証する。
+  9. same final bytes/hash/object tableで`typaxis.safe-vector-pdf-closure/2`をsealし、tagged/book-navigation observationsとPDF hashが一致しなければ拒否する。
+  10. writer-independent in-tree validator `/2`へnew roles、inner property Span、equation child、shared Form no-MCID規則を追加し、leaf-type/closure tamperをfail closedにする。
+  11. missing/wrong Alt/ActualText/Lang、wrong role/order/page/MCID/ParentTree、Form MCID injection、same-length stream tamper、duplicate/missing object charge、`/1` receipt swapをnegative testにする。
+  12. independent text extractionでTeX tokenではなくresolved ActualTextが前後の日本語/句読点/numberとdocument orderで得られることを検査する。
+  13. existing tagged-PDF `/1`、book-navigation `/1`、book-xmp `/2` golden bytesをbyte比較する。
 - Acceptance criteria:
   - mathはFormula、generic vectorはFigureとして構造化され、Artifactへ落ちない。
   - Alt/ActualText/Langとequation number reading orderがindependent validator/extractorで一致する。
   - shared Formにsemantic stateがなく、same Formを使う各placementが個別MCRを持つ。
+  - vectorを含むcomplete final graphのabsolute object numberと`max_pdf_objects` chargeはV16で一回だけ確定し、V07/V13のrelative countとのjoinがexactである。
   - book-navigation PDF `/2`とtagged observation `/2`が同一final PDF hashへ閉じる。
   - `/1` validator/manifest inputと`/2` observationを混在させると`I9190`になる。
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf tagged_vector_pdf_v2 --locked`
+  - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf complete_pdf_object_graph_budget --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf vector_actual_text_extraction --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf book_navigation_pdf_v2 --locked`
   - `python3 -m unittest tools/test_pdf_structure.py -v`
@@ -946,14 +979,14 @@ MI4-V19 -> MI4-13
   - production build-manifestのvector chain closure。
   - exact private capability projectionとpublic isolation。
 - Tasks:
-  1. SafeVector `/2`へcontent-key順resource fact、numeric image-ID alias、conditional provenance、parser/IR/allocation/intrinsic facts、conditional Form object/name、total/alias placement count、paint-order usage/matrixを記録する。
+  1. SafeVector `/2`へcontent-key順resource fact、numeric image-ID alias、conditional provenance、parser/IR/allocation/intrinsic facts、V16 complete-final-graph receipt由来のconditional absolute Form object/resource name、total/alias placement count、paint-order usage/matrixを記録する。V13 relative planからabsolute numberを推測しない。
   2. math-vector `/1`へmath kindだけのNodeId/SourceSpan、source-TeX TextSpan ID/start/end、TextBuffer hash、exact slice hash、Alt/resolved ActualText hash、language、全metric、spacing/style/number、flow/terminal、binding/selected/usage fingerprintを記録する。generic vector factにmath referenceを置かない。
   3. tagged manifest `/2`はSafeVector manifest/usage fingerprintとtop-level math-vector fingerprintを参照し、each math structure factだけが対応math binding fingerprintを参照する。SafeVector -> math-vector -> taggedのacyclic方向を守る。
   4. book-navigation manifest `/2`はcomputed-language/profile/selected/PDF observation `/2`を参照し、tagged manifestから逆参照しない。
   5. production built branchのexisting book-navigation record/fingerprint pairを`/2`へ置換したうえで、SafeVector `/2`、math-vector `/1`、tagged `/2`のrecord/fingerprint pairを三組required nonnullとして追加する。existing native math manifest `/1` pairは置換しない。
   6. failed branchではeach pairをrequired nullable、both-nullまたはboth-nonnullに限定し、complete owner到達前のempty/synthetic recordを作らない。builtでzero resource/usageでもcanonical empty recordをnonnullで出す。
   7. kind別inapplicable fieldsをSchema conditionalでforbidし、resource/placement/alias/usage順とall identity/versionをcanonical JCSへ固定する。
-  8. private production descriptorへ設計§12のcomplete merged `blocks`、`inlines.kinds`、`style_block_types`、`style_selectors`、`image_formats`、`vector_formats`、`vector_profiles`、`vector_metrics`、`vector_features`、`vector_features_by_profile`、`vector_media_by_kind`、resource-set `/2`、component/media fixed orderを登録する。
+  8. private production descriptorへ設計§12のcomplete merged `blocks`、`inlines.kinds`、`style_block_types`、`style_selectors`、coarse `image_formats = [jpeg, png, svg]`、`vector_formats`、`vector_profiles`、`vector_metrics`、`vector_features`、`vector_features_by_profile`、`vector_media_by_kind`、resource-set `/2`、component/media fixed orderを登録する。`svg-safe-1|2`を`image_formats`へ入れない。
   9. set-valued vector arrays/value arraysをUTF-8 byte順、JSON object keysをJCS UTF-16順、resource component/media arraysをADR fixed orderにする。profile tupleの将来位置はparagraph後/table前、defaultはparagraphのままとする。
   10. capability projectionとpreflight accepted setを双方向testしつつ、public serializerは七profile/current 1.3 bytesを出し続け、private profileをadvertiseしない。
   11. production resource-set `/2`では`svg-safe-1`を使うexisting FigureもSafeVector manifest `/2`へprojectし、同じbuild内へSafeVector manifest `/1`を混在させない。
@@ -962,6 +995,7 @@ MI4-V19 -> MI4-13
   - root build manifestからresource、math binding、language、structure、PDF useをfingerprintで一方向joinできる。
   - engine/version/rules、SVG hash、metric、placement count、parser/IR/layout/dedupe identitiesがaudit viewから欠落しない。
   - same content aliasはone Form factと複数alias provenanceを持つ。
+  - manifestのabsolute Form objectはV16 final object tableと一致し、relative planや別phaseで再採番されない。
   - built/failed/zero-useのSchema semanticsが曖昧でなく、missing phaseをempty recordで偽装しない。
   - public `capabilities --format json`、public capability Schema/fixture bytesは変わらない。
 - Verification:
@@ -1003,7 +1037,7 @@ MI4-V19 -> MI4-13
   5. malformed/forbidden SVG、hash/provenance、metrics、alternative/span、style、flow、language、structure、content-key/Form/use/manifest tamper、width/height/object/fragment/text/AST/vector limit max+1をindividual invalid fixtureへする。
   6. each negative caseにexpected phase/code/location、visible artifacts、resource read/PDF temp有無を記録し、silent omissionまたはsuccessを禁止する。
   7. `verify_precomposed_vector.py`をgenerated artifact path入力のindependent parser/extractorとして実装し、sample directoryへ生成物を書き戻さない。同toolにper-host canonical evidenceを発行する`--emit-host-evidence`と、複数hostを集約する`--require-host-evidence` modeをprivate `machine-precomposed-vector-evidence` Schema付きで実装する。
-  8. same logical fixtureを異なるinput/resource declaration/worker orderで二回buildし、PDFと全sidecar bytesを比較する。
+  8. identical package/resource bytes、dense IDs、selected paint orderで二回buildし、owner-private candidate列挙順またはworker completion scheduleだけを変えてPDFと全sidecar bytesを比較する。resource declaration順の変更は別入力なのでsame-input determinism testに混ぜない。
   9. `verify_reproducibility.py`の異名checkout modeへprivate staging test entryを追加し、source path、locale、timezone、filesystem orderに依存しないことを検査する。public CLIへhidden staging optionを追加しない。
   10. public CLI E2Eでcontract 1.4/new kind/new media/private profileを引き続き拒否し、help/current constants/capabilities/default/Schema aliasのgoldenを比較する。
   11. `/1` SafeVector/native math/book-navigation/tagged fixturesを同じtest runで再検証する。
@@ -1031,6 +1065,8 @@ MI4-V19 -> MI4-13
 - Depends on: MI4-V18, MI4-11, MI4-12
 - Design inputs: docs/27 §12、§15、§16 step 10、docs/25 MI4-13
 - Primary files:
+  - `README.md`
+  - `contracts/machine-pdf-capabilities.md`
   - `workspace/crates/typaxis-cli/src/machine_tests.rs`
   - `workspace/crates/typaxis-testkit/src/lib.rs`
   - `samples/machine-package/staging/production-book-1/precomposed-vector/`
@@ -1055,7 +1091,7 @@ MI4-V19 -> MI4-13
   6. expected public capabilityをcomplete merged profile objectとしてfreezeし、blocks/inlines/style/image/vector fields、resource-set component/media order、profile tuple位置、default paragraphをSchemaとfixtureから双方向検査する。
   7. staging directoryへ、V18で拡張したprivate fixture-expectation Schemaに適合する`publication-expectation.json`を追加し、precomposed vector、JPEG/CFF、existing semantic/math/navigation/tagged contentをMI4-13のcomplete `m4-production.json`へ移すexact input ledgerを固定する。public matrix自体はまだ作らない。
   8. `docs/25-machine-input-pdf-improvements-todo.md`のMI4-13 acceptance/verificationへvector capability、SafeVector `/2`、math-vector `/1`、navigation/tagged `/2`、VMB combined/external evidenceをexactに追加する。
-  9. roadmap/matrix/checklistへprivate implementation complete/public not-yet状態を反映し、public alias/capability/helpはMI4-13まで変更しない。
+  9. README support matrix、capability contract、roadmap/matrix/checklistへprivate implementation complete/public not-yet状態を反映し、public alias/capability/helpはMI4-13まで変更しない。
   10. full locked local quality gate、Schema/Python suite、old contract/profile byte freeze、diff/whitespace/dependency firewallを通し、implementation/evidence commitを記録する。
 - Acceptance criteria:
   - complete private production buildが全resource componentとproducer-composed vectorを同時に閉じる。
@@ -1124,7 +1160,7 @@ MI4-V19 -> MI4-13
 
 1. current 1.3 Schema/contract/capability/manifest/fixtureをfrozen versionとして保存し、byte regressionを通す。
 2. complete private 1.4 registryを検証してからcurrent contract/Schema aliasとWire encoder/decoder/`dump-ast` dispatchを切り替える。
-3. `production-book-1`を8件profile tupleへ追加し、§2.10のcomplete vector fieldsとresource-set `/2`をpublic capability serializer/preflightへ同時接続する。defaultは`paragraph-1`から変えない。
+3. `production-book-1`を8件profile tupleへ追加し、§2.10のcomplete vector fieldsとresource-set `/2`をpublic capability serializer/preflightへ同時接続する。coarse `image_formats`はexact `jpeg, png, svg`、Safe-SVGのprofile/media差は`vector_profiles` / `vector_media_by_kind`で表し、defaultは`paragraph-1`から変えない。
 4. V19の`publication-expectation.json`と既存M4 semantic/JPEG/CFF evidenceから`profiles/production-book-1/combined/`と`matrices/m4-production.json`を作り、全advertised feature/mediaにpositive coverageを持たせる。
 5. public `check-package` / `build-package` / `dump-ast` / `capabilities` E2E、Schema、renderer、extractor、tagged validator、two-build、managed-host evidenceをpublic binaryで再実行する。
 6. docs/contract matrix/checklist/producer guide/CLI guideをimplemented + E2E completeへ一括更新し、partial profileやprivate staging selectorを残さない。
@@ -1196,4 +1232,8 @@ GitHub Actions、GitHub workflow、workflow dispatchをverificationとして使�
 - Review pass 1 (2026-09-03): source design、README、docs/21〜25、current M4 code/schema/fixture ownerを再照合した。Display `/2`完成前にForm finalizerを要求するdependency、standalone vector PDF hashをfinal tagged PDF closureへ誤用できるphase境界、computed-language/structure/final PDFの順序、profile authorizationが未完成syntax receiptを参照するdependency、native math manifestとmath-vector manifestのSchema owner混同、MI4-13所有のpublic matrixをV19で先取りするscope重複をfindingとして検出した。
 - Review pass 1 fixes: content candidate planningをV07、Display join/Form finalizationをV13、final PDF hash sealをV16へ分離した。V04/V05、V13〜V16のdependencyとruntime phaseを修正し、math-vector専用module/Schema、private publication expectation、private host-evidence Schema/tool boundaryを追加した。
 - Review pass 2 (2026-09-03): design内の全versioned/legacy identity、error code、limit name、wire/vector fieldをtask文書と集合比較し、欠落を0件にした。19 milestoneすべてが必須10 sectionをexactly one持つこと、dependency graphが41 edgeでacyclicかつV01〜V19を全て含むこと、要求1〜12とdesign §1〜§18のtrace、new-file list、public isolation、whitespace、仮置き語を再検査した。
+- Review pass 3 (2026-09-03): current Schema/Rust exhaustive consumer、ADR-0032〜0036、README、contracts、docs/21〜25と再照合し、coarse `image_formats`へのmedia名混入、equation-number dense NodeId/source order不足、V03 incremental compile gap、same-input determinismの入力順変更、V07/V13でのabsolute PDF object早期採番・二重課金、semantic nonempty不足、related-doc owner不足、currentColor testのpublic到達不能、master/detail plan owner重複、sum/integral corpus不足、実SHA collision fixture不能をfindingとして検出した。
+- Review pass 3 fixes: capability語彙を`jpeg|png|svg`とexact vector profile/mediaへ分離し、number child/dense preorder、全exhaustive consumerのfail-closed staging、identical-input schedule permutation、relative object roleからV16 final graphでの一回採番/課金、4 kindのauthored-content規則、README/contracts owner、private different-color test、master stub/link owner、sum/integral、test-only digest seamを設計と全owner milestoneへ反映した。
+- Review pass 4 (2026-09-03): 修正後の設計/タスクを再読し、別TextBufferのTextSpan offsetを直接比較するsource-order条件と、V01/V02 gateおよび§16 steps 3〜8がdependency graphと逆転している二件を検出した。順序比較をidentity TextMap対応SourceSpanへ変更し、V01をpre-adoption evidence、V02をV03以降のgateとして§16をV01〜V19 dependency順へ同期した。
+- Review pass 5 (2026-09-03): 変更後の要求1〜12、設計§1〜§18、全19 milestone、41 dependency edge、current code/schema/related-doc ownershipを再照合した。relative Markdown link、必須section、全milestone coverage、acyclic graph、stale contradiction search、`python3 schemas/validate.py`、`/usr/bin/git diff --check`を再検証した。
 - Final review result: No findings. Implementation remains Pending and must start at MI4-V01.
