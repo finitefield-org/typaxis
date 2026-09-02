@@ -18,11 +18,16 @@ pub use book_navigation::{
     DOCUMENT_METADATA_ALGORITHM, OUTLINE_REGISTRY_ALGORITHM,
 };
 pub use semantic_container::{
-    StagingM4PageGeometry, StagingMathLayoutBudgetGuard, StagingMathProfileAuthorization,
-    StagingMathProfileProgressToken, StagingMathProfileSessionIdentity, StagingMathProfileView,
-    StagingSafeVectorProfileView, StagingSemanticContainerProfileView,
-    StagingSemanticPackageParser, StagingSemanticSyntaxError, ValidatedStagingMathNode,
-    ValidatedStagingSemanticPackage,
+    PrecomposedVectorActualTextResolution, PrecomposedVectorField, PrecomposedVectorKind,
+    PrecomposedVectorMetricPayload, StagingM4PageGeometry, StagingMathLayoutBudgetGuard,
+    StagingMathProfileAuthorization, StagingMathProfileProgressToken,
+    StagingMathProfileSessionIdentity, StagingMathProfileView, StagingSafeVectorProfileView,
+    StagingSemanticContainerProfileView, StagingSemanticPackageParser, StagingSemanticSyntaxError,
+    UnresolvedPrecomposedVectorResourceBinding, ValidatedPrecomposedVectorAlternative,
+    ValidatedPrecomposedVectorEquationNumber, ValidatedPrecomposedVectorLanguageOverride,
+    ValidatedPrecomposedVectorMetrics, ValidatedPrecomposedVectorTextBinding,
+    ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
+    PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
 };
 pub use tagged_structure::{
     validate_staging_structure_semantics, StagingAccessibilityProfileAuthorization,

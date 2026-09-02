@@ -30,6 +30,75 @@ const SEMANTIC_SYNTAX_FINGERPRINT_ALGORITHM: &str = "typaxis.semantic-container-
 const STAGING_PROFILE_ID: &str = "typaxis.machine-pdf/production-book-1";
 const STAGING_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.production-book-profile-receipt/1";
 const INTERNAL_HIDDEN_STYLE_CLASS: &str = "__typaxis_internal_hidden";
+pub const PRECOMPOSED_VECTOR_METRICS_ALGORITHM: &str = "typaxis.precomposed-vector-metrics/1";
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PrecomposedVectorKind {
+    InlineVector,
+    MathVector,
+    VectorFigure,
+    MathVectorBlock,
+}
+
+impl PrecomposedVectorKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InlineVector => "inline_vector",
+            Self::MathVector => "math_vector",
+            Self::VectorFigure => "vector_figure",
+            Self::MathVectorBlock => "math_vector_block",
+        }
+    }
+
+    const fn is_math(self) -> bool {
+        matches!(self, Self::MathVector | Self::MathVectorBlock)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PrecomposedVectorField {
+    MetricsAdvance,
+    MetricsAscent,
+    MetricsBaseline,
+    MetricsDescent,
+    MetricsOriginX,
+    MetricsViewportHeight,
+    MetricsViewportWidth,
+    SpacingAfter,
+    SpacingBefore,
+    SourceTexTextSpan,
+    Alternative,
+    ActualText,
+    Language,
+    EquationNumberMinimumGap,
+    EquationNumberNodeId,
+    EquationNumberSpan,
+    EquationNumberTextSpan,
+}
+
+impl PrecomposedVectorField {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MetricsAdvance => "metrics.advance",
+            Self::MetricsAscent => "metrics.ascent",
+            Self::MetricsBaseline => "metrics.baseline",
+            Self::MetricsDescent => "metrics.descent",
+            Self::MetricsOriginX => "metrics.origin_x",
+            Self::MetricsViewportHeight => "metrics.viewport.height",
+            Self::MetricsViewportWidth => "metrics.viewport.width",
+            Self::SpacingAfter => "spacing.after",
+            Self::SpacingBefore => "spacing.before",
+            Self::SourceTexTextSpan => "source_tex.text_span",
+            Self::Alternative => "alt",
+            Self::ActualText => "actual_text",
+            Self::Language => "language",
+            Self::EquationNumberMinimumGap => "equation_number.minimum_gap",
+            Self::EquationNumberNodeId => "equation_number.node_id",
+            Self::EquationNumberSpan => "equation_number.span",
+            Self::EquationNumberTextSpan => "equation_number.text_span",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StagingSemanticSyntaxError {
@@ -47,7 +116,10 @@ pub enum StagingSemanticSyntaxError {
         byte_offset: Utf8ByteOffset,
     },
     InvalidMathSourceVersion,
-    InvalidPrecomposedVector(NodeId),
+    InvalidPrecomposedVector {
+        owner: NodeId,
+        field: PrecomposedVectorField,
+    },
     PrecomposedVectorStaging(NodeId),
     SvgSafe2Staging(ImageResourceId),
     MathSourceTextLimit,
@@ -60,6 +132,16 @@ pub enum StagingSemanticSyntaxError {
     AstDepthLimit,
     MathAstNodeLimit,
     MathAstDepthLimit,
+    PrecomposedVectorAstNodeLimit,
+    PrecomposedVectorAstDepthLimit,
+    PrecomposedVectorTextBufferLimit {
+        owner: NodeId,
+        field: PrecomposedVectorField,
+    },
+    PrecomposedVectorTextAggregateLimit {
+        owner: NodeId,
+        field: PrecomposedVectorField,
+    },
     MathLayoutUnitLimit,
     ReceiptMismatch,
     AllocationFailure,
@@ -107,10 +189,11 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
             Self::InvalidMathSourceVersion => {
                 formatter.write_str("P1102: unsupported math source language/version")
             }
-            Self::InvalidPrecomposedVector(owner) => write!(
+            Self::InvalidPrecomposedVector { owner, field } => write!(
                 formatter,
-                "P1102: invalid precomposed vector at node {}",
-                owner.get()
+                "P1102: invalid precomposed vector field `{}` at node {}",
+                field.as_str(),
+                owner.get(),
             ),
             Self::PrecomposedVectorStaging(owner) => write!(
                 formatter,
@@ -140,6 +223,24 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
             Self::MathAstDepthLimit => {
                 formatter.write_str("P1121: math AST exceeds max_ast_nesting_depth")
             }
+            Self::PrecomposedVectorAstNodeLimit => {
+                formatter.write_str("P1120: precomposed vector AST exceeds max_ast_nodes")
+            }
+            Self::PrecomposedVectorAstDepthLimit => {
+                formatter.write_str("P1121: precomposed vector AST exceeds max_ast_nesting_depth")
+            }
+            Self::PrecomposedVectorTextBufferLimit { owner, field } => write!(
+                formatter,
+                "T2100: precomposed vector field `{}` at node {} exceeds max_text_buffer_bytes",
+                field.as_str(),
+                owner.get(),
+            ),
+            Self::PrecomposedVectorTextAggregateLimit { owner, field } => write!(
+                formatter,
+                "T2101: precomposed vector field `{}` at node {} exceeds max_text_bytes",
+                field.as_str(),
+                owner.get(),
+            ),
             Self::MathLayoutUnitLimit => {
                 formatter.write_str("L5111: math layout work limit exceeded")
             }
@@ -176,6 +277,270 @@ struct PendingStagingMathNode {
     parsed: ParsedMathReceipt,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrecomposedVectorMetricPayload {
+    Inline {
+        metrics: PrecomposedVectorMetrics,
+        spacing: PrecomposedVectorSpacing,
+    },
+    MathBlock {
+        metrics: PrecomposedVectorMetrics,
+    },
+    Figure {
+        viewport: PrecomposedVectorViewport,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UnresolvedPrecomposedVectorResourceBinding {
+    image_id: ImageResourceId,
+}
+
+impl UnresolvedPrecomposedVectorResourceBinding {
+    pub const fn image_id(self) -> ImageResourceId {
+        self.image_id
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorTextBinding {
+    text_span: TextSpan,
+    mapped_source_span: SourceSpan,
+    text_buffer_sha256: [u8; 32],
+    exact_text_sha256: [u8; 32],
+}
+
+impl ValidatedPrecomposedVectorTextBinding {
+    pub const fn text_span(&self) -> TextSpan {
+        self.text_span
+    }
+    pub const fn mapped_source_span(&self) -> SourceSpan {
+        self.mapped_source_span
+    }
+    pub const fn text_buffer_sha256(&self) -> [u8; 32] {
+        self.text_buffer_sha256
+    }
+    pub const fn exact_text_sha256(&self) -> [u8; 32] {
+        self.exact_text_sha256
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrecomposedVectorActualTextResolution {
+    Authored,
+    AlternativeFallback,
+    Absent,
+}
+
+impl PrecomposedVectorActualTextResolution {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Authored => "authored",
+            Self::AlternativeFallback => "alternative_fallback",
+            Self::Absent => "absent",
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorAlternative {
+    alternative: String,
+    authored_actual_text: Option<String>,
+    resolution: PrecomposedVectorActualTextResolution,
+}
+
+impl ValidatedPrecomposedVectorAlternative {
+    pub fn alternative(&self) -> &str {
+        &self.alternative
+    }
+    pub fn alternative_sha256(&self) -> [u8; 32] {
+        sha256(self.alternative.as_bytes())
+    }
+    pub fn authored_actual_text(&self) -> Option<&str> {
+        self.authored_actual_text.as_deref()
+    }
+    pub fn authored_actual_text_sha256(&self) -> Option<[u8; 32]> {
+        self.authored_actual_text
+            .as_deref()
+            .map(|value| sha256(value.as_bytes()))
+    }
+    pub const fn resolution(&self) -> PrecomposedVectorActualTextResolution {
+        self.resolution
+    }
+    pub fn resolved_actual_text(&self) -> Option<&str> {
+        match self.resolution {
+            PrecomposedVectorActualTextResolution::Authored => self.authored_actual_text.as_deref(),
+            PrecomposedVectorActualTextResolution::AlternativeFallback => Some(&self.alternative),
+            PrecomposedVectorActualTextResolution::Absent => None,
+        }
+    }
+    pub fn resolved_actual_text_sha256(&self) -> Option<[u8; 32]> {
+        self.resolved_actual_text()
+            .map(|value| sha256(value.as_bytes()))
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorLanguageOverride {
+    raw: String,
+    canonical: String,
+    charged_bytes: u64,
+}
+
+impl ValidatedPrecomposedVectorLanguageOverride {
+    pub fn raw(&self) -> &str {
+        &self.raw
+    }
+    pub fn canonical(&self) -> &str {
+        &self.canonical
+    }
+    /// Raw spelling is charged only when it differs from canonical spelling.
+    pub const fn charged_bytes(&self) -> u64 {
+        self.charged_bytes
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorEquationNumber {
+    node_id: NodeId,
+    span: SourceSpan,
+    minimum_gap: PositiveLength,
+    text: ValidatedPrecomposedVectorTextBinding,
+}
+
+impl ValidatedPrecomposedVectorEquationNumber {
+    pub const fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+    pub const fn minimum_gap(&self) -> PositiveLength {
+        self.minimum_gap
+    }
+    pub const fn text(&self) -> &ValidatedPrecomposedVectorTextBinding {
+        &self.text
+    }
+}
+
+#[derive(Clone)]
+struct PrecomposedVectorSyntaxSessionIdentity(std::sync::Arc<()>);
+
+impl PrecomposedVectorSyntaxSessionIdentity {
+    fn fresh() -> Self {
+        Self(std::sync::Arc::new(()))
+    }
+}
+
+impl std::fmt::Debug for PrecomposedVectorSyntaxSessionIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("PrecomposedVectorSyntaxSessionIdentity(..)")
+    }
+}
+
+impl PartialEq for PrecomposedVectorSyntaxSessionIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for PrecomposedVectorSyntaxSessionIdentity {}
+
+/// Syntax-owned, session-bound proof for one precomposed vector owner.
+///
+/// This type deliberately does not implement `Clone`. Construction is private
+/// to the semantic parser, and downstream stages must ask the owning package to
+/// verify a borrowed receipt before consuming it.
+///
+/// ```compile_fail
+/// use typaxis_syntax::ValidatedPrecomposedVectorMetrics;
+///
+/// fn duplicate(receipt: ValidatedPrecomposedVectorMetrics) {
+///     let _second = receipt.clone();
+/// }
+/// ```
+#[derive(Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorMetrics {
+    package_sha256: [u8; 32],
+    session: PrecomposedVectorSyntaxSessionIdentity,
+    limits_fingerprint: [u8; 32],
+    node_id: NodeId,
+    owner_source_span: SourceSpan,
+    kind: PrecomposedVectorKind,
+    resource: UnresolvedPrecomposedVectorResourceBinding,
+    payload: PrecomposedVectorMetricPayload,
+    source_tex: Option<ValidatedPrecomposedVectorTextBinding>,
+    alternative: ValidatedPrecomposedVectorAlternative,
+    language: Option<ValidatedPrecomposedVectorLanguageOverride>,
+    equation_number: Option<ValidatedPrecomposedVectorEquationNumber>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl ValidatedPrecomposedVectorMetrics {
+    pub const fn algorithm(&self) -> &'static str {
+        PRECOMPOSED_VECTOR_METRICS_ALGORITHM
+    }
+    pub const fn contract(&self) -> &'static str {
+        typaxis_document_package::STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT
+    }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+    pub const fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+    pub const fn owner_source_span(&self) -> SourceSpan {
+        self.owner_source_span
+    }
+    pub const fn kind(&self) -> PrecomposedVectorKind {
+        self.kind
+    }
+    pub const fn resource_binding(&self) -> UnresolvedPrecomposedVectorResourceBinding {
+        self.resource
+    }
+    pub const fn payload(&self) -> PrecomposedVectorMetricPayload {
+        self.payload
+    }
+    pub const fn source_tex(&self) -> Option<&ValidatedPrecomposedVectorTextBinding> {
+        self.source_tex.as_ref()
+    }
+    pub const fn alternative(&self) -> &ValidatedPrecomposedVectorAlternative {
+        &self.alternative
+    }
+    pub const fn language(&self) -> Option<&ValidatedPrecomposedVectorLanguageOverride> {
+        self.language.as_ref()
+    }
+    pub const fn equation_number(&self) -> Option<&ValidatedPrecomposedVectorEquationNumber> {
+        self.equation_number.as_ref()
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    fn verify_integrity(
+        &self,
+        package_sha256: [u8; 32],
+        limits_fingerprint: [u8; 32],
+        session: &PrecomposedVectorSyntaxSessionIdentity,
+    ) -> bool {
+        if self.package_sha256 != package_sha256
+            || self.limits_fingerprint != limits_fingerprint
+            || &self.session != session
+        {
+            return false;
+        }
+        let observed = encode_precomposed_vector_metrics_receipt(self);
+        observed == self.canonical_jcs && sha256(observed.as_bytes()) == self.fingerprint
+    }
+}
+
 impl std::error::Error for StagingSemanticSyntaxError {}
 
 /// Syntax-owned proof of the complete contract-1.4 semantic and declared-media
@@ -185,6 +550,8 @@ impl std::error::Error for StagingSemanticSyntaxError {}
 pub struct ValidatedStagingSemanticPackage {
     wire: WireStagingM4DocumentPackage,
     limits: ValidatedResourceLimits,
+    precomposed_vector_session: PrecomposedVectorSyntaxSessionIdentity,
+    precomposed_vector_metrics: Vec<ValidatedPrecomposedVectorMetrics>,
     document: StagingM4Document,
     resources: StagingM4ResourceCatalog,
     computed_styles: BTreeMap<NodeId, SemanticContainerComputedStyle>,
@@ -1073,14 +1440,60 @@ impl ValidatedStagingSemanticPackage {
             .iter()
             .find(|value| value.domain.node_id == owner)
     }
+    pub fn precomposed_vector_metrics(&self) -> &[ValidatedPrecomposedVectorMetrics] {
+        &self.precomposed_vector_metrics
+    }
+    pub fn precomposed_vector_metrics_for(
+        &self,
+        owner: NodeId,
+    ) -> Option<&ValidatedPrecomposedVectorMetrics> {
+        self.precomposed_vector_metrics
+            .binary_search_by_key(&owner, ValidatedPrecomposedVectorMetrics::node_id)
+            .ok()
+            .map(|index| &self.precomposed_vector_metrics[index])
+    }
+    pub fn verify_precomposed_vector_metrics(
+        &self,
+        receipt: &ValidatedPrecomposedVectorMetrics,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.checked_wire()?;
+        let Some(owned) = self.precomposed_vector_metrics_for(receipt.node_id()) else {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        };
+        if !std::ptr::eq(owned, receipt)
+            || !receipt.verify_integrity(
+                self.canonical_jcs_sha256,
+                precomposed_vector_limits_fingerprint(&self.limits),
+                &self.precomposed_vector_session,
+            )
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        Ok(())
+    }
     pub fn checked_wire(
         &self,
     ) -> Result<&WireStagingM4DocumentPackage, StagingSemanticSyntaxError> {
+        let mut previous = None;
+        let limits_fingerprint = precomposed_vector_limits_fingerprint(&self.limits);
+        for receipt in &self.precomposed_vector_metrics {
+            if previous.is_some_and(|value| value >= receipt.node_id())
+                || !receipt.verify_integrity(
+                    self.canonical_jcs_sha256,
+                    limits_fingerprint,
+                    &self.precomposed_vector_session,
+                )
+            {
+                return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+            }
+            previous = Some(receipt.node_id());
+        }
         let observed = encode_semantic_receipt(
             &self.document,
             &self.resources,
             &self.computed_styles,
             &self.math_nodes,
+            &self.precomposed_vector_metrics,
             self.canonical_jcs_sha256,
         );
         if observed != self.semantic_jcs || sha256(observed.as_bytes()) != self.semantic_fingerprint
@@ -1110,6 +1523,8 @@ impl StagingSemanticPackageParser {
         let raw_sha256 = decoded.raw_sha256();
         let canonical_jcs_sha256 = decoded.canonical_jcs_sha256();
         let wire = decoded.into_wire();
+        let precomposed_vector_session = PrecomposedVectorSyntaxSessionIdentity::fresh();
+        let precomposed_vector_limits_fingerprint = precomposed_vector_limits_fingerprint(limits);
         let sources = parse_source_lengths(wire.sources())?;
         let text_buffers = parse_text_buffers(wire.text_buffers())?;
         let admitted_text_bytes = text_buffers.values().try_fold(0u64, |total, buffer| {
@@ -1126,15 +1541,22 @@ impl StagingSemanticPackageParser {
         let mut validator = SemanticValidator {
             sources: &sources,
             text_buffers: &text_buffers,
+            precomposed_vector_text_buffer_sha256: BTreeMap::new(),
+            precomposed_vector_text_slice_sha256: BTreeMap::new(),
             next_node_id: 0,
             node_count: 0,
             admitted_text_and_math_speech_bytes: admitted_text_bytes,
             math_nodes: Vec::new(),
+            precomposed_vector_session: &precomposed_vector_session,
+            precomposed_vector_metrics: Vec::new(),
+            canonical_package_sha256: canonical_jcs_sha256,
+            precomposed_vector_limits_fingerprint,
             limits,
         };
         validator.node(wire.document().node_id, None, 1)?;
         let document = lower_document(wire.document(), &mut validator)?;
         let pending_math = std::mem::take(&mut validator.math_nodes);
+        let precomposed_vector_metrics = std::mem::take(&mut validator.precomposed_vector_metrics);
         let resources = lower_resources(wire.resources())?;
         let rules = lower_semantic_style_rules(wire.style_sheet(), limits)?;
         let mut computed_styles = BTreeMap::new();
@@ -1192,11 +1614,14 @@ impl StagingSemanticPackageParser {
             &resources,
             &computed_styles,
             &math_nodes,
+            &precomposed_vector_metrics,
             canonical_jcs_sha256,
         );
         Ok(ValidatedStagingSemanticPackage {
             wire,
             limits: limits.clone(),
+            precomposed_vector_session,
+            precomposed_vector_metrics,
             document,
             resources,
             computed_styles,
@@ -1212,10 +1637,16 @@ impl StagingSemanticPackageParser {
 struct SemanticValidator<'a> {
     sources: &'a BTreeMap<u32, u32>,
     text_buffers: &'a BTreeMap<u32, WireStagingM4TextBuffer>,
+    precomposed_vector_text_buffer_sha256: BTreeMap<u32, [u8; 32]>,
+    precomposed_vector_text_slice_sha256: BTreeMap<(u32, u32, u32), [u8; 32]>,
     next_node_id: u32,
     node_count: u64,
     admitted_text_and_math_speech_bytes: u64,
     math_nodes: Vec<PendingStagingMathNode>,
+    precomposed_vector_session: &'a PrecomposedVectorSyntaxSessionIdentity,
+    precomposed_vector_metrics: Vec<ValidatedPrecomposedVectorMetrics>,
+    canonical_package_sha256: [u8; 32],
+    precomposed_vector_limits_fingerprint: [u8; 32],
     limits: &'a ValidatedResourceLimits,
 }
 
@@ -1240,22 +1671,49 @@ impl SemanticValidator<'_> {
         span: Option<WireStagingSourceSpan>,
         depth: u32,
     ) -> Result<(), StagingSemanticSyntaxError> {
+        self.node_with_limit_kind(node_id, span, depth, false)
+    }
+
+    fn precomposed_vector_node(
+        &mut self,
+        node_id: u32,
+        span: Option<WireStagingSourceSpan>,
+        depth: u32,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.node_with_limit_kind(node_id, span, depth, true)
+    }
+
+    fn node_with_limit_kind(
+        &mut self,
+        node_id: u32,
+        span: Option<WireStagingSourceSpan>,
+        depth: u32,
+        precomposed_vector: bool,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        let node_limit = || {
+            if precomposed_vector {
+                StagingSemanticSyntaxError::PrecomposedVectorAstNodeLimit
+            } else {
+                StagingSemanticSyntaxError::AstNodeLimit
+            }
+        };
+        let depth_limit = || {
+            if precomposed_vector {
+                StagingSemanticSyntaxError::PrecomposedVectorAstDepthLimit
+            } else {
+                StagingSemanticSyntaxError::AstDepthLimit
+            }
+        };
         if node_id != self.next_node_id {
             return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
         }
-        self.next_node_id = self
-            .next_node_id
-            .checked_add(1)
-            .ok_or(StagingSemanticSyntaxError::AstNodeLimit)?;
-        self.node_count = self
-            .node_count
-            .checked_add(1)
-            .ok_or(StagingSemanticSyntaxError::AstNodeLimit)?;
+        self.next_node_id = self.next_node_id.checked_add(1).ok_or_else(node_limit)?;
+        self.node_count = self.node_count.checked_add(1).ok_or_else(node_limit)?;
         if self.node_count > self.limits.get().max_ast_nodes {
-            return Err(StagingSemanticSyntaxError::AstNodeLimit);
+            return Err(node_limit());
         }
         if depth > self.limits.get().max_ast_nesting_depth {
-            return Err(StagingSemanticSyntaxError::AstDepthLimit);
+            return Err(depth_limit());
         }
         if let Some(span) = span {
             self.validate_span(span)?;
@@ -1517,7 +1975,14 @@ fn lower_blocks(
     let mut previous_direct_start = None;
     for block in values {
         let span = wire_block_span(block);
-        validator.node(block.node_id(), Some(span), depth)?;
+        if matches!(
+            block,
+            WireStagingM4Block::VectorFigure { .. } | WireStagingM4Block::MathVectorBlock { .. }
+        ) {
+            validator.precomposed_vector_node(block.node_id(), Some(span), depth)?;
+        } else {
+            validator.node(block.node_id(), Some(span), depth)?;
+        }
         validate_classes(block.classes())?;
         if let Some(owner) = semantic_owner {
             validate_owned_span(owner, span)?;
@@ -1679,10 +2144,32 @@ fn lower_blocks(
                 ..
             } => {
                 let owner = common.node_id;
+                let viewport = lower_vector_viewport(*viewport, owner)?;
+                let validated_alternative = validate_precomposed_vector_alternative(
+                    validator,
+                    owner,
+                    PrecomposedVectorKind::VectorFigure,
+                    alt,
+                    None,
+                )?;
+                let validated_language =
+                    validate_precomposed_vector_language(validator, owner, language.as_deref())?;
+                issue_precomposed_vector_metrics(
+                    validator,
+                    owner,
+                    span,
+                    PrecomposedVectorKind::VectorFigure,
+                    ImageResourceId::new(*image_id),
+                    PrecomposedVectorMetricPayload::Figure { viewport },
+                    None,
+                    validated_alternative,
+                    validated_language,
+                    None,
+                )?;
                 StagingM4Block::VectorFigure {
                     common,
                     image_id: ImageResourceId::new(*image_id),
-                    viewport: lower_vector_viewport(*viewport, owner)?,
+                    viewport,
                     alternative: alt.clone(),
                     caption: lower_blocks(caption, validator, Some(span), owner, depth + 1)?,
                     language: language.clone(),
@@ -1699,17 +2186,49 @@ fn lower_blocks(
                 ..
             } => {
                 let owner = common.node_id;
-                let equation_number = equation_number
-                    .as_ref()
-                    .map(|number| {
-                        lower_vector_equation_number(number, validator, span, owner, depth + 1)
-                    })
-                    .transpose()?;
+                let metrics = lower_vector_metrics(*metrics, owner)?;
+                let (source_tex, validated_source_tex) =
+                    lower_vector_source_tex(*source_tex, validator, span, owner)?;
+                let validated_alternative = validate_precomposed_vector_alternative(
+                    validator,
+                    owner,
+                    PrecomposedVectorKind::MathVectorBlock,
+                    alt,
+                    actual_text.as_deref(),
+                )?;
+                let validated_language =
+                    validate_precomposed_vector_language(validator, owner, language.as_deref())?;
+                let (equation_number, validated_equation_number) = match equation_number.as_ref() {
+                    Some(number) => {
+                        let (domain, binding) = lower_vector_equation_number(
+                            number,
+                            validator,
+                            span,
+                            validated_source_tex.mapped_source_span(),
+                            owner,
+                            depth + 1,
+                        )?;
+                        (Some(domain), Some(binding))
+                    }
+                    None => (None, None),
+                };
+                issue_precomposed_vector_metrics(
+                    validator,
+                    owner,
+                    span,
+                    PrecomposedVectorKind::MathVectorBlock,
+                    ImageResourceId::new(*image_id),
+                    PrecomposedVectorMetricPayload::MathBlock { metrics },
+                    Some(validated_source_tex),
+                    validated_alternative,
+                    validated_language,
+                    validated_equation_number,
+                )?;
                 StagingM4Block::MathVectorBlock {
                     common,
                     image_id: ImageResourceId::new(*image_id),
-                    metrics: lower_vector_metrics(*metrics, owner)?,
-                    source_tex: lower_vector_source_tex(*source_tex, owner)?,
+                    metrics,
+                    source_tex,
                     alternative: alt.clone(),
                     actual_text: actual_text.clone(),
                     equation_number,
@@ -1812,7 +2331,14 @@ fn validate_inlines(
     let mut previous_start = None;
     for value in values {
         let span = value.span();
-        validator.node(value.node_id(), Some(span), depth)?;
+        if matches!(
+            value,
+            WireStagingM4Inline::InlineVector { .. } | WireStagingM4Inline::MathVector { .. }
+        ) {
+            validator.precomposed_vector_node(value.node_id(), Some(span), depth)?;
+        } else {
+            validator.node(value.node_id(), Some(span), depth)?;
+        }
         if let Some(owner) = owner {
             validate_owned_span(owner, span)?;
         }
@@ -1853,14 +2379,37 @@ fn validate_inlines(
                 ..
             } => {
                 let node_id = NodeId::new(*node_id);
+                let metrics = lower_vector_metrics(*metrics, node_id)?;
+                let spacing = lower_vector_spacing(*spacing, node_id)?;
+                let validated_alternative = validate_precomposed_vector_alternative(
+                    validator,
+                    node_id,
+                    PrecomposedVectorKind::InlineVector,
+                    alt,
+                    actual_text.as_deref(),
+                )?;
+                let validated_language =
+                    validate_precomposed_vector_language(validator, node_id, language.as_deref())?;
+                issue_precomposed_vector_metrics(
+                    validator,
+                    node_id,
+                    span,
+                    PrecomposedVectorKind::InlineVector,
+                    ImageResourceId::new(*image_id),
+                    PrecomposedVectorMetricPayload::Inline { metrics, spacing },
+                    None,
+                    validated_alternative,
+                    validated_language,
+                    None,
+                )?;
                 precomposed_vectors.push(StagingM4InlineVector {
                     node_id,
                     owner_node_id: math_owner,
                     kind: StagingM4InlineVectorKind::InlineVector,
                     span: lower_span(span)?,
                     image_id: ImageResourceId::new(*image_id),
-                    metrics: lower_vector_metrics(*metrics, node_id)?,
-                    spacing: lower_vector_spacing(*spacing, node_id)?,
+                    metrics,
+                    spacing,
                     source_tex: None,
                     alternative: alt.clone(),
                     actual_text: actual_text.clone(),
@@ -1880,15 +2429,40 @@ fn validate_inlines(
                 ..
             } => {
                 let node_id = NodeId::new(*node_id);
+                let metrics = lower_vector_metrics(*metrics, node_id)?;
+                let spacing = lower_vector_spacing(*spacing, node_id)?;
+                let (source_tex, validated_source_tex) =
+                    lower_vector_source_tex(*source_tex, validator, span, node_id)?;
+                let validated_alternative = validate_precomposed_vector_alternative(
+                    validator,
+                    node_id,
+                    PrecomposedVectorKind::MathVector,
+                    alt,
+                    actual_text.as_deref(),
+                )?;
+                let validated_language =
+                    validate_precomposed_vector_language(validator, node_id, language.as_deref())?;
+                issue_precomposed_vector_metrics(
+                    validator,
+                    node_id,
+                    span,
+                    PrecomposedVectorKind::MathVector,
+                    ImageResourceId::new(*image_id),
+                    PrecomposedVectorMetricPayload::Inline { metrics, spacing },
+                    Some(validated_source_tex),
+                    validated_alternative,
+                    validated_language,
+                    None,
+                )?;
                 precomposed_vectors.push(StagingM4InlineVector {
                     node_id,
                     owner_node_id: math_owner,
                     kind: StagingM4InlineVectorKind::MathVector,
                     span: lower_span(span)?,
                     image_id: ImageResourceId::new(*image_id),
-                    metrics: lower_vector_metrics(*metrics, node_id)?,
-                    spacing: lower_vector_spacing(*spacing, node_id)?,
-                    source_tex: Some(lower_vector_source_tex(*source_tex, node_id)?),
+                    metrics,
+                    spacing,
+                    source_tex: Some(source_tex),
                     alternative: alt.clone(),
                     actual_text: actual_text.clone(),
                     language: language.clone(),
@@ -1950,27 +2524,38 @@ fn validate_inlines(
     Ok(has_authored_content)
 }
 
-fn vector_length(raw: i64, owner: NodeId) -> Result<Length, StagingSemanticSyntaxError> {
-    Length::from_raw(raw).ok_or(StagingSemanticSyntaxError::InvalidPrecomposedVector(owner))
+fn invalid_precomposed_vector(
+    owner: NodeId,
+    field: PrecomposedVectorField,
+) -> StagingSemanticSyntaxError {
+    StagingSemanticSyntaxError::InvalidPrecomposedVector { owner, field }
+}
+
+fn vector_length(
+    raw: i64,
+    owner: NodeId,
+    field: PrecomposedVectorField,
+) -> Result<Length, StagingSemanticSyntaxError> {
+    Length::from_raw(raw).ok_or_else(|| invalid_precomposed_vector(owner, field))
 }
 
 fn vector_positive_length(
     raw: i64,
     owner: NodeId,
+    field: PrecomposedVectorField,
 ) -> Result<PositiveLength, StagingSemanticSyntaxError> {
-    vector_length(raw, owner).and_then(|value| {
-        PositiveLength::new(value)
-            .ok_or(StagingSemanticSyntaxError::InvalidPrecomposedVector(owner))
+    vector_length(raw, owner, field).and_then(|value| {
+        PositiveLength::new(value).ok_or_else(|| invalid_precomposed_vector(owner, field))
     })
 }
 
 fn vector_nonnegative_length(
     raw: i64,
     owner: NodeId,
+    field: PrecomposedVectorField,
 ) -> Result<NonNegativeLength, StagingSemanticSyntaxError> {
-    vector_length(raw, owner).and_then(|value| {
-        NonNegativeLength::new(value)
-            .ok_or(StagingSemanticSyntaxError::InvalidPrecomposedVector(owner))
+    vector_length(raw, owner, field).and_then(|value| {
+        NonNegativeLength::new(value).ok_or_else(|| invalid_precomposed_vector(owner, field))
     })
 }
 
@@ -1979,8 +2564,16 @@ fn lower_vector_viewport(
     owner: NodeId,
 ) -> Result<PrecomposedVectorViewport, StagingSemanticSyntaxError> {
     Ok(PrecomposedVectorViewport {
-        width: vector_positive_length(wire.width, owner)?,
-        height: vector_positive_length(wire.height, owner)?,
+        width: vector_positive_length(
+            wire.width,
+            owner,
+            PrecomposedVectorField::MetricsViewportWidth,
+        )?,
+        height: vector_positive_length(
+            wire.height,
+            owner,
+            PrecomposedVectorField::MetricsViewportHeight,
+        )?,
     })
 }
 
@@ -1988,14 +2581,57 @@ fn lower_vector_metrics(
     wire: WirePrecomposedVectorMetrics,
     owner: NodeId,
 ) -> Result<PrecomposedVectorMetrics, StagingSemanticSyntaxError> {
-    Ok(PrecomposedVectorMetrics {
-        advance: vector_positive_length(wire.advance, owner)?,
-        ascent: vector_positive_length(wire.ascent, owner)?,
-        baseline: vector_nonnegative_length(wire.baseline, owner)?,
-        descent: vector_nonnegative_length(wire.descent, owner)?,
-        origin_x: vector_length(wire.origin_x, owner)?,
+    let metrics = PrecomposedVectorMetrics {
+        advance: vector_positive_length(
+            wire.advance,
+            owner,
+            PrecomposedVectorField::MetricsAdvance,
+        )?,
+        ascent: vector_positive_length(wire.ascent, owner, PrecomposedVectorField::MetricsAscent)?,
+        baseline: vector_nonnegative_length(
+            wire.baseline,
+            owner,
+            PrecomposedVectorField::MetricsBaseline,
+        )?,
+        descent: vector_nonnegative_length(
+            wire.descent,
+            owner,
+            PrecomposedVectorField::MetricsDescent,
+        )?,
+        origin_x: vector_length(wire.origin_x, owner, PrecomposedVectorField::MetricsOriginX)?,
         viewport: lower_vector_viewport(wire.viewport, owner)?,
-    })
+    };
+    if metrics.baseline.get() > metrics.viewport.height.get() {
+        return Err(invalid_precomposed_vector(
+            owner,
+            PrecomposedVectorField::MetricsBaseline,
+        ));
+    }
+    if metrics.ascent.get() < metrics.baseline.get() {
+        return Err(invalid_precomposed_vector(
+            owner,
+            PrecomposedVectorField::MetricsAscent,
+        ));
+    }
+    let below_baseline = metrics
+        .viewport
+        .height
+        .get()
+        .checked_sub(metrics.baseline.get())
+        .ok_or_else(|| {
+            invalid_precomposed_vector(owner, PrecomposedVectorField::MetricsBaseline)
+        })?;
+    if metrics.descent.get() < below_baseline {
+        return Err(invalid_precomposed_vector(
+            owner,
+            PrecomposedVectorField::MetricsDescent,
+        ));
+    }
+    metrics
+        .origin_x
+        .checked_add(metrics.viewport.width.get())
+        .ok_or_else(|| invalid_precomposed_vector(owner, PrecomposedVectorField::MetricsOriginX))?;
+    Ok(metrics)
 }
 
 fn lower_vector_spacing(
@@ -2003,47 +2639,406 @@ fn lower_vector_spacing(
     owner: NodeId,
 ) -> Result<PrecomposedVectorSpacing, StagingSemanticSyntaxError> {
     Ok(PrecomposedVectorSpacing {
-        before: vector_nonnegative_length(wire.before, owner)?,
-        after: vector_nonnegative_length(wire.after, owner)?,
+        before: vector_nonnegative_length(
+            wire.before,
+            owner,
+            PrecomposedVectorField::SpacingBefore,
+        )?,
+        after: vector_nonnegative_length(wire.after, owner, PrecomposedVectorField::SpacingAfter)?,
     })
 }
 
 fn lower_vector_text_span(
     wire: WireStagingTextSpan,
     owner: NodeId,
+    field: PrecomposedVectorField,
 ) -> Result<TextSpan, StagingSemanticSyntaxError> {
     TextSpan::new(
         TextBufferId::new(wire.text_id),
         Utf8ByteOffset::new(wire.start_byte),
         Utf8ByteOffset::new(wire.end_byte),
     )
-    .ok_or(StagingSemanticSyntaxError::InvalidPrecomposedVector(owner))
+    .ok_or_else(|| invalid_precomposed_vector(owner, field))
+}
+
+#[derive(Clone, Copy)]
+enum PrecomposedVectorMappedTextPolicy {
+    SourceTex,
+    EquationNumber,
+}
+
+fn cached_precomposed_vector_sha256<K: Copy + Ord>(
+    cache: &mut BTreeMap<K, [u8; 32]>,
+    key: K,
+    calculate: impl FnOnce() -> [u8; 32],
+) -> [u8; 32] {
+    match cache.entry(key) {
+        std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+        std::collections::btree_map::Entry::Vacant(entry) => *entry.insert(calculate()),
+    }
+}
+
+fn validate_precomposed_vector_mapped_text(
+    wire: WireStagingTextSpan,
+    validator: &mut SemanticValidator<'_>,
+    owner_span: WireStagingSourceSpan,
+    declared_source_span: Option<WireStagingSourceSpan>,
+    owner: NodeId,
+    field: PrecomposedVectorField,
+    policy: PrecomposedVectorMappedTextPolicy,
+) -> Result<ValidatedPrecomposedVectorTextBinding, StagingSemanticSyntaxError> {
+    let text_span = lower_vector_text_span(wire, owner, field)?;
+    let buffer = validator
+        .text_buffers
+        .get(&wire.text_id)
+        .ok_or_else(|| invalid_precomposed_vector(owner, field))?;
+    let start =
+        usize::try_from(wire.start_byte).map_err(|_| invalid_precomposed_vector(owner, field))?;
+    let end =
+        usize::try_from(wire.end_byte).map_err(|_| invalid_precomposed_vector(owner, field))?;
+    if start >= end
+        || end > buffer.utf8.len()
+        || !buffer.utf8.is_char_boundary(start)
+        || !buffer.utf8.is_char_boundary(end)
+    {
+        return Err(invalid_precomposed_vector(owner, field));
+    }
+    let slice_length = u64::from(wire.end_byte - wire.start_byte);
+    if slice_length > u64::from(validator.limits.get().max_text_buffer_bytes) {
+        return Err(StagingSemanticSyntaxError::PrecomposedVectorTextBufferLimit { owner, field });
+    }
+    let exact_text = &buffer.utf8[start..end];
+    match policy {
+        PrecomposedVectorMappedTextPolicy::SourceTex => {
+            if exact_text.contains('\0') || exact_text.contains('\u{feff}') {
+                return Err(invalid_precomposed_vector(owner, field));
+            }
+        }
+        PrecomposedVectorMappedTextPolicy::EquationNumber => {
+            if !is_meaningful_precomposed_vector_text(exact_text) {
+                return Err(invalid_precomposed_vector(owner, field));
+            }
+        }
+    }
+
+    let mut overlapping = buffer.mappings.iter().filter(|mapping| {
+        mapping.text_range.start_byte < wire.end_byte
+            && wire.start_byte < mapping.text_range.end_byte
+    });
+    let mapping = overlapping
+        .next()
+        .ok_or(StagingSemanticSyntaxError::InvalidSourceSpan)?;
+    let mapped_source_span = mapping
+        .source_span
+        .ok_or(StagingSemanticSyntaxError::InvalidSourceSpan)?;
+    validator.validate_span(mapped_source_span)?;
+    if overlapping.next().is_some()
+        || mapping.text_range.start_byte != wire.start_byte
+        || mapping.text_range.end_byte != wire.end_byte
+        || mapping.kind != WireStagingTextMapKind::Identity
+        || mapped_source_span
+            .end_byte
+            .checked_sub(mapped_source_span.start_byte)
+            != Some(wire.end_byte - wire.start_byte)
+        || declared_source_span.is_some_and(|declared| declared != mapped_source_span)
+    {
+        return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
+    }
+    validate_owned_span(owner_span, mapped_source_span)?;
+    let text_buffer_sha256 = cached_precomposed_vector_sha256(
+        &mut validator.precomposed_vector_text_buffer_sha256,
+        wire.text_id,
+        || sha256(buffer.utf8.as_bytes()),
+    );
+    let slice_key = (wire.text_id, wire.start_byte, wire.end_byte);
+    let exact_text_sha256 = cached_precomposed_vector_sha256(
+        &mut validator.precomposed_vector_text_slice_sha256,
+        slice_key,
+        || sha256(exact_text.as_bytes()),
+    );
+    Ok(ValidatedPrecomposedVectorTextBinding {
+        text_span,
+        mapped_source_span: lower_span(mapped_source_span)?,
+        text_buffer_sha256,
+        exact_text_sha256,
+    })
 }
 
 fn lower_vector_source_tex(
     wire: WirePrecomposedVectorSourceTex,
+    validator: &mut SemanticValidator<'_>,
+    owner_span: WireStagingSourceSpan,
     owner: NodeId,
-) -> Result<PrecomposedVectorSourceTex, StagingSemanticSyntaxError> {
-    Ok(PrecomposedVectorSourceTex {
-        text_span: lower_vector_text_span(wire.text_span, owner)?,
+) -> Result<
+    (
+        PrecomposedVectorSourceTex,
+        ValidatedPrecomposedVectorTextBinding,
+    ),
+    StagingSemanticSyntaxError,
+> {
+    let binding = validate_precomposed_vector_mapped_text(
+        wire.text_span,
+        validator,
+        owner_span,
+        None,
+        owner,
+        PrecomposedVectorField::SourceTexTextSpan,
+        PrecomposedVectorMappedTextPolicy::SourceTex,
+    )?;
+    Ok((
+        PrecomposedVectorSourceTex {
+            text_span: binding.text_span(),
+        },
+        binding,
+    ))
+}
+
+fn is_meaningful_precomposed_vector_text(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .any(|character| !is_unicode_16_white_space(character))
+        && !value.chars().any(|character| {
+            ('\u{0000}'..='\u{001f}').contains(&character)
+                || ('\u{007f}'..='\u{009f}').contains(&character)
+        })
+}
+
+fn charge_precomposed_vector_authored_text(
+    validator: &mut SemanticValidator<'_>,
+    owner: NodeId,
+    field: PrecomposedVectorField,
+    value: &str,
+) -> Result<u64, StagingSemanticSyntaxError> {
+    let bytes = u64::try_from(value.len()).map_err(|_| {
+        StagingSemanticSyntaxError::PrecomposedVectorTextBufferLimit { owner, field }
+    })?;
+    if bytes > u64::from(validator.limits.get().max_text_buffer_bytes) {
+        return Err(StagingSemanticSyntaxError::PrecomposedVectorTextBufferLimit { owner, field });
+    }
+    let total = validator
+        .admitted_text_and_math_speech_bytes
+        .checked_add(bytes)
+        .ok_or(StagingSemanticSyntaxError::PrecomposedVectorTextAggregateLimit { owner, field })?;
+    if total > validator.limits.get().max_text_bytes {
+        return Err(
+            StagingSemanticSyntaxError::PrecomposedVectorTextAggregateLimit { owner, field },
+        );
+    }
+    validator.admitted_text_and_math_speech_bytes = total;
+    Ok(bytes)
+}
+
+fn validate_precomposed_vector_alternative(
+    validator: &mut SemanticValidator<'_>,
+    owner: NodeId,
+    kind: PrecomposedVectorKind,
+    alternative: &str,
+    actual_text: Option<&str>,
+) -> Result<ValidatedPrecomposedVectorAlternative, StagingSemanticSyntaxError> {
+    if !is_meaningful_precomposed_vector_text(alternative) {
+        return Err(invalid_precomposed_vector(
+            owner,
+            PrecomposedVectorField::Alternative,
+        ));
+    }
+    charge_precomposed_vector_authored_text(
+        validator,
+        owner,
+        PrecomposedVectorField::Alternative,
+        alternative,
+    )?;
+    if let Some(value) = actual_text {
+        if !is_meaningful_precomposed_vector_text(value) {
+            return Err(invalid_precomposed_vector(
+                owner,
+                PrecomposedVectorField::ActualText,
+            ));
+        }
+        charge_precomposed_vector_authored_text(
+            validator,
+            owner,
+            PrecomposedVectorField::ActualText,
+            value,
+        )?;
+    }
+    let resolution = if actual_text.is_some() {
+        PrecomposedVectorActualTextResolution::Authored
+    } else if kind.is_math() {
+        PrecomposedVectorActualTextResolution::AlternativeFallback
+    } else {
+        PrecomposedVectorActualTextResolution::Absent
+    };
+    Ok(ValidatedPrecomposedVectorAlternative {
+        alternative: alternative.to_owned(),
+        authored_actual_text: actual_text.map(str::to_owned),
+        resolution,
     })
+}
+
+fn validate_precomposed_vector_language(
+    validator: &mut SemanticValidator<'_>,
+    owner: NodeId,
+    raw: Option<&str>,
+) -> Result<Option<ValidatedPrecomposedVectorLanguageOverride>, StagingSemanticSyntaxError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let canonical = crate::canonicalize_bcp47_language(raw)
+        .map_err(|_| invalid_precomposed_vector(owner, PrecomposedVectorField::Language))?;
+    let mut charged_bytes = 0u64;
+    if raw != canonical {
+        charged_bytes = charge_precomposed_vector_authored_text(
+            validator,
+            owner,
+            PrecomposedVectorField::Language,
+            raw,
+        )?;
+    }
+    charged_bytes = charged_bytes
+        .checked_add(charge_precomposed_vector_authored_text(
+            validator,
+            owner,
+            PrecomposedVectorField::Language,
+            &canonical,
+        )?)
+        .ok_or(
+            StagingSemanticSyntaxError::PrecomposedVectorTextAggregateLimit {
+                owner,
+                field: PrecomposedVectorField::Language,
+            },
+        )?;
+    Ok(Some(ValidatedPrecomposedVectorLanguageOverride {
+        raw: raw.to_owned(),
+        canonical,
+        charged_bytes,
+    }))
 }
 
 fn lower_vector_equation_number(
     wire: &WirePrecomposedVectorEquationNumber,
     validator: &mut SemanticValidator<'_>,
     owner_span: WireStagingSourceSpan,
+    formula_source_span: SourceSpan,
     owner: NodeId,
     depth: u32,
-) -> Result<PrecomposedVectorEquationNumber, StagingSemanticSyntaxError> {
-    validator.node(wire.node_id, Some(wire.span), depth)?;
+) -> Result<
+    (
+        PrecomposedVectorEquationNumber,
+        ValidatedPrecomposedVectorEquationNumber,
+    ),
+    StagingSemanticSyntaxError,
+> {
+    if wire.node_id != validator.next_node_id {
+        return Err(invalid_precomposed_vector(
+            owner,
+            PrecomposedVectorField::EquationNumberNodeId,
+        ));
+    }
+    validator.precomposed_vector_node(wire.node_id, Some(wire.span), depth)?;
     validate_owned_span(owner_span, wire.span)?;
-    Ok(PrecomposedVectorEquationNumber {
-        minimum_gap: vector_positive_length(wire.minimum_gap, owner)?,
-        node_id: NodeId::new(wire.node_id),
-        span: lower_span(wire.span)?,
-        text_span: lower_vector_text_span(wire.text_span, owner)?,
-    })
+    if formula_source_span.source_id().get() != wire.span.source_id
+        || formula_source_span.end_byte().get() > wire.span.start_byte
+    {
+        return Err(invalid_precomposed_vector(
+            owner,
+            PrecomposedVectorField::EquationNumberSpan,
+        ));
+    }
+    let minimum_gap = vector_positive_length(
+        wire.minimum_gap,
+        owner,
+        PrecomposedVectorField::EquationNumberMinimumGap,
+    )?;
+    let text = validate_precomposed_vector_mapped_text(
+        wire.text_span,
+        validator,
+        owner_span,
+        Some(wire.span),
+        owner,
+        PrecomposedVectorField::EquationNumberTextSpan,
+        PrecomposedVectorMappedTextPolicy::EquationNumber,
+    )?;
+    let span = lower_span(wire.span)?;
+    let node_id = NodeId::new(wire.node_id);
+    Ok((
+        PrecomposedVectorEquationNumber {
+            minimum_gap,
+            node_id,
+            span,
+            text_span: text.text_span(),
+        },
+        ValidatedPrecomposedVectorEquationNumber {
+            node_id,
+            span,
+            minimum_gap,
+            text,
+        },
+    ))
+}
+
+#[allow(clippy::too_many_arguments)] // exact sealed receipt inputs
+fn issue_precomposed_vector_metrics(
+    validator: &mut SemanticValidator<'_>,
+    node_id: NodeId,
+    owner_span: WireStagingSourceSpan,
+    kind: PrecomposedVectorKind,
+    image_id: ImageResourceId,
+    payload: PrecomposedVectorMetricPayload,
+    source_tex: Option<ValidatedPrecomposedVectorTextBinding>,
+    alternative: ValidatedPrecomposedVectorAlternative,
+    language: Option<ValidatedPrecomposedVectorLanguageOverride>,
+    equation_number: Option<ValidatedPrecomposedVectorEquationNumber>,
+) -> Result<(), StagingSemanticSyntaxError> {
+    let shape_matches = matches!(
+        (kind, payload),
+        (
+            PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::MathVector,
+            PrecomposedVectorMetricPayload::Inline { .. },
+        ) | (
+            PrecomposedVectorKind::MathVectorBlock,
+            PrecomposedVectorMetricPayload::MathBlock { .. },
+        ) | (
+            PrecomposedVectorKind::VectorFigure,
+            PrecomposedVectorMetricPayload::Figure { .. }
+        )
+    );
+    let equation_shape_matches =
+        equation_number.is_none() || kind == PrecomposedVectorKind::MathVectorBlock;
+    if !shape_matches
+        || kind.is_math() != source_tex.is_some()
+        || !equation_shape_matches
+        || validator
+            .precomposed_vector_metrics
+            .last()
+            .is_some_and(|previous| previous.node_id() >= node_id)
+    {
+        return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+    }
+    validator
+        .precomposed_vector_metrics
+        .try_reserve(1)
+        .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+    let mut receipt = ValidatedPrecomposedVectorMetrics {
+        package_sha256: validator.canonical_package_sha256,
+        session: validator.precomposed_vector_session.clone(),
+        limits_fingerprint: validator.precomposed_vector_limits_fingerprint,
+        node_id,
+        owner_source_span: lower_span(owner_span)?,
+        kind,
+        resource: UnresolvedPrecomposedVectorResourceBinding { image_id },
+        payload,
+        source_tex,
+        alternative,
+        language,
+        equation_number,
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    receipt.canonical_jcs = encode_precomposed_vector_metrics_receipt(&receipt);
+    receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+    validator.precomposed_vector_metrics.push(receipt);
+    Ok(())
 }
 
 fn validate_text_span(
@@ -2177,7 +3172,11 @@ fn lower_resources(
                     .vector_provenance
                     .as_ref()
                     .ok_or(StagingSemanticSyntaxError::InvalidResource)?;
-                if expected_sha256.is_none() {
+                if expected_sha256.is_none()
+                    || !is_valid_precomposed_vector_provenance(&provenance.engine_id)
+                    || !is_valid_precomposed_vector_provenance(&provenance.engine_version)
+                    || !is_valid_precomposed_vector_provenance(&provenance.rules_version)
+                {
                     return Err(StagingSemanticSyntaxError::InvalidResource);
                 }
                 (
@@ -2200,6 +3199,12 @@ fn lower_resources(
         });
     }
     Ok(StagingM4ResourceCatalog { font_faces, images })
+}
+
+fn is_valid_precomposed_vector_provenance(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.bytes().all(|byte| (0x20..=0x7e).contains(&byte))
 }
 
 fn parse_optional_hash(
@@ -2567,11 +3572,184 @@ fn collect_computed_styles(
     Ok(())
 }
 
+fn precomposed_vector_limits_fingerprint(limits: &ValidatedResourceLimits) -> [u8; 32] {
+    let mut canonical_jcs = String::from("{\"effective_limits\":{");
+    push_profile_limits(&mut canonical_jcs, limits);
+    canonical_jcs.push_str("}}");
+    sha256(canonical_jcs.as_bytes())
+}
+
+fn encode_precomposed_vector_metrics_receipt(
+    receipt: &ValidatedPrecomposedVectorMetrics,
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, PRECOMPOSED_VECTOR_METRICS_ALGORITHM);
+    output.push_str(",\"alternative\":{\"alt_sha256\":");
+    push_hash(&mut output, receipt.alternative.alternative_sha256());
+    output.push_str(",\"authored_actual_text_sha256\":");
+    push_optional_vector_hash(
+        &mut output,
+        receipt.alternative.authored_actual_text_sha256(),
+    );
+    output.push_str(",\"resolution\":");
+    push_jcs_string(&mut output, receipt.alternative.resolution().as_str());
+    output.push_str(",\"resolved_actual_text_sha256\":");
+    push_optional_vector_hash(
+        &mut output,
+        receipt.alternative.resolved_actual_text_sha256(),
+    );
+    output.push_str("},\"canonical_package_sha256\":");
+    push_hash(&mut output, receipt.package_sha256);
+    output.push_str(",\"contract\":");
+    push_jcs_string(
+        &mut output,
+        typaxis_document_package::STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT,
+    );
+    output.push_str(",\"equation_number\":");
+    match &receipt.equation_number {
+        Some(number) => {
+            output.push_str("{\"minimum_gap\":");
+            output.push_str(&number.minimum_gap.get().raw().to_string());
+            output.push_str(",\"node_id\":");
+            output.push_str(&number.node_id.get().to_string());
+            output.push_str(",\"source_span\":");
+            push_vector_source_span_jcs(&mut output, number.span);
+            output.push_str(",\"text\":");
+            push_vector_text_binding_jcs(&mut output, &number.text);
+            output.push('}');
+        }
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"image_id\":");
+    output.push_str(&receipt.resource.image_id.get().to_string());
+    output.push_str(",\"kind\":");
+    push_jcs_string(&mut output, receipt.kind.as_str());
+    output.push_str(",\"language\":");
+    match &receipt.language {
+        Some(language) => {
+            output.push_str("{\"canonical\":");
+            push_jcs_string(&mut output, &language.canonical);
+            output.push_str(",\"charged_bytes\":");
+            output.push_str(&language.charged_bytes.to_string());
+            output.push_str(",\"raw\":");
+            push_jcs_string(&mut output, &language.raw);
+            output.push('}');
+        }
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"limits_fingerprint\":");
+    push_hash(&mut output, receipt.limits_fingerprint);
+    output.push_str(",\"metrics\":");
+    push_vector_metric_payload_jcs(&mut output, receipt.payload);
+    output.push_str(",\"node_id\":");
+    output.push_str(&receipt.node_id.get().to_string());
+    output.push_str(",\"owner_source_span\":");
+    push_vector_source_span_jcs(&mut output, receipt.owner_source_span);
+    output.push_str(",\"resource_binding\":{\"image_id\":");
+    output.push_str(&receipt.resource.image_id.get().to_string());
+    output.push_str(",\"state\":\"unresolved\"},\"source_tex\":");
+    match &receipt.source_tex {
+        Some(source_tex) => push_vector_text_binding_jcs(&mut output, source_tex),
+        None => output.push_str("null"),
+    }
+    output.push('}');
+    output
+}
+
+fn push_optional_vector_hash(output: &mut String, value: Option<[u8; 32]>) {
+    match value {
+        Some(value) => push_hash(output, value),
+        None => output.push_str("null"),
+    }
+}
+
+fn push_vector_text_binding_jcs(
+    output: &mut String,
+    value: &ValidatedPrecomposedVectorTextBinding,
+) {
+    output.push_str("{\"exact_slice_sha256\":");
+    push_hash(output, value.exact_text_sha256);
+    output.push_str(",\"mapped_source_span\":");
+    push_vector_source_span_jcs(output, value.mapped_source_span);
+    output.push_str(",\"text_buffer_sha256\":");
+    push_hash(output, value.text_buffer_sha256);
+    output.push_str(",\"text_span\":");
+    push_vector_text_span_jcs(output, value.text_span);
+    output.push('}');
+}
+
+fn push_vector_source_span_jcs(output: &mut String, value: SourceSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"source_id\":");
+    output.push_str(&value.source_id().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push('}');
+}
+
+fn push_vector_text_span_jcs(output: &mut String, value: TextSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push_str(",\"text_id\":");
+    output.push_str(&value.text_id().get().to_string());
+    output.push('}');
+}
+
+fn push_vector_metric_payload_jcs(output: &mut String, value: PrecomposedVectorMetricPayload) {
+    output.push('{');
+    match value {
+        PrecomposedVectorMetricPayload::Inline { metrics, spacing } => {
+            push_vector_metric_scalar_members_jcs(output, metrics);
+            output.push_str(",\"spacing\":{\"after\":");
+            output.push_str(&spacing.after.get().raw().to_string());
+            output.push_str(",\"before\":");
+            output.push_str(&spacing.before.get().raw().to_string());
+            output.push_str("},\"viewport\":");
+            push_vector_viewport_jcs(output, metrics.viewport);
+        }
+        PrecomposedVectorMetricPayload::MathBlock { metrics } => {
+            push_vector_metric_scalar_members_jcs(output, metrics);
+            output.push_str(",\"viewport\":");
+            push_vector_viewport_jcs(output, metrics.viewport);
+        }
+        PrecomposedVectorMetricPayload::Figure { viewport } => {
+            output.push_str("\"viewport\":");
+            push_vector_viewport_jcs(output, viewport);
+        }
+    }
+    output.push('}');
+}
+
+fn push_vector_metric_scalar_members_jcs(output: &mut String, metrics: PrecomposedVectorMetrics) {
+    output.push_str("\"advance\":");
+    output.push_str(&metrics.advance.get().raw().to_string());
+    output.push_str(",\"ascent\":");
+    output.push_str(&metrics.ascent.get().raw().to_string());
+    output.push_str(",\"baseline\":");
+    output.push_str(&metrics.baseline.get().raw().to_string());
+    output.push_str(",\"descent\":");
+    output.push_str(&metrics.descent.get().raw().to_string());
+    output.push_str(",\"origin_x\":");
+    output.push_str(&metrics.origin_x.raw().to_string());
+}
+
+fn push_vector_viewport_jcs(output: &mut String, viewport: PrecomposedVectorViewport) {
+    output.push_str("{\"height\":");
+    output.push_str(&viewport.height.get().raw().to_string());
+    output.push_str(",\"width\":");
+    output.push_str(&viewport.width.get().raw().to_string());
+    output.push('}');
+}
+
 fn encode_semantic_receipt(
     document: &StagingM4Document,
     resources: &StagingM4ResourceCatalog,
     styles: &BTreeMap<NodeId, SemanticContainerComputedStyle>,
     math: &[ValidatedStagingMathNode],
+    precomposed_vectors: &[ValidatedPrecomposedVectorMetrics],
     canonical_package: [u8; 32],
 ) -> String {
     let mut output = String::from("{\"algorithm\":");
@@ -2592,6 +3770,20 @@ fn encode_semantic_receipt(
                 output.push(',');
             }
             encode_math_syntax_record(value, &mut output);
+        }
+        output.push(']');
+    }
+    if !precomposed_vectors.is_empty() {
+        output.push_str(",\"precomposed_vectors\":[");
+        for (index, value) in precomposed_vectors.iter().enumerate() {
+            if index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"fingerprint\":");
+            push_hash(&mut output, value.fingerprint());
+            output.push_str(",\"node_id\":");
+            output.push_str(&value.node_id().get().to_string());
+            output.push('}');
         }
         output.push(']');
     }
@@ -2855,9 +4047,23 @@ mod tests {
     fn parse(bytes: &[u8]) -> Result<ValidatedStagingSemanticPackage, Box<dyn std::error::Error>> {
         let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
             .expect("default limits are valid");
+        parse_with_limits(bytes, &limits)
+    }
+
+    fn parse_with_limits(
+        bytes: &[u8],
+        limits: &ValidatedResourceLimits,
+    ) -> Result<ValidatedStagingSemanticPackage, Box<dyn std::error::Error>> {
         let decoded = StagingSemanticDocumentPackageDecoder::new()
-            .decode(bytes, &DocumentPackageDecodePolicy::new(&limits))?;
-        Ok(StagingSemanticPackageParser::new().parse(decoded, &limits)?)
+            .decode(bytes, &DocumentPackageDecodePolicy::new(limits))?;
+        Ok(StagingSemanticPackageParser::new().parse(decoded, limits)?)
+    }
+
+    fn precomposed_vector_syntax_error(bytes: &[u8]) -> StagingSemanticSyntaxError {
+        let error = parse(bytes).expect_err("mutant must fail syntax validation");
+        *error
+            .downcast_ref::<StagingSemanticSyntaxError>()
+            .expect("mutant must reach semantic syntax validation")
     }
 
     fn mutate_and_encode(update: impl FnOnce(&mut WireStagingM4DocumentPackage)) -> Vec<u8> {
@@ -2872,6 +4078,60 @@ mod tests {
             .encode(&wire)
             .unwrap()
             .into_bytes()
+    }
+
+    fn mutate_precomposed_and_encode(
+        update: impl FnOnce(&mut typaxis_document_package::WireStagingM4Document),
+    ) -> Vec<u8> {
+        let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
+            .expect("default limits are valid");
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                PRECOMPOSED_VECTOR_FIXTURE,
+                &DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let mut wire = decoded.into_wire();
+        let mut document = wire.document().clone();
+        update(&mut document);
+        wire.replace_typed_regions(document, wire.resources().clone());
+        StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap()
+            .into_bytes()
+    }
+
+    fn precomposed_children_mut(
+        document: &mut typaxis_document_package::WireStagingM4Document,
+    ) -> &mut Vec<WireStagingM4Block> {
+        let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
+            panic!("fixture root must remain a semantic container");
+        };
+        blocks
+    }
+
+    fn inline_math_vector_mut(
+        document: &mut typaxis_document_package::WireStagingM4Document,
+    ) -> &mut WireStagingM4Inline {
+        let blocks = precomposed_children_mut(document);
+        let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
+            panic!("fixture first child must remain a paragraph");
+        };
+        &mut children[1]
+    }
+
+    fn math_vector_block_mut(
+        document: &mut typaxis_document_package::WireStagingM4Document,
+    ) -> &mut WireStagingM4Block {
+        &mut precomposed_children_mut(document)[2]
+    }
+
+    fn text_limits(maximum_buffer: usize, maximum_total: u64) -> ValidatedResourceLimits {
+        let mut raw = typaxis_core::ResourceLimits::default();
+        raw.max_text_buffer_bytes = u32::try_from(maximum_buffer).unwrap();
+        raw.max_shaping_context_bytes = raw.max_text_buffer_bytes;
+        raw.max_text_bytes = maximum_total;
+        ValidatedResourceLimits::new(raw).unwrap()
     }
 
     #[test]
@@ -3003,6 +4263,518 @@ mod tests {
         assert!(StagingSemanticPackageParser::new()
             .parse(decoded, &limits)
             .is_ok());
+    }
+
+    #[test]
+    fn precomposed_vector_metrics_seals_relations_package_session_and_raw_payload() {
+        let package = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
+        assert_eq!(package.precomposed_vector_metrics().len(), 4);
+        assert_eq!(
+            package
+                .precomposed_vector_metrics()
+                .iter()
+                .map(ValidatedPrecomposedVectorMetrics::node_id)
+                .collect::<Vec<_>>(),
+            [
+                NodeId::new(3),
+                NodeId::new(4),
+                NodeId::new(5),
+                NodeId::new(6)
+            ]
+        );
+        let math = package
+            .precomposed_vector_metrics_for(NodeId::new(4))
+            .unwrap();
+        assert_eq!(math.algorithm(), PRECOMPOSED_VECTOR_METRICS_ALGORITHM);
+        assert_eq!(math.contract(), "typaxis.contract/1.4");
+        assert_eq!(math.package_sha256(), package.canonical_jcs_sha256());
+        assert_eq!(
+            math.limits_fingerprint(),
+            precomposed_vector_limits_fingerprint(package.limits())
+        );
+        assert_eq!(math.kind(), PrecomposedVectorKind::MathVector);
+        assert_eq!(math.resource_binding().image_id(), ImageResourceId::new(0));
+        let PrecomposedVectorMetricPayload::Inline { metrics, spacing } = math.payload() else {
+            panic!("math inline receipt must retain inline metrics");
+        };
+        assert_eq!(metrics.advance.get().raw(), 2_031_616);
+        assert_eq!(metrics.viewport.width.get().raw(), 1_966_080);
+        assert_eq!(spacing.before.get().raw(), 16_384);
+        assert!(math.canonical_jcs().starts_with(
+            "{\"algorithm\":\"typaxis.precomposed-vector-metrics/1\",\"alternative\":"
+        ));
+        assert_ne!(math.fingerprint(), [0; 32]);
+        package.verify_precomposed_vector_metrics(math).unwrap();
+
+        let same_input_new_session = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
+        assert_eq!(
+            math.fingerprint(),
+            same_input_new_session
+                .precomposed_vector_metrics_for(NodeId::new(4))
+                .unwrap()
+                .fingerprint()
+        );
+        assert_eq!(
+            same_input_new_session.verify_precomposed_vector_metrics(math),
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        );
+
+        let mut tampered = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
+        tampered.precomposed_vector_metrics[0].fingerprint = [0; 32];
+        let otherwise_intact = &tampered.precomposed_vector_metrics[1];
+        assert_eq!(
+            tampered.verify_precomposed_vector_metrics(otherwise_intact),
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        );
+        assert_eq!(
+            tampered.checked_wire(),
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        );
+
+        let zero_advance = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replacen("\"advance\":2031616", "\"advance\":0", 1);
+        assert!(parse(zero_advance.as_bytes())
+            .unwrap_err()
+            .to_string()
+            .contains("/document/blocks/0/blocks/0/children/1/metrics/advance"));
+
+        let negative_descent = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replacen("\"descent\":196608", "\"descent\":-1", 1);
+        assert!(parse(negative_descent.as_bytes())
+            .unwrap_err()
+            .to_string()
+            .contains("/document/blocks/0/blocks/0/children/0/metrics/descent"));
+
+        let zero_width = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replacen("\"width\":1835008", "\"width\":0", 1);
+        assert!(parse(zero_width.as_bytes())
+            .unwrap_err()
+            .to_string()
+            .contains("/document/blocks/0/blocks/0/children/0/metrics/viewport/width"));
+
+        let baseline_outside = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { metrics, .. } = inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            metrics.baseline = metrics.viewport.height + 1;
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&baseline_outside),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::MetricsBaseline)
+        );
+
+        let short_ascent = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { metrics, .. } = inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            metrics.ascent = metrics.baseline - 1;
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&short_ascent),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::MetricsAscent)
+        );
+
+        let short_descent = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { metrics, .. } = inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            metrics.descent = metrics.viewport.height - metrics.baseline - 1;
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&short_descent),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::MetricsDescent)
+        );
+
+        let overflowing_right_edge = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { metrics, .. } = inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            metrics.origin_x = typaxis_core::JSON_SAFE_INTEGER_MAX;
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&overflowing_right_edge),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::MetricsOriginX)
+        );
+
+        let missing_advance = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replacen("\"advance\":2031616,", "", 1);
+        let missing_error = parse(missing_advance.as_bytes()).unwrap_err();
+        assert!(missing_error
+            .to_string()
+            .contains("/document/blocks/0/blocks/0/children/1/metrics/advance"));
+    }
+
+    #[test]
+    fn precomposed_vector_alternative_validates_exact_source_resolution_language_and_number() {
+        let package = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
+        let figure = package
+            .precomposed_vector_metrics_for(NodeId::new(3))
+            .unwrap();
+        assert_eq!(
+            figure.alternative().resolution(),
+            PrecomposedVectorActualTextResolution::Absent
+        );
+        assert_eq!(figure.alternative().resolved_actual_text(), None);
+
+        let math = package
+            .precomposed_vector_metrics_for(NodeId::new(4))
+            .unwrap();
+        assert_eq!(
+            math.source_tex().unwrap().mapped_source_span(),
+            SourceSpan::new(
+                SourceId::new(0),
+                Utf8ByteOffset::new(3),
+                Utf8ByteOffset::new(6)
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            math.source_tex().unwrap().exact_text_sha256(),
+            sha256(b"x+y")
+        );
+        assert_eq!(
+            math.alternative().resolution(),
+            PrecomposedVectorActualTextResolution::AlternativeFallback
+        );
+        assert_eq!(math.alternative().resolved_actual_text(), Some("xたすy"));
+        assert_eq!(math.alternative().authored_actual_text(), None);
+
+        let block = package
+            .precomposed_vector_metrics_for(NodeId::new(6))
+            .unwrap();
+        let number = block.equation_number().unwrap();
+        assert_eq!(number.node_id(), NodeId::new(7));
+        assert_eq!(number.text().exact_text_sha256(), sha256(b"(1)"));
+        assert_eq!(number.minimum_gap().get().raw(), 65_536);
+
+        let authored = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector {
+                actual_text,
+                language,
+                ..
+            } = inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            *actual_text = Some("x plus y".to_owned());
+            *language = Some("JA-latn".to_owned());
+        });
+        let authored = parse(&authored).unwrap();
+        let receipt = authored
+            .precomposed_vector_metrics_for(NodeId::new(4))
+            .unwrap();
+        assert_eq!(
+            receipt.alternative().resolution(),
+            PrecomposedVectorActualTextResolution::Authored
+        );
+        assert_eq!(
+            receipt.alternative().resolved_actual_text(),
+            Some("x plus y")
+        );
+        let language = receipt.language().unwrap();
+        assert_eq!(language.raw(), "JA-latn");
+        assert_eq!(language.canonical(), "ja-Latn");
+        assert_eq!(
+            language.charged_bytes(),
+            u64::try_from("JA-latn".len() + "ja-Latn".len()).unwrap()
+        );
+
+        let whitespace_alt = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { alt, .. } = inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            *alt = "\u{2007}".to_owned();
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&whitespace_alt),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::Alternative)
+        );
+
+        let control_actual = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { actual_text, .. } =
+                inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            *actual_text = Some("read\nme".to_owned());
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&control_actual),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::ActualText)
+        );
+
+        let invalid_language = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { language, .. } = inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            *language = Some("ja_JP".to_owned());
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&invalid_language),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::Language)
+        );
+
+        let empty_source = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Inline::MathVector { source_tex, .. } =
+                inline_math_vector_mut(document)
+            else {
+                unreachable!();
+            };
+            source_tex.text_span.end_byte = source_tex.text_span.start_byte;
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&empty_source),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::SourceTexTextSpan)
+        );
+
+        let nul_source = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replace(
+                "\"utf8\":\"(a)x+yMx+y(1)\"",
+                "\"utf8\":\"(a)\\u0000+yMx+y(1)\"",
+            );
+        assert_eq!(
+            precomposed_vector_syntax_error(nul_source.as_bytes()),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::SourceTexTextSpan)
+        );
+
+        let bom_source = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replace(
+                "\"utf8\":\"(a)x+yMx+y(1)\"",
+                "\"utf8\":\"(a)\u{feff}Mx+y(1)\"",
+            );
+        assert_eq!(
+            precomposed_vector_syntax_error(bom_source.as_bytes()),
+            invalid_precomposed_vector(NodeId::new(4), PrecomposedVectorField::SourceTexTextSpan)
+        );
+
+        let non_identity = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replace(
+                "{\"kind\":\"identity\",\"source_span\":{\"end_byte\":6,\"source_id\":0,\"start_byte\":3},\"text_range\":{\"end_byte\":6,\"start_byte\":3}}",
+                "{\"kind\":\"replacement\",\"source_span\":{\"end_byte\":6,\"source_id\":0,\"start_byte\":3},\"text_range\":{\"end_byte\":6,\"start_byte\":3}}",
+            );
+        assert_eq!(
+            precomposed_vector_syntax_error(non_identity.as_bytes()),
+            StagingSemanticSyntaxError::InvalidSourceSpan
+        );
+
+        let reversed_source_span = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replace(
+                "{\"kind\":\"identity\",\"source_span\":{\"end_byte\":6,\"source_id\":0,\"start_byte\":3},\"text_range\":{\"end_byte\":6,\"start_byte\":3}}",
+                "{\"kind\":\"identity\",\"source_span\":{\"end_byte\":3,\"source_id\":0,\"start_byte\":6},\"text_range\":{\"end_byte\":6,\"start_byte\":3}}",
+            );
+        assert_eq!(
+            precomposed_vector_syntax_error(reversed_source_span.as_bytes()),
+            StagingSemanticSyntaxError::InvalidSourceSpan
+        );
+
+        let zero_gap = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replace("\"minimum_gap\":65536", "\"minimum_gap\":0");
+        assert!(parse(zero_gap.as_bytes())
+            .unwrap_err()
+            .to_string()
+            .contains("/document/blocks/0/blocks/2/equation_number/minimum_gap"));
+
+        let nondense_number = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Block::MathVectorBlock {
+                equation_number: Some(number),
+                ..
+            } = math_vector_block_mut(document)
+            else {
+                unreachable!();
+            };
+            number.node_id = 8;
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&nondense_number),
+            invalid_precomposed_vector(
+                NodeId::new(6),
+                PrecomposedVectorField::EquationNumberNodeId
+            )
+        );
+
+        let number_before_formula = mutate_precomposed_and_encode(|document| {
+            let WireStagingM4Block::MathVectorBlock {
+                equation_number: Some(number),
+                ..
+            } = math_vector_block_mut(document)
+            else {
+                unreachable!();
+            };
+            number.span.start_byte = 9;
+        });
+        assert_eq!(
+            precomposed_vector_syntax_error(&number_before_formula),
+            invalid_precomposed_vector(NodeId::new(6), PrecomposedVectorField::EquationNumberSpan)
+        );
+
+        let whitespace_number = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replace("\"utf8\":\"(a)x+yMx+y(1)\"", "\"utf8\":\"(a)x+yMx+y   \"");
+        assert_eq!(
+            precomposed_vector_syntax_error(whitespace_number.as_bytes()),
+            invalid_precomposed_vector(
+                NodeId::new(6),
+                PrecomposedVectorField::EquationNumberTextSpan
+            )
+        );
+    }
+
+    #[test]
+    fn precomposed_vector_limits_charge_once_at_exact_max_and_report_max_plus_one() {
+        let package = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
+        let text_buffer_bytes = package
+            .checked_wire()
+            .unwrap()
+            .text_buffers()
+            .iter()
+            .map(|buffer| u64::try_from(buffer.utf8.len()).unwrap())
+            .sum::<u64>();
+        let authored_bytes = package
+            .precomposed_vector_metrics()
+            .iter()
+            .map(|receipt| {
+                u64::try_from(receipt.alternative().alternative().len()).unwrap()
+                    + receipt
+                        .alternative()
+                        .authored_actual_text()
+                        .map_or(0, |value| u64::try_from(value.len()).unwrap())
+                    + receipt
+                        .language()
+                        .map_or(0, ValidatedPrecomposedVectorLanguageOverride::charged_bytes)
+            })
+            .sum::<u64>();
+        let exact_total = text_buffer_bytes + authored_bytes;
+        let largest_authored = package
+            .precomposed_vector_metrics()
+            .iter()
+            .map(|receipt| receipt.alternative().alternative().len())
+            .chain(
+                package
+                    .checked_wire()
+                    .unwrap()
+                    .text_buffers()
+                    .iter()
+                    .map(|buffer| buffer.utf8.len()),
+            )
+            .max()
+            .unwrap();
+
+        let exact_limits = text_limits(largest_authored, exact_total);
+        assert!(parse_with_limits(PRECOMPOSED_VECTOR_FIXTURE, &exact_limits).is_ok());
+        let max_plus_one_limits = text_limits(largest_authored, exact_total - 1);
+        let error = parse_with_limits(PRECOMPOSED_VECTOR_FIXTURE, &max_plus_one_limits)
+            .expect_err("one byte above aggregate maximum must fail");
+        assert!(matches!(
+            error.downcast_ref::<StagingSemanticSyntaxError>(),
+            Some(StagingSemanticSyntaxError::PrecomposedVectorTextAggregateLimit { .. })
+        ));
+
+        let per_buffer_limits = text_limits(largest_authored - 1, exact_total);
+        let error = parse_with_limits(PRECOMPOSED_VECTOR_FIXTURE, &per_buffer_limits)
+            .expect_err("one byte above per-string maximum must fail");
+        assert!(matches!(
+            error.downcast_ref::<StagingSemanticSyntaxError>(),
+            Some(
+                StagingSemanticSyntaxError::PrecomposedVectorTextBufferLimit {
+                    field: PrecomposedVectorField::Alternative,
+                    ..
+                }
+            )
+        ));
+
+        let session = PrecomposedVectorSyntaxSessionIdentity::fresh();
+        let sources = BTreeMap::new();
+        let text_buffers = BTreeMap::new();
+        let raw_limits = typaxis_core::ResourceLimits {
+            max_ast_nodes: 1,
+            max_ast_nesting_depth: 2,
+            ..typaxis_core::ResourceLimits::default()
+        };
+        let node_limits = ValidatedResourceLimits::new(raw_limits).unwrap();
+        let mut validator = SemanticValidator {
+            sources: &sources,
+            text_buffers: &text_buffers,
+            precomposed_vector_text_buffer_sha256: BTreeMap::new(),
+            precomposed_vector_text_slice_sha256: BTreeMap::new(),
+            next_node_id: 0,
+            node_count: 0,
+            admitted_text_and_math_speech_bytes: 0,
+            math_nodes: Vec::new(),
+            precomposed_vector_session: &session,
+            precomposed_vector_metrics: Vec::new(),
+            canonical_package_sha256: [1; 32],
+            precomposed_vector_limits_fingerprint: precomposed_vector_limits_fingerprint(
+                &node_limits,
+            ),
+            limits: &node_limits,
+        };
+        assert!(validator.precomposed_vector_node(0, None, 2).is_ok());
+        assert_eq!(
+            validator.precomposed_vector_node(1, None, 2),
+            Err(StagingSemanticSyntaxError::PrecomposedVectorAstNodeLimit)
+        );
+
+        let raw_limits = typaxis_core::ResourceLimits {
+            max_ast_nodes: 2,
+            max_ast_nesting_depth: 2,
+            ..typaxis_core::ResourceLimits::default()
+        };
+        let depth_limits = ValidatedResourceLimits::new(raw_limits).unwrap();
+        let mut validator = SemanticValidator {
+            sources: &sources,
+            text_buffers: &text_buffers,
+            precomposed_vector_text_buffer_sha256: BTreeMap::new(),
+            precomposed_vector_text_slice_sha256: BTreeMap::new(),
+            next_node_id: 0,
+            node_count: 0,
+            admitted_text_and_math_speech_bytes: 0,
+            math_nodes: Vec::new(),
+            precomposed_vector_session: &session,
+            precomposed_vector_metrics: Vec::new(),
+            canonical_package_sha256: [1; 32],
+            precomposed_vector_limits_fingerprint: precomposed_vector_limits_fingerprint(
+                &depth_limits,
+            ),
+            limits: &depth_limits,
+        };
+        assert_eq!(
+            validator.precomposed_vector_node(0, None, 3),
+            Err(StagingSemanticSyntaxError::PrecomposedVectorAstDepthLimit)
+        );
+
+        assert!(is_valid_precomposed_vector_provenance(&"x".repeat(128)));
+        assert!(!is_valid_precomposed_vector_provenance(""));
+        assert!(!is_valid_precomposed_vector_provenance(&"x".repeat(129)));
+        assert!(!is_valid_precomposed_vector_provenance("engine\nversion"));
+
+        let mut hash_cache = BTreeMap::new();
+        let mut calculations = 0;
+        let first = cached_precomposed_vector_sha256(&mut hash_cache, 7u32, || {
+            calculations += 1;
+            sha256(b"repeated source")
+        });
+        let second = cached_precomposed_vector_sha256(&mut hash_cache, 7u32, || {
+            calculations += 1;
+            [0; 32]
+        });
+        assert_eq!(first, second);
+        assert_eq!(calculations, 1);
+        assert_eq!(hash_cache.len(), 1);
     }
 
     #[test]

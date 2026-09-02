@@ -432,7 +432,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V04 Metric、source、alternativeのsealed syntax validationを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V03
 - Design inputs: docs/27 §4.2〜4.4、§5、§8.4、§10、§13
 - Primary files:
@@ -468,6 +468,15 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax precomposed_vector_metrics --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax precomposed_vector_alternative --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax precomposed_vector_limits --locked`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V04 change set containing this completion record.
+  - `typaxis.precomposed-vector-metrics/1`のnon-cloneable receiptをsyntax ownerだけが発行する。receiptはprivate session identity、contract 1.4、canonical package SHA-256、effective limits、owner NodeId/SourceSpan、4 kind、unresolved image binding、全raw metric/spacingまたはviewport、deterministic canonical JCS/fingerprintへbindし、別parseの同一bytes receipt、別package、tamperを`I9190`で拒否する。SVG intrinsic ratio、uniform scale、media/profile authorizationはtyped unresolved bindingのままV08へ残した。
+  - metricはpositive/nonnegative/signed safe-integer rangeに加え、baseline、ascent、descent、viewport、`origin_x + viewport.width`をcheckedに検証する。invalid scalar/missing memberはstrict decoderのexact JSON Pointer、関係違反はtyped field location付き`P1102`でresource lowering前に停止する。
+  - math source TeXとequation-number textはnonempty UTF-8 exact slice、per-buffer bound、exactly-one identity TextMap、owner containment、TextBuffer/full-slice SHA-256へbindする。TeXはBOM/NULだけを追加拒否してparse/trim/normalizeせず、番号はmeaningful/control、positive gap、owner直後のdense leaf NodeId、formula-first same-source span順を検証する。null番号はNodeId/AST chargeを消費しない。
+  - 4 kindのAlt、nonnull ActualText、optional BCP 47 language overrideをexact bytesのまま検証した。math null ActualTextはAlt alias、inline Figure nullはabsenceというtyped resolutionを保持し、fallbackを再課金しない。language source recordはraw/canonical spellingと既課金bytesを保持してcomputed-language `/2`へ渡せるが、既存`/1` registry/bytesは変更していない。`svg-safe-2` provenanceは各値をnonempty printable ASCII / 128 bytesで再検証し、parser selectionには使わない。
+  - TextBufferは既存admissionの一回分だけ、Alt/nonnull ActualTextとraw/canonical languageは各authored valueを一回だけaggregateへ課金する。semantic vector/equation nodesは既存AST count/depthを一回だけ使い、`T2100`/`T2101`、`P1120`/`P1121`のexact/max/max+1とreceipt tamperをtargeted mutantで固定した。
+  - milestone指定の3 targeted test、`typaxis-syntax`全test/doc-test、workspace all-target/all-feature check/test、workspace clippy `-D warnings`、Schema validator、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。レビューでmalformed TextMapのreversed SourceSpan arithmetic、package全体を先に再検証しないreceipt verification、反復TextSpanがfull limits JCSとslice本文をreceiptごとに複製するmemory amplification、および同じ大きなTextBuffer/sliceのSHA-256を参照回数分再計算するCPU amplificationを検出した。checked subtraction、package closure、一回計算したlimits fingerprint、定数サイズのTextSpan/buffer/slice-hash binding、session-local hash cacheへ修正した後のfindingは0件である。
+  - listed primary file外の変更はmaster statusと本completion recordだけである。resource open、Safe-SVG parse、intrinsic ratio/scale、style/profile authorization、layout/PDF、computed-language `/2`発行を先取りしていない。
 - Non-goals:
   - SVG intrinsic ratio、Form key、selected placement
   - math semantic equivalenceやreading品質の判定

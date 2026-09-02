@@ -2493,7 +2493,7 @@ acceptance、verificationは
 | MI4-V01 | Completed | MI4-02, MI4-04, MI4-05, MI4-07, MI4-09, MI4-10 |
 | MI4-V02 | Completed | MI4-V01 |
 | MI4-V03 | Completed | MI4-V02 |
-| MI4-V04 | Pending | MI4-V03 |
+| MI4-V04 | Completed | MI4-V03 |
 | MI4-V05 | Pending | MI4-V04 |
 | MI4-V06 | Pending | MI4-V03 |
 | MI4-V07 | Pending | MI4-V06 |
