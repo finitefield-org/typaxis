@@ -1,0 +1,1 @@
+別IDの同一内容を並べる。{x-plus-y}{x-plus-y-alias}

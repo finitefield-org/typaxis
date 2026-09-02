@@ -1,0 +1,9 @@
+fragment_id	text_path	cases	inline_remaining_width	block_frame_width	block_remaining_height	next_empty_frame_height	categories
+block-number	fragments/block-number.txt	numbered-aligned	-	-	-	-	block-math,equation-number
+block-page-end	fragments/block-page-end.txt	long-block	-	31457280	1048576	39321600	block-math,page-end
+dedupe-aliases	fragments/dedupe-aliases.txt	x-plus-y,x-plus-y-alias	-	-	-	-	cross-id-alias,dedupe
+dedupe-ten-use	fragments/dedupe-ten-use.txt	x-plus-y,x-plus-y,x-plus-y,x-plus-y,x-plus-y,x-plus-y,x-plus-y,x-plus-y,x-plus-y,x-plus-y	-	-	-	-	dedupe,ten-use
+japanese-boundaries	fragments/japanese-boundaries.txt	x-plus-y,not-divides,ordered-pair,similar	-	-	-	-	brackets,japanese,punctuation
+language-kinds	fragments/language-kinds.txt	x-plus-y,similar,generic-inline-inherit,generic-inline-override,aligned-block,long-block,generic-block-inherit,generic-block-override	-	-	-	-	language-inheritance,language-override
+line-end	fragments/line-end.txt	x-plus-y	2048000	-	-	-	inline-math,line-end
+mixed-heights	fragments/mixed-heights.txt	fraction-equality,sum,integral,scripts,large-brackets,matrix	-	-	-	-	inline-math,mixed-heights

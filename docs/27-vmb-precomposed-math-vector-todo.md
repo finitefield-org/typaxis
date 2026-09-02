@@ -266,7 +266,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V01 VMB interface corpusとlowering boundaryを固定する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-04, MI4-05, MI4-07, MI4-09, MI4-10
 - Design inputs: docs/27 §2、§4、§8、§15.1、§16 step 1
 - Primary files:
@@ -294,6 +294,13 @@ MI4-V19 -> MI4-13
 - Verification:
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit vmb_precomposed_vector_corpus --locked`
   - `rg -n 'x\\+y|x\\\\sim y|2\\\\nmid 8|frac|sum|int|aligned|currentColor|fill-opacity|stroke-opacity' samples/machine-package/staging/production-book-1/precomposed-vector`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V01 change set containing this completion record.
+  - `resources.tsv`、`cases.tsv`、`fragments.tsv`をcanonical producer-interface ledgerとして追加し、13 logical resources、18 semantic cases、8 ordered document fragmentsを結んだ。全12 unique SVGはVMB側でpath/shapeへlower済みのSafe-SVG 2 positive bytesであり、raw `use`、CSS、font/text、script/animation、embedded/external referenceを含まない。
+  - source TeX、alt/nullable actual text、inherit/override language、`pdf_point_1_65536` metric/spacing、full SVG SHA-256、engine/version/rules identity、intended kindを固定した。同一bytesの2 logical ID/異なるprovenance、同一caseの10 placement、Japanese boundary、line/page末候補のfixed fit context、mixed-height、numbered blockをfragment occurrence ordinalへ結んだ。
+  - `typaxis-testkit`のcorpus-only gateはcontained regular path、canonical UTF-8/LF/TSV/integer、dense unique ID、full-byte hash、printable provenance、metric relationとone-scale viewport、kind別field、exact TeX/category/language binding、Safe-SVG 2 positive subset、alias/10-use/fragment coverageを検証する。欠落metric、非canonical integer、hash mismatch、duplicate ID、forbidden `use`/external image、invalid alpha等のmutantも拒否する。
+  - milestone指定のtargeted test/`rg`、testkit全test、testkit all-target clippy `-D warnings`、workspace fmt check、`python3 schemas/validate.py`、`/usr/bin/git diff --check`はいずれもexit 0。evidenceは`workspace/crates/typaxis-testkit/src/lib.rs`と`samples/machine-package/staging/production-book-1/precomposed-vector/`にある。
+  - Typaxis product code、public command/profile、contract、Schema、capabilityは変更していない。MI4-V02採用前のpre-adoption evidenceに閉じており、scope deviationおよび新規採択ADRはない。
 - Non-goals:
   - Typaxis product code、Schema、capabilityの変更
   - VMBのTeX engine自体の再実装

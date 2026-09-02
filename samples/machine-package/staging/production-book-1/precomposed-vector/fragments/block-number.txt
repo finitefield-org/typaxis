@@ -1,0 +1,2 @@
+独立した番号付き数式を配置する。
+{numbered-aligned}

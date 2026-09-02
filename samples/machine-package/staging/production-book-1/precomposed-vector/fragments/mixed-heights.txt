@@ -1,0 +1,1 @@
+同じ行に{fraction-equality}、{sum}、{integral}、{scripts}、{large-brackets}、{matrix}を並べる。
