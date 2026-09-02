@@ -4378,6 +4378,7 @@ fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Fail
         | Error::ExpectedHashMismatch
         | Error::InvalidMetadata
         | Error::InvalidSafeVector
+        | Error::InvalidSafeVectorV2(_)
         | Error::DeclaredMediaMismatch
         | Error::SvgSafe2Staging
         | Error::InvalidFontFamily

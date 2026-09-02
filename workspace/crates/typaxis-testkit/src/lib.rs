@@ -249,6 +249,7 @@ mod tests {
         "next_empty_frame_height",
         "categories",
     ];
+    const VMB_NEGATIVE_HEADER: [&str; 3] = ["case_id", "expected_reason", "svg_path"];
 
     #[derive(Clone, Debug, Default)]
     struct SafeSvgFacts {
@@ -2011,6 +2012,51 @@ mod tests {
             "</clipPath></defs><rect width=\"1\" height=\"1\" clip-path=\"url(#c)\"/></svg>\n"
         );
         assert!(validate_safe_svg2(clip_alpha, "mutant").is_err());
+    }
+
+    #[test]
+    fn vmb_safe_svg_negative_corpus_is_closed_and_rejected() {
+        let root = vmb_corpus_root();
+        let manifest = read_canonical_utf8(&root.join("negative.tsv")).unwrap();
+        let rows = parse_tsv(&manifest, &VMB_NEGATIVE_HEADER, "negative.tsv").unwrap();
+        let expected_ids: BTreeSet<_> = [
+            "clip-alpha",
+            "external-image",
+            "forbidden-script",
+            "invalid-alpha",
+            "malformed-unclosed",
+            "unsupported-text",
+        ]
+        .into_iter()
+        .collect();
+        let actual_ids: BTreeSet<_> = rows.iter().map(|row| row[0]).collect();
+        assert_eq!(actual_ids, expected_ids);
+
+        let allowed_reasons = [
+            "malformed_svg",
+            "forbidden_feature",
+            "external_reference",
+            "unsupported_feature",
+        ];
+        let mut previous = None;
+        let mut observed_reasons = BTreeSet::new();
+        for row in rows {
+            let [case_id, expected_reason, svg_path]: [&str; 3] = row.try_into().unwrap();
+            assert!(previous.is_none_or(|previous| previous < case_id));
+            previous = Some(case_id);
+            assert!(allowed_reasons.contains(&expected_reason));
+            observed_reasons.insert(expected_reason);
+            assert!(is_portable_relative_path(svg_path));
+            let svg = read_canonical_utf8(&root.join(svg_path)).unwrap();
+            assert!(
+                validate_safe_svg2(&svg, case_id).is_err(),
+                "negative Safe-SVG 2 case {case_id} was silently accepted"
+            );
+        }
+        assert_eq!(
+            observed_reasons,
+            allowed_reasons.into_iter().collect::<BTreeSet<_>>()
+        );
     }
 
     #[test]

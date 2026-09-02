@@ -76,6 +76,12 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
         declaration.media_type = match attestation.attested() {
             AdmittedImageMediaKind::Png => WireImageMediaType::Png,
             AdmittedImageMediaKind::SafeVector => WireImageMediaType::SvgSafe1,
+            AdmittedImageMediaKind::SafeVector2 => {
+                return Err(
+                    "svg-safe-2 requires the versioned precomposed-vector artifact exporter"
+                        .to_owned(),
+                )
+            }
         };
     }
     let document = wire.document().clone();

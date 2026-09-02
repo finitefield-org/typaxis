@@ -1,0 +1,7 @@
+case_id	expected_reason	svg_path
+clip-alpha	unsupported_feature	negative-svg/clip-alpha.svg
+external-image	external_reference	negative-svg/external-image.svg
+forbidden-script	forbidden_feature	negative-svg/forbidden-script.svg
+invalid-alpha	malformed_svg	negative-svg/invalid-alpha.svg
+malformed-unclosed	malformed_svg	negative-svg/malformed-unclosed.svg
+unsupported-text	unsupported_feature	negative-svg/unsupported-text.svg

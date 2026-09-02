@@ -3,10 +3,13 @@
 mod safe_vector;
 
 pub use safe_vector::{
-    SafeVectorClipDefinition, SafeVectorClipUse, SafeVectorDraw, SafeVectorFillRule, SafeVectorIr,
-    SafeVectorLineCap, SafeVectorLineJoin, SafeVectorPath, SafeVectorPoint, SafeVectorSegment,
-    SafeVectorStroke, SafeVectorTransform, SAFE_SVG_PARSER_ID, SAFE_VECTOR_ALLOCATION_CHARGE_ID,
-    SAFE_VECTOR_IR_FINGERPRINT_ID, SAFE_VECTOR_IR_ID,
+    SafeVectorAlpha, SafeVectorClipDefinition, SafeVectorClipUse, SafeVectorDraw, SafeVectorDrawV2,
+    SafeVectorFillRule, SafeVectorIr, SafeVectorIrV2, SafeVectorLineCap, SafeVectorLineJoin,
+    SafeVectorPaint, SafeVectorPaintLayer, SafeVectorParserProfile, SafeVectorPath,
+    SafeVectorPoint, SafeVectorSegment, SafeVectorStroke, SafeVectorStrokeV2, SafeVectorTransform,
+    SAFE_SVG_PARSER_ID, SAFE_SVG_PARSER_ID_V2, SAFE_VECTOR_ALLOCATION_CHARGE_ID,
+    SAFE_VECTOR_ALLOCATION_CHARGE_ID_V2, SAFE_VECTOR_IR_FINGERPRINT_ID,
+    SAFE_VECTOR_IR_FINGERPRINT_ID_V2, SAFE_VECTOR_IR_ID, SAFE_VECTOR_IR_ID_V2,
 };
 
 use core::num::NonZeroU32;
@@ -139,6 +142,7 @@ impl AdmittedFontMediaKind {
 pub enum AdmittedImageMediaKind {
     Png,
     SafeVector,
+    SafeVector2,
 }
 
 impl AdmittedImageMediaKind {
@@ -146,6 +150,66 @@ impl AdmittedImageMediaKind {
         match self {
             Self::Png => "png",
             Self::SafeVector => "svg-safe-1",
+            Self::SafeVector2 => "svg-safe-2",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AdmittedSafeVector {
+    V1(Arc<SafeVectorIr>),
+    V2(Arc<SafeVectorIrV2>),
+}
+
+impl AdmittedSafeVector {
+    pub const fn parser_profile(&self) -> SafeVectorParserProfile {
+        match self {
+            Self::V1(_) => SafeVectorParserProfile::SafeSvg1,
+            Self::V2(_) => SafeVectorParserProfile::SafeSvg2,
+        }
+    }
+
+    pub const fn parser_id(&self) -> &'static str {
+        self.parser_profile().parser_id()
+    }
+
+    pub const fn ir_id(&self) -> &'static str {
+        self.parser_profile().ir_id()
+    }
+
+    pub const fn ir_fingerprint_id(&self) -> &'static str {
+        self.parser_profile().ir_fingerprint_id()
+    }
+
+    pub const fn allocation_charge_id(&self) -> &'static str {
+        self.parser_profile().allocation_charge_id()
+    }
+
+    pub fn fingerprint(&self) -> [u8; 32] {
+        match self {
+            Self::V1(ir) => ir.fingerprint(),
+            Self::V2(ir) => ir.fingerprint(),
+        }
+    }
+
+    pub fn allocation_charge(&self) -> u64 {
+        match self {
+            Self::V1(ir) => ir.allocation_charge(),
+            Self::V2(ir) => ir.allocation_charge(),
+        }
+    }
+
+    pub fn intrinsic_width(&self) -> PositiveLength {
+        match self {
+            Self::V1(ir) => ir.intrinsic_width(),
+            Self::V2(ir) => ir.intrinsic_width(),
+        }
+    }
+
+    pub fn intrinsic_height(&self) -> PositiveLength {
+        match self {
+            Self::V1(ir) => ir.intrinsic_height(),
+            Self::V2(ir) => ir.intrinsic_height(),
         }
     }
 }
@@ -160,7 +224,7 @@ pub struct AdmittedImage {
     width: NonZeroU32,
     height: NonZeroU32,
     decoded_bytes: u64,
-    safe_vector: Option<Arc<SafeVectorIr>>,
+    safe_vector: Option<AdmittedSafeVector>,
     m4_limits_fingerprint: Option<[u8; 32]>,
     m4_profile_fingerprint: Option<[u8; 32]>,
 }
@@ -210,7 +274,30 @@ impl AdmittedImage {
             width: NonZeroU32::MIN,
             height: NonZeroU32::MIN,
             decoded_bytes: ir.allocation_charge(),
-            safe_vector: Some(Arc::new(ir)),
+            safe_vector: Some(AdmittedSafeVector::V1(Arc::new(ir))),
+            m4_limits_fingerprint: Some(m4_limits_fingerprint),
+            m4_profile_fingerprint: Some(m4_profile_fingerprint),
+        }
+    }
+    fn from_verified_safe_vector_v2(
+        image_id: ImageResourceId,
+        uri: PortablePath,
+        bytes: Vec<u8>,
+        sha256: [u8; 32],
+        ir: SafeVectorIrV2,
+        m4_limits_fingerprint: [u8; 32],
+        m4_profile_fingerprint: [u8; 32],
+    ) -> Self {
+        Self {
+            image_id,
+            uri,
+            bytes,
+            sha256,
+            media_kind: AdmittedImageMediaKind::SafeVector2,
+            width: NonZeroU32::MIN,
+            height: NonZeroU32::MIN,
+            decoded_bytes: ir.allocation_charge(),
+            safe_vector: Some(AdmittedSafeVector::V2(Arc::new(ir))),
             m4_limits_fingerprint: Some(m4_limits_fingerprint),
             m4_profile_fingerprint: Some(m4_profile_fingerprint),
         }
@@ -243,10 +330,31 @@ impl AdmittedImage {
         self.decoded_bytes
     }
     pub fn safe_vector(&self) -> Option<&SafeVectorIr> {
-        self.safe_vector.as_deref()
+        match self.safe_vector.as_ref()? {
+            AdmittedSafeVector::V1(ir) => Some(ir),
+            AdmittedSafeVector::V2(_) => None,
+        }
     }
     pub fn safe_vector_arc(&self) -> Option<Arc<SafeVectorIr>> {
-        self.safe_vector.clone()
+        match self.safe_vector.as_ref()? {
+            AdmittedSafeVector::V1(ir) => Some(ir.clone()),
+            AdmittedSafeVector::V2(_) => None,
+        }
+    }
+    pub fn safe_vector_v2(&self) -> Option<&SafeVectorIrV2> {
+        match self.safe_vector.as_ref()? {
+            AdmittedSafeVector::V1(_) => None,
+            AdmittedSafeVector::V2(ir) => Some(ir),
+        }
+    }
+    pub fn safe_vector_v2_arc(&self) -> Option<Arc<SafeVectorIrV2>> {
+        match self.safe_vector.as_ref()? {
+            AdmittedSafeVector::V1(_) => None,
+            AdmittedSafeVector::V2(ir) => Some(ir.clone()),
+        }
+    }
+    pub const fn admitted_safe_vector(&self) -> Option<&AdmittedSafeVector> {
+        self.safe_vector.as_ref()
     }
     pub const fn m4_limits_fingerprint(&self) -> Option<[u8; 32]> {
         self.m4_limits_fingerprint
@@ -255,12 +363,38 @@ impl AdmittedImage {
         self.m4_profile_fingerprint
     }
     pub fn intrinsic_width(&self) -> Option<PositiveLength> {
-        self.safe_vector().map(SafeVectorIr::intrinsic_width)
+        self.admitted_safe_vector()
+            .map(AdmittedSafeVector::intrinsic_width)
     }
     pub fn intrinsic_height(&self) -> Option<PositiveLength> {
-        self.safe_vector().map(SafeVectorIr::intrinsic_height)
+        self.admitted_safe_vector()
+            .map(AdmittedSafeVector::intrinsic_height)
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SafeVectorFailureReason {
+    MalformedSvg,
+    ForbiddenFeature,
+    ExternalReference,
+    UnsupportedFeature,
+    HashMismatch,
+    ResourceConflict,
+}
+
+impl SafeVectorFailureReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MalformedSvg => "malformed_svg",
+            Self::ForbiddenFeature => "forbidden_feature",
+            Self::ExternalReference => "external_reference",
+            Self::UnsupportedFeature => "unsupported_feature",
+            Self::HashMismatch => "hash_mismatch",
+            Self::ResourceConflict => "resource_conflict",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResourceAdmissionError {
     MissingLogicalResource,
@@ -289,6 +423,7 @@ pub enum ResourceAdmissionError {
     DeclaredMediaMismatch,
     SvgSafe2Staging,
     InvalidSafeVector,
+    InvalidSafeVectorV2(SafeVectorFailureReason),
     VectorNodeLimit,
     VectorPathSegmentLimit,
     VectorNestingLimit,
@@ -330,6 +465,24 @@ impl ResourceAdmissionError {
                 "svg-safe-2 requires the versioned precomposed-vector admission pipeline"
             }
             Self::InvalidSafeVector => "safe vector bytes contain a forbidden or invalid feature",
+            Self::InvalidSafeVectorV2(SafeVectorFailureReason::MalformedSvg) => {
+                "R7100 malformed_svg: Safe-SVG 2 is malformed"
+            }
+            Self::InvalidSafeVectorV2(SafeVectorFailureReason::ForbiddenFeature) => {
+                "R7100 forbidden_feature: Safe-SVG 2 contains a forbidden feature"
+            }
+            Self::InvalidSafeVectorV2(SafeVectorFailureReason::ExternalReference) => {
+                "R7100 external_reference: Safe-SVG 2 contains an external reference"
+            }
+            Self::InvalidSafeVectorV2(SafeVectorFailureReason::UnsupportedFeature) => {
+                "R7100 unsupported_feature: Safe-SVG 2 contains an unsupported feature"
+            }
+            Self::InvalidSafeVectorV2(SafeVectorFailureReason::HashMismatch) => {
+                "R7100 hash_mismatch: Safe-SVG 2 hash does not match its declaration"
+            }
+            Self::InvalidSafeVectorV2(SafeVectorFailureReason::ResourceConflict) => {
+                "R7100 resource_conflict: equal SafeVector digests name different bytes"
+            }
             Self::VectorNodeLimit => "R7120: safe vector node limit was exceeded",
             Self::VectorPathSegmentLimit => "R7121: safe vector path segment limit was exceeded",
             Self::VectorNestingLimit => "R7122: safe vector nesting limit was exceeded",
@@ -408,6 +561,7 @@ impl ResourceAdmissionFailure {
         match self.error {
             ResourceAdmissionError::InvalidMetadata
             | ResourceAdmissionError::InvalidSafeVector
+            | ResourceAdmissionError::InvalidSafeVectorV2(_)
             | ResourceAdmissionError::DeclaredMediaMismatch => Some(
                 PublicMachineError::UnsupportedResource(self.subject.clone()),
             ),
@@ -695,6 +849,12 @@ enum VerifiedMetadata {
         m4_limits_fingerprint: [u8; 32],
         m4_profile_fingerprint: [u8; 32],
     },
+    SafeVector2 {
+        source: PendingResourceBytes,
+        ir: Box<SafeVectorIrV2>,
+        m4_limits_fingerprint: [u8; 32],
+        m4_profile_fingerprint: [u8; 32],
+    },
 }
 
 /// Unforgeable proof that a crate-owned parser derived metadata from the exact
@@ -760,6 +920,25 @@ impl VerifiedMetadataReceiptOwner {
             return Err(ResourceAdmissionError::InvalidSafeVector);
         }
         Ok(VerifiedMetadataReceipt(VerifiedMetadata::SafeVector {
+            source,
+            ir: Box::new(ir),
+            m4_limits_fingerprint,
+            m4_profile_fingerprint,
+        }))
+    }
+    fn issue_safe_vector_v2(
+        &self,
+        source: PendingResourceBytes,
+        ir: SafeVectorIrV2,
+        m4_limits_fingerprint: [u8; 32],
+        m4_profile_fingerprint: [u8; 32],
+    ) -> Result<VerifiedMetadataReceipt, ResourceAdmissionError> {
+        if source.image_id().is_none() || ir.draws().is_empty() || ir.allocation_charge() == 0 {
+            return Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                SafeVectorFailureReason::MalformedSvg,
+            ));
+        }
+        Ok(VerifiedMetadataReceipt(VerifiedMetadata::SafeVector2 {
             source,
             ir: Box::new(ir),
             m4_limits_fingerprint,
@@ -1165,7 +1344,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
             ImageMediaType::SvgSafe1 => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
-            ImageMediaType::SvgSafe2 => return Err(ResourceAdmissionError::SvgSafe2Staging),
+            ImageMediaType::SvgSafe2 => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
         };
         if observed != expected {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
@@ -1189,20 +1368,34 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .as_ref()
             .and_then(|policy| policy.images.get(image_id.get() as usize))
             .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
-        if declared != ImageMediaType::SvgSafe1 {
-            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
-        }
+        let parser_profile = match declared {
+            ImageMediaType::SvgSafe1 => SafeVectorParserProfile::SafeSvg1,
+            ImageMediaType::SvgSafe2 => SafeVectorParserProfile::SafeSvg2,
+            ImageMediaType::Png => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
+        };
         let declaration = self
             .declarations
             .images
             .get(image_id.get() as usize)
             .filter(|declaration| declaration.image_id == image_id)
             .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        if parser_profile == SafeVectorParserProfile::SafeSvg2
+            && declaration.expected_sha256.is_none()
+        {
+            return Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                SafeVectorFailureReason::HashMismatch,
+            ));
+        }
         if declaration
             .expected_sha256
             .is_some_and(|expected| expected != source.content_hash())
         {
-            return Err(ResourceAdmissionError::ExpectedHashMismatch);
+            return Err(match parser_profile {
+                SafeVectorParserProfile::SafeSvg1 => ResourceAdmissionError::ExpectedHashMismatch,
+                SafeVectorParserProfile::SafeSvg2 => ResourceAdmissionError::InvalidSafeVectorV2(
+                    SafeVectorFailureReason::HashMismatch,
+                ),
+            });
         }
         if attest_image_media_kind(source.bytes()) == Ok(AdmittedImageMediaKind::Png) {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
@@ -1216,7 +1409,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 .iter()
                 .zip(&self.declarations.images[..image_id.get() as usize])
                 .any(|(media, declaration)| {
-                    *media == ImageMediaType::SvgSafe1
+                    matches!(media, ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2)
                         && !self.images.contains_key(&declaration.image_id)
                 })
         }) {
@@ -1237,33 +1430,58 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .max_vector_path_segments
             .checked_sub(self.vector_path_work_used)
             .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
-        let decoded = safe_vector::decode_with_work_budget(
-            source.bytes(),
-            limits,
-            remaining_nodes,
-            remaining_path_work,
-        )?;
+        let (work, receipt) = match parser_profile {
+            SafeVectorParserProfile::SafeSvg1 => {
+                let decoded = safe_vector::decode_with_work_budget(
+                    source.bytes(),
+                    limits,
+                    remaining_nodes,
+                    remaining_path_work,
+                )?;
+                let work = decoded.work;
+                let owner = VerifiedMetadataReceiptOwner::new();
+                let receipt = owner.issue_safe_vector(
+                    source,
+                    decoded.ir,
+                    limits.fingerprint(),
+                    self.m4_profile_fingerprint
+                        .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?,
+                )?;
+                (work, receipt)
+            }
+            SafeVectorParserProfile::SafeSvg2 => {
+                let decoded = safe_vector::decode_v2_with_work_budget(
+                    source.bytes(),
+                    limits,
+                    remaining_nodes,
+                    remaining_path_work,
+                )?;
+                let work = decoded.work;
+                let owner = VerifiedMetadataReceiptOwner::new();
+                let receipt = owner.issue_safe_vector_v2(
+                    source,
+                    decoded.ir,
+                    limits.fingerprint(),
+                    self.m4_profile_fingerprint
+                        .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?,
+                )?;
+                (work, receipt)
+            }
+        };
         let next_nodes = self
             .vector_nodes_used
-            .checked_add(decoded.work.nodes)
+            .checked_add(work.nodes)
             .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
         if next_nodes > limits.extension().get().max_vector_nodes {
             return Err(ResourceAdmissionError::VectorNodeLimit);
         }
         let next_path_work = self
             .vector_path_work_used
-            .checked_add(decoded.work.path_work)
+            .checked_add(work.path_work)
             .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
         if next_path_work > limits.extension().get().max_vector_path_segments {
             return Err(ResourceAdmissionError::VectorPathSegmentLimit);
         }
-        let limits_fingerprint = limits.fingerprint();
-        let profile_fingerprint = self
-            .m4_profile_fingerprint
-            .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
-        let owner = VerifiedMetadataReceiptOwner::new();
-        let receipt =
-            owner.issue_safe_vector(source, decoded.ir, limits_fingerprint, profile_fingerprint)?;
         self.bind_verified_metadata(receipt)?;
         self.vector_nodes_used = next_nodes;
         self.vector_path_work_used = next_path_work;
@@ -1285,8 +1503,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?
         {
             ImageMediaType::Png => self.parse_and_bind_declared_png(source),
-            ImageMediaType::SvgSafe1 => self.parse_and_bind_declared_safe_vector(source),
-            ImageMediaType::SvgSafe2 => Err(ResourceAdmissionError::SvgSafe2Staging),
+            ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2 => {
+                self.parse_and_bind_declared_safe_vector(source)
+            }
         }
     }
 
@@ -1477,6 +1696,56 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 let replaced = self.images.insert(id, image);
                 debug_assert!(replaced.is_none());
             }
+            VerifiedMetadata::SafeVector2 {
+                source,
+                ir,
+                m4_limits_fingerprint,
+                m4_profile_fingerprint,
+            } => {
+                self.ensure_session(&source)?;
+                let id = source
+                    .image_id()
+                    .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+                let declaration = self
+                    .declarations
+                    .images
+                    .get(id.get() as usize)
+                    .filter(|candidate| candidate.image_id == id)
+                    .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+                if source.uri() != &declaration.uri || source.face_index().is_some() {
+                    return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+                }
+                if declaration
+                    .expected_sha256
+                    .is_some_and(|expected| expected != source.content_hash())
+                {
+                    return Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                        SafeVectorFailureReason::HashMismatch,
+                    ));
+                }
+                if self
+                    .m4_limits
+                    .as_ref()
+                    .map_or(true, |limits| limits.fingerprint() != m4_limits_fingerprint)
+                    || self.m4_profile_fingerprint != Some(m4_profile_fingerprint)
+                {
+                    return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+                }
+                if self.images.contains_key(&id) {
+                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
+                }
+                let image = AdmittedImage::from_verified_safe_vector_v2(
+                    id,
+                    source.uri,
+                    source.bytes,
+                    source.sha256,
+                    *ir,
+                    m4_limits_fingerprint,
+                    m4_profile_fingerprint,
+                );
+                let replaced = self.images.insert(id, image);
+                debug_assert!(replaced.is_none());
+            }
         }
         Ok(())
     }
@@ -1488,7 +1757,8 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let subject = match &receipt.0 {
             VerifiedMetadata::Font { source, .. }
             | VerifiedMetadata::Image { source, .. }
-            | VerifiedMetadata::SafeVector { source, .. } => source.error_subject(),
+            | VerifiedMetadata::SafeVector { source, .. }
+            | VerifiedMetadata::SafeVector2 { source, .. } => source.error_subject(),
         };
         self.bind_verified_metadata(receipt)
             .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
@@ -1527,6 +1797,17 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         {
             return Err(ResourceAdmissionError::MissingLogicalResource);
         }
+        let mut vector_aliases = Vec::new();
+        vector_aliases
+            .try_reserve_exact(self.images.len())
+            .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+        for image in self.images.values() {
+            if image.admitted_safe_vector().is_some() {
+                vector_aliases.push((image.content_hash(), image.bytes()));
+            }
+        }
+        validate_safe_vector_digest_aliases(&vector_aliases)?;
+        drop(vector_aliases);
         let font_families = FontFamilyTable::new(
             self.declarations
                 .font_faces
@@ -1543,6 +1824,24 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             declared_media_policy: self.declared_media_policy,
         })
     }
+}
+
+fn validate_safe_vector_digest_aliases(
+    aliases: &[([u8; 32], &[u8])],
+) -> Result<(), ResourceAdmissionError> {
+    let mut first_bytes_by_digest = BTreeMap::new();
+    for (digest, bytes) in aliases {
+        if first_bytes_by_digest
+            .get(digest)
+            .is_some_and(|first_bytes| *first_bytes != *bytes)
+        {
+            return Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                SafeVectorFailureReason::ResourceConflict,
+            ));
+        }
+        first_bytes_by_digest.entry(*digest).or_insert(*bytes);
+    }
+    Ok(())
 }
 
 fn parse_sfnt_metadata(
@@ -1987,7 +2286,7 @@ impl AdmittedResourceLedger {
                 canonical.push(',');
             }
             canonical.push('{');
-            if let Some(vector) = image.safe_vector() {
+            if let Some(vector) = image.admitted_safe_vector() {
                 canonical.push_str("\"allocation_charge\":");
                 canonical.push_str(&vector.allocation_charge().to_string());
                 canonical.push_str(",\"image_id\":");
@@ -1998,6 +2297,10 @@ impl AdmittedResourceLedger {
                 canonical.push_str(&vector.intrinsic_width().get().raw().to_string());
                 canonical.push_str(",\"ir_fingerprint\":");
                 push_hash_hex(&mut canonical, vector.fingerprint());
+                if matches!(vector, AdmittedSafeVector::V2(_)) {
+                    canonical.push_str(",\"ir_id\":");
+                    push_jcs_string(&mut canonical, vector.ir_id());
+                }
                 canonical.push_str(",\"limits_fingerprint\":");
                 push_hash_hex(
                     &mut canonical,
@@ -2007,6 +2310,10 @@ impl AdmittedResourceLedger {
                 );
                 canonical.push_str(",\"media_kind\":");
                 push_jcs_string(&mut canonical, image.media_kind().as_str());
+                if matches!(vector, AdmittedSafeVector::V2(_)) {
+                    canonical.push_str(",\"parser_id\":");
+                    push_jcs_string(&mut canonical, vector.parser_id());
+                }
                 canonical.push_str(",\"profile_fingerprint\":");
                 push_hash_hex(
                     &mut canonical,
@@ -2084,8 +2391,10 @@ pub struct StagingDeclaredImageAttestation {
     attested: AdmittedImageMediaKind,
     sha256: [u8; 32],
     safe_vector_ir_fingerprint: Option<[u8; 32]>,
+    safe_vector_ir_id: Option<&'static str>,
     safe_vector_allocation_charge: Option<u64>,
     m4_limits_fingerprint: Option<[u8; 32]>,
+    safe_vector_parser_id: Option<&'static str>,
     m4_profile_fingerprint: Option<[u8; 32]>,
 }
 
@@ -2108,11 +2417,17 @@ impl StagingDeclaredImageAttestation {
     pub const fn safe_vector_ir_fingerprint(&self) -> Option<[u8; 32]> {
         self.safe_vector_ir_fingerprint
     }
+    pub const fn safe_vector_ir_id(&self) -> Option<&'static str> {
+        self.safe_vector_ir_id
+    }
     pub const fn safe_vector_allocation_charge(&self) -> Option<u64> {
         self.safe_vector_allocation_charge
     }
     pub const fn m4_limits_fingerprint(&self) -> Option<[u8; 32]> {
         self.m4_limits_fingerprint
+    }
+    pub const fn safe_vector_parser_id(&self) -> Option<&'static str> {
+        self.safe_vector_parser_id
     }
     pub const fn m4_profile_fingerprint(&self) -> Option<[u8; 32]> {
         self.m4_profile_fingerprint
@@ -2205,8 +2520,10 @@ pub fn staging_declared_base_catalog(
         let ImageMediaDeclaration::Declared(media) = declaration.media else {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         };
-        if media == ImageMediaType::SvgSafe2 {
-            return Err(ResourceAdmissionError::SvgSafe2Staging);
+        if media == ImageMediaType::SvgSafe2 && declaration.expected_sha256.is_none() {
+            return Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                SafeVectorFailureReason::HashMismatch,
+            ));
         }
         image_media.push(media);
         images.push(ImageDeclaration {
@@ -2244,9 +2561,6 @@ pub fn close_staging_declared_media(
         .images
         .iter()
         .map(|declaration| match declaration.media {
-            ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => {
-                Err(ResourceAdmissionError::SvgSafe2Staging)
-            }
             ImageMediaDeclaration::Declared(media) => Ok(media),
             ImageMediaDeclaration::LegacyUnspecified => {
                 Err(ResourceAdmissionError::DeclaredMediaMismatch)
@@ -2310,7 +2624,7 @@ pub fn close_staging_declared_media(
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
             ImageMediaType::SvgSafe1 => AdmittedImageMediaKind::SafeVector,
-            ImageMediaType::SvgSafe2 => return Err(ResourceAdmissionError::SvgSafe2Staging),
+            ImageMediaType::SvgSafe2 => AdmittedImageMediaKind::SafeVector2,
         };
         if image.image_id() != declaration.image_id
             || image.uri() != &declaration.uri
@@ -2321,15 +2635,19 @@ pub fn close_staging_declared_media(
         {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         }
+        let vector = image.admitted_safe_vector();
+        let is_v2 = matches!(vector, Some(AdmittedSafeVector::V2(_)));
         images.push(StagingDeclaredImageAttestation {
             image_id: image.image_id(),
             uri: image.uri().clone(),
             declared,
             attested: image.media_kind(),
             sha256: image.content_hash(),
-            safe_vector_ir_fingerprint: image.safe_vector().map(SafeVectorIr::fingerprint),
-            safe_vector_allocation_charge: image.safe_vector().map(SafeVectorIr::allocation_charge),
+            safe_vector_ir_fingerprint: vector.map(AdmittedSafeVector::fingerprint),
+            safe_vector_ir_id: is_v2.then_some(SAFE_VECTOR_IR_ID_V2),
+            safe_vector_allocation_charge: vector.map(AdmittedSafeVector::allocation_charge),
             m4_limits_fingerprint: image.m4_limits_fingerprint(),
+            safe_vector_parser_id: is_v2.then_some(SAFE_SVG_PARSER_ID_V2),
             m4_profile_fingerprint: image.m4_profile_fingerprint(),
         });
     }
@@ -2387,9 +2705,17 @@ fn encode_staging_declared_media(
             output.push_str(",\"safe_vector_ir_fingerprint\":");
             push_hash_hex(&mut output, fingerprint);
         }
+        if let Some(ir_id) = image.safe_vector_ir_id {
+            output.push_str(",\"safe_vector_ir_id\":");
+            push_jcs_string(&mut output, ir_id);
+        }
         if let Some(fingerprint) = image.m4_limits_fingerprint {
             output.push_str(",\"safe_vector_limits_fingerprint\":");
             push_hash_hex(&mut output, fingerprint);
+        }
+        if let Some(parser_id) = image.safe_vector_parser_id {
+            output.push_str(",\"safe_vector_parser_id\":");
+            push_jcs_string(&mut output, parser_id);
         }
         if let Some(fingerprint) = image.m4_profile_fingerprint {
             output.push_str(",\"safe_vector_profile_fingerprint\":");
@@ -3904,5 +4230,183 @@ mod tests {
             Err(ResourceAdmissionError::ExpectedHashMismatch)
         );
         assert!(wrong_resolver.progress_token().images().is_empty());
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn safe_svg_2_stable_read_binds_media_parser_ir_hash_and_limits() {
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/svg/fraction-equality.svg"
+        ));
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: vec![typaxis_document::StagingM4ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("fraction-equality.svg").unwrap(),
+                expected_sha256: Some(sha256(bytes)),
+                media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2),
+                vector_provenance: Some(typaxis_document::VectorProvenance {
+                    engine_id: "vmb.texToSvg".to_owned(),
+                    engine_version: "2026.09.0".to_owned(),
+                    rules_version: "vmb.math-safe-svg/1".to_owned(),
+                }),
+            }],
+        };
+        let catalog = staging_declared_base_catalog(&declarations).unwrap();
+        let tree = TempTree::new("safe-svg-2");
+        fs::write(tree.path().join("fraction-equality.svg"), bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let limits = M4EffectiveResourceLimits::defaults_for(config.limits());
+        let profile_fingerprint = sha256(b"typaxis.test-safe-svg-2-profile/1");
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &limits,
+            profile_fingerprint,
+            host.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        resolver.parse_and_bind_declared_image(pending).unwrap();
+        let ledger = resolver.finish().unwrap();
+        let image = ledger.image(ImageResourceId::new(0)).unwrap();
+        assert_eq!(image.media_kind(), AdmittedImageMediaKind::SafeVector2);
+        assert_eq!(image.content_hash(), sha256(bytes));
+        assert!(image.safe_vector().is_none());
+        let ir = image.safe_vector_v2().unwrap();
+        assert_eq!(ir.parser_profile(), SafeVectorParserProfile::SafeSvg2);
+        assert_eq!(
+            image.admitted_safe_vector().unwrap().parser_id(),
+            SAFE_SVG_PARSER_ID_V2
+        );
+        assert_eq!(
+            image.admitted_safe_vector().unwrap().ir_id(),
+            SAFE_VECTOR_IR_ID_V2
+        );
+        assert_eq!(image.m4_limits_fingerprint(), Some(limits.fingerprint()));
+        assert_eq!(image.m4_profile_fingerprint(), Some(profile_fingerprint));
+        assert!(ir
+            .draws()
+            .iter()
+            .any(|draw| draw.fill().paint() == SafeVectorPaint::CurrentColor));
+        assert!(ir
+            .draws()
+            .iter()
+            .any(|draw| draw.fill().alpha().raw() == 49_152));
+        assert!(ir
+            .draws()
+            .iter()
+            .any(|draw| draw.stroke().paint().alpha().raw() == 32_768));
+
+        let closed = close_staging_declared_media(&ledger, &declarations).unwrap();
+        let attestation = &closed.images()[0];
+        assert_eq!(attestation.attested(), AdmittedImageMediaKind::SafeVector2);
+        assert_eq!(
+            attestation.safe_vector_ir_fingerprint(),
+            Some(ir.fingerprint())
+        );
+        assert_eq!(attestation.safe_vector_ir_id(), Some(SAFE_VECTOR_IR_ID_V2));
+        assert_eq!(
+            attestation.safe_vector_parser_id(),
+            Some(SAFE_SVG_PARSER_ID_V2)
+        );
+        assert!(closed.canonical_jcs().contains(SAFE_SVG_PARSER_ID_V2));
+        assert!(closed.canonical_jcs().contains(SAFE_VECTOR_IR_ID_V2));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn safe_svg_2_declared_hash_mismatch_precedes_parser_work() {
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/svg/x-plus-y.svg"
+        ));
+        let missing_hash = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: vec![typaxis_document::StagingM4ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("x-plus-y.svg").unwrap(),
+                expected_sha256: None,
+                media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2),
+                vector_provenance: Some(typaxis_document::VectorProvenance {
+                    engine_id: "vmb.texToSvg".to_owned(),
+                    engine_version: "2026.09.0".to_owned(),
+                    rules_version: "vmb.math-safe-svg/1".to_owned(),
+                }),
+            }],
+        };
+        assert_eq!(
+            staging_declared_base_catalog(&missing_hash),
+            Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                SafeVectorFailureReason::HashMismatch
+            ))
+        );
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: vec![typaxis_document::StagingM4ImageDeclaration {
+                image_id: ImageResourceId::new(0),
+                uri: PortablePath::new("x-plus-y.svg").unwrap(),
+                expected_sha256: Some([0; 32]),
+                media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2),
+                vector_provenance: Some(typaxis_document::VectorProvenance {
+                    engine_id: "vmb.texToSvg".to_owned(),
+                    engine_version: "2026.09.0".to_owned(),
+                    rules_version: "vmb.math-safe-svg/1".to_owned(),
+                }),
+            }],
+        };
+        let catalog = staging_declared_base_catalog(&declarations).unwrap();
+        let tree = TempTree::new("safe-svg-2-hash");
+        fs::write(tree.path().join("x-plus-y.svg"), bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let limits = M4EffectiveResourceLimits::defaults_for(config.limits());
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &limits,
+            sha256(b"typaxis.test-safe-svg-2-profile/1"),
+            host.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            resolver.parse_and_bind_declared_image(pending),
+            Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                SafeVectorFailureReason::HashMismatch
+            ))
+        );
+        assert!(resolver.progress_token().images().is_empty());
+    }
+
+    #[test]
+    fn safe_svg_2_collision_guard_uses_owner_private_admitted_digest_records() {
+        let digest = [7; 32];
+        assert_eq!(
+            validate_safe_vector_digest_aliases(&[
+                (digest, b"same"),
+                ([8; 32], b"other"),
+                (digest, b"same"),
+            ]),
+            Ok(())
+        );
+        assert_eq!(
+            validate_safe_vector_digest_aliases(&[(digest, b"first"), (digest, b"second")]),
+            Err(ResourceAdmissionError::InvalidSafeVectorV2(
+                SafeVectorFailureReason::ResourceConflict
+            ))
+        );
+        assert_eq!(
+            validate_safe_vector_digest_aliases(&[([1; 32], b"first"), ([2; 32], b"second")]),
+            Ok(())
+        );
     }
 }

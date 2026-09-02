@@ -5,7 +5,7 @@ the canonical private contract-1.4 Wire fixture added by `MI4-V03`. The
 `document-package.json` fixture is accepted only by the private 1.4 decoder and
 Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
-The corpus has three canonical ledgers plus one private Wire fixture:
+The corpus has four canonical ledgers plus one private Wire fixture:
 
 - `resources.tsv` records dense logical image IDs, contained SVG paths,
   hash-derived production URIs, exact SHA-256 values, and producer provenance.
@@ -16,6 +16,9 @@ The corpus has three canonical ledgers plus one private Wire fixture:
   occurrences and optional line/block fit context. A fragment placement is
   written as `{case-id}`; this notation and its context fields are test
   evidence and are not a Typaxis source syntax.
+- `negative.tsv` binds rejected SVG fixtures under `negative-svg/` to the
+  closed Safe-SVG 2 `R7100` reason vocabulary. These files are parser test
+  inputs and are never referenced by the document package.
 - `document-package.json` and `input.tsf` form the canonical strict-Wire/JCS
   fixture covering all four vector kinds, nullable actual text, source TeX,
   spacing, equation-number child shape, and one `svg-safe-2` provenance record.

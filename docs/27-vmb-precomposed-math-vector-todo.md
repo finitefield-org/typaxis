@@ -538,7 +538,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V06 Safe-SVG 2のbounded admissionとcanonical IRを実装する
 
-- Status: Pending
+- Status: Complete
 - Depends on: MI4-V03
 - Design inputs: docs/27 §8、§9.1、§13
 - Primary files:
@@ -573,6 +573,16 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resource-admission safe_svg_1_frozen --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit vmb_safe_svg_negative_corpus --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V06 change set containing this completion record.
+  - declared `ImageMediaType`から選ぶnominal `SafeVectorParserProfile`を追加し、既存Safe-SVG 1 decoder/JCS/fingerprint/allocation式を変更せず、独立したfixed-stack 3-pass Safe-SVG 2 decoderと`typaxis.safe-vector-ir/2`を実装した。`None | FixedRgb8 | CurrentColor`とfill/stroke別unsigned 16.16 alpha、root viewport最外周clip、parser/IR/fingerprint/allocation identityをcanonical IRへ保持する。
+  - Safe-SVG 2はexact `currentColor`とclosed alpha lexicalだけを受理し、alphaをround-half-to-evenで変換してsource nestingでは継承、child指定では置換する。既存geometry/path/transform/viewBox/local clip規則を再利用し、CSS、script/event/animation、text/font/image/use、external reference、paint server、group opacity、mask/filter/blend、entity/DOCTYPE/PI、unknown syntaxをtyped `R7100` reasonでfail closedにした。positive paintが全drawに存在しないresourceも`forbidden_feature`で拒否する。
+  - Count passでnode/path/depthのinclusive limitとchecked `64 * nodes + 80 * stored_segments + 48 * paint_or_clip_commands + source_clip_id_bytes`を検証してからAnalyze/Build allocationへ進む。stable full bytesから実SHA-256を計算してdeclared hashとparser work前に照合し、ledger completionではdigestごとの先頭bytesとのlinear full-byte比較でcollision aliasを`resource_conflict`へ閉じた。任意digestを注入できる面はcrate-private test seamだけである。
+  - admitted image/declared-media attestationは`svg-safe-2`、parser/IR ID、IR fingerprint、allocation charge、stable hash、M4 limits/profile fingerprintをbindする。legacy `safe_vector()` APIはSafe-SVG 1だけを返し、new V2 accessorsをnominally分離した。Safe-SVG 1はcanonical IR JCS hash、IR fingerprint、allocation charge、checked-in fixture SHAをgoldenで固定した。
+  - checked-in positive VMB corpus全件と、4 typed reasonを覆うsorted `negative.tsv` / `negative-svg/` corpusを検査する。negative ledgerのrow/path/reasonをparserのexact resultへ直接結び、alpha lexical・inherit/replace、clip closure、limit exact/max+1、hash mismatch、private collision、truncated/non-UTF-8/deep nesting no-panicを追加した。
+  - milestone指定のtargeted test、changed crate test、workspace all-target/all-feature test、workspace clippy `-D warnings`、fmt check、`python3 schemas/validate.py`、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは3869 refsを含む全bundle/fixtureを通過した。
+  - レビューではnesting limit/no-panicの明示的境界不足、negative ledgerとtyped reason期待値が独立してdriftできる点、同一digest aliasのcollision guardが全ペアfull-byte比較となる二乗時間経路を修正した。再検証後のfindingは0件である。
+  - listed primary file外ではexhaustive enum compatibilityのため`typaxis-cli` 2ファイルと本completion recordを変更した。`typaxis-resource-admission/Cargo.toml`は変更せず、新規SVG/XML/renderer dependency、Display/layout/PDF/Form処理を追加していない。
 - Non-goals:
   - SVG 2/CSSの一般実装
   - Form/PDF object生成
