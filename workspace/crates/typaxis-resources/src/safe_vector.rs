@@ -461,4 +461,12 @@ mod tests {
             )
             .unwrap();
     }
+
+    #[test]
+    fn safe_vector_form_plans_v1_frozen() {
+        let fixture = staging_safe_vector_resource_fixture().unwrap();
+        const FROZEN_JCS: &str = r#"{"admitted_fingerprint":"98e5a0d5ee17e1209934d3b615206404b4f71c178917d9a257a2c4439b33bfdd","algorithm":"typaxis.safe-vector-form-plans/1","display_fingerprint":"d844df26a1b70890b495141d2a67b270f0dd98ec436bc09d570196f9d23553f0","limits_fingerprint":"2180cc08f542de5844bf79c9450b6c75b4524b165140e25c93fcd29895bc8381","plans":[{"admitted_sha256":"412cab6d3c9a95b4aa920cd8d9c6030bef64257bf3fea7ec864c460cc137fb35","algorithm":"typaxis.safe-vector-form-plan/1","image_id":0,"ir_fingerprint":"6c2dc2bcd1fa3688d05bf9fe4b54ace1c20d5a2074828c1e8daea18c9607afd3","limits_fingerprint":"2180cc08f542de5844bf79c9450b6c75b4524b165140e25c93fcd29895bc8381","usages":[{"display_command_fingerprint":"5ea9ad064267cf807d9f68cc1d52951d7ecb6e985ffb4bdad473380daf14804f","occurrence":0,"page_index":0}]}]}"#;
+        assert_eq!(fixture.plans.canonical_jcs(), FROZEN_JCS);
+        assert_eq!(fixture.plans.fingerprint(), sha256(FROZEN_JCS.as_bytes()));
+    }
 }

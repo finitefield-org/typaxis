@@ -589,7 +589,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V07 VectorContentKeyとdedupe planning primitiveを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V06
 - Design inputs: docs/27 §8.3、§9、§11
 - Primary files:
@@ -624,6 +624,17 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resources vector_content_candidates --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resources vector_ext_gstate_plan --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-resources safe_vector_form_plans_v1_frozen --locked`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V07 change set containing this completion record.
+  - admitted stable-byte SHA-256、vector-only typed media、parser ID、IR ID、IR fingerprintのexact tupleをprivate fieldへ持ち、`AdmittedImage`以外から作れない`VectorContentKey`を追加した。比較はsource hash、media UTF-8、parser ID UTF-8、IR ID UTF-8、IR fingerprintのcomponent順で明示実装し、文字列連結、resource ID、provenance、first-use順をkeyへ混入させていない。
+  - `VectorContentCandidateRegistry`はcomplete declared-media closureを再検証してから全SafeVector aliasをkey・numeric image ID順へcanonicalizeする。同一keyはcanonical admitted IR、intrinsic size/viewBox、numeric unique alpha pair planを共有する一候補となり、異なるsource hashまたはmedia/parser/IR identityは共有しない。`typaxis.vector-form-dedupe/1` receiptはcandidate/alias count、candidate facts、conditional relative object-role delta、canonical JCS/fingerprintをbindする。
+  - alias recordはimage ID、declared URI/expected hash、admitted hash、per-alias IR allocation charge、profile/limits fingerprintを保持する。Safe-SVG 2だけproducer engine/version/rules provenance memberをrequired objectとして保持し、Safe-SVG 1ではmember自体を出さない。同一content aliasもadmission chargeを各recordへ残し、unused aliasもfactから落とさない。
+  - ExtGState planは各admitted drawのresolved fill/stroke unsigned 16.16 pairだけをnumeric昇順で一意化し、実在するopaque `(65536,65536)`も省略しない。Form roleをrelative zero、ExtGState roleをpair順のone-based値とし、checked Form + ExtGState countだけを発行する。absolute object number、resource name、global `max_pdf_objects` chargeは発行していない。
+  - selected candidateとalias別nonzero usage countのprivate join shapeだけを予約し、public constructor、selected usage、Form plan/name、PDF hashを追加していない。既存`finalize_staging_safe_vector_forms`と`typaxis.safe-vector-form-plan(s)/1`は変更せず、既存Figure fixtureのexact canonical JCS/fingerprintを`safe_vector_form_plans_v1_frozen`で固定した。
+  - same ID/different content、same key/two IDs/different provenance、same admitted hash/different Safe-SVG media/parser/IR、same canonical IR/different source hash、unused alias、conditional provenance/hash failure、alias/candidate worker order permutation、alpha pair unique/order/opaqueを実admission corpusとowner-private permutation seamで検証した。
+  - milestone指定の4 targeted test、changed crate test/doc-test、workspace all-target/all-feature test、workspace clippy `-D warnings`、fmt check、`python3 schemas/validate.py`、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは3869 refsを含む全bundle/fixtureを通過した。
+  - レビューでは非opaque drawだけの候補へ未使用opaque ExtGStateを無条件追加する過剰計上、Safe-SVG 1 provenanceをabsentでなくnull memberとしてencodeするconditional違反、およびclippy findingを修正した。再検証後のfindingは0件である。
+  - listed primary file外ではnew nominal implementation module `workspace/crates/typaxis-resources/src/vector_content.rs`と本completion recordを追加した。`typaxis-testkit`は既存VMB positive corpusを`typaxis-resources`の実admission testから再利用できたため変更せず、Display `/2`、selected usage finalization、Form/PDF serialization、Schema/public capabilityを先取りしていない。
 - Non-goals:
   - selected usage finalization、PDF object numberの発行、Form stream serialization
   - source hashが異なる同一IRのdedupe

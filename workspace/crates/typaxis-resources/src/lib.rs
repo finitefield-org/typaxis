@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod safe_vector;
+mod vector_content;
 
 pub use safe_vector::{
     finalize_staging_safe_vector_forms, FrozenSafeVectorFormPlan, StagingSafeVectorFormPlans,
@@ -9,6 +10,12 @@ pub use safe_vector::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use safe_vector::{staging_safe_vector_resource_fixture, StagingSafeVectorResourceFixture};
+pub use vector_content::{
+    VectorContentAlias, VectorContentAliasProvenance, VectorContentCandidate,
+    VectorContentCandidateRegistry, VectorContentKey, VectorContentMediaType,
+    VectorContentPlanningError, VectorExtGStateAlphaPair, VectorExtGStatePlan,
+    VectorExtGStatePlanEntry, VectorFormDedupeReceipt, VECTOR_FORM_DEDUPE_ALGORITHM,
+};
 
 use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};

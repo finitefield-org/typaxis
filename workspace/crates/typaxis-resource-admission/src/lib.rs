@@ -212,6 +212,13 @@ impl AdmittedSafeVector {
             Self::V2(ir) => ir.intrinsic_height(),
         }
     }
+
+    pub fn view_box(&self) -> [i64; 4] {
+        match self {
+            Self::V1(ir) => ir.view_box(),
+            Self::V2(ir) => ir.view_box(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
