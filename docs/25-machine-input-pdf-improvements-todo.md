@@ -1890,7 +1890,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ## 8. M4: math/vector/book publication
 
-M4のsemantic container、math、vector、tagged PDFは既存node、PNG、ActualTextへlossy loweringして追加しない。wire shapeまたは公開diagnostic/locationの意味が変わる場合は新contract IDを発行し、旧contract/profileを凍結したままatomic migrationする。MI4-02〜MI4-12の実装は採択済みnew contractを非公開stagingとして扱い、current contract/Schema/profileの切替はMI4-13だけが行う。各positive `machine_*`/staging exporter testは同じcrate-private runnerを直接使い、integration testsはpublic command grammar、help、current constants、Schema alias、capability bytesがstaging selectorを露出しないことを確認する。
+M4のsemantic container、math、vector、tagged PDFは既存node、PNG、ActualTextへlossy loweringして追加しない。wire shapeまたは公開diagnostic/locationの意味が変わる場合は新contract IDを発行し、旧contract/profileを凍結したままatomic migrationする。MI4-02〜MI4-12とMI4-V03〜MI4-V19の実装/evidenceは採択済みnew contractを非公開stagingとして扱い、current contract/Schema/profileの切替はMI4-13だけが行う。各positive `machine_*`/staging exporter testは同じcrate-private runnerを直接使い、integration testsはpublic command grammar、help、current constants、Schema alias、capability bytesがstaging selectorを露出しないことを確認する。
 
 ### MI4-01 M4 contract versioningとsemantic container ADRを採択する
 
@@ -2480,11 +2480,45 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 - Non-goals:
   - MI4-10で採択していないfont technology
 
+### Producer-composed math-vector extension stubs
+
+[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md)が採用した
+producer-composed vector拡張のrelease status/dependencyはこの表を正とし、詳細task、
+acceptance、verificationは
+[docs/27 task plan](27-vmb-precomposed-math-vector-todo.md)だけを正とする。この表は
+詳細を複製せず、MI4-11のJPEG、MI4-12のCFF scopeを変更しない。
+
+| ID | Status | Depends on |
+| --- | --- | --- |
+| MI4-V01 | Completed | MI4-02, MI4-04, MI4-05, MI4-07, MI4-09, MI4-10 |
+| MI4-V02 | Completed | MI4-V01 |
+| MI4-V03 | Pending | MI4-V02 |
+| MI4-V04 | Pending | MI4-V03 |
+| MI4-V05 | Pending | MI4-V04 |
+| MI4-V06 | Pending | MI4-V03 |
+| MI4-V07 | Pending | MI4-V06 |
+| MI4-V08 | Pending | MI4-V04, MI4-V05, MI4-V06, MI4-V07 |
+| MI4-V09 | Pending | MI4-V08 |
+| MI4-V10 | Pending | MI4-V08 |
+| MI4-V11 | Pending | MI4-V10 |
+| MI4-V12 | Pending | MI4-V07, MI4-V09, MI4-V11 |
+| MI4-V13 | Pending | MI4-V07, MI4-V12 |
+| MI4-V14 | Pending | MI4-V04, MI4-V09, MI4-V11 |
+| MI4-V15 | Pending | MI4-V12, MI4-V14, MI4-09 |
+| MI4-V16 | Pending | MI4-V13, MI4-V15 |
+| MI4-V17 | Pending | MI4-V07, MI4-V13, MI4-V14, MI4-V16 |
+| MI4-V18 | Pending | MI4-V17 |
+| MI4-V19 | Pending | MI4-V18, MI4-11, MI4-12 |
+
+`MI4-V19 -> MI4-13`はpublication dependencyである。MI4-V01/V02のCompletedは
+それぞれcorpus interfaceとdecision gateだけを意味し、product/public supportを
+意味しない。
+
 ### MI4-13 M4 contract migrationとproduction-book profileを原子的に公開する
 
 - Status: Pending
-- Depends on: MI4-02, MI4-05, MI4-09, MI4-11, MI4-12
-- Design inputs: docs/25 §7、§8 M4、§13.4、§13.5
+- Depends on: MI4-02, MI4-05, MI4-09, MI4-11, MI4-12, MI4-V19
+- Design inputs: docs/25 §7、§8 M4、§13.4、§13.5、ADR-0037、docs/27 §12、§16
 - Primary files:
   - `workspace/crates/typaxis-core/src/lib.rs`
   - `workspace/crates/typaxis-document-package/src/`
@@ -2511,23 +2545,25 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 - Deliverables:
   - MI4 ADR群が採択した新contract/Schema/profileのatomic migration。
   - VMB相当production-book combined fixtureとindependent validation evidence。
+  - MI4-V19 handoffを含むresource-set `/2`、producer-vector capability、book-navigation `/2`、tagged-PDF `/2`の同時publication。
 - Tasks:
   1. previous current Schema一式をversion directoryへfreezeし、MI4 stagingのnew Schema registryが旧registryと混ざらないこと、およびnew resource declarationだけがrequired closed `resources.images[*].media_type`/`resources.font_faces[*].media_type`を持つことをvalidatorで確認する。
   2. new contract constant/current Schema alias、Wire serializer/decoder/`dump-ast`、diagnostics、capability、manifest、fixturesを一つのchange setでstagingから有効化し、partial shapeへnew IDを付けない。
   3. 旧contract/profileのWire・capability・manifest golden bytes、default profile、`LegacyUnspecified` lowering、受理/拒否集合を維持し、旧ID/旧manifest Schemaへdeclared media fieldやM4 featureを追加しない。new M4 profileがlegacy declarationをpre-resourceで拒否し、new failed-manifest Schemaだけがその`legacy_unspecified` stateを記録するfixtureも固定する。
-  4. chapter/section heading、semantic containers、inline/display math、list、table、footnote、figure/caption、link、metadata/language、outline、tagged structureと、PNG/SafeVector/JPEG/TrueType/OTF-CFFのうちproduction profileが採択した全media/fontを一つのproduction fixtureで使う。
+  4. chapter/section heading、semantic containers、native inline/display math、producer-composed inline/block math/vector figure、list、table、footnote、figure/caption、link、metadata/language、outline、tagged structureと、PNG/SafeVector 1/2/JPEG/TrueType/OTF-CFFのうちproduction profileが採択した全media/fontを一つのproduction fixtureで使う。
   5. source factsからwire、trusted package、declared/decoder-attested media、all-flow selected state、Display、PDF、manifestまで全receipt closureを検査する。
   6. lossy producer preprocessingを検出するため、node kind/count、math source/span、resource IDs、outline、reading orderのexpected ledgerをfixtureへ同梱する。
   7. independent renderer、text extractor、structure/accessibility validatorでpage/raster/text/language/outline/link/tags/alternativesを検査する。
   8. two-build、異名checkout、documented hostsで全artifactを比較し、tool identitiesをevidenceへ記録する。
   9. actual profile ID/fixtureを参照する`samples/machine-package/matrices/m4-production.json`を作る。
-  10. descriptor/fixture coverage、unsupported feature preflight、M4 feature-local tamper matrixを通した後だけcapabilities/docsへproduction-book profileを公開する。
+  10. descriptor/fixture coverage、unsupported feature preflight、M4 feature-local tamper matrix、MI4-V19 handoffを通した後だけ、resource-set `/2`とvector kind/metric/profile/feature projectionを含むcomplete capabilities/docsへproduction-book profileを公開する。
 - Acceptance criteria:
   - production fixture全体をsilent deletion、flattening、rasterizationなしで生成できる。
   - math source、vector paint、alternative、source spanがtamper不能なreceiptで結ばれる。
   - language、outline、link、tagged structureが独立validatorで成功する。
   - 旧contract/profileのobservable behaviorが凍結fixtureと一致する。
   - 各resourceのdeclared media type、decoder attestation、manifest fact、PDF embedding planがlogical ID単位で一致する。
+  - public profileはSafeVector/resource-set、book-navigation、tagged-PDFのversion-2 chainだけを参照し、frozen `/1` bytesと七profile/defaultを変更しない。
 - Verification:
   - `cargo fmt --manifest-path workspace/Cargo.toml --all -- --check`
   - `cargo test --manifest-path workspace/Cargo.toml --workspace --all-targets --locked`

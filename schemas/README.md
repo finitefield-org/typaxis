@@ -19,6 +19,7 @@
 | contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | No: MI4-11/12 must add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Corpus/interface only in MI4-V01; private Wire/Schema/Rust work starts at MI4-V03 | No; current aliases remain 1.3 | No; MI4-V19 then MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -68,6 +69,14 @@ resource component IDs, bounded decode/evaluation and embedding policy,
 deterministic JPEG/CFF transforms, PDF plans, limits, and dependency identities.
 ADR adoption changes no Schema: MI4-11 and MI4-12 own those private additions,
 and MI4-13 alone may switch aliases or advertise the complete resource set.
+[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) adds the closed
+future `inline_vector`, `math_vector`, `vector_figure`, and
+`math_vector_block` shapes, `svg-safe-2` declaration/provenance, producer
+metrics, and versioned SafeVector/resource-set, navigation, tagged-PDF, and
+manifest branches. ADR adoption and MI4-V01 add no Schema shape. MI4-V03 and
+later V milestones own only the independent private 1.4 registry; MI4-V19 must
+close feature evidence before MI4-13 switches aliases and advertises the exact
+resource-set `/2`/vector capability projection.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
 Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
@@ -115,6 +124,18 @@ enum/attestation/table/license/glyph/subset/FontFile3 facts and the six private
 font-limit members. Each addition must update every private 1.4 fixture and
 semantic check atomically while leaving top-level/current and frozen 1.0-1.3
 bytes unchanged.
+
+ADR-0037 contract-defines later `svg-safe-2`, four producer-vector kinds,
+closed metrics/spacing/source/alternative records, and the version-2
+SafeVector/resource-set/book-navigation/tagged-PDF artifact families. MI4-V01
+contains only a TSV/SVG producer-interface corpus and does not change this
+registry. MI4-V03 through V17 own the applicable private Schema additions in
+dependency order, MI4-V18 closes the crate-private combined fixture, and
+MI4-V19 closes external evidence. Until MI4-13, no top-level alias, public capability Schema,
+current encoder, or frozen registry contains those additions. Publication must
+switch the complete resource-set `/2`, language/navigation `/2`, tagged-PDF
+`/2`, manifest dispatch, profile descriptor, and Schema aliases in one change
+set; a `/1` fallback is not a valid partial registry.
 
 MI4-04 adds the private `machine-safe-vector-manifest` and a separate M4
 effective-limit extension for vector nodes, path segments, nesting depth, and

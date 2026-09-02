@@ -10,7 +10,7 @@ Source: `docs/27-vmb-precomposed-math-vector.md`
 
 この文書は、設計書で未割当だったproducer-composed vector機能を、既存M4 taskと衝突しない`MI4-V01`〜`MI4-V19`へ分解する。`MI4-V01`〜`MI4-V18`はcrate-privateな1.4 stagingだけを実装し、public current contract 1.3、七profile、default `paragraph-1`、公開Schema alias、CLI help、capability bytesを変更しない。`MI4-V19`は公開可能性を証明するfeature-local gateであり、public aliasと`production-book-1`を有効化する唯一のownerは、引き続きmaster planの`MI4-13`である。
 
-この提案内の詳細task/acceptanceは本書をsingle sourceとするが、authoritative release schedulingは`docs/25-machine-input-pdf-improvements-todo.md`である。`MI4-V02`がAccepted ADRと短いmilestone stub/dependency/linkをmasterへ登録するまでは本書はrelease planに対してnon-normativeであり、登録後も詳細taskをmasterへ複製しない。
+本拡張の詳細task/acceptanceは本書をsingle sourceとし、authoritative release schedulingは`docs/25-machine-input-pdf-improvements-todo.md`である。`MI4-V02`は[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md)と短いmilestone stub/dependency/linkをmasterへ登録済みであり、masterがrelease status/dependency、本書が詳細task/acceptanceを所有する。
 
 この文書の`Completed`は各milestoneの受け入れ条件を満たしたことだけを意味する。Wire DTO、Schema、parser、layout、PDF、manifestの一部が存在しても、`MI4-V18`のcombined gateと`MI4-V19`のpublication-readiness gateが完了するまではこの機能を利用可能と表明しない。
 
@@ -45,6 +45,11 @@ Source: `docs/27-vmb-precomposed-math-vector.md`
 
 - `MI4-13`が未完了かつ1.4が未公開なら、この文書どおりprivate 1.4へ追加し、master planの`MI4-13`を`MI4-V19`依存へ更新する。
 - `MI4-13`がCompletedまたは1.4が公開済みなら、1.4へ後付けしない。新contract/profileを採番するADRを作り、この文書のcontract、Schema、fixture、publication dependencyを更新してquality gateを再実行するまで`MI4-V03`以降を開始しない。
+
+MI4-V02は2026-09-03にcurrent 1.3、public seven-profile、private 1.4、
+`MI4-13 = Pending`を確認し、前者の分岐をADR-0037として採用した。以後も
+MI4-V03開始時にMI4-13が先行公開されていないことを再確認し、公開済みなら後者へ
+切り替える。
 
 ## 2. 全milestone共通の実装規則
 
@@ -307,7 +312,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V02 採用ADRとM4 publication dependencyを確定する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V01
 - Design inputs: docs/27 §1、§3、§12、§16
 - Primary files:
@@ -348,6 +353,13 @@ MI4-V19 -> MI4-13
 - Verification:
   - `rg -n 'svg-safe-2|precomposed-vector|math-vector-flow|safe-vector/2|book-navigation.*\/2|tagged-pdf.*\/2|MI4-V19' README.md adr contracts docs/21-roadmap.md docs/22-contract-matrix.md docs/23-implementation-checklist.md docs/25-machine-input-pdf-improvements-todo.md schemas/README.md`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V02 change set containing this completion record.
+  - `/usr/bin/git status --short --branch`、current contract constant、top-level Schema alias、canonical capability fixture、public CLI isolation test、master milestoneを照合し、current/publicは1.3・exact seven profiles・default `paragraph-1`、1.4/`production-book-1`はprivate、`MI4-13`はPendingと確認した。`adr/README.md`の連番から`ADR-0037`を採番した。
+  - ADR-0037は4 kind、`svg-safe-2`、fixed-point metric/baseline、inline/block layout、Safe-SVG 2、Form/ExtGState/content-key dedupe、alternative/language/structure、limit/diagnostic、capability projectionと全versioned identityをAcceptedにした。`svg-safe-1`、native math、SafeVector/navigation/tagged-PDF `/1`、ADR-0036 resource-set `/1`、public seven-profile bytesはcompatibility tableで凍結した。
+  - masterへMI4-V01〜V19のstatus/dependency/linkだけを登録し、`MI4-13`を`MI4-V19`依存にした。詳細task/acceptanceは本書、release status/dependencyはmasterのownerとし、MI4-11 JPEG / MI4-12 CFF scopeは変更していない。
+  - 指定`rg`、`python3 schemas/validate.py`、document dependency/identity checks、`/usr/bin/git diff --check`はいずれもexit 0。evidenceはADR-0037、更新したcontract/docs/Schema registry documentation、および本completion recordにある。
+  - Rust、private Schema shape、current/public contract/profile/capability bytesは変更していない。scope deviationはなく、新規採択判断はADR-0037だけである。
 - Non-goals:
   - Rust実装、private Schema shape、public alias切替
 

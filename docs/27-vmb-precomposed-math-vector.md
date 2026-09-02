@@ -2,7 +2,7 @@
 
 ## 1. 文書情報
 
-- 状態: Proposed
+- 状態: Adopted by [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md)（product implementationはMI4-V03以降）
 - 対象: 非公開の`typaxis.contract/1.4` / `typaxis.machine-pdf/production-book-1`
 - 主利用者: `texToSvg`等で数式を組版済みのSVGへ変換できるVMB
 - 非目標: TypaxisによるTeX解釈、マクロ展開、数式組版、読み上げ文生成
@@ -12,20 +12,19 @@
   - [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md)
   - [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md)
   - [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md)
+  - [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md)
   - [単位・丸め・座標契約](24-units-rounding-and-geometry.md)
   - [Adobe PDF 1.7 Reference: Form XObjects](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf)
   - [W3C SVG 1.1: Color](https://www.w3.org/TR/SVG11/color.html)
   - [W3C SVG 1.1: Painting](https://www.w3.org/TR/SVG11/painting.html)
   - [W3C SVG 1.1: Clipping, masking and compositing](https://www.w3.org/TR/SVG11/masking.html)
 
-本書は実装前の設計案であり、current contract 1.3、公開CLI、公開
-capability descriptorを変更しない。採用時にはADR-0033の「mathは
-SafeVectorを通らない」という判断へ、producer-composed math vectorを
-別経路として追加するdecision-gate ADRが必要である。同ADRは、ADR-0034の
-closed language-owner/navigation chain、ADR-0035のclosed structure/alternative
-mapping、ADR-0036のimmutable SafeVector component/resource-setも同時に
-version-upしなければならない。既存`/1` identityの意味を黙って広げることは
-できない。
+本書はADR-0037が採用した実装設計であり、current contract 1.3、公開CLI、公開
+capability descriptorを変更しない。ADR-0037はADR-0033のnative mathと
+SafeVectorを変更せず、producer-composed math vectorを別経路として追加した。
+同時にADR-0034のclosed language-owner/navigation chain、ADR-0035のclosed
+structure/alternative mapping、ADR-0036のimmutable SafeVector component/
+resource-setをversioned `/2`経路へ拡張した。既存`/1` identityの意味は広げない。
 
 contract 1.4はまだ公開・凍結されていないため、MI4-13より前なら
 ADR-0032のprivate staging拡張規則に従って1.4へ追加できる。MI4-13の
@@ -89,7 +88,7 @@ mathへのfallbackは行わない。
 `svg-safe-1`として受理するとADR-0033のparser/IR identityを破るため、
 新しいexact media/profile `svg-safe-2`を追加する。
 
-提案するversioned identityは次のとおりである。
+採用したversioned identityは次のとおりである。
 
 | item | identity |
 | --- | --- |
@@ -1305,21 +1304,19 @@ cross-ID dedupeは一つのpackage内で同じSVG hashを
 ## 16. 実装順
 
 以下の順序と詳細な
-[V milestone/task plan](27-vmb-precomposed-math-vector-todo.md)は、この提案内では
-後者をtask detailのsingle sourceとする。ただし現行のauthoritative release plan
-である[`docs/25` task plan](25-machine-input-pdf-improvements-todo.md)にはまだ採用
-されておらず、decision-gate完了まではrelease schedulingに対してnon-normativeで
-ある。現行MI4-11はJPEG、MI4-12はCFF、MI4-13はatomic publicationだけに閉じて
-いるため、この機能をそれらへ暗黙追加してはならない。
+[V milestone/task plan](27-vmb-precomposed-math-vector-todo.md)はtask detailの
+single sourceとする。ADR-0037のdecision gateにより、authoritative release plan
+である[`docs/25` task plan](25-machine-input-pdf-improvements-todo.md)には
+milestone status/dependency/linkだけを持つstubが登録された。docs/25がrelease
+status/dependency、本task planが詳細task/acceptanceを所有する。現行MI4-11は
+JPEG、MI4-12はCFF、MI4-13はatomic publicationだけに閉じているため、この機能を
+それらへ暗黙追加してはならない。
 step 1のVMB corpus/interface確認はproduct codeを変えないpre-adoption evidence
-として先に実施できる。採用decision-gateであるstep 2は、MI4-13より前に必要な
-private implementation/evidence milestoneとdependencyをdocs/25へ明示追加し、
-step 3以降のproduct implementation前に完了しなければならない。既存MI4-13までに
-その順序を確保できない場合は、1章どおり公開済み1.4へ後付けせず新contract/
-profileへ送る。docs/25への登録はmilestone status、dependency、
-本task planへのlinkだけを持つ短いstubとし、詳細task/acceptanceを複製しない。
-採用後はdocs/25がrelease status/dependency、リンク先task planが詳細task/
-acceptanceのownerになる。
+として完了した。採用decision-gateであるstep 2は、1.4とMI4-13が未公開/
+Pendingである証拠を確認し、private implementation/evidence milestoneと
+`MI4-V19 -> MI4-13` dependencyをdocs/25へ登録して完了した。step 3以降のproduct
+implementationはこのAccepted ADRに従う。MI4-13がV19より先に1.4を公開した場合は、
+1章どおり公開済み1.4へ後付けせず新contract/profileへ送る。
 
 1. VMBの代表`texToSvg` corpusと`svg-safe-2` lowering outputを固定し、VMBが
    `use`等を展開してrequired hash/metrics/provenanceを出せることをinterface

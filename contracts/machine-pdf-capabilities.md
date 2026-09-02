@@ -1,6 +1,6 @@
 # Machine PDF capability contract
 
-This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md), [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md), and [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
+This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md), [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md), [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md), and [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
 
 ## Status axes
 
@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes through ADR-0036: base/declared media, math/safe-vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Private semantic-container/base-media, SafeVector, math, metadata/language/outline, and tagged-PDF slices through MI4-09; JPEG/CFF implementation remains MI4-11/12 | No; public profile ID is rejected | No, MI4-13 gate |
+| `production-book-1` | Yes through ADR-0037: base/declared media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Existing private slices through MI4-09 plus MI4-V01 corpus; producer-vector product work remains MI4-V03〜V18 and JPEG/CFF remains MI4-11/12 | No; public profile ID is rejected | No; MI4-V19 then MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -62,7 +62,7 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns all seven closed public descriptors. ADR-0032 reserves `production-book-1`, but the constant, parser branch, public descriptor, and normal dispatch are forbidden until MI4-13. The implementation derives all of the following from registered public descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns all seven closed public descriptors. ADR-0032 reserves and ADR-0037 extends `production-book-1`, but the constant, parser branch, public descriptor, and normal dispatch are forbidden until MI4-V19 has completed and MI4-13 publishes the whole target. The implementation derives all of the following from registered public descriptors rather than maintaining duplicate lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -605,16 +605,160 @@ identities. MI4-04 implements the SafeVector branch privately and MI4-05
 implements the math branch. Public capabilities, current Schema aliases, old
 profiles, and default remain unchanged until MI4-13.
 
+### Adopted producer-composed math-vector extension
+
+[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) adds a separate
+precomposed-vector path to the unpublished target. It does not broaden native
+`inline_math`/`display_math` or `svg-safe-1`. The four new kinds and their
+closed media mapping are:
+
+| Kind | Placement/role | Exact media |
+| --- | --- | --- |
+| `inline_vector` | atomic inline Figure | `svg-safe-1`, `svg-safe-2` |
+| `math_vector` | atomic inline Formula | `svg-safe-2` |
+| `vector_figure` | atomic block Figure plus caption flow | `svg-safe-1`, `svg-safe-2` |
+| `math_vector_block` | one-terminal atomic Formula block | `svg-safe-2` |
+
+`svg-safe-2` requires a nonnull expected SHA-256 and producer engine/version/
+rules provenance. It retains the Safe-SVG 1 element/path/geometry/clip subset
+and adds only exact `currentColor`, `fill-opacity`, and `stroke-opacity`. CSS,
+`use`, fonts/text/images, script/animation, group opacity, mask/filter/blend,
+and every file/data/network or unknown feature are terminal admission errors.
+Metrics are canonical `pdf_point_1_65536` integers for advance, ascent,
+descent, signed origin-x, baseline, and viewport; the descriptor advertises no
+ambient-font, float, nonuniform-scale, crop, shrink, raster, or internal-split
+fallback.
+
+The target resource set becomes
+`typaxis.production-book-resource-set/2` with exact component order:
+
+```text
+typaxis.resource-profile/png/1
+typaxis.resource-profile/safe-vector/2
+typaxis.resource-profile/jpeg-baseline/1
+typaxis.resource-profile/truetype-glyf/1
+typaxis.resource-profile/sfnt-cff1/1
+```
+
+Its image media are exactly `png`, `svg-safe-1`, `svg-safe-2`,
+`jpeg-baseline` in that order; its font media remain
+`sfnt-truetype-glyf`, `ttc-truetype-glyf`, `sfnt-cff1`. The ADR-0036 `/1`
+resource set and SafeVector component remain frozen rather than being revised.
+SafeVector component `/2` retains `svg-safe-1` only through its frozen parser/
+IR `/1` branch and routes `svg-safe-2` only through parser/IR `/2`; there is no
+cross-version parse or fallback.
+The new path also requires computed-language/book-navigation and tagged-PDF
+version-2 receipt chains. No `/1` record may stand in for a `/2` receipt.
+
+At MI4-V17 the crate-private production staging descriptor may merge these
+exact additions into its existing fields and add the complete `vector_*`
+members. MI4-13 alone may register and publish that same complete projection:
+
+```json
+{
+  "blocks": [
+    "math_vector_block",
+    "vector_figure"
+  ],
+  "image_formats": [
+    "jpeg",
+    "png",
+    "svg"
+  ],
+  "inlines": {
+    "kinds": [
+      "inline_vector",
+      "math_vector"
+    ]
+  },
+  "style_block_types": [
+    "math_vector_block",
+    "vector_figure"
+  ],
+  "style_selectors": [
+    "math_vector_block",
+    "vector_figure"
+  ],
+  "vector_features": [
+    "clip-path",
+    "current-color",
+    "paint-opacity",
+    "shared-form-xobject"
+  ],
+  "vector_features_by_profile": {
+    "svg-safe-1": [
+      "clip-path",
+      "shared-form-xobject"
+    ],
+    "svg-safe-2": [
+      "clip-path",
+      "current-color",
+      "paint-opacity",
+      "shared-form-xobject"
+    ]
+  },
+  "vector_formats": [
+    "svg"
+  ],
+  "vector_media_by_kind": {
+    "figure": [
+      "svg-safe-1"
+    ],
+    "inline_vector": [
+      "svg-safe-1",
+      "svg-safe-2"
+    ],
+    "math_vector": [
+      "svg-safe-2"
+    ],
+    "math_vector_block": [
+      "svg-safe-2"
+    ],
+    "vector_figure": [
+      "svg-safe-1",
+      "svg-safe-2"
+    ]
+  },
+  "vector_metrics": [
+    "advance",
+    "ascent",
+    "baseline",
+    "descent",
+    "origin_x",
+    "viewport"
+  ],
+  "vector_profiles": [
+    "svg-safe-1",
+    "svg-safe-2"
+  ]
+}
+```
+
+`blocks`, `inlines.kinds`, `style_block_types`, and `style_selectors` show
+additions to the complete production descriptor. `image_formats` is the
+complete coarse family value. Each `vector_*` value shown is complete. All
+set-valued arrays, including map values, use UTF-8-byte order; JSON object keys
+use the existing JCS order. The resource component/media arrays retain their
+explicit semantic order and are not globally sorted.
+
+MI4-V03 through MI4-V18 may populate only crate-private descriptors/tests.
+MI4-V19 must close combined feature evidence and depends on both existing
+MI4-11 JPEG and MI4-12 CFF work. It still cannot advertise availability.
+MI4-13 alone may add the eighth descriptor, placing `production-book-1` after
+`paragraph-1` and before `table-1`; `default_profile` remains `paragraph-1`.
+Until that transaction, the current accepted-contract array, seven profile
+bytes, public help/parser, and capability Schema remain unchanged.
+
 ### Adopted M4 JPEG and OpenType/CFF resource components
 
 [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) fixes
-five distinct immutable component descriptors under
+five distinct immutable component descriptors under the frozen
 `typaxis.production-book-resource-set/1`: PNG, SafeVector, baseline JPEG,
-TrueType `glyf`, and standalone sfnt/CFF1. The target media arrays are exactly
-images `png|svg-safe-1|jpeg-baseline` and fonts
-`sfnt-truetype-glyf|ttc-truetype-glyf|sfnt-cff1`. The combined resource set
-and component arrays become public only with the complete profile at MI4-13;
-they do not create independently selectable profiles or broaden an old one.
+TrueType `glyf`, and standalone sfnt/CFF1. ADR-0037 preserves those meanings
+while the complete target uses resource set `/2`, SafeVector `/2`, and the
+additional `svg-safe-2` image media. The combined `/2` set becomes public only
+with the complete profile at MI4-13; neither version creates independently
+selectable profiles or broadens an old one.
 
 `jpeg-baseline` is a strict JFIF subset: SOI, one immediate valid JFIF APP0,
 one 8-bit Huffman SOF0 frame, and one all-component baseline scan. It accepts
@@ -853,7 +997,8 @@ plus one reviewed row for every Matterhorn Protocol 1.1 failure condition.
 Missing/wrong tools, malformed reports, warnings, failed/skipped checks, or an
 incomplete or hash-mismatched human ledger fail the gate. Machine validation
 alone may not be promoted to a full accessibility or PDF/UA conformance claim;
-MI4-13 alone may aggregate the complete evidence and publish the profile.
+MI4-13 alone may aggregate the complete evidence and publish the profile after
+MI4-V19 closes the producer-vector evidence dependency.
 
 ## Compatible changes
 
@@ -884,7 +1029,9 @@ ADR-0030, and ADR-0031 respectively. ADR-0032 fixes the M4 base target and
 ADR-0033 fixes its math/safe-vector/alternative domain; ADR-0034 fixes its
 metadata/language/outline domain; ADR-0035 fixes its tagged-structure and
 PDF/UA-1 validation domain; ADR-0036 fixes its independent baseline-JPEG and
-standalone-CFF1 resource components. Any other later capability requires a
+standalone-CFF1 resource components; ADR-0037 fixes the separately versioned
+producer-composed math-vector path and `/2` capability/resource/accessibility
+chains. Any other later capability requires a
 decision-gate ADR
 fixing a new profile ID, closed domain, limits, fallback/oversize behavior,
 publication semantics, fixtures, and migration rule before implementation
@@ -914,10 +1061,11 @@ rules.
 
 ADR-0032's contract 1.4 and `production-book-1`, including ADR-0033's
 math/safe-vector, ADR-0034's metadata/language/outline, and ADR-0035's tagged
-PDF/accessibility-validation extensions plus ADR-0036's JPEG/CFF resource set,
+PDF/accessibility-validation extensions, ADR-0036's JPEG/CFF components, and
+ADR-0037's producer-composed vector/resource-set `/2` projection,
 are target facts only. They are
 absent from the public capability artifact,
 accepted-contract array, profile parser/help, and current Schema aliases until
-MI4-13 atomically publishes the complete M4 registry and combined evidence.
-MI4-02 through MI4-12 use no hidden public selector or partially exposed
-decoder.
+MI4-13 atomically publishes the complete M4 registry and combined evidence
+after MI4-V19. MI4-02 through MI4-12 and MI4-V03 through MI4-V19 use no hidden
+public selector or partially exposed decoder.

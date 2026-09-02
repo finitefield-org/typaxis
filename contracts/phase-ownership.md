@@ -229,24 +229,75 @@ Display and PDF evidence for their own tests, but those receipts do not issue
 cannot reach publication. Once the tagged owner exists, the combined target
 uses the order above without a bypass edge.
 
-Safe SVG and math paint are separate typed paths: a math node never acquires
-an ImageResourceId, while a SafeVector image never acquires a math source or
-alternative. Neither path may reconstruct authority from trace, manifest,
-coordinates, PDF objects, a URI suffix, or caller-authored hashes.
+ADR-0033 native Safe SVG and native math remain separate typed paths: a native
+math node never acquires an ImageResourceId, while a version-1 SafeVector image
+never acquires a math source or alternative. ADR-0037 adds the separately
+versioned producer-composed path below; no path may reconstruct authority from
+trace, manifest, coordinates, PDF objects, a URI suffix, or caller-authored
+hashes.
+
+## Adopted producer-composed math-vector ownership
+
+These target rows are adopted by
+[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md). MI4-V01 fixes only
+the producer-interface corpus, MI4-V03 through MI4-V18 may implement private
+1.4 slices, MI4-V19 closes feature-local external evidence, and MI4-13 alone
+may publish the complete profile. Existing ADR-0033 through ADR-0036 `/1`
+owners remain frozen.
+
+| Data or decision | Sole owner | Downstream use |
+|---|---|---|
+| four closed Wire kinds, producer metrics/spacing/source/alternative, `svg-safe-2` required hash/provenance, and kind-conditional members | contract-1.4 `typaxis-document-package` decoder/encoder | reject missing/extra/wrong-typed fields and preserve exact canonical integers/UTF-8; never infer kind, TeX, alternative, or media |
+| trusted typed kinds, metric/source/alternative records, and content-owning semantic nodes | sealed `typaxis-syntax` lowering into `typaxis-document` | issue package/session/source-bound records only after dense NodeId/TextMap/meaningful-text/metric validation; caller raw parts cannot issue receipts |
+| `typaxis.precomposed-vector-metrics/1` relation, one uniform intrinsic-to-viewport scale, and source/vector/alternative binding | syntax/resource-aware layout binding owner consuming stable SafeVector attestation | bind advance/ascent/descent/origin/baseline/viewport, exact TeX/Alt/ActualText, resource/provenance/parser/IR, limits, and LayoutEpoch without parsing TeX |
+| precomposed-vector selector/cascade and exact property applicability | `typaxis-style` under `typaxis.precomposed-vector-style/1` | issue computed block receipts for `math_vector_block`/`vector_figure`; frozen basic style `/1` cannot authorize either kind |
+| accepted kind-to-media matrix, language-owner set, resource set `/2`, and private capability projection | `typaxis-machine-profile` descriptor/preflight owner | reject disallowed kinds/media/style before resource open and bind package/session/declaration/limits; public seven-profile descriptor stays unchanged until MI4-13 |
+| `svg-safe-2`, parser/IR/allocation `/2`, exact currentColor/paint-alpha extension, and stable-byte hash/provenance attestation | `typaxis-resource-admission` | accept only ADR-0033 Safe-SVG 1 plus the closed delta, issue deterministic intrinsic geometry/IR/alpha facts, and perform no TeX/XML-browser/network/font work |
+| atomic inline AL/isolate item, vector-boundary spacing, dynamic line ascent/descent, and visual-frame fit | itemizer/line-break/layout owners under `typaxis.atomic-vector-inline/1` | use advance for line width, producer baseline for paint, existing Unicode/Japanese break permission, and terminal `L5100` rather than internal split/fallback |
+| dense nominal `MathVectorFlowId`, equation-number source leaf/shape, atomic block alignment and pagination | `typaxis.math-vector-flow/1` and block-layout owners | keep native MathFlowId `/1` separate, place number independently, preserve one terminal, and reject overlap/empty-frame oversize without shrink/crop/split |
+| selected pen/baseline/viewport/matrix and one occurrence charge | selected-state owner under `typaxis.precomposed-vector-layout/1` | bind source-order flow/line/block to page/frame/paint without URI/SVG/PDF authority |
+| logical DrawVector `/2`, typed `VectorContentKey`, canonical alias/dedupe plan, and Form/ExtGState plan set `/2` | Display then `typaxis-resources` finalization owners | order by verified content-key tuple and alpha pair, share one Form across aliases/colors, retain zero-use facts, and leave absolute object allocation to the final graph |
+| path/clip/fill/stroke/alpha Form plus page-local resolved-color `Do` usage and actual object observation | PDF graph/serializer owners | serialize only sealed plans, apply one viewport/page transform, keep MCID/Alt/ActualText/Lang out of reusable Forms, and never rasterize or reparse SVG |
+| computed-language/book-navigation `/2` owner set and Formula/Figure/number structure/marked-content/tagged-PDF `/2` mapping | syntax navigation, layout-contract structure, selected Display, PDF, validator, and assessment owners at their existing phase boundaries | add the four kinds without changing `/1`; outer MCR owns MCID and optional inner property Span encloses only `Do` |
+| SafeVector `/2`, math-vector `/1`, book-navigation `/2`, and tagged-PDF `/2` manifest facts | versioned production manifest owned-facts owners | close resource aliases/counts, metric/source/alternative, flow/placement, PDF, language, and structure bidirectionally in acyclic dependency order |
+| milestone status/dependency and final publication | docs/25 master plan and MI4-13 atomic publication owner | require `MI4-V18 + MI4-11 + MI4-12 -> MI4-V19 -> MI4-13`; docs/27 alone owns detailed V tasks/acceptance |
+
+The producer-composed progress chain extends the private combined M4 chain:
+
+```text
+PackageValidated
+  -> ProducerVectorSyntaxValidated
+  -> M4CapabilityValidated
+  -> SafeSvg2Attested
+  -> PrecomposedMathVectorBound
+  -> AtomicVectorLayoutSelected
+  -> DrawVectorDisplay2Closed
+  -> VectorFormPlans2Frozen
+  -> PdfGraphFrozen
+  -> BookNavigation2Observed
+  -> TaggedPdf2Observed
+  -> ProducerVectorEvidenceValidated
+```
+
+The full profile additionally requires the existing semantic-container,
+native-math, PNG/JPEG/TrueType/CFF, metadata/navigation, and tagged-PDF chains.
+No producer-vector receipt substitutes for those dependencies, and a V19
+success cannot publish aliases or capabilities.
 
 ## Adopted M4 JPEG and OpenType/CFF resource ownership
 
 These target rows are adopted by
 [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md).
 MI4-11 and MI4-12 implement the two components separately in independent
-non-current 1.4 staging; MI4-13 alone may advertise their combined resource
-set or move it into public ownership.
+non-current 1.4 staging. ADR-0036's `/1` set stays frozen; after MI4-V19,
+MI4-13 alone may advertise the components inside ADR-0037's complete `/2`
+resource set or move it into public ownership.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
 | exact `jpeg-baseline` and `sfnt-cff1` Wire values and versioned required-member encoding | contract-1.4 `typaxis-document-package` decoder/encoder | reject alias/missing/null/unknown values as `P1102`; preserve the existing PNG/SafeVector/TrueType values and frozen encoders |
 | trusted `ImageMediaType::JpegBaseline` / `FontMediaType::SfntCff1` declaration plus raw-contract provenance | sealed `typaxis-syntax` lowering into `typaxis-document` | issue declared values only for 1.4 and prevent suffix/MIME/caller text from acquiring typed authority |
-| five exact resource-component IDs, ordered `typaxis.production-book-resource-set/1`, admitted media arrays, and old-profile rejection | `typaxis-machine-profile` descriptor/preflight owner | issue a package/session/declaration/effective-limits policy receipt before resource open; no generic image/font flag or partial component set |
+| five exact ADR-0036 resource-component meanings, frozen ordered `typaxis.production-book-resource-set/1`, and ADR-0037 complete `typaxis.production-book-resource-set/2` replacing only SafeVector with `/2` and adding `svg-safe-2` media | `typaxis-machine-profile` descriptor/preflight owner | issue a package/session/declaration/effective-limits policy receipt before resource open; no generic image/font flag or partial component set, and publication uses only the complete `/2` set |
 | stable JPEG marker/frame/scan/table/entropy facts and `AdmittedImageMediaKind::JpegBaseline` | iterative in-tree `typaxis-resource-admission` marker preflight | exact-match the declaration and acquire bytes/pixels/decoded/scratch permits before constructing the external decoder |
 | exact Gray8/RGB8 decoded byte count/hash under `jpeg-decoder = 0.3.2` platform-independent code | `typaxis-resource-admission` decoder wrapper consuming the marker receipt | issue validity evidence only; it cannot choose media, metadata, geometry, sanitizer bytes, or PDF policy |
 | exact JFIF APP0 removal, otherwise byte-preserved normalized stream length/hash | in-tree `typaxis.jpeg-segment-sanitizer/1` under `typaxis-resource-admission` | issue one deterministic sanitized-stream receipt after full decode and before any DCTDecode plan; never re-encode pixels |
