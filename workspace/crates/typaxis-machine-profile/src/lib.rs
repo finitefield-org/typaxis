@@ -77,10 +77,13 @@ pub use book_navigation::{
 };
 pub use capabilities::{encode_capabilities_canonical, HostCapabilityDescriptor};
 pub use descriptor::{
-    FootnoteCapability, MachineBlockKind, MachineFontFormat, MachineImageFormat, MachineInlineKind,
-    MachinePageFrame, MachinePageMasterCapability, MachinePageValue, MachinePdfFeature,
-    MachineProfileDescriptor, MachineReferenceFormat, MachineSourceClosure, MachineStyleProperty,
-    SourceCountBounds,
+    FootnoteCapability, MachineBlockKind, MachineCoarseImageFormat, MachineFontFormat,
+    MachineImageFormat, MachineInlineKind, MachinePageFrame, MachinePageMasterCapability,
+    MachinePageValue, MachinePdfFeature, MachineProfileDescriptor, MachineReferenceFormat,
+    MachineSourceClosure, MachineStyleProperty, MachineVectorBlockKind, MachineVectorFeature,
+    MachineVectorFeaturesByProfile, MachineVectorFormat, MachineVectorInlineKind,
+    MachineVectorKind, MachineVectorMediaByKind, MachineVectorMetric, MachineVectorProfile,
+    PrecomposedVectorCapabilityProjection, SourceCountBounds,
 };
 pub use math::{
     preflight_staging_math_profile, StagingMathProfileError, StagingMathProfileReceipt,
@@ -92,8 +95,12 @@ pub use preflight::{
     MachinePdfReceiptMismatch, BASIC_PROFILE_RECEIPT_ALGORITHM, TABLE_PROFILE_RECEIPT_ALGORITHM,
 };
 pub use safe_vector::{
-    preflight_staging_safe_vector_profile, StagingSafeVectorProfileError,
-    StagingSafeVectorProfileReceipt, STAGING_SAFE_VECTOR_PROFILE_ALGORITHM,
+    preflight_staging_precomposed_vector_profile, preflight_staging_safe_vector_profile,
+    StagingPrecomposedVectorProfileDescriptor, StagingPrecomposedVectorProfileError,
+    StagingPrecomposedVectorProfileReceipt, StagingSafeVectorProfileError,
+    StagingSafeVectorProfileReceipt, STAGING_PRECOMPOSED_VECTOR_PROFILE_ALGORITHM,
+    STAGING_PRODUCTION_BOOK_RESOURCE_SET_V2, STAGING_SAFE_VECTOR_PROFILE_ALGORITHM,
+    STAGING_SAFE_VECTOR_PROFILE_V2,
 };
 pub use semantic_container::{
     preflight_staging_semantic_container_profile, StagingSemanticContainerParentKind,

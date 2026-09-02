@@ -196,6 +196,338 @@ impl MachineImageFormat {
     }
 }
 
+/// Coarse image-family vocabulary for the future private production profile.
+/// Exact Safe-SVG media/profile names have a separate nominal type and cannot
+/// accidentally leak into `image_formats`.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineCoarseImageFormat {
+    Jpeg,
+    Png,
+    Svg,
+}
+
+impl MachineCoarseImageFormat {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Jpeg => "jpeg",
+            Self::Png => "png",
+            Self::Svg => "svg",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineVectorBlockKind {
+    MathVectorBlock,
+    VectorFigure,
+}
+
+impl MachineVectorBlockKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MathVectorBlock => "math_vector_block",
+            Self::VectorFigure => "vector_figure",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineVectorInlineKind {
+    InlineVector,
+    MathVector,
+}
+
+impl MachineVectorInlineKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InlineVector => "inline_vector",
+            Self::MathVector => "math_vector",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineVectorKind {
+    Figure,
+    InlineVector,
+    MathVector,
+    MathVectorBlock,
+    VectorFigure,
+}
+
+impl MachineVectorKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Figure => "figure",
+            Self::InlineVector => "inline_vector",
+            Self::MathVector => "math_vector",
+            Self::MathVectorBlock => "math_vector_block",
+            Self::VectorFigure => "vector_figure",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineVectorFormat {
+    Svg,
+}
+
+impl MachineVectorFormat {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Svg => "svg",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineVectorProfile {
+    SvgSafe1,
+    SvgSafe2,
+}
+
+impl MachineVectorProfile {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SvgSafe1 => "svg-safe-1",
+            Self::SvgSafe2 => "svg-safe-2",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineVectorMetric {
+    Advance,
+    Ascent,
+    Baseline,
+    Descent,
+    OriginX,
+    Viewport,
+}
+
+impl MachineVectorMetric {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Advance => "advance",
+            Self::Ascent => "ascent",
+            Self::Baseline => "baseline",
+            Self::Descent => "descent",
+            Self::OriginX => "origin_x",
+            Self::Viewport => "viewport",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MachineVectorFeature {
+    ClipPath,
+    CurrentColor,
+    PaintOpacity,
+    SharedFormXObject,
+}
+
+impl MachineVectorFeature {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ClipPath => "clip-path",
+            Self::CurrentColor => "current-color",
+            Self::PaintOpacity => "paint-opacity",
+            Self::SharedFormXObject => "shared-form-xobject",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MachineVectorFeaturesByProfile {
+    profile: MachineVectorProfile,
+    features: &'static [MachineVectorFeature],
+}
+
+impl MachineVectorFeaturesByProfile {
+    pub const fn profile(self) -> MachineVectorProfile {
+        self.profile
+    }
+
+    pub const fn features(self) -> &'static [MachineVectorFeature] {
+        self.features
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MachineVectorMediaByKind {
+    kind: MachineVectorKind,
+    media: &'static [MachineVectorProfile],
+}
+
+impl MachineVectorMediaByKind {
+    pub const fn kind(self) -> MachineVectorKind {
+        self.kind
+    }
+
+    pub const fn media(self) -> &'static [MachineVectorProfile] {
+        self.media
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrecomposedVectorCapabilityProjection {
+    block_additions: &'static [MachineVectorBlockKind],
+    coarse_image_formats: &'static [MachineCoarseImageFormat],
+    inline_additions: &'static [MachineVectorInlineKind],
+    style_block_additions: &'static [MachineVectorBlockKind],
+    vector_features: &'static [MachineVectorFeature],
+    vector_features_by_profile: &'static [MachineVectorFeaturesByProfile],
+    vector_formats: &'static [MachineVectorFormat],
+    vector_media_by_kind: &'static [MachineVectorMediaByKind],
+    vector_metrics: &'static [MachineVectorMetric],
+    vector_profiles: &'static [MachineVectorProfile],
+}
+
+impl PrecomposedVectorCapabilityProjection {
+    pub const fn block_additions(self) -> &'static [MachineVectorBlockKind] {
+        self.block_additions
+    }
+
+    pub const fn coarse_image_formats(self) -> &'static [MachineCoarseImageFormat] {
+        self.coarse_image_formats
+    }
+
+    pub const fn inline_additions(self) -> &'static [MachineVectorInlineKind] {
+        self.inline_additions
+    }
+
+    pub const fn style_block_additions(self) -> &'static [MachineVectorBlockKind] {
+        self.style_block_additions
+    }
+
+    pub const fn vector_features(self) -> &'static [MachineVectorFeature] {
+        self.vector_features
+    }
+
+    pub const fn vector_features_by_profile(self) -> &'static [MachineVectorFeaturesByProfile] {
+        self.vector_features_by_profile
+    }
+
+    pub const fn vector_formats(self) -> &'static [MachineVectorFormat] {
+        self.vector_formats
+    }
+
+    pub const fn vector_media_by_kind(self) -> &'static [MachineVectorMediaByKind] {
+        self.vector_media_by_kind
+    }
+
+    pub const fn vector_metrics(self) -> &'static [MachineVectorMetric] {
+        self.vector_metrics
+    }
+
+    pub const fn vector_profiles(self) -> &'static [MachineVectorProfile] {
+        self.vector_profiles
+    }
+}
+
+#[cfg(test)]
+const PRIVATE_VECTOR_BLOCK_ADDITIONS: &[MachineVectorBlockKind] = &[
+    MachineVectorBlockKind::MathVectorBlock,
+    MachineVectorBlockKind::VectorFigure,
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_IMAGE_FORMATS: &[MachineCoarseImageFormat] = &[
+    MachineCoarseImageFormat::Jpeg,
+    MachineCoarseImageFormat::Png,
+    MachineCoarseImageFormat::Svg,
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_INLINE_ADDITIONS: &[MachineVectorInlineKind] = &[
+    MachineVectorInlineKind::InlineVector,
+    MachineVectorInlineKind::MathVector,
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_FEATURES: &[MachineVectorFeature] = &[
+    MachineVectorFeature::ClipPath,
+    MachineVectorFeature::CurrentColor,
+    MachineVectorFeature::PaintOpacity,
+    MachineVectorFeature::SharedFormXObject,
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_SAFE_1_FEATURES: &[MachineVectorFeature] = &[
+    MachineVectorFeature::ClipPath,
+    MachineVectorFeature::SharedFormXObject,
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_FEATURES_BY_PROFILE: &[MachineVectorFeaturesByProfile] = &[
+    MachineVectorFeaturesByProfile {
+        profile: MachineVectorProfile::SvgSafe1,
+        features: PRIVATE_VECTOR_SAFE_1_FEATURES,
+    },
+    MachineVectorFeaturesByProfile {
+        profile: MachineVectorProfile::SvgSafe2,
+        features: PRIVATE_VECTOR_FEATURES,
+    },
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_FORMATS: &[MachineVectorFormat] = &[MachineVectorFormat::Svg];
+#[cfg(test)]
+const PRIVATE_VECTOR_SAFE_1_MEDIA: &[MachineVectorProfile] = &[MachineVectorProfile::SvgSafe1];
+#[cfg(test)]
+const PRIVATE_VECTOR_SAFE_2_MEDIA: &[MachineVectorProfile] = &[MachineVectorProfile::SvgSafe2];
+#[cfg(test)]
+const PRIVATE_VECTOR_SAFE_1_2_MEDIA: &[MachineVectorProfile] = &[
+    MachineVectorProfile::SvgSafe1,
+    MachineVectorProfile::SvgSafe2,
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_MEDIA_BY_KIND: &[MachineVectorMediaByKind] = &[
+    MachineVectorMediaByKind {
+        kind: MachineVectorKind::Figure,
+        media: PRIVATE_VECTOR_SAFE_1_MEDIA,
+    },
+    MachineVectorMediaByKind {
+        kind: MachineVectorKind::InlineVector,
+        media: PRIVATE_VECTOR_SAFE_1_2_MEDIA,
+    },
+    MachineVectorMediaByKind {
+        kind: MachineVectorKind::MathVector,
+        media: PRIVATE_VECTOR_SAFE_2_MEDIA,
+    },
+    MachineVectorMediaByKind {
+        kind: MachineVectorKind::MathVectorBlock,
+        media: PRIVATE_VECTOR_SAFE_2_MEDIA,
+    },
+    MachineVectorMediaByKind {
+        kind: MachineVectorKind::VectorFigure,
+        media: PRIVATE_VECTOR_SAFE_1_2_MEDIA,
+    },
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_METRICS: &[MachineVectorMetric] = &[
+    MachineVectorMetric::Advance,
+    MachineVectorMetric::Ascent,
+    MachineVectorMetric::Baseline,
+    MachineVectorMetric::Descent,
+    MachineVectorMetric::OriginX,
+    MachineVectorMetric::Viewport,
+];
+#[cfg(test)]
+const PRIVATE_VECTOR_PROFILES: &[MachineVectorProfile] = &[
+    MachineVectorProfile::SvgSafe1,
+    MachineVectorProfile::SvgSafe2,
+];
+
+#[cfg(test)]
+pub(crate) const PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION:
+    PrecomposedVectorCapabilityProjection = PrecomposedVectorCapabilityProjection {
+    block_additions: PRIVATE_VECTOR_BLOCK_ADDITIONS,
+    coarse_image_formats: PRIVATE_VECTOR_IMAGE_FORMATS,
+    inline_additions: PRIVATE_VECTOR_INLINE_ADDITIONS,
+    style_block_additions: PRIVATE_VECTOR_BLOCK_ADDITIONS,
+    vector_features: PRIVATE_VECTOR_FEATURES,
+    vector_features_by_profile: PRIVATE_VECTOR_FEATURES_BY_PROFILE,
+    vector_formats: PRIVATE_VECTOR_FORMATS,
+    vector_media_by_kind: PRIVATE_VECTOR_MEDIA_BY_KIND,
+    vector_metrics: PRIVATE_VECTOR_METRICS,
+    vector_profiles: PRIVATE_VECTOR_PROFILES,
+};
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachinePdfFeature {
     HeadingSemantics,

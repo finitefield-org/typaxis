@@ -2494,7 +2494,7 @@ acceptance、verificationは
 | MI4-V02 | Completed | MI4-V01 |
 | MI4-V03 | Completed | MI4-V02 |
 | MI4-V04 | Completed | MI4-V03 |
-| MI4-V05 | Pending | MI4-V04 |
+| MI4-V05 | Completed | MI4-V04 |
 | MI4-V06 | Pending | MI4-V03 |
 | MI4-V07 | Pending | MI4-V06 |
 | MI4-V08 | Pending | MI4-V04, MI4-V05, MI4-V06, MI4-V07 |

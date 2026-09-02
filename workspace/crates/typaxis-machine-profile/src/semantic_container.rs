@@ -126,6 +126,7 @@ pub enum StagingSemanticContainerPreflightError {
     StyleMismatch(NodeId),
     UnsupportedMath,
     PrecomposedVectorStaging(NodeId),
+    PrecomposedVectorStyleStaging,
     SvgSafe2Staging(ImageResourceId),
     ReceiptMismatch,
 }
@@ -167,6 +168,8 @@ impl std::fmt::Display for StagingSemanticContainerPreflightError {
                 "P1102: precomposed vector at node {} requires its versioned profile",
                 owner.get()
             ),
+            Self::PrecomposedVectorStyleStaging => formatter
+                .write_str("P1102: precomposed vector style requires its versioned profile"),
             Self::SvgSafe2Staging(id) => write!(
                 formatter,
                 "P1102: svg-safe-2 image {} requires its versioned profile",
@@ -315,13 +318,14 @@ fn preflight_staging_semantic_container_profile_inner(
     package
         .checked_wire()
         .map_err(|_| StagingSemanticContainerPreflightError::ReceiptMismatch)?;
-    validate_media_declarations(package.resources())?;
+    validate_media_declarations(package.resources(), false)?;
     let mut count = 0u32;
     validate_blocks(
         package,
         &package.document().blocks,
         StagingSemanticContainerParentKind::DocumentBody,
         &mut count,
+        false,
     )?;
     for footnote in &package.document().footnotes {
         validate_blocks(
@@ -329,6 +333,7 @@ fn preflight_staging_semantic_container_profile_inner(
             &footnote.blocks,
             StagingSemanticContainerParentKind::FootnoteDefinition,
             &mut count,
+            false,
         )?;
     }
     let authorization = StagingSemanticContainerProfileView::new(package, limits)
@@ -372,6 +377,17 @@ fn reject_precomposed_vector_staging(
             .find_map(|footnote| first_precomposed_vector_owner(&footnote.blocks))
     }) {
         return Err(StagingSemanticContainerPreflightError::PrecomposedVectorStaging(owner));
+    }
+    let wire = package
+        .checked_wire()
+        .map_err(|_| StagingSemanticContainerPreflightError::ReceiptMismatch)?;
+    if wire.style_sheet().rules.iter().any(|rule| {
+        matches!(
+            rule.selector.split('.').next().unwrap_or_default(),
+            "math_vector_block" | "vector_figure"
+        )
+    }) {
+        return Err(StagingSemanticContainerPreflightError::PrecomposedVectorStyleStaging);
     }
     Ok(())
 }
@@ -485,6 +501,7 @@ fn has_neutral_book_navigation(package: &ValidatedStagingSemanticPackage) -> boo
 
 fn validate_media_declarations(
     resources: &typaxis_syntax::machine_profile_boundary::StagingM4ResourceCatalog,
+    precomposed_vector: bool,
 ) -> Result<(), StagingSemanticContainerPreflightError> {
     for font in &resources.font_faces {
         match font.media {
@@ -502,7 +519,7 @@ fn validate_media_declarations(
     }
     for image in &resources.images {
         match image.media {
-            ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => {
+            ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) if !precomposed_vector => {
                 return Err(StagingSemanticContainerPreflightError::SvgSafe2Staging(
                     image.image_id,
                 ));
@@ -510,7 +527,8 @@ fn validate_media_declarations(
             ImageMediaDeclaration::Declared(media)
                 if StagingSemanticContainerProfileDescriptor
                     .image_media()
-                    .contains(&media) => {}
+                    .contains(&media)
+                    || (precomposed_vector && media == ImageMediaType::SvgSafe2) => {}
             ImageMediaDeclaration::Declared(_) => {
                 return Err(StagingSemanticContainerPreflightError::DisallowedMedia)
             }
@@ -527,6 +545,7 @@ fn validate_blocks(
     blocks: &[StagingM4Block],
     parent_kind: StagingSemanticContainerParentKind,
     count: &mut u32,
+    precomposed_vector: bool,
 ) -> Result<(), StagingSemanticContainerPreflightError> {
     for block in blocks {
         match block {
@@ -577,6 +596,7 @@ fn validate_blocks(
                     blocks,
                     StagingSemanticContainerParentKind::SemanticContainer,
                     count,
+                    precomposed_vector,
                 )?;
             }
             StagingM4Block::List { items, .. } => {
@@ -586,6 +606,7 @@ fn validate_blocks(
                         &item.blocks,
                         StagingSemanticContainerParentKind::ListItem,
                         count,
+                        precomposed_vector,
                     )?;
                 }
             }
@@ -596,6 +617,7 @@ fn validate_blocks(
                         &cell.blocks,
                         StagingSemanticContainerParentKind::TableCell,
                         count,
+                        precomposed_vector,
                     )?;
                 }
             }
@@ -605,30 +627,83 @@ fn validate_blocks(
                     caption,
                     StagingSemanticContainerParentKind::FigureCaption,
                     count,
+                    precomposed_vector,
                 )?;
             }
-            StagingM4Block::VectorFigure { common, .. }
-            | StagingM4Block::MathVectorBlock { common, .. } => {
-                return Err(
-                    StagingSemanticContainerPreflightError::PrecomposedVectorStaging(
-                        common.node_id,
-                    ),
-                );
+            StagingM4Block::VectorFigure {
+                common, caption, ..
+            } => {
+                if !precomposed_vector {
+                    return Err(
+                        StagingSemanticContainerPreflightError::PrecomposedVectorStaging(
+                            common.node_id,
+                        ),
+                    );
+                }
+                validate_blocks(
+                    package,
+                    caption,
+                    StagingSemanticContainerParentKind::FigureCaption,
+                    count,
+                    true,
+                )?;
+            }
+            StagingM4Block::MathVectorBlock { common, .. } => {
+                if !precomposed_vector {
+                    return Err(
+                        StagingSemanticContainerPreflightError::PrecomposedVectorStaging(
+                            common.node_id,
+                        ),
+                    );
+                }
             }
             StagingM4Block::Paragraph { inline_vectors, .. }
             | StagingM4Block::Heading { inline_vectors, .. } => {
-                if let Some(vector) = inline_vectors.first() {
-                    return Err(
-                        StagingSemanticContainerPreflightError::PrecomposedVectorStaging(
-                            vector.node_id,
-                        ),
-                    );
+                if !precomposed_vector {
+                    if let Some(vector) = inline_vectors.first() {
+                        return Err(
+                            StagingSemanticContainerPreflightError::PrecomposedVectorStaging(
+                                vector.node_id,
+                            ),
+                        );
+                    }
                 }
             }
             StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => {}
         }
     }
     Ok(())
+}
+
+pub(crate) fn validate_staging_semantic_container_domain_for_precomposed_vector(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &ValidatedResourceLimits,
+) -> Result<u32, StagingSemanticContainerPreflightError> {
+    if package.limits() != limits {
+        return Err(StagingSemanticContainerPreflightError::ReceiptMismatch);
+    }
+    package
+        .checked_wire()
+        .map_err(|_| StagingSemanticContainerPreflightError::ReceiptMismatch)?;
+    validate_media_declarations(package.resources(), true)?;
+    let mut count = 0u32;
+    validate_blocks(
+        package,
+        &package.document().blocks,
+        StagingSemanticContainerParentKind::DocumentBody,
+        &mut count,
+        true,
+    )?;
+    for footnote in &package.document().footnotes {
+        validate_blocks(
+            package,
+            &footnote.blocks,
+            StagingSemanticContainerParentKind::FootnoteDefinition,
+            &mut count,
+            true,
+        )?;
+    }
+    Ok(count)
 }
 
 #[cfg(test)]
@@ -737,23 +812,56 @@ mod tests {
         let mut resources = package.resources().clone();
         resources.font_faces[0].media = FontMediaDeclaration::LegacyUnspecified;
         assert_eq!(
-            validate_media_declarations(&resources),
+            validate_media_declarations(&resources, false),
             Err(StagingSemanticContainerPreflightError::MissingDeclaration)
         );
         resources.font_faces[0].media =
             FontMediaDeclaration::Declared(FontMediaType::SfntTrueTypeGlyf);
         resources.images[0].media = ImageMediaDeclaration::LegacyUnspecified;
         assert_eq!(
-            validate_media_declarations(&resources),
+            validate_media_declarations(&resources, false),
             Err(StagingSemanticContainerPreflightError::MissingDeclaration)
         );
         resources.images[0].media = ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2);
         assert_eq!(
-            validate_media_declarations(&resources),
+            validate_media_declarations(&resources, false),
             Err(StagingSemanticContainerPreflightError::SvgSafe2Staging(
                 resources.images[0].image_id
             ))
         );
+    }
+
+    #[test]
+    fn precomposed_vector_domain_walks_vector_figure_caption_flow() {
+        let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                PRECOMPOSED_VECTOR_FIXTURE,
+                &DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let package = StagingSemanticPackageParser::new()
+            .parse(decoded, &limits)
+            .unwrap();
+        let StagingM4Block::SemanticContainer { blocks, .. } = &package.document().blocks[0] else {
+            panic!("fixture root must be a semantic container");
+        };
+        let mut vector_figure = blocks[1].clone();
+        let StagingM4Block::VectorFigure { caption, .. } = &mut vector_figure else {
+            panic!("fixture second child must be a vector figure");
+        };
+        caption.push(package.document().blocks[0].clone());
+
+        let mut count = 0;
+        validate_blocks(
+            &package,
+            &[vector_figure],
+            StagingSemanticContainerParentKind::DocumentBody,
+            &mut count,
+            true,
+        )
+        .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]

@@ -3,8 +3,8 @@
 use core::num::{NonZeroU32, NonZeroU64};
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
-    FontFaceId, Length, MasterId, NonNegativeLength, PageName, PositiveLength, Rect, StyleId,
-    JSON_SAFE_INTEGER_MAX,
+    push_jcs_string, sha256, FontFaceId, Length, MasterId, NonNegativeLength, PageName,
+    PositiveLength, Rect, StyleId, JSON_SAFE_INTEGER_MAX,
 };
 use typaxis_resource_admission::AdmittedResourceLedgerToken;
 
@@ -15,6 +15,23 @@ pub const STYLEABLE_BLOCK_TYPES: &[&str] = &[
     "table",
     "figure",
     "page_break",
+];
+
+/// Private contract-1.4 selector domain. These names deliberately do not
+/// appear in [`STYLEABLE_BLOCK_TYPES`], so the public basic registry remains
+/// closed at version 1.
+pub const PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES: &[&str] =
+    &["math_vector_block", "vector_figure"];
+
+const STAGING_PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES: &[&str] = &[
+    "paragraph",
+    "heading",
+    "list",
+    "table",
+    "figure",
+    "page_break",
+    "math_vector_block",
+    "vector_figure",
 ];
 
 pub fn is_style_identifier(value: &str) -> bool {
@@ -30,9 +47,17 @@ pub enum SelectorError {
 }
 
 pub fn validate_selector(selector: &str) -> Result<(), SelectorError> {
+    validate_selector_for(selector, STYLEABLE_BLOCK_TYPES)
+}
+
+pub fn validate_precomposed_vector_selector(selector: &str) -> Result<(), SelectorError> {
+    validate_selector_for(selector, PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES)
+}
+
+fn validate_selector_for(selector: &str, block_types: &[&str]) -> Result<(), SelectorError> {
     let mut components = selector.split('.');
     let block_type = components.next().unwrap_or_default();
-    if !STYLEABLE_BLOCK_TYPES.contains(&block_type) {
+    if !block_types.contains(&block_type) {
         return Err(SelectorError::InvalidBlockType);
     }
     let mut classes = BTreeSet::new();
@@ -106,20 +131,20 @@ pub enum StyleValidationError {
 
 impl StyleSheet {
     pub fn validate(&self) -> Result<(), StyleValidationError> {
-        self.validate_contract(false)
+        self.validate_contract_for(false, STYLEABLE_BLOCK_TYPES)
     }
 
     /// Validates the additive contract 1.2 style shape without publishing it
     /// through the current contract. Selector/property applicability remains a
     /// profile concern and is checked by [`Self::validate_basic_document_styles`].
     pub fn validate_basic_document_style_shape(&self) -> Result<(), StyleValidationError> {
-        self.validate_contract(true)
+        self.validate_contract_for(true, STYLEABLE_BLOCK_TYPES)
     }
 
     /// Validates both the 1.2 tagged-value domain and the immutable
     /// `basic-document-1` selector/property coverage table.
     pub fn validate_basic_document_styles(&self) -> Result<(), StyleValidationError> {
-        self.validate_contract(true)?;
+        self.validate_contract_for(true, STYLEABLE_BLOCK_TYPES)?;
         for rule in &self.rules {
             let block_type = rule.selector.split('.').next().unwrap_or_default();
             if BasicStyleBlockKind::from_str(block_type).is_none() {
@@ -141,7 +166,7 @@ impl StyleSheet {
     /// their applicability rules; `table` accepts only the already-typed
     /// block placement properties fixed by ADR-0029.
     pub fn validate_table_document_styles(&self) -> Result<(), StyleValidationError> {
-        self.validate_contract(true)?;
+        self.validate_contract_for(true, STYLEABLE_BLOCK_TYPES)?;
         for rule in &self.rules {
             let block_type = rule.selector.split('.').next().unwrap_or_default();
             if block_type != "table" && BasicStyleBlockKind::from_str(block_type).is_none() {
@@ -173,7 +198,21 @@ impl StyleSheet {
         Ok(())
     }
 
-    fn validate_contract(&self, staging_1_2: bool) -> Result<(), StyleValidationError> {
+    /// Validates the shared declaration/tag/graph shape while admitting both
+    /// existing selectors and the private precomposed-vector selectors.
+    /// Registry applicability is still checked separately, so this helper
+    /// cannot make a new selector valid in the basic `/1` registry.
+    pub fn validate_staging_precomposed_vector_style_shape(
+        &self,
+    ) -> Result<(), StyleValidationError> {
+        self.validate_contract_for(true, STAGING_PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES)
+    }
+
+    fn validate_contract_for(
+        &self,
+        staging_1_2: bool,
+        block_types: &[&str],
+    ) -> Result<(), StyleValidationError> {
         let mut by_id = BTreeMap::new();
         for (index, rule) in self.rules.iter().enumerate() {
             if rule.source_order
@@ -181,7 +220,8 @@ impl StyleSheet {
             {
                 return Err(StyleValidationError::SourceOrderMismatch);
             }
-            validate_selector(&rule.selector).map_err(StyleValidationError::InvalidSelector)?;
+            validate_selector_for(&rule.selector, block_types)
+                .map_err(StyleValidationError::InvalidSelector)?;
             for declaration in &rule.declarations {
                 if !valid_declaration_name(&declaration.name) {
                     return Err(StyleValidationError::InvalidDeclarationName);
@@ -310,7 +350,14 @@ fn valid_font_family_list(families: &[String]) -> bool {
 }
 
 fn selector_parts(selector: &str) -> Result<(&str, BTreeSet<&str>), SelectorError> {
-    validate_selector(selector)?;
+    selector_parts_for(selector, STYLEABLE_BLOCK_TYPES)
+}
+
+fn selector_parts_for<'a>(
+    selector: &'a str,
+    block_types: &[&str],
+) -> Result<(&'a str, BTreeSet<&'a str>), SelectorError> {
+    validate_selector_for(selector, block_types)?;
     let mut components = selector.split('.');
     let block_type = components.next().unwrap_or_default();
     Ok((block_type, components.collect()))
@@ -326,11 +373,23 @@ pub fn selector_matches(
     Ok(selector_type == block_type && selector_classes.is_subset(&target_classes))
 }
 
+fn precomposed_vector_selector_matches(
+    selector: &str,
+    block_type: &str,
+    classes: &[String],
+) -> Result<bool, SelectorError> {
+    let (selector_type, selector_classes) =
+        selector_parts_for(selector, PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES)?;
+    let target_classes: BTreeSet<&str> = classes.iter().map(String::as_str).collect();
+    Ok(selector_type == block_type && selector_classes.is_subset(&target_classes))
+}
+
 /// Immutable registry identity bound into every computed M2 block-style
 /// receipt. Changing any property shape, default, inheritance, applicability,
 /// or consumer requires a new registry identifier.
 pub const BASIC_BLOCK_STYLE_REGISTRY_VERSION: &str = "typaxis.basic-block-style-registry/1";
 pub const TABLE_BLOCK_STYLE_REGISTRY_VERSION: &str = "typaxis.table-block-style-registry/1";
+pub const PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION: &str = "typaxis.precomposed-vector-style/1";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BasicStyleBlockKind {
@@ -542,6 +601,325 @@ pub const BASIC_BLOCK_STYLE_PROPERTIES: &[BasicBlockStylePropertyDescriptor] = &
     },
 ];
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PrecomposedVectorStyleKind {
+    MathVectorBlock,
+    VectorFigure,
+}
+
+impl PrecomposedVectorStyleKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MathVectorBlock => "math_vector_block",
+            Self::VectorFigure => "vector_figure",
+        }
+    }
+
+    pub const fn from_str(value: &str) -> Option<Self> {
+        match value.as_bytes() {
+            b"math_vector_block" => Some(Self::MathVectorBlock),
+            b"vector_figure" => Some(Self::VectorFigure),
+            _ => None,
+        }
+    }
+}
+
+pub const PRECOMPOSED_VECTOR_STYLE_KINDS: &[PrecomposedVectorStyleKind] = &[
+    PrecomposedVectorStyleKind::MathVectorBlock,
+    PrecomposedVectorStyleKind::VectorFigure,
+];
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PrecomposedVectorStyleProperty {
+    EndIndent,
+    FontFamily,
+    FontSize,
+    KeepCaption,
+    KeepWithNext,
+    LineHeight,
+    Page,
+    SpaceAfter,
+    SpaceBefore,
+    StartIndent,
+    TextAlign,
+    Width,
+}
+
+impl PrecomposedVectorStyleProperty {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EndIndent => "end_indent",
+            Self::FontFamily => "font_family",
+            Self::FontSize => "font_size",
+            Self::KeepCaption => "keep_caption",
+            Self::KeepWithNext => "keep_with_next",
+            Self::LineHeight => "line_height",
+            Self::Page => "page",
+            Self::SpaceAfter => "space_after",
+            Self::SpaceBefore => "space_before",
+            Self::StartIndent => "start_indent",
+            Self::TextAlign => "text_align",
+            Self::Width => "width",
+        }
+    }
+
+    pub const fn from_str(value: &str) -> Option<Self> {
+        match value.as_bytes() {
+            b"end_indent" => Some(Self::EndIndent),
+            b"font_family" => Some(Self::FontFamily),
+            b"font_size" => Some(Self::FontSize),
+            b"keep_caption" => Some(Self::KeepCaption),
+            b"keep_with_next" => Some(Self::KeepWithNext),
+            b"line_height" => Some(Self::LineHeight),
+            b"page" => Some(Self::Page),
+            b"space_after" => Some(Self::SpaceAfter),
+            b"space_before" => Some(Self::SpaceBefore),
+            b"start_indent" => Some(Self::StartIndent),
+            b"text_align" => Some(Self::TextAlign),
+            b"width" => Some(Self::Width),
+            _ => None,
+        }
+    }
+}
+
+pub const PRECOMPOSED_VECTOR_STYLE_PROPERTY_DOMAIN: &[PrecomposedVectorStyleProperty] = &[
+    PrecomposedVectorStyleProperty::EndIndent,
+    PrecomposedVectorStyleProperty::FontFamily,
+    PrecomposedVectorStyleProperty::FontSize,
+    PrecomposedVectorStyleProperty::KeepCaption,
+    PrecomposedVectorStyleProperty::KeepWithNext,
+    PrecomposedVectorStyleProperty::LineHeight,
+    PrecomposedVectorStyleProperty::Page,
+    PrecomposedVectorStyleProperty::SpaceAfter,
+    PrecomposedVectorStyleProperty::SpaceBefore,
+    PrecomposedVectorStyleProperty::StartIndent,
+    PrecomposedVectorStyleProperty::TextAlign,
+    PrecomposedVectorStyleProperty::Width,
+];
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PrecomposedVectorStyleConsumer {
+    BlockFlowGlueAfter,
+    BlockFlowGlueBefore,
+    BlockNextKeep,
+    EquationNumberFontFamily,
+    EquationNumberFontSize,
+    EquationNumberLineHeight,
+    FigureCaptionKeep,
+    LogicalEndInset,
+    LogicalStartInset,
+    NamedPage,
+    VectorAlignment,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrecomposedVectorStyleInitial {
+    Absent,
+    Boolean(bool),
+    PageAuto,
+    TextStart,
+    ZeroLength,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrecomposedVectorStylePropertyDescriptor {
+    pub kind: PrecomposedVectorStyleKind,
+    pub property: PrecomposedVectorStyleProperty,
+    pub initial: PrecomposedVectorStyleInitial,
+    pub inherited: bool,
+    pub consumer: PrecomposedVectorStyleConsumer,
+}
+
+macro_rules! precomposed_vector_shared_property {
+    ($kind:expr, $property:ident, $initial:expr, $inherited:expr, $consumer:ident) => {
+        PrecomposedVectorStylePropertyDescriptor {
+            kind: $kind,
+            property: PrecomposedVectorStyleProperty::$property,
+            initial: $initial,
+            inherited: $inherited,
+            consumer: PrecomposedVectorStyleConsumer::$consumer,
+        }
+    };
+}
+
+/// Exhaustive accepted kind/property table for the private registry. `width`,
+/// math `keep_caption`, and vector-figure font properties remain in the known
+/// property domain but intentionally have no row, making them typed L5101
+/// applicability failures rather than unknown-property aliases.
+pub const PRECOMPOSED_VECTOR_STYLE_PROPERTIES: &[PrecomposedVectorStylePropertyDescriptor] = &[
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        SpaceBefore,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        BlockFlowGlueBefore
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        SpaceAfter,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        BlockFlowGlueAfter
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        StartIndent,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        LogicalStartInset
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        EndIndent,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        LogicalEndInset
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        TextAlign,
+        PrecomposedVectorStyleInitial::TextStart,
+        true,
+        VectorAlignment
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        Page,
+        PrecomposedVectorStyleInitial::PageAuto,
+        false,
+        NamedPage
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        KeepWithNext,
+        PrecomposedVectorStyleInitial::Boolean(false),
+        false,
+        BlockNextKeep
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        FontFamily,
+        PrecomposedVectorStyleInitial::Absent,
+        true,
+        EquationNumberFontFamily
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        FontSize,
+        PrecomposedVectorStyleInitial::Absent,
+        true,
+        EquationNumberFontSize
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::MathVectorBlock,
+        LineHeight,
+        PrecomposedVectorStyleInitial::Absent,
+        true,
+        EquationNumberLineHeight
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        SpaceBefore,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        BlockFlowGlueBefore
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        SpaceAfter,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        BlockFlowGlueAfter
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        StartIndent,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        LogicalStartInset
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        EndIndent,
+        PrecomposedVectorStyleInitial::ZeroLength,
+        false,
+        LogicalEndInset
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        TextAlign,
+        PrecomposedVectorStyleInitial::TextStart,
+        true,
+        VectorAlignment
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        Page,
+        PrecomposedVectorStyleInitial::PageAuto,
+        false,
+        NamedPage
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        KeepWithNext,
+        PrecomposedVectorStyleInitial::Boolean(false),
+        false,
+        BlockNextKeep
+    ),
+    precomposed_vector_shared_property!(
+        PrecomposedVectorStyleKind::VectorFigure,
+        KeepCaption,
+        PrecomposedVectorStyleInitial::Boolean(true),
+        false,
+        FigureCaptionKeep
+    ),
+];
+
+pub fn precomposed_vector_style_property_descriptor(
+    kind: PrecomposedVectorStyleKind,
+    property: PrecomposedVectorStyleProperty,
+) -> Option<&'static PrecomposedVectorStylePropertyDescriptor> {
+    PRECOMPOSED_VECTOR_STYLE_PROPERTIES
+        .iter()
+        .find(|descriptor| descriptor.kind == kind && descriptor.property == property)
+}
+
+impl StyleSheet {
+    pub fn validate_precomposed_vector_styles(&self) -> Result<(), StyleValidationError> {
+        self.validate_contract_for(true, PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES)?;
+        let by_id: BTreeMap<&StyleId, &StyleRule> = self
+            .rules
+            .iter()
+            .map(|rule| (&rule.style_id, rule))
+            .collect();
+        for rule in &self.rules {
+            let selector_kind = PrecomposedVectorStyleKind::from_str(
+                rule.selector.split('.').next().unwrap_or_default(),
+            )
+            .ok_or(StyleValidationError::InvalidSelector(
+                SelectorError::InvalidBlockType,
+            ))?;
+            let mut current = Some(rule);
+            while let Some(origin) = current {
+                for declaration in &origin.declarations {
+                    let property = PrecomposedVectorStyleProperty::from_str(&declaration.name)
+                        .ok_or(StyleValidationError::UnknownProperty)?;
+                    if precomposed_vector_style_property_descriptor(selector_kind, property)
+                        .is_none()
+                    {
+                        return Err(StyleValidationError::InapplicableProperty);
+                    }
+                }
+                current = origin
+                    .extends
+                    .as_ref()
+                    .and_then(|parent| by_id.get(parent).copied());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MachineTextAlign {
     Start,
@@ -575,6 +953,162 @@ pub struct ComputedMachineBlockStyle {
     width: MachineFigureWidth,
     keep_with_next: bool,
     keep_caption: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrecomposedVectorEquationNumberTextStyle {
+    font_families: Option<Vec<String>>,
+    font_size: Option<PositiveLength>,
+    line_height: Option<PositiveLength>,
+}
+
+impl PrecomposedVectorEquationNumberTextStyle {
+    pub fn font_families(&self) -> Option<&[String]> {
+        self.font_families.as_deref()
+    }
+
+    pub const fn font_size(&self) -> Option<PositiveLength> {
+        self.font_size
+    }
+
+    pub const fn line_height(&self) -> Option<PositiveLength> {
+        self.line_height
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum PrecomposedVectorStyleSupplement {
+    EquationNumber(PrecomposedVectorEquationNumberTextStyle),
+    FigureCaption { keep_caption: bool },
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct PrecomposedVectorStyleBinding;
+
+/// Sealed result of the private vector-block cascade. The public accessors
+/// expose only typed consumer fields: no raw property map, `width`, formula
+/// metric, or SVG scale channel exists on this receipt.
+#[derive(Debug, Eq, PartialEq)]
+pub struct PrecomposedVectorComputedStyleReceipt {
+    registry_version: &'static str,
+    kind: PrecomposedVectorStyleKind,
+    block: ComputedMachineBlockStyle,
+    page_name: Option<PageName>,
+    supplement: PrecomposedVectorStyleSupplement,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+    _binding: PrecomposedVectorStyleBinding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrecomposedVectorStyleReceiptMismatch;
+
+impl std::fmt::Display for PrecomposedVectorStyleReceiptMismatch {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("I9190: precomposed vector style receipt mismatch")
+    }
+}
+
+impl std::error::Error for PrecomposedVectorStyleReceiptMismatch {}
+
+impl PrecomposedVectorComputedStyleReceipt {
+    pub const fn registry_version(&self) -> &'static str {
+        self.registry_version
+    }
+
+    pub const fn kind(&self) -> PrecomposedVectorStyleKind {
+        self.kind
+    }
+
+    pub const fn space_before(&self) -> NonNegativeLength {
+        self.block.space_before
+    }
+
+    pub const fn space_after(&self) -> NonNegativeLength {
+        self.block.space_after
+    }
+
+    pub const fn start_indent(&self) -> NonNegativeLength {
+        self.block.start_indent
+    }
+
+    pub const fn end_indent(&self) -> NonNegativeLength {
+        self.block.end_indent
+    }
+
+    pub const fn text_align(&self) -> MachineTextAlign {
+        self.block.text_align
+    }
+
+    pub const fn page_name(&self) -> Option<&PageName> {
+        self.page_name.as_ref()
+    }
+
+    pub const fn keep_with_next(&self) -> bool {
+        self.block.keep_with_next
+    }
+
+    pub const fn equation_number_text_style(
+        &self,
+    ) -> Option<&PrecomposedVectorEquationNumberTextStyle> {
+        match &self.supplement {
+            PrecomposedVectorStyleSupplement::EquationNumber(style) => Some(style),
+            PrecomposedVectorStyleSupplement::FigureCaption { .. } => None,
+        }
+    }
+
+    pub const fn keep_caption(&self) -> Option<bool> {
+        match &self.supplement {
+            PrecomposedVectorStyleSupplement::EquationNumber(_) => None,
+            PrecomposedVectorStyleSupplement::FigureCaption { keep_caption } => Some(*keep_caption),
+        }
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn verify_for(
+        &self,
+        kind: PrecomposedVectorStyleKind,
+    ) -> Result<(), PrecomposedVectorStyleReceiptMismatch> {
+        let observed = encode_precomposed_vector_computed_style(self);
+        let supplement_matches_kind = matches!(
+            (self.kind, &self.supplement),
+            (
+                PrecomposedVectorStyleKind::MathVectorBlock,
+                PrecomposedVectorStyleSupplement::EquationNumber(_)
+            ) | (
+                PrecomposedVectorStyleKind::VectorFigure,
+                PrecomposedVectorStyleSupplement::FigureCaption { .. }
+            )
+        );
+        if self.registry_version != PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION
+            || self.kind != kind
+            || !supplement_matches_kind
+            || self.block.width != MachineFigureWidth::Auto
+            || (self.kind == PrecomposedVectorStyleKind::MathVectorBlock
+                && !self.block.keep_caption)
+            || self.canonical_jcs != observed
+            || self.fingerprint != sha256(observed.as_bytes())
+        {
+            return Err(PrecomposedVectorStyleReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
+pub fn require_precomposed_vector_style_registry(
+    registry_version: &str,
+) -> Result<(), PrecomposedVectorStyleReceiptMismatch> {
+    if registry_version != PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION {
+        return Err(PrecomposedVectorStyleReceiptMismatch);
+    }
+    Ok(())
 }
 
 /// Style-owner copy of the closed semantic kind. Syntax performs the one
@@ -733,6 +1267,123 @@ fn close_semantic_inheritance_style(
         )?,
         font_families,
     })
+}
+
+impl StyleSheet {
+    /// Cascades one private producer-composed vector block through the shared
+    /// precedence engine, then closes it into the registry-specific receipt.
+    pub fn cascade_precomposed_vector_style(
+        &self,
+        kind: PrecomposedVectorStyleKind,
+        classes: &[String],
+        parent: Option<&SemanticContainerInheritanceStyle>,
+    ) -> Result<PrecomposedVectorComputedStyleReceipt, StyleValidationError> {
+        self.validate_precomposed_vector_styles()?;
+        let computed = self.cascade_precomposed_vector_validated(kind.as_str(), classes)?;
+        let inheritance = close_semantic_inheritance_style(&computed, parent)?;
+        if inheritance.block_style.width != MachineFigureWidth::Auto {
+            return Err(StyleValidationError::InapplicableProperty);
+        }
+        let page_name = computed.page_name()?;
+        let supplement = match kind {
+            PrecomposedVectorStyleKind::MathVectorBlock => {
+                PrecomposedVectorStyleSupplement::EquationNumber(
+                    PrecomposedVectorEquationNumberTextStyle {
+                        font_families: inheritance.font_families,
+                        font_size: inheritance.font_size,
+                        line_height: inheritance.line_height,
+                    },
+                )
+            }
+            PrecomposedVectorStyleKind::VectorFigure => {
+                PrecomposedVectorStyleSupplement::FigureCaption {
+                    keep_caption: inheritance.block_style.keep_caption,
+                }
+            }
+        };
+        let mut receipt = PrecomposedVectorComputedStyleReceipt {
+            registry_version: PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION,
+            kind,
+            block: inheritance.block_style,
+            page_name,
+            supplement,
+            canonical_jcs: String::new(),
+            fingerprint: [0; 32],
+            _binding: PrecomposedVectorStyleBinding,
+        };
+        receipt.canonical_jcs = encode_precomposed_vector_computed_style(&receipt);
+        receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+        receipt
+            .verify_for(kind)
+            .map_err(|_| StyleValidationError::InapplicableProperty)?;
+        Ok(receipt)
+    }
+}
+
+fn encode_precomposed_vector_computed_style(
+    receipt: &PrecomposedVectorComputedStyleReceipt,
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION);
+    output.push_str(",\"end_indent\":");
+    output.push_str(&receipt.block.end_indent.get().raw().to_string());
+    match &receipt.supplement {
+        PrecomposedVectorStyleSupplement::EquationNumber(style) => {
+            output.push_str(",\"equation_number_text\":{\"font_families\":");
+            match &style.font_families {
+                Some(families) => {
+                    output.push('[');
+                    for (index, family) in families.iter().enumerate() {
+                        if index > 0 {
+                            output.push(',');
+                        }
+                        push_jcs_string(&mut output, family);
+                    }
+                    output.push(']');
+                }
+                None => output.push_str("null"),
+            }
+            output.push_str(",\"font_size\":");
+            push_optional_positive_length(&mut output, style.font_size);
+            output.push_str(",\"line_height\":");
+            push_optional_positive_length(&mut output, style.line_height);
+            output.push('}');
+        }
+        PrecomposedVectorStyleSupplement::FigureCaption { keep_caption } => {
+            output.push_str(",\"keep_caption\":");
+            output.push_str(if *keep_caption { "true" } else { "false" });
+        }
+    }
+    output.push_str(",\"keep_with_next\":");
+    output.push_str(if receipt.block.keep_with_next {
+        "true"
+    } else {
+        "false"
+    });
+    output.push_str(",\"kind\":");
+    push_jcs_string(&mut output, receipt.kind.as_str());
+    output.push_str(",\"page\":");
+    match &receipt.page_name {
+        Some(page) => push_jcs_string(&mut output, page.as_str()),
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"space_after\":");
+    output.push_str(&receipt.block.space_after.get().raw().to_string());
+    output.push_str(",\"space_before\":");
+    output.push_str(&receipt.block.space_before.get().raw().to_string());
+    output.push_str(",\"start_indent\":");
+    output.push_str(&receipt.block.start_indent.get().raw().to_string());
+    output.push_str(",\"text_align\":");
+    push_jcs_string(&mut output, receipt.block.text_align.as_str());
+    output.push('}');
+    output
+}
+
+fn push_optional_positive_length(output: &mut String, value: Option<PositiveLength>) {
+    match value {
+        Some(value) => output.push_str(&value.get().raw().to_string()),
+        None => output.push_str("null"),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1151,6 +1802,23 @@ impl StyleSheet {
         block_type: &str,
         classes: &[String],
     ) -> Result<ComputedStyle, StyleValidationError> {
+        self.cascade_validated_with(block_type, classes, selector_matches)
+    }
+
+    fn cascade_precomposed_vector_validated(
+        &self,
+        block_type: &str,
+        classes: &[String],
+    ) -> Result<ComputedStyle, StyleValidationError> {
+        self.cascade_validated_with(block_type, classes, precomposed_vector_selector_matches)
+    }
+
+    fn cascade_validated_with(
+        &self,
+        block_type: &str,
+        classes: &[String],
+        matches_selector: fn(&str, &str, &[String]) -> Result<bool, SelectorError>,
+    ) -> Result<ComputedStyle, StyleValidationError> {
         let by_id: BTreeMap<&StyleId, &StyleRule> = self
             .rules
             .iter()
@@ -1158,7 +1826,7 @@ impl StyleSheet {
             .collect();
         let mut winners: BTreeMap<String, CascadeWinner> = BTreeMap::new();
         for matched in &self.rules {
-            if !selector_matches(&matched.selector, block_type, classes)
+            if !matches_selector(&matched.selector, block_type, classes)
                 .map_err(StyleValidationError::InvalidSelector)?
             {
                 continue;
@@ -1922,5 +2590,255 @@ mod tests {
             ),
             Err(StyleValidationError::InapplicableProperty)
         );
+    }
+
+    #[test]
+    fn precomposed_vector_styles_registry_is_exhaustive_and_basic_registry_stays_closed() {
+        assert!(validate_precomposed_vector_selector("math_vector_block.equation").is_ok());
+        assert!(validate_precomposed_vector_selector("vector_figure.diagram").is_ok());
+        assert_eq!(
+            validate_selector("math_vector_block.equation"),
+            Err(SelectorError::InvalidBlockType)
+        );
+
+        let mut pairs = BTreeSet::new();
+        for descriptor in PRECOMPOSED_VECTOR_STYLE_PROPERTIES {
+            assert!(pairs.insert((descriptor.kind, descriptor.property)));
+            assert_eq!(
+                precomposed_vector_style_property_descriptor(descriptor.kind, descriptor.property),
+                Some(descriptor)
+            );
+        }
+        for kind in PRECOMPOSED_VECTOR_STYLE_KINDS {
+            for property in PRECOMPOSED_VECTOR_STYLE_PROPERTY_DOMAIN {
+                let accepted = precomposed_vector_style_property_descriptor(*kind, *property);
+                let expected = !matches!(
+                    (kind, property),
+                    (_, PrecomposedVectorStyleProperty::Width)
+                        | (
+                            PrecomposedVectorStyleKind::MathVectorBlock,
+                            PrecomposedVectorStyleProperty::KeepCaption,
+                        )
+                        | (
+                            PrecomposedVectorStyleKind::VectorFigure,
+                            PrecomposedVectorStyleProperty::FontFamily
+                                | PrecomposedVectorStyleProperty::FontSize
+                                | PrecomposedVectorStyleProperty::LineHeight,
+                        )
+                );
+                assert_eq!(accepted.is_some(), expected, "{kind:?} {property:?}");
+            }
+        }
+
+        let basic = StyleSheet {
+            rules: vec![rule("new-kind", None, "math_vector_block", 0)],
+        };
+        assert_eq!(
+            basic.validate_basic_document_styles(),
+            Err(StyleValidationError::InvalidSelector(
+                SelectorError::InvalidBlockType
+            ))
+        );
+
+        for (selector, property, value) in [
+            (
+                "math_vector_block",
+                "width",
+                StyleValue::Length(Length::from_raw(1).unwrap()),
+            ),
+            (
+                "math_vector_block",
+                "keep_caption",
+                StyleValue::Boolean(true),
+            ),
+            (
+                "vector_figure",
+                "font_size",
+                StyleValue::Length(Length::from_raw(1).unwrap()),
+            ),
+        ] {
+            let mut invalid = rule("invalid", None, selector, 0);
+            invalid
+                .declarations
+                .push(machine_declaration(property, value));
+            assert_eq!(
+                StyleSheet {
+                    rules: vec![invalid]
+                }
+                .validate_precomposed_vector_styles(),
+                Err(StyleValidationError::InapplicableProperty)
+            );
+        }
+
+        let mut unknown = rule("unknown", None, "vector_figure", 0);
+        unknown.declarations.push(machine_declaration(
+            "vector_color",
+            StyleValue::Keyword("currentColor".to_owned()),
+        ));
+        assert_eq!(
+            StyleSheet {
+                rules: vec![unknown]
+            }
+            .validate_precomposed_vector_styles(),
+            Err(StyleValidationError::UnknownProperty)
+        );
+    }
+
+    #[test]
+    fn precomposed_vector_styles_cascade_inheritance_override_and_typed_consumers() {
+        let mut parent_rule = rule("owner", None, "paragraph", 0);
+        parent_rule.declarations.extend([
+            machine_declaration(
+                "font_family",
+                StyleValue::FontFamilyList(vec!["Math".to_owned()]),
+            ),
+            machine_declaration(
+                "font_size",
+                StyleValue::Length(Length::from_raw(10 * 65_536).unwrap()),
+            ),
+            machine_declaration(
+                "line_height",
+                StyleValue::Length(Length::from_raw(12 * 65_536).unwrap()),
+            ),
+            machine_declaration("text_align", StyleValue::Keyword("end".to_owned())),
+        ]);
+        let parent = cascade_staging_semantic_container_style(
+            SemanticContainerStyleKind::Result,
+            &[],
+            &StyleSheet {
+                rules: vec![parent_rule],
+            },
+            None,
+        )
+        .unwrap();
+
+        let mut base = rule("base", None, "math_vector_block", 0);
+        base.declarations.extend([
+            machine_declaration(
+                "space_before",
+                StyleValue::Length(Length::from_raw(2).unwrap()),
+            ),
+            machine_declaration(
+                "font_size",
+                StyleValue::Length(Length::from_raw(11 * 65_536).unwrap()),
+            ),
+        ]);
+        let mut specific = rule("specific", Some("base"), "math_vector_block.numbered", 1);
+        specific.declarations.extend([
+            machine_declaration(
+                "space_before",
+                StyleValue::Length(Length::from_raw(3).unwrap()),
+            ),
+            machine_declaration("keep_with_next", StyleValue::Boolean(true)),
+        ]);
+        let mut important = rule("important", None, "math_vector_block.numbered", 2);
+        important.declarations.push(Declaration {
+            name: "space_before".to_owned(),
+            value: StyleValue::Length(Length::from_raw(4).unwrap()),
+            important: true,
+        });
+        let mut math = StyleSheet {
+            rules: vec![base, specific, important],
+        }
+        .cascade_precomposed_vector_style(
+            PrecomposedVectorStyleKind::MathVectorBlock,
+            &["numbered".to_owned()],
+            Some(parent.inheritance_style()),
+        )
+        .unwrap();
+        assert_eq!(
+            math.registry_version(),
+            PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION
+        );
+        assert_eq!(math.space_before().get().raw(), 4);
+        assert_eq!(math.text_align(), MachineTextAlign::End);
+        assert!(math.keep_with_next());
+        assert_eq!(math.keep_caption(), None);
+        let number = math.equation_number_text_style().unwrap();
+        assert_eq!(number.font_families().unwrap(), ["Math"]);
+        assert_eq!(number.font_size().unwrap().get().raw(), 11 * 65_536);
+        assert_eq!(number.line_height().unwrap().get().raw(), 12 * 65_536);
+        math.verify_for(PrecomposedVectorStyleKind::MathVectorBlock)
+            .unwrap();
+        assert_eq!(math.fingerprint(), sha256(math.canonical_jcs().as_bytes()));
+        math.supplement = PrecomposedVectorStyleSupplement::FigureCaption { keep_caption: true };
+        math.canonical_jcs = encode_precomposed_vector_computed_style(&math);
+        math.fingerprint = sha256(math.canonical_jcs.as_bytes());
+        assert_eq!(
+            math.verify_for(PrecomposedVectorStyleKind::MathVectorBlock),
+            Err(PrecomposedVectorStyleReceiptMismatch)
+        );
+
+        let mut figure = rule("figure", None, "vector_figure", 0);
+        figure.declarations.extend([
+            machine_declaration("keep_caption", StyleValue::Boolean(false)),
+            machine_declaration("text_align", StyleValue::Keyword("center".to_owned())),
+        ]);
+        let figure = StyleSheet {
+            rules: vec![figure],
+        }
+        .cascade_precomposed_vector_style(
+            PrecomposedVectorStyleKind::VectorFigure,
+            &[],
+            Some(parent.inheritance_style()),
+        )
+        .unwrap();
+        assert_eq!(figure.keep_caption(), Some(false));
+        assert!(figure.equation_number_text_style().is_none());
+        assert_eq!(figure.text_align(), MachineTextAlign::Center);
+
+        let mismatch =
+            require_precomposed_vector_style_registry(BASIC_BLOCK_STYLE_REGISTRY_VERSION)
+                .unwrap_err();
+        assert!(mismatch.to_string().starts_with("I9190:"));
+    }
+
+    #[test]
+    fn precomposed_vector_styles_enforce_fixed_point_min_max_and_max_plus_one() {
+        for (property, raw) in [
+            ("space_before", 0),
+            ("space_before", JSON_SAFE_INTEGER_MAX),
+            ("font_size", 1),
+            ("font_size", JSON_SAFE_INTEGER_MAX),
+        ] {
+            let mut accepted = rule("accepted", None, "math_vector_block", 0);
+            accepted.declarations.push(machine_declaration(
+                property,
+                StyleValue::Length(Length::from_raw(raw).unwrap()),
+            ));
+            assert!(StyleSheet {
+                rules: vec![accepted]
+            }
+            .validate_precomposed_vector_styles()
+            .is_ok());
+        }
+
+        for (property, value) in [
+            (
+                "space_before",
+                StyleValue::Length(Length::from_raw(-1).unwrap()),
+            ),
+            (
+                "font_size",
+                StyleValue::Length(Length::from_raw(0).unwrap()),
+            ),
+            (
+                "space_before",
+                StyleValue::Integer(JSON_SAFE_INTEGER_MAX + 1),
+            ),
+            ("font_size", StyleValue::Integer(JSON_SAFE_INTEGER_MAX + 1)),
+        ] {
+            let mut rejected = rule("rejected", None, "math_vector_block", 0);
+            rejected
+                .declarations
+                .push(machine_declaration(property, value));
+            assert_eq!(
+                StyleSheet {
+                    rules: vec![rejected]
+                }
+                .validate_precomposed_vector_styles(),
+                Err(StyleValidationError::InvalidDeclarationValue)
+            );
+        }
     }
 }

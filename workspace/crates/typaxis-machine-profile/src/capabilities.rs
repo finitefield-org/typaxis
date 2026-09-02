@@ -1,4 +1,6 @@
 use crate::descriptor::MachineProfileDescriptor;
+#[cfg(test)]
+use crate::descriptor::PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
 use typaxis_core::{
     push_jcs_string, DocumentPackageContractId, MachineInputLimitBounds, MachinePdfProfileId,
     COORDINATE_UNIT, PRODUCT_NAME,
@@ -164,6 +166,79 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
         push_profile(&mut output, profile, host);
     }
     output.push_str("]}}");
+    output
+}
+
+/// Canonical private projection used to close the future vector vocabulary
+/// without adding an eighth entry to the public profile tuple.
+#[cfg(test)]
+pub(crate) fn encode_private_precomposed_vector_capability_projection() -> String {
+    let projection = PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
+    let mut output = String::from("{\"blocks\":");
+    push_named_values(&mut output, projection.block_additions(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"image_formats\":");
+    push_named_values(&mut output, projection.coarse_image_formats(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"inlines\":{\"kinds\":");
+    push_named_values(&mut output, projection.inline_additions(), |value| {
+        value.as_str()
+    });
+    output.push_str("},\"style_block_types\":");
+    push_named_values(&mut output, projection.style_block_additions(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"style_selectors\":");
+    push_named_values(&mut output, projection.style_block_additions(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"vector_features\":");
+    push_named_values(&mut output, projection.vector_features(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"vector_features_by_profile\":{");
+    for (index, entry) in projection
+        .vector_features_by_profile()
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if index > 0 {
+            output.push(',');
+        }
+        push_jcs_string(&mut output, entry.profile().as_str());
+        output.push(':');
+        push_named_values(&mut output, entry.features(), |value| value.as_str());
+    }
+    output.push_str("},\"vector_formats\":");
+    push_named_values(&mut output, projection.vector_formats(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"vector_media_by_kind\":{");
+    for (index, entry) in projection
+        .vector_media_by_kind()
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if index > 0 {
+            output.push(',');
+        }
+        push_jcs_string(&mut output, entry.kind().as_str());
+        output.push(':');
+        push_named_values(&mut output, entry.media(), |value| value.as_str());
+    }
+    output.push_str("},\"vector_metrics\":");
+    push_named_values(&mut output, projection.vector_metrics(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"vector_profiles\":");
+    push_named_values(&mut output, projection.vector_profiles(), |value| {
+        value.as_str()
+    });
+    output.push('}');
     output
 }
 

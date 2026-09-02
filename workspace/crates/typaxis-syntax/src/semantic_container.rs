@@ -22,6 +22,7 @@ use typaxis_math::{parse_math_source, MathParseLimits, ParsedMathReceipt};
 use typaxis_style::{
     cascade_staging_display_math_style, cascade_staging_semantic_container_style,
     cascade_staging_semantic_descendant_style, close_staging_inline_math_style,
+    PrecomposedVectorComputedStyleReceipt, PrecomposedVectorStyleKind,
     SemanticContainerComputedStyle, SemanticContainerInheritanceStyle, SemanticContainerStyleKind,
     StagingMathComputedStyle,
 };
@@ -211,9 +212,9 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
             Self::InvalidPageGeometry => {
                 formatter.write_str("P1102: SafeVector requires one closed default page frame")
             }
-            Self::InvalidStyle => formatter.write_str("L5101: invalid semantic_container style"),
+            Self::InvalidStyle => formatter.write_str("L5101: invalid staging style"),
             Self::InapplicableStyle => {
-                formatter.write_str("L5101: inapplicable semantic_container property")
+                formatter.write_str("L5101: inapplicable staging style property")
             }
             Self::AstNodeLimit => formatter.write_str("P1102: semantic AST exceeds max_ast_nodes"),
             Self::AstDepthLimit => {
@@ -555,6 +556,7 @@ pub struct ValidatedStagingSemanticPackage {
     document: StagingM4Document,
     resources: StagingM4ResourceCatalog,
     computed_styles: BTreeMap<NodeId, SemanticContainerComputedStyle>,
+    precomposed_vector_styles: BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
     math_nodes: Vec<ValidatedStagingMathNode>,
     raw_sha256: [u8; 32],
     canonical_jcs_sha256: [u8; 32],
@@ -1432,6 +1434,30 @@ impl ValidatedStagingSemanticPackage {
     pub fn semantic_container_count(&self) -> usize {
         self.computed_styles.len()
     }
+    pub fn precomposed_vector_style(
+        &self,
+        owner: NodeId,
+    ) -> Option<&PrecomposedVectorComputedStyleReceipt> {
+        self.precomposed_vector_styles.get(&owner)
+    }
+    pub fn precomposed_vector_style_count(&self) -> usize {
+        self.precomposed_vector_styles.len()
+    }
+    pub fn verify_precomposed_vector_style(
+        &self,
+        receipt: &PrecomposedVectorComputedStyleReceipt,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.checked_wire()?;
+        if !self
+            .precomposed_vector_styles
+            .values()
+            .any(|owned| std::ptr::eq(owned, receipt))
+            || receipt.verify_for(receipt.kind()).is_err()
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        Ok(())
+    }
     pub fn math_nodes(&self) -> &[ValidatedStagingMathNode] {
         &self.math_nodes
     }
@@ -1474,6 +1500,11 @@ impl ValidatedStagingSemanticPackage {
     pub fn checked_wire(
         &self,
     ) -> Result<&WireStagingM4DocumentPackage, StagingSemanticSyntaxError> {
+        for receipt in self.precomposed_vector_styles.values() {
+            receipt
+                .verify_for(receipt.kind())
+                .map_err(|_| StagingSemanticSyntaxError::ReceiptMismatch)?;
+        }
         let mut previous = None;
         let limits_fingerprint = precomposed_vector_limits_fingerprint(&self.limits);
         for receipt in &self.precomposed_vector_metrics {
@@ -1560,6 +1591,7 @@ impl StagingSemanticPackageParser {
         let resources = lower_resources(wire.resources())?;
         let rules = lower_semantic_style_rules(wire.style_sheet(), limits)?;
         let mut computed_styles = BTreeMap::new();
+        let mut precomposed_vector_styles = BTreeMap::new();
         let mut math_styles = BTreeMap::new();
         collect_computed_styles(
             &document.blocks,
@@ -1567,6 +1599,7 @@ impl StagingSemanticPackageParser {
             None,
             &pending_math,
             &mut computed_styles,
+            &mut precomposed_vector_styles,
             &mut math_styles,
         )?;
         for footnote in &document.footnotes {
@@ -1576,6 +1609,7 @@ impl StagingSemanticPackageParser {
                 None,
                 &pending_math,
                 &mut computed_styles,
+                &mut precomposed_vector_styles,
                 &mut math_styles,
             )?;
         }
@@ -1625,6 +1659,7 @@ impl StagingSemanticPackageParser {
             document,
             resources,
             computed_styles,
+            precomposed_vector_styles,
             math_nodes,
             raw_sha256,
             canonical_jcs_sha256,
@@ -3234,6 +3269,7 @@ struct StagingSemanticStyleSheets {
     semantic: StyleSheet,
     ordinary: StyleSheet,
     math: StyleSheet,
+    vector: StyleSheet,
 }
 
 fn lower_semantic_style_rules(
@@ -3249,6 +3285,7 @@ fn lower_semantic_style_rules(
     let mut parsed = Vec::new();
     let mut semantic_rules = Vec::new();
     let mut math_rules = Vec::new();
+    let mut vector_rules = Vec::new();
     for (index, rule) in rules.iter().enumerate() {
         let source_order = rule.source_order;
         if usize::try_from(source_order) != Ok(index) {
@@ -3269,6 +3306,8 @@ fn lower_semantic_style_rules(
                 | "page_break"
                 | "semantic_container"
                 | "display_math"
+                | "math_vector_block"
+                | "vector_figure"
         ) {
             return Err(StagingSemanticSyntaxError::InvalidStyle);
         }
@@ -3309,17 +3348,64 @@ fn lower_semantic_style_rules(
         });
         semantic_rules.push(block_type == "semantic_container");
         math_rules.push(block_type == "display_math");
+        vector_rules.push(matches!(block_type, "math_vector_block" | "vector_figure"));
     }
     let validation_sheet = StyleSheet {
         rules: parsed.clone(),
     };
     validation_sheet
-        .validate_table_document_styles()
+        .validate_staging_precomposed_vector_style_shape()
         .map_err(map_semantic_style_error)?;
 
-    let mut ordinary_rules = parsed.clone();
+    let by_id: BTreeMap<&StyleId, usize> = parsed
+        .iter()
+        .enumerate()
+        .map(|(index, rule)| (&rule.style_id, index))
+        .collect();
+    for (index, rule) in parsed.iter().enumerate() {
+        if let Some(parent) = rule.extends.as_ref() {
+            let parent_index = *by_id
+                .get(parent)
+                .ok_or(StagingSemanticSyntaxError::InvalidStyle)?;
+            if vector_rules[index] != vector_rules[parent_index] {
+                return Err(StagingSemanticSyntaxError::InvalidStyle);
+            }
+        }
+    }
+
+    let mut current_parsed = Vec::new();
+    let mut current_semantic_rules = Vec::new();
+    let mut current_math_rules = Vec::new();
+    let mut vector_parsed = Vec::new();
+    for (index, mut rule) in parsed.into_iter().enumerate() {
+        if vector_rules[index] {
+            rule.source_order = u32::try_from(vector_parsed.len())
+                .map_err(|_| StagingSemanticSyntaxError::InvalidStyle)?;
+            vector_parsed.push(rule);
+        } else {
+            rule.source_order = u32::try_from(current_parsed.len())
+                .map_err(|_| StagingSemanticSyntaxError::InvalidStyle)?;
+            current_parsed.push(rule);
+            current_semantic_rules.push(semantic_rules[index]);
+            current_math_rules.push(math_rules[index]);
+        }
+    }
+    let current_validation_sheet = StyleSheet {
+        rules: current_parsed.clone(),
+    };
+    current_validation_sheet
+        .validate_table_document_styles()
+        .map_err(map_semantic_style_error)?;
+    let vector = StyleSheet {
+        rules: vector_parsed,
+    };
+    vector
+        .validate_precomposed_vector_styles()
+        .map_err(map_semantic_style_error)?;
+
+    let mut ordinary_rules = current_parsed.clone();
     for (index, rule) in ordinary_rules.iter_mut().enumerate() {
-        if semantic_rules[index] || math_rules[index] {
+        if current_semantic_rules[index] || current_math_rules[index] {
             // This sheet is queried only for list/table/figure ancestors.
             // Keeping semantic rules on paragraph preserves `extends` edges
             // by routing it through a reserved class rejected from authored input.
@@ -3333,12 +3419,13 @@ fn lower_semantic_style_rules(
         .validate_table_document_styles()
         .map_err(map_semantic_style_error)?;
 
-    let semantic = isolate_staging_style_rules(&parsed, &semantic_rules)?;
-    let math = isolate_staging_style_rules(&parsed, &math_rules)?;
+    let semantic = isolate_staging_style_rules(&current_parsed, &current_semantic_rules)?;
+    let math = isolate_staging_style_rules(&current_parsed, &current_math_rules)?;
     Ok(StagingSemanticStyleSheets {
         semantic,
         ordinary,
         math,
+        vector,
     })
 }
 
@@ -3435,6 +3522,7 @@ fn collect_computed_styles(
     parent: Option<&SemanticContainerInheritanceStyle>,
     pending_math: &[PendingStagingMathNode],
     output: &mut BTreeMap<NodeId, SemanticContainerComputedStyle>,
+    vector_output: &mut BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
     math_output: &mut BTreeMap<NodeId, StagingMathComputedStyle>,
 ) -> Result<(), StagingSemanticSyntaxError> {
     for block in blocks {
@@ -3466,6 +3554,7 @@ fn collect_computed_styles(
                     Some(&inheritance),
                     pending_math,
                     output,
+                    vector_output,
                     math_output,
                 )?;
             }
@@ -3520,6 +3609,7 @@ fn collect_computed_styles(
                         Some(&inheritance),
                         pending_math,
                         output,
+                        vector_output,
                         math_output,
                     )?;
                 }
@@ -3539,6 +3629,7 @@ fn collect_computed_styles(
                         Some(&inheritance),
                         pending_math,
                         output,
+                        vector_output,
                         math_output,
                     )?;
                 }
@@ -3559,13 +3650,47 @@ fn collect_computed_styles(
                     Some(&inheritance),
                     pending_math,
                     output,
+                    vector_output,
                     math_output,
                 )?
             }
-            StagingM4Block::VectorFigure { caption, .. } => {
-                collect_computed_styles(caption, rules, parent, pending_math, output, math_output)?
+            StagingM4Block::VectorFigure {
+                common, caption, ..
+            } => {
+                let style = rules
+                    .vector
+                    .cascade_precomposed_vector_style(
+                        PrecomposedVectorStyleKind::VectorFigure,
+                        &common.classes,
+                        parent,
+                    )
+                    .map_err(map_semantic_style_error)?;
+                if vector_output.insert(common.node_id, style).is_some() {
+                    return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
+                }
+                collect_computed_styles(
+                    caption,
+                    rules,
+                    parent,
+                    pending_math,
+                    output,
+                    vector_output,
+                    math_output,
+                )?
             }
-            StagingM4Block::MathVectorBlock { .. } => {}
+            StagingM4Block::MathVectorBlock { common, .. } => {
+                let style = rules
+                    .vector
+                    .cascade_precomposed_vector_style(
+                        PrecomposedVectorStyleKind::MathVectorBlock,
+                        &common.classes,
+                        parent,
+                    )
+                    .map_err(map_semantic_style_error)?;
+                if vector_output.insert(common.node_id, style).is_some() {
+                    return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
+                }
+            }
             StagingM4Block::PageBreak { .. } => {}
         }
     }

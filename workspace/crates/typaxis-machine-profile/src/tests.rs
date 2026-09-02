@@ -519,6 +519,110 @@ fn capabilities_are_the_exact_canonical_descriptor_projection() {
     );
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn public_capability_isolation_keeps_private_vector_projection_out_of_seven_profile_bytes() {
+    let public = encode_capabilities_canonical(HostCapabilityDescriptor::compiled());
+    assert_eq!(
+        public,
+        include_str!("../../../../samples/machine-package/capabilities.json")
+    );
+    assert!(!public.contains("production-book-1"));
+    assert!(!public.contains("vector_features"));
+    assert!(!public.contains("math_vector_block"));
+    assert!(public.contains("\"default_profile\":\"typaxis.machine-pdf/paragraph-1\""));
+
+    let private = crate::capabilities::encode_private_precomposed_vector_capability_projection();
+    assert_eq!(
+        private,
+        concat!(
+            "{",
+            "\"blocks\":[\"math_vector_block\",\"vector_figure\"],",
+            "\"image_formats\":[\"jpeg\",\"png\",\"svg\"],",
+            "\"inlines\":{\"kinds\":[\"inline_vector\",\"math_vector\"]},",
+            "\"style_block_types\":[\"math_vector_block\",\"vector_figure\"],",
+            "\"style_selectors\":[\"math_vector_block\",\"vector_figure\"],",
+            "\"vector_features\":[\"clip-path\",\"current-color\",\"paint-opacity\",\"shared-form-xobject\"],",
+            "\"vector_features_by_profile\":{",
+            "\"svg-safe-1\":[\"clip-path\",\"shared-form-xobject\"],",
+            "\"svg-safe-2\":[\"clip-path\",\"current-color\",\"paint-opacity\",\"shared-form-xobject\"]},",
+            "\"vector_formats\":[\"svg\"],",
+            "\"vector_media_by_kind\":{",
+            "\"figure\":[\"svg-safe-1\"],",
+            "\"inline_vector\":[\"svg-safe-1\",\"svg-safe-2\"],",
+            "\"math_vector\":[\"svg-safe-2\"],",
+            "\"math_vector_block\":[\"svg-safe-2\"],",
+            "\"vector_figure\":[\"svg-safe-1\",\"svg-safe-2\"]},",
+            "\"vector_metrics\":[\"advance\",\"ascent\",\"baseline\",\"descent\",\"origin_x\",\"viewport\"],",
+            "\"vector_profiles\":[\"svg-safe-1\",\"svg-safe-2\"]}"
+        )
+    );
+
+    let projection = crate::descriptor::PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
+    let profile = StagingPrecomposedVectorProfileDescriptor;
+    let projected_kinds = projection
+        .vector_media_by_kind()
+        .iter()
+        .filter_map(|entry| match entry.kind() {
+            MachineVectorKind::Figure => None,
+            MachineVectorKind::InlineVector => {
+                Some(typaxis_syntax::PrecomposedVectorKind::InlineVector)
+            }
+            MachineVectorKind::MathVector => {
+                Some(typaxis_syntax::PrecomposedVectorKind::MathVector)
+            }
+            MachineVectorKind::MathVectorBlock => {
+                Some(typaxis_syntax::PrecomposedVectorKind::MathVectorBlock)
+            }
+            MachineVectorKind::VectorFigure => {
+                Some(typaxis_syntax::PrecomposedVectorKind::VectorFigure)
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(projected_kinds, profile.kinds());
+    for entry in projection.vector_media_by_kind() {
+        let projected_media = entry
+            .media()
+            .iter()
+            .map(|media| match media {
+                MachineVectorProfile::SvgSafe1 => {
+                    typaxis_syntax::machine_profile_boundary::ImageMediaType::SvgSafe1
+                }
+                MachineVectorProfile::SvgSafe2 => {
+                    typaxis_syntax::machine_profile_boundary::ImageMediaType::SvgSafe2
+                }
+            })
+            .collect::<Vec<_>>();
+        match entry.kind() {
+            MachineVectorKind::Figure => assert_eq!(
+                projected_media,
+                [typaxis_syntax::machine_profile_boundary::ImageMediaType::SvgSafe1]
+            ),
+            MachineVectorKind::InlineVector => assert_eq!(
+                projected_media,
+                profile.media_for(typaxis_syntax::PrecomposedVectorKind::InlineVector)
+            ),
+            MachineVectorKind::MathVector => assert_eq!(
+                projected_media,
+                profile.media_for(typaxis_syntax::PrecomposedVectorKind::MathVector)
+            ),
+            MachineVectorKind::MathVectorBlock => assert_eq!(
+                projected_media,
+                profile.media_for(typaxis_syntax::PrecomposedVectorKind::MathVectorBlock)
+            ),
+            MachineVectorKind::VectorFigure => assert_eq!(
+                projected_media,
+                profile.media_for(typaxis_syntax::PrecomposedVectorKind::VectorFigure)
+            ),
+        }
+    }
+
+    let private_schema = include_str!("../../../../schemas/1.4/machine-capabilities.schema.json");
+    assert!(private_schema.contains("\"minItems\": 7"));
+    assert!(private_schema.contains("\"maxItems\": 7"));
+    assert!(!private_schema.contains("vector_features"));
+}
+
 fn compact_json_fixture(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut in_string = false;
@@ -1519,6 +1623,23 @@ fn basic_document_styles_positive_descriptor_issues_package_bound_receipt() {
 
 fn descriptor_registry_version() -> &'static str {
     BasicDocumentStyleDescriptor::STAGING.registry_version()
+}
+
+#[test]
+fn precomposed_vector_profile_rejects_basic_computed_registry_receipt_swap_with_i9190() {
+    let package = parse_staging_styles(&base_wire());
+    let (result, diagnostics) = run_basic_style_preflight(&package);
+    let basic_receipt = result.unwrap();
+    assert!(diagnostics.diagnostics().is_empty());
+    let error =
+        typaxis_syntax::machine_profile_boundary::require_precomposed_vector_style_registry(
+            basic_receipt.registry_version(),
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "I9190: precomposed vector style receipt mismatch"
+    );
 }
 
 #[test]

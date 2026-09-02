@@ -483,19 +483,23 @@ MI4-V19 -> MI4-13
 
 ### MI4-V05 Precomposed vector styleとprivate profile authorizationを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V04
 - Design inputs: docs/27 §4.4、§7、§12、§14
 - Primary files:
   - `workspace/crates/typaxis-style/src/lib.rs`
+  - `workspace/crates/typaxis-syntax/src/semantic_container.rs`
+  - `workspace/crates/typaxis-syntax/src/lib.rs`
   - `workspace/crates/typaxis-machine-profile/src/descriptor.rs`
   - `workspace/crates/typaxis-machine-profile/src/safe_vector.rs`
+  - `workspace/crates/typaxis-machine-profile/src/semantic_container.rs`
   - `workspace/crates/typaxis-machine-profile/src/math.rs`
   - `workspace/crates/typaxis-machine-profile/src/tagged_pdf.rs`
   - `workspace/crates/typaxis-machine-profile/src/capabilities.rs`
   - `workspace/crates/typaxis-machine-profile/src/lib.rs`
   - `workspace/crates/typaxis-machine-profile/src/tests.rs`
   - `schemas/1.4/machine-capabilities.schema.json`
+  - `docs/25-machine-input-pdf-improvements-todo.md`
 - Deliverables:
   - `typaxis.precomposed-vector-style/1`のclosed registry/cascade receipt。
   - private production profileによるkind/media/metric/style authorization。
@@ -519,6 +523,15 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile precomposed_vector_profile --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile public_capability_isolation --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V05 change set containing this completion record.
+  - `typaxis.precomposed-vector-style/1`をbasic `/1`とnominally分離し、`math_vector_block` / `vector_figure`だけを受けるselector、全property applicability/initial/inheritance/typed consumer table、既存specificity・`important`・source-order・`extends` engineを再利用するsealed computed receiptを追加した。receiptはregistry、kind、typed block fields、named page、equation-number text styleまたはcaption keep、canonical JCS/fingerprintをbindし、kind/supplement、fixed `width:auto`、math caption initialも再検証する。
+  - syntaxはmixed staging stylesheetを一度strict検証した後、basic/semantic/math registryとvector registryへ閉じて分離し、cross-registry `extends`を拒否する。vector block ownerごとのreceiptをvalidated packageへpointer-boundで保持し、`vector_figure` captionはownerのvector alignment/fontを継承せず既存caption child styleを独立解決する。`width`、math `keep_caption`、vector Figure ownerのfont tripleはlayout前の`L5101`、unknown selector/propertyはterminal style errorとなる。
+  - private preflightは4 kindのmetric receipt、kind別`svg-safe-1|svg-safe-2` matrix、block style receipt、Safe-SVG 2 provenance、`typaxis.resource-profile/safe-vector/2`、`typaxis.production-book-resource-set/2`を一つのsession/limits/package-bound canonical receiptへ閉じた。既存FigureはSafe-SVG 1だけ、math vectorはSafe-SVG 2だけを受理し、旧semantic/SafeVector `/1` profileはnew kind/media/styleをresource open前に拒否する。`vector_figure` caption subtreeも既存Figureと同じ`FigureCaption` domainで再帰検証・semantic countする。
+  - capability modelへcoarse `jpeg|png|svg`とvector block/inline/kind/profile/media/metric/featureのnominal typeを追加した。test-only private projectionを設計§12 exact JCSおよび実preflight matrixと双方向照合した一方、public serializer、seven-profile tuple、default `paragraph-1`、1.4 capability Schema、public capability fixture bytesには接続していない。
+  - milestone指定のtargeted test、changed crate全test/doc-test、workspace all-target/all-feature check/test、workspace clippy `-D warnings`、fmt check、`python3 schemas/validate.py`、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは3869 refsを含む全bundle/fixtureを通過した。
+  - レビューでは`vector_figure` captionをprofile domain walkが再帰しない迂回、vector styleにも旧`semantic_container`名を出す診断、receipt kind/supplement不一致をself-consistent fingerprintで閉じない不変条件、capability projectionとpreflight media matrixのdrift余地、platform-dependent fixture testのguard、clippy findingを修正した。再検証後のfindingは0件である。
+  - listed primary file外の変更は本completion recordだけである。`math.rs`、`tagged_pdf.rs`は共有する旧profile拒否で閉じるため変更せず、Schema/sample/public capability bytes、新style color、SVG parse/layout/PDF処理を先取りしていない。
 - Non-goals:
   - public capability advertisement
   - SVG paint colorをauthorする新style property

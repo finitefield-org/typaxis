@@ -91,8 +91,8 @@ pub mod machine_profile_boundary {
         Block, ColumnBalance, ColumnFill, ColumnLayout, FigurePlacement, FloatPlacementClass,
         FontMediaDeclaration, FontMediaType, FootnoteDefinition, ImageMediaDeclaration,
         ImageMediaType, Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
-        SemanticContainerKind, StagingLanguageNodeKind, StagingM4Block, StagingM4ResourceCatalog,
-        StagingOutlineSourceKind,
+        SemanticContainerKind, StagingLanguageNodeKind, StagingM4Block, StagingM4InlineVectorKind,
+        StagingM4ResourceCatalog, StagingOutlineSourceKind,
     };
     pub use typaxis_document_package as wire;
     pub use typaxis_machine_input::{
@@ -102,9 +102,13 @@ pub mod machine_profile_boundary {
         MAX_HOST_READ_CANDIDATES, MAX_RESOURCE_ROOTS,
     };
     pub use typaxis_style::{
-        BasicBlockStylePropertyDescriptor, BasicStyleBlockKind, BasicStyleProperty,
-        MachineFigureWidth, PageMaster, PageMasterRule, PageParity, SemanticContainerStyleKind,
-        StyleRule, StyleValue, BASIC_BLOCK_STYLE_PROPERTIES, BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+        require_precomposed_vector_style_registry, BasicBlockStylePropertyDescriptor,
+        BasicStyleBlockKind, BasicStyleProperty, MachineFigureWidth, MachineTextAlign, PageMaster,
+        PageMasterRule, PageParity, PrecomposedVectorComputedStyleReceipt,
+        PrecomposedVectorStyleConsumer, PrecomposedVectorStyleKind, PrecomposedVectorStyleProperty,
+        PrecomposedVectorStylePropertyDescriptor, SemanticContainerStyleKind, StyleRule,
+        StyleValue, BASIC_BLOCK_STYLE_PROPERTIES, BASIC_BLOCK_STYLE_REGISTRY_VERSION,
+        PRECOMPOSED_VECTOR_STYLE_PROPERTIES, PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION,
     };
 
     pub use crate::{
