@@ -336,6 +336,7 @@ pub enum StagingSemanticContainerLayoutError {
     ArithmeticOverflow,
     ReceiptMismatch,
     AllocationFailure,
+    PrecomposedVectorStaging(NodeId),
 }
 
 impl std::fmt::Display for StagingSemanticContainerLayoutError {
@@ -378,6 +379,11 @@ impl std::fmt::Display for StagingSemanticContainerLayoutError {
             Self::AllocationFailure => {
                 formatter.write_str("L5100: semantic layout allocation failed")
             }
+            Self::PrecomposedVectorStaging(owner) => write!(
+                formatter,
+                "P1102: precomposed vector at node {} requires its versioned layout",
+                owner.get()
+            ),
         }
     }
 }
@@ -699,12 +705,28 @@ fn build_flow(
                 caption,
                 flows,
             )?),
-            _ => {}
+            StagingM4Block::VectorFigure { common, .. }
+            | StagingM4Block::MathVectorBlock { common, .. } => {
+                return Err(
+                    StagingSemanticContainerLayoutError::PrecomposedVectorStaging(common.node_id),
+                );
+            }
+            StagingM4Block::Paragraph { inline_vectors, .. }
+            | StagingM4Block::Heading { inline_vectors, .. } => {
+                if let Some(vector) = inline_vectors.first() {
+                    return Err(
+                        StagingSemanticContainerLayoutError::PrecomposedVectorStaging(
+                            vector.node_id,
+                        ),
+                    );
+                }
+            }
+            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => {}
         }
         items.push(StagingSemanticContainerFlowItem {
             position,
             owner: block.node_id(),
-            kind: block_item_kind(block),
+            kind: block_item_kind(block)?,
             child_flow_ids,
         });
     }
@@ -718,8 +740,10 @@ fn next_flow_depth(depth: u32) -> Result<u32, StagingSemanticContainerLayoutErro
         .ok_or(StagingSemanticContainerLayoutError::FlowDepthLimit)
 }
 
-fn block_item_kind(block: &StagingM4Block) -> StagingSemanticContainerFlowItemKind {
-    match block {
+fn block_item_kind(
+    block: &StagingM4Block,
+) -> Result<StagingSemanticContainerFlowItemKind, StagingSemanticContainerLayoutError> {
+    Ok(match block {
         StagingM4Block::Paragraph { .. } => StagingSemanticContainerFlowItemKind::Paragraph,
         StagingM4Block::Heading { .. } => StagingSemanticContainerFlowItemKind::Heading,
         StagingM4Block::List { .. } => StagingSemanticContainerFlowItemKind::List,
@@ -730,7 +754,13 @@ fn block_item_kind(block: &StagingM4Block) -> StagingSemanticContainerFlowItemKi
         StagingM4Block::SemanticContainer { .. } => {
             StagingSemanticContainerFlowItemKind::SemanticContainer
         }
-    }
+        StagingM4Block::VectorFigure { common, .. }
+        | StagingM4Block::MathVectorBlock { common, .. } => {
+            return Err(
+                StagingSemanticContainerLayoutError::PrecomposedVectorStaging(common.node_id),
+            );
+        }
+    })
 }
 
 fn verify_registry(
@@ -903,7 +933,12 @@ fn find_block(document: &StagingM4Document, owner: NodeId) -> Option<&StagingM4B
                     .flat_map(|row| &row.cells)
                     .find_map(|cell| find(&cell.blocks, owner)),
                 StagingM4Block::Figure { caption, .. } => find(caption, owner),
-                _ => None,
+                StagingM4Block::Paragraph { .. }
+                | StagingM4Block::Heading { .. }
+                | StagingM4Block::PageBreak { .. }
+                | StagingM4Block::DisplayMath { .. }
+                | StagingM4Block::VectorFigure { .. }
+                | StagingM4Block::MathVectorBlock { .. } => None,
             };
             if found.is_some() {
                 return found;

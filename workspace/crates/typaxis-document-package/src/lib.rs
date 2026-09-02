@@ -52,6 +52,8 @@ pub use semantic_container::{
     StagingSemanticDecodeError, StagingSemanticDocumentPackageDecoder,
     StagingSemanticDocumentPackageEncoder, WireDocumentMetadata, WireDocumentOutline,
     WireFontMediaType, WireImageMediaType, WireOutlineEntry, WireOutlineSourceKind,
+    WirePrecomposedVectorEquationNumber, WirePrecomposedVectorMetrics,
+    WirePrecomposedVectorSourceTex, WirePrecomposedVectorSpacing, WirePrecomposedVectorViewport,
     WireStagingByteRange, WireStagingM4Block, WireStagingM4Document, WireStagingM4DocumentPackage,
     WireStagingM4FontFace, WireStagingM4Footnote, WireStagingM4Image, WireStagingM4Inline,
     WireStagingM4LinkTarget, WireStagingM4ListItem, WireStagingM4ReferenceFormat,
@@ -59,6 +61,7 @@ pub use semantic_container::{
     WireStagingM4TableRow, WireStagingM4TextBuffer, WireStagingMathSource,
     WireStagingSemanticContainerKind, WireStagingSourceSpan, WireStagingStyleDeclaration,
     WireStagingStyleRule, WireStagingStyleSheet, WireStagingStyleValue, WireStagingTextMapKind,
-    WireStagingTextMapSegment, WireStagingTextSpan, STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT,
+    WireStagingTextMapSegment, WireStagingTextSpan, WireVectorProvenance,
+    STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT,
 };
 pub use typaxis_core::{DocumentPackageContractId, JsonPointer, MachineInputLimitBounds};

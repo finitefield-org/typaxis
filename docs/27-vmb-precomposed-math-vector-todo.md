@@ -365,7 +365,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V03 Strict Wire、Schema、domain modelを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V02
 - Design inputs: docs/27 §4、§13、§14
 - Primary files:
@@ -418,6 +418,14 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-syntax precomposed_vector_staging_dispatch --locked`
   - `cargo check --manifest-path workspace/Cargo.toml --workspace --all-targets --all-features --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V03 change set containing this completion record.
+  - private contract 1.4へ`svg-safe-2`とclosed provenance、4 vector kind、fixed-point viewport/metrics/spacing、TeX TextSpan、nullable equation-number childを追加した。strict decoder/encoderは条件付きrequired/forbidden field、nonnull lowercase hash、duplicate image ID、unknown/escaped memberをresource open前のexact `P1102` JSON Pointerで拒否し、canonical JCS round tripで全fieldを保持する。
+  - domainは4 kind、inline owner、language override、caption、equation-number NodeId/SourceSpan/TextSpanをlosslessに保持する。nonnull numberだけをglobal dense preorderのleaf childとして数え、nullはNodeIdを消費しない。vector-only semantic contentとvector figure caption内の既存semantic subtreeも保持する。
+  - computed-language、tagged structure、legacy semantic/SafeVector profile、layout、resource admission、manifest、artifact exporterの全既存`/1` consumerにnew kind/mediaの明示的typed staging errorを追加した。`svg-safe-1`へprojectionせず、Safe-SVG 2 parse、resource open、metric relation/aspect、layout/PDFを先取りしていない。
+  - canonical private fixtureは4 kindと`svg-safe-2` provenanceを一つのdense treeで覆い、Schema validatorはprivate 1.4 acceptance、current 1.3 rejection、source/resource hash closure、missing/null/extra/wrong-type負例を検証する。current/frozen 1.0〜1.3 Schema、public seven-profile capability、既存private fixture bytesは変更していない。
+  - milestone指定の3 targeted test、workspace all-target/all-feature check、`python3 schemas/validate.py`、workspace全test、clippy `-D warnings`、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。レビューではmanifest/profileの`svg-safe-1` new-kind拒否、vector caption semantic subtree、nested recordのexact JSON Pointer、provenance lexical shape、`/1` language precheck、JSON Pointer escape、clippy guardを修正し、再検証後のfindingは0件である。
+  - listed primary file外ではexhaustive error mappingのため`typaxis-syntax/src/lib.rs`と`typaxis-cli/src/pipeline.rs`、Schema corpus gateのため`schemas/validate.py`、status/registry説明のため本書・master・`schemas/README.md`・corpus READMEだけを変更した。責務拡張、新規ADR、public alias/capability switchはない。
 - Non-goals:
   - resource bytesのopen、SVG parse、metric relation/aspect validation
   - public contract/current Schema alias切替

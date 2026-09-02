@@ -52,6 +52,13 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
         };
     }
     for (declaration, attestation) in resources.images.iter_mut().zip(media.images()) {
+        if declaration.media_type == WireImageMediaType::SvgSafe2
+            || attestation.declared() == ImageMediaType::SvgSafe2
+        {
+            return Err(
+                "svg-safe-2 requires the versioned precomposed-vector artifact exporter".to_owned(),
+            );
+        }
         if declaration.image_id != attestation.image_id().get()
             || declaration.uri != attestation.uri().as_str()
             || !matches!(

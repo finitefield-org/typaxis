@@ -246,6 +246,7 @@ pub enum StagingStructureSemanticError {
     InvalidTableGrid,
     AllocationFailure,
     ReceiptMismatch,
+    PrecomposedVectorStaging(NodeId),
 }
 
 impl std::fmt::Display for StagingStructureSemanticError {
@@ -269,6 +270,11 @@ impl std::fmt::Display for StagingStructureSemanticError {
             Self::ReceiptMismatch => {
                 formatter.write_str("I9190: structure semantic receipt mismatch")
             }
+            Self::PrecomposedVectorStaging(owner) => write!(
+                formatter,
+                "P1102: precomposed vector at node {} requires tagged-structure /2",
+                owner.get()
+            ),
         }
     }
 }
@@ -754,6 +760,12 @@ impl SemanticCollector<'_> {
                         },
                     )?;
                 }
+                WireStagingM4Block::VectorFigure { .. }
+                | WireStagingM4Block::MathVectorBlock { .. } => {
+                    return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                        node,
+                    ));
+                }
                 WireStagingM4Block::SemanticContainer {
                     semantic_kind,
                     blocks,
@@ -913,6 +925,11 @@ impl SemanticCollector<'_> {
                     alternative: speech.clone(),
                 },
             ),
+            WireStagingM4Inline::InlineVector { .. } | WireStagingM4Inline::MathVector { .. } => {
+                Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                    node,
+                ))
+            }
             WireStagingM4Inline::Emphasis { children, .. }
             | WireStagingM4Inline::Strong { children, .. } => {
                 let kind = if matches!(value, WireStagingM4Inline::Emphasis { .. }) {
@@ -1120,6 +1137,8 @@ fn raw_block_span(value: &WireStagingM4Block) -> WireStagingSourceSpan {
         | WireStagingM4Block::Figure { span, .. }
         | WireStagingM4Block::PageBreak { span, .. }
         | WireStagingM4Block::DisplayMath { span, .. }
+        | WireStagingM4Block::VectorFigure { span, .. }
+        | WireStagingM4Block::MathVectorBlock { span, .. }
         | WireStagingM4Block::SemanticContainer { span, .. } => *span,
     }
 }
@@ -1157,6 +1176,12 @@ fn inline_text(
                 output.push_str(text_span_value(*text_span, buffers)?);
             }
             WireStagingM4Inline::InlineMath { speech, .. } => output.push_str(speech),
+            WireStagingM4Inline::InlineVector { node_id, .. }
+            | WireStagingM4Inline::MathVector { node_id, .. } => {
+                return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                    NodeId::new(*node_id),
+                ));
+            }
             WireStagingM4Inline::Emphasis { children, .. }
             | WireStagingM4Inline::Strong { children, .. }
             | WireStagingM4Inline::Link { children, .. } => {
@@ -1210,6 +1235,12 @@ fn blocks_have_content(
                 has_non_whitespace(alt) || blocks_have_content(caption, buffers, footnote_markers)?
             }
             WireStagingM4Block::DisplayMath { speech, .. } => has_non_whitespace(speech),
+            WireStagingM4Block::VectorFigure { node_id, .. }
+            | WireStagingM4Block::MathVectorBlock { node_id, .. } => {
+                return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                    NodeId::new(*node_id),
+                ));
+            }
             WireStagingM4Block::SemanticContainer { blocks, .. } => {
                 blocks_have_content(blocks, buffers, footnote_markers)?
             }

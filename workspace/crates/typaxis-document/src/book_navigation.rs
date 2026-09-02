@@ -36,6 +36,10 @@ pub enum StagingLanguageNodeKind {
     FootnoteReference,
     InlineMath,
     DisplayMath,
+    InlineVector,
+    MathVector,
+    VectorFigure,
+    MathVectorBlock,
 }
 
 impl StagingLanguageNodeKind {
@@ -60,6 +64,10 @@ impl StagingLanguageNodeKind {
             Self::FootnoteReference => "footnote_reference",
             Self::InlineMath => "inline_math",
             Self::DisplayMath => "display_math",
+            Self::InlineVector => "inline_vector",
+            Self::MathVector => "math_vector",
+            Self::VectorFigure => "vector_figure",
+            Self::MathVectorBlock => "math_vector_block",
         }
     }
 }

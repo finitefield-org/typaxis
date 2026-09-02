@@ -54,6 +54,7 @@ impl Serialize for WireStagingSemanticContainerKind {
 pub enum WireImageMediaType {
     Png,
     SvgSafe1,
+    SvgSafe2,
 }
 
 impl WireImageMediaType {
@@ -61,6 +62,7 @@ impl WireImageMediaType {
         match self {
             Self::Png => "png",
             Self::SvgSafe1 => "svg-safe-1",
+            Self::SvgSafe2 => "svg-safe-2",
         }
     }
 }
@@ -70,6 +72,7 @@ impl<'de> Deserialize<'de> for WireImageMediaType {
         match String::deserialize(deserializer)?.as_str() {
             "png" => Ok(Self::Png),
             "svg-safe-1" => Ok(Self::SvgSafe1),
+            "svg-safe-2" => Ok(Self::SvgSafe2),
             _ => Err(de::Error::custom("unknown image media_type")),
         }
     }
@@ -145,6 +148,54 @@ pub struct WireStagingMathSource {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct WireVectorProvenance {
+    pub engine_id: String,
+    pub engine_version: String,
+    pub rules_version: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WirePrecomposedVectorViewport {
+    pub height: i64,
+    pub width: i64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WirePrecomposedVectorMetrics {
+    pub advance: i64,
+    pub ascent: i64,
+    pub baseline: i64,
+    pub descent: i64,
+    pub origin_x: i64,
+    pub viewport: WirePrecomposedVectorViewport,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WirePrecomposedVectorSpacing {
+    pub after: i64,
+    pub before: i64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WirePrecomposedVectorSourceTex {
+    pub text_span: WireStagingTextSpan,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WirePrecomposedVectorEquationNumber {
+    pub minimum_gap: i64,
+    pub node_id: u32,
+    pub span: WireStagingSourceSpan,
+    pub text_span: WireStagingTextSpan,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct WireDocumentMetadata {
     pub author: Option<String>,
     pub created: Option<String>,
@@ -207,6 +258,29 @@ pub enum WireStagingM4Inline {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
+    InlineVector {
+        actual_text: Option<String>,
+        alt: String,
+        image_id: u32,
+        metrics: WirePrecomposedVectorMetrics,
+        node_id: u32,
+        spacing: WirePrecomposedVectorSpacing,
+        span: WireStagingSourceSpan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
+    MathVector {
+        actual_text: Option<String>,
+        alt: String,
+        image_id: u32,
+        metrics: WirePrecomposedVectorMetrics,
+        node_id: u32,
+        source_tex: WirePrecomposedVectorSourceTex,
+        spacing: WirePrecomposedVectorSpacing,
+        span: WireStagingSourceSpan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
     Emphasis {
         node_id: u32,
         span: WireStagingSourceSpan,
@@ -264,6 +338,8 @@ impl WireStagingM4Inline {
         match self {
             Self::Text { node_id, .. }
             | Self::InlineMath { node_id, .. }
+            | Self::InlineVector { node_id, .. }
+            | Self::MathVector { node_id, .. }
             | Self::Emphasis { node_id, .. }
             | Self::Strong { node_id, .. }
             | Self::Link { node_id, .. }
@@ -279,6 +355,8 @@ impl WireStagingM4Inline {
         match self {
             Self::Text { span, .. }
             | Self::InlineMath { span, .. }
+            | Self::InlineVector { span, .. }
+            | Self::MathVector { span, .. }
             | Self::Emphasis { span, .. }
             | Self::Strong { span, .. }
             | Self::Link { span, .. }
@@ -294,6 +372,8 @@ impl WireStagingM4Inline {
         match self {
             Self::Text { language, .. }
             | Self::InlineMath { language, .. }
+            | Self::InlineVector { language, .. }
+            | Self::MathVector { language, .. }
             | Self::Emphasis { language, .. }
             | Self::Strong { language, .. }
             | Self::Link { language, .. }
@@ -402,6 +482,30 @@ pub enum WireStagingM4Block {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
+    VectorFigure {
+        node_id: u32,
+        span: WireStagingSourceSpan,
+        classes: Vec<String>,
+        image_id: u32,
+        viewport: WirePrecomposedVectorViewport,
+        alt: String,
+        caption: Vec<WireStagingM4Block>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
+    MathVectorBlock {
+        actual_text: Option<String>,
+        alt: String,
+        classes: Vec<String>,
+        equation_number: Option<WirePrecomposedVectorEquationNumber>,
+        image_id: u32,
+        metrics: WirePrecomposedVectorMetrics,
+        node_id: u32,
+        source_tex: WirePrecomposedVectorSourceTex,
+        span: WireStagingSourceSpan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
     SemanticContainer {
         node_id: u32,
         span: WireStagingSourceSpan,
@@ -424,6 +528,8 @@ impl WireStagingM4Block {
             | Self::Figure { node_id, .. }
             | Self::PageBreak { node_id, .. }
             | Self::DisplayMath { node_id, .. }
+            | Self::VectorFigure { node_id, .. }
+            | Self::MathVectorBlock { node_id, .. }
             | Self::SemanticContainer { node_id, .. } => *node_id,
         }
     }
@@ -437,6 +543,8 @@ impl WireStagingM4Block {
             | Self::Figure { span, .. }
             | Self::PageBreak { span, .. }
             | Self::DisplayMath { span, .. }
+            | Self::VectorFigure { span, .. }
+            | Self::MathVectorBlock { span, .. }
             | Self::SemanticContainer { span, .. } => span,
         };
         span.into_public()
@@ -451,6 +559,8 @@ impl WireStagingM4Block {
             | Self::Figure { classes, .. }
             | Self::PageBreak { classes, .. }
             | Self::DisplayMath { classes, .. }
+            | Self::VectorFigure { classes, .. }
+            | Self::MathVectorBlock { classes, .. }
             | Self::SemanticContainer { classes, .. } => classes,
         }
     }
@@ -463,6 +573,8 @@ impl WireStagingM4Block {
             | Self::Table { language, .. }
             | Self::Figure { language, .. }
             | Self::DisplayMath { language, .. }
+            | Self::VectorFigure { language, .. }
+            | Self::MathVectorBlock { language, .. }
             | Self::SemanticContainer { language, .. } => language.as_deref(),
             Self::PageBreak { .. } => None,
         }
@@ -525,6 +637,8 @@ pub struct WireStagingM4Image {
     pub uri: String,
     pub expected_sha256: Option<String>,
     pub media_type: WireImageMediaType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector_provenance: Option<WireVectorProvenance>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -735,13 +849,18 @@ pub enum StagingSemanticDecodeError {
         pointer: String,
         message: &'static str,
     },
+    PrecomposedVectorShape {
+        pointer: String,
+        message: &'static str,
+    },
     Limit,
 }
 
 impl StagingSemanticDecodeError {
     pub fn pointer(&self) -> Option<&str> {
         match self {
-            Self::BookNavigationShape { pointer, .. } => Some(pointer),
+            Self::BookNavigationShape { pointer, .. }
+            | Self::PrecomposedVectorShape { pointer, .. } => Some(pointer),
             Self::Preflight(_) | Self::Json(_) | Self::Contract | Self::Shape(_) | Self::Limit => {
                 None
             }
@@ -762,6 +881,12 @@ impl fmt::Display for StagingSemanticDecodeError {
                     "P1102: invalid contract-1.4 shape at {pointer}: {message}"
                 )
             }
+            Self::PrecomposedVectorShape { pointer, message } => {
+                write!(
+                    formatter,
+                    "P1102: invalid precomposed-vector shape at {pointer}: {message}"
+                )
+            }
             Self::Limit => formatter.write_str("contract-1.4 package exceeds a resource limit"),
         }
     }
@@ -772,9 +897,11 @@ impl std::error::Error for StagingSemanticDecodeError {
         match self {
             Self::Preflight(error) => Some(error),
             Self::Json(error) => Some(error),
-            Self::Contract | Self::Shape(_) | Self::BookNavigationShape { .. } | Self::Limit => {
-                None
-            }
+            Self::Contract
+            | Self::Shape(_)
+            | Self::BookNavigationShape { .. }
+            | Self::PrecomposedVectorShape { .. }
+            | Self::Limit => None,
         }
     }
 }
@@ -854,6 +981,7 @@ impl StagingSemanticDocumentPackageDecoder {
             return Err(StagingSemanticDecodeError::Contract);
         }
         validate_book_navigation_wire_shape(&root)?;
+        validate_precomposed_vector_wire_shape(&root)?;
         let expected: BTreeSet<&str> = [
             "contract",
             "coordinate_unit",
@@ -1072,6 +1200,10 @@ fn validate_frozen_carrier(
                     "resource declaration must be an object",
                 ))?
                 .remove("media_type");
+            value
+                .as_object_mut()
+                .expect("resource declaration was checked above")
+                .remove("vector_provenance");
         }
     }
     let bytes = canonicalize_value(&compatibility, 0)?;
@@ -1180,6 +1312,20 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                 flatten_semantic_blocks(caption)?;
                 flattened.push(block);
             }
+            Some("vector_figure") => {
+                let caption =
+                    object
+                        .get_mut("caption")
+                        .ok_or(StagingSemanticDecodeError::Shape(
+                            "vector_figure caption is required",
+                        ))?;
+                flatten_semantic_blocks(caption)?;
+                object.insert("kind".to_owned(), Value::String("page_break".to_owned()));
+                for member in ["alt", "caption", "image_id", "viewport"] {
+                    object.remove(member);
+                }
+                flattened.push(block);
+            }
             Some("paragraph" | "heading") => {
                 let children =
                     object
@@ -1194,6 +1340,20 @@ fn flatten_semantic_blocks(value: &mut Value) -> Result<(), StagingSemanticDecod
                 object.insert("kind".to_owned(), Value::String("page_break".to_owned()));
                 object.remove("math_source");
                 object.remove("speech");
+                flattened.push(block);
+            }
+            Some("math_vector_block") => {
+                object.insert("kind".to_owned(), Value::String("page_break".to_owned()));
+                for member in [
+                    "actual_text",
+                    "alt",
+                    "equation_number",
+                    "image_id",
+                    "metrics",
+                    "source_tex",
+                ] {
+                    object.remove(member);
+                }
                 flattened.push(block);
             }
             _ => flattened.push(block),
@@ -1229,6 +1389,19 @@ fn rewrite_math_inlines(value: &mut Value) -> Result<(), StagingSemanticDecodeEr
                 object.insert("text_span".to_owned(), text_span);
                 object.remove("speech");
             }
+            Some("inline_vector" | "math_vector") => {
+                object.insert("kind".to_owned(), Value::String("soft_break".to_owned()));
+                for member in [
+                    "actual_text",
+                    "alt",
+                    "image_id",
+                    "metrics",
+                    "source_tex",
+                    "spacing",
+                ] {
+                    object.remove(member);
+                }
+            }
             Some("emphasis" | "strong" | "link") => {
                 let children =
                     object
@@ -1239,6 +1412,601 @@ fn rewrite_math_inlines(value: &mut Value) -> Result<(), StagingSemanticDecodeEr
                 rewrite_math_inlines(children)?;
             }
             _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_precomposed_vector_wire_shape(root: &Value) -> Result<(), StagingSemanticDecodeError> {
+    fn shape(pointer: impl Into<String>, message: &'static str) -> StagingSemanticDecodeError {
+        StagingSemanticDecodeError::PrecomposedVectorShape {
+            pointer: pointer.into(),
+            message,
+        }
+    }
+
+    fn object<'a>(
+        value: &'a Value,
+        pointer: &str,
+    ) -> Result<&'a Map<String, Value>, StagingSemanticDecodeError> {
+        value
+            .as_object()
+            .ok_or_else(|| shape(pointer, "expected an object"))
+    }
+
+    fn pointer_member(pointer: &str, member: &str) -> String {
+        let escaped = member.replace('~', "~0").replace('/', "~1");
+        format!("{pointer}/{escaped}")
+    }
+
+    fn exact_members(
+        value: &Map<String, Value>,
+        pointer: &str,
+        required: &[&str],
+        optional: &[&str],
+    ) -> Result<(), StagingSemanticDecodeError> {
+        for member in required {
+            if !value.contains_key(*member) {
+                return Err(shape(
+                    pointer_member(pointer, member),
+                    "required member is missing",
+                ));
+            }
+        }
+        for member in value.keys() {
+            if !required.contains(&member.as_str()) && !optional.contains(&member.as_str()) {
+                return Err(shape(
+                    pointer_member(pointer, member),
+                    "member is forbidden for this kind",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn integer(
+        value: Option<&Value>,
+        pointer: &str,
+        minimum: i64,
+    ) -> Result<(), StagingSemanticDecodeError> {
+        let value = value
+            .and_then(Value::as_i64)
+            .filter(|value| {
+                *value >= minimum
+                    && *value >= -JSON_SAFE_INTEGER_MAX
+                    && *value <= JSON_SAFE_INTEGER_MAX
+            })
+            .ok_or_else(|| shape(pointer, "expected a canonical fixed-point integer in range"))?;
+        let _ = value;
+        Ok(())
+    }
+
+    fn id32(value: Option<&Value>, pointer: &str) -> Result<u64, StagingSemanticDecodeError> {
+        value
+            .and_then(Value::as_u64)
+            .filter(|value| *value <= u64::from(u32::MAX))
+            .ok_or_else(|| shape(pointer, "expected an unsigned 32-bit integer"))
+    }
+
+    fn required_string<'a>(
+        value: Option<&'a Value>,
+        pointer: &str,
+    ) -> Result<&'a str, StagingSemanticDecodeError> {
+        value
+            .and_then(Value::as_str)
+            .ok_or_else(|| shape(pointer, "expected a string"))
+    }
+
+    fn optional_string(
+        value: Option<&Value>,
+        pointer: &str,
+    ) -> Result<(), StagingSemanticDecodeError> {
+        if match value {
+            None => true,
+            Some(value) => value.is_string(),
+        } {
+            Ok(())
+        } else {
+            Err(shape(pointer, "expected a string"))
+        }
+    }
+
+    fn string_array(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let values = value
+            .as_array()
+            .ok_or_else(|| shape(pointer, "expected an array"))?;
+        for (index, value) in values.iter().enumerate() {
+            required_string(Some(value), &format!("{pointer}/{index}"))?;
+        }
+        Ok(())
+    }
+
+    fn source_span(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let value = object(value, pointer)?;
+        exact_members(
+            value,
+            pointer,
+            &["end_byte", "source_id", "start_byte"],
+            &[],
+        )?;
+        id32(value.get("end_byte"), &format!("{pointer}/end_byte"))?;
+        id32(value.get("source_id"), &format!("{pointer}/source_id"))?;
+        id32(value.get("start_byte"), &format!("{pointer}/start_byte"))?;
+        Ok(())
+    }
+
+    fn text_span(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let value = object(value, pointer)?;
+        exact_members(value, pointer, &["end_byte", "start_byte", "text_id"], &[])?;
+        id32(value.get("end_byte"), &format!("{pointer}/end_byte"))?;
+        id32(value.get("start_byte"), &format!("{pointer}/start_byte"))?;
+        id32(value.get("text_id"), &format!("{pointer}/text_id"))?;
+        Ok(())
+    }
+
+    fn viewport(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let value = object(value, pointer)?;
+        exact_members(value, pointer, &["height", "width"], &[])?;
+        integer(value.get("height"), &format!("{pointer}/height"), 1)?;
+        integer(value.get("width"), &format!("{pointer}/width"), 1)
+    }
+
+    fn metrics(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let value = object(value, pointer)?;
+        exact_members(
+            value,
+            pointer,
+            &[
+                "advance", "ascent", "baseline", "descent", "origin_x", "viewport",
+            ],
+            &[],
+        )?;
+        integer(value.get("advance"), &format!("{pointer}/advance"), 1)?;
+        integer(value.get("ascent"), &format!("{pointer}/ascent"), 1)?;
+        integer(value.get("baseline"), &format!("{pointer}/baseline"), 0)?;
+        integer(value.get("descent"), &format!("{pointer}/descent"), 0)?;
+        integer(
+            value.get("origin_x"),
+            &format!("{pointer}/origin_x"),
+            -JSON_SAFE_INTEGER_MAX,
+        )?;
+        viewport(
+            value.get("viewport").ok_or_else(|| {
+                shape(format!("{pointer}/viewport"), "required member is missing")
+            })?,
+            &format!("{pointer}/viewport"),
+        )
+    }
+
+    fn spacing(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let value = object(value, pointer)?;
+        exact_members(value, pointer, &["after", "before"], &[])?;
+        integer(value.get("after"), &format!("{pointer}/after"), 0)?;
+        integer(value.get("before"), &format!("{pointer}/before"), 0)
+    }
+
+    fn source_tex(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let value = object(value, pointer)?;
+        exact_members(value, pointer, &["text_span"], &[])?;
+        text_span(
+            value.get("text_span").ok_or_else(|| {
+                shape(format!("{pointer}/text_span"), "required member is missing")
+            })?,
+            &format!("{pointer}/text_span"),
+        )
+    }
+
+    fn nullable_text(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        if value.is_null() || value.is_string() {
+            Ok(())
+        } else {
+            Err(shape(pointer, "expected string or null"))
+        }
+    }
+
+    fn equation_number(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        if value.is_null() {
+            return Ok(());
+        }
+        let value = object(value, pointer)?;
+        exact_members(
+            value,
+            pointer,
+            &["minimum_gap", "node_id", "span", "text_span"],
+            &[],
+        )?;
+        integer(
+            value.get("minimum_gap"),
+            &format!("{pointer}/minimum_gap"),
+            1,
+        )?;
+        id32(value.get("node_id"), &format!("{pointer}/node_id"))?;
+        source_span(
+            value
+                .get("span")
+                .ok_or_else(|| shape(format!("{pointer}/span"), "required member is missing"))?,
+            &format!("{pointer}/span"),
+        )?;
+        text_span(
+            value.get("text_span").ok_or_else(|| {
+                shape(format!("{pointer}/text_span"), "required member is missing")
+            })?,
+            &format!("{pointer}/text_span"),
+        )
+    }
+
+    fn validate_inline_vector(
+        value: &Map<String, Value>,
+        pointer: &str,
+        math: bool,
+    ) -> Result<(), StagingSemanticDecodeError> {
+        let mut required = vec![
+            "actual_text",
+            "alt",
+            "image_id",
+            "kind",
+            "metrics",
+            "node_id",
+            "spacing",
+            "span",
+        ];
+        if math {
+            required.push("source_tex");
+        }
+        exact_members(value, pointer, &required, &["language"])?;
+        nullable_text(
+            value.get("actual_text").ok_or_else(|| {
+                shape(
+                    format!("{pointer}/actual_text"),
+                    "required member is missing",
+                )
+            })?,
+            &format!("{pointer}/actual_text"),
+        )?;
+        if !value.get("alt").is_some_and(Value::is_string) {
+            return Err(shape(format!("{pointer}/alt"), "expected a string"));
+        }
+        id32(value.get("image_id"), &format!("{pointer}/image_id"))?;
+        id32(value.get("node_id"), &format!("{pointer}/node_id"))?;
+        source_span(
+            value
+                .get("span")
+                .ok_or_else(|| shape(format!("{pointer}/span"), "required member is missing"))?,
+            &format!("{pointer}/span"),
+        )?;
+        optional_string(value.get("language"), &format!("{pointer}/language"))?;
+        metrics(
+            value
+                .get("metrics")
+                .ok_or_else(|| shape(format!("{pointer}/metrics"), "required member is missing"))?,
+            &format!("{pointer}/metrics"),
+        )?;
+        spacing(
+            value
+                .get("spacing")
+                .ok_or_else(|| shape(format!("{pointer}/spacing"), "required member is missing"))?,
+            &format!("{pointer}/spacing"),
+        )?;
+        if math {
+            source_tex(
+                value.get("source_tex").ok_or_else(|| {
+                    shape(
+                        format!("{pointer}/source_tex"),
+                        "required member is missing",
+                    )
+                })?,
+                &format!("{pointer}/source_tex"),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn visit_inlines(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let values = value
+            .as_array()
+            .ok_or_else(|| shape(pointer, "expected an inline array"))?;
+        for (index, value) in values.iter().enumerate() {
+            let pointer = format!("{pointer}/{index}");
+            let object = object(value, &pointer)?;
+            let kind_pointer = format!("{pointer}/kind");
+            let kind = required_string(object.get("kind"), &kind_pointer)?;
+            match kind {
+                "inline_vector" => validate_inline_vector(object, &pointer, false)?,
+                "math_vector" => validate_inline_vector(object, &pointer, true)?,
+                "emphasis" | "strong" | "link" => {
+                    if let Some(children) = object.get("children") {
+                        visit_inlines(children, &format!("{pointer}/children"))?;
+                    }
+                }
+                "text" | "inline_math" | "anchor" | "reference" | "footnote_reference"
+                | "soft_break" | "hard_break" => {}
+                _ => return Err(shape(kind_pointer, "unsupported inline kind")),
+            }
+        }
+        Ok(())
+    }
+
+    fn visit_blocks(value: &Value, pointer: &str) -> Result<(), StagingSemanticDecodeError> {
+        let values = value
+            .as_array()
+            .ok_or_else(|| shape(pointer, "expected a block array"))?;
+        for (index, value) in values.iter().enumerate() {
+            let pointer = format!("{pointer}/{index}");
+            let object = object(value, &pointer)?;
+            let kind_pointer = format!("{pointer}/kind");
+            let kind = required_string(object.get("kind"), &kind_pointer)?;
+            match kind {
+                "paragraph" | "heading" => {
+                    if let Some(children) = object.get("children") {
+                        visit_inlines(children, &format!("{pointer}/children"))?;
+                    }
+                }
+                "list" => {
+                    if let Some(items) = object.get("items").and_then(Value::as_array) {
+                        for (item_index, item) in items.iter().enumerate() {
+                            if let Some(blocks) =
+                                item.as_object().and_then(|item| item.get("blocks"))
+                            {
+                                visit_blocks(
+                                    blocks,
+                                    &format!("{pointer}/items/{item_index}/blocks"),
+                                )?;
+                            }
+                        }
+                    }
+                }
+                "table" => {
+                    for section in ["head", "body"] {
+                        if let Some(rows) = object.get(section).and_then(Value::as_array) {
+                            for (row_index, row) in rows.iter().enumerate() {
+                                if let Some(cells) = row
+                                    .as_object()
+                                    .and_then(|row| row.get("cells"))
+                                    .and_then(Value::as_array)
+                                {
+                                    for (cell_index, cell) in cells.iter().enumerate() {
+                                        if let Some(blocks) =
+                                            cell.as_object().and_then(|cell| cell.get("blocks"))
+                                        {
+                                            visit_blocks(
+                                                blocks,
+                                                &format!(
+                                                    "{pointer}/{section}/{row_index}/cells/{cell_index}/blocks"
+                                                ),
+                                            )?;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "figure" => {
+                    if let Some(caption) = object.get("caption") {
+                        visit_blocks(caption, &format!("{pointer}/caption"))?;
+                    }
+                }
+                "semantic_container" => {
+                    if let Some(blocks) = object.get("blocks") {
+                        visit_blocks(blocks, &format!("{pointer}/blocks"))?;
+                    }
+                }
+                "vector_figure" => {
+                    exact_members(
+                        object,
+                        &pointer,
+                        &[
+                            "alt", "caption", "classes", "image_id", "kind", "node_id", "span",
+                            "viewport",
+                        ],
+                        &["language"],
+                    )?;
+                    if !object.get("alt").is_some_and(Value::is_string) {
+                        return Err(shape(format!("{pointer}/alt"), "expected a string"));
+                    }
+                    string_array(
+                        object.get("classes").ok_or_else(|| {
+                            shape(format!("{pointer}/classes"), "required member is missing")
+                        })?,
+                        &format!("{pointer}/classes"),
+                    )?;
+                    id32(object.get("image_id"), &format!("{pointer}/image_id"))?;
+                    id32(object.get("node_id"), &format!("{pointer}/node_id"))?;
+                    source_span(
+                        object.get("span").ok_or_else(|| {
+                            shape(format!("{pointer}/span"), "required member is missing")
+                        })?,
+                        &format!("{pointer}/span"),
+                    )?;
+                    optional_string(object.get("language"), &format!("{pointer}/language"))?;
+                    viewport(
+                        object.get("viewport").ok_or_else(|| {
+                            shape(format!("{pointer}/viewport"), "required member is missing")
+                        })?,
+                        &format!("{pointer}/viewport"),
+                    )?;
+                    visit_blocks(
+                        object.get("caption").ok_or_else(|| {
+                            shape(format!("{pointer}/caption"), "required member is missing")
+                        })?,
+                        &format!("{pointer}/caption"),
+                    )?;
+                }
+                "math_vector_block" => {
+                    exact_members(
+                        object,
+                        &pointer,
+                        &[
+                            "actual_text",
+                            "alt",
+                            "classes",
+                            "equation_number",
+                            "image_id",
+                            "kind",
+                            "metrics",
+                            "node_id",
+                            "source_tex",
+                            "span",
+                        ],
+                        &["language"],
+                    )?;
+                    nullable_text(
+                        object.get("actual_text").ok_or_else(|| {
+                            shape(
+                                format!("{pointer}/actual_text"),
+                                "required member is missing",
+                            )
+                        })?,
+                        &format!("{pointer}/actual_text"),
+                    )?;
+                    if !object.get("alt").is_some_and(Value::is_string) {
+                        return Err(shape(format!("{pointer}/alt"), "expected a string"));
+                    }
+                    string_array(
+                        object.get("classes").ok_or_else(|| {
+                            shape(format!("{pointer}/classes"), "required member is missing")
+                        })?,
+                        &format!("{pointer}/classes"),
+                    )?;
+                    id32(object.get("image_id"), &format!("{pointer}/image_id"))?;
+                    id32(object.get("node_id"), &format!("{pointer}/node_id"))?;
+                    source_span(
+                        object.get("span").ok_or_else(|| {
+                            shape(format!("{pointer}/span"), "required member is missing")
+                        })?,
+                        &format!("{pointer}/span"),
+                    )?;
+                    optional_string(object.get("language"), &format!("{pointer}/language"))?;
+                    metrics(
+                        object.get("metrics").ok_or_else(|| {
+                            shape(format!("{pointer}/metrics"), "required member is missing")
+                        })?,
+                        &format!("{pointer}/metrics"),
+                    )?;
+                    source_tex(
+                        object.get("source_tex").ok_or_else(|| {
+                            shape(
+                                format!("{pointer}/source_tex"),
+                                "required member is missing",
+                            )
+                        })?,
+                        &format!("{pointer}/source_tex"),
+                    )?;
+                    equation_number(
+                        object.get("equation_number").ok_or_else(|| {
+                            shape(
+                                format!("{pointer}/equation_number"),
+                                "required member is missing",
+                            )
+                        })?,
+                        &format!("{pointer}/equation_number"),
+                    )?;
+                }
+                "page_break" | "display_math" => {}
+                _ => return Err(shape(kind_pointer, "unsupported block kind")),
+            }
+        }
+        Ok(())
+    }
+
+    let root_object = root
+        .as_object()
+        .ok_or(StagingSemanticDecodeError::Shape("root must be an object"))?;
+    if let Some(images) = root_object
+        .get("resources")
+        .and_then(Value::as_object)
+        .and_then(|resources| resources.get("images"))
+        .and_then(Value::as_array)
+    {
+        let mut image_ids = BTreeSet::new();
+        for (index, image) in images.iter().enumerate() {
+            let pointer = format!("/resources/images/{index}");
+            let image = object(image, &pointer)?;
+            let image_id = id32(image.get("image_id"), &format!("{pointer}/image_id"))?;
+            if !image_ids.insert(image_id) {
+                return Err(shape(
+                    format!("{pointer}/image_id"),
+                    "duplicate image_id declaration",
+                ));
+            }
+            if image.get("media_type").and_then(Value::as_str) == Some("svg-safe-2") {
+                exact_members(
+                    image,
+                    &pointer,
+                    &[
+                        "expected_sha256",
+                        "image_id",
+                        "media_type",
+                        "uri",
+                        "vector_provenance",
+                    ],
+                    &[],
+                )?;
+                required_string(image.get("uri"), &format!("{pointer}/uri"))?;
+                let hash_pointer = format!("{pointer}/expected_sha256");
+                let hash = image
+                    .get("expected_sha256")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| shape(&hash_pointer, "svg-safe-2 requires a nonnull hash"))?;
+                if hash.len() != 64
+                    || !hash
+                        .as_bytes()
+                        .iter()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+                {
+                    return Err(shape(hash_pointer, "expected lowercase 64-hex SHA-256"));
+                }
+                let provenance_pointer = format!("{pointer}/vector_provenance");
+                let provenance = object(
+                    image.get("vector_provenance").ok_or_else(|| {
+                        shape(&provenance_pointer, "svg-safe-2 requires provenance")
+                    })?,
+                    &provenance_pointer,
+                )?;
+                exact_members(
+                    provenance,
+                    &provenance_pointer,
+                    &["engine_id", "engine_version", "rules_version"],
+                    &[],
+                )?;
+                for member in ["engine_id", "engine_version", "rules_version"] {
+                    let member_pointer = format!("{provenance_pointer}/{member}");
+                    let value = required_string(provenance.get(member), &member_pointer)?;
+                    if value.is_empty()
+                        || value.len() > 128
+                        || !value
+                            .as_bytes()
+                            .iter()
+                            .all(|byte| (0x20..=0x7e).contains(byte))
+                    {
+                        return Err(shape(
+                            member_pointer,
+                            "expected 1..128 bytes of printable ASCII",
+                        ));
+                    }
+                }
+            } else if image.contains_key("vector_provenance") {
+                return Err(shape(
+                    format!("{pointer}/vector_provenance"),
+                    "provenance is forbidden for this media type",
+                ));
+            }
+        }
+    }
+
+    if let Some(document) = root_object.get("document").and_then(Value::as_object) {
+        if let Some(blocks) = document.get("blocks") {
+            visit_blocks(blocks, "/document/blocks")?;
+        }
+        if let Some(footnotes) = document.get("footnotes").and_then(Value::as_array) {
+            for (index, footnote) in footnotes.iter().enumerate() {
+                if let Some(blocks) = footnote
+                    .as_object()
+                    .and_then(|footnote| footnote.get("blocks"))
+                {
+                    visit_blocks(blocks, &format!("/document/footnotes/{index}/blocks"))?;
+                }
+            }
         }
     }
     Ok(())
@@ -1268,10 +2036,12 @@ fn validate_semantic_container_shape(
                         visit(&cell.blocks)?;
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. } => visit(caption)?,
+                WireStagingM4Block::Figure { caption, .. }
+                | WireStagingM4Block::VectorFigure { caption, .. } => visit(caption)?,
                 WireStagingM4Block::Paragraph { .. }
                 | WireStagingM4Block::Heading { .. }
                 | WireStagingM4Block::DisplayMath { .. }
+                | WireStagingM4Block::MathVectorBlock { .. }
                 | WireStagingM4Block::PageBreak { .. } => {}
             }
         }
@@ -1568,6 +2338,7 @@ impl StagingSemanticDocumentPackageEncoder {
         validate_semantic_container_shape(&package.document)?;
         validate_math_wire(&package.document)?;
         validate_book_navigation_wire_shape(&package.materialize()?)?;
+        validate_precomposed_vector_wire_shape(&package.materialize()?)?;
         validate_supporting_shapes(&package.sources, &package.text_buffers)?;
         reject_page_region_semantic_containers(&package.carrier["page_masters"])?;
         let canonical = canonicalize_value(&package.materialize()?, 0)?;
@@ -1619,7 +2390,15 @@ fn reject_page_region_semantic_containers(value: &Value) -> Result<(), StagingSe
             Value::Object(object) => {
                 if matches!(
                     object.get("kind").and_then(Value::as_str),
-                    Some("semantic_container" | "display_math" | "inline_math")
+                    Some(
+                        "semantic_container"
+                            | "display_math"
+                            | "inline_math"
+                            | "inline_vector"
+                            | "math_vector"
+                            | "vector_figure"
+                            | "math_vector_block"
+                    )
                 ) {
                     return Err(StagingSemanticDecodeError::Shape(
                         "semantic_container or math cannot occur in a page region",
@@ -1652,6 +2431,8 @@ fn validate_math_wire(document: &WireStagingM4Document) -> Result<(), StagingSem
                 | WireStagingM4Inline::Strong { children, .. }
                 | WireStagingM4Inline::Link { children, .. } => inlines(children)?,
                 WireStagingM4Inline::Text { .. }
+                | WireStagingM4Inline::InlineVector { .. }
+                | WireStagingM4Inline::MathVector { .. }
                 | WireStagingM4Inline::Anchor { .. }
                 | WireStagingM4Inline::Reference { .. }
                 | WireStagingM4Inline::FootnoteReference { .. }
@@ -1680,11 +2461,13 @@ fn validate_math_wire(document: &WireStagingM4Document) -> Result<(), StagingSem
                     }
                 }
                 WireStagingM4Block::Figure { caption, .. }
+                | WireStagingM4Block::VectorFigure { caption, .. }
                 | WireStagingM4Block::SemanticContainer {
                     blocks: caption, ..
                 } => blocks(caption)?,
                 WireStagingM4Block::DisplayMath { math_source, .. } => source(math_source)?,
-                WireStagingM4Block::PageBreak { .. } => {}
+                WireStagingM4Block::PageBreak { .. }
+                | WireStagingM4Block::MathVectorBlock { .. } => {}
             }
         }
         Ok(())
@@ -1792,6 +2575,7 @@ fn document_node_count(
                     }
                 }
                 WireStagingM4Block::Figure { caption, .. }
+                | WireStagingM4Block::VectorFigure { caption, .. }
                 | WireStagingM4Block::SemanticContainer {
                     blocks: caption, ..
                 } => {
@@ -1803,6 +2587,21 @@ fn document_node_count(
                             .ok_or(StagingSemanticDecodeError::Limit)?,
                         max_depth,
                     )?;
+                }
+                WireStagingM4Block::MathVectorBlock {
+                    equation_number, ..
+                } => {
+                    if equation_number.is_some() {
+                        let child_depth = depth
+                            .checked_add(1)
+                            .ok_or(StagingSemanticDecodeError::Limit)?;
+                        if child_depth > max_depth {
+                            return Err(StagingSemanticDecodeError::Limit);
+                        }
+                        *count = count
+                            .checked_add(1)
+                            .ok_or(StagingSemanticDecodeError::Limit)?;
+                    }
                 }
                 WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
             }
@@ -1928,8 +2727,15 @@ fn count_inline_nodes(
                     .ok_or(StagingSemanticDecodeError::Limit)?;
                 stack.extend(children.iter().rev().map(|child| (child, child_depth)));
             }
-            WireStagingM4Inline::InlineMath { .. } => {}
-            _ => {}
+            WireStagingM4Inline::InlineMath { .. }
+            | WireStagingM4Inline::InlineVector { .. }
+            | WireStagingM4Inline::MathVector { .. } => {}
+            WireStagingM4Inline::Text { .. }
+            | WireStagingM4Inline::Anchor { .. }
+            | WireStagingM4Inline::Reference { .. }
+            | WireStagingM4Inline::FootnoteReference { .. }
+            | WireStagingM4Inline::SoftBreak { .. }
+            | WireStagingM4Inline::HardBreak { .. } => {}
         }
     }
     Ok(count)
@@ -2216,6 +3022,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/book-navigation/job/document-package.json"
     ));
+    const PRECOMPOSED_VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package.json"
+    ));
 
     fn policy() -> DocumentPackageDecodePolicy<'static> {
         let limits = Box::leak(Box::new(
@@ -2239,6 +3049,232 @@ mod tests {
         assert!(encoded.contains("\"media_type\":\"png\""));
         assert!(encoded.contains("\"media_type\":\"sfnt-truetype-glyf\""));
         assert!(encoded.contains("\"media_type\":\"ttc-truetype-glyf\""));
+    }
+
+    #[test]
+    fn precomposed_vector_wire_round_trip_is_lossless_canonical_and_private() {
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(PRECOMPOSED_VECTOR_FIXTURE, &policy())
+            .unwrap();
+        let wire = decoded.wire();
+        assert_eq!(wire.resources().images.len(), 1);
+        let image = &wire.resources().images[0];
+        assert_eq!(image.media_type, WireImageMediaType::SvgSafe2);
+        assert!(image.expected_sha256.is_some());
+        assert_eq!(
+            image
+                .vector_provenance
+                .as_ref()
+                .map(|value| value.engine_id.as_str()),
+            Some("vmb.texToSvg")
+        );
+
+        let WireStagingM4Block::SemanticContainer { blocks, .. } = &wire.document().blocks[0]
+        else {
+            panic!("fixture root must be a semantic container");
+        };
+        let WireStagingM4Block::Paragraph { children, .. } = &blocks[0] else {
+            panic!("first child must be a paragraph");
+        };
+        assert!(matches!(
+            &children[0],
+            WireStagingM4Inline::InlineVector {
+                actual_text: None,
+                ..
+            }
+        ));
+        let WireStagingM4Inline::MathVector {
+            metrics,
+            source_tex,
+            ..
+        } = &children[1]
+        else {
+            panic!("second inline must be math_vector");
+        };
+        assert_eq!(metrics.advance, 2_031_616);
+        assert_eq!(metrics.viewport.width, 1_966_080);
+        assert_eq!(source_tex.text_span.start_byte, 3);
+        assert!(matches!(blocks[1], WireStagingM4Block::VectorFigure { .. }));
+        let WireStagingM4Block::MathVectorBlock {
+            equation_number: Some(number),
+            source_tex,
+            ..
+        } = &blocks[2]
+        else {
+            panic!("third child must be numbered math_vector_block");
+        };
+        assert_eq!(number.node_id, 7);
+        assert_eq!(number.minimum_gap, 65_536);
+        assert_eq!(source_tex.text_span.start_byte, 7);
+
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(wire)
+            .unwrap();
+        assert_eq!(encoded, decoded.canonical_jcs());
+        assert_eq!(
+            PRECOMPOSED_VECTOR_FIXTURE.strip_suffix(b"\n").unwrap(),
+            encoded.as_bytes()
+        );
+        assert!(crate::StrictDocumentPackageDecoder::new()
+            .decode(PRECOMPOSED_VECTOR_FIXTURE, &policy())
+            .is_err());
+    }
+
+    #[test]
+    fn precomposed_vector_wire_conditional_errors_have_exact_p1102_pointers() {
+        fn rejected(value: &Value, pointer: &str) {
+            let error = StagingSemanticDocumentPackageDecoder::new()
+                .decode(&serde_json::to_vec(value).unwrap(), &policy())
+                .unwrap_err();
+            assert_eq!(error.pointer(), Some(pointer));
+            assert!(error.to_string().starts_with("P1102:"));
+        }
+
+        let fixture: Value = serde_json::from_slice(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
+
+        let mut missing_source = fixture.clone();
+        missing_source["document"]["blocks"][0]["blocks"][0]["children"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove("source_tex");
+        rejected(
+            &missing_source,
+            "/document/blocks/0/blocks/0/children/1/source_tex",
+        );
+
+        let mut wrong_source_text_id = fixture.clone();
+        wrong_source_text_id["document"]["blocks"][0]["blocks"][0]["children"][1]["source_tex"]
+            ["text_span"]["text_id"] = Value::String("0".to_owned());
+        rejected(
+            &wrong_source_text_id,
+            "/document/blocks/0/blocks/0/children/1/source_tex/text_span/text_id",
+        );
+
+        let mut forbidden_source = fixture.clone();
+        forbidden_source["document"]["blocks"][0]["blocks"][0]["children"][0]["source_tex"] =
+            serde_json::json!({"text_span":{"end_byte":3,"start_byte":0,"text_id":0}});
+        rejected(
+            &forbidden_source,
+            "/document/blocks/0/blocks/0/children/0/source_tex",
+        );
+
+        let mut escaped_unknown_member = fixture.clone();
+        escaped_unknown_member["document"]["blocks"][0]["blocks"][0]["children"][0]
+            .as_object_mut()
+            .unwrap()
+            .insert("source/te~x".to_owned(), Value::Null);
+        rejected(
+            &escaped_unknown_member,
+            "/document/blocks/0/blocks/0/children/0/source~1te~0x",
+        );
+
+        let mut missing_actual = fixture.clone();
+        missing_actual["document"]["blocks"][0]["blocks"][2]
+            .as_object_mut()
+            .unwrap()
+            .remove("actual_text");
+        rejected(&missing_actual, "/document/blocks/0/blocks/2/actual_text");
+
+        let mut missing_equation = fixture.clone();
+        missing_equation["document"]["blocks"][0]["blocks"][2]
+            .as_object_mut()
+            .unwrap()
+            .remove("equation_number");
+        rejected(
+            &missing_equation,
+            "/document/blocks/0/blocks/2/equation_number",
+        );
+
+        let mut wrong_equation_span = fixture.clone();
+        wrong_equation_span["document"]["blocks"][0]["blocks"][2]["equation_number"]["span"]
+            ["end_byte"] = Value::String("14".to_owned());
+        rejected(
+            &wrong_equation_span,
+            "/document/blocks/0/blocks/2/equation_number/span/end_byte",
+        );
+
+        let mut zero_advance = fixture.clone();
+        zero_advance["document"]["blocks"][0]["blocks"][0]["children"][0]["metrics"]["advance"] =
+            Value::from(0);
+        rejected(
+            &zero_advance,
+            "/document/blocks/0/blocks/0/children/0/metrics/advance",
+        );
+
+        let mut null_hash = fixture.clone();
+        null_hash["resources"]["images"][0]["expected_sha256"] = Value::Null;
+        rejected(&null_hash, "/resources/images/0/expected_sha256");
+
+        let mut missing_provenance = fixture.clone();
+        missing_provenance["resources"]["images"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("vector_provenance");
+        rejected(&missing_provenance, "/resources/images/0/vector_provenance");
+
+        let mut invalid_provenance = fixture.clone();
+        invalid_provenance["resources"]["images"][0]["vector_provenance"]["engine_id"] =
+            Value::String("vmb\ntexToSvg".to_owned());
+        rejected(
+            &invalid_provenance,
+            "/resources/images/0/vector_provenance/engine_id",
+        );
+
+        let mut forbidden_provenance = fixture.clone();
+        forbidden_provenance["resources"]["images"][0]["media_type"] =
+            Value::String("svg-safe-1".to_owned());
+        rejected(
+            &forbidden_provenance,
+            "/resources/images/0/vector_provenance",
+        );
+
+        let mut duplicate_image = fixture;
+        let duplicate = duplicate_image["resources"]["images"][0].clone();
+        duplicate_image["resources"]["images"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+        rejected(&duplicate_image, "/resources/images/1/image_id");
+    }
+
+    #[test]
+    fn precomposed_vector_wire_rejects_duplicate_unknown_wrong_and_extra_shapes() {
+        let duplicate = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
+            .unwrap()
+            .replacen(
+                "\"alt\":\"丸括弧で囲んだ二項目\"",
+                "\"\\u0061lt\":\"duplicate\",\"alt\":\"丸括弧で囲んだ二項目\"",
+                1,
+            );
+        assert!(matches!(
+            StagingSemanticDocumentPackageDecoder::new().decode(duplicate.as_bytes(), &policy()),
+            Err(StagingSemanticDecodeError::Json(_))
+                | Err(StagingSemanticDecodeError::Preflight(_))
+        ));
+
+        let fixture: Value = serde_json::from_slice(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
+        let mut unknown_kind = fixture.clone();
+        unknown_kind["document"]["blocks"][0]["blocks"][0]["children"][0]["kind"] =
+            Value::String("unknown_vector".to_owned());
+        let unknown_error = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&serde_json::to_vec(&unknown_kind).unwrap(), &policy())
+            .unwrap_err();
+        assert_eq!(
+            unknown_error.pointer(),
+            Some("/document/blocks/0/blocks/0/children/0/kind")
+        );
+        assert!(unknown_error.to_string().starts_with("P1102:"));
+        let mut wrong_type = fixture.clone();
+        wrong_type["document"]["blocks"][0]["blocks"][0]["children"][0]["metrics"] =
+            Value::String("not-metrics".to_owned());
+        let mut extra_member = fixture;
+        extra_member["document"]["blocks"][0]["blocks"][1]["source_tex"] =
+            serde_json::json!({"text_span":{"end_byte":7,"start_byte":6,"text_id":0}});
+        for invalid in [wrong_type, extra_member] {
+            assert!(StagingSemanticDocumentPackageDecoder::new()
+                .decode(&serde_json::to_vec(&invalid).unwrap(), &policy())
+                .is_err());
+        }
     }
 
     #[test]

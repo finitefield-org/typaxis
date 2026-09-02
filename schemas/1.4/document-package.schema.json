@@ -350,6 +350,135 @@
         ]
       }
     },
+    "vector_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine_id",
+        "engine_version",
+        "rules_version"
+      ],
+      "properties": {
+        "engine_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[\\u0020-\\u007E]+$"
+        },
+        "engine_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[\\u0020-\\u007E]+$"
+        },
+        "rules_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[\\u0020-\\u007E]+$"
+        }
+      }
+    },
+    "precomposed_vector_viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "height",
+        "width"
+      ],
+      "properties": {
+        "height": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "width": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        }
+      }
+    },
+    "precomposed_vector_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "advance",
+        "ascent",
+        "baseline",
+        "descent",
+        "origin_x",
+        "viewport"
+      ],
+      "properties": {
+        "advance": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "ascent": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "baseline": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "descent": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "origin_x": {
+          "$ref": "common.schema.json#/$defs/length"
+        },
+        "viewport": {
+          "$ref": "#/$defs/precomposed_vector_viewport"
+        }
+      }
+    },
+    "precomposed_vector_spacing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "after",
+        "before"
+      ],
+      "properties": {
+        "after": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        },
+        "before": {
+          "$ref": "common.schema.json#/$defs/nonnegative_length"
+        }
+      }
+    },
+    "precomposed_vector_source_tex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text_span"
+      ],
+      "properties": {
+        "text_span": {
+          "$ref": "common.schema.json#/$defs/text_span"
+        }
+      }
+    },
+    "precomposed_vector_equation_number": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_gap",
+        "node_id",
+        "span",
+        "text_span"
+      ],
+      "properties": {
+        "minimum_gap": {
+          "$ref": "common.schema.json#/$defs/positive_length"
+        },
+        "node_id": {
+          "$ref": "common.schema.json#/$defs/id32"
+        },
+        "span": {
+          "$ref": "common.schema.json#/$defs/source_span"
+        },
+        "text_span": {
+          "$ref": "common.schema.json#/$defs/text_span"
+        }
+      }
+    },
     "inline": {
       "oneOf": [
         {
@@ -373,6 +502,94 @@
             },
             "text_span": {
               "$ref": "common.schema.json#/$defs/text_span"
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "actual_text",
+            "alt",
+            "image_id",
+            "kind",
+            "metrics",
+            "node_id",
+            "spacing",
+            "span"
+          ],
+          "properties": {
+            "actual_text": {
+              "oneOf": [
+                {"type": "string"},
+                {"type": "null"}
+              ]
+            },
+            "alt": {"type": "string"},
+            "image_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "kind": {"const": "inline_vector"},
+            "metrics": {
+              "$ref": "#/$defs/precomposed_vector_metrics"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "spacing": {
+              "$ref": "#/$defs/precomposed_vector_spacing"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
+            },
+            "language": {
+              "$ref": "#/$defs/language_tag"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "actual_text",
+            "alt",
+            "image_id",
+            "kind",
+            "metrics",
+            "node_id",
+            "source_tex",
+            "spacing",
+            "span"
+          ],
+          "properties": {
+            "actual_text": {
+              "oneOf": [
+                {"type": "string"},
+                {"type": "null"}
+              ]
+            },
+            "alt": {"type": "string"},
+            "image_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "kind": {"const": "math_vector"},
+            "metrics": {
+              "$ref": "#/$defs/precomposed_vector_metrics"
+            },
+            "node_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "source_tex": {
+              "$ref": "#/$defs/precomposed_vector_source_tex"
+            },
+            "spacing": {
+              "$ref": "#/$defs/precomposed_vector_spacing"
+            },
+            "span": {
+              "$ref": "common.schema.json#/$defs/source_span"
             },
             "language": {
               "$ref": "#/$defs/language_tag"
@@ -1063,6 +1280,73 @@
             "language": {
               "$ref": "#/$defs/language_tag"
             }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "alt",
+            "caption",
+            "classes",
+            "image_id",
+            "kind",
+            "node_id",
+            "span",
+            "viewport"
+          ],
+          "properties": {
+            "alt": {"type": "string"},
+            "caption": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/block"}
+            },
+            "classes": {"$ref": "#/$defs/class_list"},
+            "image_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "kind": {"const": "vector_figure"},
+            "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "span": {"$ref": "common.schema.json#/$defs/source_span"},
+            "viewport": {"$ref": "#/$defs/precomposed_vector_viewport"},
+            "language": {"$ref": "#/$defs/language_tag"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "actual_text",
+            "alt",
+            "classes",
+            "equation_number",
+            "image_id",
+            "kind",
+            "metrics",
+            "node_id",
+            "source_tex",
+            "span"
+          ],
+          "properties": {
+            "actual_text": {
+              "oneOf": [
+                {"type": "string"},
+                {"type": "null"}
+              ]
+            },
+            "alt": {"type": "string"},
+            "classes": {"$ref": "#/$defs/class_list"},
+            "equation_number": {
+              "oneOf": [
+                {"$ref": "#/$defs/precomposed_vector_equation_number"},
+                {"type": "null"}
+              ]
+            },
+            "image_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "kind": {"const": "math_vector_block"},
+            "metrics": {"$ref": "#/$defs/precomposed_vector_metrics"},
+            "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+            "source_tex": {"$ref": "#/$defs/precomposed_vector_source_tex"},
+            "span": {"$ref": "common.schema.json#/$defs/source_span"},
+            "language": {"$ref": "#/$defs/language_tag"}
           }
         },
         {
@@ -2000,38 +2284,66 @@
       }
     },
     "image": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "image_id",
-        "uri",
-        "expected_sha256",
-        "media_type"
-      ],
-      "properties": {
-        "image_id": {
-          "$ref": "common.schema.json#/$defs/id32"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image_id",
+            "uri",
+            "expected_sha256",
+            "media_type"
+          ],
+          "properties": {
+            "image_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "uri": {
+              "$ref": "common.schema.json#/$defs/portable_relative_path"
+            },
+            "expected_sha256": {
+              "oneOf": [
+                {"$ref": "common.schema.json#/$defs/sha256"},
+                {"type": "null"}
+              ]
+            },
+            "media_type": {
+              "enum": [
+                "png",
+                "svg-safe-1"
+              ]
+            }
+          }
         },
-        "uri": {
-          "$ref": "common.schema.json#/$defs/portable_relative_path"
-        },
-        "expected_sha256": {
-          "oneOf": [
-            {
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image_id",
+            "uri",
+            "expected_sha256",
+            "media_type",
+            "vector_provenance"
+          ],
+          "properties": {
+            "image_id": {
+              "$ref": "common.schema.json#/$defs/id32"
+            },
+            "uri": {
+              "$ref": "common.schema.json#/$defs/portable_relative_path"
+            },
+            "expected_sha256": {
               "$ref": "common.schema.json#/$defs/sha256"
             },
-            {
-              "type": "null"
+            "media_type": {
+              "const": "svg-safe-2"
+            },
+            "vector_provenance": {
+              "$ref": "#/$defs/vector_provenance"
             }
-          ]
-        },
-        "media_type": {
-          "enum": [
-            "png",
-            "svg-safe-1"
-          ]
+          }
         }
-      }
+      ]
     },
     "resource_catalog": {
       "type": "object",

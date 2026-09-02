@@ -66,6 +66,7 @@ pub enum BookNavigationSyntaxErrorKind {
     TextAggregateLimit,
     ReceiptMismatch,
     AllocationFailure,
+    PrecomposedVectorStaging,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -571,7 +572,20 @@ fn collect_internal_links(
                 | WireStagingM4Inline::Link { children, .. } => {
                     inlines(children, &format!("{base}/children"), output)?;
                 }
-                _ => {}
+                WireStagingM4Inline::InlineVector { .. }
+                | WireStagingM4Inline::MathVector { .. } => {
+                    return Err(BookNavigationSyntaxError::producer(
+                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                        base,
+                    ));
+                }
+                WireStagingM4Inline::Text { .. }
+                | WireStagingM4Inline::InlineMath { .. }
+                | WireStagingM4Inline::Anchor { .. }
+                | WireStagingM4Inline::Reference { .. }
+                | WireStagingM4Inline::FootnoteReference { .. }
+                | WireStagingM4Inline::SoftBreak { .. }
+                | WireStagingM4Inline::HardBreak { .. } => {}
             }
         }
         Ok(())
@@ -620,6 +634,13 @@ fn collect_internal_links(
                     blocks: children, ..
                 } => {
                     blocks(children, &format!("{base}/blocks"), output)?;
+                }
+                WireStagingM4Block::VectorFigure { .. }
+                | WireStagingM4Block::MathVectorBlock { .. } => {
+                    return Err(BookNavigationSyntaxError::producer(
+                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                        base,
+                    ));
                 }
                 WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
             }
@@ -1030,6 +1051,13 @@ fn collect_blocks(
             WireStagingM4Block::DisplayMath { language, .. } => {
                 (Some(StagingLanguageNodeKind::DisplayMath), language)
             }
+            WireStagingM4Block::VectorFigure { .. }
+            | WireStagingM4Block::MathVectorBlock { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                    base,
+                ));
+            }
             WireStagingM4Block::SemanticContainer {
                 language,
                 anchor_id,
@@ -1135,6 +1163,13 @@ fn collect_blocks(
                 owners,
                 anchors,
             )?,
+            WireStagingM4Block::VectorFigure { .. }
+            | WireStagingM4Block::MathVectorBlock { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                    base,
+                ));
+            }
             WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
         }
     }
@@ -1198,6 +1233,12 @@ fn collect_inlines(
         let kind = match inline {
             WireStagingM4Inline::Text { .. } => Some(StagingLanguageNodeKind::Text),
             WireStagingM4Inline::InlineMath { .. } => Some(StagingLanguageNodeKind::InlineMath),
+            WireStagingM4Inline::InlineVector { .. } | WireStagingM4Inline::MathVector { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                    base,
+                ));
+            }
             WireStagingM4Inline::Emphasis { .. } => Some(StagingLanguageNodeKind::Emphasis),
             WireStagingM4Inline::Strong { .. } => Some(StagingLanguageNodeKind::Strong),
             WireStagingM4Inline::Link { .. } => Some(StagingLanguageNodeKind::Link),
@@ -1233,7 +1274,19 @@ fn collect_inlines(
                     anchors,
                 )?;
             }
-            _ => {}
+            WireStagingM4Inline::InlineVector { .. } | WireStagingM4Inline::MathVector { .. } => {
+                return Err(BookNavigationSyntaxError::producer(
+                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                    base,
+                ));
+            }
+            WireStagingM4Inline::Text { .. }
+            | WireStagingM4Inline::InlineMath { .. }
+            | WireStagingM4Inline::Anchor { .. }
+            | WireStagingM4Inline::Reference { .. }
+            | WireStagingM4Inline::FootnoteReference { .. }
+            | WireStagingM4Inline::SoftBreak { .. }
+            | WireStagingM4Inline::HardBreak { .. } => {}
         }
     }
     Ok(())
@@ -1877,11 +1930,13 @@ fn math_speech_bytes(document: &WireStagingM4Document) -> u64 {
                     .map(|cell| blocks(&cell.blocks))
                     .sum(),
                 WireStagingM4Block::Figure { caption, .. }
+                | WireStagingM4Block::VectorFigure { caption, .. }
                 | WireStagingM4Block::SemanticContainer {
                     blocks: caption, ..
                 } => blocks(caption),
                 WireStagingM4Block::DisplayMath { speech, .. } => speech.len() as u64,
-                WireStagingM4Block::PageBreak { .. } => 0,
+                WireStagingM4Block::PageBreak { .. }
+                | WireStagingM4Block::MathVectorBlock { .. } => 0,
             })
             .sum()
     }
@@ -1902,6 +1957,8 @@ fn raw_block_span(block: &WireStagingM4Block) -> WireStagingSourceSpan {
         | WireStagingM4Block::Figure { span, .. }
         | WireStagingM4Block::PageBreak { span, .. }
         | WireStagingM4Block::DisplayMath { span, .. }
+        | WireStagingM4Block::VectorFigure { span, .. }
+        | WireStagingM4Block::MathVectorBlock { span, .. }
         | WireStagingM4Block::SemanticContainer { span, .. } => *span,
     }
 }

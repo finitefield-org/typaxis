@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use typaxis_core::{NodeId, ValidatedResourceLimits};
+use typaxis_core::{ImageResourceId, NodeId, ValidatedResourceLimits};
 use typaxis_syntax::machine_profile_boundary::{
     BasicStyleProperty, FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,
     SemanticContainerKind, SemanticContainerStyleKind, StagingM4Block,
@@ -125,6 +125,8 @@ pub enum StagingSemanticContainerPreflightError {
     DisallowedMedia,
     StyleMismatch(NodeId),
     UnsupportedMath,
+    PrecomposedVectorStaging(NodeId),
+    SvgSafe2Staging(ImageResourceId),
     ReceiptMismatch,
 }
 
@@ -160,6 +162,16 @@ impl std::fmt::Display for StagingSemanticContainerPreflightError {
             Self::UnsupportedMath => {
                 formatter.write_str("L5100: semantic-container profile does not admit math")
             }
+            Self::PrecomposedVectorStaging(owner) => write!(
+                formatter,
+                "P1102: precomposed vector at node {} requires its versioned profile",
+                owner.get()
+            ),
+            Self::SvgSafe2Staging(id) => write!(
+                formatter,
+                "P1102: svg-safe-2 image {} requires its versioned profile",
+                id.get()
+            ),
             Self::ReceiptMismatch => {
                 formatter.write_str("I9190: semantic profile receipt mismatch")
             }
@@ -238,6 +250,7 @@ pub fn preflight_staging_semantic_container_profile(
     limits: &ValidatedResourceLimits,
     session: &StagingSemanticContainerSessionIdentity,
 ) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    reject_precomposed_vector_staging(package)?;
     if !package.math_nodes().is_empty() {
         return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
     }
@@ -252,6 +265,7 @@ pub(crate) fn preflight_staging_semantic_container_profile_for_math(
     limits: &ValidatedResourceLimits,
     session: &StagingSemanticContainerSessionIdentity,
 ) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    reject_precomposed_vector_staging(package)?;
     if package.math_nodes().is_empty() {
         return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
     }
@@ -266,6 +280,7 @@ pub(crate) fn preflight_staging_semantic_container_profile_for_book_navigation(
     limits: &ValidatedResourceLimits,
     session: &StagingSemanticContainerSessionIdentity,
 ) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    reject_precomposed_vector_staging(package)?;
     if !package.math_nodes().is_empty() {
         return Err(StagingSemanticContainerPreflightError::UnsupportedMath);
     }
@@ -277,6 +292,7 @@ pub(crate) fn preflight_staging_semantic_container_profile_for_tagged_pdf(
     limits: &ValidatedResourceLimits,
     session: &StagingSemanticContainerSessionIdentity,
 ) -> Result<StagingSemanticContainerPreflightReceipt, StagingSemanticContainerPreflightError> {
+    reject_precomposed_vector_staging(package)?;
     preflight_staging_semantic_container_profile_inner(
         package,
         limits,
@@ -335,6 +351,61 @@ fn preflight_staging_semantic_container_profile_inner(
     })
 }
 
+fn reject_precomposed_vector_staging(
+    package: &ValidatedStagingSemanticPackage,
+) -> Result<(), StagingSemanticContainerPreflightError> {
+    if let Some(image) = package
+        .resources()
+        .images
+        .iter()
+        .find(|image| image.media == ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2))
+    {
+        return Err(StagingSemanticContainerPreflightError::SvgSafe2Staging(
+            image.image_id,
+        ));
+    }
+    if let Some(owner) = first_precomposed_vector_owner(&package.document().blocks).or_else(|| {
+        package
+            .document()
+            .footnotes
+            .iter()
+            .find_map(|footnote| first_precomposed_vector_owner(&footnote.blocks))
+    }) {
+        return Err(StagingSemanticContainerPreflightError::PrecomposedVectorStaging(owner));
+    }
+    Ok(())
+}
+
+fn first_precomposed_vector_owner(blocks: &[StagingM4Block]) -> Option<NodeId> {
+    for block in blocks {
+        let owner = match block {
+            StagingM4Block::Paragraph { inline_vectors, .. }
+            | StagingM4Block::Heading { inline_vectors, .. } => {
+                inline_vectors.first().map(|vector| vector.node_id)
+            }
+            StagingM4Block::VectorFigure { common, .. }
+            | StagingM4Block::MathVectorBlock { common, .. } => Some(common.node_id),
+            StagingM4Block::List { items, .. } => items
+                .iter()
+                .find_map(|item| first_precomposed_vector_owner(&item.blocks)),
+            StagingM4Block::Table { head, body, .. } => head
+                .iter()
+                .chain(body)
+                .flat_map(|row| &row.cells)
+                .find_map(|cell| first_precomposed_vector_owner(&cell.blocks)),
+            StagingM4Block::Figure { caption, .. } => first_precomposed_vector_owner(caption),
+            StagingM4Block::SemanticContainer { blocks, .. } => {
+                first_precomposed_vector_owner(blocks)
+            }
+            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => None,
+        };
+        if owner.is_some() {
+            return owner;
+        }
+    }
+    None
+}
+
 fn has_neutral_book_navigation(package: &ValidatedStagingSemanticPackage) -> bool {
     use typaxis_syntax::machine_profile_boundary::wire::{
         WireStagingM4Block as WireBlock, WireStagingM4Inline as WireInline,
@@ -348,7 +419,14 @@ fn has_neutral_book_navigation(package: &ValidatedStagingSemanticPackage) -> boo
                     WireInline::Emphasis { children, .. }
                     | WireInline::Strong { children, .. }
                     | WireInline::Link { children, .. } => inlines(children),
-                    _ => true,
+                    WireInline::InlineVector { .. } | WireInline::MathVector { .. } => false,
+                    WireInline::Text { .. }
+                    | WireInline::InlineMath { .. }
+                    | WireInline::Anchor { .. }
+                    | WireInline::Reference { .. }
+                    | WireInline::FootnoteReference { .. }
+                    | WireInline::SoftBreak { .. }
+                    | WireInline::HardBreak { .. } => true,
                 }
         })
     }
@@ -378,6 +456,7 @@ fn has_neutral_book_navigation(package: &ValidatedStagingSemanticPackage) -> boo
                     blocks: children,
                     ..
                 } => anchor_id.is_none() && blocks(children),
+                WireBlock::VectorFigure { .. } | WireBlock::MathVectorBlock { .. } => false,
                 WireBlock::PageBreak { .. } | WireBlock::DisplayMath { .. } => true,
             }
         })
@@ -423,6 +502,11 @@ fn validate_media_declarations(
     }
     for image in &resources.images {
         match image.media {
+            ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => {
+                return Err(StagingSemanticContainerPreflightError::SvgSafe2Staging(
+                    image.image_id,
+                ));
+            }
             ImageMediaDeclaration::Declared(media)
                 if StagingSemanticContainerProfileDescriptor
                     .image_media()
@@ -523,7 +607,25 @@ fn validate_blocks(
                     count,
                 )?;
             }
-            _ => {}
+            StagingM4Block::VectorFigure { common, .. }
+            | StagingM4Block::MathVectorBlock { common, .. } => {
+                return Err(
+                    StagingSemanticContainerPreflightError::PrecomposedVectorStaging(
+                        common.node_id,
+                    ),
+                );
+            }
+            StagingM4Block::Paragraph { inline_vectors, .. }
+            | StagingM4Block::Heading { inline_vectors, .. } => {
+                if let Some(vector) = inline_vectors.first() {
+                    return Err(
+                        StagingSemanticContainerPreflightError::PrecomposedVectorStaging(
+                            vector.node_id,
+                        ),
+                    );
+                }
+            }
+            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => {}
         }
     }
     Ok(())
@@ -534,13 +636,18 @@ mod tests {
     use super::*;
     use typaxis_syntax::machine_profile_boundary::wire::{
         DocumentPackageDecodePolicy, StagingSemanticDocumentPackageDecoder,
-        StagingSemanticDocumentPackageEncoder, WireStagingM4Block, WireStagingM4Inline,
+        StagingSemanticDocumentPackageEncoder, WireImageMediaType, WireStagingM4Block,
+        WireStagingM4Inline,
     };
     use typaxis_syntax::StagingSemanticPackageParser;
 
     const FIXTURE: &[u8] = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/semantic-container/job/document-package.json"
+    ));
+    const PRECOMPOSED_VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package.json"
     ));
 
     fn package() -> (ValidatedStagingSemanticPackage, ValidatedResourceLimits) {
@@ -640,6 +747,62 @@ mod tests {
             validate_media_declarations(&resources),
             Err(StagingSemanticContainerPreflightError::MissingDeclaration)
         );
+        resources.images[0].media = ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2);
+        assert_eq!(
+            validate_media_declarations(&resources),
+            Err(StagingSemanticContainerPreflightError::SvgSafe2Staging(
+                resources.images[0].image_id
+            ))
+        );
+    }
+
+    #[test]
+    fn semantic_container_profile_rejects_new_kind_before_language_v1_projection() {
+        let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                PRECOMPOSED_VECTOR_FIXTURE,
+                &DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let mut wire = decoded.into_wire();
+        let mut resources = wire.resources().clone();
+        resources.images[0].media_type = WireImageMediaType::SvgSafe1;
+        resources.images[0].vector_provenance = None;
+        let mut document = wire.document().clone();
+        let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
+            unreachable!();
+        };
+        let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
+            unreachable!();
+        };
+        let WireStagingM4Inline::InlineVector { language, .. } = &mut children[0] else {
+            unreachable!();
+        };
+        *language = Some("ja".to_owned());
+        wire.replace_typed_regions(document, resources);
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                encoded.as_bytes(),
+                &DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+        let package = StagingSemanticPackageParser::new()
+            .parse(decoded, &limits)
+            .unwrap();
+
+        assert!(matches!(
+            preflight_staging_semantic_container_profile(
+                &package,
+                &limits,
+                &StagingSemanticContainerSessionIdentity::fresh(),
+            ),
+            Err(StagingSemanticContainerPreflightError::PrecomposedVectorStaging(owner))
+                if owner == NodeId::new(3)
+        ));
     }
 
     #[test]
@@ -661,6 +824,8 @@ mod tests {
                 }
                 WireStagingM4Inline::Anchor { .. }
                 | WireStagingM4Inline::InlineMath { .. }
+                | WireStagingM4Inline::InlineVector { .. }
+                | WireStagingM4Inline::MathVector { .. }
                 | WireStagingM4Inline::SoftBreak { .. }
                 | WireStagingM4Inline::HardBreak { .. } => {}
             }
@@ -689,11 +854,15 @@ mod tests {
                         alt.clear();
                         remove_authored_content(caption);
                     }
+                    WireStagingM4Block::VectorFigure { caption, .. } => {
+                        remove_authored_content(caption);
+                    }
                     WireStagingM4Block::SemanticContainer { blocks, .. } => {
                         remove_authored_content(blocks);
                     }
                     WireStagingM4Block::PageBreak { .. }
-                    | WireStagingM4Block::DisplayMath { .. } => {}
+                    | WireStagingM4Block::DisplayMath { .. }
+                    | WireStagingM4Block::MathVectorBlock { .. } => {}
                 }
             }
         }

@@ -228,6 +228,7 @@ pub enum StagingSafeVectorLayoutError {
     ArithmeticOverflow,
     ReceiptMismatch,
     AllocationFailure,
+    PrecomposedVectorStaging(NodeId),
 }
 
 impl std::fmt::Display for StagingSafeVectorLayoutError {
@@ -263,6 +264,11 @@ impl std::fmt::Display for StagingSafeVectorLayoutError {
             Self::AllocationFailure => {
                 formatter.write_str("L5100: SafeVector layout allocation failed")
             }
+            Self::PrecomposedVectorStaging(owner) => write!(
+                formatter,
+                "P1102: precomposed vector at node {} requires SafeVector /2 layout",
+                owner.get()
+            ),
         }
     }
 }
@@ -467,7 +473,21 @@ fn collect_figures<'a>(
             StagingM4Block::SemanticContainer { blocks, .. } => {
                 collect_figures(blocks, vector_ids, output)?;
             }
-            _ => {}
+            StagingM4Block::VectorFigure { common, .. }
+            | StagingM4Block::MathVectorBlock { common, .. } => {
+                return Err(StagingSafeVectorLayoutError::PrecomposedVectorStaging(
+                    common.node_id,
+                ));
+            }
+            StagingM4Block::Paragraph { inline_vectors, .. }
+            | StagingM4Block::Heading { inline_vectors, .. } => {
+                if let Some(vector) = inline_vectors.first() {
+                    return Err(StagingSafeVectorLayoutError::PrecomposedVectorStaging(
+                        vector.node_id,
+                    ));
+                }
+            }
+            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => {}
         }
     }
     Ok(())
@@ -496,6 +516,7 @@ fn admitted_matches_profile(
                     && image.m4_limits_fingerprint() == Some(limits.fingerprint())
                     && image.m4_profile_fingerprint() == Some(profile.profile_fingerprint())
             }
+            ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => false,
             ImageMediaDeclaration::LegacyUnspecified => false,
         }
     })
@@ -562,7 +583,20 @@ fn placements_match_package(
                 {
                     return false;
                 }
-                _ => {}
+                StagingM4Block::SemanticContainer { .. } => {}
+                StagingM4Block::VectorFigure { .. } | StagingM4Block::MathVectorBlock { .. } => {
+                    return false
+                }
+                StagingM4Block::Paragraph { inline_vectors, .. }
+                | StagingM4Block::Heading { inline_vectors, .. }
+                    if !inline_vectors.is_empty() =>
+                {
+                    return false;
+                }
+                StagingM4Block::Paragraph { .. }
+                | StagingM4Block::Heading { .. }
+                | StagingM4Block::PageBreak { .. }
+                | StagingM4Block::DisplayMath { .. } => {}
             }
         }
         true

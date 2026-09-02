@@ -1,6 +1,6 @@
-use typaxis_core::{push_jcs_string, sha256, NodeId};
+use typaxis_core::{push_jcs_string, sha256, ImageResourceId, NodeId};
 use typaxis_display_list::StagingSemanticContainerDisplay;
-use typaxis_document::{FontMediaDeclaration, ImageMediaDeclaration};
+use typaxis_document::{FontMediaDeclaration, ImageMediaDeclaration, StagingM4Block};
 use typaxis_layout::StagingSemanticContainerSelectedLayout;
 use typaxis_machine_profile::StagingSemanticContainerPreflightReceipt;
 use typaxis_pdf::StagingSemanticContainerPdf;
@@ -153,6 +153,8 @@ pub enum StagingSemanticContainerManifestError {
     MediaMismatch,
     ReceiptMismatch,
     ArithmeticOverflow,
+    PrecomposedVectorStaging(NodeId),
+    SvgSafe2Staging(ImageResourceId),
 }
 
 impl std::fmt::Display for StagingSemanticContainerManifestError {
@@ -175,6 +177,16 @@ impl std::fmt::Display for StagingSemanticContainerManifestError {
             Self::ArithmeticOverflow => {
                 formatter.write_str("I9190: semantic manifest arithmetic overflow")
             }
+            Self::PrecomposedVectorStaging(owner) => write!(
+                formatter,
+                "P1102: precomposed vector at node {} requires the versioned manifest",
+                owner.get()
+            ),
+            Self::SvgSafe2Staging(id) => write!(
+                formatter,
+                "P1102: svg-safe-2 image {} requires the versioned manifest",
+                id.get()
+            ),
         }
     }
 }
@@ -204,6 +216,22 @@ fn derive_staging_semantic_container_manifest(
     pdf: &StagingSemanticContainerPdf,
     media: &StagingDeclaredMediaLedger,
 ) -> Result<StagingSemanticContainerManifest, StagingSemanticContainerManifestError> {
+    if let Some(owner) = first_precomposed_vector_owner(&package.document().blocks).or_else(|| {
+        package
+            .document()
+            .footnotes
+            .iter()
+            .find_map(|footnote| first_precomposed_vector_owner(&footnote.blocks))
+    }) {
+        return Err(StagingSemanticContainerManifestError::PrecomposedVectorStaging(owner));
+    }
+    if let Some(image) = package.resources().images.iter().find(|image| {
+        image.media == ImageMediaDeclaration::Declared(typaxis_document::ImageMediaType::SvgSafe2)
+    }) {
+        return Err(StagingSemanticContainerManifestError::SvgSafe2Staging(
+            image.image_id,
+        ));
+    }
     selected
         .verify(package, profile.authorization())
         .map_err(|_| StagingSemanticContainerManifestError::SelectedMismatch)?;
@@ -280,6 +308,36 @@ fn derive_staging_semantic_container_manifest(
         fingerprint: sha256(canonical_jcs.as_bytes()),
         canonical_jcs,
     })
+}
+
+fn first_precomposed_vector_owner(blocks: &[StagingM4Block]) -> Option<NodeId> {
+    for block in blocks {
+        let owner = match block {
+            StagingM4Block::Paragraph { inline_vectors, .. }
+            | StagingM4Block::Heading { inline_vectors, .. } => {
+                inline_vectors.first().map(|vector| vector.node_id)
+            }
+            StagingM4Block::VectorFigure { common, .. }
+            | StagingM4Block::MathVectorBlock { common, .. } => Some(common.node_id),
+            StagingM4Block::List { items, .. } => items
+                .iter()
+                .find_map(|item| first_precomposed_vector_owner(&item.blocks)),
+            StagingM4Block::Table { head, body, .. } => head
+                .iter()
+                .chain(body)
+                .flat_map(|row| &row.cells)
+                .find_map(|cell| first_precomposed_vector_owner(&cell.blocks)),
+            StagingM4Block::Figure { caption, .. } => first_precomposed_vector_owner(caption),
+            StagingM4Block::SemanticContainer { blocks, .. } => {
+                first_precomposed_vector_owner(blocks)
+            }
+            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => None,
+        };
+        if owner.is_some() {
+            return owner;
+        }
+    }
+    None
 }
 
 fn close_media_records(

@@ -1,10 +1,11 @@
 # VMB precomposed-vector corpus
 
-This directory is the checked-in producer-interface corpus for `MI4-V01`.
-It is evidence for the proposed precomposed-vector contract; it is not a
-currently accepted DocumentPackage and must not be exposed by the public CLI.
+This directory is the checked-in producer-interface corpus for `MI4-V01` and
+the canonical private contract-1.4 Wire fixture added by `MI4-V03`. The
+`document-package.json` fixture is accepted only by the private 1.4 decoder and
+Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
-The corpus has three canonical ledgers:
+The corpus has three canonical ledgers plus one private Wire fixture:
 
 - `resources.tsv` records dense logical image IDs, contained SVG paths,
   hash-derived production URIs, exact SHA-256 values, and producer provenance.
@@ -15,6 +16,10 @@ The corpus has three canonical ledgers:
   occurrences and optional line/block fit context. A fragment placement is
   written as `{case-id}`; this notation and its context fields are test
   evidence and are not a Typaxis source syntax.
+- `document-package.json` and `input.tsf` form the canonical strict-Wire/JCS
+  fixture covering all four vector kinds, nullable actual text, source TeX,
+  spacing, equation-number child shape, and one `svg-safe-2` provenance record.
+  They do not authorize resource admission, layout, or PDF generation.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,

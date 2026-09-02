@@ -19,7 +19,7 @@
 | contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | No: MI4-11/12 must add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Corpus/interface only in MI4-V01; private Wire/Schema/Rust work starts at MI4-V03 | No; current aliases remain 1.3 | No; MI4-V19 then MI4-13 gate |
+| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Yes: MI4-V03 strict private Wire/Schema/domain and fail-closed legacy dispatch; validation/admission/layout/PDF remain staged | No; current aliases remain 1.3 | No; MI4-V19 then MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -70,11 +70,13 @@ deterministic JPEG/CFF transforms, PDF plans, limits, and dependency identities.
 ADR adoption changes no Schema: MI4-11 and MI4-12 own those private additions,
 and MI4-13 alone may switch aliases or advertise the complete resource set.
 [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) adds the closed
-future `inline_vector`, `math_vector`, `vector_figure`, and
+private `inline_vector`, `math_vector`, `vector_figure`, and
 `math_vector_block` shapes, `svg-safe-2` declaration/provenance, producer
 metrics, and versioned SafeVector/resource-set, navigation, tagged-PDF, and
-manifest branches. ADR adoption and MI4-V01 add no Schema shape. MI4-V03 and
-later V milestones own only the independent private 1.4 registry; MI4-V19 must
+manifest branches. ADR adoption and MI4-V01 add no Schema shape. MI4-V03 adds
+the strict private Wire/Schema/domain shape and keeps every legacy consumer
+fail-closed; later V milestones own validation, admission, layout, and PDF only
+inside the independent private 1.4 registry. MI4-V19 must
 close feature evidence before MI4-13 switches aliases and advertises the exact
 resource-set `/2`/vector capability projection.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
@@ -111,8 +113,11 @@ The independent `schemas/1.4/` registry begins with MI4-02 private staging and
 is not frozen until MI4-13. Its base DocumentPackage shape adds
 the closed block-only `semantic_container` with
 `semantic_kind = result|proof|exercise` and requires
-`resources.images[*].media_type = png|svg-safe-1` plus
+the legacy private image branches `media_type = png|svg-safe-1` plus
 `resources.font_faces[*].media_type = sfnt-truetype-glyf|ttc-truetype-glyf`.
+MI4-V03 adds the separate `svg-safe-2` image branch with required nonnull hash
+and provenance, and the four closed producer-vector kinds with their exact
+metrics/source/alternative/number shape.
 Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
 
@@ -125,11 +130,12 @@ font-limit members. Each addition must update every private 1.4 fixture and
 semantic check atomically while leaving top-level/current and frozen 1.0-1.3
 bytes unchanged.
 
-ADR-0037 contract-defines later `svg-safe-2`, four producer-vector kinds,
+ADR-0037 contract-defines `svg-safe-2`, four producer-vector kinds,
 closed metrics/spacing/source/alternative records, and the version-2
 SafeVector/resource-set/book-navigation/tagged-PDF artifact families. MI4-V01
-contains only a TSV/SVG producer-interface corpus and does not change this
-registry. MI4-V03 through V17 own the applicable private Schema additions in
+contains only a TSV/SVG producer-interface corpus. MI4-V03 implements the
+strict Wire/domain and applicable DocumentPackage Schema additions; V04 through
+V17 own the remaining private Schema/artifact additions in
 dependency order, MI4-V18 closes the crate-private combined fixture, and
 MI4-V19 closes external evidence. Until MI4-13, no top-level alias, public capability Schema,
 current encoder, or frozen registry contains those additions. Publication must
@@ -254,6 +260,10 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 - validates MI4-05's private math DocumentPackage/manifest shapes and canonical
   runner golden, including source/span/speech/font/vector/selected/PDF closure,
   exact and max+1 limits, typed tamper cases, and public 1.3 isolation;
+- validates MI4-V03's private precomposed-vector DocumentPackage with all four
+  kinds, exact `svg-safe-2` hash/provenance and source/resource closure,
+  canonical JCS, conditional missing/null/forbidden/wrong-type negatives, and
+  public 1.3 isolation;
 - validates MI4-09's private accessibility DocumentPackage/manifest/PDF
   goldens, dense StructureNodeId/paint/page-local MCID/ParentTree closure,
   closed roles and validators, combined semantic coverage, typed tamper cases,

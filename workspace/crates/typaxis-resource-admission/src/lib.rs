@@ -287,6 +287,7 @@ pub enum ResourceAdmissionError {
     ResourceNotRegularFile,
     ResourceLockUnavailable,
     DeclaredMediaMismatch,
+    SvgSafe2Staging,
     InvalidSafeVector,
     VectorNodeLimit,
     VectorPathSegmentLimit,
@@ -324,6 +325,9 @@ impl ResourceAdmissionError {
             Self::ResourceLockUnavailable => "resource read lock is unavailable",
             Self::DeclaredMediaMismatch => {
                 "declared media type does not match the stable resource bytes"
+            }
+            Self::SvgSafe2Staging => {
+                "svg-safe-2 requires the versioned precomposed-vector admission pipeline"
             }
             Self::InvalidSafeVector => "safe vector bytes contain a forbidden or invalid feature",
             Self::VectorNodeLimit => "R7120: safe vector node limit was exceeded",
@@ -1161,6 +1165,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
             ImageMediaType::SvgSafe1 => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
+            ImageMediaType::SvgSafe2 => return Err(ResourceAdmissionError::SvgSafe2Staging),
         };
         if observed != expected {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
@@ -1281,6 +1286,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         {
             ImageMediaType::Png => self.parse_and_bind_declared_png(source),
             ImageMediaType::SvgSafe1 => self.parse_and_bind_declared_safe_vector(source),
+            ImageMediaType::SvgSafe2 => Err(ResourceAdmissionError::SvgSafe2Staging),
         }
     }
 
@@ -2199,6 +2205,9 @@ pub fn staging_declared_base_catalog(
         let ImageMediaDeclaration::Declared(media) = declaration.media else {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         };
+        if media == ImageMediaType::SvgSafe2 {
+            return Err(ResourceAdmissionError::SvgSafe2Staging);
+        }
         image_media.push(media);
         images.push(ImageDeclaration {
             image_id: declaration.image_id,
@@ -2235,6 +2244,9 @@ pub fn close_staging_declared_media(
         .images
         .iter()
         .map(|declaration| match declaration.media {
+            ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => {
+                Err(ResourceAdmissionError::SvgSafe2Staging)
+            }
             ImageMediaDeclaration::Declared(media) => Ok(media),
             ImageMediaDeclaration::LegacyUnspecified => {
                 Err(ResourceAdmissionError::DeclaredMediaMismatch)
@@ -2298,6 +2310,7 @@ pub fn close_staging_declared_media(
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
             ImageMediaType::SvgSafe1 => AdmittedImageMediaKind::SafeVector,
+            ImageMediaType::SvgSafe2 => return Err(ResourceAdmissionError::SvgSafe2Staging),
         };
         if image.image_id() != declaration.image_id
             || image.uri() != &declaration.uri
@@ -3484,6 +3497,7 @@ mod tests {
                 uri: PortablePath::new("cover.bin").unwrap(),
                 expected_sha256: Some(sha256(png)),
                 media: ImageMediaDeclaration::Declared(ImageMediaType::Png),
+                vector_provenance: None,
             }],
         };
         let catalog = staging_declared_base_catalog(&declared).unwrap();
@@ -3620,6 +3634,7 @@ mod tests {
                 uri: PortablePath::new("art.vector").unwrap(),
                 expected_sha256: Some(sha256(bytes)),
                 media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1),
+                vector_provenance: None,
             }],
         };
         let catalog = staging_declared_base_catalog(&declarations).unwrap();
@@ -3712,6 +3727,7 @@ mod tests {
                 uri: PortablePath::new("art.vector").unwrap(),
                 expected_sha256: Some(sha256(bytes)),
                 media: ImageMediaDeclaration::Declared(ImageMediaType::Png),
+                vector_provenance: None,
             }],
         };
         let wrong_catalog = staging_declared_base_catalog(&wrong_declarations).unwrap();
@@ -3746,6 +3762,7 @@ mod tests {
                 uri: PortablePath::new("wrong.vector").unwrap(),
                 expected_sha256: Some(sha256(&png_bytes)),
                 media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1),
+                vector_provenance: None,
             }],
         };
         let png_as_vector_catalog = staging_declared_base_catalog(&png_as_vector).unwrap();
@@ -3797,6 +3814,7 @@ mod tests {
                     uri: PortablePath::new(format!("art-{id}.vector")).unwrap(),
                     expected_sha256: Some(sha256(bytes)),
                     media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1),
+                    vector_provenance: None,
                 })
                 .collect(),
         };

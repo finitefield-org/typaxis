@@ -17,10 +17,13 @@ pub use book_navigation::{
 
 pub use semantic_container::{
     FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,
-    SemanticContainerKind, StagingM4Block, StagingM4BlockCommon, StagingM4Document,
-    StagingM4FigurePlacement, StagingM4FontFaceDeclaration, StagingM4FootnoteDefinition,
-    StagingM4ImageDeclaration, StagingM4ListItem, StagingM4MathKind, StagingM4MathNode,
-    StagingM4ResourceCatalog, StagingM4TableCell, StagingM4TableRow,
+    PrecomposedVectorEquationNumber, PrecomposedVectorMetrics, PrecomposedVectorSourceTex,
+    PrecomposedVectorSpacing, PrecomposedVectorViewport, SemanticContainerKind, StagingM4Block,
+    StagingM4BlockCommon, StagingM4Document, StagingM4FigurePlacement,
+    StagingM4FontFaceDeclaration, StagingM4FootnoteDefinition, StagingM4ImageDeclaration,
+    StagingM4InlineVector, StagingM4InlineVectorKind, StagingM4ListItem, StagingM4MathKind,
+    StagingM4MathNode, StagingM4ResourceCatalog, StagingM4TableCell, StagingM4TableRow,
+    VectorProvenance,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

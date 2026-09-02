@@ -99,6 +99,12 @@ STAGING_MATH_FIXTURE_DIR = (
     / "production-book-1"
     / "math"
 )
+STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "production-book-1"
+    / "precomposed-vector"
+)
 STAGING_BOOK_NAVIGATION_FIXTURE_DIR = (
     MACHINE_FIXTURE_DIR
     / "staging"
@@ -5786,6 +5792,154 @@ def main() -> int:
             mismatched_vector_manifest,
         ):
             raise ValidationFailure("private 1.4 SafeVector manifest accepted media mismatch")
+
+        precomposed_vector_document_path = (
+            STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "document-package.json"
+        )
+        precomposed_vector_document = load_json(precomposed_vector_document_path)
+        precomposed_vector_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"],
+            precomposed_vector_document,
+        )
+        if precomposed_vector_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the precomposed-vector fixture: "
+                + " | ".join(precomposed_vector_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            precomposed_vector_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private precomposed-vector fixture"
+            )
+        if (
+            precomposed_vector_document_path.read_bytes().rstrip(b"\n")
+            != jcs_bytes(precomposed_vector_document)
+        ):
+            raise ValidationFailure(
+                "private 1.4 precomposed-vector DocumentPackage is not canonical JCS"
+            )
+
+        precomposed_vector_source = (
+            STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "input.tsf"
+        ).read_bytes()
+        precomposed_vector_declaration = precomposed_vector_document["resources"][
+            "images"
+        ][0]
+        precomposed_vector_resource = (
+            STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR
+            / precomposed_vector_declaration["uri"]
+        ).read_bytes()
+        if (
+            precomposed_vector_document["sources"]
+            != [
+                {
+                    "sha256": hashlib.sha256(precomposed_vector_source).hexdigest(),
+                    "source_id": 0,
+                    "uri": "input.tsf",
+                    "utf8_byte_length": len(precomposed_vector_source),
+                }
+            ]
+            or precomposed_vector_declaration["media_type"] != "svg-safe-2"
+            or precomposed_vector_declaration["expected_sha256"]
+            != hashlib.sha256(precomposed_vector_resource).hexdigest()
+            or set(precomposed_vector_declaration["vector_provenance"])
+            != {"engine_id", "engine_version", "rules_version"}
+        ):
+            raise ValidationFailure(
+                "private 1.4 precomposed-vector source/resource closure drifted"
+            )
+
+        precomposed_vector_blocks = precomposed_vector_document["document"]["blocks"][
+            0
+        ]["blocks"]
+        precomposed_vector_inlines = precomposed_vector_blocks[0]["children"]
+        if {
+            *(inline["kind"] for inline in precomposed_vector_inlines),
+            *(block["kind"] for block in precomposed_vector_blocks[1:]),
+        } != {
+            "inline_vector",
+            "math_vector",
+            "vector_figure",
+            "math_vector_block",
+        }:
+            raise ValidationFailure(
+                "private 1.4 precomposed-vector fixture does not cover all four kinds"
+            )
+
+        def require_invalid_precomposed_vector(
+            label: str, invalid: dict[str, Any]
+        ) -> None:
+            if not schema_errors(
+                private_m4_validators["document-package.schema.json"], invalid
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 DocumentPackage accepted invalid precomposed-vector {label}"
+                )
+
+        missing_safe2_hash = copy.deepcopy(precomposed_vector_document)
+        del missing_safe2_hash["resources"]["images"][0]["expected_sha256"]
+        null_safe2_hash = copy.deepcopy(precomposed_vector_document)
+        null_safe2_hash["resources"]["images"][0]["expected_sha256"] = None
+        missing_provenance = copy.deepcopy(precomposed_vector_document)
+        del missing_provenance["resources"]["images"][0]["vector_provenance"]
+        invalid_provenance = copy.deepcopy(precomposed_vector_document)
+        invalid_provenance["resources"]["images"][0]["vector_provenance"][
+            "engine_id"
+        ] = "vmb\ntexToSvg"
+        provenance_on_safe1 = copy.deepcopy(precomposed_vector_document)
+        provenance_on_safe1["resources"]["images"][0]["media_type"] = "svg-safe-1"
+        missing_actual_text = copy.deepcopy(precomposed_vector_document)
+        del missing_actual_text["document"]["blocks"][0]["blocks"][0]["children"][
+            0
+        ]["actual_text"]
+        source_tex_on_inline_vector = copy.deepcopy(precomposed_vector_document)
+        source_tex_on_inline_vector["document"]["blocks"][0]["blocks"][0][
+            "children"
+        ][0]["source_tex"] = copy.deepcopy(
+            precomposed_vector_inlines[1]["source_tex"]
+        )
+        missing_math_source_tex = copy.deepcopy(precomposed_vector_document)
+        del missing_math_source_tex["document"]["blocks"][0]["blocks"][0][
+            "children"
+        ][1]["source_tex"]
+        wrong_source_text_id_type = copy.deepcopy(precomposed_vector_document)
+        wrong_source_text_id_type["document"]["blocks"][0]["blocks"][0][
+            "children"
+        ][1]["source_tex"]["text_span"]["text_id"] = "0"
+        missing_equation_number = copy.deepcopy(precomposed_vector_document)
+        del missing_equation_number["document"]["blocks"][0]["blocks"][2][
+            "equation_number"
+        ]
+        zero_advance = copy.deepcopy(precomposed_vector_document)
+        zero_advance["document"]["blocks"][0]["blocks"][0]["children"][0][
+            "metrics"
+        ]["advance"] = 0
+        wrong_viewport_width_type = copy.deepcopy(precomposed_vector_document)
+        wrong_viewport_width_type["document"]["blocks"][0]["blocks"][1][
+            "viewport"
+        ]["width"] = "1966080"
+        unknown_precomposed_vector_kind = copy.deepcopy(precomposed_vector_document)
+        unknown_precomposed_vector_kind["document"]["blocks"][0]["blocks"][0][
+            "children"
+        ][0]["kind"] = "vector"
+        for label, invalid in (
+            ("missing svg-safe-2 hash", missing_safe2_hash),
+            ("null svg-safe-2 hash", null_safe2_hash),
+            ("missing provenance", missing_provenance),
+            ("invalid provenance", invalid_provenance),
+            ("provenance on svg-safe-1", provenance_on_safe1),
+            ("missing actual_text", missing_actual_text),
+            ("source_tex on inline_vector", source_tex_on_inline_vector),
+            ("missing math source_tex", missing_math_source_tex),
+            ("wrong source text_id type", wrong_source_text_id_type),
+            ("missing equation_number", missing_equation_number),
+            ("zero advance", zero_advance),
+            ("wrong viewport width type", wrong_viewport_width_type),
+            ("unknown kind", unknown_precomposed_vector_kind),
+        ):
+            require_invalid_precomposed_vector(label, invalid)
 
         math_document_path = STAGING_MATH_FIXTURE_DIR / "job" / "document-package.json"
         math_page_document_path = (
