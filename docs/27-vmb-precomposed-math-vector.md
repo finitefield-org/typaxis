@@ -9,6 +9,7 @@
 - 関連判断:
   - [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md)
   - [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md)
+  - [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md)
   - [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md)
   - [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md)
   - [単位・丸め・座標契約](24-units-rounding-and-geometry.md)
@@ -20,10 +21,11 @@
 本書は実装前の設計案であり、current contract 1.3、公開CLI、公開
 capability descriptorを変更しない。採用時にはADR-0033の「mathは
 SafeVectorを通らない」という判断へ、producer-composed math vectorを
-別経路として追加するdecision-gate ADRが必要である。同ADRは、ADR-0035の
-closed structure/alternative mappingとADR-0036のimmutable SafeVector
-component/resource-setも同時にversion-upしなければならない。既存`/1`
-identityの意味を黙って広げることはできない。
+別経路として追加するdecision-gate ADRが必要である。同ADRは、ADR-0034の
+closed language-owner/navigation chain、ADR-0035のclosed structure/alternative
+mapping、ADR-0036のimmutable SafeVector component/resource-setも同時に
+version-upしなければならない。既存`/1` identityの意味を黙って広げることは
+できない。
 
 contract 1.4はまだ公開・凍結されていないため、MI4-13より前なら
 ADR-0032のprivate staging拡張規則に従って1.4へ追加できる。MI4-13の
@@ -99,7 +101,9 @@ mathへのfallbackは行わない。
 | vector IR fingerprint | `typaxis.safe-vector-ir-fingerprint/2` |
 | vector allocation charge | `typaxis.safe-vector-allocation-charge/2` |
 | producer metric validation | `typaxis.precomposed-vector-metrics/1` |
+| block vector style registry/cascade | `typaxis.precomposed-vector-style/1` |
 | source/vector/alternative binding | `typaxis.precomposed-math-binding/1` |
+| producer-composed math block flow | `typaxis.math-vector-flow/1` |
 | atomic inline itemization | `typaxis.atomic-vector-inline/1` |
 | inline/block selected layout | `typaxis.precomposed-vector-layout/1` |
 | vector Display command/receipt | `typaxis.draw-vector-display/2` |
@@ -109,6 +113,12 @@ mathへのfallbackは行わない。
 | vector PDF object/use closure | `typaxis.safe-vector-pdf-closure/2` |
 | SafeVector resource/usage manifest | `typaxis.safe-vector-manifest/2` |
 | producer-composed math binding manifest | `typaxis.math-vector-manifest/1` |
+| computed language inheritance | `typaxis.computed-language-registry/2` |
+| book-navigation profile view | `typaxis.book-navigation-profile-view/2` |
+| book-navigation profile receipt | `typaxis.book-navigation-profile-receipt/2` |
+| selected metadata/language/navigation state | `typaxis.book-navigation-selected/2` |
+| book-navigation PDF observation | `typaxis.book-navigation-pdf/2` |
+| book-navigation manifest | `typaxis.book-navigation-manifest/2` |
 | PDF/UA-1 production subset | `typaxis.pdfua1-profile/2` |
 | production accessibility preflight | `typaxis.production-accessibility-preflight/2` |
 | profile-bound lower authorization | `typaxis.production-accessibility-authorization/2` |
@@ -126,15 +136,32 @@ mathへのfallbackは行わない。
 まま、新しい`svg-safe-2`の`/2` parser/IR経路を追加する。production resource
 setは既存のcomponent順を保ち、SafeVector componentだけを`/2`へ置換する。
 対象standardは引き続きPDF/UA-1であり、XMP `typaxis.book-xmp/2`のbytesは
-同じmetadata入力に対して変えない。ただしclosed semantic domain、alternative
-mapping、validation evidenceが増えるため、PDF/UA profile/policy/assessment
-identity自体は`/2`にする。
+同じmetadata/language入力に対して変えない。ただしclosed semantic domain、
+alternative mapping、validation evidenceが増えるため、PDF/UA
+profile/policy/assessment identity自体は`/2`にする。
 
-既存`typaxis.safe-vector-selected-layout/1`、`typaxis.draw-vector-display/1`、
+ADR-0034のdocument metadata、BCP 47 parse/canonicalization、UTC timestamp、
+outline registry、destination registryはそれぞれ既存`/1`を保つ。一方、languageを
+持てるclosed node kindへ`inline_vector`、`math_vector`、`math_vector_block`、
+`vector_figure`を追加するため、computed-language registryと、
+その完全なowner集合・selected paint・PDF observationをbindするbook-navigation
+profile/selected/manifest chainは`/2`にする。`typaxis.book-xmp/2`のserialization
+identityは変更せず、同じmetadata/language入力から同じXMP bytesを得る。
+`typaxis.book-navigation-pdf/2`は別のuntagged PDFを生成するserializerではなく、
+`typaxis.tagged-pdf-observation/2`と同じ最終PDF hashからInfo、catalog `/Lang`、
+outline、language paint、`book-xmp/2`を投影したobservationである。
+
+既存`typaxis.basic-block-style-registry/1`、`typaxis.basic-flow-registry/1`、
+`typaxis.math-flow/1`、
+`typaxis.safe-vector-selected-layout/1`、`typaxis.draw-vector-display/1`、
 `typaxis.safe-vector-form-plan/1`、`typaxis.safe-vector-form-plans/1`、
 `typaxis.safe-vector-pdf-closure/1`、`typaxis.safe-vector-manifest/1`、
-`typaxis.math-manifest/1`、`typaxis.tagged-pdf-manifest/1`のcanonical record、
-applicable Schema、意味は変更しない。SafeVector manifest `/2`は
+`typaxis.math-manifest/1`、`typaxis.computed-language-registry/1`、
+`typaxis.book-navigation-profile-view/1`、
+`typaxis.book-navigation-profile-receipt/1`、
+`typaxis.book-navigation-selected/1`、`typaxis.book-navigation-pdf/1`、
+`typaxis.book-navigation-manifest/1`、`typaxis.tagged-pdf-manifest/1`のcanonical
+record、applicable Schema、意味は変更しない。SafeVector manifest `/2`は
 content-key alias/dedupeとSafe-SVG 2 factを所有し、math-vector `/1`は二つの
 math kindのsource/alternative/metric bindingをSafeVector usageへ結ぶ。tagged
 manifest `/2`だけが新しいFormula/Figure/number structureと`/2` accessibility
@@ -142,9 +169,10 @@ receiptを受ける。resource-set `/2`のbuildは、`svg-safe-1`を使う既存
 含む全SafeVector usageにSafeVector manifest `/2`を使い、`/1`を混在させない。
 
 accepted SVG syntax、numeric conversion、metric意味、line-break class、spacing
-discard、block numbering、alternative mapping、structure role、Form key、limit
-chargeのいずれかを変える場合は、対応identityの新versionとcompatibility判断を
-必要とする。
+discard、block styleのkind/property applicability/cascade、block flowのowner/
+allocation/terminal、block numbering、
+alternative mapping、structure role、Form key、limit chargeのいずれかを変える
+場合は、対応identityの新versionとcompatibility判断を必要とする。
 
 ## 4. Wire contract
 
@@ -309,8 +337,10 @@ boundsはframe外paintの検出にだけ使う。
   `/ActualText`にexact使用し、nullなら`alt`をresolved `/ActualText`として
   exact使用する。nonnull値にも`alt`と同じmeaningful/control規則を適用し、
   暗黙にTeXを使わない。
-- `language`は既存ADR-0034のoptional overrideであり、TeX dialectではなく
-  読み上げ文の自然言語である。
+- `language`はADR-0034と同じoptional overrideであり、TeX dialectではなく
+  読み上げ文の自然言語である。BCP 47 parse/canonicalizationは既存
+  `typaxis.bcp47-language/1`を使い、4つのnew kindを含むinheritance recordは
+  `typaxis.computed-language-registry/2`だけが発行する。
 - `spacing.before` / `spacing.after`はnonnegative Lengthである。
 
 `inline_vector`は同じ`image_id`、`metrics`、`spacing`、`alt`、
@@ -356,6 +386,17 @@ block mathの概念形は次のとおりである。
 }
 ```
 
+`math_vector_block`の`source_tex`、`alt`、`actual_text`、`language`は4.3の
+math規則をそのまま使う。`actual_text`はrequired nullableで、null時だけ
+`alt`をresolved `/ActualText`として使う。`equation_number`もrequired
+nullableとし、nullは番号を持たないことを明示する。省略とnullを同義にせず、
+unknown memberを許さない。
+blockのeffective languageは`alt`、resolved `actual_text`、equation-number textへ
+適用する。`equation_number`自身は`language` memberを持たず、第五のlanguage-
+override ownerにはならない。そのtext/structure childは親`math_vector_block`の
+computed language fingerprintを参照する。opaque `source_tex`のdialectやparse
+ruleは選択しない。
+
 左寄せ・中央寄せ・右寄せ、前後余白、indent、named page、
 `keep_with_next`は重複fieldを増やさず、既存typed styleの`text_align`、
 `space_before`、`space_after`、`start_indent`、`end_indent`、`page`、
@@ -363,6 +404,11 @@ block mathの概念形は次のとおりである。
 production profileのhorizontal/LTRではleft/center/rightへ対応する。
 
 style selector block typeへ`math_vector_block`と`vector_figure`を追加する。
+この二kindは`typaxis.precomposed-vector-style/1`のclosed registryで解決し、
+既存`typaxis.basic-block-style-registry/1`へkindを追加しない。property value型、
+`important` / specificity / source-order / `extends` precedence、inheritance計算は
+既存cascadeを再利用するが、新registry identityを持つcomputed receiptだけが
+new kindへ適用できる。
 両kindで`space_before`、`space_after`、`start_indent`、`end_indent`、
 `text_align`、`page`、`keep_with_next`を適用し、`vector_figure`だけはさらに
 `keep_caption`を適用する。`math_vector_block`の`font_family`、`font_size`、
@@ -373,7 +419,7 @@ Figure同様inapplicableで、caption childが自身のstyleを解決する。`w
 scaled metricsまたはviewportを明示する。`keep_caption`は
 `math_vector_block`ではinapplicable `L5101`である。
 
-`equation_number`はnullableである。存在する場合は独立NodeId、SourceSpan、
+`equation_number`はrequired nullableである。存在する場合は独立NodeId、SourceSpan、
 TextSpanを持つ通常textとしてshapeし、そのTextSpanは`source_tex`と重ならない
 identity mappingを持つ。数式SVG、数式`ActualText`、vector resource hashには
 含めない。Typaxisは番号を生成・increment・localizeせず、producerがTextSpanで
@@ -396,8 +442,9 @@ UTF-8でUnicode 16.0 `White_Space`以外を少なくとも一scalar含み、C0/C
 - 二つのrectangleが交差する場合は`L5100`。数式のcenterをずらす、番号を
   SVGへ合成する、改行する、縮小するfallbackはない。
 
-番号line box幅/高を`Nw` / `Nh`、viewport高を`Vh`とすると、block content高`Bh`は
-`max(Vh, Nh)`である。各rectangleのtop offsetは
+番号line box幅/高を`Nw` / `Nh`、viewport高を`Vh`とすると、番号ありの
+block content高`Bh`は`max(Vh, Nh)`である。`equation_number = null`では
+`Nw` / `Nh`と番号rectangleは存在せず、`Bh = Vh`とする。各rectangleのtop offsetは
 `round_half_even((Bh - child_height) / 2)`とし、残るodd unitはblock-end側へ
 置く。paginationとpaint/structure occurrence boundsはこの同じ`Bh`を使い、
 番号がviewportより高い場合もblock boundsからはみ出さない。paintとstructure
@@ -408,7 +455,7 @@ Figure variantとする。
 
 ```json
 {
-  "alt": "可換図式",
+  "alt": "部品構成図",
   "caption": [],
   "classes": ["diagram"],
   "image_id": 9,
@@ -422,6 +469,11 @@ Figure variantとする。
 
 profileはresourceのadmitted mediaがvectorであることとintrinsic ratioを
 layout前に証明でき、raster Figureとcapabilityを混同しない。
+`vector_figure`は非数式のFigureであり、`source_tex`、`actual_text`、
+`equation_number`を禁止する。TeXから生成され、元TeXを保持してFormulaとして
+読み上げる可換図式は`vector_figure`ではなく`math_vector_block`を使う。
+effective languageは`alt`へ適用し、既存Figureと同じくcaption childの
+language-inheritance parentになる。
 `vector_figure.viewport`は4.2と同じ一つの`positive_unitless_16_16` scaleで
 intrinsic width/heightを個別roundした結果とexact一致させる。baseline、advance、
 originは持たず、aligned viewport rectangle自体がblock paint geometryである。
@@ -530,14 +582,37 @@ frameへ入る場合もline全体を次frameへ送り、empty full frameにも�
 ## 7. Block layoutとpagination
 
 `math_vector_block`は一つのatomic block / one-terminal flowとして扱う。
-SVG内の`aligned`、matrix、可換図式、複数pathをTypaxisのline/fragmentへ
-展開しない。
+各ownerは`typaxis.math-vector-flow/1`配下で、native `display_math`の
+`MathFlowId`とはnominalにも採番空間にも異なるdense `MathVectorFlowId`を一つ持つ。
+`typaxis.math-flow/1`へnew kindを追加せず、native mathのID、record、golden bytesを
+変えない。registryはvalidated Documentの`math_vector_block` NodeId preorderを
+worker起動前に走査し、0から連続採番する。caller登録順、hash-map順、page、
+paint順、worker完了順は採番へ影響しない。
+
+各flow recordは`MathVectorFlowId`、owner NodeId、親の`FlowId`とposition、
+`ValidatedMathVectorReceipt` fingerprint、computed style fingerprint、LayoutEpoch、
+exact terminal `1`をbindする。親flowはtyped `math_vector_block` itemを一つ消費し、
+このterminalを選択済みplacementが満たした後だけ次positionへ進む。page送りは
+未消費の同じflowを次frameで評価することであり、空fragmentや第二fragmentを
+発行しない。SVG内の`aligned`、matrix、可換図式、複数pathをTypaxisのline/
+fragmentへ展開しない。
+
+productionの親flow registryでは`math_vector_block`を既存のatomic display-math
+item categoryへ、`vector_figure`を既存Figure item categoryへ投影し、exact wire
+kindはvalidated document/domain receiptと`typaxis.precomposed-vector-layout/1`に
+保持する。`math_vector_block`のsource/alternative bindingはさらに
+`typaxis.precomposed-math-binding/1`へ保持する。これはMI4-13前のprivate
+`typaxis.semantic-container-flow-registry/1`をADR-0032のstaging規則で完成させる
+場合に限る。既存`typaxis.basic-flow-registry/1`のowner/content vocabularyは
+広げない。MI4-13後に採用する場合は1章の新contract/profileとともに、production
+flow registryおよびselected-container closureも新versionにする。
 
 layout順は次のとおりである。
 
 1. computed styleから前後space、indent、alignment、page、keepを確定する。
 2. inner frame widthをchecked計算する。
-3. SVG viewport width、equation number width、minimum gap、`Bh`を検査する。
+3. SVG viewport widthと`Bh`を検査し、番号が存在する場合だけequation number
+   widthとminimum gapも検査する。
 4. `text_align`でformula viewport左端を決め、numberを独立配置する。formula
    topとnumber topは4.4のcenter ruleから求める。
 5. 既存block-spacing ownerが選んだ`effective_space_before + Bh`がcurrent frameに
@@ -652,7 +727,8 @@ clipは既存SafeVectorのlocal `clipPath` subsetだけを使い、root viewport
 | canonical IR allocation | `64 * nodes + 80 * stored_segments + 48 * paint_or_clip_commands + source_clip_id_bytes`をchecked計算して`max_decoded_image_bytes`へ課金 / `R7111` |
 | `source_tex` | 参照先TextBufferは既存admissionで一回だけ`max_text_buffer_bytes` / aggregate `max_text_bytes`へ課金し、slice長だけをper-buffer上限へ再照合 / `T2100`、aggregateへ再加算しない |
 | `alt`とnonnull `actual_text` | 各authored stringをper-buffer上限へ照合し、各一回だけaggregate `max_text_bytes`へ加算 / `T2100`・`T2101`。mathのnull fallbackは`alt`のaliasで再課金せず、inline Figureのnullは文字列を生成しない |
-| semantic vector/equation-number nodes | 既存Document semantic count/depthの`max_ast_nodes` / `max_ast_nesting_depth` / `P1120`・`P1121` |
+| explicit/computed `language` | ADR-0034どおりraw/canonical spellingと各language-capable NodeIdのcomputed valueを一回だけ`max_text_buffer_bytes` / aggregate `max_text_bytes`へ課金 / `T2100`・`T2101`。`/2` registryへの移行でresetしない |
+| semantic vector/equation-number nodesとmath-vector block flow owner | 既存Document semantic count/depthの`max_ast_nodes` / `max_ast_nesting_depth` / `P1120`・`P1121`。各flowは対応するadmitted `math_vector_block` nodeにexactly oneで、別のAST chargeを加えず、registry countをそのnode数および`max_ast_nodes`以下とallocation前に照合する |
 | selected inline/block vector occurrence | containing fragmentとは別のexplicit auxiliary recordを`max_fragments`へ各occurrence一回 / `L5110` |
 | Form、ExtGState、page resource/object | issue前に`max_pdf_objects` / `G6100` |
 | Form plan/page spool/serialized bytes | ownerの同時live payloadへ`max_spool_bytes`、次のoutput writeへ`max_output_bytes` / 既存owner code |
@@ -757,6 +833,9 @@ syntax/layout binding ownerは`typaxis.precomposed-math-binding/1`のopaque
 downstream factをbase keyへ先取りしない。selected-state ownerは
 `typaxis.precomposed-vector-layout/1`のreceiptでbase keyを参照し、selected
 page/frame/line/block/paint ordinal、viewport rectangle、baseline、matrixを追加する。
+`math_vector_block`ではさらに`typaxis.math-vector-flow/1`のflow fingerprint、
+`MathVectorFlowId`、親FlowId/position、terminalをexact照合する。inline二kindと
+`vector_figure`にはこれらのflow memberを置かない。
 Display `/2`はそのselected fingerprintを参照し、resource finalizer/PDF `/2`は
 Display fingerprintからForm content key/object/use observationを追加する。structure
 `/2`は同じselected paintをowner、role、`Alt`、`ActualText`、`Lang`へ結ぶ。
@@ -779,7 +858,8 @@ PDF mappingは次に固定する。このmappingはADR-0035の`/1` mappingを広
 
 `/Formula /Alt`と`/Figure /Alt`はexact `alt`、marked-content
 `/ActualText`はkind別に4.3で定めた値を使う。各Formula/Figure structure elementは
-ADR-0034のcomputed languageを記録し、nearest structure parentのeffective
+ADR-0034を拡張した`typaxis.computed-language-registry/2`のcomputed languageを
+記録し、nearest structure parentのeffective
 languageと異なる場合だけstructure `/Lang`を出す。paint-level `/Lang`も
 ADR-0035のleaf ruleどおり、
 document languageと異なる場合に後述のinner Spanへ出す。mathをdecorative
@@ -818,16 +898,33 @@ closureで保持する。初版は非標準PDF dictionary keyや添付fileとし
 `typaxis.safe-vector-manifest/2`はresource factと全vector kindの共通placement /
 PDF usage factを所有する。`typaxis.math-vector-manifest/1`はmathだけのsource、
 alternative、metric bindingをexact SafeVector usage fingerprintへ結び、
-`typaxis.tagged-pdf-manifest/2`はSafeVector usageと、math usageだけの
-binding/manifest fingerprintを参照してstructure/marked-content factを所有する。
+`typaxis.tagged-pdf-manifest/2`はSafeVector manifest/usage fingerprintと、
+top-levelのmath-vector manifest fingerprintを参照する。さらにmathの各structure
+factだけが対応するmath binding fingerprintを参照し、generic vector factには
+math参照を置かない。
 逆向き参照は作らず、SafeVector → math-vector → tagged-PDFのacyclic dependency
 orderにする。
-versioned contract-1.4 build-manifest Schemaのproduction branchが三つのrequired
-record/fingerprintを各fieldとして束ね、別のunversioned集約recordを作らない。
-SafeVector declarationがzeroならresource/usage array、math usageがzeroならmath
-fact arrayをcanonical emptyにするが、両recordとfingerprintはomitまたはnullに
-しない。admitted resourceがunusedなら、そのSafeVector resource factだけを残して
-usage arrayをemptyにする。
+同じproduction branchの既存book-navigation record/fingerprintは`/1`を受理せず、
+4 kindを含む`typaxis.book-navigation-manifest/2`へ置換する。そのmanifestは
+computed-language `/2`、selected-navigation `/2`、book-navigation PDF observation
+`/2`を参照し、tagged-PDF `/2`から逆参照されない。
+versioned contract-1.4 build-manifest Schemaのproduction branchは、既存
+book-navigation pairをこの`/2` pairへ置換したうえで、それとは別に三つのrequired
+vector-chain record/fingerprint pairを各fieldとして束ねる。別のunversioned集約
+recordは作らない。この三つはSafeVector `/2`、producer-composed math-vector `/1`、
+tagged-PDF `/2`のchainであり、既存Typaxis-native math用
+`typaxis.math-manifest/1`のconditional record/fingerprintを置換しない。
+このnonnull requirementは`status = built`のcomplete production buildに適用する。
+`status = failed`では三つのrecord/fingerprint pairをrequired nullableとし、各pairは
+both-nullまたはboth-nonnullだけを許す。failure時点までに対応ownerがcomplete
+recordを発行済みならそのrecordとfingerprintを保持し、未到達phaseのrecordを
+空配列や合成fingerprintで捏造しない。`status = built`では三pairすべてをnonnullに
+固定する。
+`status = built`でSafeVector declarationがzeroならresource/usage array、
+math-vector usageがzeroならmath-vector fact arrayをcanonical emptyにするが、
+該当するSafeVector/math-vector recordとfingerprintはomitまたはnullにしない。
+admitted resourceがunusedなら、
+そのSafeVector resource factだけを残してusage arrayをemptyにする。
 
 以下はproduction rootからjoinできるlogical audit viewであり、各child manifestが
 全fieldを重複保持するという意味ではない。resource単位とplacement単位を持つ。
@@ -852,6 +949,8 @@ Placement fact（kindごとのinapplicable memberはSchema conditionalで禁止�
 - inlineとmath blockでは`advance`、`ascent`、`descent`、`origin_x`、`baseline`、
   viewport、existing `figure`と`vector_figure`ではselected viewport
 - spacingまたはblock style/number owner
+- `math_vector_block`だけはmath-vector flow algorithm/fingerprint、`MathVectorFlowId`、
+  parent FlowId/position、terminal `1`
 - page/frame/fragment/paint ordinal
 - viewport rectangle、uniform scale、placement matrix
 - SafeVector `/2`のDisplay/PDF-use fingerprint、math-vector `/1`のbinding
@@ -870,8 +969,9 @@ dedupe/rules identityをすべてrecordする。
 
 `blocks`、`inlines.kinds`、`style_block_types`、`style_selectors`、新設の
 array-valued `vector_*`はset-valuedなのでUTF-8 byte順にcanonicalizeする。
-`vector_features_by_profile`と`vector_media_by_kind`のobject keyと各value arrayも
-同じ順にする。一方、ADR-0036の
+`vector_features_by_profile`と`vector_media_by_kind`の各value arrayも同じ
+UTF-8 byte順にする。JSON object memberはset arrayの規則を流用せず、既存JCS
+writerどおりRFC 8785のUTF-16 code-unit lexical順にserializeする。一方、ADR-0036の
 resource component/media配列は意味を持つ固定順であり、global sortしない。
 `safe-vector/2`を使うproduction resource set `/2`のcomponent順は
 PNG、SafeVector、JPEG、TrueType、CFFを保ち、image media順はexact
@@ -967,7 +1067,8 @@ typaxis.resource-profile/sfnt-cff1/1
 既存fieldである`blocks`、`image_formats`、`inlines.kinds`、
 `style_block_types`、`style_selectors`について、このprojectionは追加値だけを
 示す。実際のprofile descriptorでは既存値とmergeした完全配列を出す。
-新設`vector_*`は示した配列が完全値である。
+新設`vector_*` memberは、array-valued memberもobject-valued memberも、示した値が
+完全値であり、別の暗黙値とmergeしない。
 
 MI4-13で公開する場合、capability Schemaのprofile tupleは7件から8件へなり、
 UTF-8 byte順では`production-book-1`を`paragraph-1`の後、`table-1`の前へ置く。
@@ -1000,7 +1101,7 @@ Schemaだけ、crate-private runnerだけ、またはunit testだけが存在す
 | inline logical/visual oversize、block/page width or height overflow | layout、`L5100`、NodeId/SourceSpan |
 | invalid equation-number text/NodeId/Span/minimum gap | syntax、`P1102`または既存text-map code |
 | nonpositive equation-number shapeまたはformulaとのcollision | block layout、`L5100` |
-| selected placement/Display/Form/PDF/manifest/structure receipt mismatch | internal closure、`I9190` |
+| flow/selected placement/Display/Form/PDF/manifest/structure receipt mismatch | internal closure、`I9190` |
 
 `R7100`のtyped reasonは少なくとも`malformed_svg`、`forbidden_feature`、
 `external_reference`、`unsupported_feature`、`hash_mismatch`、
@@ -1013,17 +1114,17 @@ Schemaだけ、crate-private runnerだけ、またはunit testだけが存在す
 | --- | --- |
 | `typaxis-document-package` | new wire kinds、metric/spacing/provenance DTO、strict Schema/JCS |
 | `typaxis-document` | typed inline/block/resource domain |
-| `typaxis-syntax` | TextSpan/alternative/metric/resource-ref/provenance validation、sealed metric receipt |
-| `typaxis-style` | new selector block types、closed property applicability、equation-number text style |
-| `typaxis-machine-profile` | accepted kinds/media/metrics/style scope、resource-set `/2`、capabilities、pre-resource rejection |
+| `typaxis-syntax` | TextSpan/alternative/metric/resource-ref/provenance validation、sealed metric receipt、computed-language registry `/2` |
+| `typaxis-style` | `typaxis.precomposed-vector-style/1`、closed property applicability、equation-number text style、既存registry `/1` isolation |
+| `typaxis-machine-profile` | accepted kinds/media/metrics/style/language-owner scope、resource-set `/2`、capabilities、pre-resource rejection |
 | `typaxis-resource-admission` | `svg-safe-2` stable-byte parser、currentColor/alpha IR、attestation |
-| `typaxis-layout-contract` | backend-independent atomic vector item/placement types |
+| `typaxis-layout-contract` | backend-independent atomic vector item/placement、nominal `MathVectorFlowId` / terminal types |
 | `typaxis-linebreak` | synthetic AL unit、`VectorBoundaryItem`、`advance`、max ascent/descent、atomic wrapping |
-| `typaxis-layout` | math-vector binding、block alignment/number/atomic pagination |
+| `typaxis-layout` | math-vector binding、dense math-vector flow registry、block alignment/number/atomic pagination |
 | `typaxis-display-list` | logical DrawVectorResource + semantic marked-content owner |
 | `typaxis-resources` | content-key Form dedupe、ExtGState/Form plans |
-| `typaxis-pdf` | vector Form serialization、placement `Do`、ActualText、PDF observations |
-| `typaxis-manifest` | resource/metric/count/engine/rules/layout/PDF facts |
+| `typaxis-pdf` | vector Form serialization、placement `Do`、ActualText、book-navigation/vector PDF observations `/2` |
+| `typaxis-manifest` | resource/metric/count/engine/rules/layout/PDF facts、book-navigation manifest `/2` |
 | tagged-structure owners | `/2` Formula/Figure/number role、MCR/property-Span、Alt/ActualText/Lang closure |
 | `typaxis-testkit` | VMB corpus、limit/tamper mutation、independent renderer/extractor/validator evidence |
 | `typaxis-cli` | package check/build integrationとpublic capability gate |
@@ -1060,6 +1161,8 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
 - equation number付きblock math
 - currentColor、stroke、clip、fill/stroke opacityを各一例
 - `alt`とnonnull `actual_text`が異なるmath、およびnull fallbackのmathを各一例
+- document language継承と明示overrideを、math/genericかつinline/blockの4 kindで
+  少なくとも一例ずつ
 
 ### 15.2 Layout assertions
 
@@ -1077,8 +1180,16 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
   `L5100`になることを確認する。
 - `start|center|end`がLTRでleft/center/rightになることとequation numberの独立
   rectangleを確認する。
+- new block selectorのcascade/applicabilityが`typaxis.precomposed-vector-style/1`へ
+  bindされ、既存basic style registry `/1`へ同じselectorを渡すと拒否されることを
+  確認する。
+- 番号なしfixtureで`Bh = Vh`となり、number rectangle/paint/structure childが
+  存在しないことを確認する。
 - 番号がviewportより高いfixtureで`Bh = max(Vh, Nh)`、両childのcenter、paint /
   pagination boundsが一致することを確認する。
+- 複数のnative `display_math`と`math_vector_block`を交互に置き、native
+  `MathFlowId`とproducer-composed `MathVectorFlowId`が独立してそれぞれdenseに
+  なり、各blockがexact terminal `1`を一度だけ消費することを確認する。
 
 ### 15.3 PDF assertions
 
@@ -1096,18 +1207,24 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
   確認する。
 - tagged PDFでmathが`Formula`、generic vectorが`Figure`、Alt/ActualText/Lang、
   equation number reading orderが一致することを確認する。
+- computed-language registry `/2`とbook-navigation manifest `/2`が4つのnew kindを
+  NodeId順にexactly once含み、selected paint/PDF `/Lang`と同じeffective languageを
+  bindすることを確認する。
 - Form streamにMCIDがなく、page-level `Do`がouter Formula/Figure MCRとinner
   property-only Spanの正しいnestingにあることを確認する。
 - source TeX slice、alt/resolved actual、全metric、engine/rules identity、resource
-  placement countがmanifestのexact hash/valueと一致することを確認する。
+  placement count、block flow/terminalがmanifestのexact hash/valueと一致することを
+  確認する。
 - 公開gateでは`typaxis capabilities --format json`の`production-book-1`が12章の
   kind/format/profile/metric/feature、resource-set `/2` identity、component/media順を
   exactにadvertiseし、同じdescriptorがpreflightを駆動することを確認する。
 - in-tree tagged validator `/2`、pinned veraPDF、Matterhorn assessment ledger `/2`が
   新しいFormula/Figure/number mappingを同じfixture revisionで閉じることを
   確認する。
-- 既存SafeVector/Display/Form/PDF/manifest `/1`のSchema、canonical record、golden
-  bytesが変わらず、resource-set `/2`だけが新しいidentityを使うことを確認する。
+- 既存SafeVector/Display/Form/PDF/manifest `/1`、native `typaxis.math-flow/1`、
+  computed-language/book-navigation chain `/1`のSchema、canonical record、golden
+  bytesが変わらないことを確認する。producer-composed fixtureは3章のnew identity
+  だけを参照し、legacy `/1` receiptを代替として受理しない。
 
 ### 15.4 Negative tests
 
@@ -1122,7 +1239,11 @@ source TeX、speech/alt、metrics、SVG hash、conversion identitiesをfixture�
 - intrinsic ratio不一致、nonuniform scale、page/frame width超過
 - empty/control-only alt/actual text、invalid TextSpan
 - invalid/duplicate equation-number owner、invalid gap、zero shape、formula collision
+- missing/wrong style receipt、new selectorと既存basic style registry `/1`のswap
+- missing/duplicate/non-dense math-vector flow、wrong parent/position/terminal、native
+  `MathFlowId`または`typaxis.math-flow/1` receiptとのnamespace swap
 - content-key/Form/use/manifest/structure tamper
+- missing/extra/wrong-kind language owner、`/1`と`/2`のlanguage/navigation receipt swap
 - exact vector node/path/depth limitとmax+1
 - exact/max+1のIR allocation、text、AST、selected occurrence、PDF object limit
 - old profile rejectionとpublic capability isolation
@@ -1150,7 +1271,10 @@ MI4-13までにその順序を確保できない場合は、1章どおり公開�
    gateで確認する。
 2. decision-gate ADRで1.4 private targetへの追加、wire kind、metric invariants、
    `svg-safe-2`、SafeVector/resource-set `/2`、Display/Form/PDF/manifest identity、
-   tagged-structure `/2`、diagnostic/capability identityを固定する。
+   precomposed-vector style `/1`、math-vector flow `/1`、
+   computed-language/book-navigation `/2`、
+   tagged-structure `/2`、
+   diagnostic/capability identityを固定する。
 3. resource admissionへ`svg-safe-2`とcurrentColor/paint opacityを追加し、既存
    `svg-safe-1` goldensがbyte-frozenであることを確認する。
 4. Form finalizationをcontent-key dedupeへ変更し、Figure経路のregressionを
@@ -1159,8 +1283,8 @@ MI4-13までにその順序を確保できない場合は、1章どおり公開�
    bindingを追加する。
 6. canonical paragraph itemizationへatomic vector、conditional spacing、dynamic
    line ascent/descentを統合する。
-7. `vector_figure` / `math_vector_block`、alignment、number、atomic paginationを
-   統合する。
+7. `vector_figure` / `math_vector_block`、nominal `MathVectorFlowId`、alignment、
+   number、atomic paginationを統合する。
 8. Display/PDF/manifest/tagged structureを同じversioned receipt chainへ閉じる。
 9. VMB combined fixture、negative corpus、independent PDF/extraction/accessibility、
    deterministic two-build gateを完了する。
