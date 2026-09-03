@@ -712,6 +712,44 @@ impl FlowId {
     }
 }
 
+/// Dense identifier for one producer-composed block-math vector flow.
+///
+/// This is deliberately nominally distinct from both [`FlowId`] and the
+/// native-math flow identifier owned by `typaxis-layout`. Its numeric value is
+/// meaningful only inside one `typaxis.math-vector-flow/1` registry.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MathVectorFlowId(u32);
+
+impl MathVectorFlowId {
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+/// Terminal cursor for an atomic producer-composed block-math vector flow.
+///
+/// Registries issue [`Self::ONE`]. Keeping the value typed lets receipt
+/// verification reject a malformed terminal without widening the native math
+/// or basic-flow contracts.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MathVectorFlowTerminal(u32);
+
+impl MathVectorFlowTerminal {
+    pub const ONE: Self = Self(1);
+
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
 /// Dense identity of one footnote-definition flow.
 ///
 /// This is deliberately a different nominal type and namespace from

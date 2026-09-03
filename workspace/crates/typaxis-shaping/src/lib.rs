@@ -2,15 +2,20 @@
 
 use read_fonts::TableProvider;
 use typaxis_core::{
-    BidiLevel, FontInstanceId, GeneratedBufferKey, GlyphRunId, Length, LengthError, NodeId,
-    OpenTypeTag, ResolvedDataTables, ShaperIdentity, TextSpan, Utf8ByteOffset,
-    ValidatedResourceLimits,
+    push_jcs_string, sha256, BidiLevel, FontFaceId, FontInstanceId, GeneratedBufferKey, GlyphRunId,
+    Length, LengthError, NodeId, OpenTypeTag, PositiveLength, ResolvedDataTables, ShaperIdentity,
+    SourceSpan, TextSpan, Utf8ByteOffset, ValidatedResourceLimits,
 };
 use typaxis_font::{FeatureSetting, OriginalGlyphId};
 use typaxis_layout_contract::{LayoutEpoch, ShapeFontSelectionReceipt};
+use typaxis_resource_admission::{
+    staging_declared_base_catalog, AdmittedFont, AdmittedResourceLedger,
+};
 use typaxis_syntax::{
     PackageComputedStyle, PackageParagraphTextSite, PackageShapeTextReceipt,
-    PackageShapeTextSource, ValidatedParsedPackage,
+    PackageShapeTextSource, PrecomposedVectorKind, ValidatedParsedPackage,
+    ValidatedPrecomposedVectorEffectiveLanguage, ValidatedPrecomposedVectorMetrics,
+    ValidatedStagingSemanticPackage,
 };
 use typaxis_text::GeneratedProvenance;
 use unicode_script::{Script as UnicodeScriptValue, ScriptExtension};
@@ -908,6 +913,760 @@ pub struct GlyphRun {
     pub glyphs: Vec<ShapedGlyph>,
     pub clusters: Vec<ShapedCluster>,
 }
+
+pub const EQUATION_NUMBER_SHAPE_ALGORITHM: &str = "typaxis.equation-number-shape/1";
+const EQUATION_NUMBER_GLYPH_RECEIPT_ALGORITHM: &str = "typaxis.equation-number-glyphs/1";
+const EQUATION_NUMBER_UNICODE_VERSION: &str = "16.0.0";
+
+/// One itemized glyph run inside an atomic, nonwrapping equation-number line.
+/// The selected font is owned by the enclosing receipt, so a run cannot
+/// introduce an independent fallback face.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingEquationNumberGlyphRun {
+    run_id: GlyphRunId,
+    bidi_level: BidiLevel,
+    script: OpenTypeTag,
+    source_span: TextSpan,
+    glyphs: Vec<ShapedGlyph>,
+    clusters: Vec<ShapedCluster>,
+}
+
+impl StagingEquationNumberGlyphRun {
+    pub const fn run_id(&self) -> GlyphRunId {
+        self.run_id
+    }
+
+    pub const fn bidi_level(&self) -> BidiLevel {
+        self.bidi_level
+    }
+
+    pub const fn script(&self) -> OpenTypeTag {
+        self.script
+    }
+
+    pub const fn source_span(&self) -> TextSpan {
+        self.source_span
+    }
+
+    pub fn glyphs(&self) -> &[ShapedGlyph] {
+        &self.glyphs
+    }
+
+    pub fn clusters(&self) -> &[ShapedCluster] {
+        &self.clusters
+    }
+}
+
+/// Sealed one-line shape receipt for a producer-authored equation number.
+///
+/// The receipt deliberately contains no image identity, SVG hash, source-TeX
+/// hash, formula alternative, or formula ActualText. Those remain in the
+/// independently verified math-vector binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingEquationNumberShapeReceipt {
+    owner: NodeId,
+    node_id: NodeId,
+    source_span: SourceSpan,
+    text_span: TextSpan,
+    text_buffer_sha256: [u8; 32],
+    exact_text: String,
+    exact_text_sha256: [u8; 32],
+    computed_style_fingerprint: [u8; 32],
+    layout_epoch_fingerprint: [u8; 32],
+    owner_language: String,
+    owner_language_fingerprint: [u8; 32],
+    font_face_id: FontFaceId,
+    font_family: String,
+    font_sha256: [u8; 32],
+    face_index: u32,
+    font_size: PositiveLength,
+    line_height: PositiveLength,
+    paragraph_level: BidiLevel,
+    shaper_backend: &'static str,
+    shaper_version: &'static str,
+    unicode_version: &'static str,
+    runs: Vec<StagingEquationNumberGlyphRun>,
+    width: PositiveLength,
+    glyph_receipt_fingerprint: [u8; 32],
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingEquationNumberShapeReceipt {
+    pub const fn algorithm(&self) -> &'static str {
+        EQUATION_NUMBER_SHAPE_ALGORITHM
+    }
+
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
+    pub const fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+
+    pub const fn text_span(&self) -> TextSpan {
+        self.text_span
+    }
+
+    pub const fn text_buffer_sha256(&self) -> [u8; 32] {
+        self.text_buffer_sha256
+    }
+
+    pub fn exact_text(&self) -> &str {
+        &self.exact_text
+    }
+
+    pub const fn exact_text_sha256(&self) -> [u8; 32] {
+        self.exact_text_sha256
+    }
+
+    pub const fn computed_style_fingerprint(&self) -> [u8; 32] {
+        self.computed_style_fingerprint
+    }
+
+    pub const fn layout_epoch_fingerprint(&self) -> [u8; 32] {
+        self.layout_epoch_fingerprint
+    }
+
+    pub fn owner_language(&self) -> &str {
+        &self.owner_language
+    }
+
+    pub const fn owner_language_fingerprint(&self) -> [u8; 32] {
+        self.owner_language_fingerprint
+    }
+
+    pub const fn font_face_id(&self) -> FontFaceId {
+        self.font_face_id
+    }
+
+    pub fn font_family(&self) -> &str {
+        &self.font_family
+    }
+
+    pub const fn font_sha256(&self) -> [u8; 32] {
+        self.font_sha256
+    }
+
+    pub const fn face_index(&self) -> u32 {
+        self.face_index
+    }
+
+    pub const fn font_size(&self) -> PositiveLength {
+        self.font_size
+    }
+
+    pub const fn line_height(&self) -> PositiveLength {
+        self.line_height
+    }
+
+    pub const fn paragraph_level(&self) -> BidiLevel {
+        self.paragraph_level
+    }
+
+    pub const fn shaper_backend(&self) -> &'static str {
+        self.shaper_backend
+    }
+
+    pub const fn shaper_version(&self) -> &'static str {
+        self.shaper_version
+    }
+
+    pub const fn unicode_version(&self) -> &'static str {
+        self.unicode_version
+    }
+
+    pub fn runs(&self) -> &[StagingEquationNumberGlyphRun] {
+        &self.runs
+    }
+
+    pub const fn width(&self) -> PositiveLength {
+        self.width
+    }
+
+    pub const fn height(&self) -> PositiveLength {
+        self.line_height
+    }
+
+    pub const fn glyph_receipt_fingerprint(&self) -> [u8; 32] {
+        self.glyph_receipt_fingerprint
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn integrity_matches(&self) -> bool {
+        let Some(width) = equation_number_runs_width(&self.runs) else {
+            return false;
+        };
+        let Some(expected_node_id) = self.owner.get().checked_add(1) else {
+            return false;
+        };
+        let Some(text_span_len) = self
+            .text_span
+            .end_byte()
+            .get()
+            .checked_sub(self.text_span.start_byte().get())
+        else {
+            return false;
+        };
+        let glyphs = encode_equation_number_glyph_receipt(&self.runs);
+        let canonical = encode_equation_number_shape_receipt(self);
+        self.exact_text_sha256 == sha256(self.exact_text.as_bytes())
+            && self.node_id.get() == expected_node_id
+            && u32::try_from(self.exact_text.len()) == Ok(text_span_len)
+            && !self.exact_text.is_empty()
+            && !self.owner_language.is_empty()
+            && self.owner_language_fingerprint != [0; 32]
+            && self.layout_epoch_fingerprint != [0; 32]
+            && !self.font_family.is_empty()
+            && self.paragraph_level.get() <= 1
+            && self.shaper_backend == ShaperIdentity::linked_reference().backend()
+            && self.shaper_version == ShaperIdentity::linked_reference().version()
+            && self.unicode_version == EQUATION_NUMBER_UNICODE_VERSION
+            && self.width == width
+            && self.line_height.get().raw() > 0
+            && equation_number_runs_cover(self.text_span, &self.runs)
+            && self.glyph_receipt_fingerprint == sha256(glyphs.as_bytes())
+            && self.canonical_jcs == canonical
+            && self.fingerprint == sha256(canonical.as_bytes())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingEquationNumberShapeError {
+    ReceiptMismatch,
+    MissingComputedTextStyle,
+    MissingSelectedFont,
+    MissingDeclaredFontCoverage,
+    RequiresSecondLine,
+    NonPositiveShape,
+    ContextLimit,
+    InvalidFontOrFace,
+    Backend(LinkedShaperError),
+    AllocationFailure,
+    ArithmeticOverflow,
+}
+
+impl std::fmt::Display for StagingEquationNumberShapeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReceiptMismatch => formatter.write_str("equation-number receipt mismatch"),
+            Self::MissingComputedTextStyle => {
+                formatter.write_str("equation-number computed text style is incomplete")
+            }
+            Self::MissingSelectedFont => {
+                formatter.write_str("equation-number selected font is unavailable")
+            }
+            Self::MissingDeclaredFontCoverage => {
+                formatter.write_str("equation-number selected font lacks required glyph coverage")
+            }
+            Self::RequiresSecondLine => {
+                formatter.write_str("equation number is not one nonwrapping line")
+            }
+            Self::NonPositiveShape => {
+                formatter.write_str("equation-number shape has non-positive dimensions")
+            }
+            Self::ContextLimit => formatter.write_str("equation-number shaping limit exceeded"),
+            Self::InvalidFontOrFace => {
+                formatter.write_str("equation-number selected font face is invalid")
+            }
+            Self::Backend(error) => {
+                write!(
+                    formatter,
+                    "equation-number shaping backend failed: {error:?}"
+                )
+            }
+            Self::AllocationFailure => {
+                formatter.write_str("equation-number shaping allocation failed")
+            }
+            Self::ArithmeticOverflow => {
+                formatter.write_str("equation-number shaping arithmetic overflow")
+            }
+        }
+    }
+}
+
+impl std::error::Error for StagingEquationNumberShapeError {}
+
+/// Shapes the optional equation-number child of one validated
+/// `math_vector_block` as exactly one nonwrapping logical line.
+///
+/// This staging bridge uses the same Unicode itemizer, coverage check, linked
+/// HarfRust backend, output budget, cluster validation, and fixed-point
+/// scaling as ordinary text shaping. The caller supplies only the syntax-
+/// issued owner-language receipt and the vector layout epoch that the
+/// enclosing layout receipt will rederive and verify.
+pub fn shape_staging_equation_number(
+    package: &ValidatedStagingSemanticPackage,
+    metrics: &ValidatedPrecomposedVectorMetrics,
+    admitted: &AdmittedResourceLedger,
+    layout_epoch_fingerprint: [u8; 32],
+    owner_language: &ValidatedPrecomposedVectorEffectiveLanguage,
+) -> Result<Option<StagingEquationNumberShapeReceipt>, StagingEquationNumberShapeError> {
+    package
+        .verify_precomposed_vector_metrics(metrics)
+        .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+    if metrics.kind() != PrecomposedVectorKind::MathVectorBlock {
+        return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+    }
+    package
+        .verify_precomposed_vector_effective_language(owner_language)
+        .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+    if owner_language.owner() != metrics.node_id()
+        || owner_language.kind() != PrecomposedVectorKind::MathVectorBlock
+    {
+        return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+    }
+    if unicode_bidi::UNICODE_VERSION != (16, 0, 0)
+        || unicode_script::UNICODE_VERSION != (16, 0, 0)
+        || unicode_segmentation::UNICODE_VERSION != (16, 0, 0)
+    {
+        return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+    }
+    let Some(number) = metrics.equation_number() else {
+        return Ok(None);
+    };
+    let owner = metrics.node_id();
+    let style = package
+        .precomposed_vector_style(owner)
+        .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?;
+    package
+        .verify_precomposed_vector_style(style)
+        .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+    let number_style = style
+        .equation_number_text_style()
+        .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?;
+    let families = number_style
+        .font_families()
+        .ok_or(StagingEquationNumberShapeError::MissingComputedTextStyle)?;
+    let font_size = number_style
+        .font_size()
+        .ok_or(StagingEquationNumberShapeError::MissingComputedTextStyle)?;
+    let line_height = number_style
+        .line_height()
+        .ok_or(StagingEquationNumberShapeError::MissingComputedTextStyle)?;
+
+    let declarations = staging_declared_base_catalog(package.resources())
+        .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+    if !admitted.matches_declarations(declarations.resource_catalog()) {
+        return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+    }
+    let font_face_id = admitted
+        .font_families()
+        .resolve(families)
+        .map_err(|_| StagingEquationNumberShapeError::MissingSelectedFont)?;
+    let font = admitted
+        .font(font_face_id)
+        .ok_or(StagingEquationNumberShapeError::MissingSelectedFont)?;
+
+    let text_span = number.text().text_span();
+    let wire = package
+        .checked_wire()
+        .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+    let buffer = wire
+        .text_buffers()
+        .iter()
+        .find(|buffer| buffer.text_id == text_span.text_id().get())
+        .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?;
+    let start = usize::try_from(text_span.start_byte().get())
+        .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?;
+    let end = usize::try_from(text_span.end_byte().get())
+        .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?;
+    let exact_text = buffer
+        .utf8
+        .get(start..end)
+        .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?;
+    if sha256(buffer.utf8.as_bytes()) != number.text().text_buffer_sha256()
+        || sha256(exact_text.as_bytes()) != number.text().exact_text_sha256()
+        || layout_epoch_fingerprint == [0; 32]
+    {
+        return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+    }
+    if exact_text.chars().any(|character| {
+        matches!(character, '\u{2028}' | '\u{2029}')
+            || unicode_bidi::bidi_class(character) == unicode_bidi::BidiClass::B
+    }) {
+        return Err(StagingEquationNumberShapeError::RequiresSecondLine);
+    }
+    let exact_len = u32::try_from(exact_text.len())
+        .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?;
+    let maximum_records = package.limits().get().max_shaping_context_bytes;
+    if exact_len == 0 || exact_len > maximum_records {
+        return Err(StagingEquationNumberShapeError::ContextLimit);
+    }
+    validate_admitted_font_coverage(font, exact_text)?;
+    let (paragraph_level, specs) =
+        itemize_run_specs(exact_text).map_err(map_equation_number_itemization_error)?;
+    if specs.is_empty() {
+        return Err(StagingEquationNumberShapeError::NonPositiveShape);
+    }
+
+    let mut runs = Vec::new();
+    runs.try_reserve_exact(specs.len())
+        .map_err(|_| StagingEquationNumberShapeError::AllocationFailure)?;
+    for (index, spec) in specs.into_iter().enumerate() {
+        let run_text =
+            itemized_run_utf8(exact_text, spec).map_err(map_equation_number_itemization_error)?;
+        let backend_bound = linked_backend_record_bound(run_text)
+            .map_err(StagingEquationNumberShapeError::Backend)?;
+        if backend_bound > maximum_records {
+            return Err(StagingEquationNumberShapeError::ContextLimit);
+        }
+        let run_id = GlyphRunId::new(
+            u32::try_from(index)
+                .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?,
+        );
+        let source = source_subspan(ShapeSourceSpan::Parsed(text_span), spec.start, spec.end)
+            .map_err(StagingEquationNumberShapeError::Backend)?;
+        let mut budget = ShapeOutputBudget::new(maximum_records);
+        let raw = shape_linked(
+            LinkedBackendInput {
+                run_id,
+                font: FontInstanceId::new(font_face_id.get()),
+                source,
+                utf8: run_text,
+                font_bytes: font.bytes(),
+                face_index: font.face_index(),
+                admitted_units_per_em: font.metadata().units_per_em,
+                admitted_glyph_count: font.metadata().glyph_count,
+                font_size: font_size.get(),
+                bidi_level: spec.bidi_level,
+                script: spec.script,
+                pre_context: if spec.start == 0 {
+                    None
+                } else {
+                    exact_text.get(
+                        ..usize::try_from(spec.start)
+                            .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?,
+                    )
+                },
+                post_context: if spec.end == exact_len {
+                    None
+                } else {
+                    exact_text.get(
+                        usize::try_from(spec.end)
+                            .map_err(|_| StagingEquationNumberShapeError::ArithmeticOverflow)?..,
+                    )
+                },
+                max_output_records: maximum_records,
+            },
+            &mut budget,
+        )
+        .map_err(StagingEquationNumberShapeError::Backend)?;
+        if !budget.matches_output(&raw) {
+            return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+        }
+        let expected = ExpectedGlyphRun {
+            run_id,
+            font: FontInstanceId::new(font_face_id.get()),
+            bidi_level: spec.bidi_level,
+            source,
+            utf8_boundaries: utf8_boundaries(source, run_text)
+                .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?,
+            glyph_count: font.metadata().glyph_count,
+            max_output_records: maximum_records,
+        };
+        validate_glyph_run(&expected, &raw)
+            .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+        let ShapeSourceSpan::Parsed(source_span) = raw.source_span else {
+            return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+        };
+        runs.push(StagingEquationNumberGlyphRun {
+            run_id: raw.run_id,
+            bidi_level: raw.bidi_level,
+            script: spec.script,
+            source_span,
+            glyphs: raw.glyphs,
+            clusters: raw.clusters,
+        });
+    }
+
+    let width = equation_number_runs_width(&runs)
+        .ok_or(StagingEquationNumberShapeError::NonPositiveShape)?;
+    let glyph_jcs = encode_equation_number_glyph_receipt(&runs);
+    let shaper = ShaperIdentity::linked_reference();
+    let mut receipt = StagingEquationNumberShapeReceipt {
+        owner,
+        node_id: number.node_id(),
+        source_span: number.span(),
+        text_span,
+        text_buffer_sha256: number.text().text_buffer_sha256(),
+        exact_text: exact_text.to_owned(),
+        exact_text_sha256: number.text().exact_text_sha256(),
+        computed_style_fingerprint: style.fingerprint(),
+        layout_epoch_fingerprint,
+        owner_language: owner_language.language().to_owned(),
+        owner_language_fingerprint: owner_language.fingerprint(),
+        font_face_id,
+        font_family: font.family().to_owned(),
+        font_sha256: font.content_hash(),
+        face_index: font.face_index(),
+        font_size,
+        line_height,
+        paragraph_level,
+        shaper_backend: shaper.backend(),
+        shaper_version: shaper.version(),
+        unicode_version: EQUATION_NUMBER_UNICODE_VERSION,
+        runs,
+        width,
+        glyph_receipt_fingerprint: sha256(glyph_jcs.as_bytes()),
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    receipt.canonical_jcs = encode_equation_number_shape_receipt(&receipt);
+    receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+    if !receipt.integrity_matches() {
+        return Err(StagingEquationNumberShapeError::ReceiptMismatch);
+    }
+    Ok(Some(receipt))
+}
+
+fn validate_admitted_font_coverage(
+    admitted: &AdmittedFont,
+    utf8: &str,
+) -> Result<(), StagingEquationNumberShapeError> {
+    let face = harfrust::FontRef::from_index(admitted.bytes(), admitted.face_index())
+        .map_err(|_| StagingEquationNumberShapeError::InvalidFontOrFace)?;
+    let cmap = face
+        .cmap()
+        .map_err(|_| StagingEquationNumberShapeError::InvalidFontOrFace)?;
+    for cluster in UnicodeSegmentation::graphemes(utf8, true) {
+        for character in cluster.chars() {
+            if is_shaping_default_ignorable(character) {
+                continue;
+            }
+            let Some(glyph) = cmap.map_codepoint(character) else {
+                return Err(StagingEquationNumberShapeError::MissingDeclaredFontCoverage);
+            };
+            let glyph_id = glyph.to_u32();
+            if glyph_id == 0 || glyph_id >= admitted.metadata().glyph_count {
+                return Err(StagingEquationNumberShapeError::MissingDeclaredFontCoverage);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn map_equation_number_itemization_error(
+    error: ItemizationError,
+) -> StagingEquationNumberShapeError {
+    match error {
+        ItemizationError::ParagraphBoundaryUnsupported => {
+            StagingEquationNumberShapeError::RequiresSecondLine
+        }
+        ItemizationError::ContextLimit | ItemizationError::BackendOutputLimit => {
+            StagingEquationNumberShapeError::ContextLimit
+        }
+        ItemizationError::MissingDeclaredFontCoverage => {
+            StagingEquationNumberShapeError::MissingDeclaredFontCoverage
+        }
+        ItemizationError::InvalidFontOrFace => StagingEquationNumberShapeError::InvalidFontOrFace,
+        ItemizationError::AllocationFailure => StagingEquationNumberShapeError::AllocationFailure,
+        ItemizationError::ArithmeticOverflow => StagingEquationNumberShapeError::ArithmeticOverflow,
+        _ => StagingEquationNumberShapeError::ReceiptMismatch,
+    }
+}
+
+fn equation_number_runs_width(runs: &[StagingEquationNumberGlyphRun]) -> Option<PositiveLength> {
+    let raw = runs.iter().try_fold(0i64, |total, run| {
+        run.glyphs.iter().try_fold(total, |total, glyph| {
+            total.checked_add(glyph.advance_x.raw())
+        })
+    })?;
+    Length::from_raw(raw).and_then(PositiveLength::new)
+}
+
+fn equation_number_runs_cover(text_span: TextSpan, runs: &[StagingEquationNumberGlyphRun]) -> bool {
+    let mut expected_start = text_span.start_byte().get();
+    for (index, run) in runs.iter().enumerate() {
+        if usize::try_from(run.run_id.get()) != Ok(index)
+            || run.source_span.text_id() != text_span.text_id()
+            || run.source_span.start_byte().get() != expected_start
+            || run.source_span.end_byte().get() <= expected_start
+            || run.glyphs.is_empty()
+            || run.clusters.is_empty()
+            || run.bidi_level.get() > 1
+        {
+            return false;
+        }
+        let mut expected_cluster_start = run.source_span.start_byte().get();
+        for cluster in &run.clusters {
+            let ShapeSourceSpan::Parsed(cluster_span) = cluster.source_span else {
+                return false;
+            };
+            if cluster_span.text_id() != text_span.text_id()
+                || cluster_span.start_byte().get() != expected_cluster_start
+                || cluster_span.end_byte().get() <= expected_cluster_start
+                || cluster_span.end_byte().get() > run.source_span.end_byte().get()
+                || cluster.glyph_start >= cluster.glyph_end
+                || usize::try_from(cluster.glyph_end)
+                    .map_or(true, |glyph_end| glyph_end > run.glyphs.len())
+            {
+                return false;
+            }
+            expected_cluster_start = cluster_span.end_byte().get();
+        }
+        if expected_cluster_start != run.source_span.end_byte().get() {
+            return false;
+        }
+        expected_start = run.source_span.end_byte().get();
+    }
+    expected_start == text_span.end_byte().get()
+}
+
+fn encode_equation_number_glyph_receipt(runs: &[StagingEquationNumberGlyphRun]) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, EQUATION_NUMBER_GLYPH_RECEIPT_ALGORITHM);
+    output.push_str(",\"runs\":[");
+    for (run_index, run) in runs.iter().enumerate() {
+        if run_index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"bidi_level\":");
+        output.push_str(&run.bidi_level.get().to_string());
+        output.push_str(",\"clusters\":[");
+        for (cluster_index, cluster) in run.clusters.iter().enumerate() {
+            if cluster_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"glyph_end\":");
+            output.push_str(&cluster.glyph_end.to_string());
+            output.push_str(",\"glyph_start\":");
+            output.push_str(&cluster.glyph_start.to_string());
+            output.push_str(",\"source_span\":");
+            push_shape_source_span(&mut output, cluster.source_span);
+            output.push('}');
+        }
+        output.push_str("],\"glyphs\":[");
+        for (glyph_index, glyph) in run.glyphs.iter().enumerate() {
+            if glyph_index > 0 {
+                output.push(',');
+            }
+            output.push_str("{\"advance_x\":");
+            output.push_str(&glyph.advance_x.raw().to_string());
+            output.push_str(",\"advance_y\":");
+            output.push_str(&glyph.advance_y.raw().to_string());
+            output.push_str(",\"offset_x\":");
+            output.push_str(&glyph.offset_x.raw().to_string());
+            output.push_str(",\"offset_y\":");
+            output.push_str(&glyph.offset_y.raw().to_string());
+            output.push_str(",\"original_gid\":");
+            output.push_str(&glyph.original_gid.get().to_string());
+            output.push('}');
+        }
+        output.push_str("],\"run_id\":");
+        output.push_str(&run.run_id.get().to_string());
+        output.push_str(",\"script\":");
+        let script_bytes = run.script.bytes();
+        let script = String::from_utf8_lossy(&script_bytes);
+        push_jcs_string(&mut output, &script);
+        output.push_str(",\"source_span\":");
+        push_text_span(&mut output, run.source_span);
+        output.push('}');
+    }
+    output.push_str("]}");
+    output
+}
+
+fn encode_equation_number_shape_receipt(value: &StagingEquationNumberShapeReceipt) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, EQUATION_NUMBER_SHAPE_ALGORITHM);
+    output.push_str(",\"computed_style_fingerprint\":");
+    push_shape_hash(&mut output, value.computed_style_fingerprint);
+    output.push_str(",\"exact_text_sha256\":");
+    push_shape_hash(&mut output, value.exact_text_sha256);
+    output.push_str(",\"face_index\":");
+    output.push_str(&value.face_index.to_string());
+    output.push_str(",\"font_face_id\":");
+    output.push_str(&value.font_face_id.get().to_string());
+    output.push_str(",\"font_family\":");
+    push_jcs_string(&mut output, &value.font_family);
+    output.push_str(",\"font_sha256\":");
+    push_shape_hash(&mut output, value.font_sha256);
+    output.push_str(",\"font_size\":");
+    output.push_str(&value.font_size.get().raw().to_string());
+    output.push_str(",\"glyph_receipt_fingerprint\":");
+    push_shape_hash(&mut output, value.glyph_receipt_fingerprint);
+    output.push_str(",\"height\":");
+    output.push_str(&value.line_height.get().raw().to_string());
+    output.push_str(",\"layout_epoch_fingerprint\":");
+    push_shape_hash(&mut output, value.layout_epoch_fingerprint);
+    output.push_str(",\"line_count\":1,\"node_id\":");
+    output.push_str(&value.node_id.get().to_string());
+    output.push_str(",\"nonwrapping\":true,\"owner\":");
+    output.push_str(&value.owner.get().to_string());
+    output.push_str(",\"owner_language\":");
+    push_jcs_string(&mut output, &value.owner_language);
+    output.push_str(",\"owner_language_fingerprint\":");
+    push_shape_hash(&mut output, value.owner_language_fingerprint);
+    output.push_str(",\"paragraph_level\":");
+    output.push_str(&value.paragraph_level.get().to_string());
+    output.push_str(",\"shaper_backend\":");
+    push_jcs_string(&mut output, value.shaper_backend);
+    output.push_str(",\"shaper_version\":");
+    push_jcs_string(&mut output, value.shaper_version);
+    output.push_str(",\"source_span\":");
+    push_source_span(&mut output, value.source_span);
+    output.push_str(",\"text_buffer_sha256\":");
+    push_shape_hash(&mut output, value.text_buffer_sha256);
+    output.push_str(",\"text_span\":");
+    push_text_span(&mut output, value.text_span);
+    output.push_str(",\"unicode_version\":");
+    push_jcs_string(&mut output, value.unicode_version);
+    output.push_str(",\"width\":");
+    output.push_str(&value.width.get().raw().to_string());
+    output.push('}');
+    output
+}
+
+fn push_shape_source_span(output: &mut String, value: ShapeSourceSpan) {
+    match value {
+        ShapeSourceSpan::Parsed(value) => push_text_span(output, value),
+        ShapeSourceSpan::Generated(_) => output.push_str("null"),
+    }
+}
+
+fn push_text_span(output: &mut String, value: TextSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push_str(",\"text_id\":");
+    output.push_str(&value.text_id().get().to_string());
+    output.push('}');
+}
+
+fn push_source_span(output: &mut String, value: SourceSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"source_id\":");
+    output.push_str(&value.source_id().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push('}');
+}
+
+fn push_shape_hash(output: &mut String, value: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push('"');
+    for byte in value {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output.push('"');
+}
+
 mod shaper_seal {
     pub trait Sealed {}
 }

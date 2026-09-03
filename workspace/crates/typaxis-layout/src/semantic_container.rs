@@ -1,8 +1,11 @@
-use typaxis_core::{push_jcs_string, sha256, NodeId, SourceSpan};
+use typaxis_core::{push_jcs_string, sha256, M4EffectiveResourceLimits, NodeId, SourceSpan};
 use typaxis_document::{SemanticContainerKind, StagingM4Block, StagingM4Document};
 use typaxis_layout_contract::FlowId;
 use typaxis_style::{SemanticContainerComputedStyle, SemanticContainerStyleKind};
-use typaxis_syntax::{StagingSemanticContainerProfileView, ValidatedStagingSemanticPackage};
+use typaxis_syntax::{
+    StagingPrecomposedVectorProfileAuthorization, StagingSemanticContainerProfileView,
+    ValidatedStagingSemanticPackage,
+};
 
 const FLOW_REGISTRY_ALGORITHM: &str = "typaxis.semantic-container-flow-registry/1";
 const SELECTED_LAYOUT_ALGORITHM: &str = "typaxis.semantic-container-selected-layout/1";
@@ -390,6 +393,36 @@ impl std::fmt::Display for StagingSemanticContainerLayoutError {
 
 impl std::error::Error for StagingSemanticContainerLayoutError {}
 
+/// Builds only the existing parent-flow registry for the private precomposed
+/// vector path. The public semantic-container profile remains fail-closed for
+/// precomposed vectors; this projection reuses its fixed `/1` item vocabulary
+/// and maps producer-composed blocks onto existing atomic categories.
+pub(crate) fn project_staging_precomposed_vector_parent_flows(
+    package: &ValidatedStagingSemanticPackage,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StagingSemanticContainerFlowRegistry, StagingSemanticContainerLayoutError> {
+    profile
+        .authorizes(package, limits)
+        .map_err(|_| StagingSemanticContainerLayoutError::ProfileMismatch)?;
+    let flows = build_package_flows(package, limits.base())?;
+    let profile_fingerprint = profile.profile_receipt_fingerprint();
+    let registry_jcs = encode_registry(&flows, package.semantic_fingerprint(), profile_fingerprint);
+    let registry = StagingSemanticContainerFlowRegistry {
+        receipt: StagingSemanticContainerFlowRegistryReceipt {
+            package_fingerprint: package.semantic_fingerprint(),
+            profile_fingerprint,
+            flow_count: u32::try_from(flows.len())
+                .map_err(|_| StagingSemanticContainerLayoutError::FlowLimit)?,
+            fingerprint: sha256(registry_jcs.as_bytes()),
+            canonical_jcs: registry_jcs,
+        },
+        flows,
+    };
+    verify_registry_binding(package, profile_fingerprint, limits.base(), &registry)?;
+    Ok(registry)
+}
+
 pub fn layout_staging_semantic_containers(
     package: &ValidatedStagingSemanticPackage,
     profile: &StagingSemanticContainerProfileView,
@@ -694,6 +727,9 @@ fn build_flow(
             }
             StagingM4Block::Figure {
                 common, caption, ..
+            }
+            | StagingM4Block::VectorFigure {
+                common, caption, ..
             } => child_flow_ids.push(build_flow(
                 limits,
                 common.node_id,
@@ -705,23 +741,11 @@ fn build_flow(
                 caption,
                 flows,
             )?),
-            StagingM4Block::VectorFigure { common, .. }
-            | StagingM4Block::MathVectorBlock { common, .. } => {
-                return Err(
-                    StagingSemanticContainerLayoutError::PrecomposedVectorStaging(common.node_id),
-                );
-            }
-            StagingM4Block::Paragraph { inline_vectors, .. }
-            | StagingM4Block::Heading { inline_vectors, .. } => {
-                if let Some(vector) = inline_vectors.first() {
-                    return Err(
-                        StagingSemanticContainerLayoutError::PrecomposedVectorStaging(
-                            vector.node_id,
-                        ),
-                    );
-                }
-            }
-            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => {}
+            StagingM4Block::Paragraph { .. }
+            | StagingM4Block::Heading { .. }
+            | StagingM4Block::PageBreak { .. }
+            | StagingM4Block::DisplayMath { .. }
+            | StagingM4Block::MathVectorBlock { .. } => {}
         }
         items.push(StagingSemanticContainerFlowItem {
             position,
@@ -748,17 +772,15 @@ fn block_item_kind(
         StagingM4Block::Heading { .. } => StagingSemanticContainerFlowItemKind::Heading,
         StagingM4Block::List { .. } => StagingSemanticContainerFlowItemKind::List,
         StagingM4Block::Table { .. } => StagingSemanticContainerFlowItemKind::Table,
-        StagingM4Block::Figure { .. } => StagingSemanticContainerFlowItemKind::Figure,
+        StagingM4Block::Figure { .. } | StagingM4Block::VectorFigure { .. } => {
+            StagingSemanticContainerFlowItemKind::Figure
+        }
         StagingM4Block::PageBreak { .. } => StagingSemanticContainerFlowItemKind::PageBreak,
-        StagingM4Block::DisplayMath { .. } => StagingSemanticContainerFlowItemKind::DisplayMath,
+        StagingM4Block::DisplayMath { .. } | StagingM4Block::MathVectorBlock { .. } => {
+            StagingSemanticContainerFlowItemKind::DisplayMath
+        }
         StagingM4Block::SemanticContainer { .. } => {
             StagingSemanticContainerFlowItemKind::SemanticContainer
-        }
-        StagingM4Block::VectorFigure { common, .. }
-        | StagingM4Block::MathVectorBlock { common, .. } => {
-            return Err(
-                StagingSemanticContainerLayoutError::PrecomposedVectorStaging(common.node_id),
-            );
         }
     })
 }
@@ -768,9 +790,23 @@ fn verify_registry(
     profile: &StagingSemanticContainerProfileView,
     registry: &StagingSemanticContainerFlowRegistry,
 ) -> Result<(), StagingSemanticContainerLayoutError> {
-    let expected = build_package_flows(package, profile.limits())?;
+    verify_registry_binding(
+        package,
+        profile.profile_fingerprint(),
+        profile.limits(),
+        registry,
+    )
+}
+
+fn verify_registry_binding(
+    package: &ValidatedStagingSemanticPackage,
+    profile_fingerprint: [u8; 32],
+    limits: &typaxis_core::ValidatedResourceLimits,
+    registry: &StagingSemanticContainerFlowRegistry,
+) -> Result<(), StagingSemanticContainerLayoutError> {
+    let expected = build_package_flows(package, limits)?;
     if registry.receipt.package_fingerprint != package.semantic_fingerprint()
-        || registry.receipt.profile_fingerprint != profile.profile_fingerprint()
+        || registry.receipt.profile_fingerprint != profile_fingerprint
         || usize::try_from(registry.receipt.flow_count) != Ok(registry.flows.len())
         || registry
             .flows
@@ -784,7 +820,7 @@ fn verify_registry(
     let canonical = encode_registry(
         &registry.flows,
         package.semantic_fingerprint(),
-        profile.profile_fingerprint(),
+        profile_fingerprint,
     );
     if canonical != registry.receipt.canonical_jcs
         || sha256(canonical.as_bytes()) != registry.receipt.fingerprint

@@ -32,6 +32,8 @@ const STAGING_PROFILE_ID: &str = "typaxis.machine-pdf/production-book-1";
 const STAGING_PROFILE_RECEIPT_ALGORITHM: &str = "typaxis.production-book-profile-receipt/1";
 const INTERNAL_HIDDEN_STYLE_CLASS: &str = "__typaxis_internal_hidden";
 pub const PRECOMPOSED_VECTOR_METRICS_ALGORITHM: &str = "typaxis.precomposed-vector-metrics/1";
+pub const PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM: &str =
+    "typaxis.precomposed-vector-effective-language/1";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PrecomposedVectorKind {
@@ -53,6 +55,49 @@ impl PrecomposedVectorKind {
 
     const fn is_math(self) -> bool {
         matches!(self, Self::MathVector | Self::MathVectorBlock)
+    }
+}
+
+/// Per-owner effective language proof used by private vector layout stages.
+///
+/// This is not the public computed-language registry. MI4-V14 will collect
+/// these same inherited values into the versioned `/2` registry; this narrow
+/// receipt exists so an equation-number child can reference its parent owner
+/// without becoming an independent language owner in the meantime.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorEffectiveLanguage {
+    package_sha256: [u8; 32],
+    semantic_fingerprint: [u8; 32],
+    owner: NodeId,
+    kind: PrecomposedVectorKind,
+    language: String,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl ValidatedPrecomposedVectorEffectiveLanguage {
+    pub const fn algorithm(&self) -> &'static str {
+        PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM
+    }
+
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+
+    pub const fn kind(&self) -> PrecomposedVectorKind {
+        self.kind
+    }
+
+    pub fn language(&self) -> &str {
+        &self.language
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
     }
 }
 
@@ -1674,6 +1719,76 @@ impl ValidatedStagingSemanticPackage {
             .ok()
             .map(|index| &self.precomposed_vector_metrics[index])
     }
+    pub fn precomposed_vector_effective_language(
+        &self,
+        owner: NodeId,
+    ) -> Result<ValidatedPrecomposedVectorEffectiveLanguage, StagingSemanticSyntaxError> {
+        self.precomposed_vector_effective_languages()?
+            .into_iter()
+            .find(|receipt| receipt.owner == owner)
+            .ok_or(StagingSemanticSyntaxError::ReceiptMismatch)
+    }
+    pub fn precomposed_vector_effective_languages(
+        &self,
+    ) -> Result<Vec<ValidatedPrecomposedVectorEffectiveLanguage>, StagingSemanticSyntaxError> {
+        let wire = self.checked_wire()?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(self.precomposed_vector_metrics.len())
+            .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+        collect_precomposed_vector_languages(wire, &mut values)?;
+        values.sort_unstable_by_key(|(owner, _)| *owner);
+        if values.len() != self.precomposed_vector_metrics.len()
+            || values.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        let mut receipts = Vec::new();
+        receipts
+            .try_reserve_exact(values.len())
+            .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+        for ((owner, language), metrics) in values.into_iter().zip(&self.precomposed_vector_metrics)
+        {
+            if owner != metrics.node_id() {
+                return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+            }
+            let mut receipt = ValidatedPrecomposedVectorEffectiveLanguage {
+                package_sha256: self.canonical_jcs_sha256,
+                semantic_fingerprint: self.semantic_fingerprint,
+                owner,
+                kind: metrics.kind(),
+                language,
+                canonical_jcs: String::new(),
+                fingerprint: [0; 32],
+            };
+            receipt.canonical_jcs = encode_precomposed_vector_effective_language(&receipt);
+            receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+            receipts.push(receipt);
+        }
+        Ok(receipts)
+    }
+    pub fn verify_precomposed_vector_effective_language(
+        &self,
+        receipt: &ValidatedPrecomposedVectorEffectiveLanguage,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.checked_wire()?;
+        let metrics = self
+            .precomposed_vector_metrics_for(receipt.owner)
+            .ok_or(StagingSemanticSyntaxError::ReceiptMismatch)?;
+        let canonical_language = crate::canonicalize_bcp47_language(&receipt.language)
+            .map_err(|_| StagingSemanticSyntaxError::ReceiptMismatch)?;
+        let canonical = encode_precomposed_vector_effective_language(receipt);
+        if receipt.package_sha256 != self.canonical_jcs_sha256
+            || receipt.semantic_fingerprint != self.semantic_fingerprint
+            || receipt.kind != metrics.kind()
+            || receipt.language != canonical_language
+            || receipt.canonical_jcs != canonical
+            || receipt.fingerprint != sha256(canonical.as_bytes())
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        Ok(())
+    }
     pub fn verify_precomposed_vector_metrics(
         &self,
         receipt: &ValidatedPrecomposedVectorMetrics,
@@ -1729,6 +1844,155 @@ impl ValidatedStagingSemanticPackage {
         }
         Ok(&self.wire)
     }
+}
+
+fn collect_precomposed_vector_languages(
+    wire: &WireStagingM4DocumentPackage,
+    output: &mut Vec<(NodeId, String)>,
+) -> Result<(), StagingSemanticSyntaxError> {
+    let document_language = crate::canonicalize_bcp47_language(&wire.document().language)
+        .map_err(|_| StagingSemanticSyntaxError::ReceiptMismatch)?;
+    collect_precomposed_vector_language_from_blocks(
+        &wire.document().blocks,
+        &document_language,
+        output,
+    )?;
+    for footnote in &wire.document().footnotes {
+        let inherited =
+            canonical_inherited_language(footnote.language.as_deref(), &document_language)?;
+        collect_precomposed_vector_language_from_blocks(&footnote.blocks, &inherited, output)?;
+    }
+    Ok(())
+}
+
+fn collect_precomposed_vector_language_from_blocks(
+    blocks: &[WireStagingM4Block],
+    inherited: &str,
+    output: &mut Vec<(NodeId, String)>,
+) -> Result<(), StagingSemanticSyntaxError> {
+    for block in blocks {
+        let effective = canonical_inherited_language(block.language(), inherited)?;
+        match block {
+            WireStagingM4Block::MathVectorBlock { node_id, .. } => {
+                push_precomposed_vector_language(output, NodeId::new(*node_id), effective)?;
+            }
+            WireStagingM4Block::Paragraph { children, .. }
+            | WireStagingM4Block::Heading { children, .. } => {
+                collect_precomposed_vector_language_from_inlines(children, &effective, output)?;
+            }
+            WireStagingM4Block::List { items, .. } => {
+                for item in items {
+                    let item_language =
+                        canonical_inherited_language(item.language.as_deref(), &effective)?;
+                    collect_precomposed_vector_language_from_blocks(
+                        &item.blocks,
+                        &item_language,
+                        output,
+                    )?;
+                }
+            }
+            WireStagingM4Block::Table { head, body, .. } => {
+                for row in head.iter().chain(body) {
+                    let row_language =
+                        canonical_inherited_language(row.language.as_deref(), &effective)?;
+                    for cell in &row.cells {
+                        let cell_language =
+                            canonical_inherited_language(cell.language.as_deref(), &row_language)?;
+                        collect_precomposed_vector_language_from_blocks(
+                            &cell.blocks,
+                            &cell_language,
+                            output,
+                        )?;
+                    }
+                }
+            }
+            WireStagingM4Block::Figure { caption, .. } => {
+                collect_precomposed_vector_language_from_blocks(caption, &effective, output)?;
+            }
+            WireStagingM4Block::VectorFigure {
+                node_id, caption, ..
+            } => {
+                push_precomposed_vector_language(output, NodeId::new(*node_id), effective.clone())?;
+                collect_precomposed_vector_language_from_blocks(caption, &effective, output)?;
+            }
+            WireStagingM4Block::SemanticContainer { blocks, .. } => {
+                collect_precomposed_vector_language_from_blocks(blocks, &effective, output)?;
+            }
+            WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn collect_precomposed_vector_language_from_inlines(
+    inlines: &[WireStagingM4Inline],
+    inherited: &str,
+    output: &mut Vec<(NodeId, String)>,
+) -> Result<(), StagingSemanticSyntaxError> {
+    for inline in inlines {
+        let effective = canonical_inherited_language(inline.language(), inherited)?;
+        match inline {
+            WireStagingM4Inline::InlineVector { node_id, .. }
+            | WireStagingM4Inline::MathVector { node_id, .. } => {
+                push_precomposed_vector_language(output, NodeId::new(*node_id), effective)?;
+            }
+            WireStagingM4Inline::Emphasis { children, .. }
+            | WireStagingM4Inline::Strong { children, .. }
+            | WireStagingM4Inline::Link { children, .. } => {
+                collect_precomposed_vector_language_from_inlines(children, &effective, output)?;
+            }
+            WireStagingM4Inline::Text { .. }
+            | WireStagingM4Inline::InlineMath { .. }
+            | WireStagingM4Inline::Anchor { .. }
+            | WireStagingM4Inline::Reference { .. }
+            | WireStagingM4Inline::FootnoteReference { .. }
+            | WireStagingM4Inline::SoftBreak { .. }
+            | WireStagingM4Inline::HardBreak { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn canonical_inherited_language(
+    authored: Option<&str>,
+    inherited: &str,
+) -> Result<String, StagingSemanticSyntaxError> {
+    match authored {
+        Some(authored) => crate::canonicalize_bcp47_language(authored)
+            .map_err(|_| StagingSemanticSyntaxError::ReceiptMismatch),
+        None => Ok(inherited.to_owned()),
+    }
+}
+
+fn push_precomposed_vector_language(
+    output: &mut Vec<(NodeId, String)>,
+    owner: NodeId,
+    language: String,
+) -> Result<(), StagingSemanticSyntaxError> {
+    output
+        .try_reserve(1)
+        .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+    output.push((owner, language));
+    Ok(())
+}
+
+fn encode_precomposed_vector_effective_language(
+    value: &ValidatedPrecomposedVectorEffectiveLanguage,
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM);
+    output.push_str(",\"kind\":");
+    push_jcs_string(&mut output, value.kind.as_str());
+    output.push_str(",\"language\":");
+    push_jcs_string(&mut output, &value.language);
+    output.push_str(",\"owner\":");
+    output.push_str(&value.owner.get().to_string());
+    output.push_str(",\"package_sha256\":");
+    push_hash(&mut output, value.package_sha256);
+    output.push_str(",\"semantic_fingerprint\":");
+    push_hash(&mut output, value.semantic_fingerprint);
+    output.push('}');
+    output
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -4533,6 +4797,17 @@ mod tests {
             panic!("numbered math-vector block must remain lossless");
         };
         assert_eq!(number.node_id, NodeId::new(7));
+        let vector_languages = package.precomposed_vector_effective_languages().unwrap();
+        assert_eq!(
+            vector_languages
+                .iter()
+                .map(|receipt| (receipt.owner().get(), receipt.language()))
+                .collect::<Vec<_>>(),
+            [(3, "ja"), (4, "ja"), (5, "ja"), (6, "ja")]
+        );
+        assert!(vector_languages
+            .iter()
+            .all(|receipt| receipt.owner() != number.node_id));
 
         let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap();
         assert_eq!(
@@ -4803,6 +5078,14 @@ mod tests {
         let language = receipt.language().unwrap();
         assert_eq!(language.raw(), "JA-latn");
         assert_eq!(language.canonical(), "ja-Latn");
+        let effective = authored
+            .precomposed_vector_effective_language(NodeId::new(4))
+            .unwrap();
+        assert_eq!(effective.language(), "ja-Latn");
+        assert_eq!(
+            effective.algorithm(),
+            PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM
+        );
         assert_eq!(
             language.charged_bytes(),
             u64::try_from("JA-latn".len() + "ja-Latn".len()).unwrap()

@@ -1783,26 +1783,40 @@ pub(crate) struct StagingPrecomposedVectorBindingFixture {
 #[cfg(test)]
 pub(crate) fn staging_precomposed_vector_binding_fixture(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(false, None)
+    staging_precomposed_vector_binding_fixture_with_media(false, None, false, false)
 }
 
 #[cfg(test)]
 pub(crate) fn staging_precomposed_vector_binding_fixture_with_fragment_limit(
     max_fragments: u64,
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(false, Some(max_fragments))
+    staging_precomposed_vector_binding_fixture_with_media(false, Some(max_fragments), false, false)
 }
 
 #[cfg(test)]
 fn staging_precomposed_vector_binding_fixture_with_generic_safe_svg1(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(true, None)
+    staging_precomposed_vector_binding_fixture_with_media(true, None, false, false)
+}
+
+#[cfg(test)]
+pub(crate) fn staging_precomposed_vector_binding_fixture_with_equation_font(
+) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_binding_fixture_with_media(false, None, true, false)
+}
+
+#[cfg(test)]
+pub(crate) fn staging_precomposed_vector_binding_fixture_with_mixed_native_math(
+) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_binding_fixture_with_media(false, None, true, true)
 }
 
 #[cfg(test)]
 fn staging_precomposed_vector_binding_fixture_with_media(
     generic_safe_svg1: bool,
     max_fragments: Option<u64>,
+    equation_font: bool,
+    mixed_native_math: bool,
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
     use std::fs;
     use std::path::PathBuf;
@@ -1816,8 +1830,10 @@ fn staging_precomposed_vector_binding_fixture_with_media(
     };
     use typaxis_syntax::machine_profile_boundary::wire::{
         DocumentPackageDecodePolicy, StagingSemanticDocumentPackageDecoder,
-        StagingSemanticDocumentPackageEncoder, WireImageMediaType, WireStagingM4Block,
-        WireStagingM4Inline,
+        StagingSemanticDocumentPackageEncoder, WireFontMediaType, WireImageMediaType,
+        WireStagingM4Block, WireStagingM4FontFace, WireStagingM4Inline, WireStagingMathSource,
+        WireStagingSourceSpan, WireStagingStyleDeclaration, WireStagingStyleRule,
+        WireStagingStyleValue, WireStagingTextSpan,
     };
     use typaxis_syntax::StagingSemanticPackageParser;
 
@@ -1879,7 +1895,155 @@ fn staging_precomposed_vector_binding_fixture_with_media(
         };
         metrics.viewport.width = 1_966_080;
     }
+    let mut style_sheet = wire.style_sheet().clone();
+    if equation_font {
+        resources.font_faces.push(WireStagingM4FontFace {
+            font_face_id: 0,
+            family: "Math".to_owned(),
+            uri: "math.ttf".to_owned(),
+            face_index: 0,
+            expected_sha256: Some(
+                "dc3862c12ad95f75d7c21cb3c37487e220182aa5088c537c634c194ee83ee894".to_owned(),
+            ),
+            media_type: WireFontMediaType::SfntTrueTypeGlyf,
+        });
+        style_sheet.rules.push(WireStagingStyleRule {
+            style_id: "equation-number-text".to_owned(),
+            extends: None,
+            selector: "semantic_container".to_owned(),
+            source_order: u32::try_from(style_sheet.rules.len())?,
+            declarations: vec![
+                WireStagingStyleDeclaration {
+                    name: "font_family".to_owned(),
+                    value: WireStagingStyleValue::FontFamilyList {
+                        families: vec!["Math".to_owned()],
+                    },
+                    important: false,
+                },
+                WireStagingStyleDeclaration {
+                    name: "font_size".to_owned(),
+                    value: WireStagingStyleValue::Length { value: 786_432 },
+                    important: false,
+                },
+                WireStagingStyleDeclaration {
+                    name: "line_height".to_owned(),
+                    value: WireStagingStyleValue::Length { value: 917_504 },
+                    important: false,
+                },
+            ],
+        });
+    }
+    if mixed_native_math {
+        let mut first_vector = blocks[2].clone();
+        let WireStagingM4Block::MathVectorBlock {
+            alt,
+            node_id,
+            span,
+            source_tex,
+            equation_number,
+            ..
+        } = &mut first_vector
+        else {
+            panic!("precomposed-vector fixture third child is not block math");
+        };
+        *node_id = 3;
+        *span = WireStagingSourceSpan {
+            source_id: 0,
+            start_byte: 3,
+            end_byte: 6,
+        };
+        *alt = "xたすy".to_owned();
+        source_tex.text_span = WireStagingTextSpan {
+            text_id: 0,
+            start_byte: 3,
+            end_byte: 6,
+        };
+        *equation_number = None;
+
+        let mut second_vector = blocks[2].clone();
+        let WireStagingM4Block::MathVectorBlock {
+            node_id,
+            span,
+            source_tex,
+            equation_number,
+            ..
+        } = &mut second_vector
+        else {
+            unreachable!();
+        };
+        *node_id = 5;
+        *span = WireStagingSourceSpan {
+            source_id: 0,
+            start_byte: 7,
+            end_byte: 13,
+        };
+        source_tex.text_span = WireStagingTextSpan {
+            text_id: 0,
+            start_byte: 7,
+            end_byte: 10,
+        };
+        let number = equation_number
+            .as_mut()
+            .expect("fixture block math has an equation number");
+        number.node_id = 6;
+        number.span = WireStagingSourceSpan {
+            source_id: 0,
+            start_byte: 10,
+            end_byte: 13,
+        };
+        number.text_span = WireStagingTextSpan {
+            text_id: 0,
+            start_byte: 10,
+            end_byte: 13,
+        };
+
+        *blocks = vec![
+            WireStagingM4Block::DisplayMath {
+                node_id: 2,
+                span: WireStagingSourceSpan {
+                    source_id: 0,
+                    start_byte: 0,
+                    end_byte: 3,
+                },
+                classes: Vec::new(),
+                math_source: WireStagingMathSource {
+                    language: "typaxis-math".to_owned(),
+                    version: "1".to_owned(),
+                    text_span: WireStagingTextSpan {
+                        text_id: 0,
+                        start_byte: 0,
+                        end_byte: 3,
+                    },
+                },
+                speech: "ordered pair a".to_owned(),
+                language: None,
+            },
+            first_vector,
+            WireStagingM4Block::DisplayMath {
+                node_id: 4,
+                span: WireStagingSourceSpan {
+                    source_id: 0,
+                    start_byte: 6,
+                    end_byte: 7,
+                },
+                classes: Vec::new(),
+                math_source: WireStagingMathSource {
+                    language: "typaxis-math".to_owned(),
+                    version: "1".to_owned(),
+                    text_span: WireStagingTextSpan {
+                        text_id: 0,
+                        start_byte: 6,
+                        end_byte: 7,
+                    },
+                },
+                speech: "capital M".to_owned(),
+                language: None,
+            },
+            second_vector,
+        ];
+    }
     wire.replace_typed_regions(document, resources);
+    wire.replace_style_sheet(style_sheet);
     let encoded = StagingSemanticDocumentPackageEncoder::new().encode(&wire)?;
     let decoded = StagingSemanticDocumentPackageDecoder::new().decode(
         encoded.as_bytes(),
@@ -1906,11 +2070,20 @@ fn staging_precomposed_vector_binding_fixture_with_media(
             .expect("registered fixture data versions"),
         ResourceLimits::default(),
     )?;
+    let cli_resource_roots = if equation_font {
+        vec![HostPath::new(
+            job.parent()
+                .expect("precomposed-vector fixture has a parent")
+                .join("math/job"),
+        )?]
+    } else {
+        Vec::new()
+    };
     let context = HostAdmissionContext::new(
         HostPath::new(package_path)?,
         HostPath::new(job)?,
         None,
-        Vec::new(),
+        cli_resource_roots,
     );
     let host = HostResourceAdmissionSession::new(&context, &config, &base)?;
     let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
@@ -1919,6 +2092,10 @@ fn staging_precomposed_vector_binding_fixture_with_media(
         profile.profile_receipt_fingerprint(),
         host.roots(),
     )?;
+    for declaration in &package.resources().font_faces {
+        let pending = resolver.read_font(host.open_font(declaration.font_face_id)?)?;
+        resolver.parse_and_bind_sfnt(pending)?;
+    }
     for declaration in &package.resources().images {
         let pending = resolver.read_image(host.open_image(declaration.image_id)?)?;
         resolver.parse_and_bind_declared_image(pending)?;

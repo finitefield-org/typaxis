@@ -264,6 +264,10 @@ impl MathReceiptKey {
 pub struct MathFlowId(u32);
 
 impl MathFlowId {
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
     pub const fn get(self) -> u32 {
         self.0
     }
@@ -828,7 +832,7 @@ pub fn layout_staging_math(
         if kind == MathNodeKind::Display {
             let (parent_flow_id, parent_position) =
                 parent_flow_for_node(node, semantic.registry())?;
-            let flow_id = MathFlowId(
+            let flow_id = MathFlowId::new(
                 u32::try_from(display_flows.len())
                     .map_err(|_| StagingMathLayoutError::FragmentLimit)?,
             );

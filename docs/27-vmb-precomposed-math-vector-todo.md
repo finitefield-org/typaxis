@@ -747,7 +747,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V10 MathVectorFlowIdとequation-number shapingを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V08
 - Design inputs: docs/27 §4.4、§7、§10、§15.2
 - Primary files:
@@ -782,6 +782,16 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout math_vector_flow --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout equation_number_shape --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout native_and_vector_math_flow_isolation --locked`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V10 change set containing this completion record.
+  - native `MathFlowId`とnominalに異なる`MathVectorFlowId` / typed terminalをlayout-contractへ追加し、`typaxis.math-vector-flow/1` registryへowner、parent FlowId/position、existing DisplayMath projection、exact `math_vector_block` wire kind、producer math binding、computed style、LayoutEpoch、terminal `1`をbindした。public/basic flow vocabularyは増やさず、precomposed-vector authorization専用のcrate-private parent projectionだけが既存Figure/DisplayMath categoryをreuseする。
+  - validated source preorderを最初に全走査して0-based dense ID registrationを完了し、その後にshape/workを開始する二段階構造にした。worker completionを逆順にした場合もsource-order registryとfingerprintが一致し、missing/duplicate/non-dense/wrong owner・parent・position・epoch・terminal・shapeを再構築検証で`I9190`にする。terminal ledgerはpage moveで未消費を維持し、selected成功時のexactly-once consume、任意consume順からflow-ID順receipt set、missing/duplicate/wrong-owner/tamper拒否を保証する。
+  - producerのequation-number TextSpanをexact sliceのまま、既存Unicode 16 itemizer、selected-face coverage検査、linked HarfRust backend、output budget、cluster validator、fixed-point position pipelineへ通し、one nonwrapping `typaxis.equation-number-shape/1` receiptを発行する。receiptはSourceSpan/TextSpan/buffer・slice hash、number text、computed style、font family/face/hash/index/size/line-height、shaper ID/version、Unicode version、glyph runs/receipt、positive width/heightをbindし、coverage fallback、text生成・increment・normalize、second lineを行わない。
+  - equation numberはformula vector/source/alternative receiptと分離し、nonnullだけがV04で検証済みのowner+1 NodeIdを使う一つのleaf shapeになる。nullはshape/childを一切作らない。owner languageはwire inheritanceを一度だけsource tree traversalして作るsealed per-vector receiptを参照し、numberを独立language ownerにしていない。このnarrow receiptはMI4-V14のpublic computed-language registry `/2`を先取りしない。
+  - native/vector交互fixtureをsource span順とdense global NodeId順で固定し、両flow ID空間が独立denseであること、number null/present、worker/page順 permutation、terminal closureを検査した。既存native `typaxis.math-flow/1` flow fingerprint `b075066e3ea4d2e9e0084dd4fbb9fa25f852a77c007ef655301d85c1fece4715`とlayout JCS SHA-256 `fae13b212b81b81a0e0ac38bce2943830e2f058b323ee5ec9d635bdcd630a8ab`をfrozen regressionにし、nominal ID swapはcompile-fail doctestで固定した。
+  - milestone指定の3 targeted command、layout doctest、dependency-boundary test、Schema validator、workspace全target/all-feature check/test、workspace clippy `-D warnings`、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは3934 refsを含む全bundle/fixtureを通過した。
+  - レビューではpublic `/1` profile guardを崩すparent projection、IDを全件登録する前のshape開始、交互fixtureの重複SourceSpanと番号不一致alt、owner-languageのper-owner再走査、terminal finishのunchecked sentinel/order closure、fallible ledger allocation、registry owner順とshape-style relationの局所検証不足を修正した。修正後に全差分を再読し、findingは0件である。
+  - listed primary file外では専用implementation module `workspace/crates/typaxis-layout/src/math_vector.rs`、equation-number font/交互fixture、sealed effective-language receipt、workspace dependency edge、本completion recordを変更した。blockのphysical placement/pagination、number rectangle/paint/structure、Display/PDF serialization、public capabilityはMI4-V11以降へ残した。
 - Non-goals:
   - blockのphysical page placement、PDF text serialization
 

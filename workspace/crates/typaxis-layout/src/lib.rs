@@ -5,6 +5,7 @@ mod advanced_float;
 mod advanced_header_footer;
 mod inline_vector;
 mod math;
+mod math_vector;
 mod safe_vector;
 mod semantic_container;
 
@@ -52,6 +53,13 @@ pub use math::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use math::{staging_math_layout_fixture, StagingMathLayoutFixture};
+pub use math_vector::{
+    prepare_staging_math_vector_flows, StagingMathVectorFlowError, StagingMathVectorFlowRecord,
+    StagingMathVectorFlowRegistry, StagingMathVectorFlowRegistryReceipt,
+    StagingMathVectorTerminalError, StagingMathVectorTerminalLedger,
+    StagingMathVectorTerminalReceipt, StagingMathVectorTerminalReceiptSet,
+    MATH_VECTOR_FLOW_ALGORITHM, MATH_VECTOR_TERMINAL_ALGORITHM,
+};
 pub use safe_vector::{
     bind_staging_precomposed_vectors, layout_staging_safe_vectors, BoundPrecomposedVectorMedia,
     BoundPrecomposedVectorResource, PrecomposedVectorBindingError, PrecomposedVectorLayoutEpoch,
@@ -101,12 +109,13 @@ pub use typaxis_layout_contract::{
     FootnoteFlowRegistryFingerprint, FootnoteFlowTerminal, FootnotePageEvaluationFingerprint,
     FootnoteProfileFingerprint, FootnoteSelectedLayoutFingerprint, LayoutEpoch, LayoutEpochError,
     LayoutTextStyleError, MachineGlyphCoverage, MachineStyleFontPreparationError,
-    MachineTextSiteSource, MultiFlowSelectedStateFingerprint, PreparedMachineStyleFonts,
-    PreparedMachineTextSite, ResolvedLayoutTextStyle, ResolvedTableColumn,
-    ResolvedTableColumnInput, ShapeFontSelectionError, ShapeFontSelectionReceipt,
-    TableGridFingerprint, TableGridReceiptError, TableGridReceiptInput, TableSection,
-    TableSelectedLayoutFingerprint, TableVerticalAlignment, ValidatedTableCellBinding,
-    ValidatedTableGridReceipt, ValidatedTableRowBinding,
+    MachineTextSiteSource, MathVectorFlowId, MathVectorFlowTerminal,
+    MultiFlowSelectedStateFingerprint, PreparedMachineStyleFonts, PreparedMachineTextSite,
+    ResolvedLayoutTextStyle, ResolvedTableColumn, ResolvedTableColumnInput,
+    ShapeFontSelectionError, ShapeFontSelectionReceipt, TableGridFingerprint,
+    TableGridReceiptError, TableGridReceiptInput, TableSection, TableSelectedLayoutFingerprint,
+    TableVerticalAlignment, ValidatedTableCellBinding, ValidatedTableGridReceipt,
+    ValidatedTableRowBinding,
 };
 pub use typaxis_layout_contract::{
     BoundPrecomposedVectorMetrics, MathVectorBlockPlacementInput, MathVectorBlockStyleInput,

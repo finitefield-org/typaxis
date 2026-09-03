@@ -26,9 +26,10 @@ pub use semantic_container::{
     StagingPrecomposedVectorProfileSessionIdentity, StagingSafeVectorProfileView,
     StagingSemanticContainerProfileView, StagingSemanticPackageParser, StagingSemanticSyntaxError,
     UnresolvedPrecomposedVectorResourceBinding, ValidatedPrecomposedVectorAlternative,
-    ValidatedPrecomposedVectorEquationNumber, ValidatedPrecomposedVectorLanguageOverride,
-    ValidatedPrecomposedVectorMetrics, ValidatedPrecomposedVectorTextBinding,
-    ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
+    ValidatedPrecomposedVectorEffectiveLanguage, ValidatedPrecomposedVectorEquationNumber,
+    ValidatedPrecomposedVectorLanguageOverride, ValidatedPrecomposedVectorMetrics,
+    ValidatedPrecomposedVectorTextBinding, ValidatedStagingMathNode,
+    ValidatedStagingSemanticPackage, PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM,
     PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
 };
 pub use tagged_structure::{

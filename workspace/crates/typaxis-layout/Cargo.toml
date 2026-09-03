@@ -20,6 +20,7 @@ typaxis-style = { path = "../typaxis-style" }
 typaxis-linebreak = { path = "../typaxis-linebreak" }
 typaxis-layout-contract = { path = "../typaxis-layout-contract" }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }
+typaxis-shaping = { path = "../typaxis-shaping" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 typaxis-text = { path = "../typaxis-text" }
 
