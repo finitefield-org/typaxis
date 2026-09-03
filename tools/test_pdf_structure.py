@@ -212,6 +212,179 @@ def serialize(objects: dict[int, bytes], info_object: int) -> bytes:
     return bytes(output)
 
 
+def build_tagged_v2() -> tuple[dict[int, bytes], dict, bytes]:
+    ja = utf16_hex("ja")
+    en = utf16_hex("en-US")
+    alt_inline = utf16_hex("丸括弧で囲んだ二項目")
+    alt_math = utf16_hex("xたすy")
+    alt_figure = utf16_hex("配置図")
+    alt_block = utf16_hex("xたすy、式1")
+    number_text = utf16_hex("(1)")
+    font_program = b"\x00\x01\x00\x00typaxis-test-font"
+    to_unicode = (
+        b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def\n"
+        b"/CMapName /Typaxis-Identity-UCS def\n/CMapType 2 def\n"
+        b"1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+        b"3 beginbfchar\n<0001> <0028>\n<0002> <0031>\n<0003> <0029>\n"
+        b"endbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    )
+    objects: dict[int, bytes] = {
+        1: (
+            f"<< /Type /Catalog /Pages 2 0 R /Names << /Dests 3 0 R >> /Lang <{ja}> "
+            "/Metadata 15 0 R /MarkInfo << /Marked true >> "
+            "/ViewerPreferences << /DisplayDocTitle true >> /StructTreeRoot 18 0 R >>"
+        ).encode("ascii"),
+        2: b"<< /Type /Pages /Count 2 /Kids [5 0 R 7 0 R ] >>",
+        3: b"<< /Names [] >>",
+        4: stream(
+            "",
+            (
+                "q\n1 0 0 -1 0 800 cm\n"
+                f"/Figure << /MCID 0 >> BDC\n/Span << /Lang <{en}> >> BDC\n"
+                "q\n0 0 0 rg\n0 0 0 RG\n1 0 0 1 10 10 cm\n/V0 Do\nQ\nEMC\nEMC\n"
+                f"/Formula << /MCID 1 >> BDC\n/Span << /ActualText <{alt_math}> /Lang <{en}> >> BDC\n"
+                "q\n0 0 0 rg\n0 0 0 RG\n1 0 0 1 40 10 cm\n/V0 Do\nQ\nEMC\nEMC\nQ"
+            ).encode("ascii"),
+        ),
+        5: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1000 800] /Resources << /XObject << /V0 16 0 R >> >> /Contents 4 0 R /StructParents 0 >>",
+        6: stream(
+            "",
+            (
+                "q\n1 0 0 -1 0 800 cm\n"
+                f"/Figure << /MCID 0 >> BDC\n/Span << /Lang <{en}> >> BDC\n"
+                "q\n0 0 0 rg\n0 0 0 RG\n1 0 0 1 10 10 cm\n/V0 Do\nQ\nEMC\nEMC\n"
+                f"/Formula << /MCID 1 >> BDC\n/Span << /ActualText <{alt_block}> /Lang <{en}> >> BDC\n"
+                "q\n0 0 0 rg\n0 0 0 RG\n1 0 0 1 40 10 cm\n/V0 Do\nQ\nEMC\nEMC\n"
+                f"/Span << /MCID 2 /Lang <{en}> >> BDC\n"
+                f"/Span << /ActualText <{number_text}> >> BDC\n"
+                "0 g\nBT /F0 8 Tf 0 Tr\n"
+                "1 0 0 -1 90 22 Tm <0001> Tj\n"
+                "1 0 0 -1 94 22 Tm <0002> Tj\n"
+                "1 0 0 -1 98 22 Tm <0003> Tj\n"
+                "ET\nEMC\nEMC\nQ"
+            ).encode("ascii"),
+        ),
+        7: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1000 800] /Resources << /XObject << /V0 16 0 R >> /Font << /F0 8 0 R >> >> /Contents 6 0 R /StructParents 1 >>",
+        8: b"<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+TestEquation /Encoding /Identity-H /DescendantFonts [9 0 R] /ToUnicode 12 0 R >>",
+        9: b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDEF+TestEquation /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 10 0 R /DW 1000 /W [1 [500] 2 [500] 3 [500] ] /CIDToGIDMap 13 0 R >>",
+        10: b"<< /Type /FontDescriptor /FontName /ABCDEF+TestEquation /Flags 32 /FontBBox [0 -200 1000 800] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /FontFile2 11 0 R >>",
+        11: stream(f"/Length1 {len(font_program)} ", font_program),
+        12: stream("", to_unicode),
+        13: stream("", b"\x00\x00\x00\x01\x00\x02\x00\x03"),
+        14: b"<< /Producer <FEFF0054007900700061007800690073> >>",
+        15: stream("/Type /Metadata /Subtype /XML ", b"<x:xmpmeta/>"),
+        16: stream(
+            "/Type /XObject /Subtype /Form /FormType 1 /BBox [0 0 30 12] "
+            "/Resources << /ExtGState << /GS0 17 0 R >> >> ",
+            b"q\n0 0 30 12 re W n\nq\n/GS0 gs\n2 2 m\n10 10 l\n1 w\n0 J\n0 j\n10 M\nS\nQ\nQ",
+        ),
+        17: b"<< /Type /ExtGState /ca 1 /CA 1 >>",
+        18: b"<< /Type /StructTreeRoot /RoleMap << /Em /Span /Exercise /Div /Proof /Div /Result /Div /Strong /Span >> /ParentTree 19 0 R /ParentTreeNextKey 2 /K [20 0 R ] >>",
+        19: b"<< /Nums [0 [23 0 R 24 0 R ] 1 [25 0 R 26 0 R 27 0 R ] ] >>",
+        20: b"<< /Type /StructElem /S /Document /P 18 0 R /K [21 0 R ] >>",
+        21: b"<< /Type /StructElem /S /Result /P 20 0 R /K [22 0 R 25 0 R 26 0 R ] >>",
+        22: b"<< /Type /StructElem /S /P /P 21 0 R /K [23 0 R 24 0 R ] >>",
+        23: f"<< /Type /StructElem /S /Figure /P 22 0 R /Lang <{en}> /Alt <{alt_inline}> /K [<< /Type /MCR /Pg 5 0 R /MCID 0 >> ] >>".encode("ascii"),
+        24: f"<< /Type /StructElem /S /Formula /P 22 0 R /Lang <{en}> /Alt <{alt_math}> /K [<< /Type /MCR /Pg 5 0 R /MCID 1 >> ] >>".encode("ascii"),
+        25: f"<< /Type /StructElem /S /Figure /P 21 0 R /Lang <{en}> /Alt <{alt_figure}> /K [<< /Type /MCR /Pg 7 0 R /MCID 0 >> ] >>".encode("ascii"),
+        26: f"<< /Type /StructElem /S /Formula /P 21 0 R /Lang <{en}> /Alt <{alt_block}> /K [<< /Type /MCR /Pg 7 0 R /MCID 1 >> 27 0 R ] >>".encode("ascii"),
+        27: b"<< /Type /StructElem /S /Span /P 26 0 R /K [<< /Type /MCR /Pg 7 0 R /MCID 2 >> ] >>",
+    }
+    roles = [
+        "catalog", "pages", "destinations", "page_content:0", "page:0",
+        "page_content:1", "page:1", "equation_font_type0:0", "equation_font_cid:0",
+        "equation_font_descriptor:0", "equation_font_program:0",
+        "equation_font_to_unicode:0", "equation_font_cid_to_gid:0", "info", "metadata",
+        "vector_form:0", "vector_ext_g_state:1", "structure_tree_root",
+        "structure_parent_tree", "structure_element:0", "structure_element:1",
+        "structure_element:2", "structure_element:3", "structure_element:4",
+        "structure_element:5", "structure_element:6", "structure_element:7",
+    ]
+    pdf = serialize(objects, 14)
+    expectation = {
+        "algorithm": "typaxis.tagged-pdf-validator/2",
+        "document_language": "ja",
+        "equation_numbers": [
+            {
+                "exact_text": "(1)",
+                "font_index": 0,
+                "mcid": 2,
+                "page_index": 1,
+                "paint_language": "en-US",
+                "parent_structure_node_id": 6,
+                "structure_language": None,
+                "structure_node_id": 7,
+            }
+        ],
+        "form_count": 1,
+        "object_budget_charge_count": 1,
+        "observation_algorithm": "typaxis.tagged-pdf-observation/2",
+        "page_count": 2,
+        "xmp_sha256": hashlib.sha256(b"<x:xmpmeta/>").hexdigest(),
+        "pdf": {
+            "byte_length": len(pdf),
+            "object_count": len(objects),
+            "objects": [
+                {
+                    "object_number": number,
+                    "role": roles[number - 1],
+                    "sha256": hashlib.sha256(objects[number]).hexdigest(),
+                }
+                for number in range(1, len(objects) + 1)
+            ],
+            "sha256": hashlib.sha256(pdf).hexdigest(),
+        },
+        "vectors": [
+            {
+                "actual_text": None,
+                "alternative": "丸括弧で囲んだ二項目",
+                "form_index": 0,
+                "kind": "inline_vector",
+                "mcid": 0,
+                "page_index": 0,
+                "paint_language": "en-US",
+                "structure_language": "en-US",
+                "structure_node_id": 3,
+            },
+            {
+                "actual_text": "xたすy",
+                "alternative": "xたすy",
+                "form_index": 0,
+                "kind": "math_vector",
+                "mcid": 1,
+                "page_index": 0,
+                "paint_language": "en-US",
+                "structure_language": "en-US",
+                "structure_node_id": 4,
+            },
+            {
+                "actual_text": None,
+                "alternative": "配置図",
+                "form_index": 0,
+                "kind": "vector_figure",
+                "mcid": 0,
+                "page_index": 1,
+                "paint_language": "en-US",
+                "structure_language": "en-US",
+                "structure_node_id": 5,
+            },
+            {
+                "actual_text": "xたすy、式1",
+                "alternative": "xたすy、式1",
+                "form_index": 0,
+                "kind": "math_vector_block",
+                "mcid": 1,
+                "page_index": 1,
+                "paint_language": "en-US",
+                "structure_language": "en-US",
+                "structure_node_id": 6,
+            },
+        ],
+    }
+    return objects, expectation, pdf
+
+
 class PdfStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -640,6 +813,314 @@ class TaggedPdfStructureTests(unittest.TestCase):
         self.assertEqual(status, 0)
         decoded = json.loads(output.getvalue())
         self.assertEqual(decoded["structure_count"], 87)
+
+
+class TaggedPdfStructureV2Tests(unittest.TestCase):
+    def build(self) -> tuple[dict[int, bytes], dict, bytes]:
+        return build_tagged_v2()
+
+    @staticmethod
+    def rebind(objects: dict[int, bytes], expectation: dict) -> bytes:
+        info_object = next(
+            item["object_number"]
+            for item in expectation["pdf"]["objects"]
+            if item["role"] == "info"
+        )
+        pdf = serialize(objects, info_object)
+        expectation["pdf"]["byte_length"] = len(pdf)
+        expectation["pdf"]["sha256"] = hashlib.sha256(pdf).hexdigest()
+        for item in expectation["pdf"]["objects"]:
+            item["sha256"] = hashlib.sha256(objects[item["object_number"]]).hexdigest()
+        return pdf
+
+    def build_outline_and_id_tree(self) -> tuple[dict[int, bytes], dict, bytes]:
+        objects, expectation, _ = self.build()
+        objects[1] = objects[1][:-3] + b" /Outlines 28 0 R >>"
+        objects[3] = b"<< /Names [(vector-result) [5 0 R /XYZ 0 0 null] ] >>"
+        objects[18] = objects[18][:-3] + b" /IDTree 30 0 R >>"
+        objects[21] = objects[21][:-3] + b" /ID (typaxis-se-00000001) >>"
+        objects[28] = b"<< /Type /Outlines /First 29 0 R /Last 29 0 R /Count 1 >>"
+        objects[29] = (
+            f"<< /Title <{utf16_hex('Vector result')}> /Parent 28 0 R "
+            "/Dest (vector-result) /SE 21 0 R >>"
+        ).encode("ascii")
+        objects[30] = b"<< /Names [(typaxis-se-00000001) 21 0 R ] >>"
+        for number, role in (
+            (28, "outline_root"),
+            (29, "outline_item:0"),
+            (30, "structure_id_tree"),
+        ):
+            expectation["pdf"]["objects"].append(
+                {
+                    "object_number": number,
+                    "role": role,
+                    "sha256": hashlib.sha256(objects[number]).hexdigest(),
+                }
+            )
+        expectation["pdf"]["object_count"] = len(objects)
+        pdf = self.rebind(objects, expectation)
+        return objects, expectation, pdf
+
+    def test_tagged_v2_accepts_formula_figure_inner_spans_number_and_shared_form(self) -> None:
+        _, expectation, pdf = self.build()
+        observation = verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+        self.assertEqual(observation["algorithm"], "typaxis.tagged-pdf-validator/2")
+        self.assertEqual(observation["vector_count"], 4)
+        self.assertEqual(observation["form_count"], 1)
+        self.assertEqual(observation["form_do_count"], 4)
+        self.assertEqual(observation["equation_number_count"], 1)
+        self.assertEqual(observation["extracted_text"], ["xたすy", "xたすy、式1", "(1)"])
+
+    def test_tagged_v2_rejects_alt_actual_text_language_role_and_mcid_tamper(self) -> None:
+        mutations: list[tuple[str, Callable[[dict[int, bytes]], None]]] = [
+            (
+                "Alt",
+                lambda objects: objects.__setitem__(
+                    25,
+                    objects[25].replace(
+                        f"/Alt <{utf16_hex('配置図')}>".encode("ascii"),
+                        f"/Alt <{utf16_hex('誤配置')}>".encode("ascii"),
+                    ),
+                ),
+            ),
+            (
+                "ActualText",
+                lambda objects: objects.__setitem__(
+                    4,
+                    objects[4].replace(
+                        f"/ActualText <{utf16_hex('xたすy')}>".encode("ascii"),
+                        f"/ActualText <{utf16_hex('xひくy')}>".encode("ascii"),
+                    ),
+                ),
+            ),
+            (
+                "Lang",
+                lambda objects: objects.__setitem__(
+                    4,
+                    objects[4].replace(
+                        f"/Lang <{utf16_hex('en-US')}>".encode("ascii"),
+                        f"/Lang <{utf16_hex('fr-FR')}>".encode("ascii"),
+                        1,
+                    ),
+                ),
+            ),
+            (
+                "role",
+                lambda objects: objects.__setitem__(
+                    4,
+                    objects[4].replace(b"/Figure << /MCID 0", b"/Formul << /MCID 0", 1),
+                ),
+            ),
+            (
+                "MCID",
+                lambda objects: objects.__setitem__(
+                    4,
+                    objects[4].replace(b"/Figure << /MCID 0", b"/Figure << /MCID 9", 1),
+                ),
+            ),
+            (
+                "missing Alt",
+                lambda objects: objects.__setitem__(
+                    25,
+                    objects[25].replace(b"/Alt ", b"/Xlt ", 1),
+                ),
+            ),
+            (
+                "missing ActualText",
+                lambda objects: objects.__setitem__(
+                    4,
+                    objects[4].replace(b"/ActualText ", b"/XctualText ", 1),
+                ),
+            ),
+            (
+                "missing Lang",
+                lambda objects: objects.__setitem__(
+                    4,
+                    objects[4].replace(b"/Lang ", b"/Xang ", 1),
+                ),
+            ),
+        ]
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                objects, expectation, _ = self.build()
+                mutate(objects)
+                pdf = self.rebind(objects, expectation)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+
+    def test_tagged_v2_rejects_page_parent_tree_and_formula_child_order(self) -> None:
+        mutations: list[tuple[str, Callable[[dict[int, bytes]], None]]] = [
+            (
+                "page",
+                lambda objects: objects.__setitem__(
+                    26,
+                    objects[26].replace(b"/Pg 7 0 R /MCID 1", b"/Pg 5 0 R /MCID 1"),
+                ),
+            ),
+            (
+                "ParentTree",
+                lambda objects: objects.__setitem__(
+                    19,
+                    objects[19].replace(b"0 [23 0 R 24 0 R", b"0 [24 0 R 23 0 R"),
+                ),
+            ),
+            (
+                "Formula order",
+                lambda objects: objects.__setitem__(
+                    26,
+                    objects[26].replace(
+                        b"/K [<< /Type /MCR /Pg 7 0 R /MCID 1 >> 27 0 R ",
+                        b"/K [27 0 R << /Type /MCR /Pg 7 0 R /MCID 1 >> ",
+                    ),
+                ),
+            ),
+            (
+                "equation leaf role",
+                lambda objects: objects.__setitem__(
+                    27,
+                    objects[27].replace(b"/S /Span", b"/S /Div ", 1),
+                ),
+            ),
+        ]
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                objects, expectation, _ = self.build()
+                mutate(objects)
+                pdf = self.rebind(objects, expectation)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+
+    def test_tagged_v2_rejects_form_mcid_and_same_length_stream_tamper(self) -> None:
+        objects, expectation, _ = self.build()
+        objects[16] = objects[16].replace(b"2 2 m", b"BMC  ")
+        pdf = self.rebind(objects, expectation)
+        with self.assertRaisesRegex(verifier.PdfValidationError, "Form contains semantic"):
+            verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+
+        objects, expectation, pdf = self.build()
+        tampered = pdf.replace(b"2 2 m", b"9 9 m", 1)
+        self.assertEqual(len(tampered), len(pdf))
+        with self.assertRaisesRegex(verifier.PdfValidationError, "byte closure"):
+            verifier.verify_tagged_pdf_structure_v2(tampered, expectation)
+
+    def test_tagged_v2_rejects_equation_font_cmap_and_cid_tamper(self) -> None:
+        mutations: list[tuple[str, int, bytes, bytes]] = [
+            ("Type0 encoding", 8, b"/Encoding /Identity-H", b"/Encoding /Identity-X"),
+            ("ToUnicode", 12, b"beginbfchar", b"beginxfchar"),
+            ("ToUnicode count", 12, b"3 beginbfchar", b"2 beginbfchar"),
+            ("ToUnicode source", 12, b"<0001>", b"<FFFF>"),
+            ("shown CID", 6, b"<0001> Tj", b"<FFFF> Tj"),
+        ]
+        for label, number, original, replacement in mutations:
+            with self.subTest(label=label):
+                objects, expectation, _ = self.build()
+                objects[number] = objects[number].replace(original, replacement, 1)
+                pdf = self.rebind(objects, expectation)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+
+    def test_tagged_v2_extracts_actual_text_only_equation_font(self) -> None:
+        objects, expectation, _ = self.build()
+        content = objects[12].split(b"stream\n", 1)[1].rsplit(b"\nendstream", 1)[0]
+        begin = content.index(b"3 beginbfchar\n")
+        end = content.index(b"endbfchar\n", begin) + len(b"endbfchar\n")
+        objects[12] = stream("", content[:begin] + content[end:])
+        pdf = self.rebind(objects, expectation)
+        observation = verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+        self.assertEqual(observation["extracted_text"], ["xたすy", "xたすy、式1", "(1)"])
+
+    def test_tagged_v2_extracts_unicode_equation_number_after_japanese_math(self) -> None:
+        objects, expectation, _ = self.build()
+        objects[6] = objects[6].replace(
+            f"/ActualText <{utf16_hex('(1)')}>".encode("ascii"),
+            f"/ActualText <{utf16_hex('第1式')}>".encode("ascii"),
+        )
+        objects[12] = objects[12].replace(b"<0001> <0028>", b"<0001> <7B2C>")
+        objects[12] = objects[12].replace(b"<0003> <0029>", b"<0003> <5F0F>")
+        expectation["equation_numbers"][0]["exact_text"] = "第1式"
+        pdf = self.rebind(objects, expectation)
+        observation = verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+        self.assertEqual(observation["extracted_text"], ["xたすy", "xたすy、式1", "第1式"])
+
+    def test_tagged_v2_rejects_legacy_observation_and_object_budget_charge_swaps(self) -> None:
+        _, expectation, pdf = self.build()
+        legacy = copy.deepcopy(expectation)
+        legacy["observation_algorithm"] = "typaxis.tagged-pdf-observation/1"
+        with self.assertRaisesRegex(verifier.PdfValidationError, "observation algorithm"):
+            verifier.verify_tagged_pdf_structure_v2(pdf, legacy)
+        for count in (0, 2):
+            with self.subTest(count=count):
+                charged = copy.deepcopy(expectation)
+                charged["object_budget_charge_count"] = count
+                with self.assertRaisesRegex(verifier.PdfValidationError, "exactly once"):
+                    verifier.verify_tagged_pdf_structure_v2(pdf, charged)
+
+        malformed_role = copy.deepcopy(expectation)
+        form = next(
+            item
+            for item in malformed_role["pdf"]["objects"]
+            if item["role"].startswith("vector_form:")
+        )
+        form["role"] = "vector_form:" + "9" * 100
+        with self.assertRaisesRegex(verifier.PdfValidationError, "role is not canonical"):
+            verifier.verify_tagged_pdf_structure_v2(pdf, malformed_role)
+
+    def test_tagged_v2_closes_catalog_page_parent_and_xmp(self) -> None:
+        mutations: list[tuple[str, int, bytes, bytes]] = [
+            ("catalog", 1, b"/Pages 2 0 R", b"/Pages 3 0 R"),
+            ("page parent", 5, b"/Parent 2 0 R", b"/Parent 3 0 R"),
+        ]
+        for label, number, original, replacement in mutations:
+            with self.subTest(label=label):
+                objects, expectation, _ = self.build()
+                objects[number] = objects[number].replace(original, replacement, 1)
+                pdf = self.rebind(objects, expectation)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+
+        objects, expectation, _ = self.build()
+        objects[15] = objects[15].replace(b"<x:xmpmeta/>", b"<y:xmpmeta/>", 1)
+        pdf = self.rebind(objects, expectation)
+        with self.assertRaisesRegex(verifier.PdfValidationError, "XMP metadata"):
+            verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+
+    def test_tagged_v2_closes_outline_and_id_tree_graph(self) -> None:
+        _, expectation, pdf = self.build_outline_and_id_tree()
+        observation = verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+        self.assertEqual(observation["object_count"], 30)
+        mutations = [
+            (29, b"/SE 21 0 R", b"/SE 16 0 R"),
+            (29, b"/Parent 28 0 R", b"/Parent 29 0 R"),
+            (28, b"/Count 1", b"/Count 2"),
+            (18, b"/IDTree 30 0 R", b"/IDTree 19 0 R"),
+            (30, b"typaxis-se-00000001", b"typaxis-se-00000002"),
+            (30, b"21 0 R", b"22 0 R"),
+        ]
+        for number, original, replacement in mutations:
+            with self.subTest(object=number, original=original):
+                objects, expectation, _ = self.build_outline_and_id_tree()
+                objects[number] = objects[number].replace(original, replacement, 1)
+                pdf = self.rebind(objects, expectation)
+                with self.assertRaises(verifier.PdfValidationError):
+                    verifier.verify_tagged_pdf_structure_v2(pdf, expectation)
+
+    def test_tagged_v2_command_line_dispatches_by_validator_identity(self) -> None:
+        _, expectation, pdf = self.build()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf_path = root / "output.pdf"
+            expectation_path = root / "expectation.json"
+            pdf_path.write_bytes(pdf)
+            expectation_path.write_text(
+                json.dumps(expectation, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                + "\n",
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = verifier.main([str(pdf_path), str(expectation_path)])
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(output.getvalue())["algorithm"], "typaxis.tagged-pdf-validator/2")
 
 
 if __name__ == "__main__":

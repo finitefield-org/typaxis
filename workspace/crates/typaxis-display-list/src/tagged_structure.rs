@@ -13,6 +13,7 @@ use typaxis_layout::{
     StructureRegistryReceipt, StructureRegistryReceiptV2, StructureRole,
 };
 use typaxis_pagination::StagingAtomicVectorBlockSelectedLayout;
+use typaxis_shaping::StagingEquationNumberShapeReceipt;
 use typaxis_syntax::{
     PrecomposedVectorKind, StagingAccessibilityProfileAuthorization,
     StagingAccessibilityProfileAuthorizationV2, StagingBookNavigationProfileAuthorizationV2,
@@ -269,6 +270,42 @@ impl VectorMarkedContentPlanV2 {
         &self.marked_content
     }
 
+    /// Issues a borrowing projection for serialization. The downstream PDF
+    /// crate receives sealed paint geometry and shaping facts, never layout
+    /// or pagination owners that it could use to recompute selection.
+    #[allow(clippy::too_many_arguments)]
+    pub fn authorize_pdf_serialization<'a>(
+        &'a self,
+        registry: &StructureRegistryReceiptV2,
+        accessibility_authorization: &StagingAccessibilityProfileAuthorizationV2,
+        limits: &M4EffectiveResourceLimits,
+        navigation: &ValidatedStagingBookNavigationV2,
+        navigation_authorization: &StagingBookNavigationProfileAuthorizationV2,
+        navigation_selected: &BookNavigationSelectedReceiptV2,
+        vector_display: &StagingPrecomposedVectorDisplay,
+        form_isolation: &VectorFormStructureIsolationReceiptV2,
+        block_selected: &'a StagingAtomicVectorBlockSelectedLayout,
+        math_flows: &'a StagingMathVectorFlowRegistry,
+    ) -> Result<VectorMarkedContentSerializationV2<'a>, MarkedContentError> {
+        self.verify(
+            registry,
+            accessibility_authorization,
+            limits,
+            navigation,
+            navigation_authorization,
+            navigation_selected,
+            vector_display,
+            form_isolation,
+            block_selected,
+            math_flows,
+        )?;
+        Ok(VectorMarkedContentSerializationV2 {
+            plan: self,
+            block_selected,
+            math_flows,
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn verify(
         &self,
@@ -308,6 +345,80 @@ impl VectorMarkedContentPlanV2 {
             form_isolation,
             block_selected,
             math_flows,
+        )
+    }
+}
+
+/// A non-owning, privately constructed PDF projection of the selected plan.
+/// Its component identities are already sealed by marked-content-plan `/2`;
+/// this projection does not introduce another canonical algorithm or charge.
+#[derive(Clone, Copy, Debug)]
+pub struct VectorMarkedContentSerializationV2<'a> {
+    plan: &'a VectorMarkedContentPlanV2,
+    block_selected: &'a StagingAtomicVectorBlockSelectedLayout,
+    math_flows: &'a StagingMathVectorFlowRegistry,
+}
+
+impl<'a> VectorMarkedContentSerializationV2<'a> {
+    pub const fn plan(self) -> &'a VectorMarkedContentPlanV2 {
+        self.plan
+    }
+
+    pub fn equation_number_shapes(self) -> &'a [StagingEquationNumberShapeReceipt] {
+        self.math_flows.equation_number_shapes()
+    }
+
+    pub fn equation_number_shape(
+        self,
+        owner: NodeId,
+    ) -> Option<&'a StagingEquationNumberShapeReceipt> {
+        self.math_flows.equation_number_shape(owner)
+    }
+
+    pub fn equation_number_rect(
+        self,
+        parent_owner: NodeId,
+        page_index: u32,
+        paint_ordinal: u32,
+        shape_fingerprint: [u8; 32],
+    ) -> Option<typaxis_core::Rect> {
+        self.block_selected
+            .placements()
+            .iter()
+            .find(|placement| {
+                placement.owner() == parent_owner && placement.page_index() == page_index
+            })
+            .and_then(|placement| placement.equation_number())
+            .filter(|number| {
+                number.paint_ordinal() == paint_ordinal
+                    && number.shape_fingerprint() == shape_fingerprint
+            })
+            .map(|number| number.rect())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn verify(
+        self,
+        registry: &StructureRegistryReceiptV2,
+        accessibility_authorization: &StagingAccessibilityProfileAuthorizationV2,
+        limits: &M4EffectiveResourceLimits,
+        navigation: &ValidatedStagingBookNavigationV2,
+        navigation_authorization: &StagingBookNavigationProfileAuthorizationV2,
+        navigation_selected: &BookNavigationSelectedReceiptV2,
+        vector_display: &StagingPrecomposedVectorDisplay,
+        form_isolation: &VectorFormStructureIsolationReceiptV2,
+    ) -> Result<(), MarkedContentError> {
+        self.plan.verify(
+            registry,
+            accessibility_authorization,
+            limits,
+            navigation,
+            navigation_authorization,
+            navigation_selected,
+            vector_display,
+            form_isolation,
+            self.block_selected,
+            self.math_flows,
         )
     }
 }
@@ -2253,6 +2364,72 @@ mod tests {
             form_isolation,
             plan,
         }
+    }
+
+    #[test]
+    fn vector_marked_content_serialization_v2_keeps_selection_owners_private_and_bound() {
+        let fixture = vector_structure_fixture(false);
+        let projection = fixture
+            .plan
+            .authorize_pdf_serialization(
+                &fixture.registry,
+                &fixture.accessibility_authorization,
+                &fixture.display.layout.limits,
+                &fixture.navigation,
+                &fixture.navigation_authorization,
+                &fixture.navigation_selected,
+                &fixture.display.display,
+                &fixture.form_isolation,
+                &fixture.display.block_selected,
+                &fixture.display.layout.math_flows,
+            )
+            .unwrap();
+        assert_eq!(projection.plan(), &fixture.plan);
+        assert_eq!(projection.equation_number_shapes().len(), 1);
+        let placement = fixture
+            .display
+            .block_selected
+            .placements()
+            .iter()
+            .find(|placement| placement.equation_number().is_some())
+            .unwrap();
+        let number = placement.equation_number().unwrap();
+        assert_eq!(
+            projection.equation_number_rect(
+                placement.owner(),
+                placement.page_index(),
+                number.paint_ordinal(),
+                number.shape_fingerprint()
+            ),
+            Some(number.rect()),
+        );
+        assert_eq!(
+            projection.equation_number_rect(
+                placement.owner(),
+                placement.page_index(),
+                number.paint_ordinal() + 1,
+                number.shape_fingerprint()
+            ),
+            None,
+        );
+        let other = vector_structure_fixture(true);
+        let swapped = VectorMarkedContentSerializationV2 {
+            plan: projection.plan,
+            block_selected: &other.display.block_selected,
+            math_flows: &other.display.layout.math_flows,
+        };
+        assert!(swapped
+            .verify(
+                &fixture.registry,
+                &fixture.accessibility_authorization,
+                &fixture.display.layout.limits,
+                &fixture.navigation,
+                &fixture.navigation_authorization,
+                &fixture.navigation_selected,
+                &fixture.display.display,
+                &fixture.form_isolation,
+            )
+            .is_err());
     }
 
     #[test]

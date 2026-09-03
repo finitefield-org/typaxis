@@ -1,10 +1,17 @@
 #![forbid(unsafe_code)]
 
 mod safe_vector_pdf;
+mod tagged_pdf_v2;
 
 pub use safe_vector_pdf::{
     inspect_safe_vector_pdf, SafeVectorPdfIndependentError, SafeVectorPdfIndependentExpectations,
     SafeVectorPdfIndependentReport,
+};
+pub use tagged_pdf_v2::{
+    inspect_tagged_pdf_v2, TaggedEquationNumberExpectationV2, TaggedPdfIndependentClosureV2,
+    TaggedPdfIndependentErrorV2, TaggedPdfIndependentExpectationsV2, TaggedPdfIndependentReportV2,
+    TaggedPdfObjectClosureV2, TaggedVectorExpectationV2, TaggedVectorSemanticKindV2,
+    TAGGED_PDF_INDEPENDENT_VALIDATOR_ALGORITHM_V2, TAGGED_PDF_OBSERVATION_ALGORITHM_V2,
 };
 
 use typaxis_core::{

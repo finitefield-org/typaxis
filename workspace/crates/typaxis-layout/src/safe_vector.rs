@@ -1863,9 +1863,10 @@ fn staging_precomposed_vector_binding_fixture_with_media(
     use typaxis_syntax::machine_profile_boundary::wire::{
         DocumentPackageDecodePolicy, StagingSemanticDocumentPackageDecoder,
         StagingSemanticDocumentPackageEncoder, WireFontMediaType, WireImageMediaType,
-        WireStagingM4Block, WireStagingM4FontFace, WireStagingM4Inline, WireStagingMathSource,
-        WireStagingSourceSpan, WireStagingStyleDeclaration, WireStagingStyleRule,
-        WireStagingStyleValue, WireStagingTextSpan,
+        WireOutlineEntry, WireOutlineSourceKind, WireStagingM4Block, WireStagingM4FontFace,
+        WireStagingM4Inline, WireStagingMathSource, WireStagingSourceSpan,
+        WireStagingStyleDeclaration, WireStagingStyleRule, WireStagingStyleValue,
+        WireStagingTextSpan,
     };
     use typaxis_syntax::StagingSemanticPackageParser;
 
@@ -1885,13 +1886,19 @@ fn staging_precomposed_vector_binding_fixture_with_media(
     let mut wire = decoded.into_wire();
     let mut document = wire.document().clone();
     let mut resources = wire.resources().clone();
-    let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
+    let WireStagingM4Block::SemanticContainer {
+        anchor_id: root_anchor_id,
+        blocks,
+        ..
+    } = &mut document.blocks[0]
+    else {
         panic!("precomposed-vector fixture root is not a semantic container");
     };
     if matches!(
         block_case,
         crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2
             | crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2LanguageOverride
+            | crate::StagingPrecomposedVectorBlockFixtureCase::TaggedPdfV2
     ) {
         let mut unused_resource = resources.images[0].clone();
         unused_resource.image_id = 1;
@@ -1939,7 +1946,11 @@ fn staging_precomposed_vector_binding_fixture_with_media(
         };
         metrics.viewport.width = 1_966_080;
     }
-    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2LanguageOverride {
+    if matches!(
+        block_case,
+        crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2LanguageOverride
+            | crate::StagingPrecomposedVectorBlockFixtureCase::TaggedPdfV2
+    ) {
         let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
             panic!("precomposed-vector fixture first child is not a paragraph");
         };
@@ -1960,6 +1971,22 @@ fn staging_precomposed_vector_binding_fixture_with_media(
             panic!("precomposed-vector fixture third block is not block math");
         };
         *language = Some("EN-us".to_owned());
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::TaggedPdfV2 {
+        *root_anchor_id = Some("vector-result".to_owned());
+        let mut metadata = wire.metadata().clone();
+        metadata.title = Some("Precomposed vector tagged PDF fixture".to_owned());
+        let mut outline = wire.outline().clone();
+        outline.entries.push(WireOutlineEntry {
+            destination: "vector-result".to_owned(),
+            label: "Vector result".to_owned(),
+            level: 1,
+            outline_id: 0,
+            parent_outline_id: None,
+            source_kind: WireOutlineSourceKind::SemanticContainer,
+            source_node_id: 1,
+        });
+        wire.replace_book_navigation(metadata, outline);
     }
     let mut style_sheet = wire.style_sheet().clone();
     if equation_font {

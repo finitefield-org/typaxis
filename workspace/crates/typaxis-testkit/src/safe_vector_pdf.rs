@@ -217,9 +217,9 @@ impl std::fmt::Display for SafeVectorPdfIndependentError {
 
 impl std::error::Error for SafeVectorPdfIndependentError {}
 
-struct ParsedObject<'a> {
-    number: u32,
-    body: &'a [u8],
+pub(super) struct ParsedObject<'a> {
+    pub(super) number: u32,
+    pub(super) body: &'a [u8],
 }
 
 pub fn inspect_safe_vector_pdf(
@@ -622,7 +622,9 @@ fn is_vector_resource_name(value: &[u8]) -> bool {
         .is_some_and(|suffix| !suffix.is_empty() && suffix.iter().all(u8::is_ascii_digit))
 }
 
-fn parse_objects(pdf: &[u8]) -> Result<Vec<ParsedObject<'_>>, SafeVectorPdfIndependentError> {
+pub(super) fn parse_objects(
+    pdf: &[u8],
+) -> Result<Vec<ParsedObject<'_>>, SafeVectorPdfIndependentError> {
     let mut objects = Vec::new();
     let mut cursor = 0usize;
     while let Some(marker) = find_from(pdf, b" 0 obj\n", cursor) {
@@ -872,7 +874,7 @@ fn valid_unit_interval(value: &[u8]) -> bool {
     raw <= 65_536 && pdf_fixed(raw as i64).as_bytes() == value
 }
 
-fn object_stream(body: &[u8]) -> Result<Option<&[u8]>, SafeVectorPdfIndependentError> {
+pub(super) fn object_stream(body: &[u8]) -> Result<Option<&[u8]>, SafeVectorPdfIndependentError> {
     let Some(start) = find_from(body, b"stream\n", 0) else {
         return Ok(None);
     };
@@ -911,7 +913,7 @@ fn token_count_from_tokens(
     .map_err(|_| SafeVectorPdfIndependentError::MalformedPdf)
 }
 
-fn ascii_tokens(value: &[u8]) -> Result<Vec<&[u8]>, SafeVectorPdfIndependentError> {
+pub(super) fn ascii_tokens(value: &[u8]) -> Result<Vec<&[u8]>, SafeVectorPdfIndependentError> {
     if !value.is_ascii() {
         return Err(SafeVectorPdfIndependentError::MalformedPdf);
     }
@@ -931,11 +933,11 @@ fn byte_count(value: &[u8], needle: &[u8]) -> Result<u32, SafeVectorPdfIndepende
     .map_err(|_| SafeVectorPdfIndependentError::MalformedPdf)
 }
 
-fn contains(value: &[u8], needle: &[u8]) -> bool {
+pub(super) fn contains(value: &[u8], needle: &[u8]) -> bool {
     value.windows(needle.len()).any(|window| window == needle)
 }
 
-fn find_from(value: &[u8], needle: &[u8], start: usize) -> Option<usize> {
+pub(super) fn find_from(value: &[u8], needle: &[u8], start: usize) -> Option<usize> {
     value
         .get(start..)?
         .windows(needle.len())

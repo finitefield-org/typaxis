@@ -1300,6 +1300,14 @@ pub fn staging_precomposed_vector_display_language_override_fixture(
 }
 
 #[cfg(any(test, feature = "staging-fixtures"))]
+pub fn staging_precomposed_vector_tagged_pdf_fixture(
+) -> Result<StagingPrecomposedVectorDisplayFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_display_fixture_for_case(
+        typaxis_layout::StagingPrecomposedVectorBlockFixtureCase::TaggedPdfV2,
+    )
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
 fn staging_precomposed_vector_display_fixture_for_case(
     case: typaxis_layout::StagingPrecomposedVectorBlockFixtureCase,
 ) -> Result<StagingPrecomposedVectorDisplayFixture, Box<dyn std::error::Error>> {
@@ -1351,14 +1359,28 @@ fn staging_precomposed_vector_display_fixture_for_case(
         &layout.bindings,
         &inline_input,
     )?;
-    let block_input = StagingAtomicVectorBlockPaginationInput::new(
-        &layout.layout,
-        nonnegative(80 * 65_536),
-        inline_selected.receipt().fragment_charge(),
+    let tagged_pdf_v2 =
+        case == typaxis_layout::StagingPrecomposedVectorBlockFixtureCase::TaggedPdfV2;
+    let figure_captions = if tagged_pdf_v2 {
+        Vec::new()
+    } else {
         vec![StagingFigureCaptionBlockInput::new(
             NodeId::new(6),
             positive(20 * 65_536),
-        )],
+        )]
+    };
+    // Keep the independent inline and block paint-ordinal domains on separate
+    // fixture pages when the tagged-PDF case intentionally has no caption.
+    let initial_consumed_block_size = if tagged_pdf_v2 {
+        nonnegative(99 * 65_536)
+    } else {
+        nonnegative(80 * 65_536)
+    };
+    let block_input = StagingAtomicVectorBlockPaginationInput::new(
+        &layout.layout,
+        initial_consumed_block_size,
+        inline_selected.receipt().fragment_charge(),
+        figure_captions,
         Vec::new(),
     )?;
     let block_selected = paginate_staging_atomic_vector_blocks(

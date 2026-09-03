@@ -1057,7 +1057,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V16 Tagged PDF、book-navigation PDF observation、in-tree validator `/2`を実装する
 
-- Status: Pending
+- Status: Complete
 - Depends on: MI4-V13, MI4-V15
 - Design inputs: docs/27 §3、§9.1、§10、§11、§15.3
 - Primary files:
@@ -1101,6 +1101,14 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf vector_actual_text_extraction --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf book_navigation_pdf_v2 --locked`
   - `python3 -m unittest tools/test_pdf_structure.py -v`
+- Completion record:
+  - `workspace/crates/typaxis-pdf/src/tagged_pdf_v2.rs`にproduction authorization/structure/marked-content `/2`を検証するstaging writerを追加した。PDF crateへlayout/pagination/machine-profileの直接依存を追加せず、Display-list所有のsealed borrowing projection `VectorMarkedContentSerializationV2`経由でselected geometryとequation-number shaping receiptを受け取る。projection自体のcanonical identityやresource chargeは増やさない。Rust独立validatorのpositive fixtureは実際のproduction profile preflight/session verificationを経由する。
+  - vector relative object roles、equation fonts、page/content、navigation、Info/XMP、structure/ParentTree/conditional IDTreeを一つのfinal object planへ集約した。全actual countをchecked計算して`max_pdf_objects`を一回判定した後だけabsolute numberを発行し、exact/max+1、missing/duplicate role/chargeを検証する。final bytesは既存`VerifiedPdfBytesReceipt`で保持し、tagged observation `/2`、book-navigation PDF `/2`、SafeVector final closure `/2`を同一PDF hash/object tableへ閉じる。
+  - Formula/Figureごとのouter BDC/MCID、kind別ActualText/conditional Langのproperty-only Span、shared Form `Do`、Formula直後のequation-number child Spanをserializeする。番号は既存shapeのglyph/position/source clusterを使い、resources側のstaging text finalizerでTrueType subset、Type0/CID、ToUnicode/CIDToGIDMapを決定的に生成する。font/CID resource limitは`G6100`を保持し、whole-number ActualTextにより多scalar/single-glyph clusterも元の番号文字列を抽出する。番号のためにTeXや文字列を再組版しない。
+  - writerから独立した`typaxis-testkit/src/tagged_pdf_v2.rs`とPython validator `/2`でfinal PDF/object hash、xref/trailer、Catalog/Lang/XMP、outline destination/page/SE、IDTree、ParentTree、role/Alt/ActualText/Lang、page-local MCID/Formula child order、Form no-semantic-state、font resource/CIDと抽出順を検査する。missing/wrong property、same-length stream tamper、Form BMC injection、bad destination/parent cycle、old observation algorithm、非一回charge、wrong object role、CMap operator/count/CIDをnegative testにした。
+  - positive fixtureは四vector kindを二page上の一Form/four Doとして再利用し、captionless blockと番号、document language override、nonempty title/outlineを含む。日本語resolved ActualText、句読点、番号のdocument order、TeX token不出力、Unicode番号「第1式」、ActualText-onlyの空ToUnicode mappingを検証する。optional IDTreeは独立synthetic positive/negativeで双方向参照を検査する。VMB全categoryと前後の通常本文を合わせたcombined book pipelineはMI4-V18、external validator/release claimはMI4-V19のままとする。
+  - 指定のPDF test四filter、`cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit tagged_pdf_v2 --locked`、Python structure suite（28 tests）、workspace all-target/all-feature locked tests、doc-tests、Clippy `-D warnings`、fmt check、Schema validator（4071 refs）、`/usr/bin/git diff --check`をlocalで実行した。既存external-validator二testは従来どおりignoredであり、外部適合性のsuccessには数えない。既存tagged-PDF `/1`、book-navigation `/1`、book-XMP `/2`の実装/fixture bytesを変更せずworkspace回帰で確認した。
+  - レビューでunembedded番号font、依存firewall違反、outline/IDTreeとtrailer closureの不足、Unicode番号のASCII-only制約、resource limitの`I9190`への変換、ActualText-only fontの不当拒否を修正した。修正後の全差分レビューのfindingは0件。追加primary外変更はDisplay-listのprojection/re-export、layoutのtest-only fixture case、resourcesのtext finalizer/re-export、testkitの独立validator module/dev-dependency、Cargo manifest/lockと本recordに限定し、public capability/CLI、manifest `/2`は変更していない。
 - Non-goals:
   - external validatorによるrelease claim。`MI4-V19`で閉じる
 

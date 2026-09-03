@@ -26,6 +26,7 @@ pub enum StagingPrecomposedVectorBlockFixtureCase {
     Default,
     DisplayV2,
     DisplayV2LanguageOverride,
+    TaggedPdfV2,
     AlignmentStart,
     AlignmentCenter,
     AlignmentEnd,

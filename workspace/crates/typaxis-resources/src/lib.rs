@@ -2,6 +2,7 @@
 
 mod safe_vector;
 mod safe_vector_v2;
+mod staging_text;
 mod vector_content;
 
 pub use safe_vector::{
@@ -20,6 +21,10 @@ pub use safe_vector_v2::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use safe_vector_v2::{staging_safe_vector_v2_ir_fixture, StagingSafeVectorV2IrFixture};
+pub use staging_text::{
+    finalize_staging_pdf_text_fonts, FrozenStagingPdfTextClusterPlan, FrozenStagingPdfTextFontPlan,
+    StagingPdfTextClusterUsage,
+};
 pub use typaxis_resource_admission::{VectorContentKey, VectorContentMediaType};
 pub use vector_content::{
     VectorContentAlias, VectorContentAliasProvenance, VectorContentCandidate,

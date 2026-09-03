@@ -64,7 +64,7 @@ pub use precomposed_vector::{
     staging_precomposed_vector_display_language_override_fixture,
     staging_precomposed_vector_display_ten_use_fixture,
     staging_precomposed_vector_display_two_alias_use_fixture,
-    StagingPrecomposedVectorDisplayFixture,
+    staging_precomposed_vector_tagged_pdf_fixture, StagingPrecomposedVectorDisplayFixture,
 };
 pub use safe_vector::{
     build_staging_safe_vector_display, prove_vector_form_structure_isolation_v2, StagingDrawVector,
@@ -89,14 +89,16 @@ pub use tagged_structure::{
     MarkedContentPlanReceiptV2, MarkedContentRecord, MarkedContentRecordV2,
     MarkedContentStandardPaintInputV2, MarkedContentStructure, StructureLinkAnnotation,
     StructureParentTreeEntry, StructureParentTreeValue, VectorMarkedContentPlanV2,
-    MARKED_CONTENT_PLAN_ALGORITHM, MARKED_CONTENT_PLAN_ALGORITHM_V2,
+    VectorMarkedContentSerializationV2, MARKED_CONTENT_PLAN_ALGORITHM,
+    MARKED_CONTENT_PLAN_ALGORITHM_V2,
 };
 pub use typaxis_layout::{
-    build_structure_registry, select_structure_bindings, GeneratedStructureKey,
-    GeneratedStructureSlot, SelectedStructureAnnotationInput, SelectedStructureBindingReceipt,
-    SelectedStructurePage, SelectedStructurePaintInput, SelectedStructurePaintOwner,
-    StructureArtifactClass, StructureNodeId, StructureNodeRecord, StructureOwner,
-    StructureRegistryReceipt, StructureRole, StructureTableAttributes,
+    build_structure_registry, build_structure_registry_v2, select_structure_bindings,
+    GeneratedStructureKey, GeneratedStructureSlot, SelectedStructureAnnotationInput,
+    SelectedStructureBindingReceipt, SelectedStructurePage, SelectedStructurePaintInput,
+    SelectedStructurePaintOwner, StructureArtifactClass, StructureNodeId, StructureNodeRecord,
+    StructureOwner, StructureRegistryReceipt, StructureRegistryReceiptV2, StructureRole,
+    StructureTableAttributes,
 };
 
 use typaxis_core::{

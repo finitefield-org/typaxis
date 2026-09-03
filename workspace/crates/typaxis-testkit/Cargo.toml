@@ -21,4 +21,5 @@ typaxis-pdf = { path = "../typaxis-pdf" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 
 [dev-dependencies]
+typaxis-machine-profile = { path = "../typaxis-machine-profile" }
 typaxis-pdf = { path = "../typaxis-pdf", features = ["staging-fixtures"] }

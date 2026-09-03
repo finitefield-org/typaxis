@@ -50,6 +50,21 @@ not add a standalone production PDF receipt:
   name, object role, or `Do`. The isolated writer is assertion-only. A
   production `typaxis.safe-vector-pdf-closure/2` still requires the complete
   final writer's bytes, hash, and object/use table.
+- The `MI4-V16` test-only tagged-PDF fixture starts from the same canonical
+  package bytes, adds the required nonempty document title and one outline
+  destination, applies the
+  canonical `en-US` override to all four vector kinds, and places captionless
+  block vectors on the next fixture page. The complete writer emits one shared
+  Form, four page-level Figure/Formula MCRs, property-only ActualText/Lang
+  Spans, and a following equation-number Span using its original shaping
+  receipt and an embedded TrueType subset with Type0/CID/ToUnicode resources.
+  The Rust and Python independent validators re-derive the object, ParentTree,
+  outline, marked-content, extraction, and Form-isolation closure. Separate
+  synthetic cases check IDTree closure, Unicode equation numbers, and
+  ActualText-only font extraction. All three final writer observations
+  (tagged PDF, book navigation, and SafeVector) close over the same PDF hash;
+  no generated PDF or host-specific fixture path is checked in here. Combined
+  Japanese-book pipeline integration and external validation remain V18/V19.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,

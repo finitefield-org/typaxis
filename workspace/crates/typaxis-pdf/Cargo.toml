@@ -21,6 +21,7 @@ typaxis-font = { path = "../typaxis-font" }
 typaxis-math = { path = "../typaxis-math" }
 typaxis-resource-admission = { path = "../typaxis-resource-admission" }
 typaxis-resources = { path = "../typaxis-resources" }
+typaxis-shaping = { path = "../typaxis-shaping" }
 typaxis-syntax = { path = "../typaxis-syntax" }
 
 [dev-dependencies]

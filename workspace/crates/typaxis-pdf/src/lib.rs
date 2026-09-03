@@ -10,6 +10,7 @@ mod safe_vector;
 mod safe_vector_v2;
 mod semantic_container;
 mod tagged_pdf;
+mod tagged_pdf_v2;
 
 pub use advanced_columns::{
     serialize_columns_pdf, serialize_staging_columns_pdf, StagingColumnsPdf,
@@ -68,6 +69,13 @@ pub use semantic_container::{
 pub use tagged_pdf::{
     write_staging_tagged_pdf, StagingTaggedPdf, TaggedPdfError, TaggedPdfObjectObservation,
     TaggedPdfObservation, TAGGED_PDF_ALGORITHM, TAGGED_PDF_XMP_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use tagged_pdf_v2::staging_tagged_vector_pdf_v2_fixture;
+pub use tagged_pdf_v2::{
+    write_staging_tagged_pdf_v2, StagingTaggedPdfV2, TaggedPdfObjectObservationV2,
+    TaggedPdfObservationV2, TaggedPdfV2Error, TAGGED_PDF_OBSERVATION_ALGORITHM_V2,
+    TAGGED_PDF_VALIDATOR_ALGORITHM_V2,
 };
 
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};

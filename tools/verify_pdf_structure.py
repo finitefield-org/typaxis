@@ -2726,6 +2726,925 @@ def verify_tagged_pdf_structure(pdf: bytes, manifest: dict[str, Any]) -> dict[st
     }
 
 
+def _tagged_v2_expectation_shape(expectation: dict[str, Any]) -> None:
+    _exact_keys(
+        expectation,
+        {
+            "algorithm", "document_language", "equation_numbers", "form_count",
+            "object_budget_charge_count", "observation_algorithm", "page_count",
+            "pdf", "vectors", "xmp_sha256",
+        },
+        "tagged-PDF /2 expectation",
+    )
+    if expectation["algorithm"] != "typaxis.tagged-pdf-validator/2":
+        raise PdfValidationError("tagged-PDF validator algorithm is not /2")
+    if expectation["observation_algorithm"] != "typaxis.tagged-pdf-observation/2":
+        raise PdfValidationError("tagged-PDF observation algorithm is not /2")
+    _canonical_language(expectation["document_language"], "tagged-PDF document language")
+    page_count = _json_integer(expectation["page_count"], "tagged-PDF page count", 1)
+    form_count = _json_integer(expectation["form_count"], "tagged-PDF Form count", 1)
+    if expectation["object_budget_charge_count"] != 1:
+        raise PdfValidationError("tagged-PDF object budget must be charged exactly once")
+    if (
+        not isinstance(expectation["xmp_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", expectation["xmp_sha256"]) is None
+    ):
+        raise PdfValidationError("tagged-PDF XMP hash is not lowercase SHA-256")
+
+    pdf = expectation["pdf"]
+    _exact_keys(pdf, {"byte_length", "object_count", "objects", "sha256"}, "tagged-PDF /2 closure")
+    _json_integer(pdf["byte_length"], "tagged-PDF byte length", 1)
+    object_count = _json_integer(pdf["object_count"], "tagged-PDF object count", 1)
+    if not isinstance(pdf["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", pdf["sha256"]) is None:
+        raise PdfValidationError("tagged-PDF hash is not lowercase SHA-256")
+    if not isinstance(pdf["objects"], list) or len(pdf["objects"]) != object_count:
+        raise PdfValidationError("tagged-PDF object closure count differs")
+    roles: set[str] = set()
+    singleton_roles = {
+        "catalog", "pages", "destinations", "info",
+        "metadata", "outline_root", "structure_tree_root", "structure_parent_tree",
+        "structure_id_tree",
+    }
+    indexed_roles: dict[str, list[int]] = {
+        prefix: []
+        for prefix in (
+            "page_content", "page", "link_annotation", "outline_item", "vector_form",
+            "vector_ext_g_state", "structure_element", "equation_font_type0",
+            "equation_font_cid", "equation_font_descriptor", "equation_font_program",
+            "equation_font_to_unicode", "equation_font_cid_to_gid",
+        )
+    }
+    for index, item in enumerate(pdf["objects"], 1):
+        _exact_keys(item, {"object_number", "role", "sha256"}, f"tagged-PDF /2 object {index}")
+        if item["object_number"] != index or not isinstance(item["role"], str) or not item["role"]:
+            raise PdfValidationError("tagged-PDF object closure is not dense")
+        if item["role"] in roles:
+            raise PdfValidationError("tagged-PDF object closure has a duplicate role")
+        roles.add(item["role"])
+        role = item["role"]
+        if role not in singleton_roles:
+            prefix, separator, suffix = role.partition(":")
+            if (
+                not separator
+                or prefix not in indexed_roles
+                or re.fullmatch(r"0|[1-9][0-9]*", suffix) is None
+                or len(suffix) > 10
+            ):
+                raise PdfValidationError("tagged-PDF object role is not canonical")
+            role_index = int(suffix)
+            if role_index > 0xFFFFFFFF:
+                raise PdfValidationError("tagged-PDF object role index is outside u32")
+            indexed_roles[prefix].append(role_index)
+        if not isinstance(item["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is None:
+            raise PdfValidationError("tagged-PDF object hash is not lowercase SHA-256")
+
+    required_singletons = {
+        "catalog", "pages", "destinations", "info", "metadata",
+        "structure_tree_root", "structure_parent_tree",
+    }
+    if not required_singletons.issubset(roles) or pdf["objects"][0]["role"] != "catalog":
+        raise PdfValidationError("tagged-PDF required singleton role plan differs")
+    for prefix in ("page_content", "page"):
+        if sorted(indexed_roles[prefix]) != list(range(page_count)):
+            raise PdfValidationError(f"tagged-PDF {prefix} role plan differs")
+    for prefix in ("link_annotation", "outline_item", "structure_element"):
+        values = sorted(indexed_roles[prefix])
+        if values != list(range(len(values))):
+            raise PdfValidationError(f"tagged-PDF {prefix} role plan is not dense")
+    relative_vectors = sorted(indexed_roles["vector_form"] + indexed_roles["vector_ext_g_state"])
+    if relative_vectors != list(range(len(relative_vectors))):
+        raise PdfValidationError("tagged-PDF vector object role plan is not dense")
+    if len(indexed_roles["vector_form"]) != form_count:
+        raise PdfValidationError("tagged-PDF vector Form role count differs")
+    if ("outline_root" in roles) != bool(indexed_roles["outline_item"]):
+        raise PdfValidationError("tagged-PDF outline role plan differs")
+
+    vectors = expectation["vectors"]
+    numbers = expectation["equation_numbers"]
+    if not isinstance(vectors, list) or not vectors or not isinstance(numbers, list):
+        raise PdfValidationError("tagged-PDF vector/number expectations are not arrays")
+    kinds = {
+        "inline_vector": "Figure",
+        "math_vector": "Formula",
+        "vector_figure": "Figure",
+        "math_vector_block": "Formula",
+    }
+    structure_nodes: set[int] = set()
+    form_indices: set[int] = set()
+    page_mcids: dict[int, list[int]] = {page: [] for page in range(page_count)}
+    vector_by_node: dict[int, dict[str, Any]] = {}
+    for index, vector in enumerate(vectors):
+        _exact_keys(
+            vector,
+            {
+                "actual_text", "alternative", "form_index", "kind", "mcid",
+                "page_index", "paint_language", "structure_language", "structure_node_id",
+            },
+            f"tagged vector {index}",
+        )
+        if vector["kind"] not in kinds:
+            raise PdfValidationError("tagged vector kind is not closed")
+        page = _json_integer(vector["page_index"], "tagged vector page")
+        mcid = _json_integer(vector["mcid"], "tagged vector MCID")
+        node = _json_integer(vector["structure_node_id"], "tagged vector structure node", 1)
+        form_index = _json_integer(vector["form_index"], "tagged vector Form index")
+        if page >= page_count or form_index >= form_count or node in structure_nodes:
+            raise PdfValidationError("tagged vector page/Form/node is outside the closed domain")
+        structure_nodes.add(node)
+        form_indices.add(form_index)
+        page_mcids[page].append(mcid)
+        vector_by_node[node] = vector
+        if not isinstance(vector["alternative"], str) or not vector["alternative"].strip():
+            raise PdfValidationError("tagged vector alternative is empty")
+        actual = vector["actual_text"]
+        if actual is not None and (not isinstance(actual, str) or not actual.strip()):
+            raise PdfValidationError("tagged vector ActualText is invalid")
+        if vector["kind"] in {"math_vector", "math_vector_block"} and actual is None:
+            raise PdfValidationError("tagged math vector requires resolved ActualText")
+        if vector["kind"] == "vector_figure" and actual is not None:
+            raise PdfValidationError("vector Figure cannot carry paint ActualText")
+        for key in ("paint_language", "structure_language"):
+            if vector[key] is not None:
+                _canonical_language(vector[key], f"tagged vector {key}")
+    if form_indices != set(range(form_count)):
+        raise PdfValidationError("tagged vector Forms are not all used")
+
+    for index, number in enumerate(numbers):
+        _exact_keys(
+            number,
+            {
+                "exact_text", "font_index", "mcid", "page_index", "paint_language",
+                "parent_structure_node_id", "structure_language", "structure_node_id",
+            },
+            f"equation number {index}",
+        )
+        font_index = _json_integer(number["font_index"], "equation-number font index")
+        page = _json_integer(number["page_index"], "equation-number page")
+        mcid = _json_integer(number["mcid"], "equation-number MCID")
+        node = _json_integer(number["structure_node_id"], "equation-number structure node", 1)
+        parent = _json_integer(number["parent_structure_node_id"], "equation-number parent", 1)
+        if page >= page_count or node in structure_nodes:
+            raise PdfValidationError("equation-number page/node is outside the closed domain")
+        structure_nodes.add(node)
+        page_mcids[page].append(mcid)
+        parent_vector = vector_by_node.get(parent)
+        if (
+            parent_vector is None
+            or parent_vector["kind"] != "math_vector_block"
+            or parent_vector["page_index"] != page
+            or parent_vector["mcid"] + 1 != mcid
+        ):
+            raise PdfValidationError("equation-number Formula relationship/order differs")
+        text = number["exact_text"]
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or any(ord(character) < 0x20 or 0x7F <= ord(character) <= 0x9F for character in text)
+        ):
+            raise PdfValidationError("equation-number text is not supported normal text")
+        for key in ("paint_language", "structure_language"):
+            if number[key] is not None:
+                _canonical_language(number[key], f"equation number {key}")
+    font_indices = sorted({number["font_index"] for number in numbers})
+    if font_indices != list(range(len(font_indices))):
+        raise PdfValidationError("tagged-PDF equation font indices are not dense")
+    for prefix in (
+        "equation_font_type0", "equation_font_cid", "equation_font_descriptor",
+        "equation_font_program", "equation_font_to_unicode", "equation_font_cid_to_gid",
+    ):
+        if sorted(indexed_roles[prefix]) != font_indices:
+            raise PdfValidationError(f"tagged-PDF {prefix} role plan differs")
+    for page, mcids in page_mcids.items():
+        if sorted(mcids) != list(range(len(mcids))):
+            raise PdfValidationError(f"tagged page {page} MCIDs are not dense")
+
+
+def _tagged_v2_roles(expectation: dict[str, Any]) -> dict[str, int]:
+    return {item["role"]: item["object_number"] for item in expectation["pdf"]["objects"]}
+
+
+def _tagged_v2_equation_fonts(
+    objects: dict[int, ParsedObject],
+    roles: dict[str, int],
+    equation_numbers: list[dict[str, Any]],
+) -> dict[int, tuple[int, frozenset[int]]]:
+    facts: dict[int, tuple[int, frozenset[int]]] = {}
+    for index in sorted({number["font_index"] for number in equation_numbers}):
+        type0_number = roles[f"equation_font_type0:{index}"]
+        cid_number = roles[f"equation_font_cid:{index}"]
+        descriptor_number = roles[f"equation_font_descriptor:{index}"]
+        program_number = roles[f"equation_font_program:{index}"]
+        cmap_number = roles[f"equation_font_to_unicode:{index}"]
+        gid_map_number = roles[f"equation_font_cid_to_gid:{index}"]
+
+        type0 = objects[type0_number].value
+        _exact_keys(
+            type0,
+            {"BaseFont", "DescendantFonts", "Encoding", "Subtype", "ToUnicode", "Type"},
+            f"equation font {index} Type0",
+        )
+        _name(type0["Type"], "Font", f"equation font {index} /Type")
+        _name(type0["Subtype"], "Type0", f"equation font {index} /Subtype")
+        _name(type0["Encoding"], "Identity-H", f"equation font {index} /Encoding")
+        if (
+            not isinstance(type0["BaseFont"], PdfName)
+            or type0["DescendantFonts"] != [PdfRef(cid_number)]
+            or _ref(type0["ToUnicode"], "equation Type0 /ToUnicode") != cmap_number
+        ):
+            raise PdfValidationError("equation Type0 font closure differs")
+
+        cid = objects[cid_number].value
+        _exact_keys(
+            cid,
+            {
+                "BaseFont", "CIDSystemInfo", "CIDToGIDMap", "DW", "FontDescriptor",
+                "Subtype", "Type", "W",
+            },
+            f"equation font {index} CIDFont",
+        )
+        _name(cid["Type"], "Font", f"equation font {index} CID /Type")
+        _name(cid["Subtype"], "CIDFontType2", f"equation font {index} CID /Subtype")
+        system_info = cid["CIDSystemInfo"]
+        _exact_keys(system_info, {"Ordering", "Registry", "Supplement"}, "CIDSystemInfo")
+        if (
+            cid["BaseFont"] != type0["BaseFont"]
+            or _literal_ascii_text(system_info["Registry"], "CID registry") != "Adobe"
+            or _literal_ascii_text(system_info["Ordering"], "CID ordering") != "Identity"
+            or _integer(system_info["Supplement"], "CID supplement") != 0
+            or _integer(cid["DW"], "CID default width") != 1000
+            or _ref(cid["FontDescriptor"], "CID /FontDescriptor") != descriptor_number
+            or _ref(cid["CIDToGIDMap"], "CID /CIDToGIDMap") != gid_map_number
+        ):
+            raise PdfValidationError("equation CID font closure differs")
+
+        descriptor = objects[descriptor_number].value
+        _exact_keys(
+            descriptor,
+            {
+                "Ascent", "CapHeight", "Descent", "Flags", "FontBBox", "FontFile2",
+                "FontName", "ItalicAngle", "StemV", "Type",
+            },
+            f"equation font {index} descriptor",
+        )
+        _name(descriptor["Type"], "FontDescriptor", "equation font descriptor /Type")
+        if (
+            descriptor["FontName"] != type0["BaseFont"]
+            or _ref(descriptor["FontFile2"], "font descriptor /FontFile2") != program_number
+            or not isinstance(descriptor["FontBBox"], list)
+            or len(descriptor["FontBBox"]) != 4
+        ):
+            raise PdfValidationError("equation font descriptor closure differs")
+
+        program = objects[program_number]
+        _exact_keys(program.value, {"Length", "Length1"}, "equation font program")
+        if (
+            program.stream is None
+            or program.value["Length1"] != len(program.stream)
+            or not program.stream.startswith(b"\x00\x01\x00\x00")
+        ):
+            raise PdfValidationError("equation font program differs")
+
+        gid_map = objects[gid_map_number]
+        _exact_keys(gid_map.value, {"Length"}, "equation CIDToGIDMap")
+        if (
+            gid_map.stream is None
+            or len(gid_map.stream) < 4
+            or len(gid_map.stream) % 2
+            or gid_map.stream[:2] != b"\x00\x00"
+        ):
+            raise PdfValidationError("equation CIDToGIDMap differs")
+        cid_count = len(gid_map.stream) // 2 - 1
+        valid_cids = frozenset(range(1, cid_count + 1))
+
+        widths = cid["W"]
+        if not isinstance(widths, list) or len(widths) != cid_count * 2:
+            raise PdfValidationError("equation CID widths differ")
+        for expected_cid, offset in enumerate(range(0, len(widths), 2), 1):
+            width = widths[offset + 1]
+            if (
+                widths[offset] != expected_cid
+                or not isinstance(width, list)
+                or len(width) != 1
+                or not isinstance(width[0], int)
+                or isinstance(width[0], bool)
+            ):
+                raise PdfValidationError("equation CID widths are not canonical")
+
+        cmap = objects[cmap_number]
+        _exact_keys(cmap.value, {"Length"}, "equation ToUnicode CMap")
+        prefix = (
+            b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+            b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def\n"
+            b"/CMapName /Typaxis-Identity-UCS def\n/CMapType 2 def\n"
+            b"1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+        )
+        suffix = b"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+        if cmap.stream is None or not cmap.stream.startswith(prefix) or not cmap.stream.endswith(suffix):
+            raise PdfValidationError("equation ToUnicode CMap differs")
+        mappings = cmap.stream[len(prefix):-len(suffix)]
+        mapped_cids: set[int] = set()
+        # All number glyphs are independently required to be inside an exact
+        # ActualText scope. A font used solely by such clusters may have no
+        # per-CID mappings; unknown operators must still fail closed.
+        cursor = 0
+        previous_cid = 0
+        while cursor < len(mappings):
+            chunk = re.match(
+                rb"([1-9][0-9]*) beginbfchar\n(.*?)endbfchar\n",
+                mappings[cursor:],
+                re.DOTALL,
+            )
+            if chunk is None or len(chunk[1]) > 3:
+                raise PdfValidationError("equation ToUnicode bfchar syntax differs")
+            count = int(chunk[1])
+            lines = chunk[2].splitlines()
+            if count > 100 or count != len(lines):
+                raise PdfValidationError("equation ToUnicode bfchar count differs")
+            for line in lines:
+                match = re.fullmatch(rb"<([0-9A-F]{4})> <((?:[0-9A-F]{4})+)>", line)
+                if match is None:
+                    raise PdfValidationError("equation ToUnicode bfchar syntax differs")
+                source = int(match.group(1), 16)
+                if source <= previous_cid or source not in valid_cids:
+                    raise PdfValidationError("equation ToUnicode source CID differs")
+                try:
+                    bytes.fromhex(match.group(2).decode("ascii")).decode("utf-16-be")
+                except (UnicodeError, ValueError) as error:
+                    raise PdfValidationError("equation ToUnicode destination is invalid") from error
+                mapped_cids.add(source)
+                previous_cid = source
+            cursor += chunk.end()
+        facts[index] = (type0_number, valid_cids)
+    return facts
+
+
+def _tagged_v2_parse_outer(content: bytes, cursor: int) -> tuple[PdfName, dict[str, Any], int]:
+    parser = PdfParser(content[cursor:])
+    tag = parser.parse()
+    properties = parser.parse()
+    parser.skip_space()
+    if not isinstance(tag, PdfName) or not isinstance(properties, dict):
+        raise PdfValidationError("tagged-PDF /2 marked-content prefix differs")
+    cursor += parser.pos
+    if not content.startswith(b"BDC\n", cursor):
+        raise PdfValidationError("tagged-PDF /2 BDC is missing")
+    return tag, properties, cursor + len(b"BDC\n")
+
+
+def _tagged_v2_content(
+    content: bytes,
+    page: int,
+    records: list[tuple[str, dict[str, Any]]],
+    page_dictionary: dict[str, Any],
+    form_objects: list[int],
+    equation_fonts: dict[int, tuple[int, frozenset[int]]],
+) -> tuple[int, list[str]]:
+    if not content.startswith(b"q\n1 0 0 -1 0 ") or not content.endswith(b"Q"):
+        raise PdfValidationError("tagged-PDF /2 page-root transform differs")
+    first_end = content.find(b"\n")
+    transform_end = content.find(b"\n", first_end + 1)
+    if first_end != 1 or transform_end < 0:
+        raise PdfValidationError("tagged-PDF /2 page-root transform is unterminated")
+    transform = content[first_end + 1:transform_end]
+    match = re.fullmatch(rb"1 0 0 -1 0 ([0-9]+(?:\.[0-9]+)?) cm", transform)
+    media_box = page_dictionary.get("MediaBox")
+    if (
+        match is None
+        or not isinstance(media_box, list)
+        or len(media_box) != 4
+        or _fixed(media_box[0], f"tagged page {page} MediaBox x") != 0
+        or _fixed(media_box[1], f"tagged page {page} MediaBox y") != 0
+        or _fixed(Decimal(match.group(1).decode("ascii")), f"tagged page {page} transform")
+        != _fixed(media_box[3], f"tagged page {page} MediaBox height")
+    ):
+        raise PdfValidationError("tagged-PDF /2 page-root transform height differs")
+    cursor = transform_end + 1
+    xobjects = page_dictionary.get("Resources", {}).get("XObject", {})
+    if not isinstance(xobjects, dict):
+        raise PdfValidationError("tagged-PDF /2 page XObject resources differ")
+    do_count = 0
+    extracted: list[str] = []
+    for record_kind, record in records:
+        tag, outer, cursor = _tagged_v2_parse_outer(content, cursor)
+        if record_kind == "vector":
+            role = "Formula" if record["kind"] in {"math_vector", "math_vector_block"} else "Figure"
+            _name(tag, role, "tagged vector outer role")
+            _exact_keys(outer, {"MCID"}, "tagged vector outer properties")
+            if _integer(outer["MCID"], "tagged vector MCID") != record["mcid"]:
+                raise PdfValidationError("tagged vector MCID differs")
+            nested = record["actual_text"] is not None or record["paint_language"] is not None
+            if nested:
+                inner_tag, inner, cursor = _tagged_v2_parse_outer(content, cursor)
+                _name(inner_tag, "Span", "tagged vector inner role")
+                keys = ({"ActualText"} if record["actual_text"] is not None else set()) | (
+                    {"Lang"} if record["paint_language"] is not None else set()
+                )
+                _exact_keys(inner, keys, "tagged vector inner properties")
+                if (
+                    (record["actual_text"] is not None and _utf16_text(inner["ActualText"], "vector ActualText") != record["actual_text"])
+                    or (record["paint_language"] is not None and _utf16_text(inner["Lang"], "vector Lang") != record["paint_language"])
+                ):
+                    raise PdfValidationError("tagged vector inner properties differ")
+            paint_end = content.find(b"EMC\n", cursor)
+            if paint_end < 0:
+                raise PdfValidationError("tagged vector marked content is unclosed")
+            paint = content[cursor:paint_end]
+            do_lines = [line for line in paint.splitlines() if line.endswith(b" Do")]
+            if len(do_lines) != 1 or any(
+                token in paint
+                for token in (
+                    b"/MCID", b"/Alt", b"/ActualText", b"/Lang", b"BDC", b"BMC",
+                    b"EMC", b"BT ",
+                )
+            ):
+                raise PdfValidationError("tagged vector Do/nesting differs")
+            resource_name = do_lines[0][:-len(b" Do")]
+            if not resource_name.startswith(b"/V"):
+                raise PdfValidationError("tagged vector resource name differs")
+            try:
+                name = resource_name[1:].decode("ascii")
+            except UnicodeDecodeError as error:
+                raise PdfValidationError("tagged vector resource name is not ASCII") from error
+            target = xobjects.get(name)
+            if not isinstance(target, PdfRef) or target.number != form_objects[record["form_index"]]:
+                raise PdfValidationError("tagged vector Form binding differs")
+            cursor = paint_end + len(b"EMC\n")
+            if nested:
+                if not content.startswith(b"EMC\n", cursor):
+                    raise PdfValidationError("tagged vector outer EMC is missing")
+                cursor += len(b"EMC\n")
+            if record["actual_text"] is not None:
+                extracted.append(record["actual_text"])
+            do_count += 1
+        else:
+            _name(tag, "Span", "equation-number outer role")
+            keys = {"MCID"} | ({"Lang"} if record["paint_language"] is not None else set())
+            _exact_keys(outer, keys, "equation-number outer properties")
+            if _integer(outer["MCID"], "equation-number MCID") != record["mcid"]:
+                raise PdfValidationError("equation-number MCID differs")
+            if record["paint_language"] is not None and _utf16_text(outer["Lang"], "equation-number Lang") != record["paint_language"]:
+                raise PdfValidationError("equation-number language differs")
+            inner_tag, inner, cursor = _tagged_v2_parse_outer(content, cursor)
+            _name(inner_tag, "Span", "equation-number extraction role")
+            _exact_keys(inner, {"ActualText"}, "equation-number extraction properties")
+            if _utf16_text(inner["ActualText"], "equation-number ActualText") != record["exact_text"]:
+                raise PdfValidationError("equation-number ActualText differs")
+            paint_end = content.find(b"EMC\n", cursor)
+            if paint_end < 0:
+                raise PdfValidationError("equation-number marked content is unclosed")
+            paint = content[cursor:paint_end]
+            font_index = record["font_index"]
+            type0_object, valid_cids = equation_fonts[font_index]
+            fonts = page_dictionary.get("Resources", {}).get("Font", {})
+            font_name = f"F{font_index}"
+            if (
+                not isinstance(fonts, dict)
+                or fonts.get(font_name) != PdfRef(type0_object)
+            ):
+                raise PdfValidationError("equation-number page font binding differs")
+            number = rb"[+-]?[0-9]+(?:\.[0-9]+)?"
+            glyph_line = (
+                rb"1 0 0 -1 " + number + rb" " + number
+                + rb" Tm <([0-9A-F]{4})> Tj\n"
+            )
+            header = (
+                b"0 g\nBT /"
+                + font_name.encode("ascii")
+                + b" "
+                + number
+                + b" Tf 0 Tr\n"
+            )
+            match = re.fullmatch(
+                header + rb"(?:" + glyph_line + rb")+ET\n",
+                paint,
+            )
+            shown_cids = {
+                int(value, 16)
+                for value in re.findall(rb"<([0-9A-F]{4})> Tj\n", paint)
+            }
+            if (
+                match is None
+                or not shown_cids
+                or not shown_cids.issubset(valid_cids)
+                or any(
+                    token in paint
+                    for token in (
+                        b" Do\n", b"/MCID", b"/Alt", b"/ActualText", b"/Lang", b"BDC",
+                        b"BMC", b"EMC",
+                    )
+                )
+            ):
+                raise PdfValidationError("equation-number normal text/extraction differs")
+            extracted.append(record["exact_text"])
+            cursor = paint_end + len(b"EMC\n")
+            if not content.startswith(b"EMC\n", cursor):
+                raise PdfValidationError("equation-number outer EMC is missing")
+            cursor += len(b"EMC\n")
+    if content[cursor:] != b"Q" or content.count(b"/MCID ") != len(records):
+        raise PdfValidationError("extra or missing tagged-PDF /2 page content")
+    return do_count, extracted
+
+
+def _tagged_v2_mcr(value: Any, page_object: int, mcid: int, label: str) -> None:
+    _exact_keys(value, {"MCID", "Pg", "Type"}, label)
+    _name(value["Type"], "MCR", f"{label} /Type")
+    if _ref(value["Pg"], f"{label} /Pg") != page_object or _integer(value["MCID"], f"{label} /MCID") != mcid:
+        raise PdfValidationError(f"{label} page/MCID differs")
+
+
+def _tagged_v2_outline_graph(
+    objects: dict[int, ParsedObject],
+    roles: dict[str, int],
+    page_objects: dict[int, int],
+) -> None:
+    name_tree = objects[roles["destinations"]].value
+    _exact_keys(name_tree, {"Names"}, "tagged-PDF /2 destination name tree")
+    names = name_tree["Names"]
+    if not isinstance(names, list) or len(names) % 2:
+        raise PdfValidationError("tagged-PDF /2 destination name/value pairs differ")
+    destination_names: list[str] = []
+    pages_by_object = {number: page for page, number in page_objects.items()}
+    for offset in range(0, len(names), 2):
+        destination_names.append(_literal_ascii_text(names[offset], "tagged destination name"))
+        if not isinstance(names[offset + 1], list):
+            raise PdfValidationError("tagged-PDF /2 destination value is not an array")
+        _parse_destination_view(names[offset + 1], pages_by_object)
+    if destination_names != sorted(set(destination_names)):
+        raise PdfValidationError("tagged-PDF /2 destination names are not unique/sorted")
+
+    item_numbers = {
+        number for role, number in roles.items() if role.startswith("outline_item:")
+    }
+    root_number = roles.get("outline_root")
+    if root_number is None:
+        if item_numbers:
+            raise PdfValidationError("tagged-PDF /2 outline root is absent")
+        return
+    root = objects[root_number].value
+    _exact_keys(root, {"Count", "First", "Last", "Type"}, "tagged-PDF /2 outline root")
+    _name(root["Type"], "Outlines", "tagged-PDF /2 outline root /Type")
+    if _integer(root["Count"], "tagged outline root /Count") != len(item_numbers):
+        raise PdfValidationError("tagged-PDF /2 outline count differs")
+    structure_numbers = {
+        number for role, number in roles.items() if role.startswith("structure_element:")
+    }
+    parents: dict[int, int] = {}
+    children: dict[int, set[int]] = {}
+    for number in sorted(item_numbers):
+        item = objects[number].value
+        if not isinstance(item, dict):
+            raise PdfValidationError("tagged-PDF /2 outline item is not a dictionary")
+        required = {"Dest", "Parent", "SE", "Title"}
+        optional = {"Count", "First", "Last", "Next", "Prev"}
+        if not required.issubset(item) or not set(item).issubset(required | optional):
+            raise PdfValidationError("tagged-PDF /2 outline item keys differ")
+        parent = _ref(item["Parent"], "tagged outline /Parent")
+        if (
+            parent not in item_numbers | {root_number}
+            or _ref(item["SE"], "tagged outline /SE") not in structure_numbers
+            or not _utf16_text(item["Title"], "tagged outline /Title")
+            or _literal_ascii_text(item["Dest"], "tagged outline /Dest") not in destination_names
+        ):
+            raise PdfValidationError("tagged-PDF /2 outline structure/destination closure differs")
+        parents[number] = parent
+        children.setdefault(parent, set()).add(number)
+
+    descendant_counts: dict[int, int] = {}
+    for number in item_numbers:
+        parent = parents[number]
+        visited: set[int] = set()
+        while parent != root_number:
+            if parent in visited or parent not in parents:
+                raise PdfValidationError("tagged-PDF /2 outline parent cycle differs")
+            visited.add(parent)
+            descendant_counts[parent] = descendant_counts.get(parent, 0) + 1
+            parent = parents[parent]
+
+    for parent_number in item_numbers | {root_number}:
+        parent = objects[parent_number].value
+        direct = children.get(parent_number, set())
+        if not direct:
+            if any(key in parent for key in ("First", "Last", "Count")):
+                raise PdfValidationError("tagged-PDF /2 leaf outline has child fields")
+            continue
+        first = _ref(parent.get("First"), "tagged outline /First")
+        last = _ref(parent.get("Last"), "tagged outline /Last")
+        current: int | None = first
+        previous: int | None = None
+        visited = set()
+        while current is not None:
+            if current not in direct or current in visited:
+                raise PdfValidationError("tagged-PDF /2 outline sibling closure differs")
+            visited.add(current)
+            item = objects[current].value
+            observed_previous = _ref(item["Prev"], "tagged outline /Prev") if "Prev" in item else None
+            if observed_previous != previous:
+                raise PdfValidationError("tagged-PDF /2 outline previous sibling differs")
+            previous = current
+            current = _ref(item["Next"], "tagged outline /Next") if "Next" in item else None
+        if previous != last or visited != direct:
+            raise PdfValidationError("tagged-PDF /2 outline sibling coverage differs")
+        count = len(item_numbers) if parent_number == root_number else descendant_counts[parent_number]
+        if _integer(parent.get("Count"), "tagged outline /Count") != count:
+            raise PdfValidationError("tagged-PDF /2 outline descendant count differs")
+
+
+def _tagged_v2_structure(
+    objects: dict[int, ParsedObject],
+    roles: dict[str, int],
+    expectation: dict[str, Any],
+    page_objects: dict[int, int],
+) -> None:
+    root = objects[roles["structure_tree_root"]].value
+    if not isinstance(root, dict) or root.get("Type") != PdfName("StructTreeRoot"):
+        raise PdfValidationError("tagged-PDF /2 StructTreeRoot differs")
+    if _ref(root.get("ParentTree"), "StructTreeRoot /ParentTree") != roles["structure_parent_tree"]:
+        raise PdfValidationError("tagged-PDF /2 ParentTree reference differs")
+    if root.get("RoleMap") != {
+        "Em": PdfName("Span"),
+        "Exercise": PdfName("Div"),
+        "Proof": PdfName("Div"),
+        "Result": PdfName("Div"),
+        "Strong": PdfName("Span"),
+    }:
+        raise PdfValidationError("tagged-PDF /2 RoleMap differs")
+    if ("IDTree" in root) != ("structure_id_tree" in roles):
+        raise PdfValidationError("tagged-PDF /2 IDTree role/reference presence differs")
+    if "structure_id_tree" in roles and _ref(root["IDTree"], "StructTreeRoot /IDTree") != roles["structure_id_tree"]:
+        raise PdfValidationError("tagged-PDF /2 IDTree reference differs")
+    structure_ids: dict[str, int] = {}
+    for role, number in roles.items():
+        if not role.startswith("structure_element:"):
+            continue
+        dictionary = objects[number].value
+        if not isinstance(dictionary, dict) or dictionary.get("Type") != PdfName("StructElem"):
+            raise PdfValidationError("tagged-PDF /2 structure object type differs")
+        if "ID" in dictionary:
+            identity = _literal_ascii_text(dictionary["ID"], "tagged StructElem /ID")
+            if not identity or identity in structure_ids:
+                raise PdfValidationError("tagged-PDF /2 structure IDs are empty/duplicate")
+            structure_ids[identity] = number
+    if bool(structure_ids) != ("structure_id_tree" in roles):
+        raise PdfValidationError("tagged-PDF /2 structure IDs and IDTree presence differ")
+    if "structure_id_tree" in roles:
+        id_tree = objects[roles["structure_id_tree"]].value
+        _exact_keys(id_tree, {"Names"}, "tagged-PDF /2 IDTree")
+        names = id_tree["Names"]
+        if not isinstance(names, list) or len(names) != 2 * len(structure_ids):
+            raise PdfValidationError("tagged-PDF /2 IDTree pair count differs")
+        observed_ids = [
+            (_literal_ascii_text(names[offset], "IDTree name"), _ref(names[offset + 1], "IDTree target"))
+            for offset in range(0, len(names), 2)
+        ]
+        if observed_ids != sorted(structure_ids.items()):
+            raise PdfValidationError("tagged-PDF /2 IDTree/StructElem correspondence differs")
+
+    vectors = {item["structure_node_id"]: item for item in expectation["vectors"]}
+    numbers = {item["structure_node_id"]: item for item in expectation["equation_numbers"]}
+    for node, vector in vectors.items():
+        dictionary = objects[roles[f"structure_element:{node}"]].value
+        if not isinstance(dictionary, dict) or dictionary.get("Type") != PdfName("StructElem"):
+            raise PdfValidationError("tagged vector StructElem differs")
+        role = "Formula" if vector["kind"] in {"math_vector", "math_vector_block"} else "Figure"
+        _name(dictionary.get("S"), role, "tagged vector StructElem /S")
+        if _utf16_text(dictionary.get("Alt"), "tagged vector StructElem /Alt") != vector["alternative"]:
+            raise PdfValidationError("tagged vector alternative differs")
+        if "ActualText" in dictionary:
+            raise PdfValidationError("ActualText must not be stored on vector StructElem")
+        language = _utf16_text(dictionary["Lang"], "tagged vector StructElem /Lang") if "Lang" in dictionary else None
+        if language != vector["structure_language"]:
+            raise PdfValidationError("tagged vector structure language differs")
+        kids = dictionary.get("K")
+        if not isinstance(kids, list):
+            raise PdfValidationError("tagged vector /K is not an array")
+        _tagged_v2_mcr(kids[0] if kids else None, page_objects[vector["page_index"]], vector["mcid"], "tagged vector MCR")
+        number = next((item for item in expectation["equation_numbers"] if item["parent_structure_node_id"] == node), None)
+        if number is None:
+            if len(kids) != 1:
+                raise PdfValidationError("unnumbered vector has extra structure kids")
+        elif len(kids) != 2 or _ref(kids[1], "Formula equation child") != roles[f"structure_element:{number['structure_node_id']}"]:
+            raise PdfValidationError("Formula vector/number child order differs")
+
+    for node, number in numbers.items():
+        dictionary = objects[roles[f"structure_element:{node}"]].value
+        if not isinstance(dictionary, dict) or dictionary.get("Type") != PdfName("StructElem"):
+            raise PdfValidationError("equation-number StructElem differs")
+        _name(dictionary.get("S"), "Span", "equation-number StructElem /S")
+        if _ref(dictionary.get("P"), "equation-number /P") != roles[f"structure_element:{number['parent_structure_node_id']}"]:
+            raise PdfValidationError("equation-number parent differs")
+        if "Alt" in dictionary or "ActualText" in dictionary:
+            raise PdfValidationError("equation-number StructElem duplicates replacement text")
+        language = _utf16_text(dictionary["Lang"], "equation-number StructElem /Lang") if "Lang" in dictionary else None
+        if language != number["structure_language"]:
+            raise PdfValidationError("equation-number structure language differs")
+        kids = dictionary.get("K")
+        if not isinstance(kids, list) or len(kids) != 1:
+            raise PdfValidationError("equation-number /K differs")
+        _tagged_v2_mcr(kids[0], page_objects[number["page_index"]], number["mcid"], "equation-number MCR")
+
+    parent = objects[roles["structure_parent_tree"]].value
+    _exact_keys(parent, {"Nums"}, "tagged-PDF /2 ParentTree")
+    nums = parent["Nums"]
+    if not isinstance(nums, list) or len(nums) != 2 * expectation["page_count"]:
+        raise PdfValidationError("tagged-PDF /2 ParentTree number tree differs")
+    for page in range(expectation["page_count"]):
+        if nums[2 * page] != page or not isinstance(nums[2 * page + 1], list):
+            raise PdfValidationError("tagged-PDF /2 ParentTree key/value differs")
+        records = [
+            item for item in expectation["vectors"] + expectation["equation_numbers"]
+            if item["page_index"] == page
+        ]
+        records.sort(key=lambda item: item["mcid"])
+        observed = [_ref(item, "ParentTree value") for item in nums[2 * page + 1]]
+        expected_objects = [roles[f"structure_element:{item['structure_node_id']}"] for item in records]
+        if observed != expected_objects:
+            raise PdfValidationError("tagged-PDF /2 ParentTree order differs")
+
+
+def verify_tagged_pdf_structure_v2(pdf: bytes, expectation: dict[str, Any]) -> dict[str, Any]:
+    """Independently decode the precomposed-vector tagged-PDF `/2` graph."""
+
+    _tagged_v2_expectation_shape(expectation)
+    objects, trailer = _parse_xref(pdf)
+    roles = _tagged_v2_roles(expectation)
+    pdf_fact = expectation["pdf"]
+    if len(pdf) != pdf_fact["byte_length"] or hashlib.sha256(pdf).hexdigest() != pdf_fact["sha256"]:
+        raise PdfValidationError("tagged-PDF /2 final byte closure differs")
+    if sorted(objects) != list(range(1, pdf_fact["object_count"] + 1)):
+        raise PdfValidationError("tagged-PDF /2 object allocation differs")
+    for item in pdf_fact["objects"]:
+        if hashlib.sha256(objects[item["object_number"]].raw).hexdigest() != item["sha256"]:
+            raise PdfValidationError(f"tagged-PDF /2 object hash differs for {item['role']}")
+    required_roles = {"catalog", "pages", "destinations", "info", "metadata", "structure_tree_root", "structure_parent_tree"}
+    required_roles.update(f"page:{page}" for page in range(expectation["page_count"]))
+    required_roles.update(f"page_content:{page}" for page in range(expectation["page_count"]))
+    required_roles.update(f"structure_element:{item['structure_node_id']}" for item in expectation["vectors"] + expectation["equation_numbers"])
+    if not required_roles.issubset(roles):
+        raise PdfValidationError("tagged-PDF /2 required object roles are missing")
+    if (
+        roles["catalog"] != 1
+        or _ref(trailer["Root"], "tagged-PDF /2 trailer /Root") != roles["catalog"]
+        or _ref(trailer["Info"], "tagged-PDF /2 trailer /Info") != roles["info"]
+    ):
+        raise PdfValidationError("tagged-PDF /2 trailer/catalog role differs")
+
+    catalog = objects[roles["catalog"]].value
+    if not isinstance(catalog, dict) or catalog.get("Type") != PdfName("Catalog"):
+        raise PdfValidationError("tagged-PDF /2 catalog differs")
+    catalog_keys = {
+        "Lang", "MarkInfo", "Metadata", "Names", "Pages", "StructTreeRoot", "Type",
+        "ViewerPreferences",
+    } | ({"Outlines"} if "outline_root" in roles else set())
+    _exact_keys(catalog, catalog_keys, "tagged-PDF /2 catalog")
+    names = catalog.get("Names")
+    if not isinstance(names, dict):
+        raise PdfValidationError("tagged-PDF /2 catalog Names differs")
+    _exact_keys(names, {"Dests"}, "tagged-PDF /2 catalog Names")
+    if (
+        _utf16_text(catalog.get("Lang"), "tagged catalog /Lang") != expectation["document_language"]
+        or catalog.get("MarkInfo") != {"Marked": True}
+        or catalog.get("ViewerPreferences") != {"DisplayDocTitle": True}
+        or _ref(catalog.get("Pages"), "catalog /Pages") != roles["pages"]
+        or _ref(names.get("Dests"), "catalog /Names /Dests") != roles["destinations"]
+        or _ref(catalog.get("Metadata"), "catalog /Metadata") != roles["metadata"]
+        or _ref(catalog.get("StructTreeRoot"), "catalog /StructTreeRoot") != roles["structure_tree_root"]
+    ):
+        raise PdfValidationError("tagged-PDF /2 catalog accessibility state differs")
+    if "outline_root" in roles and _ref(catalog.get("Outlines"), "catalog /Outlines") != roles["outline_root"]:
+        raise PdfValidationError("tagged-PDF /2 catalog outline reference differs")
+
+    destinations = objects[roles["destinations"]].value
+    if not isinstance(destinations, dict):
+        raise PdfValidationError("tagged-PDF /2 destination name tree differs")
+    _exact_keys(destinations, {"Names"}, "tagged-PDF /2 destination name tree")
+    if not isinstance(destinations["Names"], list):
+        raise PdfValidationError("tagged-PDF /2 destination names are not an array")
+
+    metadata = objects[roles["metadata"]]
+    if not isinstance(metadata.value, dict) or metadata.stream is None:
+        raise PdfValidationError("tagged-PDF /2 XMP metadata stream differs")
+    _exact_keys(metadata.value, {"Length", "Subtype", "Type"}, "tagged-PDF /2 XMP metadata")
+    if (
+        metadata.value["Type"] != PdfName("Metadata")
+        or metadata.value["Subtype"] != PdfName("XML")
+        or hashlib.sha256(metadata.stream).hexdigest() != expectation["xmp_sha256"]
+    ):
+        raise PdfValidationError("tagged-PDF /2 XMP metadata hash/type differs")
+    if not isinstance(objects[roles["info"]].value, dict):
+        raise PdfValidationError("tagged-PDF /2 Info object differs")
+
+    pages_root = objects[roles["pages"]].value
+    if not isinstance(pages_root, dict) or pages_root.get("Type") != PdfName("Pages"):
+        raise PdfValidationError("tagged-PDF /2 page tree differs")
+    _exact_keys(pages_root, {"Count", "Kids", "Type"}, "tagged-PDF /2 page tree")
+    page_objects = {page: roles[f"page:{page}"] for page in range(expectation["page_count"])}
+    if pages_root.get("Count") != expectation["page_count"] or pages_root.get("Kids") != [PdfRef(page_objects[page]) for page in range(expectation["page_count"])]:
+        raise PdfValidationError("tagged-PDF /2 page tree order differs")
+    _tagged_v2_outline_graph(objects, roles, page_objects)
+
+    form_role_items = [
+        item for item in pdf_fact["objects"] if item["role"].startswith("vector_form:")
+    ]
+    form_role_items.sort(key=lambda item: int(item["role"].split(":", 1)[1]))
+    form_objects = [item["object_number"] for item in form_role_items]
+    if len(form_objects) != expectation["form_count"]:
+        raise PdfValidationError("tagged-PDF /2 Form count differs")
+    for number in form_objects:
+        form = objects[number]
+        if not isinstance(form.value, dict) or form.value.get("Subtype") != PdfName("Form") or form.value.get("Type") != PdfName("XObject") or form.stream is None:
+            raise PdfValidationError("tagged-PDF /2 vector object is not a Form")
+        if any(token in form.stream for token in (b"/MCID", b"/Alt", b"/ActualText", b"/Lang", b"BDC", b"BMC", b"EMC")):
+            raise PdfValidationError("tagged-PDF /2 reusable Form contains semantic state")
+    if any(isinstance(item.value, dict) and item.value.get("Subtype") == PdfName("Image") for item in objects.values()):
+        raise PdfValidationError("tagged-PDF /2 vector closure contains raster image content")
+    equation_fonts = _tagged_v2_equation_fonts(
+        objects,
+        roles,
+        expectation["equation_numbers"],
+    )
+
+    total_do = 0
+    extracted: list[str] = []
+    for page in range(expectation["page_count"]):
+        dictionary = objects[page_objects[page]].value
+        if not isinstance(dictionary, dict) or dictionary.get("Type") != PdfName("Page"):
+            raise PdfValidationError("tagged-PDF /2 page dictionary differs")
+        if (
+            _ref(dictionary.get("Parent"), "page /Parent") != roles["pages"]
+            or dictionary.get("StructParents") != page
+            or _ref(dictionary.get("Contents"), "page /Contents") != roles[f"page_content:{page}"]
+        ):
+            raise PdfValidationError("tagged-PDF /2 page StructParents/content differs")
+        resources = dictionary.get("Resources")
+        if not isinstance(resources, dict):
+            raise PdfValidationError("tagged-PDF /2 page resources differ")
+        expected_font_indices = sorted(
+            {
+                number["font_index"]
+                for number in expectation["equation_numbers"]
+                if number["page_index"] == page
+            }
+        )
+        observed_fonts = resources.get("Font", {})
+        if not isinstance(observed_fonts, dict) or set(observed_fonts) != {
+            f"F{index}" for index in expected_font_indices
+        }:
+            raise PdfValidationError("tagged-PDF /2 page equation font resources differ")
+        for index in expected_font_indices:
+            if observed_fonts[f"F{index}"] != PdfRef(equation_fonts[index][0]):
+                raise PdfValidationError("tagged-PDF /2 page equation font reference differs")
+        stream = objects[roles[f"page_content:{page}"]].stream
+        if stream is None:
+            raise PdfValidationError("tagged-PDF /2 page content is not a stream")
+        records = [
+            ("vector", item) for item in expectation["vectors"] if item["page_index"] == page
+        ] + [
+            ("equation_number", item) for item in expectation["equation_numbers"] if item["page_index"] == page
+        ]
+        records.sort(key=lambda item: item[1]["mcid"])
+        do_count, page_text = _tagged_v2_content(
+            stream,
+            page,
+            records,
+            dictionary,
+            form_objects,
+            equation_fonts,
+        )
+        total_do += do_count
+        extracted.extend(page_text)
+    if total_do != len(expectation["vectors"]):
+        raise PdfValidationError("tagged-PDF /2 shared Form usage count differs")
+    _tagged_v2_structure(objects, roles, expectation, page_objects)
+    expected_text = [
+        item["actual_text"] if kind == "vector" else item["exact_text"]
+        for page in range(expectation["page_count"])
+        for kind, item in sorted(
+            [
+                ("vector", value) for value in expectation["vectors"]
+                if value["page_index"] == page and value["actual_text"] is not None
+            ] + [
+                ("equation_number", value) for value in expectation["equation_numbers"]
+                if value["page_index"] == page
+            ],
+            key=lambda value: value[1]["mcid"],
+        )
+    ]
+    if extracted != expected_text:
+        raise PdfValidationError("tagged-PDF /2 extraction order differs")
+    return {
+        "algorithm": "typaxis.tagged-pdf-validator/2",
+        "document_language": expectation["document_language"],
+        "equation_number_count": len(expectation["equation_numbers"]),
+        "extracted_text": extracted,
+        "form_count": len(form_objects),
+        "form_do_count": total_do,
+        "object_count": len(objects),
+        "page_count": expectation["page_count"],
+        "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
+        "vector_count": len(expectation["vectors"]),
+    }
+
+
 def load_expectation(path: Path) -> dict[str, Any]:
     def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         output: dict[str, Any] = {}
@@ -2756,7 +3675,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         pdf = Path(arguments[0]).read_bytes()
         expectation = load_expectation(Path(arguments[1]))
-        if expectation.get("algorithm") == "typaxis.tagged-pdf-manifest/1":
+        if expectation.get("algorithm") == "typaxis.tagged-pdf-validator/2":
+            observation = verify_tagged_pdf_structure_v2(pdf, expectation)
+        elif expectation.get("algorithm") == "typaxis.tagged-pdf-manifest/1":
             observation = verify_tagged_pdf_structure(pdf, expectation)
         else:
             observation = verify_pdf_structure(pdf, expectation)
