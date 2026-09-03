@@ -11,8 +11,11 @@ mod book_navigation;
 mod semantic_container;
 
 pub use book_navigation::{
-    StagingComputedLanguageRecord, StagingDocumentMetadata, StagingLanguageNodeKind,
+    StagingComputedLanguageChildKindV2, StagingComputedLanguageChildRecordV2,
+    StagingComputedLanguageOwnerKindV2, StagingComputedLanguageRecord,
+    StagingComputedLanguageRecordV2, StagingDocumentMetadata, StagingLanguageNodeKind,
     StagingOutlineEntry, StagingOutlineSource, StagingOutlineSourceKind,
+    StagingVectorLanguageBindingV2,
 };
 
 pub use semantic_container::{

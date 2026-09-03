@@ -1286,10 +1286,26 @@ pub struct StagingPrecomposedVectorDisplayFixture {
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub fn staging_precomposed_vector_display_fixture(
 ) -> Result<StagingPrecomposedVectorDisplayFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_display_fixture_for_case(
+        typaxis_layout::StagingPrecomposedVectorBlockFixtureCase::DisplayV2,
+    )
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub fn staging_precomposed_vector_display_language_override_fixture(
+) -> Result<StagingPrecomposedVectorDisplayFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_display_fixture_for_case(
+        typaxis_layout::StagingPrecomposedVectorBlockFixtureCase::DisplayV2LanguageOverride,
+    )
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+fn staging_precomposed_vector_display_fixture_for_case(
+    case: typaxis_layout::StagingPrecomposedVectorBlockFixtureCase,
+) -> Result<StagingPrecomposedVectorDisplayFixture, Box<dyn std::error::Error>> {
     use typaxis_core::{NonNegativeLength, PositiveLength};
     use typaxis_layout::{
         layout_staging_precomposed_vector_inlines, StagingInlineVectorLogicalUnit,
-        StagingPrecomposedVectorBlockFixtureCase,
     };
     use typaxis_linebreak::{AtomicVectorTextUnit, JapaneseLineBreakMode};
     use typaxis_pagination::{
@@ -1314,9 +1330,7 @@ pub fn staging_precomposed_vector_display_fixture(
         ))
     }
 
-    let layout = typaxis_layout::staging_precomposed_vector_block_layout_fixture_for_case(
-        StagingPrecomposedVectorBlockFixtureCase::DisplayV2,
-    )?;
+    let layout = typaxis_layout::staging_precomposed_vector_block_layout_fixture_for_case(case)?;
     let inline_input = vec![StagingInlineVectorParagraphInput::new(
         NodeId::new(2),
         vec![

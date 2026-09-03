@@ -5,7 +5,7 @@ the canonical private contract-1.4 Wire fixture added by `MI4-V03`. The
 `document-package.json` fixture is accepted only by the private 1.4 decoder and
 Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
-The corpus has four canonical ledgers, one private Wire fixture, two canonical
+The corpus has four canonical ledgers, two private Wire fixtures, two canonical
 selected-layout traces, and one canonical Display trace. `MI4-V13` also uses
 these admitted resources through a test-only PDF contribution fixture; it does
 not add a standalone production PDF receipt:
@@ -26,6 +26,11 @@ not add a standalone production PDF receipt:
   fixture covering all four vector kinds, nullable actual text, source TeX,
   spacing, equation-number child shape, and one `svg-safe-2` provenance record.
   They do not authorize resource admission, layout, or PDF generation.
+- `document-package-language-overrides.json` is the `MI4-V14` canonical
+  positive fixture. It gives each of the four vector owners the raw BCP 47
+  spelling `EN-us`; computed-language `/2` canonicalizes every value to
+  `en-US`, preserves the already validated raw/canonical text charge, and
+  marks all four selected placements as paint-level language candidates.
 - `inline-layout-trace.json` records the selected atomic inline layout from
   `MI4-V09`. `block-layout-trace.json` records the selected atomic block layout
   from `MI4-V11`, including page/block/paint ordinals, effective spacing,

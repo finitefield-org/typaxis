@@ -26,10 +26,14 @@ pub use advanced_header_footer::{
     StagingHeaderFooterPdfPageObservation, STAGING_HEADER_FOOTER_PDF_CLOSURE_ALGORITHM,
 };
 pub use book_navigation::{
-    write_staging_book_navigation_pdf, BookNavigationPdfError, BookNavigationPdfLinkObservation,
+    observe_staging_book_navigation_pdf_v2, write_staging_book_navigation_pdf,
+    BookNavigationPdfError, BookNavigationPdfFinalWriterObservationV2,
+    BookNavigationPdfInfoObservationV2, BookNavigationPdfLanguagePaintObservationV2,
+    BookNavigationPdfLanguagePaintSourceV2, BookNavigationPdfLinkObservation,
     BookNavigationPdfObjectObservation, BookNavigationPdfObservation,
-    BookNavigationPdfOutlineObservation, StagingBookNavigationPdf, BOOK_NAVIGATION_PDF_ALGORITHM,
-    BOOK_XMP_ALGORITHM,
+    BookNavigationPdfObservationV2, BookNavigationPdfOutlineObservation,
+    BookNavigationPdfOutlineObservationV2, BookXmpObservationV2, StagingBookNavigationPdf,
+    BOOK_NAVIGATION_PDF_ALGORITHM, BOOK_NAVIGATION_PDF_ALGORITHM_V2, BOOK_XMP_ALGORITHM,
 };
 pub use math::{
     write_staging_math_pdf, StagingMathPdf, StagingMathPdfError, StagingMathPdfObservation,

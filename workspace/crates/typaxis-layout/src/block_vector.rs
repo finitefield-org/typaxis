@@ -25,6 +25,7 @@ pub const PRECOMPOSED_VECTOR_BLOCK_PREPARATION_ALGORITHM: &str =
 pub enum StagingPrecomposedVectorBlockFixtureCase {
     Default,
     DisplayV2,
+    DisplayV2LanguageOverride,
     AlignmentStart,
     AlignmentCenter,
     AlignmentEnd,

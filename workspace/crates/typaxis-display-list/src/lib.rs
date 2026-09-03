@@ -36,10 +36,13 @@ pub use advanced_header_footer::{
     StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
 };
 pub use book_navigation::{
-    select_staging_book_navigation, BookInternalLink, BookInternalLinkInput, BookLanguagePaint,
-    BookLanguagePaintInput, BookNavigationDestinationBinding, BookNavigationSelectedEntry,
+    select_staging_book_navigation, select_staging_book_navigation_v2, BookInternalLink,
+    BookInternalLinkInput, BookLanguagePaint, BookLanguagePaintInput, BookLanguagePaintInputV2,
+    BookLanguagePaintV2, BookNavigationDestinationBinding, BookNavigationSelectedEntry,
     BookNavigationSelectedError, BookNavigationSelectedPage, BookNavigationSelectedReceipt,
+    BookNavigationSelectedReceiptV2, BookVectorLanguagePaintV2,
     BOOK_DESTINATION_REGISTRY_ALGORITHM, BOOK_NAVIGATION_SELECTED_ALGORITHM,
+    BOOK_NAVIGATION_SELECTED_ALGORITHM_V2,
 };
 pub use math::{
     build_staging_math_display, StagingMathDisplay, StagingMathDisplayError, StagingMathDraw,
@@ -57,7 +60,9 @@ pub use precomposed_vector::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use precomposed_vector::{
-    staging_precomposed_vector_display_fixture, staging_precomposed_vector_display_ten_use_fixture,
+    staging_precomposed_vector_display_fixture,
+    staging_precomposed_vector_display_language_override_fixture,
+    staging_precomposed_vector_display_ten_use_fixture,
     staging_precomposed_vector_display_two_alias_use_fixture,
     StagingPrecomposedVectorDisplayFixture,
 };

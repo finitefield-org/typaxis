@@ -952,7 +952,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V14 Computed languageとbook-navigation chain `/2`を実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V04, MI4-V09, MI4-V11
 - Design inputs: docs/27 §3、§4.3〜4.4、§10、§11、§15.3
 - Primary files:
@@ -990,6 +990,16 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list book_navigation_selected_v2 --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf book_navigation_vector_input_v2 --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V14 change set containing this completion record.
+  - `typaxis.computed-language-registry/2`を追加し、既存19 kindと4 vector kindをnominalなclosed owner enumへ収め、dense source-preorder NodeId順でexactly once登録する。各recordはpackage/semantic/base+M4 limits、existing BCP 47 canonicalization、logical parent、raw/canonical text charge、effective language、source span、per-record fingerprintをbindする。vector recordはV04のmetrics/effective-language receiptとAlt/resolved ActualText hashを再joinし、prevalidated authored-language chargeを総量へ一度だけ含める。equation numberは第五ownerにせずparent `math_vector_block` record fingerprintを参照するchild recordとし、vector Figure captionはFigureのeffective languageを既存flow inheritanceで受け継ぐ。
+  - `typaxis.book-navigation-profile-view/2`、`typaxis.book-navigation-profile-receipt/2`、`typaxis.book-navigation-selected/2`を追加した。profile receiptはprecomposed-vector profile receipt/authorizationと23-kind descriptorを閉じ、selected receiptはnonzero selected-layout fingerprint、page/paint/owner/language、computed-language record fingerprint、Display command fingerprintを保持する。vector paintはphysical page/paint順に並べる一方、logical ordinalはcomputed-language registryから取得し、全vector ownerを1:1で閉じる。document languageと異なる4-kind placementだけを後続paint-level `/Lang`対象として列挙する。
+  - `typaxis.book-navigation-pdf/2`のsealed input contractを追加し、同じ最終`VerifiedPdfBytesReceipt`のhash/length/page/object stateへInfo、catalog language、destination registry、outline hierarchy、必要なlanguage paint、`typaxis.book-xmp/2`を同時に結ぶ。navigation component hashをmetadata/language/outline/destination別に明示し、navigation/outline/page-content object collisionとpage-to-content mappingをfail closedにする。actual final tagged-PDF writerからこのobservationを発行する処理は予定どおりMI4-V16へ残した。
+  - tagged-PDFの既存XMP encoder本体をmetadata/language引数の共有helperへ抽出しただけでserialization bodyは変更していない。同一metadata/languageをlegacy navigationと`/2` projectionから与えたbytes一致とSHA-256 `f2d02831c768180f5121517593f783331fc148ed59bafeb21f3d13da69dc3a5f`を固定した。既存book-navigation `/1`のfull manifest golden testも変更なしで成功し、computed-language/profile/selected/PDF fingerprintとcanonical bytesを維持した。
+  - inheritance fixtureと、4 kindすべてへraw `EN-us`を指定してcanonical `en-US`を得るchecked-in override fixtureを追加した。layout/Displayのtest-only override caseも通常のprofile/admission/binding/layout経路から再生成し、receiptを書き換えずに4 paintすべてがlanguage対象となることをDisplay/PDF境界で検証する。missing/duplicate/wrong parent/kind/order/language、child fingerprint tamper、old `/1` vector path、wrong profile、zero layout fingerprint、missing/extra paint、catalog/XMP/object collisionを拒否するtestを追加した。
+  - milestone指定の5 command、V1 book-navigation golden、`cargo test --workspace --all-targets --all-features --locked`、workspace doc-test、workspace clippy `-D warnings`、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。all-target/all-feature runのexternal-validator 2 testsは既存の`ignored`指定どおりであり、Schema validatorは4071 refsを含む全bundle/fixtureを通過した。
+  - レビューではV1/V2 profile authorization引数の誤配置、selected `/2`のzero layout fingerprintとconstructor自己検証漏れ、computed-language text-limit診断、computed-language fingerprintをnavigation全体と誤称したPDF field、outline/navigation/page-content object collision、unchecked XMP length変換、vector Figure caption継承test不足、receiptだけを書き換える不正確なoverride fixtureを修正した。修正後に全差分を再読し、findingは0件である。
+  - listed primary file外ではtest-only language overrideのため`workspace/crates/typaxis-layout/src/block_vector.rs`、`workspace/crates/typaxis-layout/src/safe_vector.rs`、Display fixture module、既存XMP helper、V04 narrow-language receiptのstale comment、sample README、本completion recordを変更した。structure role/MCID/ActualText serialization、complete final tagged-PDF writer、manifest/public capability/CLI integrationはMI4-V15以降へ残した。
 - Non-goals:
   - TeX dialect選択、equation-number固有language override
   - final tagged PDFのserialization

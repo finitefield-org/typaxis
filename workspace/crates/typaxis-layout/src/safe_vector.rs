@@ -1888,7 +1888,11 @@ fn staging_precomposed_vector_binding_fixture_with_media(
     let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
         panic!("precomposed-vector fixture root is not a semantic container");
     };
-    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2 {
+    if matches!(
+        block_case,
+        crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2
+            | crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2LanguageOverride
+    ) {
         let mut unused_resource = resources.images[0].clone();
         unused_resource.image_id = 1;
         unused_resource.uri = "svg/similar.svg".to_owned();
@@ -1934,6 +1938,28 @@ fn staging_precomposed_vector_binding_fixture_with_media(
             panic!("precomposed-vector fixture first inline is not a vector");
         };
         metrics.viewport.width = 1_966_080;
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2LanguageOverride {
+        let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
+            panic!("precomposed-vector fixture first child is not a paragraph");
+        };
+        for child in children {
+            match child {
+                WireStagingM4Inline::InlineVector { language, .. }
+                | WireStagingM4Inline::MathVector { language, .. } => {
+                    *language = Some("EN-us".to_owned());
+                }
+                _ => {}
+            }
+        }
+        let WireStagingM4Block::VectorFigure { language, .. } = &mut blocks[1] else {
+            panic!("precomposed-vector fixture second block is not a vector Figure");
+        };
+        *language = Some("EN-us".to_owned());
+        let WireStagingM4Block::MathVectorBlock { language, .. } = &mut blocks[2] else {
+            panic!("precomposed-vector fixture third block is not block math");
+        };
+        *language = Some("EN-us".to_owned());
     }
     let mut style_sheet = wire.style_sheet().clone();
     if equation_font {
@@ -2091,6 +2117,7 @@ fn staging_precomposed_vector_binding_fixture_with_media(
         crate::StagingPrecomposedVectorBlockFixtureCase::FigureCaption
             | crate::StagingPrecomposedVectorBlockFixtureCase::FigureCaptionSplit
             | crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2
+            | crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2LanguageOverride
     ) {
         let WireStagingM4Block::VectorFigure { caption, .. } = &mut blocks[1] else {
             panic!("precomposed-vector fixture second block is not a vector Figure");

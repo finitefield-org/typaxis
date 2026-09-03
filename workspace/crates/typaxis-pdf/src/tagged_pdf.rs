@@ -1132,9 +1132,23 @@ fn pdf_date(value: &str) -> Result<String, TaggedPdfError> {
     ))
 }
 
-fn encode_xmp(navigation: &ValidatedStagingBookNavigation, engine: &EngineIdentity) -> String {
-    let metadata = navigation.metadata().metadata();
-    let language = navigation.languages().document_language();
+pub(crate) fn encode_xmp(
+    navigation: &ValidatedStagingBookNavigation,
+    engine: &EngineIdentity,
+) -> String {
+    encode_tagged_book_xmp(
+        navigation.metadata(),
+        navigation.languages().document_language(),
+        engine,
+    )
+}
+
+pub(crate) fn encode_tagged_book_xmp(
+    metadata: &typaxis_syntax::DocumentMetadataReceipt,
+    language: &str,
+    engine: &EngineIdentity,
+) -> String {
+    let metadata = metadata.metadata();
     let producer = format!("{} {}", engine.name(), engine.version());
     let mut properties = String::new();
     if let Some(title) = &metadata.title {

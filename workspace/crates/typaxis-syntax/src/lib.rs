@@ -10,11 +10,15 @@ pub use advanced::{
     ValidatedStagingAdvancedPackage,
 };
 pub use book_navigation::{
-    canonicalize_bcp47_language, validate_staging_book_navigation, BookNavigationSyntaxError,
-    BookNavigationSyntaxErrorKind, ComputedLanguageRegistryReceipt, DocumentMetadataReceipt,
-    StagingBookNavigationProfileAuthorization, StagingBookNavigationProfileView,
-    ValidatedOutlineRegistryReceipt, ValidatedStagingBookNavigation, BCP47_LANGUAGE_ALGORITHM,
-    BOOK_NAVIGATION_PROFILE_VIEW_ALGORITHM, COMPUTED_LANGUAGE_REGISTRY_ALGORITHM,
+    canonicalize_bcp47_language, validate_staging_book_navigation,
+    validate_staging_book_navigation_v2, BookNavigationSyntaxError, BookNavigationSyntaxErrorKind,
+    ComputedLanguageRegistryReceipt, ComputedLanguageRegistryReceiptV2, DocumentMetadataReceipt,
+    StagingBookNavigationProfileAuthorization, StagingBookNavigationProfileAuthorizationV2,
+    StagingBookNavigationProfileView, StagingBookNavigationProfileViewV2,
+    ValidatedOutlineRegistryReceipt, ValidatedStagingBookNavigation,
+    ValidatedStagingBookNavigationV2, BCP47_LANGUAGE_ALGORITHM,
+    BOOK_NAVIGATION_PROFILE_VIEW_ALGORITHM, BOOK_NAVIGATION_PROFILE_VIEW_ALGORITHM_V2,
+    COMPUTED_LANGUAGE_REGISTRY_ALGORITHM, COMPUTED_LANGUAGE_REGISTRY_ALGORITHM_V2,
     DOCUMENT_METADATA_ALGORITHM, OUTLINE_REGISTRY_ALGORITHM,
 };
 pub use semantic_container::{
@@ -94,8 +98,9 @@ pub mod machine_profile_boundary {
         Block, ColumnBalance, ColumnFill, ColumnLayout, FigurePlacement, FloatPlacementClass,
         FontMediaDeclaration, FontMediaType, FootnoteDefinition, ImageMediaDeclaration,
         ImageMediaType, Inline, PageRegionBlock, PageRegionInline, ReferenceFormat,
-        SemanticContainerKind, StagingLanguageNodeKind, StagingM4Block, StagingM4InlineVectorKind,
-        StagingM4ResourceCatalog, StagingOutlineSourceKind,
+        SemanticContainerKind, StagingComputedLanguageOwnerKindV2, StagingLanguageNodeKind,
+        StagingM4Block, StagingM4InlineVectorKind, StagingM4ResourceCatalog,
+        StagingOutlineSourceKind,
     };
     pub use typaxis_document_package as wire;
     pub use typaxis_machine_input::{

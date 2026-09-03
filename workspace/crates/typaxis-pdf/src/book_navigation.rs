@@ -1,10 +1,19 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use typaxis_core::{push_jcs_string, sha256, EngineIdentity, ValidatedResourceLimits};
-use typaxis_display_list::{BookInternalLink, BookNavigationSelectedReceipt, DestinationView};
-use typaxis_syntax::{StagingBookNavigationProfileAuthorization, ValidatedStagingBookNavigation};
+use typaxis_core::{
+    push_jcs_string, sha256, EngineIdentity, M4EffectiveResourceLimits, ValidatedResourceLimits,
+};
+use typaxis_display_list::{
+    BookInternalLink, BookNavigationSelectedReceipt, BookNavigationSelectedReceiptV2,
+    DestinationView,
+};
+use typaxis_syntax::{
+    StagingBookNavigationProfileAuthorization, StagingBookNavigationProfileAuthorizationV2,
+    ValidatedStagingBookNavigation, ValidatedStagingBookNavigationV2,
+};
 
 pub const BOOK_NAVIGATION_PDF_ALGORITHM: &str = "typaxis.book-navigation-pdf/1";
+pub const BOOK_NAVIGATION_PDF_ALGORITHM_V2: &str = "typaxis.book-navigation-pdf/2";
 pub const BOOK_XMP_ALGORITHM: &str = "typaxis.book-xmp/1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -292,6 +301,734 @@ impl std::fmt::Display for BookNavigationPdfError {
 }
 
 impl std::error::Error for BookNavigationPdfError {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookNavigationPdfInfoObservationV2 {
+    object_number: u32,
+    object_sha256: [u8; 32],
+    producer: String,
+    title: Option<String>,
+    author: Option<String>,
+    subject: Option<String>,
+    keywords: Option<String>,
+    creation_date: Option<String>,
+    modification_date: Option<String>,
+}
+
+impl BookNavigationPdfInfoObservationV2 {
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_final_writer(
+        object_number: u32,
+        object_bytes: &[u8],
+        producer: String,
+        title: Option<String>,
+        author: Option<String>,
+        subject: Option<String>,
+        keywords: Option<String>,
+        creation_date: Option<String>,
+        modification_date: Option<String>,
+    ) -> Result<Self, BookNavigationPdfError> {
+        if object_number == 0 || object_bytes.is_empty() {
+            return Err(BookNavigationPdfError::ReceiptMismatch);
+        }
+        Ok(Self {
+            object_number,
+            object_sha256: sha256(object_bytes),
+            producer,
+            title,
+            author,
+            subject,
+            keywords,
+            creation_date,
+            modification_date,
+        })
+    }
+
+    pub const fn object_number(&self) -> u32 {
+        self.object_number
+    }
+    pub const fn object_sha256(&self) -> [u8; 32] {
+        self.object_sha256
+    }
+    pub fn producer(&self) -> &str {
+        &self.producer
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookNavigationPdfOutlineObservationV2 {
+    outline_id: u32,
+    object_number: u32,
+    parent_object: u32,
+    title: String,
+    destination: String,
+    source_node_id: u32,
+}
+
+impl BookNavigationPdfOutlineObservationV2 {
+    #[doc(hidden)]
+    pub fn from_final_writer(
+        outline_id: u32,
+        object_number: u32,
+        parent_object: u32,
+        title: String,
+        destination: String,
+        source_node_id: u32,
+    ) -> Result<Self, BookNavigationPdfError> {
+        if object_number == 0 || parent_object == 0 || object_number == parent_object {
+            return Err(BookNavigationPdfError::InvalidOutline);
+        }
+        Ok(Self {
+            outline_id,
+            object_number,
+            parent_object,
+            title,
+            destination,
+            source_node_id,
+        })
+    }
+
+    pub const fn outline_id(&self) -> u32 {
+        self.outline_id
+    }
+    pub const fn object_number(&self) -> u32 {
+        self.object_number
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BookNavigationPdfLanguagePaintSourceV2 {
+    LogicalOwnerOccurrence(u32),
+    VectorUsage(u32),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookNavigationPdfLanguagePaintObservationV2 {
+    source: BookNavigationPdfLanguagePaintSourceV2,
+    owner_node_id: u32,
+    page_index: u32,
+    paint_ordinal: u32,
+    page_content_object: u32,
+    language: String,
+    language_record_fingerprint: [u8; 32],
+}
+
+impl BookNavigationPdfLanguagePaintObservationV2 {
+    #[doc(hidden)]
+    pub fn from_final_writer(
+        source: BookNavigationPdfLanguagePaintSourceV2,
+        owner_node_id: u32,
+        page_index: u32,
+        paint_ordinal: u32,
+        page_content_object: u32,
+        language: String,
+        language_record_fingerprint: [u8; 32],
+    ) -> Result<Self, BookNavigationPdfError> {
+        if page_content_object == 0 || language.is_empty() || language_record_fingerprint == [0; 32]
+        {
+            return Err(BookNavigationPdfError::ReceiptMismatch);
+        }
+        Ok(Self {
+            source,
+            owner_node_id,
+            page_index,
+            paint_ordinal,
+            page_content_object,
+            language,
+            language_record_fingerprint,
+        })
+    }
+
+    pub const fn source(&self) -> BookNavigationPdfLanguagePaintSourceV2 {
+        self.source
+    }
+    pub const fn owner_node_id(&self) -> u32 {
+        self.owner_node_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn paint_ordinal(&self) -> u32 {
+        self.paint_ordinal
+    }
+    pub fn language(&self) -> &str {
+        &self.language
+    }
+    pub const fn language_record_fingerprint(&self) -> [u8; 32] {
+        self.language_record_fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookXmpObservationV2 {
+    algorithm: &'static str,
+    byte_length: u64,
+    sha256: [u8; 32],
+}
+
+impl BookXmpObservationV2 {
+    #[doc(hidden)]
+    pub fn from_final_writer(bytes: &[u8]) -> Result<Self, BookNavigationPdfError> {
+        if bytes.is_empty() {
+            return Err(BookNavigationPdfError::ReceiptMismatch);
+        }
+        Ok(Self {
+            algorithm: crate::TAGGED_PDF_XMP_ALGORITHM,
+            byte_length: u64::try_from(bytes.len())
+                .map_err(|_| BookNavigationPdfError::OutputLimit)?,
+            sha256: sha256(bytes),
+        })
+    }
+
+    pub const fn algorithm(&self) -> &'static str {
+        self.algorithm
+    }
+    pub const fn byte_length(&self) -> u64 {
+        self.byte_length
+    }
+    pub const fn sha256(&self) -> [u8; 32] {
+        self.sha256
+    }
+}
+
+/// Observations supplied by the one final tagged-PDF writer. This value does
+/// not authorize bytes by itself; `/2` closure construction also requires the
+/// crate-owned [`crate::VerifiedPdfBytesReceipt`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookNavigationPdfFinalWriterObservationV2 {
+    final_pdf_sha256: [u8; 32],
+    final_pdf_byte_length: u64,
+    page_count: u32,
+    object_count: u32,
+    catalog_object: u32,
+    catalog_object_sha256: [u8; 32],
+    catalog_language: String,
+    metadata_object: u32,
+    outline_root_object: Option<u32>,
+    destination_registry_sha256: [u8; 32],
+    info: BookNavigationPdfInfoObservationV2,
+    outlines: Vec<BookNavigationPdfOutlineObservationV2>,
+    language_paints: Vec<BookNavigationPdfLanguagePaintObservationV2>,
+    xmp: BookXmpObservationV2,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl BookNavigationPdfFinalWriterObservationV2 {
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_final_writer(
+        final_pdf_sha256: [u8; 32],
+        final_pdf_byte_length: u64,
+        page_count: u32,
+        object_count: u32,
+        catalog_object: u32,
+        catalog_object_bytes: &[u8],
+        catalog_language: String,
+        metadata_object: u32,
+        outline_root_object: Option<u32>,
+        destination_registry_sha256: [u8; 32],
+        info: BookNavigationPdfInfoObservationV2,
+        outlines: Vec<BookNavigationPdfOutlineObservationV2>,
+        language_paints: Vec<BookNavigationPdfLanguagePaintObservationV2>,
+        xmp: BookXmpObservationV2,
+    ) -> Result<Self, BookNavigationPdfError> {
+        if final_pdf_sha256 == [0; 32]
+            || final_pdf_byte_length == 0
+            || page_count == 0
+            || object_count == 0
+            || catalog_object == 0
+            || catalog_object > object_count
+            || catalog_object_bytes.is_empty()
+            || metadata_object == 0
+            || metadata_object > object_count
+            || info.object_number == 0
+            || info.object_number > object_count
+            || outline_root_object.is_some_and(|object| object == 0 || object > object_count)
+        {
+            return Err(BookNavigationPdfError::ReceiptMismatch);
+        }
+        let mut previous_outline = None;
+        let mut outline_objects = BTreeMap::new();
+        for outline in &outlines {
+            if previous_outline.is_some_and(|previous| previous >= outline.outline_id)
+                || outline.object_number > object_count
+                || outline.parent_object > object_count
+                || outline_objects
+                    .insert(outline.object_number, outline.outline_id)
+                    .is_some()
+            {
+                return Err(BookNavigationPdfError::InvalidOutline);
+            }
+            previous_outline = Some(outline.outline_id);
+        }
+        let mut previous_paint = None;
+        for paint in &language_paints {
+            let order = (paint.page_index, paint.paint_ordinal);
+            if paint.page_index >= page_count
+                || paint.page_content_object > object_count
+                || previous_paint.is_some_and(|previous| previous >= order)
+            {
+                return Err(BookNavigationPdfError::ReceiptMismatch);
+            }
+            previous_paint = Some(order);
+        }
+        let mut value = Self {
+            final_pdf_sha256,
+            final_pdf_byte_length,
+            page_count,
+            object_count,
+            catalog_object,
+            catalog_object_sha256: sha256(catalog_object_bytes),
+            catalog_language,
+            metadata_object,
+            outline_root_object,
+            destination_registry_sha256,
+            info,
+            outlines,
+            language_paints,
+            xmp,
+            canonical_jcs: String::new(),
+            fingerprint: [0; 32],
+        };
+        value.canonical_jcs = encode_final_writer_observation_v2(&value);
+        value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+        Ok(value)
+    }
+
+    pub const fn final_pdf_sha256(&self) -> [u8; 32] {
+        self.final_pdf_sha256
+    }
+    pub const fn xmp(&self) -> &BookXmpObservationV2 {
+        &self.xmp
+    }
+    pub fn language_paints(&self) -> &[BookNavigationPdfLanguagePaintObservationV2] {
+        &self.language_paints
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookNavigationPdfObservationV2 {
+    metadata_sha256: [u8; 32],
+    language_sha256: [u8; 32],
+    outline_sha256: [u8; 32],
+    destination_registry_sha256: [u8; 32],
+    profile_sha256: [u8; 32],
+    selected_sha256: [u8; 32],
+    final_writer_sha256: [u8; 32],
+    final_pdf_sha256: [u8; 32],
+    final_pdf_byte_length: u64,
+    document_language: String,
+    info_object: u32,
+    catalog_object: u32,
+    metadata_object: u32,
+    outline_root_object: Option<u32>,
+    xmp_sha256: [u8; 32],
+    language_paint_count: u32,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl BookNavigationPdfObservationV2 {
+    pub const fn metadata_sha256(&self) -> [u8; 32] {
+        self.metadata_sha256
+    }
+    pub const fn language_sha256(&self) -> [u8; 32] {
+        self.language_sha256
+    }
+    pub const fn outline_sha256(&self) -> [u8; 32] {
+        self.outline_sha256
+    }
+    pub const fn destination_registry_sha256(&self) -> [u8; 32] {
+        self.destination_registry_sha256
+    }
+    pub const fn final_pdf_sha256(&self) -> [u8; 32] {
+        self.final_pdf_sha256
+    }
+    pub const fn final_pdf_byte_length(&self) -> u64 {
+        self.final_pdf_byte_length
+    }
+    pub fn document_language(&self) -> &str {
+        &self.document_language
+    }
+    pub const fn xmp_sha256(&self) -> [u8; 32] {
+        self.xmp_sha256
+    }
+    pub const fn language_paint_count(&self) -> u32 {
+        self.language_paint_count
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+pub fn observe_staging_book_navigation_pdf_v2(
+    navigation: &ValidatedStagingBookNavigationV2,
+    profile: &StagingBookNavigationProfileAuthorizationV2,
+    selected: &BookNavigationSelectedReceiptV2,
+    limits: &M4EffectiveResourceLimits,
+    engine: &EngineIdentity,
+    final_writer: &BookNavigationPdfFinalWriterObservationV2,
+    final_pdf: &crate::VerifiedPdfBytesReceipt,
+) -> Result<BookNavigationPdfObservationV2, BookNavigationPdfError> {
+    selected
+        .verify_sealed(navigation, profile, limits)
+        .map_err(|_| BookNavigationPdfError::ReceiptMismatch)?;
+    validate_final_writer_observation_v2(navigation, selected, engine, final_writer, final_pdf)?;
+    let language_paint_count = u32::try_from(final_writer.language_paints.len())
+        .map_err(|_| BookNavigationPdfError::ObjectLimit)?;
+    let mut value = BookNavigationPdfObservationV2 {
+        metadata_sha256: navigation.metadata().fingerprint(),
+        language_sha256: navigation.languages().fingerprint(),
+        outline_sha256: navigation.outline().fingerprint(),
+        destination_registry_sha256: selected.destination_registry_sha256(),
+        profile_sha256: profile.profile_receipt_fingerprint(),
+        selected_sha256: selected.fingerprint(),
+        final_writer_sha256: final_writer.fingerprint,
+        final_pdf_sha256: final_pdf.content_hash(),
+        final_pdf_byte_length: final_pdf.byte_length(),
+        document_language: navigation.languages().document_language().to_owned(),
+        info_object: final_writer.info.object_number,
+        catalog_object: final_writer.catalog_object,
+        metadata_object: final_writer.metadata_object,
+        outline_root_object: final_writer.outline_root_object,
+        xmp_sha256: final_writer.xmp.sha256,
+        language_paint_count,
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    value.canonical_jcs = encode_pdf_observation_v2(&value);
+    value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+    Ok(value)
+}
+
+fn validate_final_writer_observation_v2(
+    navigation: &ValidatedStagingBookNavigationV2,
+    selected: &BookNavigationSelectedReceiptV2,
+    engine: &EngineIdentity,
+    writer: &BookNavigationPdfFinalWriterObservationV2,
+    final_pdf: &crate::VerifiedPdfBytesReceipt,
+) -> Result<(), BookNavigationPdfError> {
+    let canonical = encode_final_writer_observation_v2(writer);
+    if writer.canonical_jcs != canonical
+        || writer.fingerprint != sha256(canonical.as_bytes())
+        || writer.final_pdf_sha256 != final_pdf.content_hash()
+        || writer.final_pdf_byte_length != final_pdf.byte_length()
+        || writer.page_count != final_pdf.page_count()
+        || writer.object_count != final_pdf.object_count()
+        || final_pdf.selected_layout_fingerprint().bytes() != selected.selected_layout_sha256()
+        || usize::try_from(writer.page_count) != Ok(selected.pages().len())
+        || writer.catalog_language != navigation.languages().document_language()
+        || writer.destination_registry_sha256 != selected.destination_registry_sha256()
+        || writer.catalog_object_sha256 == [0; 32]
+        || writer.info.object_sha256 == [0; 32]
+    {
+        return Err(BookNavigationPdfError::ReceiptMismatch);
+    }
+    let mut object_owners = [
+        writer.catalog_object,
+        writer.info.object_number,
+        writer.metadata_object,
+    ]
+    .into_iter()
+    .chain(writer.outline_root_object)
+    .collect::<BTreeSet<_>>();
+    if object_owners.len() != 3 + usize::from(writer.outline_root_object.is_some()) {
+        return Err(BookNavigationPdfError::ReceiptMismatch);
+    }
+    for outline in &writer.outlines {
+        if !object_owners.insert(outline.object_number) {
+            return Err(BookNavigationPdfError::InvalidOutline);
+        }
+    }
+
+    let metadata = navigation.metadata().metadata();
+    let expected_producer = format!("{} {}", engine.name(), engine.version());
+    let expected_keywords = (!metadata.keywords.is_empty()).then(|| metadata.keywords.join("; "));
+    if writer.info.producer != expected_producer
+        || writer.info.title != metadata.title
+        || writer.info.author != metadata.author
+        || writer.info.subject != metadata.subject
+        || writer.info.keywords != expected_keywords
+        || writer.info.creation_date != metadata.created
+        || writer.info.modification_date != metadata.modified
+    {
+        return Err(BookNavigationPdfError::InvalidMetadata);
+    }
+
+    let expected_xmp = crate::tagged_pdf::encode_tagged_book_xmp(
+        navigation.metadata(),
+        navigation.languages().document_language(),
+        engine,
+    );
+    let expected_xmp_length =
+        u64::try_from(expected_xmp.len()).map_err(|_| BookNavigationPdfError::OutputLimit)?;
+    if writer.xmp.algorithm != crate::TAGGED_PDF_XMP_ALGORITHM
+        || writer.xmp.byte_length != expected_xmp_length
+        || writer.xmp.sha256 != sha256(expected_xmp.as_bytes())
+    {
+        return Err(BookNavigationPdfError::InvalidMetadata);
+    }
+
+    if writer.outline_root_object.is_some() != !selected.entries().is_empty()
+        || writer.outlines.len() != selected.entries().len()
+    {
+        return Err(BookNavigationPdfError::InvalidOutline);
+    }
+    for (index, (observed, entry)) in writer.outlines.iter().zip(selected.entries()).enumerate() {
+        let expected_parent = match entry.parent_outline_id() {
+            Some(parent) => writer
+                .outlines
+                .get(parent as usize)
+                .map(|outline| outline.object_number),
+            None => writer.outline_root_object,
+        };
+        if usize::try_from(observed.outline_id) != Ok(index)
+            || observed.outline_id != entry.outline_id()
+            || observed.parent_object != expected_parent.unwrap_or(0)
+            || observed.title != entry.label()
+            || observed.destination != entry.destination().anchor_id.as_str()
+            || observed.source_node_id != entry.source_node_id().get()
+        {
+            return Err(BookNavigationPdfError::InvalidOutline);
+        }
+    }
+
+    let mut expected_paints = selected
+        .language_paints()
+        .iter()
+        .map(|paint| {
+            (
+                paint.page_index(),
+                paint.paint_ordinal(),
+                BookNavigationPdfLanguagePaintSourceV2::LogicalOwnerOccurrence(paint.occurrence()),
+                paint.owner_node_id().get(),
+                paint.language(),
+                paint.language_record_fingerprint(),
+            )
+        })
+        .chain(selected.vector_paints_requiring_language().map(|paint| {
+            (
+                paint.page_index(),
+                paint.paint_ordinal(),
+                BookNavigationPdfLanguagePaintSourceV2::VectorUsage(paint.usage_id()),
+                paint.owner_node_id().get(),
+                paint.language(),
+                paint.language_record_fingerprint(),
+            )
+        }))
+        .collect::<Vec<_>>();
+    expected_paints.sort_by_key(|paint| (paint.0, paint.1));
+    if expected_paints.len() != writer.language_paints.len() {
+        return Err(BookNavigationPdfError::ReceiptMismatch);
+    }
+    let mut page_content_objects = BTreeMap::new();
+    let mut content_object_pages = BTreeMap::new();
+    for (expected, observed) in expected_paints.iter().zip(&writer.language_paints) {
+        if observed.page_index != expected.0
+            || observed.paint_ordinal != expected.1
+            || observed.source != expected.2
+            || observed.owner_node_id != expected.3
+            || observed.language != expected.4
+            || observed.language_record_fingerprint != expected.5
+            || object_owners.contains(&observed.page_content_object)
+            || page_content_objects
+                .insert(observed.page_index, observed.page_content_object)
+                .is_some_and(|object| object != observed.page_content_object)
+            || content_object_pages
+                .insert(observed.page_content_object, observed.page_index)
+                .is_some_and(|page| page != observed.page_index)
+        {
+            return Err(BookNavigationPdfError::ReceiptMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn encode_final_writer_observation_v2(value: &BookNavigationPdfFinalWriterObservationV2) -> String {
+    let mut output = String::from("{\"catalog_language\":");
+    push_jcs_string(&mut output, &value.catalog_language);
+    output.push_str(",\"catalog_object\":");
+    output.push_str(&value.catalog_object.to_string());
+    output.push_str(",\"catalog_object_sha256\":");
+    push_hash(&mut output, value.catalog_object_sha256);
+    output.push_str(",\"destination_registry_sha256\":");
+    push_hash(&mut output, value.destination_registry_sha256);
+    output.push_str(",\"final_pdf_byte_length\":");
+    output.push_str(&value.final_pdf_byte_length.to_string());
+    output.push_str(",\"final_pdf_sha256\":");
+    push_hash(&mut output, value.final_pdf_sha256);
+    output.push_str(",\"info_sha256\":");
+    push_hash(
+        &mut output,
+        sha256(encode_info_observation_v2(&value.info).as_bytes()),
+    );
+    output.push_str(",\"language_paints_sha256\":");
+    push_hash(
+        &mut output,
+        sha256(encode_pdf_language_paints_v2(&value.language_paints).as_bytes()),
+    );
+    output.push_str(",\"metadata_object\":");
+    output.push_str(&value.metadata_object.to_string());
+    output.push_str(",\"object_count\":");
+    output.push_str(&value.object_count.to_string());
+    output.push_str(",\"outline_root_object\":");
+    if let Some(object) = value.outline_root_object {
+        output.push_str(&object.to_string());
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"outlines_sha256\":");
+    push_hash(
+        &mut output,
+        sha256(encode_pdf_outlines_v2(&value.outlines).as_bytes()),
+    );
+    output.push_str(",\"page_count\":");
+    output.push_str(&value.page_count.to_string());
+    output.push_str(",\"xmp\":{\"algorithm\":");
+    push_jcs_string(&mut output, value.xmp.algorithm);
+    output.push_str(",\"byte_length\":");
+    output.push_str(&value.xmp.byte_length.to_string());
+    output.push_str(",\"sha256\":");
+    push_hash(&mut output, value.xmp.sha256);
+    output.push_str("}}");
+    output
+}
+
+fn encode_info_observation_v2(value: &BookNavigationPdfInfoObservationV2) -> String {
+    let mut output = String::from("{\"author\":");
+    push_nullable(&mut output, value.author.as_deref());
+    output.push_str(",\"creation_date\":");
+    push_nullable(&mut output, value.creation_date.as_deref());
+    output.push_str(",\"keywords\":");
+    push_nullable(&mut output, value.keywords.as_deref());
+    output.push_str(",\"modification_date\":");
+    push_nullable(&mut output, value.modification_date.as_deref());
+    output.push_str(",\"object_number\":");
+    output.push_str(&value.object_number.to_string());
+    output.push_str(",\"object_sha256\":");
+    push_hash(&mut output, value.object_sha256);
+    output.push_str(",\"producer\":");
+    push_jcs_string(&mut output, &value.producer);
+    output.push_str(",\"subject\":");
+    push_nullable(&mut output, value.subject.as_deref());
+    output.push_str(",\"title\":");
+    push_nullable(&mut output, value.title.as_deref());
+    output.push('}');
+    output
+}
+
+fn encode_pdf_outlines_v2(values: &[BookNavigationPdfOutlineObservationV2]) -> String {
+    let mut output = String::from("[");
+    for (index, value) in values.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"destination\":");
+        push_jcs_string(&mut output, &value.destination);
+        output.push_str(",\"object_number\":");
+        output.push_str(&value.object_number.to_string());
+        output.push_str(",\"outline_id\":");
+        output.push_str(&value.outline_id.to_string());
+        output.push_str(",\"parent_object\":");
+        output.push_str(&value.parent_object.to_string());
+        output.push_str(",\"source_node_id\":");
+        output.push_str(&value.source_node_id.to_string());
+        output.push_str(",\"title\":");
+        push_jcs_string(&mut output, &value.title);
+        output.push('}');
+    }
+    output.push(']');
+    output
+}
+
+fn encode_pdf_language_paints_v2(values: &[BookNavigationPdfLanguagePaintObservationV2]) -> String {
+    let mut output = String::from("[");
+    for (index, value) in values.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"language\":");
+        push_jcs_string(&mut output, &value.language);
+        output.push_str(",\"language_record_fingerprint\":");
+        push_hash(&mut output, value.language_record_fingerprint);
+        output.push_str(",\"owner_node_id\":");
+        output.push_str(&value.owner_node_id.to_string());
+        output.push_str(",\"page_content_object\":");
+        output.push_str(&value.page_content_object.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&value.page_index.to_string());
+        output.push_str(",\"paint_ordinal\":");
+        output.push_str(&value.paint_ordinal.to_string());
+        output.push_str(",\"source\":{");
+        match value.source {
+            BookNavigationPdfLanguagePaintSourceV2::LogicalOwnerOccurrence(occurrence) => {
+                output.push_str("\"kind\":\"logical_owner_occurrence\",\"value\":");
+                output.push_str(&occurrence.to_string());
+            }
+            BookNavigationPdfLanguagePaintSourceV2::VectorUsage(usage_id) => {
+                output.push_str("\"kind\":\"vector_usage\",\"value\":");
+                output.push_str(&usage_id.to_string());
+            }
+        }
+        output.push_str("}}");
+    }
+    output.push(']');
+    output
+}
+
+fn encode_pdf_observation_v2(value: &BookNavigationPdfObservationV2) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, BOOK_NAVIGATION_PDF_ALGORITHM_V2);
+    output.push_str(",\"catalog_object\":");
+    output.push_str(&value.catalog_object.to_string());
+    output.push_str(",\"destination_registry_sha256\":");
+    push_hash(&mut output, value.destination_registry_sha256);
+    output.push_str(",\"document_language\":");
+    push_jcs_string(&mut output, &value.document_language);
+    output.push_str(",\"final_pdf_byte_length\":");
+    output.push_str(&value.final_pdf_byte_length.to_string());
+    output.push_str(",\"final_pdf_sha256\":");
+    push_hash(&mut output, value.final_pdf_sha256);
+    output.push_str(",\"final_writer_sha256\":");
+    push_hash(&mut output, value.final_writer_sha256);
+    output.push_str(",\"info_object\":");
+    output.push_str(&value.info_object.to_string());
+    output.push_str(",\"language_paint_count\":");
+    output.push_str(&value.language_paint_count.to_string());
+    output.push_str(",\"language_sha256\":");
+    push_hash(&mut output, value.language_sha256);
+    output.push_str(",\"metadata_object\":");
+    output.push_str(&value.metadata_object.to_string());
+    output.push_str(",\"metadata_sha256\":");
+    push_hash(&mut output, value.metadata_sha256);
+    output.push_str(",\"outline_root_object\":");
+    if let Some(object) = value.outline_root_object {
+        output.push_str(&object.to_string());
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"outline_sha256\":");
+    push_hash(&mut output, value.outline_sha256);
+    output.push_str(",\"profile_sha256\":");
+    push_hash(&mut output, value.profile_sha256);
+    output.push_str(",\"selected_sha256\":");
+    push_hash(&mut output, value.selected_sha256);
+    output.push_str(",\"xmp_sha256\":");
+    push_hash(&mut output, value.xmp_sha256);
+    output.push('}');
+    output
+}
 
 #[derive(Clone, Debug)]
 struct PdfObjectPlan {
@@ -1584,18 +2321,22 @@ fn push_hash(output: &mut String, value: [u8; 32]) {
 mod tests {
     use super::*;
     use typaxis_core::{
-        AnchorId, EngineIdentity, Length, NodeId, Point, ResourceLimits, ValidatedResourceLimits,
+        AnchorId, EffectiveConfigFingerprint, EngineIdentity, LayoutStateFingerprint, Length,
+        NodeId, PdfStreamCompression, Point, ResourceLimits, ValidatedResourceLimits,
     };
     use typaxis_display_list::{
-        select_staging_book_navigation, BookInternalLinkInput, BookLanguagePaintInput,
-        BookNavigationDestinationBinding, BookNavigationSelectedPage, NamedDestination,
+        select_staging_book_navigation, select_staging_book_navigation_v2, BookInternalLinkInput,
+        BookLanguagePaintInput, BookNavigationDestinationBinding, BookNavigationSelectedPage,
+        NamedDestination,
     };
     use typaxis_syntax::machine_profile_boundary::wire::{
         DocumentPackageDecodePolicy, StagingSemanticDocumentPackageDecoder,
     };
     use typaxis_syntax::{
-        validate_staging_book_navigation, StagingBookNavigationProfileAuthorization,
-        StagingBookNavigationProfileView, StagingSemanticPackageParser,
+        validate_staging_book_navigation, validate_staging_book_navigation_v2,
+        StagingBookNavigationProfileAuthorization, StagingBookNavigationProfileAuthorizationV2,
+        StagingBookNavigationProfileView, StagingBookNavigationProfileViewV2,
+        StagingSemanticPackageParser,
     };
 
     const FIXTURE: &[u8] = include_bytes!(concat!(
@@ -1828,6 +2569,360 @@ mod tests {
         assert_eq!(
             spool.insert(2, "too_large", vec![0]),
             Err(BookNavigationPdfError::SpoolLimit)
+        );
+    }
+
+    #[test]
+    fn book_navigation_vector_input_v2_requires_one_final_pdf_observation() {
+        let (legacy_package, legacy_navigation, _, legacy_limits, _) = selected_fixture();
+        let vector_limits = M4EffectiveResourceLimits::defaults_for(&legacy_limits);
+        let projected_navigation =
+            validate_staging_book_navigation_v2(&legacy_package, &vector_limits).unwrap();
+        let engine = EngineIdentity::compiled();
+        let legacy_xmp = crate::tagged_pdf::encode_xmp(&legacy_navigation, &engine);
+        let projected_xmp = crate::tagged_pdf::encode_tagged_book_xmp(
+            projected_navigation.metadata(),
+            projected_navigation.languages().document_language(),
+            &engine,
+        );
+        assert_eq!(projected_xmp, legacy_xmp);
+        let mut legacy_xmp_sha256 = String::new();
+        push_hash(&mut legacy_xmp_sha256, sha256(legacy_xmp.as_bytes()));
+        assert_eq!(
+            legacy_xmp_sha256,
+            "\"f2d02831c768180f5121517593f783331fc148ed59bafeb21f3d13da69dc3a5f\""
+        );
+
+        let fixture = typaxis_display_list::staging_precomposed_vector_display_fixture().unwrap();
+        let package = &fixture.layout.package;
+        let limits = &fixture.layout.limits;
+        let navigation = validate_staging_book_navigation_v2(package, limits).unwrap();
+        let profile = StagingBookNavigationProfileAuthorizationV2::bind_profile_receipt(
+            StagingBookNavigationProfileViewV2::new(package, &navigation, limits).unwrap(),
+            sha256(b"test-book-navigation-profile-v2"),
+            fixture.layout.profile.profile_receipt_fingerprint(),
+            fixture.layout.profile.profile_fingerprint(),
+            package,
+            &navigation,
+            limits,
+        )
+        .unwrap();
+        let pages = fixture
+            .display
+            .pages()
+            .iter()
+            .map(|page| BookNavigationSelectedPage {
+                page_index: page.page_index(),
+                width_raw: 1_000 * SCALE,
+                height_raw: 800 * SCALE,
+            })
+            .collect::<Vec<_>>();
+        let selected_layout_sha256 = sha256(b"selected-vector-layout-v2");
+        let selected = select_staging_book_navigation_v2(
+            &navigation,
+            &profile,
+            limits,
+            selected_layout_sha256,
+            4,
+            &pages,
+            &[],
+            &[],
+            &[],
+            &fixture.display,
+        )
+        .unwrap();
+        let xmp_bytes = crate::tagged_pdf::encode_tagged_book_xmp(
+            navigation.metadata(),
+            navigation.languages().document_language(),
+            &engine,
+        )
+        .into_bytes();
+        let xmp = BookXmpObservationV2::from_final_writer(&xmp_bytes).unwrap();
+        assert_eq!(xmp.algorithm(), crate::TAGGED_PDF_XMP_ALGORITHM);
+        let metadata = navigation.metadata().metadata();
+        let info = BookNavigationPdfInfoObservationV2::from_final_writer(
+            2,
+            b"<< /Producer (fixture) >>",
+            format!("{} {}", engine.name(), engine.version()),
+            metadata.title.clone(),
+            metadata.author.clone(),
+            metadata.subject.clone(),
+            (!metadata.keywords.is_empty()).then(|| metadata.keywords.join("; ")),
+            metadata.created.clone(),
+            metadata.modified.clone(),
+        )
+        .unwrap();
+        let pdf_bytes = b"%PDF-1.7\n% final tagged fixture\n%%EOF\n".to_vec();
+        let pdf_sha256 = sha256(&pdf_bytes);
+        let final_pdf = crate::VerifiedPdfBytesReceipt {
+            sha256: pdf_sha256,
+            bytes: pdf_bytes,
+            selected_layout_fingerprint: LayoutStateFingerprint::from_untrusted_bytes(
+                selected_layout_sha256,
+            ),
+            footnote_display_sha256: None,
+            page_count: u32::try_from(pages.len()).unwrap(),
+            object_count: 3,
+            stream_compression: PdfStreamCompression::None,
+            config_fingerprint: EffectiveConfigFingerprint::from_untrusted_bytes([8; 32]),
+        };
+        let final_writer = BookNavigationPdfFinalWriterObservationV2::from_final_writer(
+            pdf_sha256,
+            final_pdf.byte_length(),
+            final_pdf.page_count(),
+            final_pdf.object_count(),
+            1,
+            b"<< /Type /Catalog /Lang (ja) >>",
+            "ja".to_owned(),
+            3,
+            None,
+            selected.destination_registry_sha256(),
+            info,
+            Vec::new(),
+            Vec::new(),
+            xmp,
+        )
+        .unwrap();
+        let observation = observe_staging_book_navigation_pdf_v2(
+            &navigation,
+            &profile,
+            &selected,
+            limits,
+            &engine,
+            &final_writer,
+            &final_pdf,
+        )
+        .unwrap();
+        assert_eq!(observation.final_pdf_sha256(), pdf_sha256);
+        assert_eq!(observation.document_language(), "ja");
+        assert_eq!(observation.language_paint_count(), 0);
+        assert_eq!(observation.xmp_sha256(), sha256(&xmp_bytes));
+        assert!(observation
+            .canonical_jcs()
+            .contains("\"algorithm\":\"typaxis.book-navigation-pdf/2\""));
+
+        let mut wrong_catalog = final_writer.clone();
+        wrong_catalog.catalog_language = "en-US".to_owned();
+        assert_eq!(
+            observe_staging_book_navigation_pdf_v2(
+                &navigation,
+                &profile,
+                &selected,
+                limits,
+                &engine,
+                &wrong_catalog,
+                &final_pdf,
+            ),
+            Err(BookNavigationPdfError::ReceiptMismatch)
+        );
+
+        let vector_paint = &selected.vector_paints()[0];
+        let bogus_paint = BookNavigationPdfLanguagePaintObservationV2::from_final_writer(
+            BookNavigationPdfLanguagePaintSourceV2::VectorUsage(vector_paint.usage_id()),
+            vector_paint.owner_node_id().get(),
+            vector_paint.page_index(),
+            vector_paint.paint_ordinal(),
+            1,
+            "ja".to_owned(),
+            vector_paint.language_record_fingerprint(),
+        )
+        .unwrap();
+        let extra_paint_writer = BookNavigationPdfFinalWriterObservationV2::from_final_writer(
+            pdf_sha256,
+            final_pdf.byte_length(),
+            final_pdf.page_count(),
+            final_pdf.object_count(),
+            1,
+            b"<< /Type /Catalog /Lang (ja) >>",
+            "ja".to_owned(),
+            3,
+            None,
+            selected.destination_registry_sha256(),
+            final_writer.info.clone(),
+            Vec::new(),
+            vec![bogus_paint],
+            final_writer.xmp.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            observe_staging_book_navigation_pdf_v2(
+                &navigation,
+                &profile,
+                &selected,
+                limits,
+                &engine,
+                &extra_paint_writer,
+                &final_pdf,
+            ),
+            Err(BookNavigationPdfError::ReceiptMismatch)
+        );
+
+        let override_fixture =
+            typaxis_display_list::staging_precomposed_vector_display_language_override_fixture()
+                .unwrap();
+        let override_package = &override_fixture.layout.package;
+        let override_limits = &override_fixture.layout.limits;
+        let override_navigation =
+            validate_staging_book_navigation_v2(override_package, override_limits).unwrap();
+        let override_profile = StagingBookNavigationProfileAuthorizationV2::bind_profile_receipt(
+            StagingBookNavigationProfileViewV2::new(
+                override_package,
+                &override_navigation,
+                override_limits,
+            )
+            .unwrap(),
+            sha256(b"test-book-navigation-profile-language-override-v2"),
+            override_fixture
+                .layout
+                .profile
+                .profile_receipt_fingerprint(),
+            override_fixture.layout.profile.profile_fingerprint(),
+            override_package,
+            &override_navigation,
+            override_limits,
+        )
+        .unwrap();
+        let override_pages = override_fixture
+            .display
+            .pages()
+            .iter()
+            .map(|page| BookNavigationSelectedPage {
+                page_index: page.page_index(),
+                width_raw: 1_000 * SCALE,
+                height_raw: 800 * SCALE,
+            })
+            .collect::<Vec<_>>();
+        let override_layout_sha256 = sha256(b"selected-vector-language-override-v2");
+        let override_selected = select_staging_book_navigation_v2(
+            &override_navigation,
+            &override_profile,
+            override_limits,
+            override_layout_sha256,
+            4,
+            &override_pages,
+            &[],
+            &[],
+            &[],
+            &override_fixture.display,
+        )
+        .unwrap();
+        let override_xmp_bytes = crate::tagged_pdf::encode_tagged_book_xmp(
+            override_navigation.metadata(),
+            override_navigation.languages().document_language(),
+            &engine,
+        )
+        .into_bytes();
+        let override_xmp = BookXmpObservationV2::from_final_writer(&override_xmp_bytes).unwrap();
+        let override_metadata = override_navigation.metadata().metadata();
+        let override_info = BookNavigationPdfInfoObservationV2::from_final_writer(
+            2,
+            b"<< /Producer (fixture) >>",
+            format!("{} {}", engine.name(), engine.version()),
+            override_metadata.title.clone(),
+            override_metadata.author.clone(),
+            override_metadata.subject.clone(),
+            (!override_metadata.keywords.is_empty()).then(|| override_metadata.keywords.join("; ")),
+            override_metadata.created.clone(),
+            override_metadata.modified.clone(),
+        )
+        .unwrap();
+        let override_language_paints = override_selected
+            .vector_paints_requiring_language()
+            .map(|paint| {
+                BookNavigationPdfLanguagePaintObservationV2::from_final_writer(
+                    BookNavigationPdfLanguagePaintSourceV2::VectorUsage(paint.usage_id()),
+                    paint.owner_node_id().get(),
+                    paint.page_index(),
+                    paint.paint_ordinal(),
+                    4 + paint.page_index(),
+                    paint.language().to_owned(),
+                    paint.language_record_fingerprint(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(override_language_paints.len(), 4);
+        let override_pdf_bytes = b"%PDF-1.7\n% final language override fixture\n%%EOF\n".to_vec();
+        let override_pdf_sha256 = sha256(&override_pdf_bytes);
+        let override_page_count = u32::try_from(override_pages.len()).unwrap();
+        let override_object_count = 3 + override_page_count;
+        let override_final_pdf = crate::VerifiedPdfBytesReceipt {
+            sha256: override_pdf_sha256,
+            bytes: override_pdf_bytes,
+            selected_layout_fingerprint: LayoutStateFingerprint::from_untrusted_bytes(
+                override_layout_sha256,
+            ),
+            footnote_display_sha256: None,
+            page_count: override_page_count,
+            object_count: override_object_count,
+            stream_compression: PdfStreamCompression::None,
+            config_fingerprint: EffectiveConfigFingerprint::from_untrusted_bytes([9; 32]),
+        };
+        let override_writer = BookNavigationPdfFinalWriterObservationV2::from_final_writer(
+            override_pdf_sha256,
+            override_final_pdf.byte_length(),
+            override_page_count,
+            override_object_count,
+            1,
+            b"<< /Type /Catalog /Lang (ja) >>",
+            "ja".to_owned(),
+            3,
+            None,
+            override_selected.destination_registry_sha256(),
+            override_info.clone(),
+            Vec::new(),
+            override_language_paints.clone(),
+            override_xmp.clone(),
+        )
+        .unwrap();
+        let override_observation = observe_staging_book_navigation_pdf_v2(
+            &override_navigation,
+            &override_profile,
+            &override_selected,
+            override_limits,
+            &engine,
+            &override_writer,
+            &override_final_pdf,
+        )
+        .unwrap();
+        assert_eq!(override_observation.language_paint_count(), 4);
+        assert_eq!(
+            override_observation.language_sha256(),
+            override_navigation.languages().fingerprint()
+        );
+
+        let mut colliding_language_paints = override_language_paints;
+        for paint in &mut colliding_language_paints {
+            paint.page_content_object = 1;
+        }
+        let colliding_writer = BookNavigationPdfFinalWriterObservationV2::from_final_writer(
+            override_pdf_sha256,
+            override_final_pdf.byte_length(),
+            override_page_count,
+            override_object_count,
+            1,
+            b"<< /Type /Catalog /Lang (ja) >>",
+            "ja".to_owned(),
+            3,
+            None,
+            override_selected.destination_registry_sha256(),
+            override_info,
+            Vec::new(),
+            colliding_language_paints,
+            override_xmp,
+        )
+        .unwrap();
+        assert_eq!(
+            observe_staging_book_navigation_pdf_v2(
+                &override_navigation,
+                &override_profile,
+                &override_selected,
+                override_limits,
+                &engine,
+                &colliding_writer,
+                &override_final_pdf,
+            ),
+            Err(BookNavigationPdfError::ReceiptMismatch)
         );
     }
 }

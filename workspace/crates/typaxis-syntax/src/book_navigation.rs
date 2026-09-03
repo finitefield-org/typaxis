@@ -2,12 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use typaxis_core::{
-    push_jcs_string, sha256, AnchorId, JsonPointer, NodeId, SourceId, SourceSpan, Utf8ByteOffset,
-    ValidatedResourceLimits,
+    push_jcs_string, sha256, AnchorId, JsonPointer, M4EffectiveResourceLimits, NodeId, SourceId,
+    SourceSpan, Utf8ByteOffset, ValidatedResourceLimits,
 };
 use typaxis_document::{
-    StagingComputedLanguageRecord, StagingDocumentMetadata, StagingLanguageNodeKind,
+    StagingComputedLanguageChildKindV2, StagingComputedLanguageChildRecordV2,
+    StagingComputedLanguageOwnerKindV2, StagingComputedLanguageRecord,
+    StagingComputedLanguageRecordV2, StagingDocumentMetadata, StagingLanguageNodeKind,
     StagingOutlineEntry, StagingOutlineSource, StagingOutlineSourceKind,
+    StagingVectorLanguageBindingV2,
 };
 use typaxis_document_package::{
     staging_m4_wire_ast_node_count, WireAdvancedPageMasterSet, WireDocumentMetadata,
@@ -21,8 +24,11 @@ use crate::{StagingSemanticSyntaxError, ValidatedStagingSemanticPackage};
 pub const DOCUMENT_METADATA_ALGORITHM: &str = "typaxis.document-metadata/1";
 pub const BCP47_LANGUAGE_ALGORITHM: &str = "typaxis.bcp47-language/1";
 pub const COMPUTED_LANGUAGE_REGISTRY_ALGORITHM: &str = "typaxis.computed-language-registry/1";
+pub const COMPUTED_LANGUAGE_REGISTRY_ALGORITHM_V2: &str = "typaxis.computed-language-registry/2";
 pub const OUTLINE_REGISTRY_ALGORITHM: &str = "typaxis.outline-registry/1";
 pub const BOOK_NAVIGATION_PROFILE_VIEW_ALGORITHM: &str = "typaxis.book-navigation-profile-view/1";
+pub const BOOK_NAVIGATION_PROFILE_VIEW_ALGORITHM_V2: &str =
+    "typaxis.book-navigation-profile-view/2";
 
 const GRANDFATHERED: &[&str] = &[
     "art-lojban",
@@ -219,6 +225,71 @@ impl ComputedLanguageRegistryReceipt {
     }
 }
 
+/// Version-2 computed-language registry for the complete contract-1.4 owner
+/// set, including all precomposed-vector owners.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputedLanguageRegistryReceiptV2 {
+    document_language: Arc<str>,
+    records: Vec<StagingComputedLanguageRecordV2>,
+    child_records: Vec<StagingComputedLanguageChildRecordV2>,
+    package_sha256: [u8; 32],
+    semantic_sha256: [u8; 32],
+    base_limits_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    total_language_text_charge_bytes: u64,
+    prevalidated_vector_language_charge_bytes: u64,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl ComputedLanguageRegistryReceiptV2 {
+    pub fn document_language(&self) -> &str {
+        &self.document_language
+    }
+    pub fn records(&self) -> &[StagingComputedLanguageRecordV2] {
+        &self.records
+    }
+    pub fn child_records(&self) -> &[StagingComputedLanguageChildRecordV2] {
+        &self.child_records
+    }
+    pub fn record(&self, node_id: NodeId) -> Option<&StagingComputedLanguageRecordV2> {
+        self.records
+            .binary_search_by_key(&node_id, |record| record.node_id)
+            .ok()
+            .map(|index| &self.records[index])
+    }
+    pub fn child_record(&self, node_id: NodeId) -> Option<&StagingComputedLanguageChildRecordV2> {
+        self.child_records
+            .binary_search_by_key(&node_id, |record| record.node_id)
+            .ok()
+            .map(|index| &self.child_records[index])
+    }
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn semantic_sha256(&self) -> [u8; 32] {
+        self.semantic_sha256
+    }
+    pub const fn base_limits_sha256(&self) -> [u8; 32] {
+        self.base_limits_sha256
+    }
+    pub const fn limits_sha256(&self) -> [u8; 32] {
+        self.limits_sha256
+    }
+    pub const fn total_language_text_charge_bytes(&self) -> u64 {
+        self.total_language_text_charge_bytes
+    }
+    pub const fn prevalidated_vector_language_charge_bytes(&self) -> u64 {
+        self.prevalidated_vector_language_charge_bytes
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatedOutlineRegistryReceipt {
     entries: Vec<StagingOutlineEntry>,
@@ -302,6 +373,64 @@ impl ValidatedStagingBookNavigation {
         limits: &ValidatedResourceLimits,
     ) -> Result<(), BookNavigationSyntaxError> {
         let observed = validate_staging_book_navigation_inner(package, limits)?;
+        if self != &observed {
+            return Err(BookNavigationSyntaxError::mismatch());
+        }
+        Ok(())
+    }
+}
+
+/// Complete book-navigation syntax closure for precomposed-vector staging.
+/// The metadata and outline algorithms remain the existing `/1` meanings;
+/// only their language-owner dependency is upgraded to registry `/2`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingBookNavigationV2 {
+    metadata: DocumentMetadataReceipt,
+    languages: ComputedLanguageRegistryReceiptV2,
+    outline: ValidatedOutlineRegistryReceipt,
+    anchors: Vec<(AnchorId, NodeId)>,
+    internal_links: Vec<(NodeId, AnchorId)>,
+    limits: M4EffectiveResourceLimits,
+}
+
+impl ValidatedStagingBookNavigationV2 {
+    pub const fn metadata(&self) -> &DocumentMetadataReceipt {
+        &self.metadata
+    }
+    pub const fn languages(&self) -> &ComputedLanguageRegistryReceiptV2 {
+        &self.languages
+    }
+    pub const fn outline(&self) -> &ValidatedOutlineRegistryReceipt {
+        &self.outline
+    }
+    pub fn anchors(&self) -> &[(AnchorId, NodeId)] {
+        &self.anchors
+    }
+    pub fn anchor_owner(&self, anchor_id: &AnchorId) -> Option<NodeId> {
+        self.anchors
+            .binary_search_by(|(anchor, _)| anchor.cmp(anchor_id))
+            .ok()
+            .map(|index| self.anchors[index].1)
+    }
+    pub fn internal_links(&self) -> &[(NodeId, AnchorId)] {
+        &self.internal_links
+    }
+    pub fn internal_link_target(&self, owner: NodeId) -> Option<&AnchorId> {
+        self.internal_links
+            .binary_search_by_key(&owner, |(candidate, _)| *candidate)
+            .ok()
+            .map(|index| &self.internal_links[index].1)
+    }
+    pub const fn limits(&self) -> &M4EffectiveResourceLimits {
+        &self.limits
+    }
+
+    pub fn verify(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), BookNavigationSyntaxError> {
+        let observed = validate_staging_book_navigation_v2_inner(package, limits)?;
         if self != &observed {
             return Err(BookNavigationSyntaxError::mismatch());
         }
@@ -451,6 +580,191 @@ impl StagingBookNavigationProfileAuthorization {
     }
 }
 
+/// Dependency-inversion view consumed by the version-2 profile owner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingBookNavigationProfileViewV2 {
+    package_sha256: [u8; 32],
+    semantic_sha256: [u8; 32],
+    metadata_sha256: [u8; 32],
+    language_sha256: [u8; 32],
+    outline_sha256: [u8; 32],
+    base_limits_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    owner_count: u32,
+    vector_owner_count: u32,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingBookNavigationProfileViewV2 {
+    pub fn new(
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, BookNavigationSyntaxError> {
+        navigation.verify(package, limits)?;
+        let owner_count = u32::try_from(navigation.languages.records.len())
+            .map_err(|_| BookNavigationSyntaxError::mismatch())?;
+        let vector_owner_count = u32::try_from(
+            navigation
+                .languages
+                .records
+                .iter()
+                .filter(|record| record.node_kind.is_precomposed_vector())
+                .count(),
+        )
+        .map_err(|_| BookNavigationSyntaxError::mismatch())?;
+        let mut value = Self {
+            package_sha256: package.canonical_jcs_sha256(),
+            semantic_sha256: package.semantic_fingerprint(),
+            metadata_sha256: navigation.metadata.fingerprint,
+            language_sha256: navigation.languages.fingerprint,
+            outline_sha256: navigation.outline.fingerprint,
+            base_limits_sha256: limits_fingerprint(limits.base()),
+            limits_sha256: limits.fingerprint(),
+            owner_count,
+            vector_owner_count,
+            canonical_jcs: String::new(),
+            fingerprint: [0; 32],
+        };
+        value.canonical_jcs = encode_profile_view_v2(&value);
+        value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+        Ok(value)
+    }
+
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn semantic_sha256(&self) -> [u8; 32] {
+        self.semantic_sha256
+    }
+    pub const fn metadata_sha256(&self) -> [u8; 32] {
+        self.metadata_sha256
+    }
+    pub const fn language_sha256(&self) -> [u8; 32] {
+        self.language_sha256
+    }
+    pub const fn outline_sha256(&self) -> [u8; 32] {
+        self.outline_sha256
+    }
+    pub const fn base_limits_sha256(&self) -> [u8; 32] {
+        self.base_limits_sha256
+    }
+    pub const fn limits_sha256(&self) -> [u8; 32] {
+        self.limits_sha256
+    }
+    pub const fn owner_count(&self) -> u32 {
+        self.owner_count
+    }
+    pub const fn vector_owner_count(&self) -> u32 {
+        self.vector_owner_count
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn authorizes(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), BookNavigationSyntaxError> {
+        let observed = Self::new(package, navigation, limits)?;
+        if &observed != self {
+            return Err(BookNavigationSyntaxError::mismatch());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingBookNavigationProfileAuthorizationV2 {
+    view: StagingBookNavigationProfileViewV2,
+    profile_receipt_fingerprint: [u8; 32],
+    precomposed_vector_profile_receipt_fingerprint: [u8; 32],
+    precomposed_vector_profile_fingerprint: [u8; 32],
+}
+
+impl StagingBookNavigationProfileAuthorizationV2 {
+    #[doc(hidden)]
+    pub fn bind_profile_receipt(
+        view: StagingBookNavigationProfileViewV2,
+        profile_receipt_fingerprint: [u8; 32],
+        precomposed_vector_profile_receipt_fingerprint: [u8; 32],
+        precomposed_vector_profile_fingerprint: [u8; 32],
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, BookNavigationSyntaxError> {
+        let expected = StagingBookNavigationProfileViewV2::new(package, navigation, limits)?;
+        if view != expected
+            || profile_receipt_fingerprint == [0; 32]
+            || precomposed_vector_profile_receipt_fingerprint == [0; 32]
+            || precomposed_vector_profile_fingerprint == [0; 32]
+        {
+            return Err(BookNavigationSyntaxError::mismatch());
+        }
+        Ok(Self {
+            view,
+            profile_receipt_fingerprint,
+            precomposed_vector_profile_receipt_fingerprint,
+            precomposed_vector_profile_fingerprint,
+        })
+    }
+
+    pub const fn view(&self) -> &StagingBookNavigationProfileViewV2 {
+        &self.view
+    }
+    pub const fn profile_receipt_fingerprint(&self) -> [u8; 32] {
+        self.profile_receipt_fingerprint
+    }
+    pub const fn precomposed_vector_profile_fingerprint(&self) -> [u8; 32] {
+        self.precomposed_vector_profile_fingerprint
+    }
+    pub const fn precomposed_vector_profile_receipt_fingerprint(&self) -> [u8; 32] {
+        self.precomposed_vector_profile_receipt_fingerprint
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.view.fingerprint()
+    }
+    pub const fn metadata_sha256(&self) -> [u8; 32] {
+        self.view.metadata_sha256()
+    }
+    pub const fn language_sha256(&self) -> [u8; 32] {
+        self.view.language_sha256()
+    }
+    pub const fn outline_sha256(&self) -> [u8; 32] {
+        self.view.outline_sha256()
+    }
+    pub const fn limits_sha256(&self) -> [u8; 32] {
+        self.view.limits_sha256()
+    }
+
+    pub fn authorizes(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), BookNavigationSyntaxError> {
+        self.view.authorizes(package, navigation, limits)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LanguageRegistryGeneration {
+    V1,
+    V2,
+}
+
+impl LanguageRegistryGeneration {
+    const fn accepts_precomposed_vectors(self) -> bool {
+        matches!(self, Self::V2)
+    }
+}
+
 #[derive(Clone, Debug)]
 struct LanguageSite {
     node_id: u32,
@@ -497,6 +811,7 @@ fn validate_staging_book_navigation_inner(
     collect_document(
         wire.document(),
         wire.advanced_page_masters(),
+        LanguageRegistryGeneration::V1,
         &mut sites,
         &mut owners,
         &mut anchors,
@@ -524,7 +839,8 @@ fn validate_staging_book_navigation_inner(
                 .map_err(|_| BookNavigationSyntaxError::mismatch())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let internal_links = collect_internal_links(wire.document(), &anchors)?;
+    let internal_links =
+        collect_internal_links(wire.document(), &anchors, LanguageRegistryGeneration::V1)?;
     validate_aggregate_text(wire, &languages, &language_charges, limits)?;
     validate_navigation_node_limits(wire, package, limits)?;
 
@@ -538,13 +854,92 @@ fn validate_staging_book_navigation_inner(
     })
 }
 
+pub fn validate_staging_book_navigation_v2(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<ValidatedStagingBookNavigationV2, BookNavigationSyntaxError> {
+    validate_staging_book_navigation_v2_inner(package, limits)
+}
+
+fn validate_staging_book_navigation_v2_inner(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<ValidatedStagingBookNavigationV2, BookNavigationSyntaxError> {
+    if package.limits() != limits.base() {
+        return Err(BookNavigationSyntaxError::mismatch());
+    }
+    let wire = package.checked_wire().map_err(map_semantic_error)?;
+    let base_limits_sha256 = limits_fingerprint(limits.base());
+    let package_sha256 = package.canonical_jcs_sha256();
+    let semantic_sha256 = package.semantic_fingerprint();
+    let metadata = validate_metadata(
+        wire.metadata(),
+        package_sha256,
+        base_limits_sha256,
+        limits.base(),
+    )?;
+
+    let mut sites = Vec::new();
+    let mut owners = BTreeMap::new();
+    let mut anchors: BTreeMap<String, (u32, String)> = BTreeMap::new();
+    collect_document(
+        wire.document(),
+        wire.advanced_page_masters(),
+        LanguageRegistryGeneration::V2,
+        &mut sites,
+        &mut owners,
+        &mut anchors,
+    )?;
+    let languages = validate_languages_v2(
+        sites,
+        package,
+        package_sha256,
+        semantic_sha256,
+        base_limits_sha256,
+        limits,
+    )?;
+    let outline = validate_outline(
+        wire,
+        &owners,
+        &anchors,
+        &languages,
+        semantic_sha256,
+        package_sha256,
+        base_limits_sha256,
+        limits.base(),
+    )?;
+    let anchors = anchors
+        .iter()
+        .map(|(anchor, (owner, _))| {
+            AnchorId::new(anchor.clone())
+                .map(|anchor| (anchor, NodeId::new(*owner)))
+                .map_err(|_| BookNavigationSyntaxError::mismatch())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let internal_links =
+        collect_internal_links(wire.document(), &anchors, LanguageRegistryGeneration::V2)?;
+    validate_aggregate_text_v2(wire, &languages, limits.base())?;
+    validate_navigation_node_limits(wire, package, limits.base())?;
+
+    Ok(ValidatedStagingBookNavigationV2 {
+        metadata,
+        languages,
+        outline,
+        anchors,
+        internal_links,
+        limits: limits.clone(),
+    })
+}
+
 fn collect_internal_links(
     document: &WireStagingM4Document,
     anchors: &[(AnchorId, NodeId)],
+    generation: LanguageRegistryGeneration,
 ) -> Result<Vec<(NodeId, AnchorId)>, BookNavigationSyntaxError> {
     fn inlines(
         values: &[WireStagingM4Inline],
         pointer: &str,
+        generation: LanguageRegistryGeneration,
         output: &mut Vec<(NodeId, AnchorId, String)>,
     ) -> Result<(), BookNavigationSyntaxError> {
         for (index, value) in values.iter().enumerate() {
@@ -570,14 +965,16 @@ fn collect_internal_links(
                 WireStagingM4Inline::Emphasis { children, .. }
                 | WireStagingM4Inline::Strong { children, .. }
                 | WireStagingM4Inline::Link { children, .. } => {
-                    inlines(children, &format!("{base}/children"), output)?;
+                    inlines(children, &format!("{base}/children"), generation, output)?;
                 }
                 WireStagingM4Inline::InlineVector { .. }
                 | WireStagingM4Inline::MathVector { .. } => {
-                    return Err(BookNavigationSyntaxError::producer(
-                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
-                        base,
-                    ));
+                    if !generation.accepts_precomposed_vectors() {
+                        return Err(BookNavigationSyntaxError::producer(
+                            BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                            base,
+                        ));
+                    }
                 }
                 WireStagingM4Inline::Text { .. }
                 | WireStagingM4Inline::InlineMath { .. }
@@ -594,6 +991,7 @@ fn collect_internal_links(
     fn blocks(
         values: &[WireStagingM4Block],
         pointer: &str,
+        generation: LanguageRegistryGeneration,
         output: &mut Vec<(NodeId, AnchorId, String)>,
     ) -> Result<(), BookNavigationSyntaxError> {
         for (index, value) in values.iter().enumerate() {
@@ -601,13 +999,14 @@ fn collect_internal_links(
             match value {
                 WireStagingM4Block::Paragraph { children, .. }
                 | WireStagingM4Block::Heading { children, .. } => {
-                    inlines(children, &format!("{base}/children"), output)?;
+                    inlines(children, &format!("{base}/children"), generation, output)?;
                 }
                 WireStagingM4Block::List { items, .. } => {
                     for (item_index, item) in items.iter().enumerate() {
                         blocks(
                             &item.blocks,
                             &format!("{base}/items/{item_index}/blocks"),
+                            generation,
                             output,
                         )?;
                     }
@@ -621,26 +1020,37 @@ fn collect_internal_links(
                                     &format!(
                                         "{base}/{collection}/{row_index}/cells/{cell_index}/blocks"
                                     ),
+                                    generation,
                                     output,
                                 )?;
                             }
                         }
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. } => {
-                    blocks(caption, &format!("{base}/caption"), output)?;
+                WireStagingM4Block::Figure { caption, .. }
+                | WireStagingM4Block::VectorFigure { caption, .. } => {
+                    if matches!(value, WireStagingM4Block::VectorFigure { .. })
+                        && !generation.accepts_precomposed_vectors()
+                    {
+                        return Err(BookNavigationSyntaxError::producer(
+                            BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                            base,
+                        ));
+                    }
+                    blocks(caption, &format!("{base}/caption"), generation, output)?;
                 }
                 WireStagingM4Block::SemanticContainer {
                     blocks: children, ..
                 } => {
-                    blocks(children, &format!("{base}/blocks"), output)?;
+                    blocks(children, &format!("{base}/blocks"), generation, output)?;
                 }
-                WireStagingM4Block::VectorFigure { .. }
-                | WireStagingM4Block::MathVectorBlock { .. } => {
-                    return Err(BookNavigationSyntaxError::producer(
-                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
-                        base,
-                    ));
+                WireStagingM4Block::MathVectorBlock { .. } => {
+                    if !generation.accepts_precomposed_vectors() {
+                        return Err(BookNavigationSyntaxError::producer(
+                            BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                            base,
+                        ));
+                    }
                 }
                 WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
             }
@@ -649,11 +1059,12 @@ fn collect_internal_links(
     }
 
     let mut raw = Vec::new();
-    blocks(&document.blocks, "/document/blocks", &mut raw)?;
+    blocks(&document.blocks, "/document/blocks", generation, &mut raw)?;
     for (index, footnote) in document.footnotes.iter().enumerate() {
         blocks(
             &footnote.blocks,
             &format!("/document/footnotes/{index}/blocks"),
+            generation,
             &mut raw,
         )?;
     }
@@ -841,6 +1252,7 @@ fn validate_timestamp(
 fn collect_document(
     document: &WireStagingM4Document,
     page_masters: &WireAdvancedPageMasterSet,
+    generation: LanguageRegistryGeneration,
     sites: &mut Vec<LanguageSite>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
@@ -858,6 +1270,7 @@ fn collect_document(
         document.node_id,
         "/document/blocks",
         true,
+        generation,
         sites,
         owners,
         anchors,
@@ -867,6 +1280,7 @@ fn collect_document(
             footnote,
             document.node_id,
             &format!("/document/footnotes/{index}"),
+            generation,
             sites,
             owners,
             anchors,
@@ -974,6 +1388,7 @@ fn collect_footnote(
     footnote: &WireStagingM4Footnote,
     parent: u32,
     pointer: &str,
+    generation: LanguageRegistryGeneration,
     sites: &mut Vec<LanguageSite>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
@@ -991,6 +1406,7 @@ fn collect_footnote(
         footnote.node_id,
         &format!("{pointer}/blocks"),
         true,
+        generation,
         sites,
         owners,
         anchors,
@@ -1003,6 +1419,7 @@ fn collect_blocks(
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
+    generation: LanguageRegistryGeneration,
     sites: &mut Vec<LanguageSite>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
@@ -1051,12 +1468,23 @@ fn collect_blocks(
             WireStagingM4Block::DisplayMath { language, .. } => {
                 (Some(StagingLanguageNodeKind::DisplayMath), language)
             }
-            WireStagingM4Block::VectorFigure { .. }
-            | WireStagingM4Block::MathVectorBlock { .. } => {
-                return Err(BookNavigationSyntaxError::producer(
-                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
-                    base,
-                ));
+            WireStagingM4Block::VectorFigure { language, .. } => {
+                if !generation.accepts_precomposed_vectors() {
+                    return Err(BookNavigationSyntaxError::producer(
+                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                        base,
+                    ));
+                }
+                (Some(StagingLanguageNodeKind::VectorFigure), language)
+            }
+            WireStagingM4Block::MathVectorBlock { language, .. } => {
+                if !generation.accepts_precomposed_vectors() {
+                    return Err(BookNavigationSyntaxError::producer(
+                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                        base,
+                    ));
+                }
+                (Some(StagingLanguageNodeKind::MathVectorBlock), language)
             }
             WireStagingM4Block::SemanticContainer {
                 language,
@@ -1100,6 +1528,7 @@ fn collect_blocks(
                 children,
                 node_id,
                 &format!("{base}/children"),
+                generation,
                 sites,
                 anchors,
             )?,
@@ -1119,6 +1548,7 @@ fn collect_blocks(
                         item.node_id,
                         &format!("{item_pointer}/blocks"),
                         outline_eligible,
+                        generation,
                         sites,
                         owners,
                         anchors,
@@ -1131,6 +1561,7 @@ fn collect_blocks(
                     node_id,
                     &format!("{base}/head"),
                     outline_eligible,
+                    generation,
                     sites,
                     owners,
                     anchors,
@@ -1140,6 +1571,7 @@ fn collect_blocks(
                     node_id,
                     &format!("{base}/body"),
                     outline_eligible,
+                    generation,
                     sites,
                     owners,
                     anchors,
@@ -1150,6 +1582,7 @@ fn collect_blocks(
                 node_id,
                 &format!("{base}/caption"),
                 outline_eligible,
+                generation,
                 sites,
                 owners,
                 anchors,
@@ -1159,17 +1592,22 @@ fn collect_blocks(
                 node_id,
                 &format!("{base}/blocks"),
                 outline_eligible,
+                generation,
                 sites,
                 owners,
                 anchors,
             )?,
-            WireStagingM4Block::VectorFigure { .. }
-            | WireStagingM4Block::MathVectorBlock { .. } => {
-                return Err(BookNavigationSyntaxError::producer(
-                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
-                    base,
-                ));
-            }
+            WireStagingM4Block::VectorFigure { caption, .. } => collect_blocks(
+                caption,
+                node_id,
+                &format!("{base}/caption"),
+                outline_eligible,
+                generation,
+                sites,
+                owners,
+                anchors,
+            )?,
+            WireStagingM4Block::MathVectorBlock { .. } => {}
             WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
         }
     }
@@ -1182,6 +1620,7 @@ fn collect_rows(
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
+    generation: LanguageRegistryGeneration,
     sites: &mut Vec<LanguageSite>,
     owners: &mut BTreeMap<u32, OutlineOwner>,
     anchors: &mut BTreeMap<String, (u32, String)>,
@@ -1211,6 +1650,7 @@ fn collect_rows(
                 cell.node_id,
                 &format!("{cell_pointer}/blocks"),
                 outline_eligible,
+                generation,
                 sites,
                 owners,
                 anchors,
@@ -1224,6 +1664,7 @@ fn collect_inlines(
     inlines: &[WireStagingM4Inline],
     parent: u32,
     pointer: &str,
+    generation: LanguageRegistryGeneration,
     sites: &mut Vec<LanguageSite>,
     anchors: &mut BTreeMap<String, (u32, String)>,
 ) -> Result<(), BookNavigationSyntaxError> {
@@ -1233,11 +1674,23 @@ fn collect_inlines(
         let kind = match inline {
             WireStagingM4Inline::Text { .. } => Some(StagingLanguageNodeKind::Text),
             WireStagingM4Inline::InlineMath { .. } => Some(StagingLanguageNodeKind::InlineMath),
-            WireStagingM4Inline::InlineVector { .. } | WireStagingM4Inline::MathVector { .. } => {
-                return Err(BookNavigationSyntaxError::producer(
-                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
-                    base,
-                ));
+            WireStagingM4Inline::InlineVector { .. } => {
+                if !generation.accepts_precomposed_vectors() {
+                    return Err(BookNavigationSyntaxError::producer(
+                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                        base,
+                    ));
+                }
+                Some(StagingLanguageNodeKind::InlineVector)
+            }
+            WireStagingM4Inline::MathVector { .. } => {
+                if !generation.accepts_precomposed_vectors() {
+                    return Err(BookNavigationSyntaxError::producer(
+                        BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+                        base,
+                    ));
+                }
+                Some(StagingLanguageNodeKind::MathVector)
             }
             WireStagingM4Inline::Emphasis { .. } => Some(StagingLanguageNodeKind::Emphasis),
             WireStagingM4Inline::Strong { .. } => Some(StagingLanguageNodeKind::Strong),
@@ -1270,18 +1723,15 @@ fn collect_inlines(
                     children,
                     node_id,
                     &format!("{base}/children"),
+                    generation,
                     sites,
                     anchors,
                 )?;
             }
-            WireStagingM4Inline::InlineVector { .. } | WireStagingM4Inline::MathVector { .. } => {
-                return Err(BookNavigationSyntaxError::producer(
-                    BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
-                    base,
-                ));
-            }
             WireStagingM4Inline::Text { .. }
             | WireStagingM4Inline::InlineMath { .. }
+            | WireStagingM4Inline::InlineVector { .. }
+            | WireStagingM4Inline::MathVector { .. }
             | WireStagingM4Inline::Anchor { .. }
             | WireStagingM4Inline::Reference { .. }
             | WireStagingM4Inline::FootnoteReference { .. }
@@ -1374,6 +1824,223 @@ fn validate_languages(
         fingerprint: sha256(canonical_jcs.as_bytes()),
         canonical_jcs,
     })
+}
+
+fn validate_languages_v2(
+    sites: Vec<LanguageSite>,
+    package: &ValidatedStagingSemanticPackage,
+    package_sha256: [u8; 32],
+    semantic_sha256: [u8; 32],
+    base_limits_sha256: [u8; 32],
+    limits: &M4EffectiveResourceLimits,
+) -> Result<ComputedLanguageRegistryReceiptV2, BookNavigationSyntaxError> {
+    let vector_languages = package
+        .precomposed_vector_effective_languages()
+        .map_err(map_semantic_error)?;
+    if vector_languages.len() != package.precomposed_vector_metrics().len() {
+        return Err(BookNavigationSyntaxError::mismatch());
+    }
+    let mut language_pool: BTreeSet<Arc<str>> = BTreeSet::new();
+    let mut effective_by_node: BTreeMap<u32, Arc<str>> = BTreeMap::new();
+    let mut records = Vec::new();
+    records.try_reserve_exact(sites.len()).map_err(|_| {
+        BookNavigationSyntaxError::limit(
+            BookNavigationSyntaxErrorKind::AllocationFailure,
+            "P1120",
+            "/document",
+        )
+    })?;
+    let mut total_language_text_charge_bytes = 0u64;
+    let mut prevalidated_vector_language_charge_bytes = 0u64;
+    let mut vector_index = 0usize;
+    for site in sites {
+        let explicit = match &site.raw {
+            Some(raw) => Some(intern_language(
+                &mut language_pool,
+                canonicalize_language(raw, &site.pointer, limits.base())?,
+            )),
+            None => None,
+        };
+        let effective = match (&explicit, site.parent) {
+            (Some(value), _) => value.clone(),
+            (None, Some(parent)) => effective_by_node
+                .get(&parent)
+                .cloned()
+                .ok_or_else(BookNavigationSyntaxError::mismatch)?,
+            (None, None) => return Err(BookNavigationSyntaxError::mismatch()),
+        };
+        let raw_charge = site
+            .raw
+            .as_deref()
+            .filter(|raw| *raw != effective.as_ref())
+            .map_or(0usize, str::len);
+        let language_text_charge_bytes = u64::try_from(
+            raw_charge
+                .checked_add(effective.len())
+                .ok_or_else(BookNavigationSyntaxError::mismatch)?,
+        )
+        .map_err(|_| BookNavigationSyntaxError::mismatch())?;
+        total_language_text_charge_bytes = total_language_text_charge_bytes
+            .checked_add(language_text_charge_bytes)
+            .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+
+        let node_kind = StagingComputedLanguageOwnerKindV2::from(site.kind);
+        let vector_binding = if node_kind.is_precomposed_vector() {
+            let metrics = package
+                .precomposed_vector_metrics()
+                .get(vector_index)
+                .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+            let language = vector_languages
+                .get(vector_index)
+                .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+            let expected_kind = language_owner_kind_for_vector(metrics.kind());
+            if metrics.node_id().get() != site.node_id
+                || language.owner() != metrics.node_id()
+                || language.kind() != metrics.kind()
+                || node_kind != expected_kind
+                || language.language() != effective.as_ref()
+                || package
+                    .verify_precomposed_vector_effective_language(language)
+                    .is_err()
+            {
+                return Err(BookNavigationSyntaxError::mismatch());
+            }
+            let authored_charge = match (site.raw.as_deref(), metrics.language()) {
+                (None, None) => 0,
+                (Some(raw), Some(authored))
+                    if raw == authored.raw()
+                        && effective.as_ref() == authored.canonical()
+                        && authored.charged_bytes() == language_text_charge_bytes =>
+                {
+                    authored.charged_bytes()
+                }
+                _ => return Err(BookNavigationSyntaxError::mismatch()),
+            };
+            prevalidated_vector_language_charge_bytes = prevalidated_vector_language_charge_bytes
+                .checked_add(authored_charge)
+                .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+            vector_index = vector_index
+                .checked_add(1)
+                .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+            Some(StagingVectorLanguageBindingV2 {
+                metrics_fingerprint: metrics.fingerprint(),
+                effective_language_fingerprint: language.fingerprint(),
+                alternative_sha256: metrics.alternative().alternative_sha256(),
+                resolved_actual_text_sha256: metrics.alternative().resolved_actual_text_sha256(),
+                authored_language_charge_bytes: authored_charge,
+            })
+        } else {
+            None
+        };
+        effective_by_node.insert(site.node_id, effective.clone());
+        let mut record = StagingComputedLanguageRecordV2 {
+            node_id: NodeId::new(site.node_id),
+            node_kind,
+            logical_parent_node_id: site.parent.map(NodeId::new),
+            source_span: site.span.map(lower_span).transpose()?,
+            explicit_language: explicit,
+            effective_language: effective,
+            language_text_charge_bytes,
+            vector_binding,
+            record_fingerprint: [0; 32],
+        };
+        record.record_fingerprint = sha256(encode_language_record_v2(&record).as_bytes());
+        records.push(record);
+    }
+    if vector_index != vector_languages.len() {
+        return Err(BookNavigationSyntaxError::mismatch());
+    }
+    if total_language_text_charge_bytes > limits.base().get().max_text_bytes {
+        return Err(BookNavigationSyntaxError::limit(
+            BookNavigationSyntaxErrorKind::TextAggregateLimit,
+            "T2101",
+            "/document",
+        ));
+    }
+    let document_language = records
+        .first()
+        .filter(|record| record.node_kind == StagingComputedLanguageOwnerKindV2::Document)
+        .map(|record| record.effective_language.clone())
+        .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+
+    let mut child_records = Vec::new();
+    for metrics in package.precomposed_vector_metrics() {
+        let Some(equation_number) = metrics.equation_number() else {
+            continue;
+        };
+        let parent = records
+            .binary_search_by_key(&metrics.node_id(), |record| record.node_id)
+            .ok()
+            .and_then(|index| records.get(index))
+            .ok_or_else(BookNavigationSyntaxError::mismatch)?;
+        if parent.node_kind != StagingComputedLanguageOwnerKindV2::MathVectorBlock
+            || records
+                .binary_search_by_key(&equation_number.node_id(), |record| record.node_id)
+                .is_ok()
+        {
+            return Err(BookNavigationSyntaxError::mismatch());
+        }
+        let mut child = StagingComputedLanguageChildRecordV2 {
+            node_id: equation_number.node_id(),
+            child_kind: StagingComputedLanguageChildKindV2::EquationNumber,
+            parent_owner_node_id: parent.node_id,
+            source_span: equation_number.span(),
+            effective_language: parent.effective_language.clone(),
+            parent_language_record_fingerprint: parent.record_fingerprint,
+            record_fingerprint: [0; 32],
+        };
+        child.record_fingerprint = sha256(encode_language_child_record_v2(&child).as_bytes());
+        child_records.push(child);
+    }
+    child_records.sort_by_key(|record| record.node_id);
+    if child_records
+        .windows(2)
+        .any(|pair| pair[0].node_id >= pair[1].node_id)
+    {
+        return Err(BookNavigationSyntaxError::mismatch());
+    }
+
+    let canonical_jcs = encode_languages_v2(
+        &document_language,
+        &records,
+        &child_records,
+        package_sha256,
+        semantic_sha256,
+        base_limits_sha256,
+        limits.fingerprint(),
+        total_language_text_charge_bytes,
+        prevalidated_vector_language_charge_bytes,
+    );
+    Ok(ComputedLanguageRegistryReceiptV2 {
+        document_language,
+        records,
+        child_records,
+        package_sha256,
+        semantic_sha256,
+        base_limits_sha256,
+        limits_sha256: limits.fingerprint(),
+        total_language_text_charge_bytes,
+        prevalidated_vector_language_charge_bytes,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
+fn language_owner_kind_for_vector(
+    kind: crate::PrecomposedVectorKind,
+) -> StagingComputedLanguageOwnerKindV2 {
+    match kind {
+        crate::PrecomposedVectorKind::InlineVector => {
+            StagingComputedLanguageOwnerKindV2::InlineVector
+        }
+        crate::PrecomposedVectorKind::MathVector => StagingComputedLanguageOwnerKindV2::MathVector,
+        crate::PrecomposedVectorKind::VectorFigure => {
+            StagingComputedLanguageOwnerKindV2::VectorFigure
+        }
+        crate::PrecomposedVectorKind::MathVectorBlock => {
+            StagingComputedLanguageOwnerKindV2::MathVectorBlock
+        }
+    }
 }
 
 fn intern_language(pool: &mut BTreeSet<Arc<str>>, value: String) -> Arc<str> {
@@ -1573,12 +2240,39 @@ fn is_singleton(value: &str) -> bool {
     value.len() == 1 && value.as_bytes()[0].is_ascii_alphanumeric()
 }
 
+trait ComputedLanguageProjection {
+    fn effective_language(&self, node_id: NodeId) -> Option<Arc<str>>;
+    fn registry_fingerprint(&self) -> [u8; 32];
+}
+
+impl ComputedLanguageProjection for ComputedLanguageRegistryReceipt {
+    fn effective_language(&self, node_id: NodeId) -> Option<Arc<str>> {
+        self.record(node_id)
+            .map(|record| record.effective_language.clone())
+    }
+
+    fn registry_fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+impl ComputedLanguageProjection for ComputedLanguageRegistryReceiptV2 {
+    fn effective_language(&self, node_id: NodeId) -> Option<Arc<str>> {
+        self.record(node_id)
+            .map(|record| record.effective_language.clone())
+    }
+
+    fn registry_fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-fn validate_outline(
+fn validate_outline<L: ComputedLanguageProjection>(
     wire: &typaxis_document_package::WireStagingM4DocumentPackage,
     owners: &BTreeMap<u32, OutlineOwner>,
     anchors: &BTreeMap<String, (u32, String)>,
-    languages: &ComputedLanguageRegistryReceipt,
+    languages: &L,
     semantic_sha256: [u8; 32],
     package_sha256: [u8; 32],
     limits_sha256: [u8; 32],
@@ -1711,8 +2405,7 @@ fn validate_outline(
             )
         })?;
         let language = languages
-            .record(NodeId::new(owner.node_id))
-            .map(|record| record.effective_language.clone())
+            .effective_language(NodeId::new(owner.node_id))
             .ok_or_else(BookNavigationSyntaxError::mismatch)?;
         output.push(StagingOutlineEntry {
             outline_id: entry.outline_id,
@@ -1742,14 +2435,14 @@ fn validate_outline(
         package_sha256,
         limits_sha256,
         semantic_sha256,
-        languages.fingerprint,
+        languages.registry_fingerprint(),
     );
     Ok(ValidatedOutlineRegistryReceipt {
         entries: output,
         package_sha256,
         limits_sha256,
         semantic_sha256,
-        language_sha256: languages.fingerprint,
+        language_sha256: languages.registry_fingerprint(),
         fingerprint: sha256(canonical_jcs.as_bytes()),
         canonical_jcs,
     })
@@ -1895,6 +2588,101 @@ fn validate_aggregate_text(
             &mut total,
             entry.label.len(),
             &format!("/outline/entries/{index}/label"),
+            limits,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_aggregate_text_v2(
+    wire: &typaxis_document_package::WireStagingM4DocumentPackage,
+    languages: &ComputedLanguageRegistryReceiptV2,
+    limits: &ValidatedResourceLimits,
+) -> Result<(), BookNavigationSyntaxError> {
+    fn charge(
+        total: &mut u64,
+        bytes: u64,
+        pointer: &str,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<(), BookNavigationSyntaxError> {
+        *total = total.checked_add(bytes).ok_or_else(|| {
+            BookNavigationSyntaxError::limit(
+                BookNavigationSyntaxErrorKind::TextAggregateLimit,
+                "T2101",
+                pointer,
+            )
+        })?;
+        if *total > limits.get().max_text_bytes {
+            return Err(BookNavigationSyntaxError::limit(
+                BookNavigationSyntaxErrorKind::TextAggregateLimit,
+                "T2101",
+                pointer,
+            ));
+        }
+        Ok(())
+    }
+    fn length(value: usize, pointer: &str) -> Result<u64, BookNavigationSyntaxError> {
+        u64::try_from(value).map_err(|_| {
+            BookNavigationSyntaxError::limit(
+                BookNavigationSyntaxErrorKind::TextAggregateLimit,
+                "T2101",
+                pointer,
+            )
+        })
+    }
+
+    let mut total = 0u64;
+    for (index, buffer) in wire.text_buffers().iter().enumerate() {
+        let pointer = format!("/text_buffers/{index}/utf8");
+        charge(
+            &mut total,
+            length(buffer.utf8.len(), &pointer)?,
+            &pointer,
+            limits,
+        )?;
+    }
+    charge(
+        &mut total,
+        math_speech_bytes(wire.document()),
+        "/document",
+        limits,
+    )?;
+    let metadata = wire.metadata();
+    for (pointer, value) in [
+        ("/metadata/author", metadata.author.as_deref()),
+        ("/metadata/created", metadata.created.as_deref()),
+        ("/metadata/identifier", metadata.identifier.as_deref()),
+        ("/metadata/modified", metadata.modified.as_deref()),
+        ("/metadata/subject", metadata.subject.as_deref()),
+        ("/metadata/title", metadata.title.as_deref()),
+    ] {
+        if let Some(value) = value {
+            charge(&mut total, length(value.len(), pointer)?, pointer, limits)?;
+        }
+    }
+    for (index, keyword) in metadata.keywords.iter().enumerate() {
+        let pointer = format!("/metadata/keywords/{index}");
+        charge(
+            &mut total,
+            length(keyword.len(), &pointer)?,
+            &pointer,
+            limits,
+        )?;
+    }
+    for record in &languages.records {
+        charge(
+            &mut total,
+            record.language_text_charge_bytes,
+            "/document",
+            limits,
+        )?;
+    }
+    for (index, entry) in wire.outline().entries.iter().enumerate() {
+        let pointer = format!("/outline/entries/{index}/label");
+        charge(
+            &mut total,
+            length(entry.label.len(), &pointer)?,
+            &pointer,
             limits,
         )?;
     }
@@ -2066,6 +2854,110 @@ fn encode_languages(
     output
 }
 
+#[allow(clippy::too_many_arguments)]
+fn encode_languages_v2(
+    document_language: &str,
+    records: &[StagingComputedLanguageRecordV2],
+    child_records: &[StagingComputedLanguageChildRecordV2],
+    package_sha256: [u8; 32],
+    semantic_sha256: [u8; 32],
+    base_limits_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    total_language_text_charge_bytes: u64,
+    prevalidated_vector_language_charge_bytes: u64,
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, COMPUTED_LANGUAGE_REGISTRY_ALGORITHM_V2);
+    output.push_str(",\"base_limits_sha256\":");
+    push_hash(&mut output, base_limits_sha256);
+    output.push_str(",\"child_records\":[");
+    for (index, record) in child_records.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&encode_language_child_record_v2(record));
+    }
+    output.push_str("],\"document_language\":");
+    push_jcs_string(&mut output, document_language);
+    output.push_str(",\"language_algorithm\":");
+    push_jcs_string(&mut output, BCP47_LANGUAGE_ALGORITHM);
+    output.push_str(",\"limits_sha256\":");
+    push_hash(&mut output, limits_sha256);
+    output.push_str(",\"package_sha256\":");
+    push_hash(&mut output, package_sha256);
+    output.push_str(",\"prevalidated_vector_language_charge_bytes\":");
+    output.push_str(&prevalidated_vector_language_charge_bytes.to_string());
+    output.push_str(",\"records\":[");
+    for (index, record) in records.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&encode_language_record_v2(record));
+    }
+    output.push_str("],\"semantic_sha256\":");
+    push_hash(&mut output, semantic_sha256);
+    output.push_str(",\"total_language_text_charge_bytes\":");
+    output.push_str(&total_language_text_charge_bytes.to_string());
+    output.push('}');
+    output
+}
+
+fn encode_language_record_v2(record: &StagingComputedLanguageRecordV2) -> String {
+    let mut output = String::from("{\"effective_language\":");
+    push_jcs_string(&mut output, &record.effective_language);
+    output.push_str(",\"explicit_language\":");
+    push_nullable(&mut output, record.explicit_language.as_deref());
+    output.push_str(",\"language_text_charge_bytes\":");
+    output.push_str(&record.language_text_charge_bytes.to_string());
+    output.push_str(",\"logical_parent_node_id\":");
+    if let Some(parent) = record.logical_parent_node_id {
+        output.push_str(&parent.get().to_string());
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"node_id\":");
+    output.push_str(&record.node_id.get().to_string());
+    output.push_str(",\"node_kind\":");
+    push_jcs_string(&mut output, record.node_kind.as_str());
+    output.push_str(",\"source_span\":");
+    push_span(&mut output, record.source_span);
+    output.push_str(",\"vector_binding\":");
+    if let Some(binding) = record.vector_binding {
+        output.push_str("{\"alternative_sha256\":");
+        push_hash(&mut output, binding.alternative_sha256);
+        output.push_str(",\"authored_language_charge_bytes\":");
+        output.push_str(&binding.authored_language_charge_bytes.to_string());
+        output.push_str(",\"effective_language_fingerprint\":");
+        push_hash(&mut output, binding.effective_language_fingerprint);
+        output.push_str(",\"metrics_fingerprint\":");
+        push_hash(&mut output, binding.metrics_fingerprint);
+        output.push_str(",\"resolved_actual_text_sha256\":");
+        push_optional_hash(&mut output, binding.resolved_actual_text_sha256);
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push('}');
+    output
+}
+
+fn encode_language_child_record_v2(record: &StagingComputedLanguageChildRecordV2) -> String {
+    let mut output = String::from("{\"child_kind\":");
+    push_jcs_string(&mut output, record.child_kind.as_str());
+    output.push_str(",\"effective_language\":");
+    push_jcs_string(&mut output, &record.effective_language);
+    output.push_str(",\"node_id\":");
+    output.push_str(&record.node_id.get().to_string());
+    output.push_str(",\"parent_language_record_fingerprint\":");
+    push_hash(&mut output, record.parent_language_record_fingerprint);
+    output.push_str(",\"parent_owner_node_id\":");
+    output.push_str(&record.parent_owner_node_id.get().to_string());
+    output.push_str(",\"source_span\":");
+    push_span(&mut output, Some(record.source_span));
+    output.push('}');
+    output
+}
+
 fn encode_outline(
     entries: &[StagingOutlineEntry],
     package_sha256: [u8; 32],
@@ -2142,6 +3034,31 @@ fn encode_profile_view(value: &StagingBookNavigationProfileView) -> String {
         output.push(':');
         push_hash(&mut output, hash);
     }
+    output.push('}');
+    output
+}
+
+fn encode_profile_view_v2(value: &StagingBookNavigationProfileViewV2) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, BOOK_NAVIGATION_PROFILE_VIEW_ALGORITHM_V2);
+    output.push_str(",\"base_limits_sha256\":");
+    push_hash(&mut output, value.base_limits_sha256);
+    output.push_str(",\"language_sha256\":");
+    push_hash(&mut output, value.language_sha256);
+    output.push_str(",\"limits_sha256\":");
+    push_hash(&mut output, value.limits_sha256);
+    output.push_str(",\"metadata_sha256\":");
+    push_hash(&mut output, value.metadata_sha256);
+    output.push_str(",\"outline_sha256\":");
+    push_hash(&mut output, value.outline_sha256);
+    output.push_str(",\"owner_count\":");
+    output.push_str(&value.owner_count.to_string());
+    output.push_str(",\"package_sha256\":");
+    push_hash(&mut output, value.package_sha256);
+    output.push_str(",\"semantic_sha256\":");
+    push_hash(&mut output, value.semantic_sha256);
+    output.push_str(",\"vector_owner_count\":");
+    output.push_str(&value.vector_owner_count.to_string());
     output.push('}');
     output
 }
@@ -2227,6 +3144,14 @@ fn push_hash(output: &mut String, value: [u8; 32]) {
     output.push('"');
 }
 
+fn push_optional_hash(output: &mut String, value: Option<[u8; 32]>) {
+    if let Some(value) = value {
+        push_hash(output, value);
+    } else {
+        output.push_str("null");
+    }
+}
+
 fn push_span(output: &mut String, value: Option<SourceSpan>) {
     if let Some(value) = value {
         output.push_str("{\"end_byte\":");
@@ -2244,10 +3169,11 @@ fn push_span(output: &mut String, value: Option<SourceSpan>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use typaxis_core::{ResourceLimits, ValidatedResourceLimits};
+    use typaxis_core::{M4ResourceLimits, ResourceLimits, ValidatedResourceLimits};
     use typaxis_document_package::{
         DocumentPackageDecodePolicy, StagingSemanticDocumentPackageDecoder,
-        StagingSemanticDocumentPackageEncoder, WireDocumentOutline,
+        StagingSemanticDocumentPackageEncoder, WireDocumentOutline, WireStagingM4Block,
+        WireStagingSourceSpan,
     };
 
     const FIXTURE: &[u8] = include_bytes!(concat!(
@@ -2258,6 +3184,14 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/math/job/document-package.json"
     ));
+    const PRECOMPOSED_VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package.json"
+    ));
+    const PRECOMPOSED_VECTOR_OVERRIDE_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package-language-overrides.json"
+    ));
 
     fn package() -> (ValidatedStagingSemanticPackage, ValidatedResourceLimits) {
         let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
@@ -2266,6 +3200,93 @@ mod tests {
             .unwrap();
         let package = crate::StagingSemanticPackageParser::new()
             .parse(decoded, &limits)
+            .unwrap();
+        (package, limits)
+    }
+
+    fn precomposed_vector_package(
+        language_override: Option<&str>,
+    ) -> (ValidatedStagingSemanticPackage, M4EffectiveResourceLimits) {
+        let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let limits = M4EffectiveResourceLimits::new(base, M4ResourceLimits::default()).unwrap();
+        assert!(language_override.is_none() || language_override == Some("EN-us"));
+        let fixture = if language_override.is_some() {
+            PRECOMPOSED_VECTOR_OVERRIDE_FIXTURE
+        } else {
+            PRECOMPOSED_VECTOR_FIXTURE
+        };
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(fixture, &DocumentPackageDecodePolicy::new(limits.base()))
+            .unwrap();
+        let package = crate::StagingSemanticPackageParser::new()
+            .parse(decoded, limits.base())
+            .unwrap();
+        let canonical = StagingSemanticDocumentPackageEncoder::new()
+            .encode(package.checked_wire().unwrap())
+            .unwrap();
+        assert_eq!(canonical.as_bytes(), fixture.strip_suffix(b"\n").unwrap());
+        (package, limits)
+    }
+
+    fn precomposed_vector_package_with_caption(
+    ) -> (ValidatedStagingSemanticPackage, M4EffectiveResourceLimits) {
+        let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let limits = M4EffectiveResourceLimits::new(base, M4ResourceLimits::default()).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                PRECOMPOSED_VECTOR_FIXTURE,
+                &DocumentPackageDecodePolicy::new(limits.base()),
+            )
+            .unwrap();
+        let mut wire = decoded.into_wire();
+        let mut document = wire.document().clone();
+        let resources = wire.resources().clone();
+        let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
+            panic!("precomposed-vector fixture root is not a semantic container");
+        };
+        let WireStagingM4Block::VectorFigure {
+            caption, language, ..
+        } = &mut blocks[1]
+        else {
+            panic!("precomposed-vector fixture second block is not a vector Figure");
+        };
+        *language = Some("EN-us".to_owned());
+        caption.push(WireStagingM4Block::Paragraph {
+            node_id: 6,
+            span: WireStagingSourceSpan {
+                source_id: 0,
+                start_byte: 7,
+                end_byte: 7,
+            },
+            classes: Vec::new(),
+            children: Vec::new(),
+            language: None,
+        });
+        let WireStagingM4Block::MathVectorBlock {
+            node_id,
+            equation_number,
+            ..
+        } = &mut blocks[2]
+        else {
+            panic!("precomposed-vector fixture third block is not block math");
+        };
+        *node_id = 7;
+        equation_number
+            .as_mut()
+            .expect("precomposed-vector fixture has an equation number")
+            .node_id = 8;
+        wire.replace_typed_regions(document, resources);
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                encoded.as_bytes(),
+                &DocumentPackageDecodePolicy::new(limits.base()),
+            )
+            .unwrap();
+        let package = crate::StagingSemanticPackageParser::new()
+            .parse(decoded, limits.base())
             .unwrap();
         (package, limits)
     }
@@ -2324,6 +3345,182 @@ mod tests {
             &heading_text.effective_language
         ));
         navigation.verify(&package, &limits).unwrap();
+    }
+
+    #[test]
+    fn computed_language_v2_registers_vector_owners_and_equation_child() {
+        let (package, limits) = precomposed_vector_package(None);
+        assert_eq!(
+            validate_staging_book_navigation(&package, limits.base())
+                .unwrap_err()
+                .kind(),
+            BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
+        );
+        let navigation = validate_staging_book_navigation_v2(&package, &limits).unwrap();
+        let vector_records = navigation
+            .languages()
+            .records()
+            .iter()
+            .filter(|record| record.node_kind.is_precomposed_vector())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            vector_records
+                .iter()
+                .map(|record| (record.node_id.get(), record.node_kind.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (3, "inline_vector"),
+                (4, "math_vector"),
+                (5, "vector_figure"),
+                (6, "math_vector_block"),
+            ]
+        );
+        assert_eq!(
+            vector_records
+                .iter()
+                .map(|record| record.logical_parent_node_id.map(NodeId::get))
+                .collect::<Vec<_>>(),
+            vec![Some(2), Some(2), Some(1), Some(1)]
+        );
+        assert!(vector_records.iter().all(|record| {
+            record.explicit_language.is_none()
+                && record.effective_language.as_ref() == "ja"
+                && record.vector_binding.is_some()
+                && record.record_fingerprint != [0; 32]
+        }));
+        let child = navigation.languages().child_record(NodeId::new(7)).unwrap();
+        let parent = navigation.languages().record(NodeId::new(6)).unwrap();
+        assert_eq!(child.parent_owner_node_id, parent.node_id);
+        assert_eq!(child.effective_language, parent.effective_language);
+        assert_eq!(
+            child.parent_language_record_fingerprint,
+            parent.record_fingerprint
+        );
+        assert!(navigation.languages().record(NodeId::new(7)).is_none());
+        assert_eq!(
+            navigation
+                .languages()
+                .prevalidated_vector_language_charge_bytes(),
+            0
+        );
+        assert_eq!(
+            navigation.languages().total_language_text_charge_bytes(),
+            14
+        );
+        assert!(navigation
+            .languages()
+            .canonical_jcs()
+            .contains("\"algorithm\":\"typaxis.computed-language-registry/2\""));
+        navigation.verify(&package, &limits).unwrap();
+        let view = StagingBookNavigationProfileViewV2::new(&package, &navigation, &limits).unwrap();
+        assert_eq!(view.vector_owner_count(), 4);
+        assert_eq!(view.owner_count(), 7);
+    }
+
+    #[test]
+    fn computed_language_v2_reuses_vector_override_charge_and_rejects_tamper() {
+        let (package, limits) = precomposed_vector_package(Some("EN-us"));
+        let navigation = validate_staging_book_navigation_v2(&package, &limits).unwrap();
+        let vector_records = navigation
+            .languages()
+            .records()
+            .iter()
+            .filter(|record| record.node_kind.is_precomposed_vector())
+            .collect::<Vec<_>>();
+        assert_eq!(vector_records.len(), 4);
+        assert!(vector_records.iter().all(|record| {
+            record.explicit_language.as_deref() == Some("en-US")
+                && record.effective_language.as_ref() == "en-US"
+                && record.language_text_charge_bytes == 10
+                && record
+                    .vector_binding
+                    .is_some_and(|binding| binding.authored_language_charge_bytes == 10)
+        }));
+        assert_eq!(
+            navigation
+                .languages()
+                .prevalidated_vector_language_charge_bytes(),
+            40
+        );
+        assert_eq!(
+            navigation.languages().total_language_text_charge_bytes(),
+            46
+        );
+
+        let mut missing = navigation.clone();
+        missing.languages.records.pop();
+        assert_eq!(
+            missing.verify(&package, &limits),
+            Err(BookNavigationSyntaxError::mismatch())
+        );
+        let mut wrong_parent = navigation.clone();
+        wrong_parent.languages.records[3].logical_parent_node_id = Some(NodeId::new(1));
+        assert_eq!(
+            wrong_parent.verify(&package, &limits),
+            Err(BookNavigationSyntaxError::mismatch())
+        );
+        let mut wrong_kind = navigation.clone();
+        wrong_kind.languages.records[3].node_kind = StagingComputedLanguageOwnerKindV2::MathVector;
+        assert_eq!(
+            wrong_kind.verify(&package, &limits),
+            Err(BookNavigationSyntaxError::mismatch())
+        );
+        let mut wrong_language = navigation.clone();
+        wrong_language.languages.records[3].effective_language = Arc::from("ja");
+        assert_eq!(
+            wrong_language.verify(&package, &limits),
+            Err(BookNavigationSyntaxError::mismatch())
+        );
+        let mut reordered = navigation.clone();
+        reordered.languages.records.swap(3, 4);
+        assert_eq!(
+            reordered.verify(&package, &limits),
+            Err(BookNavigationSyntaxError::mismatch())
+        );
+        let mut duplicate = navigation.clone();
+        duplicate
+            .languages
+            .records
+            .insert(4, duplicate.languages.records[3].clone());
+        assert_eq!(
+            duplicate.verify(&package, &limits),
+            Err(BookNavigationSyntaxError::mismatch())
+        );
+        let mut child_tamper = navigation.clone();
+        child_tamper.languages.child_records[0].parent_language_record_fingerprint = [9; 32];
+        assert_eq!(
+            child_tamper.verify(&package, &limits),
+            Err(BookNavigationSyntaxError::mismatch())
+        );
+    }
+
+    #[test]
+    fn computed_language_v2_vector_figure_caption_inherits_figure_language() {
+        let (package, limits) = precomposed_vector_package_with_caption();
+        let navigation = validate_staging_book_navigation_v2(&package, &limits).unwrap();
+        let figure = navigation.languages().record(NodeId::new(5)).unwrap();
+        let caption = navigation.languages().record(NodeId::new(6)).unwrap();
+
+        assert_eq!(
+            figure.node_kind,
+            StagingComputedLanguageOwnerKindV2::VectorFigure
+        );
+        assert_eq!(figure.explicit_language.as_deref(), Some("en-US"));
+        assert_eq!(
+            caption.node_kind,
+            StagingComputedLanguageOwnerKindV2::Paragraph
+        );
+        assert_eq!(caption.logical_parent_node_id, Some(figure.node_id));
+        assert!(caption.explicit_language.is_none());
+        assert_eq!(caption.effective_language, figure.effective_language);
+        assert_eq!(
+            navigation
+                .languages()
+                .child_record(NodeId::new(8))
+                .unwrap()
+                .parent_owner_node_id,
+            NodeId::new(7)
+        );
     }
 
     #[test]
@@ -2484,6 +3681,7 @@ mod tests {
         collect_document(
             wire.document(),
             wire.advanced_page_masters(),
+            LanguageRegistryGeneration::V1,
             &mut sites,
             &mut owners,
             &mut anchors,

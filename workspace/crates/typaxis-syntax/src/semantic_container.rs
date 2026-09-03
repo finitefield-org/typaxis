@@ -60,10 +60,11 @@ impl PrecomposedVectorKind {
 
 /// Per-owner effective language proof used by private vector layout stages.
 ///
-/// This is not the public computed-language registry. MI4-V14 will collect
-/// these same inherited values into the versioned `/2` registry; this narrow
-/// receipt exists so an equation-number child can reference its parent owner
-/// without becoming an independent language owner in the meantime.
+/// This is not the complete computed-language registry. The versioned `/2`
+/// registry joins these same inherited values to its complete owner records;
+/// this narrow receipt remains the earlier syntax proof that lets an
+/// equation-number child reference its parent without becoming an independent
+/// language owner.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatedPrecomposedVectorEffectiveLanguage {
     package_sha256: [u8; 32],

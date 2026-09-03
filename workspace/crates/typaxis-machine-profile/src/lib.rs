@@ -71,9 +71,11 @@ pub use basic_styles::{
     BasicDocumentStylePreflightReceipt, BASIC_DOCUMENT_PROFILE_ID,
 };
 pub use book_navigation::{
-    preflight_staging_book_navigation_profile, StagingBookNavigationProfileDescriptor,
+    preflight_staging_book_navigation_profile, preflight_staging_book_navigation_profile_v2,
+    StagingBookNavigationProfileDescriptor, StagingBookNavigationProfileDescriptorV2,
     StagingBookNavigationProfileError, StagingBookNavigationProfileReceipt,
-    STAGING_BOOK_NAVIGATION_PROFILE_ALGORITHM,
+    StagingBookNavigationProfileReceiptV2, STAGING_BOOK_NAVIGATION_PROFILE_ALGORITHM,
+    STAGING_BOOK_NAVIGATION_PROFILE_ALGORITHM_V2,
 };
 pub use capabilities::{encode_capabilities_canonical, HostCapabilityDescriptor};
 pub use descriptor::{
