@@ -20,6 +20,7 @@
     "initial_state": {"$ref": "#/$defs/initial_pagination_state_record"},
     "initial_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
     "passes": {"type": "array", "items": {"$ref": "#/$defs/pass"}},
+    "precomposed_vector_layout": {"$ref": "#/$defs/precomposed_vector_layout"},
     "profile_receipt_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
     "result": {"$ref": "#/$defs/result"},
     "table_layouts": {"type": "array", "items": {"$ref": "machine-table-manifest.schema.json"}}
@@ -45,9 +46,158 @@
           {"required": ["table_layouts"]}
         ]
       }
+    },
+    {
+      "required": ["precomposed_vector_layout"],
+      "not": {
+        "anyOf": [
+          {"required": ["advanced_pagination"]},
+          {"required": ["flow_registry_sha256"]},
+          {"required": ["footnote_layout"]},
+          {"required": ["initial_fingerprint"]},
+          {"required": ["initial_state"]},
+          {"required": ["max_layout_passes"]},
+          {"required": ["passes"]},
+          {"required": ["profile_receipt_sha256"]},
+          {"required": ["result"]},
+          {"required": ["table_layouts"]}
+        ]
+      }
     }
   ],
   "$defs": {
+    "precomposed_vector_page_geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "body", "master_id", "page_height", "page_width"],
+      "properties": {
+        "algorithm": {"const": "typaxis.safe-vector-page-geometry/1"},
+        "body": {"$ref": "common.schema.json#/$defs/rect"},
+        "master_id": {"$ref": "common.schema.json#/$defs/master_id"},
+        "page_height": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "page_width": {"$ref": "common.schema.json#/$defs/positive_safe_integer"}
+      }
+    },
+    "precomposed_vector_itemization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemization_fingerprint", "line_selection_fingerprint", "paragraph_node"],
+      "properties": {
+        "itemization_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "line_selection_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "paragraph_node": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "precomposed_vector_line_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline_y", "break_demerits", "content_ascent", "content_descent", "end_unit", "fragment_ordinal", "frame_index", "itemization_fingerprint", "leading_after", "leading_before", "line_height", "line_index", "line_selection_fingerprint", "line_top", "logical_advance", "page_index", "paragraph_line_index", "paragraph_node", "start_unit", "visual_left", "visual_right"],
+      "properties": {
+        "baseline_y": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "break_demerits": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "content_ascent": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "content_descent": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "end_unit": {"$ref": "common.schema.json#/$defs/id32"},
+        "fragment_ordinal": {"$ref": "common.schema.json#/$defs/id32"},
+        "frame_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "itemization_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "leading_after": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "leading_before": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "line_height": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "line_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "line_selection_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "line_top": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "logical_advance": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "paragraph_line_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "paragraph_node": {"$ref": "common.schema.json#/$defs/id32"},
+        "start_unit": {"$ref": "common.schema.json#/$defs/id32"},
+        "visual_left": {
+          "oneOf": [
+            {"$ref": "common.schema.json#/$defs/safe_integer"},
+            {"type": "null"}
+          ]
+        },
+        "visual_right": {
+          "oneOf": [
+            {"$ref": "common.schema.json#/$defs/safe_integer"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "precomposed_vector_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "record"],
+      "properties": {
+        "fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "record": {"$ref": "#/$defs/precomposed_vector_line_record"}
+      }
+    },
+    "precomposed_vector_spacing_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["after", "before"],
+      "properties": {
+        "after": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "before": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"}
+      }
+    },
+    "precomposed_vector_placement_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["atomic_item_fingerprint", "baseline", "baseline_y", "binding_fingerprint", "fragment_ordinal", "frame_index", "line_index", "node_id", "occurrence", "page_index", "paint_ordinal", "paragraph_node", "pen_origin_x", "scale", "spacing", "viewport"],
+      "properties": {
+        "atomic_item_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "baseline": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "baseline_y": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "binding_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "fragment_ordinal": {"$ref": "common.schema.json#/$defs/id32"},
+        "frame_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "line_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "occurrence": {"$ref": "common.schema.json#/$defs/id32"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "paint_ordinal": {"$ref": "common.schema.json#/$defs/id32"},
+        "paragraph_node": {"$ref": "common.schema.json#/$defs/id32"},
+        "pen_origin_x": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "scale": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "spacing": {"$ref": "#/$defs/precomposed_vector_spacing_decision"},
+        "viewport": {"$ref": "common.schema.json#/$defs/rect"}
+      }
+    },
+    "precomposed_vector_placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "record"],
+      "properties": {
+        "fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "record": {"$ref": "#/$defs/precomposed_vector_placement_record"}
+      }
+    },
+    "precomposed_vector_layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["admitted_fingerprint", "algorithm", "binding_set_fingerprint", "fragment_charge", "itemizations", "layout_epoch_fingerprint", "limits_fingerprint", "line_count", "lines", "package_sha256", "page_geometry", "page_geometry_fingerprint", "placement_count", "placements", "profile_fingerprint"],
+      "properties": {
+        "admitted_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "algorithm": {"const": "typaxis.precomposed-vector-layout/1"},
+        "binding_set_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "fragment_charge": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "itemizations": {"type": "array", "items": {"$ref": "#/$defs/precomposed_vector_itemization"}},
+        "layout_epoch_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "limits_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "line_count": {"$ref": "common.schema.json#/$defs/id32"},
+        "lines": {"type": "array", "items": {"$ref": "#/$defs/precomposed_vector_line"}},
+        "package_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "page_geometry": {"$ref": "#/$defs/precomposed_vector_page_geometry"},
+        "page_geometry_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "placement_count": {"$ref": "common.schema.json#/$defs/id32"},
+        "placements": {"type": "array", "items": {"$ref": "#/$defs/precomposed_vector_placement"}},
+        "profile_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
     "layout_epoch": {
       "type": "object",
       "additionalProperties": false,

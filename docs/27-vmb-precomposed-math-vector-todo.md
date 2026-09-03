@@ -691,7 +691,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V09 Inline vector itemization、改行、line metricsを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V08
 - Design inputs: docs/27 §5、§6、§15.2
 - Primary files:
@@ -730,6 +730,17 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-linebreak vector_japanese_boundaries --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout inline_vector_layout --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V09 change set containing this completion record.
+  - producer-composed vector binding fingerprintをnative math fingerprintとは異なるnominal typeにし、V08で検証済みのinline placementだけから`AtomicVectorInlineItem`を発行する境界を追加した。atomic itemはowner NodeId、paragraph、ゼロ長を含めたSourceSpan、kind、全metric/spacing、uniform scale、resolved paintを`typaxis.atomic-vector-inline/1` fingerprintへbindし、source textへU+FFFCや代替scalarを挿入しないsource-owned synthetic `AL` / atomic LTR isolateとして扱う。
+  - typed logical unit列全体へUnicode 16 line-break ruleを適用し、vector隣接境界だけをexactly one `VectorBoundaryItem`へlowerした。Japanese pair tableはpermission/penaltyだけを使い、specified before/afterをno-break branchのzero-stretch/zero-shrink exact total gapとした。line頭/末とselected breakのgapはzero、adjacent vectorはleft.after + right.beforeを一境界で一回だけ加算する。
+  - line selectionはlegal candidateのcumulative demeritを最小化し、logical fit/cost/pen advanceには`advance`、最終visual fitには独立した`origin_x .. origin_x + viewport.width`を使う。vector内部のbreak/fragmentを作らず、empty lineにも収まらないlogical/visual extentはNodeId付き`L5100`で終端する。
+  - 各selected lineはtext/vectorのmaximum ascent/descent、computed line-heightとの差のround-half-to-even leading、同じpagination advanceを保持する。shared layout-contract geometry ownerが`viewport_top = line_baseline_y - baseline`と`viewport_left = pen_origin_x + origin_x`をchecked整数演算で導出し、全placementで`viewport_top + baseline == line_baseline_y`を再検証する。dynamic lineが残余frameへ入らなければline全体を次pageへ送り、empty full frameより高ければ`L5100`にする。
+  - private `typaxis.precomposed-vector-layout/1` selected receipt/traceはpackage、profile、limits、admission、binding set、LayoutEpoch、page geometry、itemization/line-selection fingerprint、line/page/frame/fragment、pen/baseline/viewport/scale、spacing decision、paint ordinalをcanonical JCSへbindする。vector occurrenceを既存line fragmentとは別に`max_fragments`へ一回ずつ予約し、残余line budgetをselectionへ渡して上限超過をline/occurrence record allocation前の`L5110`にした。
+  - VMB corpusのfraction-equality、sum、integral、scripts、large-brackets、matrix metricを同一lineで検査し、日本語/句読点/bracket、line-end whole move、adjacent spacing、logical/visual overhang、dynamic page move/full-frame oversize、minimum-demerit choice、empty SourceSpan、exact/max+1 fragment limitをunit/fixture testで固定した。実selected bytesを`inline-layout-trace.json` goldenとprivate 1.4 Schema/validatorへ追加した。
+  - milestone指定の4 targeted command、changed pathを含むworkspace全target/all-feature test、workspace clippy `-D warnings`、doc-test、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは3934 refsを含む全bundle/fixtureを通過した。
+  - レビューではbreak costを記録するだけでselectionへ使っていなかった点、契約にないnonempty owner SourceSpan制約、selected fragment limitの事後判定、完全性検証のsaturating加算/unchecked index、MSRV 1.75非対応APIを修正した。修正後に全差分を再読し、findingは0件である。
+  - listed primary file外では専用implementation module `workspace/crates/typaxis-linebreak/src/vector.rs`、`workspace/crates/typaxis-layout/src/inline_vector.rs`、page geometryを既存authorizationから安全に渡す`workspace/crates/typaxis-syntax/src/semantic_container.rs`、fixture validator、本completion recordを変更した。既存`typaxis-linebreak/src/math.rs` / `typaxis-layout/src/math.rs`とnative `typaxis.math-flow/1` bytesは変更せず、block vector、Display/PDF/Form、accessibility/manifest、public capability/CLI integrationを先取りしていない。
 - Non-goals:
   - vertical writing、bidi reorderを含む新profile
   - SVG内部break、automatic scale

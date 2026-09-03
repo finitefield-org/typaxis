@@ -137,6 +137,34 @@ pub struct UnicodeBreak {
     kind: UnicodeBreakKind,
 }
 
+/// One logical unit supplied to the Unicode line-break classifier. A
+/// producer-composed inline vector is represented directly as `SyntheticAl`;
+/// no object-replacement scalar is inserted into source text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UnicodeLineBreakUnit {
+    Scalar(char),
+    SyntheticAl,
+}
+
+/// A legal boundary in a typed logical-unit sequence. `unit_offset` is the
+/// exclusive logical-unit index and therefore remains stable even when the
+/// sequence contains synthetic units with no UTF-8 byte representation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UnicodeUnitBreak {
+    unit_offset: usize,
+    kind: UnicodeBreakKind,
+}
+
+impl UnicodeUnitBreak {
+    pub const fn unit_offset(self) -> usize {
+        self.unit_offset
+    }
+
+    pub const fn kind(self) -> UnicodeBreakKind {
+        self.kind
+    }
+}
+
 impl UnicodeBreak {
     pub const fn byte_offset(self) -> usize {
         self.byte_offset
@@ -211,32 +239,7 @@ pub fn unicode_line_breaks(text: &str) -> Result<Vec<UnicodeBreak>, UnicodeLineB
         .try_reserve_exact(scalar_count)
         .map_err(|_| UnicodeLineBreakError)?;
     for (byte_offset, scalar) in text.char_indices() {
-        let codepoint = scalar as u32;
-        let property = property(codepoint);
-        let original = Class::from_property(property);
-        let mut class = match original {
-            Class::Ai | Class::Sg | Class::Xx => Class::Al,
-            Class::Cj => Class::Ns,
-            Class::Sa if property & MARK != 0 => Class::Cm,
-            Class::Sa => Class::Al,
-            other => other,
-        };
-        // LB10 gives remaining CM/ZWJ all properties of U+0041.
-        let mut effective_property = property;
-        if matches!(class, Class::Cm | Class::Zwj) {
-            class = Class::Al;
-            effective_property = Class::Al as u16;
-        }
-        units.push(Unit {
-            codepoint,
-            byte_offset,
-            source_property: property,
-            property: effective_property,
-            original,
-            class,
-            ignored: false,
-            ignored_tail_has_zwj: false,
-        });
+        units.push(scalar_unit(scalar, byte_offset));
     }
 
     apply_lb9(&mut units);
@@ -267,6 +270,90 @@ pub fn unicode_line_breaks(text: &str) -> Result<Vec<UnicodeBreak>, UnicodeLineB
         kind: UnicodeBreakKind::Mandatory,
     });
     Ok(output)
+}
+
+/// Returns UAX #14 boundaries for a complete logical-unit sequence which may
+/// contain producer-composed atomic vectors. A synthetic vector has exact
+/// class `AL` and occupies one logical unit. The caller retains its source
+/// provenance alongside the unit index.
+pub fn unicode_line_breaks_for_units(
+    input: &[UnicodeLineBreakUnit],
+) -> Result<Vec<UnicodeUnitBreak>, UnicodeLineBreakError> {
+    let mut units = Vec::new();
+    units
+        .try_reserve_exact(input.len())
+        .map_err(|_| UnicodeLineBreakError)?;
+    for (unit_offset, input_unit) in input.iter().copied().enumerate() {
+        units.push(match input_unit {
+            UnicodeLineBreakUnit::Scalar(scalar) => scalar_unit(scalar, unit_offset),
+            UnicodeLineBreakUnit::SyntheticAl => Unit {
+                codepoint: 0,
+                byte_offset: unit_offset,
+                source_property: Class::Al as u16,
+                property: Class::Al as u16,
+                original: Class::Al,
+                class: Class::Al,
+                ignored: false,
+                ignored_tail_has_zwj: false,
+            },
+        });
+    }
+
+    apply_lb9(&mut units);
+    let context = Context::new(&units)?;
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(units.len().checked_add(1).ok_or(UnicodeLineBreakError)?)
+        .map_err(|_| UnicodeLineBreakError)?;
+    if units.is_empty() {
+        output.push(UnicodeUnitBreak {
+            unit_offset: 0,
+            kind: UnicodeBreakKind::Mandatory,
+        });
+        return Ok(output);
+    }
+    for boundary in 1..units.len() {
+        if let Some(kind) = boundary_kind(&units, &context, boundary) {
+            output.push(UnicodeUnitBreak {
+                unit_offset: boundary,
+                kind,
+            });
+        }
+    }
+    output.push(UnicodeUnitBreak {
+        unit_offset: input.len(),
+        kind: UnicodeBreakKind::Mandatory,
+    });
+    Ok(output)
+}
+
+fn scalar_unit(scalar: char, byte_offset: usize) -> Unit {
+    let codepoint = scalar as u32;
+    let source_property = property(codepoint);
+    let original = Class::from_property(source_property);
+    let mut class = match original {
+        Class::Ai | Class::Sg | Class::Xx => Class::Al,
+        Class::Cj => Class::Ns,
+        Class::Sa if source_property & MARK != 0 => Class::Cm,
+        Class::Sa => Class::Al,
+        other => other,
+    };
+    // LB10 gives remaining CM/ZWJ all properties of U+0041.
+    let mut effective_property = source_property;
+    if matches!(class, Class::Cm | Class::Zwj) {
+        class = Class::Al;
+        effective_property = Class::Al as u16;
+    }
+    Unit {
+        codepoint,
+        byte_offset,
+        source_property,
+        property: effective_property,
+        original,
+        class,
+        ignored: false,
+        ignored_tail_has_zwj: false,
+    }
 }
 
 fn property(codepoint: u32) -> u16 {
@@ -718,5 +805,26 @@ mod tests {
                 kind: UnicodeBreakKind::Mandatory,
             }]
         );
+    }
+
+    #[test]
+    fn atomic_vector_inline_synthetic_al_matches_al_without_utf8_substitution() {
+        let typed = [
+            UnicodeLineBreakUnit::Scalar('日'),
+            UnicodeLineBreakUnit::SyntheticAl,
+            UnicodeLineBreakUnit::Scalar('、'),
+        ];
+        let scalar = [
+            UnicodeLineBreakUnit::Scalar('日'),
+            UnicodeLineBreakUnit::Scalar('A'),
+            UnicodeLineBreakUnit::Scalar('、'),
+        ];
+        assert_eq!(
+            unicode_line_breaks_for_units(&typed).expect("typed breaks"),
+            unicode_line_breaks_for_units(&scalar).expect("scalar breaks")
+        );
+        assert!(!typed
+            .iter()
+            .any(|unit| matches!(unit, UnicodeLineBreakUnit::Scalar('\u{fffc}'))));
     }
 }

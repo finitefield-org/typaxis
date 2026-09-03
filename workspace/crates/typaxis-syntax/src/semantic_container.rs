@@ -682,6 +682,7 @@ pub struct StagingPrecomposedVectorProfileAuthorization {
     semantic_fingerprint: [u8; 32],
     limits_fingerprint: [u8; 32],
     vector_bindings: Vec<(NodeId, [u8; 32])>,
+    page_geometry: StagingM4PageGeometry,
     profile_receipt_fingerprint: [u8; 32],
     session: StagingPrecomposedVectorProfileSessionIdentity,
     canonical_jcs: String,
@@ -707,6 +708,8 @@ impl StagingPrecomposedVectorProfileAuthorization {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         }
         let vector_bindings = precomposed_vector_profile_bindings(package, limits)?;
+        let page_geometry =
+            StagingM4PageGeometry::from_wire(package.checked_wire()?.page_masters())?;
         let canonical_jcs =
             encode_precomposed_vector_profile_authorization(package, limits, &vector_bindings);
         let authorization = Self {
@@ -714,6 +717,7 @@ impl StagingPrecomposedVectorProfileAuthorization {
             semantic_fingerprint: package.semantic_fingerprint(),
             limits_fingerprint: limits.fingerprint(),
             vector_bindings,
+            page_geometry,
             profile_receipt_fingerprint,
             session: session.clone(),
             fingerprint: sha256(canonical_jcs.as_bytes()),
@@ -737,6 +741,12 @@ impl StagingPrecomposedVectorProfileAuthorization {
 
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs
+    }
+
+    /// Page geometry is a derived copy of the exact package already bound by
+    /// this authorization. It is intentionally not a new profile input.
+    pub const fn page_geometry(&self) -> &StagingM4PageGeometry {
+        &self.page_geometry
     }
 
     pub fn progress_token(&self) -> StagingPrecomposedVectorProfileProgressToken {
@@ -767,12 +777,15 @@ impl StagingPrecomposedVectorProfileAuthorization {
         limits: &M4EffectiveResourceLimits,
     ) -> Result<(), StagingSemanticSyntaxError> {
         let vector_bindings = precomposed_vector_profile_bindings(package, limits)?;
+        let page_geometry =
+            StagingM4PageGeometry::from_wire(package.checked_wire()?.page_masters())?;
         let canonical_jcs =
             encode_precomposed_vector_profile_authorization(package, limits, &vector_bindings);
         if self.package_sha256 != package.canonical_jcs_sha256()
             || self.semantic_fingerprint != package.semantic_fingerprint()
             || self.limits_fingerprint != limits.fingerprint()
             || self.vector_bindings != vector_bindings
+            || self.page_geometry != page_geometry
             || self.canonical_jcs != canonical_jcs
             || self.fingerprint != sha256(canonical_jcs.as_bytes())
         {

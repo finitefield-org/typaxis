@@ -3,6 +3,7 @@
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
+mod inline_vector;
 mod math;
 mod safe_vector;
 mod semantic_container;
@@ -35,6 +36,12 @@ pub use advanced_header_footer::{
     StagingAdvancedFlowRegistryReceipt, StagingHeaderFooterLayout, StagingHeaderFooterLayoutError,
     StagingPageRegionKind, StagingPageRegionLayout, StagingRegionBlockLayout,
     ADVANCED_FLOW_REGISTRY_ALGORITHM,
+};
+pub use inline_vector::{
+    layout_staging_precomposed_vector_inlines, StagingInlineVectorLayoutError,
+    StagingInlineVectorLine, StagingInlineVectorLogicalUnit, StagingInlineVectorParagraphInput,
+    StagingInlineVectorPlacement, StagingInlineVectorSelectedLayout,
+    StagingInlineVectorSelectedLayoutReceipt, PRECOMPOSED_VECTOR_SELECTED_LAYOUT_ALGORITHM,
 };
 pub use math::{
     layout_staging_math, BoundPrecomposedMathSource, MathFlowId, MathReceiptKey,

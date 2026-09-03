@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use typaxis_core::{
     sha256, AdmittedResourceFingerprint, DocumentFingerprint, FontFaceId, FontInstanceId,
     FootnoteId, GeneratedBufferKey, GenerationKind, Length, NodeId, NonNegativeLength, PageName,
-    PositiveLength, PositiveUnitless16_16, ReferenceFingerprint, StyleFingerprint, TextSpan,
+    PositiveLength, PositiveUnitless16_16, Rect, ReferenceFingerprint, StyleFingerprint, TextSpan,
     Unitless16_16, Utf8ByteOffset,
 };
 use typaxis_resource_admission::{
@@ -36,6 +36,29 @@ pub struct LayoutEpoch {
     style: StyleFingerprint,
     admitted_resources: AdmittedResourceFingerprint,
     references: ReferenceFingerprint,
+}
+
+/// Nominal identity of a validated precomposed-vector binding receipt.
+///
+/// Native math computation fingerprints intentionally use a different type,
+/// so an inline-vector item cannot accidentally be constructed from the
+/// native math namespace. The layout owner still revalidates these bytes
+/// against its sealed binding set before issuing selected placement state.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PrecomposedVectorBindingFingerprint([u8; 32]);
+
+impl PrecomposedVectorBindingFingerprint {
+    /// Promotion boundary used by the crate which owns the validated binding
+    /// receipt. Callers outside that owner cannot turn this nominal value into
+    /// a selected placement without the matching sealed binding set.
+    #[doc(hidden)]
+    pub const fn from_receipt(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    pub const fn bytes(self) -> [u8; 32] {
+        self.0
+    }
 }
 
 /// Resolved placement paint in the closed RGB8 color space used by
@@ -115,6 +138,30 @@ pub struct BoundPrecomposedVectorMetrics {
     viewport_right_from_pen: Length,
 }
 
+/// Selected inline geometry in the internal top-left, Y-down coordinate
+/// system. The viewport is derived from, rather than substituted for, the
+/// producer-supplied pen origin and baseline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SelectedPrecomposedVectorInlineGeometry {
+    pen_origin_x: Length,
+    line_baseline_y: Length,
+    viewport: Rect,
+}
+
+impl SelectedPrecomposedVectorInlineGeometry {
+    pub const fn pen_origin_x(self) -> Length {
+        self.pen_origin_x
+    }
+
+    pub const fn line_baseline_y(self) -> Length {
+        self.line_baseline_y
+    }
+
+    pub const fn viewport(self) -> Rect {
+        self.viewport
+    }
+}
+
 impl BoundPrecomposedVectorMetrics {
     fn from_metrics(
         metrics: PrecomposedVectorMetrics,
@@ -189,6 +236,36 @@ impl BoundPrecomposedVectorMetrics {
     /// exact inverse of [`Self::viewport_top`].
     pub fn line_baseline(self, viewport_top: Length) -> Option<Length> {
         viewport_top.checked_add(self.baseline.get())
+    }
+
+    /// Derives the selected viewport from the line pen and baseline. This is
+    /// the sole shared implementation of the VMB baseline placement equation:
+    /// `viewport_top + baseline == line_baseline_y`.
+    pub fn select_inline_geometry(
+        self,
+        pen_origin_x: Length,
+        line_baseline_y: Length,
+    ) -> Result<SelectedPrecomposedVectorInlineGeometry, PrecomposedVectorGeometryError> {
+        let viewport_left = pen_origin_x
+            .checked_add(self.origin_x)
+            .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)?;
+        let viewport_top = self
+            .viewport_top(line_baseline_y)
+            .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)?;
+        let viewport = Rect::new(
+            viewport_left,
+            viewport_top,
+            self.viewport_width,
+            self.viewport_height,
+        );
+        if self.line_baseline(viewport.y()) != Some(line_baseline_y) {
+            return Err(PrecomposedVectorGeometryError::MetricRelation);
+        }
+        Ok(SelectedPrecomposedVectorInlineGeometry {
+            pen_origin_x,
+            line_baseline_y,
+            viewport,
+        })
     }
 }
 

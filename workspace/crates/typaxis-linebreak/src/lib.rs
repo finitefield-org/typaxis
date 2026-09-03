@@ -4,10 +4,21 @@ mod math;
 
 pub use math::{AtomicMathInlineItem, AtomicMathPlacement, MathAtomicItemError};
 
+mod vector;
+
+pub use vector::{
+    break_atomic_vector_inline, AtomicVectorInlineBreak, AtomicVectorInlineError,
+    AtomicVectorInlineItem, AtomicVectorInlineKind, AtomicVectorInlineLogicalUnit,
+    AtomicVectorInlineParagraph, AtomicVectorLineMetrics, AtomicVectorLineOccurrence,
+    AtomicVectorSelectedLine, AtomicVectorSyntheticAlUnit, AtomicVectorTextUnit,
+    VectorBoundaryBranch, VectorBoundaryItem, ATOMIC_VECTOR_INLINE_ALGORITHM,
+};
+
 mod unicode_linebreak;
 
 pub use unicode_linebreak::{
-    unicode_line_breaks, UnicodeBreak, UnicodeBreakKind, UnicodeLineBreakError,
+    unicode_line_breaks, unicode_line_breaks_for_units, UnicodeBreak, UnicodeBreakKind,
+    UnicodeLineBreakError, UnicodeLineBreakUnit, UnicodeUnitBreak,
     UNICODE_VERSION as UNICODE_LINE_BREAK_VERSION,
 };
 

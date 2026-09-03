@@ -5868,6 +5868,62 @@ def main() -> int:
                 "private 1.4 precomposed-vector fixture does not cover all four kinds"
             )
 
+        inline_vector_trace_path = (
+            STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "inline-layout-trace.json"
+        )
+        inline_vector_trace = load_json(inline_vector_trace_path)
+        inline_vector_trace_errors = schema_errors(
+            private_m4_validators["layout-trace.schema.json"], inline_vector_trace
+        )
+        if inline_vector_trace_errors:
+            raise ValidationFailure(
+                "private 1.4 inline-vector layout trace was rejected: "
+                + " | ".join(inline_vector_trace_errors)
+            )
+        if (
+            inline_vector_trace_path.read_bytes().rstrip(b"\n")
+            != jcs_bytes(inline_vector_trace)
+        ):
+            raise ValidationFailure(
+                "private 1.4 inline-vector layout trace is not canonical JCS"
+            )
+        inline_layout = inline_vector_trace["precomposed_vector_layout"]
+        inline_lines = inline_layout["lines"]
+        inline_placements = inline_layout["placements"]
+        if (
+            inline_layout["line_count"] != len(inline_lines)
+            or inline_layout["placement_count"] != len(inline_placements)
+            or inline_layout["fragment_charge"]
+            != len(inline_lines) + len(inline_placements)
+            or [line["record"]["line_index"] for line in inline_lines]
+            != list(range(len(inline_lines)))
+            or [placement["record"]["occurrence"] for placement in inline_placements]
+            != list(range(len(inline_placements)))
+            or [placement["record"]["paint_ordinal"] for placement in inline_placements]
+            != list(range(len(inline_placements)))
+        ):
+            raise ValidationFailure(
+                "private 1.4 inline-vector layout counts or dense ordinals drifted"
+            )
+        for placement_wrapper in inline_placements:
+            placement = placement_wrapper["record"]
+            line = inline_lines[placement["line_index"]]["record"]
+            viewport = placement["viewport"]
+            if (
+                viewport["y"] + placement["baseline"]
+                != placement["baseline_y"]
+                or placement["baseline_y"] != line["baseline_y"]
+                or placement["page_index"] != line["page_index"]
+                or placement["frame_index"] != line["frame_index"]
+                or placement["fragment_ordinal"] != line["fragment_ordinal"]
+                or viewport["y"] < line["line_top"]
+                or viewport["y"] + viewport["height"]
+                > line["line_top"] + line["line_height"]
+            ):
+                raise ValidationFailure(
+                    "private 1.4 inline-vector baseline or line containment drifted"
+                )
+
         def require_invalid_precomposed_vector(
             label: str, invalid: dict[str, Any]
         ) -> None:

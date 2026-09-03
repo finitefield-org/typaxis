@@ -7,9 +7,10 @@ use typaxis_document::{
     ImageMediaDeclaration, ImageMediaType, StagingM4Block, StagingM4FigurePlacement,
 };
 use typaxis_layout_contract::{
-    MathVectorBlockPlacementInput, MathVectorBlockStyleInput, PrecomposedVectorGeometryError,
-    PrecomposedVectorInlinePlacementInput, PrecomposedVectorPlacementInput, ResolvedRgb8,
-    VectorFigurePlacementInput, VectorFigureStyleInput,
+    MathVectorBlockPlacementInput, MathVectorBlockStyleInput, PrecomposedVectorBindingFingerprint,
+    PrecomposedVectorGeometryError, PrecomposedVectorInlinePlacementInput,
+    PrecomposedVectorPlacementInput, ResolvedRgb8, VectorFigurePlacementInput,
+    VectorFigureStyleInput,
 };
 use typaxis_resource_admission::{
     close_staging_declared_media, AdmittedImageMediaKind, AdmittedResourceLedger,
@@ -292,6 +293,10 @@ impl ValidatedPrecomposedVectorReceipt {
 
     pub const fn fingerprint(&self) -> [u8; 32] {
         self.fingerprint
+    }
+
+    pub const fn binding_fingerprint(&self) -> PrecomposedVectorBindingFingerprint {
+        PrecomposedVectorBindingFingerprint::from_receipt(self.fingerprint)
     }
 
     fn integrity_matches(&self) -> bool {
@@ -1778,18 +1783,26 @@ pub(crate) struct StagingPrecomposedVectorBindingFixture {
 #[cfg(test)]
 pub(crate) fn staging_precomposed_vector_binding_fixture(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(false)
+    staging_precomposed_vector_binding_fixture_with_media(false, None)
+}
+
+#[cfg(test)]
+pub(crate) fn staging_precomposed_vector_binding_fixture_with_fragment_limit(
+    max_fragments: u64,
+) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_binding_fixture_with_media(false, Some(max_fragments))
 }
 
 #[cfg(test)]
 fn staging_precomposed_vector_binding_fixture_with_generic_safe_svg1(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(true)
+    staging_precomposed_vector_binding_fixture_with_media(true, None)
 }
 
 #[cfg(test)]
 fn staging_precomposed_vector_binding_fixture_with_media(
     generic_safe_svg1: bool,
+    max_fragments: Option<u64>,
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
     use std::fs;
     use std::path::PathBuf;
@@ -1811,7 +1824,11 @@ fn staging_precomposed_vector_binding_fixture_with_media(
     let job = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../samples/machine-package/staging/production-book-1/precomposed-vector");
     let package_path = job.join("document-package.json");
-    let base_limits = ValidatedResourceLimits::new(ResourceLimits::default())?;
+    let mut resource_limits = ResourceLimits::default();
+    if let Some(max_fragments) = max_fragments {
+        resource_limits.max_fragments = max_fragments;
+    }
+    let base_limits = ValidatedResourceLimits::new(resource_limits)?;
     let limits = M4EffectiveResourceLimits::new(base_limits.clone(), M4ResourceLimits::default())?;
     let decoded = StagingSemanticDocumentPackageDecoder::new().decode(
         &fs::read(&package_path)?,
