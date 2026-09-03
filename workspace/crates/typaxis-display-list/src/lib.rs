@@ -67,8 +67,9 @@ pub use precomposed_vector::{
     StagingPrecomposedVectorDisplayFixture,
 };
 pub use safe_vector::{
-    build_staging_safe_vector_display, StagingDrawVector, StagingSafeVectorDisplay,
-    StagingSafeVectorDisplayError, StagingSafeVectorDisplayPage, StagingSafeVectorDisplayReceipt,
+    build_staging_safe_vector_display, prove_vector_form_structure_isolation_v2, StagingDrawVector,
+    StagingSafeVectorDisplay, StagingSafeVectorDisplayError, StagingSafeVectorDisplayPage,
+    StagingSafeVectorDisplayReceipt, VectorFormStructureIsolationReceiptV2,
     STAGING_DRAW_VECTOR_ALGORITHM,
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
@@ -82,10 +83,13 @@ pub use semantic_container::{
     StagingSemanticContainerPaint, StagingSemanticRasterObservation, StagingSemanticStructureRole,
 };
 pub use tagged_structure::{
-    build_marked_content_plan, MarkedContentArtifact, MarkedContentError, MarkedContentOwner,
-    MarkedContentPage, MarkedContentPlanReceipt, MarkedContentRecord, MarkedContentStructure,
-    StructureLinkAnnotation, StructureParentTreeEntry, StructureParentTreeValue,
-    MARKED_CONTENT_PLAN_ALGORITHM,
+    build_marked_content_plan, build_vector_marked_content_plan_v2, FormulaStructureKidV2,
+    FormulaStructureOrderV2, MarkedContentArtifact, MarkedContentBindingKindV2, MarkedContentError,
+    MarkedContentInnerSpanV2, MarkedContentOwner, MarkedContentPage, MarkedContentPlanReceipt,
+    MarkedContentPlanReceiptV2, MarkedContentRecord, MarkedContentRecordV2,
+    MarkedContentStandardPaintInputV2, MarkedContentStructure, StructureLinkAnnotation,
+    StructureParentTreeEntry, StructureParentTreeValue, VectorMarkedContentPlanV2,
+    MARKED_CONTENT_PLAN_ALGORITHM, MARKED_CONTENT_PLAN_ALGORITHM_V2,
 };
 pub use typaxis_layout::{
     build_structure_registry, select_structure_bindings, GeneratedStructureKey,

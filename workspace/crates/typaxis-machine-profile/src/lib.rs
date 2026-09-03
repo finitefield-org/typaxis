@@ -111,8 +111,10 @@ pub use semantic_container::{
     STAGING_PRODUCTION_BOOK_PROFILE_ID, STAGING_PRODUCTION_BOOK_PROFILE_RECEIPT_ALGORITHM,
 };
 pub use tagged_pdf::{
-    preflight_staging_tagged_pdf_profile, StagingTaggedPdfProfileDescriptor,
-    StagingTaggedPdfProfileError, StagingTaggedPdfProfileReceipt, STAGING_PDFUA1_PROFILE_ID,
-    STAGING_TAGGED_PDF_PROFILE_ALGORITHM,
+    preflight_staging_tagged_pdf_profile, preflight_staging_tagged_pdf_profile_v2,
+    StagingTaggedPdfProfileDescriptor, StagingTaggedPdfProfileDescriptorV2,
+    StagingTaggedPdfProfileError, StagingTaggedPdfProfileReceipt, StagingTaggedPdfProfileReceiptV2,
+    STAGING_PDFUA1_PROFILE_ID, STAGING_PDFUA1_PROFILE_ID_V2, STAGING_TAGGED_PDF_PROFILE_ALGORITHM,
+    STAGING_TAGGED_PDF_PROFILE_ALGORITHM_V2,
 };
 pub use typaxis_core::{MachineInputLimitBounds, MachinePdfProfileId};

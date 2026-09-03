@@ -37,11 +37,15 @@ pub use semantic_container::{
     PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
 };
 pub use tagged_structure::{
-    validate_staging_structure_semantics, StagingAccessibilityProfileAuthorization,
-    StagingAccessibilityProfileView, StagingStructureSemanticError, StagingStructureSemanticKind,
-    StagingStructureSemanticRecord, StagingStructureTableSection,
-    ValidatedStagingStructureSemantics, STAGING_ACCESSIBILITY_AUTHORIZATION_ALGORITHM,
-    STAGING_ACCESSIBILITY_PROFILE_VIEW_ALGORITHM, STAGING_STRUCTURE_SEMANTIC_INPUT_ALGORITHM,
+    validate_staging_structure_semantics, validate_staging_structure_semantics_v2,
+    StagingAccessibilityProfileAuthorization, StagingAccessibilityProfileAuthorizationV2,
+    StagingAccessibilityProfileView, StagingAccessibilityProfileViewV2,
+    StagingStructureEquationNumberV2, StagingStructureLanguageBindingV2,
+    StagingStructureSemanticError, StagingStructureSemanticKind, StagingStructureSemanticRecord,
+    StagingStructureTableSection, ValidatedStagingStructureSemantics,
+    ValidatedStagingStructureSemanticsV2, STAGING_ACCESSIBILITY_AUTHORIZATION_ALGORITHM,
+    STAGING_ACCESSIBILITY_AUTHORIZATION_ALGORITHM_V2, STAGING_ACCESSIBILITY_PROFILE_VIEW_ALGORITHM,
+    STAGING_STRUCTURE_SEMANTIC_INPUT_ALGORITHM,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};

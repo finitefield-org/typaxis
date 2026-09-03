@@ -1,14 +1,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use typaxis_core::{push_jcs_string, sha256, NodeId, SourceSpan, ValidatedResourceLimits};
+use typaxis_core::{
+    push_jcs_string, sha256, M4EffectiveResourceLimits, NodeId, SourceSpan, TextSpan,
+    ValidatedResourceLimits,
+};
 use typaxis_syntax::{
-    StagingAccessibilityProfileAuthorization, StagingStructureSemanticKind,
-    StagingStructureSemanticRecord, StagingStructureTableSection, ValidatedStagingBookNavigation,
+    PrecomposedVectorKind, StagingAccessibilityProfileAuthorization,
+    StagingAccessibilityProfileAuthorizationV2, StagingStructureLanguageBindingV2,
+    StagingStructureSemanticKind, StagingStructureSemanticRecord, StagingStructureTableSection,
+    ValidatedStagingBookNavigation, ValidatedStagingBookNavigationV2,
     ValidatedStagingSemanticPackage, ValidatedStagingStructureSemantics,
+    ValidatedStagingStructureSemanticsV2,
 };
 
 pub const STRUCTURE_REGISTRY_ALGORITHM: &str = "typaxis.structure-registry/1";
 pub const SELECTED_STRUCTURE_BINDING_ALGORITHM: &str = "typaxis.selected-structure-binding/1";
+pub const STRUCTURE_ROLE_VOCABULARY_ALGORITHM_V2: &str = "typaxis.structure-role-vocabulary/2";
+pub const STRUCTURE_REGISTRY_ALGORITHM_V2: &str = "typaxis.structure-registry/2";
+pub const SELECTED_STRUCTURE_BINDING_ALGORITHM_V2: &str = "typaxis.selected-structure-binding/2";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StructureNodeId(u32);
@@ -148,6 +157,54 @@ impl StructureRole {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StructureRoleVocabularyV2;
+
+impl StructureRoleVocabularyV2 {
+    pub const fn roles(self) -> [StructureRole; 30] {
+        [
+            StructureRole::Caption,
+            StructureRole::Document,
+            StructureRole::Emphasis,
+            StructureRole::Exercise,
+            StructureRole::Figure,
+            StructureRole::Formula,
+            StructureRole::Heading1,
+            StructureRole::Heading2,
+            StructureRole::Heading3,
+            StructureRole::Heading4,
+            StructureRole::Heading5,
+            StructureRole::Heading6,
+            StructureRole::List,
+            StructureRole::ListBody,
+            StructureRole::ListItem,
+            StructureRole::Label,
+            StructureRole::Link,
+            StructureRole::Note,
+            StructureRole::Paragraph,
+            StructureRole::Proof,
+            StructureRole::Reference,
+            StructureRole::Result,
+            StructureRole::Span,
+            StructureRole::Strong,
+            StructureRole::TableBody,
+            StructureRole::TableData,
+            StructureRole::TableHeader,
+            StructureRole::TableHead,
+            StructureRole::TableRow,
+            StructureRole::Table,
+        ]
+    }
+
+    pub fn canonical_jcs(self) -> String {
+        encode_structure_role_vocabulary_v2()
+    }
+
+    pub fn fingerprint(self) -> [u8; 32] {
+        sha256(self.canonical_jcs().as_bytes())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StructureListNumbering {
     Decimal,
@@ -201,6 +258,53 @@ impl StructureTableAttributes {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StructureVectorBindingV2 {
+    kind: PrecomposedVectorKind,
+    metrics_fingerprint: [u8; 32],
+}
+
+impl StructureVectorBindingV2 {
+    pub const fn kind(self) -> PrecomposedVectorKind {
+        self.kind
+    }
+
+    pub const fn metrics_fingerprint(self) -> [u8; 32] {
+        self.metrics_fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StructureEquationNumberBindingV2 {
+    parent_owner: NodeId,
+    text_span: TextSpan,
+    text_buffer_sha256: [u8; 32],
+    exact_text: String,
+    exact_text_sha256: [u8; 32],
+}
+
+impl StructureEquationNumberBindingV2 {
+    pub const fn parent_owner(&self) -> NodeId {
+        self.parent_owner
+    }
+
+    pub const fn text_span(&self) -> TextSpan {
+        self.text_span
+    }
+
+    pub const fn text_buffer_sha256(&self) -> [u8; 32] {
+        self.text_buffer_sha256
+    }
+
+    pub fn exact_text(&self) -> &str {
+        &self.exact_text
+    }
+
+    pub const fn exact_text_sha256(&self) -> [u8; 32] {
+        self.exact_text_sha256
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StructureNodeRecord {
     structure_node_id: StructureNodeId,
@@ -210,6 +314,9 @@ pub struct StructureNodeRecord {
     parent: Option<StructureNodeId>,
     children: Vec<StructureNodeId>,
     language: String,
+    language_binding_v2: Option<StagingStructureLanguageBindingV2>,
+    vector_binding_v2: Option<StructureVectorBindingV2>,
+    equation_number_binding_v2: Option<StructureEquationNumberBindingV2>,
     list_numbering: Option<StructureListNumbering>,
     alternative: Option<String>,
     accessible_name: Option<String>,
@@ -243,6 +350,15 @@ impl StructureNodeRecord {
     }
     pub fn language(&self) -> &str {
         &self.language
+    }
+    pub const fn language_binding_v2(&self) -> Option<StagingStructureLanguageBindingV2> {
+        self.language_binding_v2
+    }
+    pub const fn vector_binding_v2(&self) -> Option<StructureVectorBindingV2> {
+        self.vector_binding_v2
+    }
+    pub const fn equation_number_binding_v2(&self) -> Option<&StructureEquationNumberBindingV2> {
+        self.equation_number_binding_v2.as_ref()
     }
     pub const fn list_numbering(&self) -> Option<StructureListNumbering> {
         self.list_numbering
@@ -374,6 +490,114 @@ impl StructureRegistryReceipt {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StructureRegistryReceiptV2 {
+    package_sha256: [u8; 32],
+    semantic_sha256: [u8; 32],
+    semantics_sha256: [u8; 32],
+    authorization_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    role_vocabulary_sha256: [u8; 32],
+    generated_node_count: u32,
+    maximum_depth: u32,
+    nodes: Vec<StructureNodeRecord>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StructureRegistryReceiptV2 {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn semantic_sha256(&self) -> [u8; 32] {
+        self.semantic_sha256
+    }
+    pub const fn semantics_sha256(&self) -> [u8; 32] {
+        self.semantics_sha256
+    }
+    pub const fn authorization_sha256(&self) -> [u8; 32] {
+        self.authorization_sha256
+    }
+    pub const fn limits_sha256(&self) -> [u8; 32] {
+        self.limits_sha256
+    }
+    pub const fn role_vocabulary_sha256(&self) -> [u8; 32] {
+        self.role_vocabulary_sha256
+    }
+    pub const fn generated_node_count(&self) -> u32 {
+        self.generated_node_count
+    }
+    pub const fn maximum_depth(&self) -> u32 {
+        self.maximum_depth
+    }
+    pub fn nodes(&self) -> &[StructureNodeRecord] {
+        &self.nodes
+    }
+    pub fn node(&self, id: StructureNodeId) -> Option<&StructureNodeRecord> {
+        self.nodes.get(id.get() as usize)
+    }
+    pub fn source_node(&self, source: NodeId) -> Option<&StructureNodeRecord> {
+        self.nodes
+            .iter()
+            .find(|record| record.owner == StructureOwner::Source(source))
+    }
+    pub fn generated_node(&self, key: GeneratedStructureKey) -> Option<&StructureNodeRecord> {
+        self.nodes
+            .iter()
+            .find(|record| record.owner == StructureOwner::Generated(key))
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn verify(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        semantics: &ValidatedStagingStructureSemanticsV2,
+        authorization: &StagingAccessibilityProfileAuthorizationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StructureRegistryError> {
+        let observed =
+            build_structure_registry_v2(package, navigation, semantics, authorization, limits)?;
+        if self != &observed {
+            return Err(StructureRegistryError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+
+    fn verify_sealed(
+        &self,
+        authorization: &StagingAccessibilityProfileAuthorizationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StructureRegistryError> {
+        let vocabulary = encode_structure_role_vocabulary_v2();
+        let canonical = encode_registry_v2(self);
+        if self.authorization_sha256 != authorization.fingerprint()
+            || self.limits_sha256 != authorization.view().limits_sha256()
+            || self.limits_sha256 != limits.fingerprint()
+            || self.role_vocabulary_sha256 != sha256(vocabulary.as_bytes())
+            || self.canonical_jcs != canonical
+            || self.fingerprint != sha256(canonical.as_bytes())
+            || self
+                .nodes
+                .iter()
+                .enumerate()
+                .any(|(index, node)| usize::try_from(node.structure_node_id.get()) != Ok(index))
+            || self
+                .nodes
+                .iter()
+                .any(|node| node.language_binding_v2.is_none())
+        {
+            return Err(StructureRegistryError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StructureRegistryError {
     AuthorizationMismatch,
@@ -417,8 +641,34 @@ impl std::fmt::Display for StructureRegistryError {
 
 impl std::error::Error for StructureRegistryError {}
 
+#[derive(Clone, Copy)]
+enum StructureSemanticsRef<'a> {
+    V1(&'a ValidatedStagingStructureSemantics),
+    V2(&'a ValidatedStagingStructureSemanticsV2),
+}
+
+impl<'a> StructureSemanticsRef<'a> {
+    fn records(self) -> &'a [StagingStructureSemanticRecord] {
+        match self {
+            Self::V1(value) => value.records(),
+            Self::V2(value) => value.records(),
+        }
+    }
+
+    fn record(self, node_id: NodeId) -> Option<&'a StagingStructureSemanticRecord> {
+        match self {
+            Self::V1(value) => value.record(node_id),
+            Self::V2(value) => value.record(node_id),
+        }
+    }
+
+    const fn is_v2(self) -> bool {
+        matches!(self, Self::V2(_))
+    }
+}
+
 struct RegistryBuilder<'a> {
-    semantics: &'a ValidatedStagingStructureSemantics,
+    semantics: StructureSemanticsRef<'a>,
     limits: &'a ValidatedResourceLimits,
     nodes: Vec<StructureNodeRecord>,
     source_to_structure: BTreeMap<NodeId, StructureNodeId>,
@@ -443,7 +693,7 @@ pub fn build_structure_registry(
         return Err(StructureRegistryError::AuthorizationMismatch);
     }
     let mut builder = RegistryBuilder {
-        semantics,
+        semantics: StructureSemanticsRef::V1(semantics),
         limits,
         nodes: Vec::new(),
         source_to_structure: BTreeMap::new(),
@@ -490,6 +740,170 @@ pub fn build_structure_registry(
     Ok(receipt)
 }
 
+pub fn build_structure_registry_v2(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    authorization: &StagingAccessibilityProfileAuthorizationV2,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StructureRegistryReceiptV2, StructureRegistryError> {
+    if package.limits() != limits.base()
+        || authorization
+            .authorizes(package, navigation, semantics, limits)
+            .is_err()
+        || authorization.view().limits_sha256() != limits.fingerprint()
+    {
+        return Err(StructureRegistryError::AuthorizationMismatch);
+    }
+    let mut builder = RegistryBuilder {
+        semantics: StructureSemanticsRef::V2(semantics),
+        limits: limits.base(),
+        nodes: Vec::new(),
+        source_to_structure: BTreeMap::new(),
+        generated: BTreeSet::new(),
+        maximum_depth: 0,
+        derived_text_bytes: 0,
+    };
+    let root = builder.visit_source(NodeId::new(0), None, 1)?;
+    builder.close_footnote_relations()?;
+    if root != Some(StructureNodeId::new(0))
+        || builder.source_to_structure.len()
+            != semantics
+                .records()
+                .iter()
+                .filter(|record| record.kind().creates_structure_element())
+                .count()
+    {
+        return Err(StructureRegistryError::InvalidParent);
+    }
+    validate_v2_registry_nodes(semantics, &builder.nodes, &builder.source_to_structure)?;
+    let generated_node_count =
+        u32::try_from(builder.generated.len()).map_err(|_| StructureRegistryError::AstNodeLimit)?;
+    let total_ast = u64::try_from(semantics.records().len())
+        .ok()
+        .and_then(|source| source.checked_add(u64::from(generated_node_count)))
+        .ok_or(StructureRegistryError::AstNodeLimit)?;
+    if total_ast > limits.base().get().max_ast_nodes {
+        return Err(StructureRegistryError::AstNodeLimit);
+    }
+    let role_vocabulary = encode_structure_role_vocabulary_v2();
+    let mut receipt = StructureRegistryReceiptV2 {
+        package_sha256: package.canonical_jcs_sha256(),
+        semantic_sha256: package.semantic_fingerprint(),
+        semantics_sha256: semantics.fingerprint(),
+        authorization_sha256: authorization.fingerprint(),
+        limits_sha256: limits.fingerprint(),
+        role_vocabulary_sha256: sha256(role_vocabulary.as_bytes()),
+        generated_node_count,
+        maximum_depth: builder.maximum_depth,
+        nodes: builder.nodes,
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    receipt.canonical_jcs = encode_registry_v2(&receipt);
+    receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+    receipt.verify_sealed(authorization, limits)?;
+    Ok(receipt)
+}
+
+fn validate_v2_registry_nodes(
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    nodes: &[StructureNodeRecord],
+    source_to_structure: &BTreeMap<NodeId, StructureNodeId>,
+) -> Result<(), StructureRegistryError> {
+    for semantic in semantics.records() {
+        if !semantic.kind().creates_structure_element() {
+            continue;
+        }
+        let id = source_to_structure
+            .get(&semantic.node_id())
+            .copied()
+            .ok_or(StructureRegistryError::InvalidParent)?;
+        let node = nodes
+            .get(id.get() as usize)
+            .ok_or(StructureRegistryError::InvalidParent)?;
+        if node.language_binding_v2 != semantic.language_binding_v2() {
+            return Err(StructureRegistryError::InvalidParent);
+        }
+        match semantic.kind() {
+            StagingStructureSemanticKind::MathVectorBlock {
+                equation_number_node_id,
+                ..
+            } => {
+                if node.role != StructureRole::Formula
+                    || node.vector_binding_v2.map(StructureVectorBindingV2::kind)
+                        != Some(PrecomposedVectorKind::MathVectorBlock)
+                {
+                    return Err(StructureRegistryError::UnknownSemantic);
+                }
+                match equation_number_node_id {
+                    Some(source_child) => {
+                        let child_id = source_to_structure
+                            .get(source_child)
+                            .copied()
+                            .ok_or(StructureRegistryError::InvalidParent)?;
+                        let child = nodes
+                            .get(child_id.get() as usize)
+                            .ok_or(StructureRegistryError::InvalidParent)?;
+                        if node.children.as_slice() != [child_id]
+                            || child.parent != Some(id)
+                            || child.role != StructureRole::Span
+                            || child
+                                .equation_number_binding_v2
+                                .as_ref()
+                                .map(StructureEquationNumberBindingV2::parent_owner)
+                                != Some(semantic.node_id())
+                        {
+                            return Err(StructureRegistryError::InvalidParent);
+                        }
+                    }
+                    None if !node.children.is_empty() => {
+                        return Err(StructureRegistryError::InvalidParent);
+                    }
+                    None => {}
+                }
+            }
+            StagingStructureSemanticKind::InlineVector { .. } => {
+                if node.role != StructureRole::Figure
+                    || node.vector_binding_v2.map(StructureVectorBindingV2::kind)
+                        != Some(PrecomposedVectorKind::InlineVector)
+                {
+                    return Err(StructureRegistryError::UnknownSemantic);
+                }
+            }
+            StagingStructureSemanticKind::MathVector { .. } => {
+                if node.role != StructureRole::Formula
+                    || node.vector_binding_v2.map(StructureVectorBindingV2::kind)
+                        != Some(PrecomposedVectorKind::MathVector)
+                {
+                    return Err(StructureRegistryError::UnknownSemantic);
+                }
+            }
+            StagingStructureSemanticKind::VectorFigure { .. } => {
+                if node.role != StructureRole::Figure
+                    || node.vector_binding_v2.map(StructureVectorBindingV2::kind)
+                        != Some(PrecomposedVectorKind::VectorFigure)
+                {
+                    return Err(StructureRegistryError::UnknownSemantic);
+                }
+            }
+            StagingStructureSemanticKind::EquationNumber { .. } => {
+                if node.role != StructureRole::Span
+                    || node.vector_binding_v2.is_some()
+                    || node.equation_number_binding_v2.is_none()
+                {
+                    return Err(StructureRegistryError::UnknownSemantic);
+                }
+            }
+            _ if node.vector_binding_v2.is_some() || node.equation_number_binding_v2.is_some() => {
+                return Err(StructureRegistryError::UnknownSemantic);
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 impl RegistryBuilder<'_> {
     fn visit_source(
         &mut self,
@@ -524,6 +938,7 @@ impl RegistryBuilder<'_> {
         if self.source_to_structure.insert(source, id).is_some() {
             return Err(StructureRegistryError::InvalidParent);
         }
+        self.bind_v2_source_fields(id, &record)?;
         let children = match record.kind() {
             StagingStructureSemanticKind::ListItem { marker } => {
                 let label = self.allocate_generated(
@@ -613,7 +1028,10 @@ impl RegistryBuilder<'_> {
                 self.nodes[body.get() as usize].children = body_children;
                 vec![head, body]
             }
-            StagingStructureSemanticKind::Figure { has_caption, .. } if *has_caption => {
+            StagingStructureSemanticKind::Figure { has_caption, .. }
+            | StagingStructureSemanticKind::VectorFigure { has_caption, .. }
+                if *has_caption =>
+            {
                 let caption = self.allocate_generated(
                     source,
                     GeneratedStructureSlot::FigureCaption,
@@ -727,6 +1145,9 @@ impl RegistryBuilder<'_> {
             parent,
             children: Vec::new(),
             language,
+            language_binding_v2: None,
+            vector_binding_v2: None,
+            equation_number_binding_v2: None,
             list_numbering: None,
             alternative,
             accessible_name,
@@ -774,7 +1195,7 @@ impl RegistryBuilder<'_> {
         if !self.generated.insert(key) {
             return Err(StructureRegistryError::InvalidGeneratedNode);
         }
-        self.allocate(
+        let id = self.allocate(
             StructureOwner::Generated(key),
             self.semantics
                 .record(owner_node_id)
@@ -789,7 +1210,90 @@ impl RegistryBuilder<'_> {
             actual_text,
             marker,
             depth,
-        )
+        )?;
+        if self.semantics.is_v2() {
+            let parent_binding = self
+                .nodes
+                .get(parent.get() as usize)
+                .and_then(|node| node.language_binding_v2)
+                .ok_or(StructureRegistryError::InvalidGeneratedNode)?;
+            self.nodes[id.get() as usize].language_binding_v2 = Some(parent_binding);
+        }
+        Ok(id)
+    }
+
+    fn bind_v2_source_fields(
+        &mut self,
+        id: StructureNodeId,
+        source: &StagingStructureSemanticRecord,
+    ) -> Result<(), StructureRegistryError> {
+        if !self.semantics.is_v2() {
+            return Ok(());
+        }
+        let language_binding = source
+            .language_binding_v2()
+            .ok_or(StructureRegistryError::UnknownSemantic)?;
+        let (vector_binding_v2, equation_number_binding_v2) = match source.kind() {
+            StagingStructureSemanticKind::InlineVector {
+                metrics_fingerprint,
+                ..
+            } => (
+                Some(StructureVectorBindingV2 {
+                    kind: PrecomposedVectorKind::InlineVector,
+                    metrics_fingerprint: *metrics_fingerprint,
+                }),
+                None,
+            ),
+            StagingStructureSemanticKind::MathVector {
+                metrics_fingerprint,
+                ..
+            } => (
+                Some(StructureVectorBindingV2 {
+                    kind: PrecomposedVectorKind::MathVector,
+                    metrics_fingerprint: *metrics_fingerprint,
+                }),
+                None,
+            ),
+            StagingStructureSemanticKind::VectorFigure {
+                metrics_fingerprint,
+                ..
+            } => (
+                Some(StructureVectorBindingV2 {
+                    kind: PrecomposedVectorKind::VectorFigure,
+                    metrics_fingerprint: *metrics_fingerprint,
+                }),
+                None,
+            ),
+            StagingStructureSemanticKind::MathVectorBlock {
+                metrics_fingerprint,
+                ..
+            } => (
+                Some(StructureVectorBindingV2 {
+                    kind: PrecomposedVectorKind::MathVectorBlock,
+                    metrics_fingerprint: *metrics_fingerprint,
+                }),
+                None,
+            ),
+            StagingStructureSemanticKind::EquationNumber { binding } => (
+                None,
+                Some(StructureEquationNumberBindingV2 {
+                    parent_owner: binding.parent_owner(),
+                    text_span: binding.text_span(),
+                    text_buffer_sha256: binding.text_buffer_sha256(),
+                    exact_text: binding.exact_text().to_owned(),
+                    exact_text_sha256: binding.exact_text_sha256(),
+                }),
+            ),
+            _ => (None, None),
+        };
+        let node = self
+            .nodes
+            .get_mut(id.get() as usize)
+            .ok_or(StructureRegistryError::InvalidParent)?;
+        node.language_binding_v2 = Some(language_binding);
+        node.vector_binding_v2 = vector_binding_v2;
+        node.equation_number_binding_v2 = equation_number_binding_v2;
+        Ok(())
     }
 
     fn direct_children(
@@ -1102,6 +1606,46 @@ fn source_projection(
             Some(alternative.clone()),
             None,
         ),
+        StagingStructureSemanticKind::InlineVector {
+            alternative,
+            authored_actual_text,
+            ..
+        } => (
+            StructureRole::Figure,
+            Some(alternative.clone()),
+            None,
+            true,
+            authored_actual_text.clone(),
+            None,
+        ),
+        StagingStructureSemanticKind::MathVector {
+            alternative,
+            resolved_actual_text,
+            ..
+        }
+        | StagingStructureSemanticKind::MathVectorBlock {
+            alternative,
+            resolved_actual_text,
+            ..
+        } => (
+            StructureRole::Formula,
+            Some(alternative.clone()),
+            None,
+            true,
+            Some(resolved_actual_text.clone()),
+            None,
+        ),
+        StagingStructureSemanticKind::VectorFigure { alternative, .. } => (
+            StructureRole::Figure,
+            Some(alternative.clone()),
+            None,
+            true,
+            None,
+            None,
+        ),
+        StagingStructureSemanticKind::EquationNumber { .. } => {
+            (StructureRole::Span, None, None, true, None, None)
+        }
         StagingStructureSemanticKind::FootnoteDefinition { .. } => {
             (StructureRole::Note, None, None, false, None, None)
         }
@@ -1188,6 +1732,55 @@ pub struct SelectedStructurePaintInput {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SelectedVectorPaintBindingV2 {
+    pub usage_id: u32,
+    pub kind: PrecomposedVectorKind,
+    pub metrics_fingerprint: [u8; 32],
+    pub display_command_fingerprint: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedEquationNumberPaintBindingV2 {
+    pub parent_owner: NodeId,
+    pub text_span: TextSpan,
+    pub text_buffer_sha256: [u8; 32],
+    pub exact_text: String,
+    pub exact_text_sha256: [u8; 32],
+    pub shape_fingerprint: [u8; 32],
+    pub glyph_receipt_fingerprint: [u8; 32],
+    pub shape_language_fingerprint: [u8; 32],
+    pub language_record_fingerprint: [u8; 32],
+    pub parent_language_record_fingerprint: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SelectedStructurePaintBindingV2 {
+    Standard,
+    Vector(SelectedVectorPaintBindingV2),
+    EquationNumber(SelectedEquationNumberPaintBindingV2),
+}
+
+impl SelectedStructurePaintBindingV2 {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Vector(_) => "vector",
+            Self::EquationNumber(_) => "equation_number",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedStructurePaintInputV2 {
+    pub selected_paint_id: u32,
+    pub page_index: u32,
+    pub paint_ordinal: u32,
+    pub semantic_fragment_ordinal: u32,
+    pub owner: SelectedStructurePaintOwner,
+    pub binding: SelectedStructurePaintBindingV2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SelectedStructureAnnotationInput {
     pub annotation_id: u32,
     pub page_index: u32,
@@ -1205,6 +1798,49 @@ pub struct SelectedStructurePaint {
     role: Option<StructureRole>,
     language: Option<String>,
     actual_text: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedStructurePaintV2 {
+    selected_paint_id: u32,
+    page_index: u32,
+    paint_ordinal: u32,
+    semantic_fragment_ordinal: u32,
+    owner: SelectedStructurePaintOwner,
+    role: Option<StructureRole>,
+    language: Option<String>,
+    actual_text: Option<String>,
+    binding: SelectedStructurePaintBindingV2,
+}
+
+impl SelectedStructurePaintV2 {
+    pub const fn selected_paint_id(&self) -> u32 {
+        self.selected_paint_id
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn paint_ordinal(&self) -> u32 {
+        self.paint_ordinal
+    }
+    pub const fn semantic_fragment_ordinal(&self) -> u32 {
+        self.semantic_fragment_ordinal
+    }
+    pub const fn owner(&self) -> SelectedStructurePaintOwner {
+        self.owner
+    }
+    pub const fn role(&self) -> Option<StructureRole> {
+        self.role
+    }
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+    pub fn actual_text(&self) -> Option<&str> {
+        self.actual_text.as_deref()
+    }
+    pub const fn binding(&self) -> &SelectedStructurePaintBindingV2 {
+        &self.binding
+    }
 }
 
 impl SelectedStructurePaint {
@@ -1356,6 +1992,100 @@ impl SelectedStructureBindingReceipt {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedStructureBindingReceiptV2 {
+    structure_registry_sha256: [u8; 32],
+    authorization_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    selected_layout_sha256: [u8; 32],
+    selected_layout_fragment_count: u64,
+    pages: Vec<SelectedStructurePage>,
+    paints: Vec<SelectedStructurePaintV2>,
+    annotations: Vec<SelectedStructureAnnotation>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl SelectedStructureBindingReceiptV2 {
+    pub const fn structure_registry_sha256(&self) -> [u8; 32] {
+        self.structure_registry_sha256
+    }
+    pub const fn authorization_sha256(&self) -> [u8; 32] {
+        self.authorization_sha256
+    }
+    pub const fn limits_sha256(&self) -> [u8; 32] {
+        self.limits_sha256
+    }
+    pub const fn selected_layout_sha256(&self) -> [u8; 32] {
+        self.selected_layout_sha256
+    }
+    pub const fn selected_layout_fragment_count(&self) -> u64 {
+        self.selected_layout_fragment_count
+    }
+    pub fn pages(&self) -> &[SelectedStructurePage] {
+        &self.pages
+    }
+    pub fn paints(&self) -> &[SelectedStructurePaintV2] {
+        &self.paints
+    }
+    pub fn annotations(&self) -> &[SelectedStructureAnnotation] {
+        &self.annotations
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn verify(
+        &self,
+        registry: &StructureRegistryReceiptV2,
+        authorization: &StagingAccessibilityProfileAuthorizationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), SelectedStructureBindingError> {
+        registry
+            .verify_sealed(authorization, limits)
+            .map_err(|_| SelectedStructureBindingError::RegistryMismatch)?;
+        let inputs = self
+            .paints
+            .iter()
+            .map(|paint| SelectedStructurePaintInputV2 {
+                selected_paint_id: paint.selected_paint_id,
+                page_index: paint.page_index,
+                paint_ordinal: paint.paint_ordinal,
+                semantic_fragment_ordinal: paint.semantic_fragment_ordinal,
+                owner: paint.owner,
+                binding: paint.binding.clone(),
+            })
+            .collect::<Vec<_>>();
+        let annotations = self
+            .annotations
+            .iter()
+            .map(|annotation| SelectedStructureAnnotationInput {
+                annotation_id: annotation.annotation_id,
+                page_index: annotation.page_index,
+                annotation_ordinal: annotation.annotation_ordinal,
+                owner_node_id: annotation.owner_node_id,
+            })
+            .collect::<Vec<_>>();
+        let observed = select_structure_bindings_v2_inner(
+            registry,
+            authorization,
+            limits,
+            self.selected_layout_sha256,
+            self.selected_layout_fragment_count,
+            &self.pages,
+            &inputs,
+            &annotations,
+        )?;
+        if self != &observed {
+            return Err(SelectedStructureBindingError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SelectedStructureBindingError {
     RegistryMismatch,
@@ -1365,6 +2095,8 @@ pub enum SelectedStructureBindingError {
     PaintOrder,
     InvalidArtifact,
     InvalidAnnotation,
+    InvalidVector,
+    InvalidEquationNumber,
     FragmentLimit,
     AllocationFailure,
     ReceiptMismatch,
@@ -1389,6 +2121,12 @@ impl std::fmt::Display for SelectedStructureBindingError {
             }
             Self::InvalidAnnotation => {
                 formatter.write_str("I9190: selected Link annotation mismatch")
+            }
+            Self::InvalidVector => {
+                formatter.write_str("I9190: selected vector structure binding mismatch")
+            }
+            Self::InvalidEquationNumber => {
+                formatter.write_str("I9190: selected equation-number structure binding mismatch")
             }
             Self::FragmentLimit => {
                 formatter.write_str("L5110: marked-content fragment limit exceeded")
@@ -1649,6 +2387,379 @@ fn select_structure_bindings_inner(
     Ok(receipt)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn select_structure_bindings_v2(
+    registry: &StructureRegistryReceiptV2,
+    authorization: &StagingAccessibilityProfileAuthorizationV2,
+    limits: &M4EffectiveResourceLimits,
+    selected_layout_sha256: [u8; 32],
+    selected_layout_fragment_count: u64,
+    pages: &[SelectedStructurePage],
+    paints: &[SelectedStructurePaintInputV2],
+    annotations: &[SelectedStructureAnnotationInput],
+) -> Result<SelectedStructureBindingReceiptV2, SelectedStructureBindingError> {
+    registry
+        .verify_sealed(authorization, limits)
+        .map_err(|_| SelectedStructureBindingError::RegistryMismatch)?;
+    select_structure_bindings_v2_inner(
+        registry,
+        authorization,
+        limits,
+        selected_layout_sha256,
+        selected_layout_fragment_count,
+        pages,
+        paints,
+        annotations,
+    )
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn select_structure_bindings_v2_inner(
+    registry: &StructureRegistryReceiptV2,
+    authorization: &StagingAccessibilityProfileAuthorizationV2,
+    limits: &M4EffectiveResourceLimits,
+    selected_layout_sha256: [u8; 32],
+    selected_layout_fragment_count: u64,
+    pages: &[SelectedStructurePage],
+    paints: &[SelectedStructurePaintInputV2],
+    annotations: &[SelectedStructureAnnotationInput],
+) -> Result<SelectedStructureBindingReceiptV2, SelectedStructureBindingError> {
+    validate_selected_pages(pages, limits.base())?;
+    if selected_layout_sha256 == [0; 32] {
+        return Err(SelectedStructureBindingError::ReceiptMismatch);
+    }
+    if selected_layout_fragment_count > limits.base().get().max_fragments {
+        return Err(SelectedStructureBindingError::FragmentLimit);
+    }
+    let required = registry
+        .nodes()
+        .iter()
+        .filter(|node| node.paint_required())
+        .map(StructureNodeRecord::structure_node_id)
+        .collect::<BTreeSet<_>>();
+    let mut observed_required = BTreeSet::new();
+    let mut observed_fragments = BTreeMap::<StructureNodeId, BTreeSet<u32>>::new();
+    let mut artifact_occurrences = BTreeMap::<StructureArtifactClass, BTreeSet<u32>>::new();
+    let mut closed_groups = BTreeSet::<(SelectedStructurePaintOwner, u32)>::new();
+    let mut previous_group = None;
+    let mut previous_paint = None;
+    let mut previous_page = None;
+    let mut vector_usage_ids = BTreeSet::new();
+    let mut vector_structure_nodes = BTreeSet::new();
+    let mut selected_paints = Vec::new();
+    selected_paints
+        .try_reserve_exact(paints.len())
+        .map_err(|_| SelectedStructureBindingError::AllocationFailure)?;
+    for (index, paint) in paints.iter().enumerate() {
+        let paint_order = (paint.page_index, paint.paint_ordinal);
+        // Upstream block layout may reserve an ordinal for a structural slot
+        // that emits no paint (for example, an empty caption). Keep physical
+        // ordinals strictly ordered and page-zero-based; the marked-content
+        // finalizer assigns its own dense MCID sequence independently.
+        if usize::try_from(paint.selected_paint_id) != Ok(index)
+            || pages.get(paint.page_index as usize).is_none()
+            || previous_paint.is_some_and(|previous| previous >= paint_order)
+            || (previous_page != Some(paint.page_index) && paint.paint_ordinal != 0)
+        {
+            return Err(SelectedStructureBindingError::PaintOrder);
+        }
+        let preceding = selected_paints.last();
+        previous_paint = Some(paint_order);
+        previous_page = Some(paint.page_index);
+        let group = (paint.owner, paint.semantic_fragment_ordinal);
+        let page_group = (paint.page_index, group);
+        if previous_group != Some(page_group) {
+            if let Some((_, previous)) = previous_group.replace(page_group) {
+                closed_groups.insert(previous);
+            }
+            if closed_groups.contains(&group) {
+                return Err(SelectedStructureBindingError::PaintOrder);
+            }
+        }
+        let (role, language, actual_text) = match paint.owner {
+            SelectedStructurePaintOwner::Structure(owner) => {
+                let node = registry
+                    .node(owner)
+                    .ok_or(SelectedStructureBindingError::ExtraPaint)?;
+                if !node.paint_required() {
+                    return Err(SelectedStructureBindingError::ExtraPaint);
+                }
+                validate_selected_paint_binding_v2(
+                    registry,
+                    node,
+                    paint,
+                    preceding,
+                    &mut vector_usage_ids,
+                    &mut vector_structure_nodes,
+                )?;
+                observed_fragments
+                    .entry(owner)
+                    .or_default()
+                    .insert(paint.semantic_fragment_ordinal);
+                observed_required.insert(owner);
+                (
+                    Some(node.role()),
+                    (node.language()
+                        != registry
+                            .nodes()
+                            .first()
+                            .map_or("", StructureNodeRecord::language))
+                    .then(|| node.language().to_owned()),
+                    node.actual_text().map(str::to_owned),
+                )
+            }
+            SelectedStructurePaintOwner::Artifact { class, occurrence } => {
+                if !matches!(paint.binding, SelectedStructurePaintBindingV2::Standard)
+                    || !matches!(
+                        class,
+                        StructureArtifactClass::Pagination
+                            | StructureArtifactClass::PaginationHeader
+                            | StructureArtifactClass::PaginationFooter
+                            | StructureArtifactClass::Layout
+                    )
+                    || paint.semantic_fragment_ordinal != 0
+                {
+                    return Err(SelectedStructureBindingError::InvalidArtifact);
+                }
+                artifact_occurrences
+                    .entry(class)
+                    .or_default()
+                    .insert(occurrence);
+                (None, None, None)
+            }
+        };
+        selected_paints.push(SelectedStructurePaintV2 {
+            selected_paint_id: paint.selected_paint_id,
+            page_index: paint.page_index,
+            paint_ordinal: paint.paint_ordinal,
+            semantic_fragment_ordinal: paint.semantic_fragment_ordinal,
+            owner: paint.owner,
+            role,
+            language,
+            actual_text,
+            binding: paint.binding.clone(),
+        });
+    }
+    if observed_required != required {
+        return Err(SelectedStructureBindingError::MissingPaint);
+    }
+    if let Some((_, previous)) = previous_group {
+        closed_groups.insert(previous);
+    }
+    for fragments in observed_fragments.values() {
+        let count = u32::try_from(fragments.len())
+            .map_err(|_| SelectedStructureBindingError::FragmentLimit)?;
+        if !fragments.iter().copied().eq(0..count) {
+            return Err(SelectedStructureBindingError::PaintOrder);
+        }
+    }
+    for occurrences in artifact_occurrences.values() {
+        let count = u32::try_from(occurrences.len())
+            .map_err(|_| SelectedStructureBindingError::FragmentLimit)?;
+        if !occurrences.iter().copied().eq(0..count) {
+            return Err(SelectedStructureBindingError::InvalidArtifact);
+        }
+    }
+    let vector_usage_count = u32::try_from(vector_usage_ids.len())
+        .map_err(|_| SelectedStructureBindingError::FragmentLimit)?;
+    let equation_number_count = selected_paints
+        .iter()
+        .filter(|paint| {
+            matches!(
+                paint.binding(),
+                SelectedStructurePaintBindingV2::EquationNumber(_)
+            )
+        })
+        .count();
+    let maximum_structure_groups = usize::try_from(selected_layout_fragment_count)
+        .ok()
+        .and_then(|count| count.checked_add(equation_number_count))
+        .ok_or(SelectedStructureBindingError::FragmentLimit)?;
+    if !vector_usage_ids.iter().copied().eq(0..vector_usage_count)
+        || closed_groups.len() > maximum_structure_groups
+        || u64::try_from(closed_groups.len())
+            .map_or(true, |count| count > limits.base().get().max_fragments)
+    {
+        return Err(SelectedStructureBindingError::PaintOrder);
+    }
+    for node in registry.nodes().iter().filter(|node| {
+        node.paint_required()
+            && (node.vector_binding_v2().is_some()
+                || node.equation_number_binding_v2().is_some()
+                || matches!(
+                    node.role(),
+                    StructureRole::Figure
+                        | StructureRole::Formula
+                        | StructureRole::Label
+                        | StructureRole::Reference
+                ))
+    }) {
+        if observed_fragments
+            .get(&node.structure_node_id())
+            .map_or(true, |fragments| {
+                fragments.len() != 1 || !fragments.contains(&0)
+            })
+        {
+            return Err(SelectedStructureBindingError::PaintOrder);
+        }
+    }
+    let selected_annotations = select_annotations_v2(registry, pages, annotations)?;
+    let mut receipt = SelectedStructureBindingReceiptV2 {
+        structure_registry_sha256: registry.fingerprint(),
+        authorization_sha256: authorization.fingerprint(),
+        limits_sha256: limits.fingerprint(),
+        selected_layout_sha256,
+        selected_layout_fragment_count,
+        pages: pages.to_vec(),
+        paints: selected_paints,
+        annotations: selected_annotations,
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    receipt.canonical_jcs = encode_selected_v2(&receipt);
+    receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+    Ok(receipt)
+}
+
+fn validate_selected_paint_binding_v2(
+    registry: &StructureRegistryReceiptV2,
+    node: &StructureNodeRecord,
+    paint: &SelectedStructurePaintInputV2,
+    preceding: Option<&SelectedStructurePaintV2>,
+    vector_usage_ids: &mut BTreeSet<u32>,
+    vector_structure_nodes: &mut BTreeSet<StructureNodeId>,
+) -> Result<(), SelectedStructureBindingError> {
+    match &paint.binding {
+        SelectedStructurePaintBindingV2::Standard => {
+            if node.vector_binding_v2().is_some() || node.equation_number_binding_v2().is_some() {
+                return Err(SelectedStructureBindingError::InvalidVector);
+            }
+        }
+        SelectedStructurePaintBindingV2::Vector(binding) => {
+            let expected = node
+                .vector_binding_v2()
+                .ok_or(SelectedStructureBindingError::InvalidVector)?;
+            if expected.kind() != binding.kind
+                || expected.metrics_fingerprint() != binding.metrics_fingerprint
+                || binding.display_command_fingerprint == [0; 32]
+                || paint.semantic_fragment_ordinal != 0
+                || !vector_usage_ids.insert(binding.usage_id)
+                || !vector_structure_nodes.insert(node.structure_node_id())
+                || match binding.kind {
+                    PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::VectorFigure => {
+                        node.role() != StructureRole::Figure
+                    }
+                    PrecomposedVectorKind::MathVector | PrecomposedVectorKind::MathVectorBlock => {
+                        node.role() != StructureRole::Formula
+                    }
+                }
+            {
+                return Err(SelectedStructureBindingError::InvalidVector);
+            }
+        }
+        SelectedStructurePaintBindingV2::EquationNumber(binding) => {
+            let expected = node
+                .equation_number_binding_v2()
+                .ok_or(SelectedStructureBindingError::InvalidEquationNumber)?;
+            let language = node
+                .language_binding_v2()
+                .ok_or(SelectedStructureBindingError::InvalidEquationNumber)?;
+            let Some(parent_language) = language.parent_record_fingerprint() else {
+                return Err(SelectedStructureBindingError::InvalidEquationNumber);
+            };
+            let preceding_matches = preceding.is_some_and(|previous| {
+                previous.page_index == paint.page_index
+                    && previous.paint_ordinal.checked_add(1) == Some(paint.paint_ordinal)
+                    && matches!(
+                        (&previous.binding, previous.owner),
+                        (
+                            SelectedStructurePaintBindingV2::Vector(vector),
+                            SelectedStructurePaintOwner::Structure(parent_id)
+                        ) if vector.kind == PrecomposedVectorKind::MathVectorBlock
+                            && registry.node(parent_id).is_some_and(|parent| {
+                                parent.owner() == StructureOwner::Source(binding.parent_owner)
+                            })
+                    )
+            });
+            if node.role() != StructureRole::Span
+                || paint.semantic_fragment_ordinal != 0
+                || expected.parent_owner() != binding.parent_owner
+                || expected.text_span() != binding.text_span
+                || expected.text_buffer_sha256() != binding.text_buffer_sha256
+                || expected.exact_text() != binding.exact_text
+                || expected.exact_text_sha256() != binding.exact_text_sha256
+                || sha256(binding.exact_text.as_bytes()) != binding.exact_text_sha256
+                || binding.shape_fingerprint == [0; 32]
+                || binding.glyph_receipt_fingerprint == [0; 32]
+                || binding.shape_language_fingerprint == [0; 32]
+                || language.record_fingerprint() != binding.language_record_fingerprint
+                || parent_language != binding.parent_language_record_fingerprint
+                || !preceding_matches
+            {
+                return Err(SelectedStructureBindingError::InvalidEquationNumber);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn select_annotations_v2(
+    registry: &StructureRegistryReceiptV2,
+    pages: &[SelectedStructurePage],
+    annotations: &[SelectedStructureAnnotationInput],
+) -> Result<Vec<SelectedStructureAnnotation>, SelectedStructureBindingError> {
+    let link_nodes = registry
+        .nodes()
+        .iter()
+        .filter(|node| node.role() == StructureRole::Link)
+        .map(|node| match node.owner() {
+            StructureOwner::Source(source) => Ok((source, node)),
+            StructureOwner::Generated(_) => Err(SelectedStructureBindingError::InvalidAnnotation),
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    let mut linked = BTreeSet::new();
+    let mut next_annotation = BTreeMap::<u32, u32>::new();
+    let mut previous_annotation = None;
+    let mut selected = Vec::new();
+    selected
+        .try_reserve_exact(annotations.len())
+        .map_err(|_| SelectedStructureBindingError::AllocationFailure)?;
+    for (index, annotation) in annotations.iter().enumerate() {
+        let node = link_nodes
+            .get(&annotation.owner_node_id)
+            .ok_or(SelectedStructureBindingError::InvalidAnnotation)?;
+        let order_key = (annotation.page_index, annotation.annotation_ordinal);
+        if usize::try_from(annotation.annotation_id) != Ok(index)
+            || pages.get(annotation.page_index as usize).is_none()
+            || *next_annotation.entry(annotation.page_index).or_insert(0)
+                != annotation.annotation_ordinal
+            || previous_annotation.is_some_and(|previous| previous >= order_key)
+        {
+            return Err(SelectedStructureBindingError::InvalidAnnotation);
+        }
+        previous_annotation = Some(order_key);
+        *next_annotation
+            .get_mut(&annotation.page_index)
+            .ok_or(SelectedStructureBindingError::InvalidAnnotation)? += 1;
+        linked.insert(annotation.owner_node_id);
+        selected.push(SelectedStructureAnnotation {
+            annotation_id: annotation.annotation_id,
+            page_index: annotation.page_index,
+            annotation_ordinal: annotation.annotation_ordinal,
+            owner_node_id: annotation.owner_node_id,
+            structure_node_id: node.structure_node_id(),
+            accessible_name: node
+                .accessible_name()
+                .ok_or(SelectedStructureBindingError::InvalidAnnotation)?
+                .to_owned(),
+        });
+    }
+    if linked != link_nodes.keys().copied().collect() {
+        return Err(SelectedStructureBindingError::InvalidAnnotation);
+    }
+    Ok(selected)
+}
+
 fn validate_selected_pages(
     pages: &[SelectedStructurePage],
     limits: &ValidatedResourceLimits,
@@ -1664,6 +2775,177 @@ fn validate_selected_pages(
         return Err(SelectedStructureBindingError::NonCanonicalPage);
     }
     Ok(())
+}
+
+fn encode_structure_role_vocabulary_v2() -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STRUCTURE_ROLE_VOCABULARY_ALGORITHM_V2);
+    output.push_str(",\"roles\":[");
+    for (index, role) in StructureRoleVocabularyV2.roles().iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        push_jcs_string(&mut output, role.pdf_name());
+    }
+    output.push_str("]}");
+    output
+}
+
+fn encode_registry_v2(value: &StructureRegistryReceiptV2) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, STRUCTURE_REGISTRY_ALGORITHM_V2);
+    output.push_str(",\"authorization_sha256\":");
+    push_hash(&mut output, value.authorization_sha256);
+    output.push_str(",\"generated_node_count\":");
+    output.push_str(&value.generated_node_count.to_string());
+    output.push_str(",\"limits_sha256\":");
+    push_hash(&mut output, value.limits_sha256);
+    output.push_str(",\"maximum_depth\":");
+    output.push_str(&value.maximum_depth.to_string());
+    output.push_str(",\"nodes\":[");
+    for (index, node) in value.nodes.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        encode_structure_node_v2(&mut output, node);
+    }
+    output.push_str("],\"package_sha256\":");
+    push_hash(&mut output, value.package_sha256);
+    output.push_str(",\"role_map\":{\"Em\":\"Span\",\"Exercise\":\"Div\",\"Proof\":\"Div\",\"Result\":\"Div\",\"Strong\":\"Span\"}");
+    output.push_str(",\"role_vocabulary_sha256\":");
+    push_hash(&mut output, value.role_vocabulary_sha256);
+    output.push_str(",\"semantic_sha256\":");
+    push_hash(&mut output, value.semantic_sha256);
+    output.push_str(",\"semantics_sha256\":");
+    push_hash(&mut output, value.semantics_sha256);
+    output.push('}');
+    output
+}
+
+fn encode_structure_node_v2(output: &mut String, node: &StructureNodeRecord) {
+    output.push_str("{\"accessible_name\":");
+    push_optional_string(output, node.accessible_name.as_deref());
+    output.push_str(",\"actual_text\":");
+    push_optional_string(output, node.actual_text.as_deref());
+    output.push_str(",\"alternative\":");
+    push_optional_string(output, node.alternative.as_deref());
+    output.push_str(",\"children\":[");
+    for (index, child) in node.children.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&child.get().to_string());
+    }
+    output.push_str("],\"equation_number_binding\":");
+    if let Some(binding) = &node.equation_number_binding_v2 {
+        output.push_str("{\"exact_text\":");
+        push_jcs_string(output, binding.exact_text());
+        output.push_str(",\"exact_text_sha256\":");
+        push_hash(output, binding.exact_text_sha256());
+        output.push_str(",\"parent_owner\":");
+        output.push_str(&binding.parent_owner().get().to_string());
+        output.push_str(",\"text_buffer_sha256\":");
+        push_hash(output, binding.text_buffer_sha256());
+        output.push_str(",\"text_span\":");
+        push_text_span(output, binding.text_span());
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"language\":");
+    push_jcs_string(output, &node.language);
+    output.push_str(",\"language_binding\":");
+    if let Some(binding) = node.language_binding_v2 {
+        output.push_str("{\"parent_record_fingerprint\":");
+        if let Some(parent) = binding.parent_record_fingerprint() {
+            push_hash(output, parent);
+        } else {
+            output.push_str("null");
+        }
+        output.push_str(",\"record_fingerprint\":");
+        push_hash(output, binding.record_fingerprint());
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"list_numbering\":");
+    if let Some(numbering) = node.list_numbering {
+        push_jcs_string(output, numbering.as_str());
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"marker\":");
+    push_optional_string(output, node.marker.as_deref());
+    output.push_str(",\"outline_ids\":[");
+    for (index, outline) in node.outline_ids.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&outline.to_string());
+    }
+    output.push_str("],\"owner\":");
+    encode_owner(output, node.owner);
+    output.push_str(",\"paint_required\":");
+    output.push_str(if node.paint_required { "true" } else { "false" });
+    output.push_str(",\"parent\":");
+    if let Some(parent) = node.parent {
+        output.push_str(&parent.get().to_string());
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"related_nodes\":[");
+    for (index, related) in node.related_nodes.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&related.get().to_string());
+    }
+    output.push_str("],\"role\":");
+    push_jcs_string(output, node.role.pdf_name());
+    output.push_str(",\"source_span\":");
+    if let Some(span) = node.source_span {
+        push_source_span(output, span);
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"structure_id\":");
+    push_optional_string(output, node.structure_id.as_deref());
+    output.push_str(",\"structure_node_id\":");
+    output.push_str(&node.structure_node_id.get().to_string());
+    output.push_str(",\"table_attributes\":");
+    if let Some(table) = &node.table_attributes {
+        output.push_str("{\"colspan\":");
+        output.push_str(&table.colspan.to_string());
+        output.push_str(",\"column_ordinal\":");
+        output.push_str(&table.column_ordinal.to_string());
+        output.push_str(",\"header_ids\":[");
+        for (index, header) in table.header_ids.iter().enumerate() {
+            if index != 0 {
+                output.push(',');
+            }
+            push_jcs_string(output, header);
+        }
+        output.push_str("],\"row_ordinal\":");
+        output.push_str(&table.row_ordinal.to_string());
+        output.push_str(",\"rowspan\":");
+        output.push_str(&table.rowspan.to_string());
+        output.push_str(",\"section\":");
+        push_jcs_string(output, table.section.as_str());
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"vector_binding\":");
+    if let Some(binding) = node.vector_binding_v2 {
+        output.push_str("{\"kind\":");
+        push_jcs_string(output, binding.kind().as_str());
+        output.push_str(",\"metrics_fingerprint\":");
+        push_hash(output, binding.metrics_fingerprint());
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push('}');
 }
 
 fn encode_registry(value: &StructureRegistryReceipt) -> String {
@@ -1801,6 +3083,142 @@ fn encode_owner(output: &mut String, owner: StructureOwner) {
             output.push_str(&key.owner_node_id().get().to_string());
             output.push_str(",\"slot\":");
             push_jcs_string(output, key.slot().as_str());
+            output.push('}');
+        }
+    }
+}
+
+fn encode_selected_v2(value: &SelectedStructureBindingReceiptV2) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, SELECTED_STRUCTURE_BINDING_ALGORITHM_V2);
+    output.push_str(",\"annotations\":[");
+    for (index, annotation) in value.annotations.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"accessible_name\":");
+        push_jcs_string(&mut output, &annotation.accessible_name);
+        output.push_str(",\"annotation_id\":");
+        output.push_str(&annotation.annotation_id.to_string());
+        output.push_str(",\"annotation_ordinal\":");
+        output.push_str(&annotation.annotation_ordinal.to_string());
+        output.push_str(",\"owner_node_id\":");
+        output.push_str(&annotation.owner_node_id.get().to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&annotation.page_index.to_string());
+        output.push_str(",\"structure_node_id\":");
+        output.push_str(&annotation.structure_node_id.get().to_string());
+        output.push('}');
+    }
+    output.push_str("],\"authorization_sha256\":");
+    push_hash(&mut output, value.authorization_sha256);
+    output.push_str(",\"limits_sha256\":");
+    push_hash(&mut output, value.limits_sha256);
+    output.push_str(",\"pages\":[");
+    for (index, page) in value.pages.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"height\":");
+        output.push_str(&page.height_raw.to_string());
+        output.push_str(",\"page_index\":");
+        output.push_str(&page.page_index.to_string());
+        output.push_str(",\"width\":");
+        output.push_str(&page.width_raw.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"paints\":[");
+    for (index, paint) in value.paints.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"actual_text\":");
+        push_optional_string(&mut output, paint.actual_text.as_deref());
+        output.push_str(",\"binding\":");
+        encode_selected_paint_binding_v2(&mut output, &paint.binding);
+        output.push_str(",\"language\":");
+        push_optional_string(&mut output, paint.language.as_deref());
+        output.push_str(",\"owner\":");
+        match paint.owner {
+            SelectedStructurePaintOwner::Structure(id) => {
+                output.push_str("{\"kind\":\"structure\",\"structure_node_id\":");
+                output.push_str(&id.get().to_string());
+                output.push('}');
+            }
+            SelectedStructurePaintOwner::Artifact { class, occurrence } => {
+                output.push_str("{\"class\":");
+                push_jcs_string(&mut output, class.as_str());
+                output.push_str(",\"kind\":\"artifact\",\"occurrence\":");
+                output.push_str(&occurrence.to_string());
+                output.push('}');
+            }
+        }
+        output.push_str(",\"page_index\":");
+        output.push_str(&paint.page_index.to_string());
+        output.push_str(",\"paint_ordinal\":");
+        output.push_str(&paint.paint_ordinal.to_string());
+        output.push_str(",\"role\":");
+        if let Some(role) = paint.role {
+            push_jcs_string(&mut output, role.pdf_name());
+        } else {
+            output.push_str("null");
+        }
+        output.push_str(",\"selected_paint_id\":");
+        output.push_str(&paint.selected_paint_id.to_string());
+        output.push_str(",\"semantic_fragment_ordinal\":");
+        output.push_str(&paint.semantic_fragment_ordinal.to_string());
+        output.push('}');
+    }
+    output.push_str("],\"selected_layout_fragment_count\":");
+    output.push_str(&value.selected_layout_fragment_count.to_string());
+    output.push_str(",\"selected_layout_sha256\":");
+    push_hash(&mut output, value.selected_layout_sha256);
+    output.push_str(",\"structure_registry_sha256\":");
+    push_hash(&mut output, value.structure_registry_sha256);
+    output.push('}');
+    output
+}
+
+fn encode_selected_paint_binding_v2(
+    output: &mut String,
+    binding: &SelectedStructurePaintBindingV2,
+) {
+    match binding {
+        SelectedStructurePaintBindingV2::Standard => {
+            output.push_str("{\"kind\":\"standard\"}");
+        }
+        SelectedStructurePaintBindingV2::Vector(value) => {
+            output.push_str("{\"display_command_fingerprint\":");
+            push_hash(output, value.display_command_fingerprint);
+            output.push_str(",\"kind\":\"vector\",\"metrics_fingerprint\":");
+            push_hash(output, value.metrics_fingerprint);
+            output.push_str(",\"usage_id\":");
+            output.push_str(&value.usage_id.to_string());
+            output.push_str(",\"vector_kind\":");
+            push_jcs_string(output, value.kind.as_str());
+            output.push('}');
+        }
+        SelectedStructurePaintBindingV2::EquationNumber(value) => {
+            output.push_str("{\"exact_text\":");
+            push_jcs_string(output, &value.exact_text);
+            output.push_str(",\"exact_text_sha256\":");
+            push_hash(output, value.exact_text_sha256);
+            output.push_str(",\"glyph_receipt_fingerprint\":");
+            push_hash(output, value.glyph_receipt_fingerprint);
+            output.push_str(",\"kind\":\"equation_number\",\"language_record_fingerprint\":");
+            push_hash(output, value.language_record_fingerprint);
+            output.push_str(",\"parent_language_record_fingerprint\":");
+            push_hash(output, value.parent_language_record_fingerprint);
+            output.push_str(",\"parent_owner\":");
+            output.push_str(&value.parent_owner.get().to_string());
+            output.push_str(",\"shape_fingerprint\":");
+            push_hash(output, value.shape_fingerprint);
+            output.push_str(",\"shape_language_fingerprint\":");
+            push_hash(output, value.shape_language_fingerprint);
+            output.push_str(",\"text_buffer_sha256\":");
+            push_hash(output, value.text_buffer_sha256);
+            output.push_str(",\"text_span\":");
+            push_text_span(output, value.text_span);
             output.push('}');
         }
     }
@@ -1966,6 +3384,26 @@ fn push_optional_string(output: &mut String, value: Option<&str>) {
     }
 }
 
+fn push_source_span(output: &mut String, value: SourceSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"source_id\":");
+    output.push_str(&value.source_id().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push('}');
+}
+
+fn push_text_span(output: &mut String, value: TextSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push_str(",\"text_id\":");
+    output.push_str(&value.text_id().get().to_string());
+    output.push('}');
+}
+
 fn push_hash(output: &mut String, value: [u8; 32]) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     output.push('"');
@@ -1974,4 +3412,369 @@ fn push_hash(output: &mut String, value: [u8; 32]) {
         output.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     output.push('"');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use typaxis_core::{M4ResourceLimits, ResourceLimits};
+    use typaxis_syntax::machine_profile_boundary::wire::{
+        DocumentPackageDecodePolicy, StagingSemanticDocumentPackageDecoder,
+        StagingSemanticDocumentPackageEncoder, WireStagingM4Block,
+    };
+    use typaxis_syntax::{
+        validate_staging_book_navigation_v2, validate_staging_structure_semantics_v2,
+        StagingAccessibilityProfileAuthorizationV2, StagingAccessibilityProfileViewV2,
+        StagingSemanticPackageParser,
+    };
+
+    const VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package.json"
+    ));
+
+    #[test]
+    fn vector_structure_registry_v2_maps_roles_alt_language_and_number() {
+        let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let limits = M4EffectiveResourceLimits::new(base, M4ResourceLimits::default()).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                VECTOR_FIXTURE,
+                &DocumentPackageDecodePolicy::new(limits.base()),
+            )
+            .unwrap();
+        let package = StagingSemanticPackageParser::new()
+            .parse(decoded, limits.base())
+            .unwrap();
+        let navigation = validate_staging_book_navigation_v2(&package, &limits).unwrap();
+        let semantics =
+            validate_staging_structure_semantics_v2(&package, &navigation, &limits).unwrap();
+        assert!(semantics
+            .canonical_jcs()
+            .contains(STRUCTURE_REGISTRY_ALGORITHM_V2));
+        let authorization = StagingAccessibilityProfileAuthorizationV2::bind_profile_receipt(
+            StagingAccessibilityProfileViewV2::new(&package, &navigation, &semantics, &limits)
+                .unwrap(),
+            sha256(b"layout-contract-tagged-profile-v2"),
+            sha256(b"layout-contract-navigation-profile-v2"),
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+        )
+        .unwrap();
+        let registry =
+            build_structure_registry_v2(&package, &navigation, &semantics, &authorization, &limits)
+                .unwrap();
+        registry
+            .verify(&package, &navigation, &semantics, &authorization, &limits)
+            .unwrap();
+        assert_eq!(StructureRoleVocabularyV2.roles().len(), 30);
+        assert_eq!(
+            registry.role_vocabulary_sha256(),
+            StructureRoleVocabularyV2.fingerprint()
+        );
+
+        let expected = [
+            (
+                NodeId::new(3),
+                PrecomposedVectorKind::InlineVector,
+                StructureRole::Figure,
+                "丸括弧で囲んだ二項目",
+                None,
+            ),
+            (
+                NodeId::new(4),
+                PrecomposedVectorKind::MathVector,
+                StructureRole::Formula,
+                "xたすy",
+                Some("xたすy"),
+            ),
+            (
+                NodeId::new(5),
+                PrecomposedVectorKind::VectorFigure,
+                StructureRole::Figure,
+                "配置図",
+                None,
+            ),
+            (
+                NodeId::new(6),
+                PrecomposedVectorKind::MathVectorBlock,
+                StructureRole::Formula,
+                "xたすy、式1",
+                Some("xたすy、式1"),
+            ),
+        ];
+        for (owner, kind, role, alternative, actual_text) in expected {
+            let node = registry.source_node(owner).unwrap();
+            assert_eq!(node.role(), role);
+            assert_eq!(node.alternative(), Some(alternative));
+            assert_eq!(node.actual_text(), actual_text);
+            assert_eq!(node.language(), "ja");
+            assert!(node.language_binding_v2().is_some());
+            assert_eq!(node.vector_binding_v2().unwrap().kind(), kind);
+            assert!(node.paint_required());
+        }
+        let formula = registry.source_node(NodeId::new(6)).unwrap();
+        let number = registry.source_node(NodeId::new(7)).unwrap();
+        assert_eq!(number.role(), StructureRole::Span);
+        assert_eq!(number.parent(), Some(formula.structure_node_id()));
+        assert_eq!(formula.children().last(), Some(&number.structure_node_id()));
+        let number_binding = number.equation_number_binding_v2().unwrap();
+        assert_eq!(number_binding.parent_owner(), NodeId::new(6));
+        assert_eq!(number_binding.exact_text(), "(1)");
+        assert_eq!(
+            sha256(number_binding.exact_text().as_bytes()),
+            number_binding.exact_text_sha256()
+        );
+
+        let mut paints = Vec::new();
+        for (index, owner) in [3, 4, 5, 6].into_iter().enumerate() {
+            let node = registry.source_node(NodeId::new(owner)).unwrap();
+            let vector = node.vector_binding_v2().unwrap();
+            paints.push(SelectedStructurePaintInputV2 {
+                selected_paint_id: index as u32,
+                page_index: 0,
+                paint_ordinal: index as u32,
+                semantic_fragment_ordinal: 0,
+                owner: SelectedStructurePaintOwner::Structure(node.structure_node_id()),
+                binding: SelectedStructurePaintBindingV2::Vector(SelectedVectorPaintBindingV2 {
+                    usage_id: index as u32,
+                    kind: vector.kind(),
+                    metrics_fingerprint: vector.metrics_fingerprint(),
+                    display_command_fingerprint: sha256(
+                        format!("layout-contract-vector-command-{index}").as_bytes(),
+                    ),
+                }),
+            });
+        }
+        let number_language = number.language_binding_v2().unwrap();
+        let parent_language = formula.language_binding_v2().unwrap();
+        paints.push(SelectedStructurePaintInputV2 {
+            selected_paint_id: 4,
+            page_index: 0,
+            paint_ordinal: 4,
+            semantic_fragment_ordinal: 0,
+            owner: SelectedStructurePaintOwner::Structure(number.structure_node_id()),
+            binding: SelectedStructurePaintBindingV2::EquationNumber(
+                SelectedEquationNumberPaintBindingV2 {
+                    parent_owner: number_binding.parent_owner(),
+                    text_span: number_binding.text_span(),
+                    text_buffer_sha256: number_binding.text_buffer_sha256(),
+                    exact_text: number_binding.exact_text().to_owned(),
+                    exact_text_sha256: number_binding.exact_text_sha256(),
+                    shape_fingerprint: sha256(b"equation-shape"),
+                    glyph_receipt_fingerprint: sha256(b"equation-glyphs"),
+                    shape_language_fingerprint: sha256(b"equation-language"),
+                    language_record_fingerprint: number_language.record_fingerprint(),
+                    parent_language_record_fingerprint: parent_language.record_fingerprint(),
+                },
+            ),
+        });
+        let pages = [SelectedStructurePage {
+            page_index: 0,
+            width_raw: 10_000_000,
+            height_raw: 10_000_000,
+        }];
+        let selected = select_structure_bindings_v2(
+            &registry,
+            &authorization,
+            &limits,
+            sha256(b"layout-contract-selected-v2"),
+            4,
+            &pages,
+            &paints,
+            &[],
+        )
+        .unwrap();
+        selected.verify(&registry, &authorization, &limits).unwrap();
+        assert_eq!(selected.paints().len(), 5);
+        assert_eq!(selected.paints()[1].actual_text(), Some("xたすy"));
+        assert_eq!(selected.paints()[4].actual_text(), None);
+
+        let mut duplicate_usage = paints.clone();
+        let SelectedStructurePaintBindingV2::Vector(binding) = &mut duplicate_usage[1].binding
+        else {
+            unreachable!()
+        };
+        binding.usage_id = 0;
+        let error = select_structure_bindings_v2(
+            &registry,
+            &authorization,
+            &limits,
+            sha256(b"layout-contract-selected-v2"),
+            4,
+            &pages,
+            &duplicate_usage,
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(error, SelectedStructureBindingError::InvalidVector);
+        assert!(error.to_string().starts_with("I9190:"));
+
+        let mut swapped_number = paints.clone();
+        swapped_number.swap(3, 4);
+        for (index, paint) in swapped_number.iter_mut().enumerate() {
+            paint.selected_paint_id = index as u32;
+            paint.paint_ordinal = index as u32;
+        }
+        let error = select_structure_bindings_v2(
+            &registry,
+            &authorization,
+            &limits,
+            sha256(b"layout-contract-selected-v2"),
+            4,
+            &pages,
+            &swapped_number,
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(error, SelectedStructureBindingError::InvalidEquationNumber);
+        assert!(error.to_string().starts_with("I9190:"));
+
+        let mut missing = paints.clone();
+        missing.remove(0);
+        for (index, paint) in missing.iter_mut().enumerate() {
+            paint.selected_paint_id = index as u32;
+            paint.paint_ordinal = index as u32;
+        }
+        let error = select_structure_bindings_v2(
+            &registry,
+            &authorization,
+            &limits,
+            sha256(b"layout-contract-selected-v2"),
+            4,
+            &pages,
+            &missing,
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(error, SelectedStructureBindingError::MissingPaint);
+
+        let mut wrong_metrics = paints.clone();
+        let SelectedStructurePaintBindingV2::Vector(binding) = &mut wrong_metrics[0].binding else {
+            unreachable!()
+        };
+        binding.metrics_fingerprint = sha256(b"wrong-vector-metrics");
+        assert_eq!(
+            select_structure_bindings_v2(
+                &registry,
+                &authorization,
+                &limits,
+                sha256(b"layout-contract-selected-v2"),
+                4,
+                &pages,
+                &wrong_metrics,
+                &[],
+            ),
+            Err(SelectedStructureBindingError::InvalidVector)
+        );
+
+        let mut extra_vector = paints.clone();
+        let mut duplicate = extra_vector[3].clone();
+        duplicate.selected_paint_id = 4;
+        duplicate.paint_ordinal = 4;
+        let SelectedStructurePaintBindingV2::Vector(binding) = &mut duplicate.binding else {
+            unreachable!()
+        };
+        binding.usage_id = 4;
+        extra_vector.insert(4, duplicate);
+        extra_vector[5].selected_paint_id = 5;
+        extra_vector[5].paint_ordinal = 5;
+        assert_eq!(
+            select_structure_bindings_v2(
+                &registry,
+                &authorization,
+                &limits,
+                sha256(b"layout-contract-selected-v2"),
+                4,
+                &pages,
+                &extra_vector,
+                &[],
+            ),
+            Err(SelectedStructureBindingError::InvalidVector)
+        );
+
+        let mutations: [fn(&mut StructureNodeRecord); 4] = [
+            |node: &mut StructureNodeRecord| node.role = StructureRole::Span,
+            |node: &mut StructureNodeRecord| node.alternative = Some("wrong alt".to_owned()),
+            |node: &mut StructureNodeRecord| node.language = "en-US".to_owned(),
+            |node: &mut StructureNodeRecord| node.parent = None,
+        ];
+        for mutate in mutations {
+            let mut tampered = registry.clone();
+            let id = tampered
+                .source_node(NodeId::new(4))
+                .unwrap()
+                .structure_node_id();
+            mutate(&mut tampered.nodes[id.get() as usize]);
+            let error = tampered
+                .verify(&package, &navigation, &semantics, &authorization, &limits)
+                .unwrap_err();
+            assert_eq!(error, StructureRegistryError::ReceiptMismatch);
+            assert!(error.to_string().starts_with("I9190:"));
+        }
+    }
+
+    #[test]
+    fn vector_structure_registry_v2_omits_equation_child_for_null_number() {
+        let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let limits = M4EffectiveResourceLimits::new(base, M4ResourceLimits::default()).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                VECTOR_FIXTURE,
+                &DocumentPackageDecodePolicy::new(limits.base()),
+            )
+            .unwrap();
+        let mut wire = decoded.into_wire();
+        let mut document = wire.document().clone();
+        let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
+            unreachable!()
+        };
+        let WireStagingM4Block::MathVectorBlock {
+            equation_number, ..
+        } = &mut blocks[2]
+        else {
+            unreachable!()
+        };
+        *equation_number = None;
+        wire.replace_typed_regions(document, wire.resources().clone());
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                encoded.as_bytes(),
+                &DocumentPackageDecodePolicy::new(limits.base()),
+            )
+            .unwrap();
+        let package = StagingSemanticPackageParser::new()
+            .parse(decoded, limits.base())
+            .unwrap();
+        let navigation = validate_staging_book_navigation_v2(&package, &limits).unwrap();
+        let semantics =
+            validate_staging_structure_semantics_v2(&package, &navigation, &limits).unwrap();
+        let authorization = StagingAccessibilityProfileAuthorizationV2::bind_profile_receipt(
+            StagingAccessibilityProfileViewV2::new(&package, &navigation, &semantics, &limits)
+                .unwrap(),
+            sha256(b"layout-contract-tagged-profile-v2-null-number"),
+            sha256(b"layout-contract-navigation-profile-v2-null-number"),
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+        )
+        .unwrap();
+        let registry =
+            build_structure_registry_v2(&package, &navigation, &semantics, &authorization, &limits)
+                .unwrap();
+        let formula = registry.source_node(NodeId::new(6)).unwrap();
+        assert_eq!(formula.role(), StructureRole::Formula);
+        assert!(formula.children().is_empty());
+        assert!(registry.source_node(NodeId::new(7)).is_none());
+        assert!(registry
+            .nodes()
+            .iter()
+            .all(|node| node.equation_number_binding_v2().is_none()));
+    }
 }

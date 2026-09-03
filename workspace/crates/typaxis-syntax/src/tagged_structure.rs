@@ -1,13 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use typaxis_core::{push_jcs_string, sha256, NodeId, SourceId, SourceSpan, Utf8ByteOffset};
+use typaxis_core::{
+    push_jcs_string, sha256, M4EffectiveResourceLimits, NodeId, SourceId, SourceSpan, TextSpan,
+    Utf8ByteOffset,
+};
+use typaxis_document::{StagingComputedLanguageChildKindV2, StagingComputedLanguageOwnerKindV2};
 use typaxis_document_package::{
     WireStagingM4Block, WireStagingM4Document, WireStagingM4Inline, WireStagingM4ReferenceFormat,
     WireStagingM4TableRow, WireStagingSourceSpan,
 };
 
 use crate::{
-    BookNavigationSyntaxError, ValidatedStagingBookNavigation, ValidatedStagingSemanticPackage,
+    BookNavigationSyntaxError, PrecomposedVectorKind, ValidatedStagingBookNavigation,
+    ValidatedStagingBookNavigationV2, ValidatedStagingSemanticPackage,
 };
 
 pub const STAGING_STRUCTURE_SEMANTIC_INPUT_ALGORITHM: &str = "typaxis.structure-semantic-input/1";
@@ -15,6 +20,55 @@ pub const STAGING_ACCESSIBILITY_PROFILE_VIEW_ALGORITHM: &str =
     "typaxis.production-accessibility-profile-view/1";
 pub const STAGING_ACCESSIBILITY_AUTHORIZATION_ALGORITHM: &str =
     "typaxis.production-accessibility-authorization/1";
+pub const STAGING_ACCESSIBILITY_AUTHORIZATION_ALGORITHM_V2: &str =
+    "typaxis.production-accessibility-authorization/2";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingStructureLanguageBindingV2 {
+    record_fingerprint: [u8; 32],
+    parent_record_fingerprint: Option<[u8; 32]>,
+}
+
+impl StagingStructureLanguageBindingV2 {
+    pub const fn record_fingerprint(self) -> [u8; 32] {
+        self.record_fingerprint
+    }
+
+    pub const fn parent_record_fingerprint(self) -> Option<[u8; 32]> {
+        self.parent_record_fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingStructureEquationNumberV2 {
+    parent_owner: NodeId,
+    text_span: TextSpan,
+    text_buffer_sha256: [u8; 32],
+    exact_text: String,
+    exact_text_sha256: [u8; 32],
+}
+
+impl StagingStructureEquationNumberV2 {
+    pub const fn parent_owner(&self) -> NodeId {
+        self.parent_owner
+    }
+
+    pub const fn text_span(&self) -> TextSpan {
+        self.text_span
+    }
+
+    pub const fn text_buffer_sha256(&self) -> [u8; 32] {
+        self.text_buffer_sha256
+    }
+
+    pub fn exact_text(&self) -> &str {
+        &self.exact_text
+    }
+
+    pub const fn exact_text_sha256(&self) -> [u8; 32] {
+        self.exact_text_sha256
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StagingStructureTableSection {
@@ -87,6 +141,30 @@ pub enum StagingStructureSemanticKind {
     InlineMath {
         alternative: String,
     },
+    InlineVector {
+        alternative: String,
+        authored_actual_text: Option<String>,
+        metrics_fingerprint: [u8; 32],
+    },
+    MathVector {
+        alternative: String,
+        resolved_actual_text: String,
+        metrics_fingerprint: [u8; 32],
+    },
+    VectorFigure {
+        alternative: String,
+        has_caption: bool,
+        metrics_fingerprint: [u8; 32],
+    },
+    MathVectorBlock {
+        alternative: String,
+        resolved_actual_text: String,
+        metrics_fingerprint: [u8; 32],
+        equation_number_node_id: Option<NodeId>,
+    },
+    EquationNumber {
+        binding: StagingStructureEquationNumberV2,
+    },
     Emphasis,
     Strong,
     Link {
@@ -123,6 +201,11 @@ impl StagingStructureSemanticKind {
             Self::FootnoteDefinition { .. } => "footnote_definition",
             Self::Text { .. } => "text",
             Self::InlineMath { .. } => "inline_math",
+            Self::InlineVector { .. } => "inline_vector",
+            Self::MathVector { .. } => "math_vector",
+            Self::VectorFigure { .. } => "vector_figure",
+            Self::MathVectorBlock { .. } => "math_vector_block",
+            Self::EquationNumber { .. } => "equation_number",
             Self::Emphasis => "emphasis",
             Self::Strong => "strong",
             Self::Link { .. } => "link",
@@ -149,6 +232,7 @@ pub struct StagingStructureSemanticRecord {
     insertion_after_node_id: Option<NodeId>,
     source_span: Option<SourceSpan>,
     language: String,
+    language_binding_v2: Option<StagingStructureLanguageBindingV2>,
     outline_ids: Vec<u32>,
     kind: StagingStructureSemanticKind,
 }
@@ -168,6 +252,9 @@ impl StagingStructureSemanticRecord {
     }
     pub fn language(&self) -> &str {
         &self.language
+    }
+    pub const fn language_binding_v2(&self) -> Option<StagingStructureLanguageBindingV2> {
+        self.language_binding_v2
     }
     pub fn outline_ids(&self) -> &[u32] {
         &self.outline_ids
@@ -231,6 +318,71 @@ impl ValidatedStagingStructureSemantics {
         navigation: &ValidatedStagingBookNavigation,
     ) -> Result<(), StagingStructureSemanticError> {
         let observed = validate_staging_structure_semantics(package, navigation)?;
+        if self != &observed {
+            return Err(StagingStructureSemanticError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
+/// Version-2 semantic closure. The record vocabulary is shared with `/1`, but
+/// only this nominal receipt can contain precomposed-vector and equation-number
+/// records or computed-language record fingerprints.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedStagingStructureSemanticsV2 {
+    package_sha256: [u8; 32],
+    semantic_sha256: [u8; 32],
+    metadata_sha256: [u8; 32],
+    language_sha256: [u8; 32],
+    outline_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    records: Vec<StagingStructureSemanticRecord>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl ValidatedStagingStructureSemanticsV2 {
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn semantic_sha256(&self) -> [u8; 32] {
+        self.semantic_sha256
+    }
+    pub const fn metadata_sha256(&self) -> [u8; 32] {
+        self.metadata_sha256
+    }
+    pub const fn language_sha256(&self) -> [u8; 32] {
+        self.language_sha256
+    }
+    pub const fn outline_sha256(&self) -> [u8; 32] {
+        self.outline_sha256
+    }
+    pub const fn limits_sha256(&self) -> [u8; 32] {
+        self.limits_sha256
+    }
+    pub fn records(&self) -> &[StagingStructureSemanticRecord] {
+        &self.records
+    }
+    pub fn record(&self, node_id: NodeId) -> Option<&StagingStructureSemanticRecord> {
+        self.records
+            .binary_search_by_key(&node_id, StagingStructureSemanticRecord::node_id)
+            .ok()
+            .map(|index| &self.records[index])
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn verify(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StagingStructureSemanticError> {
+        let observed = validate_staging_structure_semantics_v2(package, navigation, limits)?;
         if self != &observed {
             return Err(StagingStructureSemanticError::ReceiptMismatch);
         }
@@ -408,6 +560,156 @@ impl StagingAccessibilityProfileAuthorization {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingAccessibilityProfileViewV2 {
+    package_sha256: [u8; 32],
+    semantic_sha256: [u8; 32],
+    structure_semantics_sha256: [u8; 32],
+    metadata_sha256: [u8; 32],
+    language_sha256: [u8; 32],
+    outline_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingAccessibilityProfileViewV2 {
+    pub fn new(
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        semantics: &ValidatedStagingStructureSemanticsV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, StagingStructureSemanticError> {
+        semantics.verify(package, navigation, limits)?;
+        let mut value = Self {
+            package_sha256: semantics.package_sha256,
+            semantic_sha256: semantics.semantic_sha256,
+            structure_semantics_sha256: semantics.fingerprint,
+            metadata_sha256: semantics.metadata_sha256,
+            language_sha256: semantics.language_sha256,
+            outline_sha256: semantics.outline_sha256,
+            limits_sha256: semantics.limits_sha256,
+            canonical_jcs: String::new(),
+            fingerprint: [0; 32],
+        };
+        value.canonical_jcs = encode_profile_view_v2(&value);
+        value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+        Ok(value)
+    }
+
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+    pub const fn semantic_sha256(&self) -> [u8; 32] {
+        self.semantic_sha256
+    }
+    pub const fn structure_semantics_sha256(&self) -> [u8; 32] {
+        self.structure_semantics_sha256
+    }
+    pub const fn metadata_sha256(&self) -> [u8; 32] {
+        self.metadata_sha256
+    }
+    pub const fn language_sha256(&self) -> [u8; 32] {
+        self.language_sha256
+    }
+    pub const fn outline_sha256(&self) -> [u8; 32] {
+        self.outline_sha256
+    }
+    pub const fn limits_sha256(&self) -> [u8; 32] {
+        self.limits_sha256
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingAccessibilityProfileAuthorizationV2 {
+    view: StagingAccessibilityProfileViewV2,
+    profile_receipt_fingerprint: [u8; 32],
+    book_navigation_profile_fingerprint: [u8; 32],
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingAccessibilityProfileAuthorizationV2 {
+    #[doc(hidden)]
+    pub fn bind_profile_receipt(
+        view: StagingAccessibilityProfileViewV2,
+        profile_receipt_fingerprint: [u8; 32],
+        book_navigation_profile_fingerprint: [u8; 32],
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        semantics: &ValidatedStagingStructureSemanticsV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, StagingStructureSemanticError> {
+        let expected =
+            StagingAccessibilityProfileViewV2::new(package, navigation, semantics, limits)?;
+        if view != expected
+            || profile_receipt_fingerprint == [0; 32]
+            || book_navigation_profile_fingerprint == [0; 32]
+        {
+            return Err(StagingStructureSemanticError::ReceiptMismatch);
+        }
+        let canonical_jcs = encode_authorization_v2(
+            &view,
+            profile_receipt_fingerprint,
+            book_navigation_profile_fingerprint,
+        );
+        Ok(Self {
+            view,
+            profile_receipt_fingerprint,
+            book_navigation_profile_fingerprint,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        })
+    }
+
+    pub const fn view(&self) -> &StagingAccessibilityProfileViewV2 {
+        &self.view
+    }
+    pub const fn profile_receipt_fingerprint(&self) -> [u8; 32] {
+        self.profile_receipt_fingerprint
+    }
+    pub const fn book_navigation_profile_fingerprint(&self) -> [u8; 32] {
+        self.book_navigation_profile_fingerprint
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn authorizes(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        navigation: &ValidatedStagingBookNavigationV2,
+        semantics: &ValidatedStagingStructureSemanticsV2,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StagingStructureSemanticError> {
+        let expected =
+            StagingAccessibilityProfileViewV2::new(package, navigation, semantics, limits)?;
+        let canonical = encode_authorization_v2(
+            &expected,
+            self.profile_receipt_fingerprint,
+            self.book_navigation_profile_fingerprint,
+        );
+        if self.view != expected
+            || self.profile_receipt_fingerprint == [0; 32]
+            || self.book_navigation_profile_fingerprint == [0; 32]
+            || self.canonical_jcs != canonical
+            || self.fingerprint != sha256(canonical.as_bytes())
+        {
+            return Err(StagingStructureSemanticError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 struct FootnoteReferenceSite {
     node_id: NodeId,
@@ -416,8 +718,22 @@ struct FootnoteReferenceSite {
     placement_valid: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StructureSemanticGeneration {
+    V1,
+    V2,
+}
+
+#[derive(Clone, Copy)]
+enum StructureSemanticNavigation<'a> {
+    V1(&'a ValidatedStagingBookNavigation),
+    V2(&'a ValidatedStagingBookNavigationV2),
+}
+
 struct SemanticCollector<'a> {
-    navigation: &'a ValidatedStagingBookNavigation,
+    package: &'a ValidatedStagingSemanticPackage,
+    navigation: StructureSemanticNavigation<'a>,
+    generation: StructureSemanticGeneration,
     text_buffers: BTreeMap<u32, &'a str>,
     footnote_markers: BTreeMap<String, String>,
     records: Vec<StagingStructureSemanticRecord>,
@@ -455,7 +771,9 @@ pub fn validate_staging_structure_semantics(
         return Err(StagingStructureSemanticError::InvalidSemanticTree);
     }
     let mut collector = SemanticCollector {
-        navigation,
+        package,
+        navigation: StructureSemanticNavigation::V1(navigation),
+        generation: StructureSemanticGeneration::V1,
         text_buffers,
         footnote_markers,
         records: Vec::new(),
@@ -522,8 +840,204 @@ pub fn validate_staging_structure_semantics(
     })
 }
 
+pub fn validate_staging_structure_semantics_v2(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<ValidatedStagingStructureSemanticsV2, StagingStructureSemanticError> {
+    if package.limits() != limits.base() {
+        return Err(StagingStructureSemanticError::ReceiptMismatch);
+    }
+    navigation
+        .verify(package, limits)
+        .map_err(map_navigation_error)?;
+    let wire = package
+        .checked_wire()
+        .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
+    let text_buffers = wire
+        .text_buffers()
+        .iter()
+        .map(|buffer| (buffer.text_id, buffer.utf8.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let footnote_markers = wire
+        .document()
+        .footnotes
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| {
+            let ordinal = index
+                .checked_add(1)
+                .ok_or(StagingStructureSemanticError::InvalidSemanticTree)?;
+            Ok((definition.footnote_id.clone(), ordinal.to_string()))
+        })
+        .collect::<Result<BTreeMap<_, _>, StagingStructureSemanticError>>()?;
+    if footnote_markers.len() != wire.document().footnotes.len() {
+        return Err(StagingStructureSemanticError::InvalidSemanticTree);
+    }
+    let mut collector = SemanticCollector {
+        package,
+        navigation: StructureSemanticNavigation::V2(navigation),
+        generation: StructureSemanticGeneration::V2,
+        text_buffers,
+        footnote_markers,
+        records: Vec::new(),
+        footnote_references: BTreeMap::new(),
+    };
+    collector.push_record(
+        wire.document().node_id,
+        None,
+        None,
+        None,
+        navigation.languages().document_language().to_owned(),
+        StagingStructureSemanticKind::Document,
+    )?;
+    collector.blocks(
+        &wire.document().blocks,
+        NodeId::new(wire.document().node_id),
+        navigation.languages().document_language(),
+        true,
+    )?;
+    collector.footnotes(wire.document())?;
+    if collector.records.len()
+        != usize::try_from(
+            collector
+                .records
+                .last()
+                .map_or(0, |value| value.node_id.get().saturating_add(1)),
+        )
+        .map_err(|_| StagingStructureSemanticError::InvalidSemanticTree)?
+    {
+        return Err(StagingStructureSemanticError::InvalidSemanticTree);
+    }
+    let bound_language_records = collector
+        .records
+        .iter()
+        .filter(|record| record.language_binding_v2.is_some())
+        .count();
+    if bound_language_records
+        != navigation
+            .languages()
+            .records()
+            .len()
+            .checked_add(navigation.languages().child_records().len())
+            .ok_or(StagingStructureSemanticError::InvalidSemanticTree)?
+        || collector
+            .records
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.kind,
+                    StagingStructureSemanticKind::InlineVector { .. }
+                        | StagingStructureSemanticKind::MathVector { .. }
+                        | StagingStructureSemanticKind::VectorFigure { .. }
+                        | StagingStructureSemanticKind::MathVectorBlock { .. }
+                )
+            })
+            .count()
+            != package.precomposed_vector_metrics().len()
+    {
+        return Err(StagingStructureSemanticError::NavigationMismatch);
+    }
+    let outline_by_owner = navigation.outline().entries().iter().fold(
+        BTreeMap::<NodeId, Vec<u32>>::new(),
+        |mut output, entry| {
+            output
+                .entry(entry.source.node_id)
+                .or_default()
+                .push(entry.outline_id);
+            output
+        },
+    );
+    for record in &mut collector.records {
+        record.outline_ids = outline_by_owner
+            .get(&record.node_id)
+            .cloned()
+            .unwrap_or_default();
+    }
+    let canonical_jcs = encode_semantics_v2(
+        package,
+        navigation,
+        &collector.records,
+        limits.fingerprint(),
+    );
+    Ok(ValidatedStagingStructureSemanticsV2 {
+        package_sha256: package.canonical_jcs_sha256(),
+        semantic_sha256: package.semantic_fingerprint(),
+        metadata_sha256: navigation.metadata().fingerprint(),
+        language_sha256: navigation.languages().fingerprint(),
+        outline_sha256: navigation.outline().fingerprint(),
+        limits_sha256: limits.fingerprint(),
+        records: collector.records,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
 fn map_navigation_error(_: BookNavigationSyntaxError) -> StagingStructureSemanticError {
     StagingStructureSemanticError::NavigationMismatch
+}
+
+fn semantic_language_owner_kind_v2(
+    kind: &StagingStructureSemanticKind,
+) -> Option<StagingComputedLanguageOwnerKindV2> {
+    Some(match kind {
+        StagingStructureSemanticKind::Document => StagingComputedLanguageOwnerKindV2::Document,
+        StagingStructureSemanticKind::SemanticContainer { .. } => {
+            StagingComputedLanguageOwnerKindV2::SemanticContainer
+        }
+        StagingStructureSemanticKind::Paragraph { .. } => {
+            StagingComputedLanguageOwnerKindV2::Paragraph
+        }
+        StagingStructureSemanticKind::Heading { .. } => StagingComputedLanguageOwnerKindV2::Heading,
+        StagingStructureSemanticKind::List { .. } => StagingComputedLanguageOwnerKindV2::List,
+        StagingStructureSemanticKind::ListItem { .. } => {
+            StagingComputedLanguageOwnerKindV2::ListItem
+        }
+        StagingStructureSemanticKind::Table { .. } => StagingComputedLanguageOwnerKindV2::Table,
+        StagingStructureSemanticKind::TableRow { .. } => {
+            StagingComputedLanguageOwnerKindV2::TableRow
+        }
+        StagingStructureSemanticKind::TableCell { .. } => {
+            StagingComputedLanguageOwnerKindV2::TableCell
+        }
+        StagingStructureSemanticKind::Figure { .. } => StagingComputedLanguageOwnerKindV2::Figure,
+        StagingStructureSemanticKind::DisplayMath { .. } => {
+            StagingComputedLanguageOwnerKindV2::DisplayMath
+        }
+        StagingStructureSemanticKind::FootnoteDefinition { .. } => {
+            StagingComputedLanguageOwnerKindV2::FootnoteDefinition
+        }
+        StagingStructureSemanticKind::Text { .. } => StagingComputedLanguageOwnerKindV2::Text,
+        StagingStructureSemanticKind::InlineMath { .. } => {
+            StagingComputedLanguageOwnerKindV2::InlineMath
+        }
+        StagingStructureSemanticKind::InlineVector { .. } => {
+            StagingComputedLanguageOwnerKindV2::InlineVector
+        }
+        StagingStructureSemanticKind::MathVector { .. } => {
+            StagingComputedLanguageOwnerKindV2::MathVector
+        }
+        StagingStructureSemanticKind::VectorFigure { .. } => {
+            StagingComputedLanguageOwnerKindV2::VectorFigure
+        }
+        StagingStructureSemanticKind::MathVectorBlock { .. } => {
+            StagingComputedLanguageOwnerKindV2::MathVectorBlock
+        }
+        StagingStructureSemanticKind::Emphasis => StagingComputedLanguageOwnerKindV2::Emphasis,
+        StagingStructureSemanticKind::Strong => StagingComputedLanguageOwnerKindV2::Strong,
+        StagingStructureSemanticKind::Link { .. } => StagingComputedLanguageOwnerKindV2::Link,
+        StagingStructureSemanticKind::Reference { .. } => {
+            StagingComputedLanguageOwnerKindV2::Reference
+        }
+        StagingStructureSemanticKind::FootnoteReference { .. } => {
+            StagingComputedLanguageOwnerKindV2::FootnoteReference
+        }
+        StagingStructureSemanticKind::EquationNumber { .. }
+        | StagingStructureSemanticKind::PageBreak
+        | StagingStructureSemanticKind::Anchor
+        | StagingStructureSemanticKind::SoftBreak
+        | StagingStructureSemanticKind::HardBreak => return None,
+    })
 }
 
 impl SemanticCollector<'_> {
@@ -540,6 +1054,8 @@ impl SemanticCollector<'_> {
             return Err(StagingStructureSemanticError::InvalidSemanticTree);
         }
         let source_span = raw_span.map(lower_span).transpose()?;
+        let language_binding_v2 =
+            self.language_binding_v2(raw_node_id, parent_node_id, source_span, &language, &kind)?;
         self.records
             .try_reserve(1)
             .map_err(|_| StagingStructureSemanticError::AllocationFailure)?;
@@ -549,6 +1065,7 @@ impl SemanticCollector<'_> {
             insertion_after_node_id,
             source_span,
             language,
+            language_binding_v2,
             outline_ids: Vec::new(),
             kind,
         });
@@ -560,14 +1077,92 @@ impl SemanticCollector<'_> {
         raw_node_id: u32,
         inherited: &str,
     ) -> Result<String, StagingStructureSemanticError> {
-        Ok(self
-            .navigation
+        Ok(match self.navigation {
+            StructureSemanticNavigation::V1(navigation) => navigation
+                .languages()
+                .record(NodeId::new(raw_node_id))
+                .map_or_else(
+                    || inherited.to_owned(),
+                    |record| record.effective_language.to_string(),
+                ),
+            StructureSemanticNavigation::V2(navigation) => navigation
+                .languages()
+                .record(NodeId::new(raw_node_id))
+                .map_or_else(
+                    || inherited.to_owned(),
+                    |record| record.effective_language.to_string(),
+                ),
+        })
+    }
+
+    fn vector_semantic(
+        &self,
+        owner: NodeId,
+        expected_kind: PrecomposedVectorKind,
+    ) -> Result<(String, [u8; 32]), StagingStructureSemanticError> {
+        let metrics = self
+            .package
+            .precomposed_vector_metrics_for(owner)
+            .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
+        self.package
+            .verify_precomposed_vector_metrics(metrics)
+            .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
+        if metrics.kind() != expected_kind {
+            return Err(StagingStructureSemanticError::ReceiptMismatch);
+        }
+        Ok((
+            metrics.alternative().alternative().to_owned(),
+            metrics.fingerprint(),
+        ))
+    }
+
+    fn language_binding_v2(
+        &self,
+        raw_node_id: u32,
+        parent_node_id: Option<NodeId>,
+        source_span: Option<SourceSpan>,
+        language: &str,
+        kind: &StagingStructureSemanticKind,
+    ) -> Result<Option<StagingStructureLanguageBindingV2>, StagingStructureSemanticError> {
+        let StructureSemanticNavigation::V2(navigation) = self.navigation else {
+            return Ok(None);
+        };
+        if let StagingStructureSemanticKind::EquationNumber { binding } = kind {
+            let record = navigation
+                .languages()
+                .child_record(NodeId::new(raw_node_id))
+                .ok_or(StagingStructureSemanticError::NavigationMismatch)?;
+            if record.child_kind != StagingComputedLanguageChildKindV2::EquationNumber
+                || record.parent_owner_node_id != binding.parent_owner
+                || parent_node_id != Some(binding.parent_owner)
+                || source_span != Some(record.source_span)
+                || record.effective_language.as_ref() != language
+            {
+                return Err(StagingStructureSemanticError::NavigationMismatch);
+            }
+            return Ok(Some(StagingStructureLanguageBindingV2 {
+                record_fingerprint: record.record_fingerprint,
+                parent_record_fingerprint: Some(record.parent_language_record_fingerprint),
+            }));
+        }
+        let Some(expected_kind) = semantic_language_owner_kind_v2(kind) else {
+            return Ok(None);
+        };
+        let record = navigation
             .languages()
             .record(NodeId::new(raw_node_id))
-            .map_or_else(
-                || inherited.to_owned(),
-                |record| record.effective_language.to_string(),
-            ))
+            .ok_or(StagingStructureSemanticError::NavigationMismatch)?;
+        if record.node_kind != expected_kind
+            || record.logical_parent_node_id != parent_node_id
+            || record.source_span != source_span
+            || record.effective_language.as_ref() != language
+        {
+            return Err(StagingStructureSemanticError::NavigationMismatch);
+        }
+        Ok(Some(StagingStructureLanguageBindingV2 {
+            record_fingerprint: record.record_fingerprint,
+            parent_record_fingerprint: None,
+        }))
     }
 
     fn blocks(
@@ -595,6 +1190,7 @@ impl SemanticCollector<'_> {
                                 children,
                                 &self.text_buffers,
                                 &self.footnote_markers,
+                                self.generation,
                             )?),
                         },
                     )?;
@@ -622,6 +1218,7 @@ impl SemanticCollector<'_> {
                                 children,
                                 &self.text_buffers,
                                 &self.footnote_markers,
+                                self.generation,
                             )?),
                         },
                     )?;
@@ -760,11 +1357,97 @@ impl SemanticCollector<'_> {
                         },
                     )?;
                 }
-                WireStagingM4Block::VectorFigure { .. }
-                | WireStagingM4Block::MathVectorBlock { .. } => {
-                    return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
-                        node,
-                    ));
+                WireStagingM4Block::VectorFigure { caption, .. } => {
+                    if self.generation == StructureSemanticGeneration::V1 {
+                        return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                            node,
+                        ));
+                    }
+                    let (alternative, metrics_fingerprint) =
+                        self.vector_semantic(node, PrecomposedVectorKind::VectorFigure)?;
+                    self.push_record(
+                        node_id,
+                        Some(parent),
+                        None,
+                        span,
+                        language.clone(),
+                        StagingStructureSemanticKind::VectorFigure {
+                            alternative,
+                            has_caption: !caption.is_empty(),
+                            metrics_fingerprint,
+                        },
+                    )?;
+                    self.blocks(caption, node, &language, footnote_reference_placement_valid)?;
+                }
+                WireStagingM4Block::MathVectorBlock { .. } => {
+                    if self.generation == StructureSemanticGeneration::V1 {
+                        return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                            node,
+                        ));
+                    }
+                    let metrics = self
+                        .package
+                        .precomposed_vector_metrics_for(node)
+                        .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
+                    self.package
+                        .verify_precomposed_vector_metrics(metrics)
+                        .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
+                    if metrics.kind() != PrecomposedVectorKind::MathVectorBlock {
+                        return Err(StagingStructureSemanticError::ReceiptMismatch);
+                    }
+                    let alternative = metrics.alternative().alternative().to_owned();
+                    let resolved_actual_text = metrics
+                        .alternative()
+                        .resolved_actual_text()
+                        .ok_or(StagingStructureSemanticError::ReceiptMismatch)?
+                        .to_owned();
+                    let metrics_fingerprint = metrics.fingerprint();
+                    let equation_number_node_id =
+                        metrics.equation_number().map(|number| number.node_id());
+                    self.push_record(
+                        node_id,
+                        Some(parent),
+                        None,
+                        span,
+                        language.clone(),
+                        StagingStructureSemanticKind::MathVectorBlock {
+                            alternative,
+                            resolved_actual_text,
+                            metrics_fingerprint,
+                            equation_number_node_id,
+                        },
+                    )?;
+                    if let Some(number) = metrics.equation_number() {
+                        let exact_text = text_span_value(
+                            typaxis_document_package::WireStagingTextSpan {
+                                text_id: number.text().text_span().text_id().get(),
+                                start_byte: number.text().text_span().start_byte().get(),
+                                end_byte: number.text().text_span().end_byte().get(),
+                            },
+                            &self.text_buffers,
+                        )?
+                        .to_owned();
+                        self.push_record(
+                            number.node_id().get(),
+                            Some(node),
+                            None,
+                            Some(WireStagingSourceSpan {
+                                source_id: number.span().source_id().get(),
+                                start_byte: number.span().start_byte().get(),
+                                end_byte: number.span().end_byte().get(),
+                            }),
+                            language,
+                            StagingStructureSemanticKind::EquationNumber {
+                                binding: StagingStructureEquationNumberV2 {
+                                    parent_owner: node,
+                                    text_span: number.text().text_span(),
+                                    text_buffer_sha256: number.text().text_buffer_sha256(),
+                                    exact_text_sha256: number.text().exact_text_sha256(),
+                                    exact_text,
+                                },
+                            },
+                        )?;
+                    }
                 }
                 WireStagingM4Block::SemanticContainer {
                     semantic_kind,
@@ -851,6 +1534,7 @@ impl SemanticCollector<'_> {
                             &cell.blocks,
                             &self.text_buffers,
                             &self.footnote_markers,
+                            self.generation,
                         )?,
                     },
                 )?;
@@ -925,10 +1609,70 @@ impl SemanticCollector<'_> {
                     alternative: speech.clone(),
                 },
             ),
-            WireStagingM4Inline::InlineVector { .. } | WireStagingM4Inline::MathVector { .. } => {
-                Err(StagingStructureSemanticError::PrecomposedVectorStaging(
-                    node,
-                ))
+            WireStagingM4Inline::InlineVector { .. } => {
+                if self.generation == StructureSemanticGeneration::V1 {
+                    return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                        node,
+                    ));
+                }
+                let metrics = self
+                    .package
+                    .precomposed_vector_metrics_for(node)
+                    .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
+                self.package
+                    .verify_precomposed_vector_metrics(metrics)
+                    .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
+                if metrics.kind() != PrecomposedVectorKind::InlineVector {
+                    return Err(StagingStructureSemanticError::ReceiptMismatch);
+                }
+                self.push_record(
+                    raw_node_id,
+                    Some(parent),
+                    None,
+                    span,
+                    language,
+                    StagingStructureSemanticKind::InlineVector {
+                        alternative: metrics.alternative().alternative().to_owned(),
+                        authored_actual_text: metrics
+                            .alternative()
+                            .authored_actual_text()
+                            .map(str::to_owned),
+                        metrics_fingerprint: metrics.fingerprint(),
+                    },
+                )
+            }
+            WireStagingM4Inline::MathVector { .. } => {
+                if self.generation == StructureSemanticGeneration::V1 {
+                    return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                        node,
+                    ));
+                }
+                let metrics = self
+                    .package
+                    .precomposed_vector_metrics_for(node)
+                    .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
+                self.package
+                    .verify_precomposed_vector_metrics(metrics)
+                    .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
+                if metrics.kind() != PrecomposedVectorKind::MathVector {
+                    return Err(StagingStructureSemanticError::ReceiptMismatch);
+                }
+                self.push_record(
+                    raw_node_id,
+                    Some(parent),
+                    None,
+                    span,
+                    language,
+                    StagingStructureSemanticKind::MathVector {
+                        alternative: metrics.alternative().alternative().to_owned(),
+                        resolved_actual_text: metrics
+                            .alternative()
+                            .resolved_actual_text()
+                            .ok_or(StagingStructureSemanticError::ReceiptMismatch)?
+                            .to_owned(),
+                        metrics_fingerprint: metrics.fingerprint(),
+                    },
+                )
             }
             WireStagingM4Inline::Emphasis { children, .. }
             | WireStagingM4Inline::Strong { children, .. } => {
@@ -959,8 +1703,12 @@ impl SemanticCollector<'_> {
                 Ok(())
             }
             WireStagingM4Inline::Link { children, .. } => {
-                let accessible_name =
-                    inline_text(children, &self.text_buffers, &self.footnote_markers)?;
+                let accessible_name = inline_text(
+                    children,
+                    &self.text_buffers,
+                    &self.footnote_markers,
+                    self.generation,
+                )?;
                 self.push_record(
                     raw_node_id,
                     Some(parent),
@@ -1168,6 +1916,7 @@ fn inline_text(
     values: &[WireStagingM4Inline],
     buffers: &BTreeMap<u32, &str>,
     footnote_markers: &BTreeMap<String, String>,
+    generation: StructureSemanticGeneration,
 ) -> Result<String, StagingStructureSemanticError> {
     let mut output = String::new();
     for value in values {
@@ -1176,16 +1925,24 @@ fn inline_text(
                 output.push_str(text_span_value(*text_span, buffers)?);
             }
             WireStagingM4Inline::InlineMath { speech, .. } => output.push_str(speech),
-            WireStagingM4Inline::InlineVector { node_id, .. }
-            | WireStagingM4Inline::MathVector { node_id, .. } => {
-                return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
-                    NodeId::new(*node_id),
-                ));
-            }
+            WireStagingM4Inline::InlineVector { node_id, alt, .. }
+            | WireStagingM4Inline::MathVector { node_id, alt, .. } => match generation {
+                StructureSemanticGeneration::V1 => {
+                    return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                        NodeId::new(*node_id),
+                    ));
+                }
+                StructureSemanticGeneration::V2 => output.push_str(alt),
+            },
             WireStagingM4Inline::Emphasis { children, .. }
             | WireStagingM4Inline::Strong { children, .. }
             | WireStagingM4Inline::Link { children, .. } => {
-                output.push_str(&inline_text(children, buffers, footnote_markers)?);
+                output.push_str(&inline_text(
+                    children,
+                    buffers,
+                    footnote_markers,
+                    generation,
+                )?);
             }
             WireStagingM4Inline::Reference { target, format, .. } => {
                 output.push_str(&reference_label(target, *format));
@@ -1210,39 +1967,49 @@ fn blocks_have_content(
     values: &[WireStagingM4Block],
     buffers: &BTreeMap<u32, &str>,
     footnote_markers: &BTreeMap<String, String>,
+    generation: StructureSemanticGeneration,
 ) -> Result<bool, StagingStructureSemanticError> {
     for value in values {
         let has_content = match value {
             WireStagingM4Block::Paragraph { children, .. }
-            | WireStagingM4Block::Heading { children, .. } => {
-                has_non_whitespace(&inline_text(children, buffers, footnote_markers)?)
-            }
+            | WireStagingM4Block::Heading { children, .. } => has_non_whitespace(&inline_text(
+                children,
+                buffers,
+                footnote_markers,
+                generation,
+            )?),
             WireStagingM4Block::List { items, .. } => {
                 let mut found = false;
                 for item in items {
-                    found |= blocks_have_content(&item.blocks, buffers, footnote_markers)?;
+                    found |=
+                        blocks_have_content(&item.blocks, buffers, footnote_markers, generation)?;
                 }
                 found
             }
             WireStagingM4Block::Table { head, body, .. } => {
                 let mut found = false;
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
-                    found |= blocks_have_content(&cell.blocks, buffers, footnote_markers)?;
+                    found |=
+                        blocks_have_content(&cell.blocks, buffers, footnote_markers, generation)?;
                 }
                 found
             }
             WireStagingM4Block::Figure { alt, caption, .. } => {
-                has_non_whitespace(alt) || blocks_have_content(caption, buffers, footnote_markers)?
+                has_non_whitespace(alt)
+                    || blocks_have_content(caption, buffers, footnote_markers, generation)?
             }
             WireStagingM4Block::DisplayMath { speech, .. } => has_non_whitespace(speech),
             WireStagingM4Block::VectorFigure { node_id, .. }
-            | WireStagingM4Block::MathVectorBlock { node_id, .. } => {
-                return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
-                    NodeId::new(*node_id),
-                ));
-            }
+            | WireStagingM4Block::MathVectorBlock { node_id, .. } => match generation {
+                StructureSemanticGeneration::V1 => {
+                    return Err(StagingStructureSemanticError::PrecomposedVectorStaging(
+                        NodeId::new(*node_id),
+                    ));
+                }
+                StructureSemanticGeneration::V2 => true,
+            },
             WireStagingM4Block::SemanticContainer { blocks, .. } => {
-                blocks_have_content(blocks, buffers, footnote_markers)?
+                blocks_have_content(blocks, buffers, footnote_markers, generation)?
             }
             WireStagingM4Block::PageBreak { .. } => false,
         };
@@ -1352,6 +2119,39 @@ fn encode_semantics(
     output
 }
 
+fn encode_semantics_v2(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    records: &[StagingStructureSemanticRecord],
+    limits_sha256: [u8; 32],
+) -> String {
+    let mut output = String::from("{\"language_sha256\":");
+    push_hash(&mut output, navigation.languages().fingerprint());
+    output.push_str(",\"limits_sha256\":");
+    push_hash(&mut output, limits_sha256);
+    output.push_str(",\"metadata_sha256\":");
+    push_hash(&mut output, navigation.metadata().fingerprint());
+    output.push_str(",\"outline_sha256\":");
+    push_hash(&mut output, navigation.outline().fingerprint());
+    output.push_str(",\"package_sha256\":");
+    push_hash(&mut output, package.canonical_jcs_sha256());
+    output.push_str(",\"records\":[");
+    for (index, record) in records.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        encode_record_v2(&mut output, record);
+    }
+    output.push_str("],\"semantic_sha256\":");
+    push_hash(&mut output, package.semantic_fingerprint());
+    output.push_str(",\"structure_registry_algorithm\":");
+    // This is an internal projection of the adopted structure-registry `/2`
+    // identity, not an independently versioned cross-crate algorithm.
+    push_jcs_string(&mut output, "typaxis.structure-registry/2");
+    output.push('}');
+    output
+}
+
 fn encode_record(output: &mut String, record: &StagingStructureSemanticRecord) {
     output.push_str("{\"insertion_after_node_id\":");
     push_optional_node(output, record.insertion_after_node_id);
@@ -1381,6 +2181,45 @@ fn encode_record(output: &mut String, record: &StagingStructureSemanticRecord) {
         output.push_str(",\"start_byte\":");
         output.push_str(&span.start_byte().get().to_string());
         output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push('}');
+}
+
+fn encode_record_v2(output: &mut String, record: &StagingStructureSemanticRecord) {
+    output.push_str("{\"insertion_after_node_id\":");
+    push_optional_node(output, record.insertion_after_node_id);
+    output.push_str(",\"kind\":");
+    push_jcs_string(output, record.kind.as_str());
+    output.push_str(",\"language\":");
+    push_jcs_string(output, &record.language);
+    output.push_str(",\"language_binding\":");
+    if let Some(binding) = record.language_binding_v2 {
+        output.push_str("{\"parent_record_fingerprint\":");
+        push_optional_hash(output, binding.parent_record_fingerprint);
+        output.push_str(",\"record_fingerprint\":");
+        push_hash(output, binding.record_fingerprint);
+        output.push('}');
+    } else {
+        output.push_str("null");
+    }
+    output.push_str(",\"node_id\":");
+    output.push_str(&record.node_id.get().to_string());
+    output.push_str(",\"outline_ids\":[");
+    for (index, outline_id) in record.outline_ids.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str(&outline_id.to_string());
+    }
+    output.push_str("],\"parent_node_id\":");
+    push_optional_node(output, record.parent_node_id);
+    output.push_str(",\"properties\":");
+    encode_kind_properties(output, &record.kind);
+    output.push_str(",\"source_span\":");
+    if let Some(span) = record.source_span {
+        push_source_span(output, span);
     } else {
         output.push_str("null");
     }
@@ -1493,6 +2332,72 @@ fn encode_kind_properties(output: &mut String, kind: &StagingStructureSemanticKi
             push_jcs_string(output, alternative);
             output.push('}');
         }
+        StagingStructureSemanticKind::InlineVector {
+            alternative,
+            authored_actual_text,
+            metrics_fingerprint,
+        } => {
+            output.push_str("{\"alternative\":");
+            push_jcs_string(output, alternative);
+            output.push_str(",\"authored_actual_text\":");
+            push_optional_string(output, authored_actual_text.as_deref());
+            output.push_str(",\"metrics_fingerprint\":");
+            push_hash(output, *metrics_fingerprint);
+            output.push('}');
+        }
+        StagingStructureSemanticKind::MathVector {
+            alternative,
+            resolved_actual_text,
+            metrics_fingerprint,
+        } => {
+            encode_math_vector_properties(
+                output,
+                alternative,
+                resolved_actual_text,
+                *metrics_fingerprint,
+                None,
+            );
+        }
+        StagingStructureSemanticKind::VectorFigure {
+            alternative,
+            has_caption,
+            metrics_fingerprint,
+        } => {
+            output.push_str("{\"alternative\":");
+            push_jcs_string(output, alternative);
+            output.push_str(",\"has_caption\":");
+            output.push_str(if *has_caption { "true" } else { "false" });
+            output.push_str(",\"metrics_fingerprint\":");
+            push_hash(output, *metrics_fingerprint);
+            output.push('}');
+        }
+        StagingStructureSemanticKind::MathVectorBlock {
+            alternative,
+            resolved_actual_text,
+            metrics_fingerprint,
+            equation_number_node_id,
+        } => {
+            encode_math_vector_properties(
+                output,
+                alternative,
+                resolved_actual_text,
+                *metrics_fingerprint,
+                Some(*equation_number_node_id),
+            );
+        }
+        StagingStructureSemanticKind::EquationNumber { binding } => {
+            output.push_str("{\"exact_text\":");
+            push_jcs_string(output, binding.exact_text());
+            output.push_str(",\"exact_text_sha256\":");
+            push_hash(output, binding.exact_text_sha256());
+            output.push_str(",\"parent_owner\":");
+            output.push_str(&binding.parent_owner().get().to_string());
+            output.push_str(",\"text_buffer_sha256\":");
+            push_hash(output, binding.text_buffer_sha256());
+            output.push_str(",\"text_span\":");
+            push_text_span(output, binding.text_span());
+            output.push('}');
+        }
         StagingStructureSemanticKind::FootnoteDefinition {
             footnote_id,
             marker,
@@ -1545,6 +2450,26 @@ fn encode_kind_properties(output: &mut String, kind: &StagingStructureSemanticKi
     }
 }
 
+fn encode_math_vector_properties(
+    output: &mut String,
+    alternative: &str,
+    resolved_actual_text: &str,
+    metrics_fingerprint: [u8; 32],
+    equation_number_node_id: Option<Option<NodeId>>,
+) {
+    output.push_str("{\"alternative\":");
+    push_jcs_string(output, alternative);
+    if let Some(node_id) = equation_number_node_id {
+        output.push_str(",\"equation_number_node_id\":");
+        push_optional_node(output, node_id);
+    }
+    output.push_str(",\"metrics_fingerprint\":");
+    push_hash(output, metrics_fingerprint);
+    output.push_str(",\"resolved_actual_text\":");
+    push_jcs_string(output, resolved_actual_text);
+    output.push('}');
+}
+
 fn encode_profile_view(value: &StagingAccessibilityProfileView) -> String {
     let mut output = String::from("{\"algorithm\":");
     push_jcs_string(&mut output, STAGING_ACCESSIBILITY_PROFILE_VIEW_ALGORITHM);
@@ -1558,6 +2483,29 @@ fn encode_profile_view(value: &StagingAccessibilityProfileView) -> String {
     push_hash(&mut output, value.outline_sha256);
     output.push_str(",\"package_sha256\":");
     push_hash(&mut output, value.package_sha256);
+    output.push_str(",\"semantic_sha256\":");
+    push_hash(&mut output, value.semantic_sha256);
+    output.push_str(",\"structure_semantics_sha256\":");
+    push_hash(&mut output, value.structure_semantics_sha256);
+    output.push('}');
+    output
+}
+
+fn encode_profile_view_v2(value: &StagingAccessibilityProfileViewV2) -> String {
+    let mut output = String::from("{\"language_sha256\":");
+    push_hash(&mut output, value.language_sha256);
+    output.push_str(",\"limits_sha256\":");
+    push_hash(&mut output, value.limits_sha256);
+    output.push_str(",\"metadata_sha256\":");
+    push_hash(&mut output, value.metadata_sha256);
+    output.push_str(",\"outline_sha256\":");
+    push_hash(&mut output, value.outline_sha256);
+    output.push_str(",\"package_sha256\":");
+    push_hash(&mut output, value.package_sha256);
+    output.push_str(",\"production_accessibility_preflight_algorithm\":");
+    // The view is a component projection of the adopted accessibility
+    // preflight `/2` identity and does not introduce a sibling identity.
+    push_jcs_string(&mut output, "typaxis.production-accessibility-preflight/2");
     output.push_str(",\"semantic_sha256\":");
     push_hash(&mut output, value.semantic_sha256);
     output.push_str(",\"structure_semantics_sha256\":");
@@ -1580,12 +2528,68 @@ fn encode_authorization(
     output
 }
 
+fn encode_authorization_v2(
+    view: &StagingAccessibilityProfileViewV2,
+    profile_receipt_fingerprint: [u8; 32],
+    book_navigation_profile_fingerprint: [u8; 32],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(
+        &mut output,
+        STAGING_ACCESSIBILITY_AUTHORIZATION_ALGORITHM_V2,
+    );
+    output.push_str(",\"book_navigation_profile_sha256\":");
+    push_hash(&mut output, book_navigation_profile_fingerprint);
+    output.push_str(",\"profile_receipt_sha256\":");
+    push_hash(&mut output, profile_receipt_fingerprint);
+    output.push_str(",\"profile_view_sha256\":");
+    push_hash(&mut output, view.fingerprint());
+    output.push('}');
+    output
+}
+
 fn push_optional_node(output: &mut String, value: Option<NodeId>) {
     if let Some(value) = value {
         output.push_str(&value.get().to_string());
     } else {
         output.push_str("null");
     }
+}
+
+fn push_optional_string(output: &mut String, value: Option<&str>) {
+    if let Some(value) = value {
+        push_jcs_string(output, value);
+    } else {
+        output.push_str("null");
+    }
+}
+
+fn push_optional_hash(output: &mut String, value: Option<[u8; 32]>) {
+    if let Some(value) = value {
+        push_hash(output, value);
+    } else {
+        output.push_str("null");
+    }
+}
+
+fn push_source_span(output: &mut String, value: SourceSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"source_id\":");
+    output.push_str(&value.source_id().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push('}');
+}
+
+fn push_text_span(output: &mut String, value: TextSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push_str(",\"text_id\":");
+    output.push_str(&value.text_id().get().to_string());
+    output.push('}');
 }
 
 fn push_hash(output: &mut String, value: [u8; 32]) {

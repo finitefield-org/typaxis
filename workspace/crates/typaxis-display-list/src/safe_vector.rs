@@ -9,6 +9,115 @@ use typaxis_syntax::{
 
 pub const STAGING_DRAW_VECTOR_ALGORITHM: &str = "typaxis.draw-vector-display/1";
 
+/// Type-level proof that structure properties are owned by page-level
+/// DrawVector usages. Reusable Form streams are downstream of this boundary
+/// and receive no MCID, Alt, ActualText, or Lang occurrence from Display.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VectorFormStructureIsolationReceiptV2 {
+    vector_display_sha256: [u8; 32],
+    form_count: u32,
+    page_do_usage_count: u32,
+    form_mcid_count: u32,
+    form_structure_property_count: u32,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl VectorFormStructureIsolationReceiptV2 {
+    pub const fn vector_display_sha256(&self) -> [u8; 32] {
+        self.vector_display_sha256
+    }
+    pub const fn form_count(&self) -> u32 {
+        self.form_count
+    }
+    pub const fn page_do_usage_count(&self) -> u32 {
+        self.page_do_usage_count
+    }
+    pub const fn form_mcid_count(&self) -> u32 {
+        self.form_mcid_count
+    }
+    pub const fn form_structure_property_count(&self) -> u32 {
+        self.form_structure_property_count
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub fn verify(
+        &self,
+        display: &crate::StagingPrecomposedVectorDisplay,
+    ) -> Result<(), StagingSafeVectorDisplayError> {
+        display
+            .verify_resource_closure()
+            .map_err(|_| StagingSafeVectorDisplayError::ReceiptMismatch)?;
+        let canonical = encode_form_structure_isolation_v2(
+            display.receipt().fingerprint(),
+            display.receipt().content_key_count(),
+            display.receipt().command_count(),
+        );
+        if self.vector_display_sha256 != display.receipt().fingerprint()
+            || self.form_count != display.receipt().content_key_count()
+            || self.page_do_usage_count != display.receipt().command_count()
+            || self.form_mcid_count != 0
+            || self.form_structure_property_count != 0
+            || self.canonical_jcs != canonical
+            || self.fingerprint != sha256(canonical.as_bytes())
+        {
+            return Err(StagingSafeVectorDisplayError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
+pub fn prove_vector_form_structure_isolation_v2(
+    display: &crate::StagingPrecomposedVectorDisplay,
+) -> Result<VectorFormStructureIsolationReceiptV2, StagingSafeVectorDisplayError> {
+    display
+        .verify_resource_closure()
+        .map_err(|_| StagingSafeVectorDisplayError::ReceiptMismatch)?;
+    let canonical_jcs = encode_form_structure_isolation_v2(
+        display.receipt().fingerprint(),
+        display.receipt().content_key_count(),
+        display.receipt().command_count(),
+    );
+    let receipt = VectorFormStructureIsolationReceiptV2 {
+        vector_display_sha256: display.receipt().fingerprint(),
+        form_count: display.receipt().content_key_count(),
+        page_do_usage_count: display.receipt().command_count(),
+        form_mcid_count: 0,
+        form_structure_property_count: 0,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    };
+    receipt.verify(display)?;
+    Ok(receipt)
+}
+
+fn encode_form_structure_isolation_v2(
+    vector_display_sha256: [u8; 32],
+    form_count: u32,
+    page_do_usage_count: u32,
+) -> String {
+    let mut output = String::from("{\"form_count\":");
+    output.push_str(&form_count.to_string());
+    output.push_str(
+        ",\"form_mcid_count\":0,\"form_structure_property_count\":0,\"marked_content_plan_algorithm\":",
+    );
+    push_jcs_string(
+        &mut output,
+        crate::tagged_structure::MARKED_CONTENT_PLAN_ALGORITHM_V2,
+    );
+    output.push_str(",\"page_do_usage_count\":");
+    output.push_str(&page_do_usage_count.to_string());
+    output.push_str(",\"vector_display_sha256\":");
+    push_hash(&mut output, vector_display_sha256);
+    output.push('}');
+    output
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingDrawVector {
     occurrence: u32,
@@ -514,5 +623,25 @@ mod tests {
             .receipt()
             .canonical_jcs()
             .contains("\"selected_layout_fingerprint\""));
+    }
+
+    #[test]
+    fn vector_marked_content_v2_rejects_form_structure_injection() {
+        let fixture = crate::staging_precomposed_vector_display_fixture().unwrap();
+        let receipt = prove_vector_form_structure_isolation_v2(&fixture.display).unwrap();
+        assert_eq!(receipt.form_count(), 1);
+        assert_eq!(receipt.page_do_usage_count(), 4);
+
+        let mut mcid_injection = receipt.clone();
+        mcid_injection.form_mcid_count = 1;
+        let error = mcid_injection.verify(&fixture.display).unwrap_err();
+        assert_eq!(error, StagingSafeVectorDisplayError::ReceiptMismatch);
+        assert!(error.to_string().starts_with("I9190:"));
+
+        let mut property_injection = receipt;
+        property_injection.form_structure_property_count = 1;
+        let error = property_injection.verify(&fixture.display).unwrap_err();
+        assert_eq!(error, StagingSafeVectorDisplayError::ReceiptMismatch);
+        assert!(error.to_string().starts_with("I9190:"));
     }
 }

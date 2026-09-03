@@ -1006,7 +1006,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V15 Formula/Figure structure registryとmarked-content plan `/2`を実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V12, MI4-V14, MI4-09
 - Design inputs: docs/27 §3、§10、§15.3〜15.4
 - Primary files:
@@ -1042,6 +1042,16 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list vector_marked_content_v2 --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile accessibility_profile_v2 --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-04, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V15 change set containing this completion record.
+  - syntaxとmachine-profileへversion-2 structure-semantic/profile-view projectionと、採択済みauthorization/accessibility-preflight `/2`を追加した。前二者は独立identityを作らず、それぞれ`typaxis.structure-registry/2`と`typaxis.production-accessibility-preflight/2`のcomponentとしてdomain-separateする。4 vector kindをcomputed-language `/2`へ再結合し、mathをFormula、generic vectorをFigure、equation numberをparent Formula直下のsource-owned Spanとして閉じた。Formula/FigureのAlt、kind別resolved/authored ActualText、source span、metric fingerprint、equation-number TextSpan/text hashを保持し、math ActualTextへTeXまたはnumber textを代用・連結しない。
+  - layout-contractへ30-roleの`typaxis.structure-role-vocabulary/2`、`typaxis.structure-registry/2`、`typaxis.selected-structure-binding/2`を追加した。registryはsource/generated NodeId順、logical parent/child、nearest-parent language relation、4-kind role/metric matrix、optional equation childをcanonical JCSへbindする。selected bindingは各DrawVector usageをone Formula/Figure ownerへexactly once結び、equation-number paintを直前のmath-vector-block usage、通常text shape/glyph receipt、親子language fingerprintへ結ぶ。missing/extra/duplicate/wrong role・owner・metric・parent・order・language・versionは`I9190`、既存limit超過はowner codeでfail closedにする。
+  - display-listへ`typaxis.marked-content-plan/2`を追加した。page paint順からreal groupだけへ0始まりdense MCIDを採番し、outer Formula/Figure MCRだけがMCIDを所有する。mathはActualText必須のproperty-only inner Span、generic inlineはauthored ActualTextまたはpaint-level Lang時だけ、vector Figureはpaint-level Lang時だけinner Spanを持つ。non-Spanの既存native Formula/Figure等もADR-0035どおりpropertiesをinner Spanへ置き、Span ownerはouter dictionaryを維持する。Formula logical `/K`はvector MCR、存在する場合だけequation-number Span childの順であり、number自身のtext MCRを別recordとして保持する。
+  - Form isolation projectionはselected content keyごとのForm数、page-level `Do`数、zero Form MCID/structure-property countをDisplay receiptへbindし、独立identityを追加せず`typaxis.marked-content-plan/2`のcomponent proofとした。MI4-V13のForm encoder/parserによるno MCID/Alt/ActualText/Lang検査と合わせ、再利用Formをstructure occurrenceとして数えない。marked-content recordはselected-layout fragment countへ追加で一回だけ`max_fragments`をchargeし、allocation/MCID issue前にexact/max+1を判定する。AST/string/languageの既存chargeはprojectionでresetまたはaggregateへ再加算しない。
+  - fixtureは4 kind、number present/null、document language equal/explicit override、inline actual null/nonnull matrix、native Formula/Span property scope、page-local dense MCID、Formula child order、Form injection、wrong role/Alt/language/parent/metric/owner/order/MCIDを検査する。version-1 semantic/registry/selected/marked-content encoder本体は変更せず、既存tagged-structure test、`draw_vector_v1_frozen_canonical_bytes`、`safe_vector_pdf_v1_frozen_bytes`を含むworkspace回帰で旧bytes/意味を維持した。
+  - milestone指定の4 command、`cargo test --workspace --all-targets --all-features --locked`、workspace doc-test、workspace clippy `-D warnings`、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。all-target/all-feature runのexternal-validator 2 testsは既存の`ignored`指定どおりであり、Schema validatorは4071 refsを含む全bundle/fixtureを通過した。
+  - レビューでは設計にないForm-isolationおよびsemantic/profile-view algorithm identity、selected bindingのlimit/allocation error潰し、paint数をfragment上限と誤解した二重制約、standard non-Span ownerのActualText/Langをouterへ置く誤り、native Formulaを欠落させるFormula order集合とphysical-order依存を修正した。empty captionが予約するnonpainting paint ordinal gapは保持し、MCIDだけを独立にdense化した。修正後に全差分を再読し、findingは0件である。
+  - listed primary file外ではversion-2 typeのre-exportに`workspace/crates/typaxis-syntax/src/lib.rs`、`workspace/crates/typaxis-layout/src/lib.rs`、`workspace/crates/typaxis-display-list/src/lib.rs`を変更し、本completion recordを追加した。final PDF StructTree/ParentTree serialization、tagged-PDF observation、in-tree/external validator claim、manifest/public capability/CLI integrationはMI4-V16以降へ残した。
 - Non-goals:
   - PDF StructTree serialization、veraPDF claim
 
