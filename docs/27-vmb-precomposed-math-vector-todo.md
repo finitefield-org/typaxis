@@ -797,7 +797,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V11 Block vector placement、equation number、atomic paginationを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V10
 - Design inputs: docs/27 §4.4、§5、§7、§15.2
 - Primary files:
@@ -834,6 +834,15 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout vector_figure_layout --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pagination atomic_vector_block --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V11 change set containing this completion record.
+  - `typaxis.precomposed-vector-block-preparation/1`でvalidated binding、private parent flow、`MathVectorFlowId`、computed vector style、LayoutEpoch、one-master page geometryを再照合してから、source-orderの`vector_figure` / `math_vector_block`だけをprepared blockへ閉じた。start/end indentからpositive inner frameをchecked計算し、horizontal LTRのstart/center/endをfull inner frameへ適用する一方、producer viewport、uniform scale、origin、baselineは変更していない。viewport width超過、unsupported named page、checked arithmetic failureはNodeId/SourceSpan付き`L5100`でfail closedにする。
+  - numbered mathは既存nonwrapping equation-number shape receiptをjoinし、番号をlogical endへ独立配置する。`Bh = max(Vh, Nh)`、両childのhalf-even top offset、positive minimum gap、formula-firstのpaint/structure orderを同じprepared/selected closureへbindした。collision、number/frame overflowではformulaの移動・縮小・wrapへfallbackせず`L5100`にし、null番号ではrectangle、paint、structure childを一切作らない。
+  - `typaxis.precomposed-vector-layout/1`のatomic block paginatorを追加し、page-top space suppression、pending `space_after + space_before`、forced/named page boundary、hard `keep_with_next` chain、Figure `keep_caption`、caption subflow、empty-page oversizeを処理する。SVG viewportは常に一つのfragmentとしてwhole moveし、各selected occurrenceをcumulative `max_fragments`へ一回だけ課金する。selected receiptはpreparationとpagination input、page/frame/block/paint ordinal、同一pagination/paint/structure bounds、viewport scale/matrix、pen origin/baseline、independent number、caption、parent position、exactly-once math terminalを再構築可能に保持する。
+  - canonical `block-layout-trace.json`とprivate 1.4 Schemaを追加し、layout variantの相互排他、pagination input/page/placement、kind別Formula/Figure/number/caption child orderをclosed shapeにした。validatorはcanonical JCS、input/page/placement fingerprint、dense fragment/page/paint ordinal、bounds/matrix/baseline、number gap/source order、caption/page accounting、およびinvalid mixed trace・wrong child role・unnumbered number childの拒否を独立検査する。
+  - start/center/end、number null/short/tall/collision、positive inner-frame width overflow、page-end whole move、empty-page height oversize、pending spacing、forced/named page、keep chain、kept/splittable caption、native/vector math交互、fragment exact/max+1、foreign preparation inputをunit/fixture testで固定した。milestone指定の4 command、workspace all-target/all-feature check/test、workspace clippy `-D warnings`、doc-test、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは4022 refsを含む全bundle/fixtureを通過した。
+  - レビューではpagination inputが別prepared layoutへ流用できるclosure不足、keep chain末尾の`keep_caption = false` captionまで過剰にkeepする計算、caption/parent collectionのfallible allocation不足、unchecked index conversion、別pageへ送ったcaptionをowner blockのpageへ誤集計できるtrace検査、schemaのkind別structure order不足、width/caption-split acceptance fixture不足を修正した。修正後に全差分を再読し、findingは0件である。
+  - listed primary file外ではprepared block専用`workspace/crates/typaxis-layout/src/block_vector.rs`、atomic pagination専用`workspace/crates/typaxis-pagination/src/atomic_vector.rs`、fixture validator、本completion recordを変更した。既存native math/Figure algorithm bytes、Display/PDF/Form、language/accessibility、manifest/capability、public CLI integrationは変更せず、MI4-V12以降を先取りしていない。
 - Non-goals:
   - shrink-to-fit、multi-line equation number、vertical writing
 

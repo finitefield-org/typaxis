@@ -3,6 +3,7 @@
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
+mod block_vector;
 mod inline_vector;
 mod math;
 mod math_vector;
@@ -37,6 +38,19 @@ pub use advanced_header_footer::{
     StagingAdvancedFlowRegistryReceipt, StagingHeaderFooterLayout, StagingHeaderFooterLayoutError,
     StagingPageRegionKind, StagingPageRegionLayout, StagingRegionBlockLayout,
     ADVANCED_FLOW_REGISTRY_ALGORITHM,
+};
+pub use block_vector::{
+    prepare_staging_precomposed_vector_blocks, StagingPrecomposedVectorBlockLayout,
+    StagingPrecomposedVectorBlockLayoutError, StagingPrecomposedVectorBlockLayoutReceipt,
+    StagingPreparedMathVectorBlockFlow, StagingPreparedVectorBlock, StagingPreparedVectorBlockKind,
+    StagingPreparedVectorEquationNumber, StagingPreparedVectorFollowingSibling,
+    PRECOMPOSED_VECTOR_BLOCK_PREPARATION_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use block_vector::{
+    staging_precomposed_vector_block_layout_fixture,
+    staging_precomposed_vector_block_layout_fixture_for_case,
+    StagingPrecomposedVectorBlockFixtureCase, StagingPrecomposedVectorBlockLayoutFixture,
 };
 pub use inline_vector::{
     layout_staging_precomposed_vector_inlines, StagingInlineVectorLayoutError,

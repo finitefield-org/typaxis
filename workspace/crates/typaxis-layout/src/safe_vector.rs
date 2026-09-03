@@ -16,7 +16,7 @@ use typaxis_resource_admission::{
     close_staging_declared_media, AdmittedImageMediaKind, AdmittedResourceLedger,
     ResourceAdmissionProgressToken, SafeVectorAdmissionAttestation, SafeVectorParserProfile,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "staging-fixtures"))]
 use typaxis_syntax::StagingPrecomposedVectorProfileSessionIdentity;
 use typaxis_syntax::{
     PrecomposedVectorKind, PrecomposedVectorMetricPayload, StagingM4PageGeometry,
@@ -1771,7 +1771,7 @@ fn push_hash(output: &mut String, value: [u8; 32]) {
     output.push('"');
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "staging-fixtures"))]
 pub(crate) struct StagingPrecomposedVectorBindingFixture {
     pub package: ValidatedStagingSemanticPackage,
     pub profile: StagingPrecomposedVectorProfileAuthorization,
@@ -1783,40 +1783,72 @@ pub(crate) struct StagingPrecomposedVectorBindingFixture {
 #[cfg(test)]
 pub(crate) fn staging_precomposed_vector_binding_fixture(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(false, None, false, false)
+    staging_precomposed_vector_binding_fixture_with_media(
+        false,
+        None,
+        false,
+        crate::StagingPrecomposedVectorBlockFixtureCase::Default,
+    )
 }
 
 #[cfg(test)]
 pub(crate) fn staging_precomposed_vector_binding_fixture_with_fragment_limit(
     max_fragments: u64,
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(false, Some(max_fragments), false, false)
+    staging_precomposed_vector_binding_fixture_with_media(
+        false,
+        Some(max_fragments),
+        false,
+        crate::StagingPrecomposedVectorBlockFixtureCase::Default,
+    )
 }
 
 #[cfg(test)]
 fn staging_precomposed_vector_binding_fixture_with_generic_safe_svg1(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(true, None, false, false)
+    staging_precomposed_vector_binding_fixture_with_media(
+        true,
+        None,
+        false,
+        crate::StagingPrecomposedVectorBlockFixtureCase::Default,
+    )
 }
 
 #[cfg(test)]
 pub(crate) fn staging_precomposed_vector_binding_fixture_with_equation_font(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(false, None, true, false)
+    staging_precomposed_vector_binding_fixture_with_media(
+        false,
+        None,
+        true,
+        crate::StagingPrecomposedVectorBlockFixtureCase::Default,
+    )
 }
 
 #[cfg(test)]
 pub(crate) fn staging_precomposed_vector_binding_fixture_with_mixed_native_math(
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
-    staging_precomposed_vector_binding_fixture_with_media(false, None, true, true)
+    staging_precomposed_vector_binding_fixture_with_media(
+        false,
+        None,
+        true,
+        crate::StagingPrecomposedVectorBlockFixtureCase::MixedNativeMath,
+    )
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub(crate) fn staging_precomposed_vector_binding_fixture_for_block_case(
+    case: crate::StagingPrecomposedVectorBlockFixtureCase,
+) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_binding_fixture_with_media(false, None, true, case)
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
 fn staging_precomposed_vector_binding_fixture_with_media(
     generic_safe_svg1: bool,
     max_fragments: Option<u64>,
     equation_font: bool,
-    mixed_native_math: bool,
+    block_case: crate::StagingPrecomposedVectorBlockFixtureCase,
 ) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
     use std::fs;
     use std::path::PathBuf;
@@ -1933,7 +1965,215 @@ fn staging_precomposed_vector_binding_fixture_with_media(
             ],
         });
     }
-    if mixed_native_math {
+    let mut add_block_rule = |style_id: String,
+                              selector: &str,
+                              declarations: Vec<WireStagingStyleDeclaration>|
+     -> Result<(), Box<dyn std::error::Error>> {
+        let source_order = u32::try_from(style_sheet.rules.len())?;
+        style_sheet.rules.push(WireStagingStyleRule {
+            style_id,
+            extends: None,
+            selector: selector.to_owned(),
+            source_order,
+            declarations,
+        });
+        Ok(())
+    };
+    let alignment = match block_case {
+        crate::StagingPrecomposedVectorBlockFixtureCase::AlignmentStart => Some("start"),
+        crate::StagingPrecomposedVectorBlockFixtureCase::AlignmentCenter => Some("center"),
+        crate::StagingPrecomposedVectorBlockFixtureCase::AlignmentEnd => Some("end"),
+        _ => None,
+    };
+    if let Some(alignment) = alignment {
+        let WireStagingM4Block::MathVectorBlock {
+            equation_number, ..
+        } = &mut blocks[2]
+        else {
+            panic!("precomposed-vector fixture third child is not block math");
+        };
+        *equation_number = None;
+        for selector in ["vector_figure", "math_vector_block"] {
+            add_block_rule(
+                format!("block-alignment-{selector}-{alignment}"),
+                selector,
+                vec![
+                    WireStagingStyleDeclaration {
+                        name: "end_indent".to_owned(),
+                        value: WireStagingStyleValue::Length { value: 1_310_720 },
+                        important: false,
+                    },
+                    WireStagingStyleDeclaration {
+                        name: "space_after".to_owned(),
+                        value: WireStagingStyleValue::Length { value: 196_608 },
+                        important: false,
+                    },
+                    WireStagingStyleDeclaration {
+                        name: "space_before".to_owned(),
+                        value: WireStagingStyleValue::Length { value: 131_072 },
+                        important: false,
+                    },
+                    WireStagingStyleDeclaration {
+                        name: "start_indent".to_owned(),
+                        value: WireStagingStyleValue::Length { value: 655_360 },
+                        important: false,
+                    },
+                    WireStagingStyleDeclaration {
+                        name: "text_align".to_owned(),
+                        value: WireStagingStyleValue::Keyword {
+                            value: alignment.to_owned(),
+                        },
+                        important: false,
+                    },
+                ],
+            )?;
+        }
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::NumberShort {
+        add_block_rule(
+            "short-equation-number".to_owned(),
+            "math_vector_block",
+            vec![
+                WireStagingStyleDeclaration {
+                    name: "font_size".to_owned(),
+                    value: WireStagingStyleValue::Length { value: 393_216 },
+                    important: false,
+                },
+                WireStagingStyleDeclaration {
+                    name: "line_height".to_owned(),
+                    value: WireStagingStyleValue::Length { value: 524_288 },
+                    important: false,
+                },
+            ],
+        )?;
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::NumberCollision {
+        add_block_rule(
+            "colliding-equation-number".to_owned(),
+            "math_vector_block",
+            vec![WireStagingStyleDeclaration {
+                name: "text_align".to_owned(),
+                value: WireStagingStyleValue::Keyword {
+                    value: "end".to_owned(),
+                },
+                important: false,
+            }],
+        )?;
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::NarrowInnerFrame {
+        add_block_rule(
+            "narrow-vector-inner-frame".to_owned(),
+            "math_vector_block",
+            vec![
+                WireStagingStyleDeclaration {
+                    name: "end_indent".to_owned(),
+                    value: WireStagingStyleValue::Length { value: 5_898_240 },
+                    important: false,
+                },
+                WireStagingStyleDeclaration {
+                    name: "start_indent".to_owned(),
+                    value: WireStagingStyleValue::Length { value: 5_898_240 },
+                    important: false,
+                },
+            ],
+        )?;
+    }
+    if matches!(
+        block_case,
+        crate::StagingPrecomposedVectorBlockFixtureCase::FigureCaption
+            | crate::StagingPrecomposedVectorBlockFixtureCase::FigureCaptionSplit
+    ) {
+        let WireStagingM4Block::VectorFigure { caption, .. } = &mut blocks[1] else {
+            panic!("precomposed-vector fixture second block is not a vector Figure");
+        };
+        caption.push(WireStagingM4Block::Paragraph {
+            node_id: 6,
+            span: WireStagingSourceSpan {
+                source_id: 0,
+                start_byte: 7,
+                end_byte: 7,
+            },
+            classes: Vec::new(),
+            children: Vec::new(),
+            language: None,
+        });
+        let WireStagingM4Block::MathVectorBlock {
+            node_id,
+            equation_number,
+            ..
+        } = &mut blocks[2]
+        else {
+            panic!("precomposed-vector fixture third child is not block math");
+        };
+        *node_id = 7;
+        equation_number
+            .as_mut()
+            .expect("fixture block math has an equation number")
+            .node_id = 8;
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::FigureCaptionSplit {
+        add_block_rule(
+            "vector-figure-splittable-caption".to_owned(),
+            "vector_figure",
+            vec![WireStagingStyleDeclaration {
+                name: "keep_caption".to_owned(),
+                value: WireStagingStyleValue::Boolean { value: false },
+                important: false,
+            }],
+        )?;
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::KeepWithNext {
+        add_block_rule(
+            "vector-figure-keep-with-next".to_owned(),
+            "vector_figure",
+            vec![WireStagingStyleDeclaration {
+                name: "keep_with_next".to_owned(),
+                value: WireStagingStyleValue::Boolean { value: true },
+                important: false,
+            }],
+        )?;
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::ForcedPageBreak {
+        let WireStagingM4Block::MathVectorBlock {
+            node_id,
+            equation_number,
+            ..
+        } = &mut blocks[2]
+        else {
+            panic!("precomposed-vector fixture third child is not block math");
+        };
+        *node_id = 7;
+        equation_number
+            .as_mut()
+            .expect("fixture block math has an equation number")
+            .node_id = 8;
+        blocks.insert(
+            2,
+            WireStagingM4Block::PageBreak {
+                node_id: 6,
+                span: WireStagingSourceSpan {
+                    source_id: 0,
+                    start_byte: 7,
+                    end_byte: 7,
+                },
+                classes: Vec::new(),
+            },
+        );
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::NamedPage {
+        add_block_rule(
+            "math-vector-named-page".to_owned(),
+            "math_vector_block",
+            vec![WireStagingStyleDeclaration {
+                name: "page".to_owned(),
+                value: WireStagingStyleValue::String {
+                    value: "default".to_owned(),
+                },
+                important: false,
+            }],
+        )?;
+    }
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::MixedNativeMath {
         let mut first_vector = blocks[2].clone();
         let WireStagingM4Block::MathVectorBlock {
             alt,
@@ -2044,7 +2284,18 @@ fn staging_precomposed_vector_binding_fixture_with_media(
     }
     wire.replace_typed_regions(document, resources);
     wire.replace_style_sheet(style_sheet);
-    let encoded = StagingSemanticDocumentPackageEncoder::new().encode(&wire)?;
+    let mut encoded = StagingSemanticDocumentPackageEncoder::new().encode(&wire)?;
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::ShortBody {
+        const BODY_HEIGHT: &str = "\"body\":{\"height\":6553600,";
+        if !encoded.contains(BODY_HEIGHT) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "precomposed-vector fixture page body changed",
+            )
+            .into());
+        }
+        encoded = encoded.replacen(BODY_HEIGHT, "\"body\":{\"height\":655360,", 1);
+    }
     let decoded = StagingSemanticDocumentPackageDecoder::new().decode(
         encoded.as_bytes(),
         &DocumentPackageDecodePolicy::new(&base_limits),

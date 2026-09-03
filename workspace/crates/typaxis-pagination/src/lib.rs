@@ -3,6 +3,7 @@
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
+mod atomic_vector;
 
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use advanced_columns::staging_columns_selected_fixture;
@@ -26,6 +27,16 @@ pub use advanced_header_footer::{
     StagingHeaderFooterSelectedLayoutReceipt, StagingPageMargins, StagingPdfPageBox,
     StagingRepeatedRegionFragment, StagingSelectedAdvancedFrame, StagingSelectedAdvancedPage,
     StagingSelectedPageBoxes, ADVANCED_SELECTED_LAYOUT_ALGORITHM,
+};
+pub use atomic_vector::{
+    paginate_staging_atomic_vector_blocks, StagingAtomicVectorBlockLayoutError,
+    StagingAtomicVectorBlockPaginationInput, StagingAtomicVectorBlockPlacement,
+    StagingAtomicVectorBlockSelectedLayout, StagingAtomicVectorBlockSelectedLayoutReceipt,
+    StagingAtomicVectorKeepSuccessorInput, StagingAtomicVectorMathBaseline,
+    StagingAtomicVectorMathFlow, StagingAtomicVectorPage, StagingAtomicVectorSelectedCaption,
+    StagingAtomicVectorSelectedEquationNumber, StagingAtomicVectorSelectedViewport,
+    StagingAtomicVectorStructureChild, StagingAtomicVectorStructureRole,
+    PRECOMPOSED_VECTOR_SELECTED_LAYOUT_ALGORITHM,
 };
 
 use core::fmt;

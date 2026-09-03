@@ -5,7 +5,8 @@ the canonical private contract-1.4 Wire fixture added by `MI4-V03`. The
 `document-package.json` fixture is accepted only by the private 1.4 decoder and
 Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
-The corpus has four canonical ledgers plus one private Wire fixture:
+The corpus has four canonical ledgers, one private Wire fixture, and two
+canonical selected-layout traces:
 
 - `resources.tsv` records dense logical image IDs, contained SVG paths,
   hash-derived production URIs, exact SHA-256 values, and producer provenance.
@@ -23,6 +24,11 @@ The corpus has four canonical ledgers plus one private Wire fixture:
   fixture covering all four vector kinds, nullable actual text, source TeX,
   spacing, equation-number child shape, and one `svg-safe-2` provenance record.
   They do not authorize resource admission, layout, or PDF generation.
+- `inline-layout-trace.json` records the selected atomic inline layout from
+  `MI4-V09`. `block-layout-trace.json` records the selected atomic block layout
+  from `MI4-V11`, including page/block/paint ordinals, effective spacing,
+  viewport matrices, formula baselines, a separately placed equation number,
+  structure-child source order, and the one-time fragment charge.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,
@@ -91,3 +97,11 @@ geometry is expanded into the Safe-SVG 2 path/shape subset. They intentionally
 contain no `use`, text/font nodes, CSS, script, animation, image, or external
 reference. Typaxis must validate and place these bytes; it must not add a VMB
 preprocessor or fall back to native math, PNG, or omitted content.
+
+Both selected-layout trace files are canonical JCS and are validated against
+the private 1.4 layout-trace schema. The block trace deliberately starts with a
+partly consumed page: the Figure and its kept caption fit there, while the
+numbered math block moves intact to the next page. Its `pagination_bounds`,
+`paint_bounds`, and `structure_bounds` are identical; the producer viewport
+remains unchanged; and the `formula` child precedes the independent
+`equation_number` child.

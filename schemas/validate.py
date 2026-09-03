@@ -5924,6 +5924,250 @@ def main() -> int:
                     "private 1.4 inline-vector baseline or line containment drifted"
                 )
 
+        block_vector_trace_path = (
+            STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "block-layout-trace.json"
+        )
+        block_vector_trace = load_json(block_vector_trace_path)
+        block_vector_trace_errors = schema_errors(
+            private_m4_validators["layout-trace.schema.json"], block_vector_trace
+        )
+        if block_vector_trace_errors:
+            raise ValidationFailure(
+                "private 1.4 block-vector layout trace was rejected: "
+                + " | ".join(block_vector_trace_errors)
+            )
+        if (
+            block_vector_trace_path.read_bytes().rstrip(b"\n")
+            != jcs_bytes(block_vector_trace)
+        ):
+            raise ValidationFailure(
+                "private 1.4 block-vector layout trace is not canonical JCS"
+            )
+
+        block_layout = block_vector_trace["precomposed_vector_block_layout"]
+        block_placements = block_layout["block_placements"]
+        block_pages = block_layout["pages"]
+        fragment_charge = block_layout["fragment_charge"]
+        prior_fragment_charge = block_layout["pagination_input"][
+            "prior_fragment_charge"
+        ]
+        referenced_block_pages = [
+            placement["record"]["page_index"] for placement in block_placements
+        ]
+        referenced_caption_pages = [
+            caption["page_index"]
+            for placement in block_placements
+            for caption in placement["record"]["captions"]
+        ]
+        if (
+            block_layout["block_placement_count"] != len(block_placements)
+            or fragment_charge != len(block_placements)
+            or block_layout["pagination_input_fingerprint"]
+            != hashlib.sha256(
+                jcs_bytes(block_layout["pagination_input"])
+            ).hexdigest()
+            or block_layout["pagination_input"]["preparation_fingerprint"]
+            != block_layout["preparation_fingerprint"]
+            or block_layout["page_geometry_fingerprint"]
+            != hashlib.sha256(jcs_bytes(block_layout["page_geometry"])).hexdigest()
+            or block_layout["cumulative_fragment_charge"]
+            != prior_fragment_charge + fragment_charge
+            or [placement["record"]["block_ordinal"] for placement in block_placements]
+            != list(range(len(block_placements)))
+            or [
+                placement["record"]["fragment_ordinal"]
+                for placement in block_placements
+            ]
+            != list(range(len(block_placements)))
+            or [page["page_index"] for page in block_pages]
+            != list(range(len(block_pages)))
+            or any(
+                page_index >= len(block_pages)
+                for page_index in referenced_block_pages + referenced_caption_pages
+            )
+        ):
+            raise ValidationFailure(
+                "private 1.4 block-vector layout counts or dense ordinals drifted"
+            )
+
+        block_body = block_layout["page_geometry"]["body"]
+
+        def block_rect_contains(container: dict[str, int], child: dict[str, int]) -> bool:
+            return (
+                child["x"] >= container["x"]
+                and child["y"] >= container["y"]
+                and child["x"] + child["width"]
+                <= container["x"] + container["width"]
+                and child["y"] + child["height"]
+                <= container["y"] + container["height"]
+            )
+
+        paint_ordinals: list[int] = []
+        for placement_wrapper in block_placements:
+            placement = placement_wrapper["record"]
+            if placement_wrapper["fingerprint"] != hashlib.sha256(
+                jcs_bytes(placement)
+            ).hexdigest():
+                raise ValidationFailure(
+                    "private 1.4 block-vector placement fingerprint drifted"
+                )
+
+            pagination_bounds = placement["pagination_bounds"]
+            paint_bounds = placement["paint_bounds"]
+            structure_bounds = placement["structure_bounds"]
+            viewport = placement["viewport"]
+            viewport_rect = viewport["rect"]
+            matrix = viewport["matrix"]
+            children = placement["structure_children"]
+            if (
+                pagination_bounds != paint_bounds
+                or pagination_bounds != structure_bounds
+                or matrix["a_16_16"] != viewport["scale"]
+                or matrix["d_16_16"] != viewport["scale"]
+                or matrix["b_16_16"] != 0
+                or matrix["c_16_16"] != 0
+                or matrix["e"] != viewport_rect["x"]
+                or matrix["f"] != viewport_rect["y"]
+                or not block_rect_contains(block_body, pagination_bounds)
+                or not block_rect_contains(pagination_bounds, viewport_rect)
+            ):
+                raise ValidationFailure(
+                    "private 1.4 block-vector geometry or viewport matrix drifted"
+                )
+
+            if (
+                not children
+                or children[0]["rect"] != viewport_rect
+                or children[0]["page_index"] != placement["page_index"]
+                or children[0]["paint_ordinal"] != viewport["paint_ordinal"]
+            ):
+                raise ValidationFailure(
+                    "private 1.4 block-vector primary structure child drifted"
+                )
+            paint_ordinals.extend(child["paint_ordinal"] for child in children)
+
+            equation_number = placement["equation_number"]
+            if placement["kind"] == "math_vector_block":
+                baseline = placement["math_baseline"]
+                math_flow = placement["math_flow"]
+                if (
+                    baseline is None
+                    or math_flow is None
+                    or viewport_rect["y"] + baseline["baseline"]
+                    != baseline["baseline_y"]
+                    or children[0]["role"] != "formula"
+                    or children[0]["owner"] != placement["node_id"]
+                    or placement["captions"]
+                    or placement["keep_caption"]
+                ):
+                    raise ValidationFailure(
+                        "private 1.4 block-vector math baseline or structure drifted"
+                    )
+                if equation_number is None:
+                    if len(children) != 1:
+                        raise ValidationFailure(
+                            "private 1.4 unnumbered math-vector children drifted"
+                        )
+                elif (
+                    len(children) != 2
+                    or children[1]["role"] != "equation_number"
+                    or children[1]["owner"] != equation_number["owner"]
+                    or children[1]["rect"] != equation_number["rect"]
+                    or children[1]["paint_ordinal"]
+                    != equation_number["paint_ordinal"]
+                    or not block_rect_contains(
+                        pagination_bounds, equation_number["rect"]
+                    )
+                    or equation_number["rect"]["x"]
+                    < viewport_rect["x"]
+                    + viewport_rect["width"]
+                    + equation_number["minimum_gap"]
+                ):
+                    raise ValidationFailure(
+                        "private 1.4 block-vector equation-number placement drifted"
+                    )
+            elif (
+                placement["kind"] != "vector_figure"
+                or placement["math_baseline"] is not None
+                or placement["math_flow"] is not None
+                or equation_number is not None
+                or children[0]["role"] != "figure"
+                or children[0]["owner"] != placement["node_id"]
+            ):
+                raise ValidationFailure(
+                    "private 1.4 block-vector Figure structure drifted"
+                )
+
+            caption_children = [
+                child for child in children if child["role"] == "caption"
+            ]
+            if len(caption_children) != len(placement["captions"]) or any(
+                child["owner"] != caption["owner"]
+                or child["page_index"] != caption["page_index"]
+                or child["paint_ordinal"] != caption["paint_ordinal"]
+                or child["rect"] != caption["rect"]
+                or not block_rect_contains(block_body, caption["rect"])
+                for child, caption in zip(caption_children, placement["captions"])
+            ):
+                raise ValidationFailure(
+                    "private 1.4 block-vector caption structure drifted"
+                )
+
+        if paint_ordinals != list(range(len(paint_ordinals))):
+            raise ValidationFailure(
+                "private 1.4 block-vector paint ordinals are not dense"
+            )
+
+        for page in block_pages:
+            page_placements = [
+                placement["record"]
+                for placement in block_placements
+                if placement["record"]["page_index"] == page["page_index"]
+            ]
+            if (
+                page["block_count"] != len(page_placements)
+                or page["caption_count"]
+                != sum(
+                    1
+                    for placement in block_placements
+                    for caption in placement["record"]["captions"]
+                    if caption["page_index"] == page["page_index"]
+                )
+                or [placement["page_block_ordinal"] for placement in page_placements]
+                != list(range(len(page_placements)))
+            ):
+                raise ValidationFailure(
+                    "private 1.4 block-vector page accounting drifted"
+                )
+
+        mixed_layout_trace = copy.deepcopy(block_vector_trace)
+        mixed_layout_trace["precomposed_vector_layout"] = inline_layout
+        if not schema_errors(
+            private_m4_validators["layout-trace.schema.json"], mixed_layout_trace
+        ):
+            raise ValidationFailure(
+                "private 1.4 layout trace accepted mixed inline/block evidence"
+            )
+        wrong_block_child_role = copy.deepcopy(block_vector_trace)
+        wrong_block_child_role["precomposed_vector_block_layout"]["block_placements"][
+            0
+        ]["record"]["structure_children"][0]["role"] = "formula"
+        unnumbered_with_number_child = copy.deepcopy(block_vector_trace)
+        unnumbered_math = unnumbered_with_number_child[
+            "precomposed_vector_block_layout"
+        ]["block_placements"][1]["record"]
+        unnumbered_math["equation_number"] = None
+        for label, invalid_trace in (
+            ("wrong Figure child role", wrong_block_child_role),
+            ("number child on unnumbered math", unnumbered_with_number_child),
+        ):
+            if not schema_errors(
+                private_m4_validators["layout-trace.schema.json"], invalid_trace
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 layout trace accepted {label}"
+                )
+
         def require_invalid_precomposed_vector(
             label: str, invalid: dict[str, Any]
         ) -> None:
