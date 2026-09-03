@@ -1,5 +1,12 @@
 #![forbid(unsafe_code)]
 
+mod safe_vector_pdf;
+
+pub use safe_vector_pdf::{
+    inspect_safe_vector_pdf, SafeVectorPdfIndependentError, SafeVectorPdfIndependentExpectations,
+    SafeVectorPdfIndependentReport,
+};
+
 use typaxis_core::{
     Length, MasterId, PortablePath, PositiveLength, Rect, ResourceLimits, SourceId,
     ValidatedResourceLimits,

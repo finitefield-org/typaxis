@@ -57,7 +57,9 @@ pub use precomposed_vector::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use precomposed_vector::{
-    staging_precomposed_vector_display_fixture, StagingPrecomposedVectorDisplayFixture,
+    staging_precomposed_vector_display_fixture, staging_precomposed_vector_display_ten_use_fixture,
+    staging_precomposed_vector_display_two_alias_use_fixture,
+    StagingPrecomposedVectorDisplayFixture,
 };
 pub use safe_vector::{
     build_staging_safe_vector_display, StagingDrawVector, StagingSafeVectorDisplay,

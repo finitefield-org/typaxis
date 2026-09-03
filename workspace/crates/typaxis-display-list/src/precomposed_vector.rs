@@ -1379,6 +1379,75 @@ pub fn staging_precomposed_vector_display_fixture(
     })
 }
 
+/// Resource/PDF closure fixture with ten selected uses of one content key.
+/// It is intentionally available only to staging tests: the complete upstream
+/// layout fixture remains the four-kind production sample above.
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub fn staging_precomposed_vector_display_ten_use_fixture(
+) -> Result<StagingPrecomposedVectorDisplayFixture, Box<dyn std::error::Error>> {
+    let mut fixture = staging_precomposed_vector_display_fixture()?;
+    let template = fixture
+        .display
+        .pages
+        .first()
+        .and_then(|page| page.commands.first())
+        .cloned()
+        .ok_or("precomposed vector fixture has no command")?;
+    let mut commands = Vec::new();
+    commands.try_reserve_exact(10)?;
+    for index in 0..10u32 {
+        let mut command = template.clone();
+        command.usage_id = index;
+        command.owner = NodeId::new(100 + index);
+        command.fragment_ordinal = index;
+        command.paint_ordinal = index;
+        command.selected_placement_fingerprint =
+            sha256(format!("typaxis.safe-vector-ten-use/{index}").as_bytes());
+        command.fingerprint = sha256(encode_command_record(&command).as_bytes());
+        commands.push(command);
+    }
+    let mut page = StagingPrecomposedVectorDisplayPage {
+        page_index: 0,
+        commands,
+        fingerprint: [0; 32],
+    };
+    page.fingerprint = sha256(encode_page_record(&page).as_bytes());
+    fixture.display.pages = vec![page];
+    fixture.display.receipt.page_count = 1;
+    fixture.display.receipt.command_count = 10;
+    fixture.display.receipt.content_key_count = 1;
+    fixture.display.receipt.canonical_jcs =
+        encode_display(&fixture.display.receipt, &fixture.display.pages);
+    fixture.display.receipt.fingerprint = sha256(fixture.display.receipt.canonical_jcs.as_bytes());
+    fixture.display.verify_resource_closure()?;
+    Ok(fixture)
+}
+
+/// Downstream Form-planning projection in which two logical image aliases use
+/// the same already-sealed content key. The caller must pair it with a test
+/// admission registry where image IDs 0 and 1 are aliases of that key.
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub fn staging_precomposed_vector_display_two_alias_use_fixture(
+) -> Result<StagingPrecomposedVectorDisplay, Box<dyn std::error::Error>> {
+    let mut fixture = staging_precomposed_vector_display_fixture()?;
+    let mut occurrence = 0u32;
+    for page in &mut fixture.display.pages {
+        for command in &mut page.commands {
+            command.image_id = ImageResourceId::new(occurrence % 2);
+            command.fingerprint = sha256(encode_command_record(command).as_bytes());
+            occurrence = occurrence
+                .checked_add(1)
+                .ok_or("two-alias Display fixture occurrence overflow")?;
+        }
+        page.fingerprint = sha256(encode_page_record(page).as_bytes());
+    }
+    fixture.display.receipt.canonical_jcs =
+        encode_display(&fixture.display.receipt, &fixture.display.pages);
+    fixture.display.receipt.fingerprint = sha256(fixture.display.receipt.canonical_jcs.as_bytes());
+    fixture.display.verify_resource_closure()?;
+    Ok(fixture.display)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

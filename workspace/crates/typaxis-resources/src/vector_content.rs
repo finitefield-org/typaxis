@@ -1,4 +1,3 @@
-use core::num::NonZeroU32;
 use typaxis_core::{push_jcs_string, sha256, ImageResourceId, PortablePath, PositiveLength};
 use typaxis_document::{
     ImageMediaDeclaration, ImageMediaType, StagingM4ResourceCatalog, VectorProvenance,
@@ -343,14 +342,6 @@ impl VectorContentCandidateRegistry {
         }
         Ok(())
     }
-}
-
-/// Reserved join shape for MI4-V13. No constructor exists before selected
-/// Display `/2` can supply authoritative per-alias usage counts.
-#[allow(dead_code)]
-struct SelectedVectorContentCandidateInput<'a> {
-    candidate: &'a VectorContentCandidate,
-    selected_alias_usage_counts: &'a [(ImageResourceId, NonZeroU32)],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1182,6 +1173,59 @@ mod tests {
         assert_eq!(
             canonicalize_candidates(forward_input).unwrap(),
             canonicalize_candidates(reverse_input).unwrap()
+        );
+    }
+
+    #[test]
+    fn vector_form_plans_v2_count_each_alias_of_one_selected_content_key() {
+        let fixture = typaxis_display_list::staging_precomposed_vector_display_fixture().unwrap();
+        let root = workspace_sample(
+            "samples/machine-package/staging/production-book-1/precomposed-vector",
+        );
+        let mut declarations = fixture.layout.package.resources().clone();
+        declarations.font_faces.clear();
+        let first = declarations.images[0].clone();
+        declarations.images[1].uri = first.uri;
+        declarations.images[1].expected_sha256 = first.expected_sha256;
+        declarations.images[1].media = first.media;
+        declarations.images[1].vector_provenance = first.vector_provenance;
+        let admitted = admit_catalog(&root, &declarations);
+        let registry =
+            VectorContentCandidateRegistry::from_admitted(&admitted, &declarations).unwrap();
+
+        let one_alias_used = crate::finalize_staging_safe_vector_forms_v2(
+            &fixture.display,
+            &registry,
+            &fixture.layout.limits,
+        )
+        .unwrap();
+        assert_eq!(
+            one_alias_used.plans()[0]
+                .alias_usage_counts()
+                .iter()
+                .map(|alias| (alias.image_id(), alias.usage_count()))
+                .collect::<Vec<_>>(),
+            vec![(ImageResourceId::new(0), 4), (ImageResourceId::new(1), 0)]
+        );
+
+        let display =
+            typaxis_display_list::staging_precomposed_vector_display_two_alias_use_fixture()
+                .unwrap();
+        let plans = crate::finalize_staging_safe_vector_forms_v2(
+            &display,
+            &registry,
+            &fixture.layout.limits,
+        )
+        .unwrap();
+        assert_eq!(plans.plans().len(), 1);
+        assert_eq!(plans.plans()[0].total_usage_count(), 4);
+        assert_eq!(
+            plans.plans()[0]
+                .alias_usage_counts()
+                .iter()
+                .map(|alias| (alias.image_id(), alias.usage_count()))
+                .collect::<Vec<_>>(),
+            vec![(ImageResourceId::new(0), 2), (ImageResourceId::new(1), 2)]
         );
     }
 

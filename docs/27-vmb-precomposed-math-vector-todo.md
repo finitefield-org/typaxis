@@ -896,7 +896,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V13 PDF Form、ExtGState、placement `Do` closureを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V07, MI4-V12
 - Design inputs: docs/27 §8.2〜8.3、§9、§11、§15.3
 - Primary files:
@@ -936,6 +936,17 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf safe_vector_ext_gstate --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-pdf safe_vector_pdf_v1_frozen --locked`
   - `python3 -m unittest tools/test_pdf_differential.py -v`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V13 change set containing this completion record.
+  - `typaxis.safe-vector-form-plan/2`と`typaxis.safe-vector-form-plans/2`を追加し、sealed DrawVector `/2`をadmitted content candidateへ再joinする。各selected content keyについてnumeric image-ID順のalias別count（selected key内のzero-use aliasを含む）、total count、selected page/paint順usageを保持し、全candidate/aliasはregistry fingerprintとaudit countへ残す。zero-use content keyにはForm plan、relative role、resource name、`Do`を発行しない。Formはcontent-key順`V0...`、各FormのExtGStateはalpha pair順`GS0...`、relative roleはFormから始まるdense checked orderとし、absolute object numberと`max_pdf_objects` chargeを持たせていない。
+  - `typaxis.safe-vector-pdf-contribution/2`を追加し、admitted canonical IRだけからintrinsic `/BBox`、root viewport clip、viewBox transform、path、quadratic-to-cubic、fill/even-odd、stroke width/cap/join/miter、local clipをPDF vector operatorへ変換する。each drawは`q`/`Q`で隔離し、alpha 1/1を含むresolved pairをexact minimal `/Type /ExtGState /ca /CA` dictionaryとexplicit `gs`へ閉じる。FixedRgb8だけがForm color operatorを出し、CurrentColorはForm内でambient colorを維持する。raster XObjectおよびMCID/Alt/ActualText/LangをFormへ入れない。
+  - page contributionはselected paint orderで、各usageを`q`、resolved RGB8のnonstroking/stroking color、exact top-left uniform matrix、content-key Form名の`Do`、`Q`へserializeする。既存page ownerが一度だけroot Y flipを置くcoordinate policyをpage receiptへbindし、同一page/content keyのresource bindingだけをdedupeする。one content keyを10回使うfixtureは1 Form、1 page binding、10 `Do`となり、CurrentColorのpublic pathはexact black、異なる色で同じFormを再利用する性質はowner-private testで固定した。
+  - contributionはDisplay/Form-plan/candidate/limits、relative object role/name、Form/ExtGState bytes fingerprint、page resource/use、matrix、resolved color、semantic usage hook、exact spool byte countをbindする。spool limit exact値は成功しmax+1開始前に失敗する。`typaxis.safe-vector-pdf-closure/2`はstandalone contributionから発行できず、non-Clone final PDF bytes receiptとcomplete writer由来のrelative-to-absolute object table、page/content/Form targetを含むexact usage observationを要求し、hash/length/page/object boundsと衝突を検査してからsealする。global object/output budgetとcomplete graph allocationはMI4-V16へ残した。
+  - test-only isolated writerをfeature gate下に置き、classic dense PDFへForm-local ExtGState、page-local XObject mapping、one root flipを組み立てる。`typaxis-testkit`の独立parserはexact Form count/BBox/content hash、ExtGState count/alpha/name/target、vector path/clip/stroke operators、no raster/no Form semantics、MediaBoxに一致するroot flip、exact RGB/matrix/resource target、1 Form + 10 `Do`をfail-closedに検査する。Python differential gateも独立構造検査を持ち、144/576 DPI（200%/800%相当）を全pageでrenderできる。既定72 DPI digestの従来domainは維持する。
+  - version-1 SafeVector writerへ変更を加えず、bytes長1213、SHA-256 `c7bb8e72adc0e60d303112647e978dd5d2db44fe82c56599644e23a68d61baff`、Form `/Resources << >>`、ExtGState absenceをbyte-frozen testで固定した。
+  - milestone指定の5 command、changed crate tests、`cargo test --workspace --all-targets --all-features --locked`、workspace doc-test、workspace clippy `-D warnings`、fmt check、Schema validator、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。all-target/all-feature runのexplicit external-validator 2 testsは既存の`ignored`指定どおりであり、MI4-V13の独立Rust/Python検査は通常testとして成功した。
+  - レビューではfinal object/page object衝突、page `Do`とabsolute Form targetの未結合、assertion-only writerと独立parserの未接続、Form stroke・ExtGState target・page resource/usage-to-Form/matrix/MediaBox/currentColor期待値の検査不足、非canonical/NaN alpha受理、同一key内zero-useを含む複数alias countと新`/2` Safe-SVG 1 branchのtest不足、巨大DPIの未整形overflow、既定72 DPI digest domainの意図しない変更を修正した。修正後に全差分を再読し、findingは0件である。
+  - listed primary file外ではversion-2専用module `workspace/crates/typaxis-resources/src/safe_vector_v2.rs`、`workspace/crates/typaxis-pdf/src/safe_vector_v2.rs`、独立parser `workspace/crates/typaxis-testkit/src/safe_vector_pdf.rs`、test-only Display projections、Cargo feature wiring、sample README、本completion recordを変更した。tagged structure、ActualText、complete final writer integration、manifest/public capability/CLI integrationはMI4-V14以降へ残した。
 - Non-goals:
   - complete final graphのabsolute object number/global object-budget charge、tagged structure、ActualText、public capability
 

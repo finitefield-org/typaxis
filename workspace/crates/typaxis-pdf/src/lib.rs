@@ -7,6 +7,7 @@ mod advanced_header_footer;
 mod book_navigation;
 mod math;
 mod safe_vector;
+mod safe_vector_v2;
 mod semantic_container;
 mod tagged_pdf;
 
@@ -38,6 +39,22 @@ pub use safe_vector::{
     write_staging_safe_vector_pdf, StagingSafeVectorPdf, StagingSafeVectorPdfError,
     StagingSafeVectorPdfFormObject, StagingSafeVectorPdfReceipt, StagingSafeVectorPdfUsage,
     STAGING_SAFE_VECTOR_PDF_ALGORITHM,
+};
+pub use safe_vector_v2::{
+    build_staging_safe_vector_pdf_contribution_v2, seal_staging_safe_vector_pdf_v2,
+    write_staging_safe_vector_pdf_contribution_v2, StagingSafeVectorPdfClosureV2,
+    StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfExtGStateV2,
+    StagingSafeVectorPdfFinalObjectObservationV2, StagingSafeVectorPdfFinalUsageObservationV2,
+    StagingSafeVectorPdfFinalWriterObservationV2, StagingSafeVectorPdfFormV2,
+    StagingSafeVectorPdfPageResourceV2, StagingSafeVectorPdfPageV2,
+    StagingSafeVectorPdfRelativeObjectKindV2, StagingSafeVectorPdfRelativeObjectV2,
+    StagingSafeVectorPdfSemanticUsageHookV2, StagingSafeVectorPdfUsageV2,
+    StagingSafeVectorPdfV2Error, STAGING_SAFE_VECTOR_PDF_ALGORITHM_V2,
+    STAGING_SAFE_VECTOR_PDF_CONTRIBUTION_V2_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use safe_vector_v2::{
+    staging_safe_vector_isolated_pdf_fixture_v2, StagingSafeVectorIsolatedPdfFixtureV2,
 };
 pub use semantic_container::{
     write_staging_semantic_container_pdf, StagingSemanticContainerPdf,

@@ -6,7 +6,9 @@ the canonical private contract-1.4 Wire fixture added by `MI4-V03`. The
 Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
 The corpus has four canonical ledgers, one private Wire fixture, two canonical
-selected-layout traces, and one canonical Display trace:
+selected-layout traces, and one canonical Display trace. `MI4-V13` also uses
+these admitted resources through a test-only PDF contribution fixture; it does
+not add a standalone production PDF receipt:
 
 - `resources.tsv` records dense logical image IDs, contained SVG paths,
   hash-derived production URIs, exact SHA-256 values, and producer provenance.
@@ -35,6 +37,14 @@ selected-layout traces, and one canonical Display trace:
   inline/block and Figure/Formula placements. The Rust fixture also admits an
   unused, distinct vector resource and proves that it emits no command and
   cannot be substituted for the selected content key.
+- The `MI4-V13` resource/PDF fixture derives `typaxis.safe-vector-form-plans/2`
+  and `typaxis.safe-vector-pdf-contribution/2` from the sealed Display and
+  admitted candidate registry. A test-only ten-use projection proves one
+  content key produces one Form and ten page `Do` operations; the distinct
+  unused candidate remains in the audit fingerprint and produces no Form,
+  name, object role, or `Do`. The isolated writer is assertion-only. A
+  production `typaxis.safe-vector-pdf-closure/2` still requires the complete
+  final writer's bytes, hash, and object/use table.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,
@@ -103,6 +113,15 @@ geometry is expanded into the Safe-SVG 2 path/shape subset. They intentionally
 contain no `use`, text/font nodes, CSS, script, animation, image, or external
 reference. Typaxis must validate and place these bytes; it must not add a VMB
 preprocessor or fall back to native math, PNG, or omitted content.
+
+The PDF contribution tests use `x-plus-y.svg` for exact public black
+`currentColor`, `fraction-equality.svg` for distinct fill/stroke alpha,
+`matrix.svg` for local clipping and fixed RGB paint, and the admitted but
+unselected `similar.svg` for zero-use audit closure. Form content is inspected
+as path operators with an intrinsic `/BBox`, explicit Form-local ExtGState,
+and no raster or semantic marked content. Page usages are inspected in the
+exact `q`, nonstroking/stroking RGB, top-left matrix, `Do`, `Q` order under one
+existing page-root Y flip.
 
 Both selected-layout trace files are canonical JCS and are validated against
 the private 1.4 layout-trace schema. The block trace deliberately starts with a
