@@ -12,7 +12,7 @@ pub use safe_vector::{
     SAFE_VECTOR_IR_FINGERPRINT_ID_V2, SAFE_VECTOR_IR_ID, SAFE_VECTOR_IR_ID_V2,
 };
 
-use core::num::NonZeroU32;
+use core::{cmp::Ordering, num::NonZeroU32};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use typaxis_core::{
@@ -497,6 +497,129 @@ impl AdmittedImage {
         })
     }
 }
+
+/// Closed vector media identity used by [`VectorContentKey`]. Raster media
+/// cannot be represented by this type.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum VectorContentMediaType {
+    SafeSvg1,
+    SafeSvg2,
+}
+
+impl VectorContentMediaType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SafeSvg1 => "svg-safe-1",
+            Self::SafeSvg2 => "svg-safe-2",
+        }
+    }
+}
+
+/// Exact content identity shared by vector Display and Form planning.
+///
+/// Construction remains owned by resource admission so an unchecked caller
+/// hash or an ambiguous concatenated string cannot become a dedupe key.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct VectorContentKey {
+    source_sha256: [u8; 32],
+    media_type: VectorContentMediaType,
+    parser_id: &'static str,
+    ir_id: &'static str,
+    ir_fingerprint: [u8; 32],
+}
+
+impl VectorContentKey {
+    pub fn from_admitted(image: &AdmittedImage) -> Result<Self, VectorContentKeyError> {
+        let vector = image
+            .admitted_safe_vector()
+            .ok_or(VectorContentKeyError::WrongMedia(image.image_id()))?;
+        let media_type = match image.media_kind() {
+            AdmittedImageMediaKind::SafeVector => VectorContentMediaType::SafeSvg1,
+            AdmittedImageMediaKind::SafeVector2 => VectorContentMediaType::SafeSvg2,
+            AdmittedImageMediaKind::Png => {
+                return Err(VectorContentKeyError::WrongMedia(image.image_id()));
+            }
+        };
+        if vector.parser_profile().parser_id() != vector.parser_id()
+            || vector.parser_profile().ir_id() != vector.ir_id()
+            || matches!(
+                (media_type, vector),
+                (VectorContentMediaType::SafeSvg1, AdmittedSafeVector::V2(_))
+                    | (VectorContentMediaType::SafeSvg2, AdmittedSafeVector::V1(_))
+            )
+        {
+            return Err(VectorContentKeyError::WrongMedia(image.image_id()));
+        }
+        Ok(Self {
+            source_sha256: image.content_hash(),
+            media_type,
+            parser_id: vector.parser_id(),
+            ir_id: vector.ir_id(),
+            ir_fingerprint: vector.fingerprint(),
+        })
+    }
+
+    pub const fn source_sha256(&self) -> [u8; 32] {
+        self.source_sha256
+    }
+
+    pub const fn media_type(&self) -> VectorContentMediaType {
+        self.media_type
+    }
+
+    pub const fn parser_id(&self) -> &'static str {
+        self.parser_id
+    }
+
+    pub const fn ir_id(&self) -> &'static str {
+        self.ir_id
+    }
+
+    pub const fn ir_fingerprint(&self) -> [u8; 32] {
+        self.ir_fingerprint
+    }
+}
+
+impl Ord for VectorContentKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.source_sha256
+            .cmp(&other.source_sha256)
+            .then_with(|| {
+                self.media_type
+                    .as_str()
+                    .as_bytes()
+                    .cmp(other.media_type.as_str().as_bytes())
+            })
+            .then_with(|| self.parser_id.as_bytes().cmp(other.parser_id.as_bytes()))
+            .then_with(|| self.ir_id.as_bytes().cmp(other.ir_id.as_bytes()))
+            .then_with(|| self.ir_fingerprint.cmp(&other.ir_fingerprint))
+    }
+}
+
+impl PartialOrd for VectorContentKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VectorContentKeyError {
+    WrongMedia(ImageResourceId),
+}
+
+impl std::fmt::Display for VectorContentKeyError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WrongMedia(image_id) => write!(
+                formatter,
+                "I9190: image {} cannot issue a vector content key",
+                image_id.get()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for VectorContentKeyError {}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SafeVectorFailureReason {
@@ -3095,6 +3218,33 @@ mod tests {
 
     fn limits(overrides: ResourceLimits) -> ValidatedResourceLimits {
         ValidatedResourceLimits::new(overrides).unwrap()
+    }
+
+    #[test]
+    fn vector_content_key_comparison_is_componentwise_tuple_order() {
+        let base = VectorContentKey {
+            source_sha256: [1; 32],
+            media_type: VectorContentMediaType::SafeSvg1,
+            parser_id: "parser-a",
+            ir_id: "ir-a",
+            ir_fingerprint: [1; 32],
+        };
+        let mut source = base;
+        source.source_sha256 = [0; 32];
+        let mut media = base;
+        media.media_type = VectorContentMediaType::SafeSvg2;
+        let mut parser = base;
+        parser.parser_id = "parser-b";
+        let mut ir = base;
+        ir.ir_id = "ir-b";
+        let mut fingerprint = base;
+        fingerprint.ir_fingerprint = [2; 32];
+
+        assert!(source < base);
+        assert!(base < media);
+        assert!(base < parser);
+        assert!(base < ir);
+        assert!(base < fingerprint);
     }
 
     #[test]

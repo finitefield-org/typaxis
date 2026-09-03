@@ -1,118 +1,14 @@
-use core::cmp::Ordering;
 use core::num::NonZeroU32;
 use typaxis_core::{push_jcs_string, sha256, ImageResourceId, PortablePath, PositiveLength};
 use typaxis_document::{
     ImageMediaDeclaration, ImageMediaType, StagingM4ResourceCatalog, VectorProvenance,
 };
 use typaxis_resource_admission::{
-    close_staging_declared_media, AdmittedImage, AdmittedImageMediaKind, AdmittedResourceLedger,
-    AdmittedSafeVector, SafeVectorAlpha,
+    close_staging_declared_media, AdmittedResourceLedger, AdmittedSafeVector, SafeVectorAlpha,
+    VectorContentKey, VectorContentKeyError, VectorContentMediaType,
 };
 
 pub const VECTOR_FORM_DEDUPE_ALGORITHM: &str = "typaxis.vector-form-dedupe/1";
-
-/// Closed vector media identity used by [`VectorContentKey`]. It deliberately
-/// cannot represent raster media.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum VectorContentMediaType {
-    SafeSvg1,
-    SafeSvg2,
-}
-
-impl VectorContentMediaType {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::SafeSvg1 => "svg-safe-1",
-            Self::SafeSvg2 => "svg-safe-2",
-        }
-    }
-}
-
-/// Exact content identity for one admitted vector Form candidate. Construction
-/// is restricted to an immutable admitted image so an unchecked caller hash or
-/// an ambiguous concatenated string can never become a dedupe key.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct VectorContentKey {
-    source_sha256: [u8; 32],
-    media_type: VectorContentMediaType,
-    parser_id: &'static str,
-    ir_id: &'static str,
-    ir_fingerprint: [u8; 32],
-}
-
-impl VectorContentKey {
-    pub fn from_admitted(image: &AdmittedImage) -> Result<Self, VectorContentPlanningError> {
-        let vector = image
-            .admitted_safe_vector()
-            .ok_or(VectorContentPlanningError::WrongMedia(image.image_id()))?;
-        let media_type = match image.media_kind() {
-            AdmittedImageMediaKind::SafeVector => VectorContentMediaType::SafeSvg1,
-            AdmittedImageMediaKind::SafeVector2 => VectorContentMediaType::SafeSvg2,
-            AdmittedImageMediaKind::Png => {
-                return Err(VectorContentPlanningError::WrongMedia(image.image_id()));
-            }
-        };
-        if vector.parser_profile().parser_id() != vector.parser_id()
-            || vector.parser_profile().ir_id() != vector.ir_id()
-            || matches!(
-                (media_type, vector),
-                (VectorContentMediaType::SafeSvg1, AdmittedSafeVector::V2(_))
-                    | (VectorContentMediaType::SafeSvg2, AdmittedSafeVector::V1(_))
-            )
-        {
-            return Err(VectorContentPlanningError::WrongMedia(image.image_id()));
-        }
-        Ok(Self {
-            source_sha256: image.content_hash(),
-            media_type,
-            parser_id: vector.parser_id(),
-            ir_id: vector.ir_id(),
-            ir_fingerprint: vector.fingerprint(),
-        })
-    }
-
-    pub const fn source_sha256(&self) -> [u8; 32] {
-        self.source_sha256
-    }
-
-    pub const fn media_type(&self) -> VectorContentMediaType {
-        self.media_type
-    }
-
-    pub const fn parser_id(&self) -> &'static str {
-        self.parser_id
-    }
-
-    pub const fn ir_id(&self) -> &'static str {
-        self.ir_id
-    }
-
-    pub const fn ir_fingerprint(&self) -> [u8; 32] {
-        self.ir_fingerprint
-    }
-}
-
-impl Ord for VectorContentKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.source_sha256
-            .cmp(&other.source_sha256)
-            .then_with(|| {
-                self.media_type
-                    .as_str()
-                    .as_bytes()
-                    .cmp(other.media_type.as_str().as_bytes())
-            })
-            .then_with(|| self.parser_id.as_bytes().cmp(other.parser_id.as_bytes()))
-            .then_with(|| self.ir_id.as_bytes().cmp(other.ir_id.as_bytes()))
-            .then_with(|| self.ir_fingerprint.cmp(&other.ir_fingerprint))
-    }
-}
-
-impl PartialOrd for VectorContentKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
 
 /// Provenance is conditional in the type: Safe-SVG 1 can only carry absence,
 /// while Safe-SVG 2 can only carry the producer assertion retained from the
@@ -474,6 +370,14 @@ pub enum VectorContentPlanningError {
     ReceiptMismatch,
 }
 
+impl From<VectorContentKeyError> for VectorContentPlanningError {
+    fn from(value: VectorContentKeyError) -> Self {
+        match value {
+            VectorContentKeyError::WrongMedia(image_id) => Self::WrongMedia(image_id),
+        }
+    }
+}
+
 impl std::fmt::Display for VectorContentPlanningError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -566,7 +470,7 @@ fn prepare_aliases(
             .cloned()
             .ok_or(VectorContentPlanningError::WrongMedia(declaration.image_id))?;
         let key = VectorContentKey::from_admitted(image)?;
-        let provenance = match (key.media_type, declaration.vector_provenance.as_ref()) {
+        let provenance = match (key.media_type(), declaration.vector_provenance.as_ref()) {
             (VectorContentMediaType::SafeSvg1, None) => {
                 VectorContentAliasProvenance::SafeSvg1Absent
             }
@@ -584,7 +488,7 @@ fn prepare_aliases(
                 ));
             }
         };
-        if key.media_type == VectorContentMediaType::SafeSvg2
+        if key.media_type() == VectorContentMediaType::SafeSvg2
             && declaration.expected_sha256.is_none()
         {
             return Err(VectorContentPlanningError::MissingExpectedHash(
@@ -785,15 +689,15 @@ fn encode_candidate(output: &mut String, candidate: &VectorContentCandidate) {
 
 fn encode_key(output: &mut String, key: &VectorContentKey) {
     output.push_str("{\"ir_fingerprint\":");
-    push_hash(output, key.ir_fingerprint);
+    push_hash(output, key.ir_fingerprint());
     output.push_str(",\"ir_id\":");
-    push_jcs_string(output, key.ir_id);
+    push_jcs_string(output, key.ir_id());
     output.push_str(",\"media_type\":");
-    push_jcs_string(output, key.media_type.as_str());
+    push_jcs_string(output, key.media_type().as_str());
     output.push_str(",\"parser_id\":");
-    push_jcs_string(output, key.parser_id);
+    push_jcs_string(output, key.parser_id());
     output.push_str(",\"source_sha256\":");
-    push_hash(output, key.source_sha256);
+    push_hash(output, key.source_sha256());
     output.push('}');
 }
 
@@ -845,7 +749,10 @@ fn push_hash(output: &mut String, value: [u8; 32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use std::{
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
+    };
     use typaxis_core::{
         ConfigResourceRoot, EffectiveConfig, EffectiveDataVersions, HostAdmissionContext, HostPath,
         M4EffectiveResourceLimits, M4ResourceLimits, PdfStreamCompression, ResourceLimits,
@@ -858,6 +765,33 @@ mod tests {
     };
 
     const TEST_PROFILE_FINGERPRINT: [u8; 32] = [0x5a; 32];
+
+    struct TempTree {
+        path: PathBuf,
+    }
+
+    impl TempTree {
+        fn new(label: &str) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "typaxis-vector-content-{}-{label}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn workspace_sample(path: &str) -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -962,6 +896,44 @@ mod tests {
         (admitted, declarations)
     }
 
+    fn same_ir_different_source_fixture() -> (AdmittedResourceLedger, StagingM4ResourceCatalog) {
+        let sample_root = workspace_sample(
+            "samples/machine-package/staging/production-book-1/precomposed-vector",
+        );
+        let source =
+            std::fs::read_to_string(sample_root.join("svg/fraction-equality.svg")).unwrap();
+        let alternate = source.replacen(
+            "width=\"70pt\" height=\"24pt\"",
+            "height=\"24pt\" width=\"70pt\"",
+            1,
+        );
+        assert_ne!(source, alternate);
+        let tree = TempTree::new("same-ir-different-source");
+        std::fs::write(tree.path().join("first.svg"), source.as_bytes()).unwrap();
+        std::fs::write(tree.path().join("second.svg"), alternate.as_bytes()).unwrap();
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: Vec::new(),
+            images: vec![
+                declaration(
+                    0,
+                    "first.svg",
+                    source.as_bytes(),
+                    ImageMediaType::SvgSafe2,
+                    Some(provenance("2026.09.0")),
+                ),
+                declaration(
+                    1,
+                    "second.svg",
+                    alternate.as_bytes(),
+                    ImageMediaType::SvgSafe2,
+                    Some(provenance("2026.09.0")),
+                ),
+            ],
+        };
+        let admitted = admit_catalog(tree.path(), &declarations);
+        (admitted, declarations)
+    }
+
     fn cross_media_fixture() -> (AdmittedResourceLedger, StagingM4ResourceCatalog) {
         let root =
             workspace_sample("samples/machine-package/staging/production-book-1/vector-media/job");
@@ -1000,33 +972,6 @@ mod tests {
         assert_eq!(key.parser_id(), SAFE_SVG_PARSER_ID);
         assert_eq!(key.ir_id(), SAFE_VECTOR_IR_ID);
         assert_eq!(key.ir_fingerprint(), vector.fingerprint());
-    }
-
-    #[test]
-    fn vector_content_key_comparison_is_componentwise_tuple_order() {
-        let base = VectorContentKey {
-            source_sha256: [1; 32],
-            media_type: VectorContentMediaType::SafeSvg1,
-            parser_id: "parser-a",
-            ir_id: "ir-a",
-            ir_fingerprint: [1; 32],
-        };
-        let mut source = base;
-        source.source_sha256 = [0; 32];
-        let mut media = base;
-        media.media_type = VectorContentMediaType::SafeSvg2;
-        let mut parser = base;
-        parser.parser_id = "parser-b";
-        let mut ir = base;
-        ir.ir_id = "ir-b";
-        let mut fingerprint = base;
-        fingerprint.ir_fingerprint = [2; 32];
-
-        assert!(source < base);
-        assert!(base < media);
-        assert!(base < parser);
-        assert!(base < ir);
-        assert!(base < fingerprint);
     }
 
     #[test]
@@ -1172,12 +1117,17 @@ mod tests {
 
     #[test]
     fn vector_content_candidates_do_not_merge_same_ir_with_different_source_hash() {
-        let (admitted, declarations) = v2_alias_fixture();
-        let mut prepared = prepare_aliases(&admitted, &declarations).unwrap();
+        let (admitted, declarations) = same_ir_different_source_fixture();
+        let prepared = prepare_aliases(&admitted, &declarations).unwrap();
         assert_eq!(prepared[0].ir, prepared[1].ir);
-        prepared[1].key.source_sha256[0] ^= 1;
-        prepared[1].alias.admitted_sha256 = prepared[1].key.source_sha256;
-        prepared[1].alias.expected_sha256 = Some(prepared[1].key.source_sha256);
+        assert_eq!(
+            prepared[0].key.ir_fingerprint(),
+            prepared[1].key.ir_fingerprint()
+        );
+        assert_ne!(
+            prepared[0].key.source_sha256(),
+            prepared[1].key.source_sha256()
+        );
         let registry = canonicalize_candidates(prepared).unwrap();
         assert_eq!(registry.candidates().len(), 2);
         assert_eq!(

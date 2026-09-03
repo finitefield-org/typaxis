@@ -5,8 +5,8 @@ the canonical private contract-1.4 Wire fixture added by `MI4-V03`. The
 `document-package.json` fixture is accepted only by the private 1.4 decoder and
 Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
-The corpus has four canonical ledgers, one private Wire fixture, and two
-canonical selected-layout traces:
+The corpus has four canonical ledgers, one private Wire fixture, two canonical
+selected-layout traces, and one canonical Display trace:
 
 - `resources.tsv` records dense logical image IDs, contained SVG paths,
   hash-derived production URIs, exact SHA-256 values, and producer provenance.
@@ -29,6 +29,12 @@ canonical selected-layout traces:
   from `MI4-V11`, including page/block/paint ordinals, effective spacing,
   viewport matrices, formula baselines, a separately placed equation number,
   structure-child source order, and the one-time fragment charge.
+- `display-v2.json` records the `MI4-V12` DrawVector `/2` closure. Its four
+  commands cover all vector kinds, are sorted by `(page_index, paint_ordinal)`,
+  use dense usage IDs, and reuse one component-wise `VectorContentKey` across
+  inline/block and Figure/Formula placements. The Rust fixture also admits an
+  unused, distinct vector resource and proves that it emits no command and
+  cannot be substituted for the selected content key.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,
@@ -104,4 +110,7 @@ partly consumed page: the Figure and its kept caption fit there, while the
 numbered math block moves intact to the next page. Its `pagination_bounds`,
 `paint_bounds`, and `structure_bounds` are identical; the producer viewport
 remains unchanged; and the `formula` child precedes the independent
-`equation_number` child.
+`equation_number` child. The Display trace is canonical JCS and is validated
+against the private 1.4 display-list schema. It contains no resource URI, raw
+SVG, source TeX, PDF object/name, or MCID; those facts remain reachable only
+through sealed binding and selected-placement fingerprints.

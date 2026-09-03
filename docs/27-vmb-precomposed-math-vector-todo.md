@@ -848,7 +848,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V12 DrawVector Display `/2`とselected occurrence closureを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V07, MI4-V09, MI4-V11
 - Design inputs: docs/27 §5、§9.1、§10、§11
 - Primary files:
@@ -882,6 +882,15 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list precomposed_vector_display_tamper --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-display-list draw_vector_v1_frozen --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V12 change set containing this completion record.
+  - `typaxis.draw-vector-display/2`を専用moduleへ追加し、selected inline/block occurrenceからusage ID、owner/kind/image、exact `VectorContentKey`、IR/binding/selected-placement fingerprint、page/frame/fragment/paint ordinal、viewport、uniform scale/matrix、resolved currentColorを持つclosed DrawVector commandを発行する。inline二kindはmetric receipt・pen origin・baseline、`math_vector_block`はさらに`MathVectorFlowId`、flow fingerprint、parent FlowId/position、terminal `1`とterminal receipt、`vector_figure`はexisting caption flow/owners/keep relationだけをtyped conditional variantへ保持する。URI、raw SVG/TeX、alternative、PDF object/name、MCIDは型にもcanonical recordにも持たせていない。
+  - package/profile/limits/admission/binding/LayoutEpoch/page geometryを共有するinline selected、block preparation、math-flow registry、pagination input、block selectedを再検証し、全binding ownerと全commandをowner順に双方向1:1で照合してから、selected `(page_index, paint_ordinal)`順へcanonicalizeしdense usage IDを割り当てる。missing/extra/duplicate/wrong owner/kind/image/key/IR/selected fingerprint/page/viewport/matrix/orderはsealed closureまたはupstream再構築照合で`I9190`にする。worker collection順を逆転しても同一receiptになり、command数とselected occurrence数、distinct selected content-key数をreceiptへbindする。
+  - Display objectはpage/command wrapper fingerprintと全usageを保持し、後続Form `/2`がsource、SVG bytes、layoutを再読せずにimage alias、content key、page、matrix、resolved paintを復元できるresource-closure検証APIを持つ。fixtureは二ページ・全4 kindを一つのcontent keyで共有し、別内容のunused admitted vectorにはcommandを発行しない。異なるcolor/page/kindでもkey countは一つのままusageだけが別になることを固定した。content keyのnominal typeはdependency cycleを作らずDisplayとForm planningで共有するためadmission ownerへ移し、`typaxis-resources`から同じ型をre-exportする。raw tuple constructorは追加していない。
+  - private contract-1.4 Display Schemaとcanonical `display-v2.json`を追加し、legacy Display shapeとのroot-level相互排他、algorithm `/2`、Safe-SVG media/parser/IR組、kind別baseline/caption/math-flow member、closed recordを固定した。validatorはJCS、page/command fingerprint、count、dense usage、unique owner/selected fingerprint、page/paint order、viewport/matrix、baseline、IR/content-key、four-kind/shared-key closureを検証し、version swap、mixed shape、raw TeX、wrong conditional member、baseline/viewport/matrix/page/order tamperを拒否する。existing `/1` receiptはcanonical SHA-256 `d844df26a1b70890b495141d2a67b270f0dd98ec436bc09d570196f9d23553f0`で凍結した。
+  - milestone指定の3 targeted command、Schema validator、changed crate test、workspace all-target/all-feature check/test、workspace doc-test、workspace clippy `-D warnings`、fmt check、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは4071 refsを含む全bundle/fixtureを通過した。
+  - レビューではselected/binding照合とduplicate検査の`O(n^2)`走査、math block commandから欠落していたparent FlowId/position、same-IR/different-source testがsource hash差を実admissionで証明しなくなっていた退行、private `/2` traceへlegacy root-page ruleを誤適用するvalidator分岐、distinct-key集計の非fallible allocation、unused resource/wrong-key substitutionのtest不足を修正した。修正後に全差分を再読し、findingは0件である。
+  - listed primary file外では専用implementation module `workspace/crates/typaxis-display-list/src/precomposed_vector.rs`、共有nominal key owner `workspace/crates/typaxis-resource-admission/src/lib.rs`と`typaxis-resources` re-export、fixture validator、README、本completion recordを変更した。PDF content stream/Form object/ExtGState/`Do`、MCID/structure/accessibility、manifest/public capability/CLI integrationはMI4-V13以降へ残した。
 - Non-goals:
   - PDF content stream、MCID割当
 

@@ -10,11 +10,12 @@ pub use safe_vector::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use safe_vector::{staging_safe_vector_resource_fixture, StagingSafeVectorResourceFixture};
+pub use typaxis_resource_admission::{VectorContentKey, VectorContentMediaType};
 pub use vector_content::{
     VectorContentAlias, VectorContentAliasProvenance, VectorContentCandidate,
-    VectorContentCandidateRegistry, VectorContentKey, VectorContentMediaType,
-    VectorContentPlanningError, VectorExtGStateAlphaPair, VectorExtGStatePlan,
-    VectorExtGStatePlanEntry, VectorFormDedupeReceipt, VECTOR_FORM_DEDUPE_ALGORITHM,
+    VectorContentCandidateRegistry, VectorContentPlanningError, VectorExtGStateAlphaPair,
+    VectorExtGStatePlan, VectorExtGStatePlanEntry, VectorFormDedupeReceipt,
+    VECTOR_FORM_DEDUPE_ALGORITHM,
 };
 
 use core::num::NonZeroU32;

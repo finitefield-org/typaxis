@@ -24,6 +24,7 @@ pub const PRECOMPOSED_VECTOR_BLOCK_PREPARATION_ALGORITHM: &str =
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StagingPrecomposedVectorBlockFixtureCase {
     Default,
+    DisplayV2,
     AlignmentStart,
     AlignmentCenter,
     AlignmentEnd,

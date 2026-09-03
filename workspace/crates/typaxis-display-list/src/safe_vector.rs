@@ -96,6 +96,10 @@ pub struct StagingSafeVectorDisplayReceipt {
 }
 
 impl StagingSafeVectorDisplayReceipt {
+    pub const fn algorithm(&self) -> &'static str {
+        STAGING_DRAW_VECTOR_ALGORITHM
+    }
+
     pub const fn package_fingerprint(&self) -> [u8; 32] {
         self.package_fingerprint
     }
@@ -454,6 +458,37 @@ pub fn staging_safe_vector_display_fixture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draw_vector_v1_frozen_canonical_bytes() {
+        let fixture = staging_safe_vector_display_fixture().unwrap();
+        assert_eq!(
+            fixture.display.receipt().algorithm(),
+            STAGING_DRAW_VECTOR_ALGORITHM
+        );
+        assert_eq!(
+            fixture.display.receipt().fingerprint(),
+            [
+                0xd8, 0x44, 0xdf, 0x26, 0xa1, 0xb7, 0x08, 0x90, 0xb4, 0x95, 0x14, 0x1d, 0x2a, 0x67,
+                0xb2, 0x70, 0xf0, 0xdd, 0x98, 0xec, 0x43, 0x6b, 0xc0, 0x9d, 0x57, 0x01, 0x96, 0xf9,
+                0xd2, 0x35, 0x53, 0xf0,
+            ]
+        );
+        assert_eq!(
+            sha256(fixture.display.receipt().canonical_jcs().as_bytes()),
+            fixture.display.receipt().fingerprint()
+        );
+        assert!(fixture
+            .display
+            .receipt()
+            .canonical_jcs()
+            .contains("\"algorithm\":\"typaxis.draw-vector-display/1\""));
+        assert!(!fixture
+            .display
+            .receipt()
+            .canonical_jcs()
+            .contains("content_key"));
+    }
 
     #[test]
     fn vector_display_emits_one_closed_draw_vector_per_selected_use() {

@@ -6,6 +6,7 @@ mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
 mod math;
+mod precomposed_vector;
 mod safe_vector;
 mod semantic_container;
 mod tagged_structure;
@@ -46,6 +47,18 @@ pub use math::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use math::{staging_math_display_fixture, StagingMathDisplayFixture};
+pub use precomposed_vector::{
+    build_staging_precomposed_vector_display, StagingDrawVectorBaselineMetrics,
+    StagingDrawVectorFigureCaption, StagingDrawVectorMathFlow, StagingDrawVectorV2,
+    StagingDrawVectorV2Relation, StagingPrecomposedVectorDisplay,
+    StagingPrecomposedVectorDisplayError, StagingPrecomposedVectorDisplayLayoutInput,
+    StagingPrecomposedVectorDisplayPage, StagingPrecomposedVectorDisplayReceipt,
+    STAGING_DRAW_VECTOR_V2_ALGORITHM,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use precomposed_vector::{
+    staging_precomposed_vector_display_fixture, StagingPrecomposedVectorDisplayFixture,
+};
 pub use safe_vector::{
     build_staging_safe_vector_display, StagingDrawVector, StagingSafeVectorDisplay,
     StagingSafeVectorDisplayError, StagingSafeVectorDisplayPage, StagingSafeVectorDisplayReceipt,

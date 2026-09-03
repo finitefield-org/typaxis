@@ -1131,6 +1131,11 @@ def display_rule_ids(
     max_uri_bytes: int | None = None,
 ) -> set[str]:
     rules: set[str] = set()
+    if "precomposed_vector_display" in instance:
+        # The private DrawVector /2 projection has its own sealed receipt and
+        # page-wrapper semantics; the legacy Display rules below intentionally
+        # continue to operate only on the public Display shape.
+        return rules
     pages = instance.get("pages", [])
     if isinstance(pages, list):
         if not pages:
@@ -5866,6 +5871,223 @@ def main() -> int:
         }:
             raise ValidationFailure(
                 "private 1.4 precomposed-vector fixture does not cover all four kinds"
+            )
+
+        vector_display_path = (
+            STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "display-v2.json"
+        )
+        vector_display = load_json(vector_display_path)
+        vector_display_validator = private_m4_validators[
+            "display-list.schema.json"
+        ]
+        vector_display_errors = schema_errors(
+            vector_display_validator, vector_display
+        )
+        if vector_display_errors:
+            raise ValidationFailure(
+                "private 1.4 precomposed-vector Display was rejected: "
+                + " | ".join(vector_display_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["display-list.schema.json"],
+            vector_display,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 Display accepted private DrawVector /2"
+            )
+        if vector_display_path.read_bytes().rstrip(b"\n") != jcs_bytes(
+            vector_display
+        ):
+            raise ValidationFailure(
+                "private 1.4 precomposed-vector Display is not canonical JCS"
+            )
+
+        def precomposed_vector_display_semantic_errors(
+            candidate: dict[str, Any],
+        ) -> set[str]:
+            errors: set[str] = set()
+            display = candidate["precomposed_vector_display"]
+            pages = display["pages"]
+            commands: list[dict[str, Any]] = []
+            previous_order: tuple[int, int] | None = None
+            forbidden_keys = {
+                "actual_text",
+                "alt",
+                "alternative",
+                "mcid",
+                "pdf_object_number",
+                "pdf_resource_name",
+                "raw_svg",
+                "resource",
+                "resource_uri",
+                "source_tex",
+                "uri",
+            }
+            stack: list[Any] = [display]
+            while stack:
+                value = stack.pop()
+                if isinstance(value, dict):
+                    if forbidden_keys.intersection(value):
+                        errors.add("forbidden-payload")
+                    stack.extend(value.values())
+                elif isinstance(value, list):
+                    stack.extend(value)
+
+            if display["page_count"] != len(pages) or [
+                page["record"]["page_index"] for page in pages
+            ] != list(range(len(pages))):
+                errors.add("page-closure")
+
+            for expected_page_index, page_wrapper in enumerate(pages):
+                page = page_wrapper["record"]
+                if page_wrapper["fingerprint"] != hashlib.sha256(
+                    jcs_bytes(page)
+                ).hexdigest():
+                    errors.add("page-fingerprint")
+                for command_wrapper in page["commands"]:
+                    command = command_wrapper["record"]
+                    commands.append(command)
+                    if command_wrapper["fingerprint"] != hashlib.sha256(
+                        jcs_bytes(command)
+                    ).hexdigest():
+                        errors.add("command-fingerprint")
+                    order = (command["page_index"], command["paint_ordinal"])
+                    if (
+                        command["page_index"] != expected_page_index
+                        or previous_order is not None
+                        and order <= previous_order
+                    ):
+                        errors.add("paint-order")
+                    previous_order = order
+                    viewport = command["viewport"]
+                    matrix = command["matrix"]
+                    if (
+                        matrix["a_16_16"] != command["scale"]
+                        or matrix["b_16_16"] != 0
+                        or matrix["c_16_16"] != 0
+                        or matrix["d_16_16"] != command["scale"]
+                        or matrix["e"] != viewport["x"]
+                        or matrix["f"] != viewport["y"]
+                    ):
+                        errors.add("viewport-matrix")
+                    if command["ir_fingerprint"] != command["content_key"][
+                        "ir_fingerprint"
+                    ]:
+                        errors.add("ir-closure")
+                    baseline = command.get("baseline_metrics")
+                    if baseline is not None and (
+                        viewport["y"] + baseline["baseline"]
+                        != baseline["baseline_y"]
+                    ):
+                        errors.add("baseline")
+
+            content_keys = {
+                jcs_bytes(command["content_key"]) for command in commands
+            }
+            if (
+                display["command_count"] != len(commands)
+                or [command["usage_id"] for command in commands]
+                != list(range(len(commands)))
+                or len({command["owner"] for command in commands})
+                != len(commands)
+                or len(
+                    {
+                        command["selected_placement_fingerprint"]
+                        for command in commands
+                    }
+                )
+                != len(commands)
+            ):
+                errors.add("usage-closure")
+            if display["content_key_count"] != len(content_keys):
+                errors.add("content-key-count")
+            if [command["kind"] for command in commands] != [
+                "inline_vector",
+                "math_vector",
+                "vector_figure",
+                "math_vector_block",
+            ]:
+                errors.add("kind-closure")
+            if (
+                len(content_keys) != 1
+                or any(
+                    command["content_key"]["source_sha256"]
+                    != precomposed_vector_declaration["expected_sha256"]
+                    for command in commands
+                )
+                or len({command["page_index"] for command in commands}) < 2
+                or len({command["kind"] for command in commands}) < 2
+            ):
+                errors.add("dedupe-closure")
+            return errors
+
+        vector_display_semantic_errors = (
+            precomposed_vector_display_semantic_errors(vector_display)
+        )
+        if vector_display_semantic_errors:
+            raise ValidationFailure(
+                "private 1.4 precomposed-vector Display closure drifted: "
+                + ", ".join(sorted(vector_display_semantic_errors))
+            )
+
+        wrong_display_version = copy.deepcopy(vector_display)
+        wrong_display_version["precomposed_vector_display"]["algorithm"] = (
+            "typaxis.draw-vector-display/1"
+        )
+        inline_with_math_flow = copy.deepcopy(vector_display)
+        inline_with_math_flow["precomposed_vector_display"]["pages"][0][
+            "record"
+        ]["commands"][0]["record"]["math_flow"] = copy.deepcopy(
+            vector_display["precomposed_vector_display"]["pages"][1]["record"][
+                "commands"
+            ][1]["record"]["math_flow"]
+        )
+        display_with_raw_tex = copy.deepcopy(vector_display)
+        display_with_raw_tex["precomposed_vector_display"]["pages"][0]["record"][
+            "commands"
+        ][0]["record"]["source_tex"] = "x+y"
+        mixed_display_shape = copy.deepcopy(vector_display)
+        mixed_display_shape["text_buffers"] = []
+        for label, invalid_display in (
+            ("version swap", wrong_display_version),
+            ("wrong conditional relation", inline_with_math_flow),
+            ("raw TeX payload", display_with_raw_tex),
+            ("mixed legacy/vector shape", mixed_display_shape),
+        ):
+            if not schema_errors(vector_display_validator, invalid_display):
+                raise ValidationFailure(
+                    f"private 1.4 precomposed-vector Display accepted {label}"
+                )
+
+        for label, path, field in (
+            ("baseline", (0, 0), "baseline"),
+            ("viewport", (0, 0), "viewport"),
+            ("matrix", (0, 0), "matrix"),
+            ("page", (0, 0), "page"),
+        ):
+            tampered = copy.deepcopy(vector_display)
+            command = tampered["precomposed_vector_display"]["pages"][path[0]][
+                "record"
+            ]["commands"][path[1]]["record"]
+            if field == "baseline":
+                command["baseline_metrics"]["baseline_y"] += 1
+            elif field == "viewport":
+                command["viewport"]["width"] += 1
+            elif field == "matrix":
+                command["matrix"]["e"] += 1
+            else:
+                command["page_index"] += 1
+            if not precomposed_vector_display_semantic_errors(tampered):
+                raise ValidationFailure(
+                    f"private 1.4 precomposed-vector Display accepted {label} tamper"
+                )
+        reordered_display = copy.deepcopy(vector_display)
+        reordered_display["precomposed_vector_display"]["pages"][0]["record"][
+            "commands"
+        ].reverse()
+        if not precomposed_vector_display_semantic_errors(reordered_display):
+            raise ValidationFailure(
+                "private 1.4 precomposed-vector Display accepted paint-order tamper"
             )
 
         inline_vector_trace_path = (

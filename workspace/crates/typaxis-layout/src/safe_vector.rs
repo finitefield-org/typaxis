@@ -1888,6 +1888,14 @@ fn staging_precomposed_vector_binding_fixture_with_media(
     let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
         panic!("precomposed-vector fixture root is not a semantic container");
     };
+    if block_case == crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2 {
+        let mut unused_resource = resources.images[0].clone();
+        unused_resource.image_id = 1;
+        unused_resource.uri = "svg/similar.svg".to_owned();
+        unused_resource.expected_sha256 =
+            Some("e6c73f43dbf919cbe7070cd45d1a4d2f6e4eecd074c57d27a343a319c8176d11".to_owned());
+        resources.images.push(unused_resource);
+    }
     if generic_safe_svg1 {
         let mut safe_svg1 = resources.images[0].clone();
         safe_svg1.image_id = 1;
@@ -2082,6 +2090,7 @@ fn staging_precomposed_vector_binding_fixture_with_media(
         block_case,
         crate::StagingPrecomposedVectorBlockFixtureCase::FigureCaption
             | crate::StagingPrecomposedVectorBlockFixtureCase::FigureCaptionSplit
+            | crate::StagingPrecomposedVectorBlockFixtureCase::DisplayV2
     ) {
         let WireStagingM4Block::VectorFigure { caption, .. } = &mut blocks[1] else {
             panic!("precomposed-vector fixture second block is not a vector Figure");
