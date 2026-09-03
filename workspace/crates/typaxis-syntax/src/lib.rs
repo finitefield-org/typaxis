@@ -21,7 +21,9 @@ pub use semantic_container::{
     PrecomposedVectorActualTextResolution, PrecomposedVectorField, PrecomposedVectorKind,
     PrecomposedVectorMetricPayload, StagingM4PageGeometry, StagingMathLayoutBudgetGuard,
     StagingMathProfileAuthorization, StagingMathProfileProgressToken,
-    StagingMathProfileSessionIdentity, StagingMathProfileView, StagingSafeVectorProfileView,
+    StagingMathProfileSessionIdentity, StagingMathProfileView,
+    StagingPrecomposedVectorProfileAuthorization, StagingPrecomposedVectorProfileProgressToken,
+    StagingPrecomposedVectorProfileSessionIdentity, StagingSafeVectorProfileView,
     StagingSemanticContainerProfileView, StagingSemanticPackageParser, StagingSemanticSyntaxError,
     UnresolvedPrecomposedVectorResourceBinding, ValidatedPrecomposedVectorAlternative,
     ValidatedPrecomposedVectorEquationNumber, ValidatedPrecomposedVectorLanguageOverride,
@@ -116,6 +118,15 @@ pub mod machine_profile_boundary {
         StagingListMarkerPreflightError, StagingStyleReceiptMismatch,
         ValidatedStagingListMarkerUsageReceipt, ValidatedStagingSemanticPackage,
         ValidatedStagingStylePackage,
+    };
+}
+
+/// Narrow DTO facade used by `typaxis-layout-contract` without reversing the
+/// workspace's document-to-layout dependency direction.
+#[doc(hidden)]
+pub mod layout_contract_boundary {
+    pub use typaxis_document::{
+        PrecomposedVectorMetrics, PrecomposedVectorSpacing, PrecomposedVectorViewport,
     };
 }
 

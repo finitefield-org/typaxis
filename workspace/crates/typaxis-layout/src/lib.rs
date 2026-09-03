@@ -37,16 +37,21 @@ pub use advanced_header_footer::{
     ADVANCED_FLOW_REGISTRY_ALGORITHM,
 };
 pub use math::{
-    layout_staging_math, MathFlowId, MathReceiptKey, StagingMathFlow, StagingMathLayout,
-    StagingMathLayoutEpoch, StagingMathLayoutError, StagingMathPlacement, ValidatedMathReceipt,
+    layout_staging_math, BoundPrecomposedMathSource, MathFlowId, MathReceiptKey,
+    PrecomposedMathVectorKind, StagingMathFlow, StagingMathLayout, StagingMathLayoutEpoch,
+    StagingMathLayoutError, StagingMathPlacement, ValidatedMathReceipt, ValidatedMathVectorReceipt,
     MATH_BINDING_ALGORITHM, MATH_DISPLAY_FLOW_ALGORITHM, MATH_SELECTED_LAYOUT_ALGORITHM,
+    PRECOMPOSED_MATH_BINDING_ALGORITHM,
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use math::{staging_math_layout_fixture, StagingMathLayoutFixture};
 pub use safe_vector::{
-    layout_staging_safe_vectors, StagingSafeVectorLayoutError, StagingSafeVectorPlacement,
-    StagingSafeVectorSelectedLayout, StagingSafeVectorSelectedLayoutReceipt,
-    STAGING_SAFE_VECTOR_SELECTED_LAYOUT_ALGORITHM,
+    bind_staging_precomposed_vectors, layout_staging_safe_vectors, BoundPrecomposedVectorMedia,
+    BoundPrecomposedVectorResource, PrecomposedVectorBindingError, PrecomposedVectorLayoutEpoch,
+    StagingSafeVectorLayoutError, StagingSafeVectorPlacement, StagingSafeVectorSelectedLayout,
+    StagingSafeVectorSelectedLayoutReceipt, ValidatedPrecomposedVectorBindings,
+    ValidatedPrecomposedVectorReceipt, PRECOMPOSED_VECTOR_BINDING_ALGORITHM,
+    PRECOMPOSED_VECTOR_BINDING_SET_ALGORITHM, STAGING_SAFE_VECTOR_SELECTED_LAYOUT_ALGORITHM,
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use safe_vector::{staging_safe_vector_layout_fixture, StagingSafeVectorLayoutFixture};
@@ -95,6 +100,12 @@ pub use typaxis_layout_contract::{
     TableGridFingerprint, TableGridReceiptError, TableGridReceiptInput, TableSection,
     TableSelectedLayoutFingerprint, TableVerticalAlignment, ValidatedTableCellBinding,
     ValidatedTableGridReceipt, ValidatedTableRowBinding,
+};
+pub use typaxis_layout_contract::{
+    BoundPrecomposedVectorMetrics, MathVectorBlockPlacementInput, MathVectorBlockStyleInput,
+    MathVectorEquationNumberStyleInput, PrecomposedVectorGeometryError,
+    PrecomposedVectorInlinePlacementInput, PrecomposedVectorPlacementInput, ResolvedRgb8,
+    VectorFigurePlacementInput, VectorFigureStyleInput,
 };
 use typaxis_linebreak::ValidatedParagraphItemRegistry;
 use typaxis_resource_admission::{AdmittedImageMediaKind, AdmittedResourceLedger};

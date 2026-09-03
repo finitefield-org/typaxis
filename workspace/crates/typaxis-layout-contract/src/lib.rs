@@ -8,14 +8,22 @@ use core::num::NonZeroU16;
 use std::collections::BTreeSet;
 use typaxis_core::{
     sha256, AdmittedResourceFingerprint, DocumentFingerprint, FontFaceId, FontInstanceId,
-    FootnoteId, GeneratedBufferKey, GenerationKind, Length, NodeId, NonNegativeLength,
-    PositiveLength, ReferenceFingerprint, StyleFingerprint, TextSpan, Utf8ByteOffset,
+    FootnoteId, GeneratedBufferKey, GenerationKind, Length, NodeId, NonNegativeLength, PageName,
+    PositiveLength, PositiveUnitless16_16, ReferenceFingerprint, StyleFingerprint, TextSpan,
+    Unitless16_16, Utf8ByteOffset,
 };
 use typaxis_resource_admission::{
     AdmittedFontInstanceRef, AdmittedFontInstanceTable, AdmittedResourceLedgerToken,
     ResourceAdmissionError,
 };
-use typaxis_style::{ResolvedTextStyle, StyleValidationError};
+use typaxis_style::{
+    MachineTextAlign, PrecomposedVectorComputedStyleReceipt,
+    PrecomposedVectorEquationNumberTextStyle, PrecomposedVectorStyleKind,
+    PrecomposedVectorStyleReceiptMismatch, ResolvedTextStyle, StyleValidationError,
+};
+use typaxis_syntax::layout_contract_boundary::{
+    PrecomposedVectorMetrics, PrecomposedVectorSpacing, PrecomposedVectorViewport,
+};
 use typaxis_syntax::{
     PackageComputedStyle, PackageGeneratedTextBinding, PackageParagraphTextSite,
     PackageShapeTextError, PackageStyleError, ValidatedMachinePackage, ValidatedParsedPackage,
@@ -28,6 +36,513 @@ pub struct LayoutEpoch {
     style: StyleFingerprint,
     admitted_resources: AdmittedResourceFingerprint,
     references: ReferenceFingerprint,
+}
+
+/// Resolved placement paint in the closed RGB8 color space used by
+/// producer-composed vectors. This value is placement state, never part of a
+/// reusable vector resource key.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ResolvedRgb8 {
+    red: u8,
+    green: u8,
+    blue: u8,
+}
+
+impl ResolvedRgb8 {
+    pub const BLACK: Self = Self::new(0, 0, 0);
+
+    pub const fn new(red: u8, green: u8, blue: u8) -> Self {
+        Self { red, green, blue }
+    }
+
+    pub const fn red(self) -> u8 {
+        self.red
+    }
+
+    pub const fn green(self) -> u8 {
+        self.green
+    }
+
+    pub const fn blue(self) -> u8 {
+        self.blue
+    }
+}
+
+/// Resource-independent failure while proving the one permitted uniform
+/// scale from admitted intrinsic geometry to producer-supplied viewport
+/// geometry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrecomposedVectorGeometryError {
+    ArithmeticOverflow,
+    ScaleOutOfRange,
+    NonUniformScale,
+    MetricRelation,
+}
+
+impl std::fmt::Display for PrecomposedVectorGeometryError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ArithmeticOverflow => {
+                formatter.write_str("precomposed vector geometry arithmetic overflow")
+            }
+            Self::ScaleOutOfRange => {
+                formatter.write_str("precomposed vector scale is outside positive 16.16")
+            }
+            Self::NonUniformScale => {
+                formatter.write_str("precomposed vector viewport is not one uniform scale")
+            }
+            Self::MetricRelation => {
+                formatter.write_str("precomposed vector metric relation is invalid")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PrecomposedVectorGeometryError {}
+
+/// Closed copy of the full producer metric record after its admitted
+/// intrinsic ratio has been proved. All coordinates remain integer
+/// `pdf_point_1_65536` values.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundPrecomposedVectorMetrics {
+    advance: PositiveLength,
+    ascent: PositiveLength,
+    baseline: NonNegativeLength,
+    descent: NonNegativeLength,
+    origin_x: Length,
+    viewport_width: PositiveLength,
+    viewport_height: PositiveLength,
+    viewport_right_from_pen: Length,
+}
+
+impl BoundPrecomposedVectorMetrics {
+    fn from_metrics(
+        metrics: PrecomposedVectorMetrics,
+    ) -> Result<Self, PrecomposedVectorGeometryError> {
+        let viewport_right_from_pen = metrics
+            .origin_x
+            .checked_add(metrics.viewport.width.get())
+            .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)?;
+        let viewport_below_baseline = metrics
+            .viewport
+            .height
+            .get()
+            .checked_sub(metrics.baseline.get())
+            .ok_or(PrecomposedVectorGeometryError::MetricRelation)?;
+        if metrics.baseline.get().raw() > metrics.viewport.height.get().raw()
+            || metrics.ascent.get().raw() < metrics.baseline.get().raw()
+            || metrics.descent.get().raw() < viewport_below_baseline.raw()
+        {
+            return Err(PrecomposedVectorGeometryError::MetricRelation);
+        }
+        Ok(Self {
+            advance: metrics.advance,
+            ascent: metrics.ascent,
+            baseline: metrics.baseline,
+            descent: metrics.descent,
+            origin_x: metrics.origin_x,
+            viewport_width: metrics.viewport.width,
+            viewport_height: metrics.viewport.height,
+            viewport_right_from_pen,
+        })
+    }
+
+    pub const fn advance(self) -> PositiveLength {
+        self.advance
+    }
+
+    pub const fn ascent(self) -> PositiveLength {
+        self.ascent
+    }
+
+    pub const fn baseline(self) -> NonNegativeLength {
+        self.baseline
+    }
+
+    pub const fn descent(self) -> NonNegativeLength {
+        self.descent
+    }
+
+    pub const fn origin_x(self) -> Length {
+        self.origin_x
+    }
+
+    pub const fn viewport_width(self) -> PositiveLength {
+        self.viewport_width
+    }
+
+    pub const fn viewport_height(self) -> PositiveLength {
+        self.viewport_height
+    }
+
+    pub const fn viewport_right_from_pen(self) -> Length {
+        self.viewport_right_from_pen
+    }
+
+    /// Computes the viewport top for a selected line baseline using integer
+    /// arithmetic only.
+    pub fn viewport_top(self, line_baseline: Length) -> Option<Length> {
+        line_baseline.checked_sub(self.baseline.get())
+    }
+
+    /// Reconstructs the selected line baseline from a viewport top using the
+    /// exact inverse of [`Self::viewport_top`].
+    pub fn line_baseline(self, viewport_top: Length) -> Option<Length> {
+        viewport_top.checked_add(self.baseline.get())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PrecomposedVectorBlockStyleCore {
+    space_before: NonNegativeLength,
+    space_after: NonNegativeLength,
+    start_indent: NonNegativeLength,
+    end_indent: NonNegativeLength,
+    text_align: MachineTextAlign,
+    page_name: Option<PageName>,
+    keep_with_next: bool,
+    fingerprint: [u8; 32],
+}
+
+impl PrecomposedVectorBlockStyleCore {
+    fn from_computed(style: &PrecomposedVectorComputedStyleReceipt) -> Self {
+        Self {
+            space_before: style.space_before(),
+            space_after: style.space_after(),
+            start_indent: style.start_indent(),
+            end_indent: style.end_indent(),
+            text_align: style.text_align(),
+            page_name: style.page_name().cloned(),
+            keep_with_next: style.keep_with_next(),
+            fingerprint: style.fingerprint(),
+        }
+    }
+}
+
+macro_rules! block_style_core_accessors {
+    () => {
+        pub const fn space_before(&self) -> NonNegativeLength {
+            self.core.space_before
+        }
+        pub const fn space_after(&self) -> NonNegativeLength {
+            self.core.space_after
+        }
+        pub const fn start_indent(&self) -> NonNegativeLength {
+            self.core.start_indent
+        }
+        pub const fn end_indent(&self) -> NonNegativeLength {
+            self.core.end_indent
+        }
+        pub const fn text_align(&self) -> MachineTextAlign {
+            self.core.text_align
+        }
+        pub const fn page_name(&self) -> Option<&PageName> {
+            self.core.page_name.as_ref()
+        }
+        pub const fn keep_with_next(&self) -> bool {
+            self.core.keep_with_next
+        }
+        pub const fn fingerprint(&self) -> [u8; 32] {
+            self.core.fingerprint
+        }
+    };
+}
+
+/// Computed style usable only by a generic vector Figure placement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VectorFigureStyleInput {
+    core: PrecomposedVectorBlockStyleCore,
+    keep_caption: bool,
+}
+
+impl VectorFigureStyleInput {
+    pub fn from_computed(
+        style: &PrecomposedVectorComputedStyleReceipt,
+    ) -> Result<Self, PrecomposedVectorStyleReceiptMismatch> {
+        style.verify_for(PrecomposedVectorStyleKind::VectorFigure)?;
+        Ok(Self {
+            core: PrecomposedVectorBlockStyleCore::from_computed(style),
+            keep_caption: style
+                .keep_caption()
+                .ok_or(PrecomposedVectorStyleReceiptMismatch)?,
+        })
+    }
+
+    block_style_core_accessors!();
+
+    pub const fn keep_caption(&self) -> bool {
+        self.keep_caption
+    }
+}
+
+/// Equation-number text style copied without exposing the originating raw
+/// declarations to vector geometry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MathVectorEquationNumberStyleInput {
+    font_families: Option<Vec<String>>,
+    font_size: Option<PositiveLength>,
+    line_height: Option<PositiveLength>,
+}
+
+impl MathVectorEquationNumberStyleInput {
+    fn from_computed(style: &PrecomposedVectorEquationNumberTextStyle) -> Self {
+        Self {
+            font_families: style.font_families().map(<[String]>::to_vec),
+            font_size: style.font_size(),
+            line_height: style.line_height(),
+        }
+    }
+
+    pub fn font_families(&self) -> Option<&[String]> {
+        self.font_families.as_deref()
+    }
+
+    pub const fn font_size(&self) -> Option<PositiveLength> {
+        self.font_size
+    }
+
+    pub const fn line_height(&self) -> Option<PositiveLength> {
+        self.line_height
+    }
+}
+
+/// Computed style usable only by a math-vector block placement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MathVectorBlockStyleInput {
+    core: PrecomposedVectorBlockStyleCore,
+    equation_number: MathVectorEquationNumberStyleInput,
+}
+
+impl MathVectorBlockStyleInput {
+    pub fn from_computed(
+        style: &PrecomposedVectorComputedStyleReceipt,
+    ) -> Result<Self, PrecomposedVectorStyleReceiptMismatch> {
+        style.verify_for(PrecomposedVectorStyleKind::MathVectorBlock)?;
+        Ok(Self {
+            core: PrecomposedVectorBlockStyleCore::from_computed(style),
+            equation_number: MathVectorEquationNumberStyleInput::from_computed(
+                style
+                    .equation_number_text_style()
+                    .ok_or(PrecomposedVectorStyleReceiptMismatch)?,
+            ),
+        })
+    }
+
+    block_style_core_accessors!();
+
+    pub const fn equation_number_style(&self) -> &MathVectorEquationNumberStyleInput {
+        &self.equation_number
+    }
+}
+
+/// Atomic inline-vector input handed to the line-break owner after resource
+/// binding. Block-only style state cannot be represented by this type.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PrecomposedVectorInlinePlacementInput {
+    metrics: BoundPrecomposedVectorMetrics,
+    spacing_before: NonNegativeLength,
+    spacing_after: NonNegativeLength,
+    scale: PositiveUnitless16_16,
+    paint: ResolvedRgb8,
+}
+
+impl PrecomposedVectorInlinePlacementInput {
+    pub fn from_validated_metrics(
+        metrics: PrecomposedVectorMetrics,
+        spacing: PrecomposedVectorSpacing,
+        intrinsic_width: PositiveLength,
+        intrinsic_height: PositiveLength,
+        paint: ResolvedRgb8,
+    ) -> Result<Self, PrecomposedVectorGeometryError> {
+        let scale =
+            prove_uniform_vector_scale(intrinsic_width, intrinsic_height, metrics.viewport)?;
+        Ok(Self {
+            metrics: BoundPrecomposedVectorMetrics::from_metrics(metrics)?,
+            spacing_before: spacing.before,
+            spacing_after: spacing.after,
+            scale,
+            paint,
+        })
+    }
+
+    pub const fn metrics(self) -> BoundPrecomposedVectorMetrics {
+        self.metrics
+    }
+
+    pub const fn spacing_before(self) -> NonNegativeLength {
+        self.spacing_before
+    }
+
+    pub const fn spacing_after(self) -> NonNegativeLength {
+        self.spacing_after
+    }
+
+    pub const fn scale(self) -> PositiveUnitless16_16 {
+        self.scale
+    }
+
+    pub const fn paint(self) -> ResolvedRgb8 {
+        self.paint
+    }
+}
+
+/// Atomic generic-vector Figure input. Inline spacing and math-only source
+/// state cannot be represented by this type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VectorFigurePlacementInput {
+    viewport_width: PositiveLength,
+    viewport_height: PositiveLength,
+    scale: PositiveUnitless16_16,
+    paint: ResolvedRgb8,
+    style: VectorFigureStyleInput,
+}
+
+impl VectorFigurePlacementInput {
+    pub fn from_validated_viewport(
+        viewport: PrecomposedVectorViewport,
+        intrinsic_width: PositiveLength,
+        intrinsic_height: PositiveLength,
+        paint: ResolvedRgb8,
+        style: VectorFigureStyleInput,
+    ) -> Result<Self, PrecomposedVectorGeometryError> {
+        Ok(Self {
+            viewport_width: viewport.width,
+            viewport_height: viewport.height,
+            scale: prove_uniform_vector_scale(intrinsic_width, intrinsic_height, viewport)?,
+            paint,
+            style,
+        })
+    }
+
+    pub const fn viewport_width(&self) -> PositiveLength {
+        self.viewport_width
+    }
+
+    pub const fn viewport_height(&self) -> PositiveLength {
+        self.viewport_height
+    }
+
+    pub const fn scale(&self) -> PositiveUnitless16_16 {
+        self.scale
+    }
+
+    pub const fn paint(&self) -> ResolvedRgb8 {
+        self.paint
+    }
+
+    pub const fn style(&self) -> &VectorFigureStyleInput {
+        &self.style
+    }
+}
+
+/// Atomic math-vector block input. Inline spacing and Figure-caption policy
+/// cannot be represented by this type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MathVectorBlockPlacementInput {
+    metrics: BoundPrecomposedVectorMetrics,
+    scale: PositiveUnitless16_16,
+    paint: ResolvedRgb8,
+    style: MathVectorBlockStyleInput,
+}
+
+impl MathVectorBlockPlacementInput {
+    pub fn from_validated_metrics(
+        metrics: PrecomposedVectorMetrics,
+        intrinsic_width: PositiveLength,
+        intrinsic_height: PositiveLength,
+        paint: ResolvedRgb8,
+        style: MathVectorBlockStyleInput,
+    ) -> Result<Self, PrecomposedVectorGeometryError> {
+        Ok(Self {
+            metrics: BoundPrecomposedVectorMetrics::from_metrics(metrics)?,
+            scale: prove_uniform_vector_scale(intrinsic_width, intrinsic_height, metrics.viewport)?,
+            paint,
+            style,
+        })
+    }
+
+    pub const fn metrics(&self) -> BoundPrecomposedVectorMetrics {
+        self.metrics
+    }
+
+    pub const fn scale(&self) -> PositiveUnitless16_16 {
+        self.scale
+    }
+
+    pub const fn paint(&self) -> ResolvedRgb8 {
+        self.paint
+    }
+
+    pub const fn style(&self) -> &MathVectorBlockStyleInput {
+        &self.style
+    }
+}
+
+/// Exhaustive backend-independent input for later inline/block placement.
+/// Variant fields make inapplicable spacing/style members unrepresentable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PrecomposedVectorPlacementInput {
+    Inline(PrecomposedVectorInlinePlacementInput),
+    VectorFigure(VectorFigurePlacementInput),
+    MathVectorBlock(MathVectorBlockPlacementInput),
+}
+
+fn prove_uniform_vector_scale(
+    intrinsic_width: PositiveLength,
+    intrinsic_height: PositiveLength,
+    viewport: PrecomposedVectorViewport,
+) -> Result<PositiveUnitless16_16, PrecomposedVectorGeometryError> {
+    const FIXED_ONE: i128 = 65_536;
+    let numerator = i128::from(viewport.width.get().raw())
+        .checked_mul(FIXED_ONE)
+        .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)?;
+    let scale = round_positive_ratio_ties_even(numerator, i128::from(intrinsic_width.get().raw()))?;
+    let scale = i32::try_from(scale)
+        .ok()
+        .and_then(|raw| PositiveUnitless16_16::new(Unitless16_16::from_raw(raw)))
+        .ok_or(PrecomposedVectorGeometryError::ScaleOutOfRange)?;
+    let scaled_width = scale_vector_dimension(intrinsic_width, scale)?;
+    let scaled_height = scale_vector_dimension(intrinsic_height, scale)?;
+    if scaled_width != viewport.width || scaled_height != viewport.height {
+        return Err(PrecomposedVectorGeometryError::NonUniformScale);
+    }
+    Ok(scale)
+}
+
+fn scale_vector_dimension(
+    intrinsic: PositiveLength,
+    scale: PositiveUnitless16_16,
+) -> Result<PositiveLength, PrecomposedVectorGeometryError> {
+    let numerator = i128::from(intrinsic.get().raw())
+        .checked_mul(i128::from(scale.get().raw()))
+        .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)?;
+    let rounded = round_positive_ratio_ties_even(numerator, 65_536)?;
+    let raw =
+        i64::try_from(rounded).map_err(|_| PrecomposedVectorGeometryError::ArithmeticOverflow)?;
+    Length::from_raw(raw)
+        .and_then(PositiveLength::new)
+        .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)
+}
+
+fn round_positive_ratio_ties_even(
+    numerator: i128,
+    denominator: i128,
+) -> Result<i128, PrecomposedVectorGeometryError> {
+    if numerator <= 0 || denominator <= 0 {
+        return Err(PrecomposedVectorGeometryError::ArithmeticOverflow);
+    }
+    let quotient = numerator / denominator;
+    let remainder = numerator % denominator;
+    let doubled = remainder
+        .checked_mul(2)
+        .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)?;
+    if doubled < denominator || (doubled == denominator && quotient % 2 == 0) {
+        Ok(quotient)
+    } else {
+        quotient
+            .checked_add(1)
+            .ok_or(PrecomposedVectorGeometryError::ArithmeticOverflow)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

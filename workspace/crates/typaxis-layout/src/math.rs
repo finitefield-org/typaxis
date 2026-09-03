@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use typaxis_core::{push_jcs_string, sha256, FontFaceId, M4EffectiveResourceLimits, NodeId};
+use typaxis_core::{
+    push_jcs_string, sha256, FontFaceId, M4EffectiveResourceLimits, NodeId, SourceSpan, TextSpan,
+};
 use typaxis_font::MathFontFace;
 use typaxis_layout_contract::FlowId;
 use typaxis_linebreak::{AtomicMathInlineItem, AtomicMathPlacement};
@@ -19,10 +21,235 @@ use typaxis_syntax::{
 use crate::layout_staging_semantic_containers;
 
 pub const MATH_BINDING_ALGORITHM: &str = "typaxis.math-binding/1";
+pub const PRECOMPOSED_MATH_BINDING_ALGORITHM: &str = "typaxis.precomposed-math-binding/1";
 pub const MATH_DISPLAY_FLOW_ALGORITHM: &str = "typaxis.math-flow/1";
 pub const MATH_SELECTED_LAYOUT_ALGORITHM: &str = "typaxis.math-selected-layout/1";
 const MATH_LAYOUT_EPOCH_ALGORITHM: &str = "typaxis.math-layout-epoch/1";
 const MATH_STYLE_FINGERPRINT_ALGORITHM: &str = "typaxis.math-computed-style/1";
+
+/// Producer-composed math kind. This is intentionally nominally distinct
+/// from native [`MathNodeKind`] and has no conversion into a native
+/// [`MathComputationReceipt`].
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PrecomposedMathVectorKind {
+    Inline,
+    Block,
+}
+
+impl PrecomposedMathVectorKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inline => "math_vector",
+            Self::Block => "math_vector_block",
+        }
+    }
+}
+
+/// Exact source-TeX reference proof. It retains only typed spans and hashes;
+/// raw TeX bytes are never copied into layout state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundPrecomposedMathSource {
+    text_span: TextSpan,
+    mapped_source_span: SourceSpan,
+    text_buffer_sha256: [u8; 32],
+    exact_slice_sha256: [u8; 32],
+}
+
+impl BoundPrecomposedMathSource {
+    pub const fn text_span(&self) -> TextSpan {
+        self.text_span
+    }
+
+    pub const fn mapped_source_span(&self) -> SourceSpan {
+        self.mapped_source_span
+    }
+
+    pub const fn text_buffer_sha256(&self) -> [u8; 32] {
+        self.text_buffer_sha256
+    }
+
+    pub const fn exact_slice_sha256(&self) -> [u8; 32] {
+        self.exact_slice_sha256
+    }
+}
+
+/// Math-only binding over exact TeX identity, resolved ActualText, producer
+/// provenance, and one already-validated common vector receipt. Its algorithm
+/// and nominal type cannot be confused with [`ValidatedMathReceipt`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedMathVectorReceipt {
+    common_fingerprint: [u8; 32],
+    node_id: NodeId,
+    kind: PrecomposedMathVectorKind,
+    source: BoundPrecomposedMathSource,
+    resolved_actual_text: String,
+    resolved_actual_text_sha256: [u8; 32],
+    provenance: typaxis_document::VectorProvenance,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl ValidatedMathVectorReceipt {
+    pub const fn algorithm(&self) -> &'static str {
+        PRECOMPOSED_MATH_BINDING_ALGORITHM
+    }
+
+    pub const fn common_fingerprint(&self) -> [u8; 32] {
+        self.common_fingerprint
+    }
+
+    pub const fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
+    pub const fn kind(&self) -> PrecomposedMathVectorKind {
+        self.kind
+    }
+
+    pub const fn source(&self) -> &BoundPrecomposedMathSource {
+        &self.source
+    }
+
+    pub fn resolved_actual_text(&self) -> &str {
+        &self.resolved_actual_text
+    }
+
+    pub const fn resolved_actual_text_sha256(&self) -> [u8; 32] {
+        self.resolved_actual_text_sha256
+    }
+
+    pub const fn provenance(&self) -> &typaxis_document::VectorProvenance {
+        &self.provenance
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub(super) fn integrity_matches(&self) -> bool {
+        let observed = encode_precomposed_math_vector_receipt(self);
+        self.resolved_actual_text_sha256 == sha256(self.resolved_actual_text.as_bytes())
+            && self.canonical_jcs == observed
+            && self.fingerprint == sha256(observed.as_bytes())
+    }
+}
+
+pub(super) fn issue_precomposed_math_vector_receipt(
+    common: &crate::ValidatedPrecomposedVectorReceipt,
+    metrics: &typaxis_syntax::ValidatedPrecomposedVectorMetrics,
+    declaration: &typaxis_document::StagingM4ImageDeclaration,
+) -> Result<ValidatedMathVectorReceipt, crate::PrecomposedVectorBindingError> {
+    let kind = match metrics.kind() {
+        typaxis_syntax::PrecomposedVectorKind::MathVector => PrecomposedMathVectorKind::Inline,
+        typaxis_syntax::PrecomposedVectorKind::MathVectorBlock => PrecomposedMathVectorKind::Block,
+        typaxis_syntax::PrecomposedVectorKind::InlineVector
+        | typaxis_syntax::PrecomposedVectorKind::VectorFigure => {
+            return Err(crate::PrecomposedVectorBindingError::ReceiptMismatch);
+        }
+    };
+    let source = metrics
+        .source_tex()
+        .ok_or(crate::PrecomposedVectorBindingError::ReceiptMismatch)?;
+    let resolved_actual_text = metrics
+        .alternative()
+        .resolved_actual_text()
+        .ok_or(crate::PrecomposedVectorBindingError::ReceiptMismatch)?
+        .to_owned();
+    let provenance = declaration
+        .vector_provenance
+        .clone()
+        .ok_or(crate::PrecomposedVectorBindingError::ReceiptMismatch)?;
+    if common.node_id() != metrics.node_id()
+        || common.kind() != metrics.kind()
+        || common.metrics_fingerprint() != metrics.fingerprint()
+        || common.resource().image_id() != declaration.image_id
+        || common.resource().declared_media() != crate::BoundPrecomposedVectorMedia::SafeSvg2
+        || common.resource().admitted_media() != crate::BoundPrecomposedVectorMedia::SafeSvg2
+        || common.resource().parser_profile()
+            != typaxis_resource_admission::SafeVectorParserProfile::SafeSvg2
+        || common.alternative() != metrics.alternative().alternative()
+    {
+        return Err(crate::PrecomposedVectorBindingError::ReceiptMismatch);
+    }
+    let source = BoundPrecomposedMathSource {
+        text_span: source.text_span(),
+        mapped_source_span: source.mapped_source_span(),
+        text_buffer_sha256: source.text_buffer_sha256(),
+        exact_slice_sha256: source.exact_text_sha256(),
+    };
+    let mut receipt = ValidatedMathVectorReceipt {
+        common_fingerprint: common.fingerprint(),
+        node_id: common.node_id(),
+        kind,
+        source,
+        resolved_actual_text_sha256: sha256(resolved_actual_text.as_bytes()),
+        resolved_actual_text,
+        provenance,
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    receipt.canonical_jcs = encode_precomposed_math_vector_receipt(&receipt);
+    receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+    if !receipt.integrity_matches() {
+        return Err(crate::PrecomposedVectorBindingError::ReceiptMismatch);
+    }
+    Ok(receipt)
+}
+
+fn encode_precomposed_math_vector_receipt(value: &ValidatedMathVectorReceipt) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, PRECOMPOSED_MATH_BINDING_ALGORITHM);
+    output.push_str(",\"common_fingerprint\":");
+    push_hash(&mut output, value.common_fingerprint);
+    output.push_str(",\"kind\":");
+    push_jcs_string(&mut output, value.kind.as_str());
+    output.push_str(",\"node_id\":");
+    output.push_str(&value.node_id.get().to_string());
+    output.push_str(",\"provenance\":{\"engine_id\":");
+    push_jcs_string(&mut output, &value.provenance.engine_id);
+    output.push_str(",\"engine_version\":");
+    push_jcs_string(&mut output, &value.provenance.engine_version);
+    output.push_str(",\"rules_version\":");
+    push_jcs_string(&mut output, &value.provenance.rules_version);
+    output.push_str("},\"resolved_actual_text_sha256\":");
+    push_hash(&mut output, value.resolved_actual_text_sha256);
+    output.push_str(",\"source_tex\":{\"exact_slice_sha256\":");
+    push_hash(&mut output, value.source.exact_slice_sha256);
+    output.push_str(",\"mapped_source_span\":{\"end_byte\":");
+    output.push_str(&value.source.mapped_source_span.end_byte().get().to_string());
+    output.push_str(",\"source_id\":");
+    output.push_str(
+        &value
+            .source
+            .mapped_source_span
+            .source_id()
+            .get()
+            .to_string(),
+    );
+    output.push_str(",\"start_byte\":");
+    output.push_str(
+        &value
+            .source
+            .mapped_source_span
+            .start_byte()
+            .get()
+            .to_string(),
+    );
+    output.push_str("},\"text_buffer_sha256\":");
+    push_hash(&mut output, value.source.text_buffer_sha256);
+    output.push_str(",\"text_span\":{\"end_byte\":");
+    output.push_str(&value.source.text_span.end_byte().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.source.text_span.start_byte().get().to_string());
+    output.push_str(",\"text_id\":");
+    output.push_str(&value.source.text_span.text_id().get().to_string());
+    output.push_str("}}}");
+    output
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MathReceiptKey([u8; 32]);
@@ -1306,6 +1533,31 @@ fn issue_fixture_math_profile(
 mod tests {
     use super::*;
 
+    fn reseal_precomposed_math_receipt(value: &mut ValidatedMathVectorReceipt) {
+        value.canonical_jcs = encode_precomposed_math_vector_receipt(value);
+        value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+    }
+
+    fn assert_precomposed_math_tamper_fails(
+        fixture: &crate::safe_vector::StagingPrecomposedVectorBindingFixture,
+        mut bindings: crate::ValidatedPrecomposedVectorBindings,
+    ) {
+        for receipt in &mut bindings.math_receipts {
+            reseal_precomposed_math_receipt(receipt);
+        }
+        bindings.reseal_binding_set_for_test();
+        let error = bindings
+            .verify(
+                &fixture.package,
+                &fixture.profile,
+                &fixture.limits,
+                &fixture.admitted,
+            )
+            .unwrap_err();
+        assert_eq!(error, crate::PrecomposedVectorBindingError::ReceiptMismatch);
+        assert!(error.to_string().starts_with("I9190:"));
+    }
+
     fn top_level_math_package() -> String {
         let bytes = std::fs::read(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
@@ -1319,6 +1571,94 @@ mod tests {
             )
             .unwrap();
         String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
+    fn precomposed_math_binding_tamper_closes_source_vector_alternative_and_provenance() {
+        let fixture = crate::safe_vector::staging_precomposed_vector_binding_fixture().unwrap();
+        let inline = fixture.bindings.math_receipt(NodeId::new(4)).unwrap();
+        let block = fixture.bindings.math_receipt(NodeId::new(6)).unwrap();
+        let syntax = fixture
+            .package
+            .precomposed_vector_metrics_for(NodeId::new(4))
+            .unwrap();
+        let source = syntax.source_tex().unwrap();
+
+        assert_eq!(inline.algorithm(), PRECOMPOSED_MATH_BINDING_ALGORITHM);
+        assert_ne!(PRECOMPOSED_MATH_BINDING_ALGORITHM, MATH_BINDING_ALGORITHM);
+        assert_eq!(inline.kind(), PrecomposedMathVectorKind::Inline);
+        assert_eq!(block.kind(), PrecomposedMathVectorKind::Block);
+        assert_eq!(inline.resolved_actual_text(), "xたすy");
+        assert_eq!(
+            inline.resolved_actual_text_sha256(),
+            sha256("xたすy".as_bytes())
+        );
+        assert_eq!(inline.source().text_span(), source.text_span());
+        assert_eq!(
+            inline.source().mapped_source_span(),
+            source.mapped_source_span()
+        );
+        assert_eq!(
+            inline.source().text_buffer_sha256(),
+            source.text_buffer_sha256()
+        );
+        assert_eq!(
+            inline.source().exact_slice_sha256(),
+            source.exact_text_sha256()
+        );
+        assert_eq!(inline.provenance().engine_id, "vmb.texToSvg");
+        assert_eq!(inline.provenance().engine_version, "2026.09.0");
+        assert_eq!(inline.provenance().rules_version, "vmb.math-safe-svg/1");
+        assert!(!inline.canonical_jcs().contains("x+y"));
+        fixture
+            .bindings
+            .verify(
+                &fixture.package,
+                &fixture.profile,
+                &fixture.limits,
+                &fixture.admitted,
+            )
+            .unwrap();
+
+        let mut wrong_exact_source = fixture.bindings.clone();
+        wrong_exact_source.math_receipts[0]
+            .source
+            .exact_slice_sha256[0] ^= 1;
+        assert_precomposed_math_tamper_fails(&fixture, wrong_exact_source);
+
+        let mut wrong_text_buffer = fixture.bindings.clone();
+        wrong_text_buffer.math_receipts[0].source.text_buffer_sha256[0] ^= 1;
+        assert_precomposed_math_tamper_fails(&fixture, wrong_text_buffer);
+
+        let mut wrong_text_span = fixture.bindings.clone();
+        wrong_text_span.math_receipts[0].source.text_span = block.source().text_span();
+        assert_precomposed_math_tamper_fails(&fixture, wrong_text_span);
+
+        let mut wrong_source_span = fixture.bindings.clone();
+        wrong_source_span.math_receipts[0].source.mapped_source_span =
+            block.source().mapped_source_span();
+        assert_precomposed_math_tamper_fails(&fixture, wrong_source_span);
+
+        let mut wrong_vector = fixture.bindings.clone();
+        wrong_vector.math_receipts[0].common_fingerprint = block.common_fingerprint();
+        assert_precomposed_math_tamper_fails(&fixture, wrong_vector);
+
+        let mut wrong_alternative = fixture.bindings.clone();
+        wrong_alternative.math_receipts[0].resolved_actual_text = "別の読み上げ".to_owned();
+        wrong_alternative.math_receipts[0].resolved_actual_text_sha256 = sha256(
+            wrong_alternative.math_receipts[0]
+                .resolved_actual_text
+                .as_bytes(),
+        );
+        assert_precomposed_math_tamper_fails(&fixture, wrong_alternative);
+
+        let mut wrong_provenance = fixture.bindings.clone();
+        wrong_provenance.math_receipts[0].provenance.engine_version = "2026.09.1".to_owned();
+        assert_precomposed_math_tamper_fails(&fixture, wrong_provenance);
+
+        let mut wrong_kind = fixture.bindings.clone();
+        wrong_kind.math_receipts[0].kind = PrecomposedMathVectorKind::Block;
+        assert_precomposed_math_tamper_fails(&fixture, wrong_kind);
     }
 
     #[test]

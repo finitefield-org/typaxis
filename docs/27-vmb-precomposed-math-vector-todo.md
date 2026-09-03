@@ -641,7 +641,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V08 Resource-aware metricとsource/vector bindingを閉じる
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V04, MI4-V05, MI4-V06, MI4-V07
 - Design inputs: docs/27 §4.2、§5、§9.1、§10
 - Primary files:
@@ -676,6 +676,16 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout precomposed_vector_binding --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout precomposed_vector_scale --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-layout precomposed_math_binding_tamper --locked`
+- Implementation notes (2026-09-03, macOS Darwin 25.5.0 arm64, rustc/cargo 1.97.1):
+  - Implementation commit: this MI4-V08 change set containing this completion record.
+  - admitted intrinsic sizeからproducer viewportへのscaleを、checked `i128`による一度だけのround-half-to-evenでpositive 16.16へ導出し、同じscaleによる両軸の個別丸め結果をexact照合するbackend-independent placement inputを追加した。inlineはmetrics/spacing、vector Figureとmath blockはkind別computed styleだけを型として保持し、baselineの整数往復、`origin_x + viewport.width`、resolved black RGB8を閉じた。
+  - resource admission ownerが発行する`SafeVectorAdmissionAttestation`を追加し、common `ValidatedPrecomposedVectorReceipt`でimage ID、declared/admitted Safe-SVG media、stable source SHA-256、nominal parser profile、parser/IR/fingerprint identity、intrinsic geometry/viewBox、profile/limits、syntax metric/style receipt、alternative/languageを一つのlayout epochへjoinした。raw URI/SVG、caller expected hash、float scale、page/Form/object/MCID stateはreceiptへ渡していない。
+  - private production profile receiptからsession-bound `StagingPrecomposedVectorProfileAuthorization`を発行し、package/semantic/limits、全vector owner/metric fingerprint、full profile receipt fingerprintをlayoutとresource admissionへ引き渡すdependency-inversion境界を追加した。process-local profile/admission progress tokenはcanonical bytesへ含めず、同一inputのbinding JCS/fingerprintが別sessionでも一致することを検証した。
+  - math kindだけにnominal `ValidatedMathVectorReceipt`とexact `typaxis.precomposed-math-binding/1`を追加し、common vector fingerprint、inline/block kind、TeX TextSpan/mapped SourceSpan、TextBuffer/exact slice SHA-256、resolved ActualText、producer engine/version/rulesをbindした。native `MathComputationReceipt` / `typaxis.math-binding/1`は変更せず、producer-composed mathへのconstructorや変換を追加していない。
+  - 4 kind、Safe-SVG 1/2混在、uniform-scale丸め、baseline往復、wrong image/declared・admitted media/stable hash/parser profile・ID/IR/profile/limits/epoch/metrics/style/alternative/language/paint、math source span/TextSpan/buffer/slice/vector/ActualText/provenance/kind、foreign profile sessionをpositive/tamper testで固定した。
+  - milestone指定の3 targeted test、変更5クレートの全test/doc-test、forbidden dependency guard、workspace all-target/all-feature test、workspace clippy `-D warnings`、fmt check、`python3 schemas/validate.py`、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは3869 refsを含む全bundle/fixtureを通過した。
+  - レビューでは`typaxis-layout-contract -> typaxis-document`と`typaxis-layout -> typaxis-machine-profile`の禁止依存をsyntax DTO facade/session-bound authorizationへ反転し、Safe-SVG 1正常系、決定性、component別tamper coverage、MSRV非対応API、clippy findingsを修正した。再検証後のfindingは0件である。
+  - listed primary file外ではdependency inversionのため`workspace/crates/typaxis-syntax/src/lib.rs`、`workspace/crates/typaxis-syntax/src/semantic_container.rs`、`workspace/crates/typaxis-machine-profile/src/semantic_container.rs`と本completion recordを変更した。`typaxis-machine-profile/src/math.rs`はnative math isolationにより変更せず、line break、physical block/page placement、Display/PDF/Form、manifest、Schema/public capabilityを先取りしていない。
 - Non-goals:
   - line break、page placement、Display/PDF serialization
 

@@ -5,7 +5,10 @@ use typaxis_syntax::machine_profile_boundary::{
     SemanticContainerKind, SemanticContainerStyleKind, StagingM4Block,
     ValidatedStagingSemanticPackage,
 };
-use typaxis_syntax::{StagingMathProfileSessionIdentity, StagingSemanticContainerProfileView};
+use typaxis_syntax::{
+    StagingMathProfileSessionIdentity, StagingPrecomposedVectorProfileSessionIdentity,
+    StagingSemanticContainerProfileView,
+};
 
 pub const STAGING_PRODUCTION_BOOK_PROFILE_ID: &str = "typaxis.machine-pdf/production-book-1";
 pub const STAGING_PRODUCTION_BOOK_PROFILE_RECEIPT_ALGORITHM: &str =
@@ -85,6 +88,7 @@ impl StagingSemanticContainerProfileDescriptor {
 #[derive(Debug)]
 struct StagingSemanticContainerSessionState {
     math_profile: StagingMathProfileSessionIdentity,
+    precomposed_vector_profile: StagingPrecomposedVectorProfileSessionIdentity,
 }
 
 #[derive(Clone)]
@@ -94,11 +98,18 @@ impl StagingSemanticContainerSessionIdentity {
     pub fn fresh() -> Self {
         Self(Arc::new(StagingSemanticContainerSessionState {
             math_profile: StagingMathProfileSessionIdentity::fresh(),
+            precomposed_vector_profile: StagingPrecomposedVectorProfileSessionIdentity::fresh(),
         }))
     }
 
     pub(crate) fn math_profile_session(&self) -> &StagingMathProfileSessionIdentity {
         &self.0.math_profile
+    }
+
+    pub(crate) fn precomposed_vector_profile_session(
+        &self,
+    ) -> &StagingPrecomposedVectorProfileSessionIdentity {
+        &self.0.precomposed_vector_profile
     }
 }
 

@@ -221,6 +221,91 @@ impl AdmittedSafeVector {
     }
 }
 
+/// Immutable per-image proof extracted from an admitted SafeVector. The
+/// constructor remains owned by resource admission, so downstream stages
+/// cannot combine a caller hash with unrelated parser, IR, geometry, profile,
+/// or limit identities.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SafeVectorAdmissionAttestation {
+    image_id: ImageResourceId,
+    media_kind: AdmittedImageMediaKind,
+    source_sha256: [u8; 32],
+    parser_profile: SafeVectorParserProfile,
+    parser_id: &'static str,
+    ir_id: &'static str,
+    ir_fingerprint_id: &'static str,
+    ir_fingerprint: [u8; 32],
+    allocation_charge_id: &'static str,
+    allocation_charge: u64,
+    intrinsic_width: PositiveLength,
+    intrinsic_height: PositiveLength,
+    view_box: [i64; 4],
+    limits_fingerprint: [u8; 32],
+    profile_fingerprint: [u8; 32],
+}
+
+impl SafeVectorAdmissionAttestation {
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+
+    pub const fn media_kind(&self) -> AdmittedImageMediaKind {
+        self.media_kind
+    }
+
+    pub const fn source_sha256(&self) -> [u8; 32] {
+        self.source_sha256
+    }
+
+    pub const fn parser_profile(&self) -> SafeVectorParserProfile {
+        self.parser_profile
+    }
+
+    pub const fn parser_id(&self) -> &'static str {
+        self.parser_id
+    }
+
+    pub const fn ir_id(&self) -> &'static str {
+        self.ir_id
+    }
+
+    pub const fn ir_fingerprint_id(&self) -> &'static str {
+        self.ir_fingerprint_id
+    }
+
+    pub const fn ir_fingerprint(&self) -> [u8; 32] {
+        self.ir_fingerprint
+    }
+
+    pub const fn allocation_charge_id(&self) -> &'static str {
+        self.allocation_charge_id
+    }
+
+    pub const fn allocation_charge(&self) -> u64 {
+        self.allocation_charge
+    }
+
+    pub const fn intrinsic_width(&self) -> PositiveLength {
+        self.intrinsic_width
+    }
+
+    pub const fn intrinsic_height(&self) -> PositiveLength {
+        self.intrinsic_height
+    }
+
+    pub const fn view_box(&self) -> [i64; 4] {
+        self.view_box
+    }
+
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.profile_fingerprint
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedImage {
     image_id: ImageResourceId,
@@ -376,6 +461,40 @@ impl AdmittedImage {
     pub fn intrinsic_height(&self) -> Option<PositiveLength> {
         self.admitted_safe_vector()
             .map(AdmittedSafeVector::intrinsic_height)
+    }
+
+    pub fn safe_vector_attestation(&self) -> Option<SafeVectorAdmissionAttestation> {
+        let vector = self.admitted_safe_vector()?;
+        let media_matches = matches!(
+            (self.media_kind, vector),
+            (
+                AdmittedImageMediaKind::SafeVector,
+                AdmittedSafeVector::V1(_)
+            ) | (
+                AdmittedImageMediaKind::SafeVector2,
+                AdmittedSafeVector::V2(_)
+            )
+        );
+        if !media_matches {
+            return None;
+        }
+        Some(SafeVectorAdmissionAttestation {
+            image_id: self.image_id,
+            media_kind: self.media_kind,
+            source_sha256: self.sha256,
+            parser_profile: vector.parser_profile(),
+            parser_id: vector.parser_id(),
+            ir_id: vector.ir_id(),
+            ir_fingerprint_id: vector.ir_fingerprint_id(),
+            ir_fingerprint: vector.fingerprint(),
+            allocation_charge_id: vector.allocation_charge_id(),
+            allocation_charge: vector.allocation_charge(),
+            intrinsic_width: vector.intrinsic_width(),
+            intrinsic_height: vector.intrinsic_height(),
+            view_box: vector.view_box(),
+            limits_fingerprint: self.m4_limits_fingerprint?,
+            profile_fingerprint: self.m4_profile_fingerprint?,
+        })
     }
 }
 

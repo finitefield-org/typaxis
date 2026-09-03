@@ -6,14 +6,962 @@ use typaxis_core::{
 use typaxis_document::{
     ImageMediaDeclaration, ImageMediaType, StagingM4Block, StagingM4FigurePlacement,
 };
-use typaxis_resource_admission::{AdmittedImageMediaKind, AdmittedResourceLedger};
+use typaxis_layout_contract::{
+    MathVectorBlockPlacementInput, MathVectorBlockStyleInput, PrecomposedVectorGeometryError,
+    PrecomposedVectorInlinePlacementInput, PrecomposedVectorPlacementInput, ResolvedRgb8,
+    VectorFigurePlacementInput, VectorFigureStyleInput,
+};
+use typaxis_resource_admission::{
+    close_staging_declared_media, AdmittedImageMediaKind, AdmittedResourceLedger,
+    ResourceAdmissionProgressToken, SafeVectorAdmissionAttestation, SafeVectorParserProfile,
+};
+#[cfg(test)]
+use typaxis_syntax::StagingPrecomposedVectorProfileSessionIdentity;
 use typaxis_syntax::{
-    StagingM4PageGeometry, StagingSafeVectorProfileView, ValidatedStagingSemanticPackage,
+    PrecomposedVectorKind, PrecomposedVectorMetricPayload, StagingM4PageGeometry,
+    StagingPrecomposedVectorProfileAuthorization, StagingPrecomposedVectorProfileProgressToken,
+    StagingSafeVectorProfileView, ValidatedStagingSemanticPackage,
 };
 
+pub const PRECOMPOSED_VECTOR_BINDING_ALGORITHM: &str = "typaxis.precomposed-vector-binding/1";
+pub const PRECOMPOSED_VECTOR_BINDING_SET_ALGORITHM: &str =
+    "typaxis.precomposed-vector-binding-set/1";
+const PRECOMPOSED_VECTOR_LAYOUT_EPOCH_ALGORITHM: &str = "typaxis.precomposed-vector-layout-epoch/1";
 pub const STAGING_SAFE_VECTOR_SELECTED_LAYOUT_ALGORITHM: &str =
     "typaxis.safe-vector-selected-layout/1";
 const FIXED_ONE: i64 = 65_536;
+
+/// Declared and admitted vector media after the two identities have been
+/// closed. Raster media is not representable.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BoundPrecomposedVectorMedia {
+    SafeSvg1,
+    SafeSvg2,
+}
+
+impl BoundPrecomposedVectorMedia {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SafeSvg1 => "svg-safe-1",
+            Self::SafeSvg2 => "svg-safe-2",
+        }
+    }
+}
+
+/// Stable identities for one admitted vector resource. Raw URI, source SVG,
+/// and the caller's unverified expected hash are deliberately absent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundPrecomposedVectorResource {
+    image_id: ImageResourceId,
+    declared_media: BoundPrecomposedVectorMedia,
+    admitted_media: BoundPrecomposedVectorMedia,
+    source_sha256: [u8; 32],
+    parser_profile: SafeVectorParserProfile,
+    parser_id: &'static str,
+    ir_id: &'static str,
+    ir_fingerprint_id: &'static str,
+    ir_fingerprint: [u8; 32],
+    intrinsic_width: PositiveLength,
+    intrinsic_height: PositiveLength,
+    view_box: [i64; 4],
+    limits_fingerprint: [u8; 32],
+    profile_fingerprint: [u8; 32],
+}
+
+impl BoundPrecomposedVectorResource {
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+
+    pub const fn declared_media(&self) -> BoundPrecomposedVectorMedia {
+        self.declared_media
+    }
+
+    pub const fn admitted_media(&self) -> BoundPrecomposedVectorMedia {
+        self.admitted_media
+    }
+
+    pub const fn source_sha256(&self) -> [u8; 32] {
+        self.source_sha256
+    }
+
+    pub const fn parser_profile(&self) -> SafeVectorParserProfile {
+        self.parser_profile
+    }
+
+    pub const fn parser_id(&self) -> &'static str {
+        self.parser_id
+    }
+
+    pub const fn ir_id(&self) -> &'static str {
+        self.ir_id
+    }
+
+    pub const fn ir_fingerprint_id(&self) -> &'static str {
+        self.ir_fingerprint_id
+    }
+
+    pub const fn ir_fingerprint(&self) -> [u8; 32] {
+        self.ir_fingerprint
+    }
+
+    pub const fn intrinsic_width(&self) -> PositiveLength {
+        self.intrinsic_width
+    }
+
+    pub const fn intrinsic_height(&self) -> PositiveLength {
+        self.intrinsic_height
+    }
+
+    pub const fn view_box(&self) -> [i64; 4] {
+        self.view_box
+    }
+
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.profile_fingerprint
+    }
+}
+
+/// Deterministic identity of every stable input shared by all resource-aware
+/// precomposed-vector receipts in one layout pass. Process-local session
+/// identities are retained by [`ValidatedPrecomposedVectorBindings`] instead
+/// of being serialized into this value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrecomposedVectorLayoutEpoch {
+    package_sha256: [u8; 32],
+    semantic_fingerprint: [u8; 32],
+    profile_fingerprint: [u8; 32],
+    profile_authorization_fingerprint: [u8; 32],
+    limits_fingerprint: [u8; 32],
+    admitted_fingerprint: [u8; 32],
+    declared_media_fingerprint: [u8; 32],
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl PrecomposedVectorLayoutEpoch {
+    fn new(
+        package: &ValidatedStagingSemanticPackage,
+        profile: &StagingPrecomposedVectorProfileAuthorization,
+        limits: &M4EffectiveResourceLimits,
+        admitted: &AdmittedResourceLedger,
+        declared_media_fingerprint: [u8; 32],
+    ) -> Self {
+        let mut canonical_jcs = String::from("{\"algorithm\":");
+        push_jcs_string(
+            &mut canonical_jcs,
+            PRECOMPOSED_VECTOR_LAYOUT_EPOCH_ALGORITHM,
+        );
+        canonical_jcs.push_str(",\"admitted_fingerprint\":");
+        push_hash(&mut canonical_jcs, admitted.fingerprint().bytes());
+        canonical_jcs
+            .push_str(",\"contract\":\"typaxis.contract/1.4\",\"declared_media_fingerprint\":");
+        push_hash(&mut canonical_jcs, declared_media_fingerprint);
+        canonical_jcs.push_str(",\"limits_fingerprint\":");
+        push_hash(&mut canonical_jcs, limits.fingerprint());
+        canonical_jcs.push_str(",\"package_sha256\":");
+        push_hash(&mut canonical_jcs, package.canonical_jcs_sha256());
+        canonical_jcs.push_str(",\"profile_authorization_fingerprint\":");
+        push_hash(&mut canonical_jcs, profile.profile_fingerprint());
+        canonical_jcs.push_str(",\"profile_fingerprint\":");
+        push_hash(&mut canonical_jcs, profile.profile_receipt_fingerprint());
+        canonical_jcs.push_str(",\"semantic_fingerprint\":");
+        push_hash(&mut canonical_jcs, package.semantic_fingerprint());
+        canonical_jcs.push('}');
+        Self {
+            package_sha256: package.canonical_jcs_sha256(),
+            semantic_fingerprint: package.semantic_fingerprint(),
+            profile_fingerprint: profile.profile_receipt_fingerprint(),
+            profile_authorization_fingerprint: profile.profile_fingerprint(),
+            limits_fingerprint: limits.fingerprint(),
+            admitted_fingerprint: admitted.fingerprint().bytes(),
+            declared_media_fingerprint,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        }
+    }
+
+    pub const fn package_sha256(&self) -> [u8; 32] {
+        self.package_sha256
+    }
+
+    pub const fn semantic_fingerprint(&self) -> [u8; 32] {
+        self.semantic_fingerprint
+    }
+
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.profile_fingerprint
+    }
+
+    pub const fn profile_authorization_fingerprint(&self) -> [u8; 32] {
+        self.profile_authorization_fingerprint
+    }
+
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+
+    pub const fn admitted_fingerprint(&self) -> [u8; 32] {
+        self.admitted_fingerprint
+    }
+
+    pub const fn declared_media_fingerprint(&self) -> [u8; 32] {
+        self.declared_media_fingerprint
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+
+/// Common four-kind resource, geometry, paint, alternative, and language
+/// binding. Math-only TeX/ActualText/provenance state is held by the nominally
+/// distinct [`crate::ValidatedMathVectorReceipt`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorReceipt {
+    epoch_fingerprint: [u8; 32],
+    node_id: NodeId,
+    kind: PrecomposedVectorKind,
+    owner_source_span: SourceSpan,
+    metrics_fingerprint: [u8; 32],
+    resource: BoundPrecomposedVectorResource,
+    placement: PrecomposedVectorPlacementInput,
+    alternative: String,
+    alternative_sha256: [u8; 32],
+    language: Option<String>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl ValidatedPrecomposedVectorReceipt {
+    pub const fn algorithm(&self) -> &'static str {
+        PRECOMPOSED_VECTOR_BINDING_ALGORITHM
+    }
+
+    pub const fn epoch_fingerprint(&self) -> [u8; 32] {
+        self.epoch_fingerprint
+    }
+
+    pub const fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
+    pub const fn kind(&self) -> PrecomposedVectorKind {
+        self.kind
+    }
+
+    pub const fn owner_source_span(&self) -> SourceSpan {
+        self.owner_source_span
+    }
+
+    pub const fn metrics_fingerprint(&self) -> [u8; 32] {
+        self.metrics_fingerprint
+    }
+
+    pub const fn resource(&self) -> &BoundPrecomposedVectorResource {
+        &self.resource
+    }
+
+    pub const fn placement(&self) -> &PrecomposedVectorPlacementInput {
+        &self.placement
+    }
+
+    pub fn alternative(&self) -> &str {
+        &self.alternative
+    }
+
+    pub const fn alternative_sha256(&self) -> [u8; 32] {
+        self.alternative_sha256
+    }
+
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    fn integrity_matches(&self) -> bool {
+        let observed = encode_precomposed_vector_receipt(self);
+        self.alternative_sha256 == sha256(self.alternative.as_bytes())
+            && self.canonical_jcs == observed
+            && self.fingerprint == sha256(observed.as_bytes())
+            && placement_matches_kind(&self.placement, self.kind)
+            && placement_paint(&self.placement) == ResolvedRgb8::BLACK
+    }
+}
+
+/// Complete owner-controlled join. The profile and resource session tokens
+/// are process-local; deterministic epoch and per-node receipts are the only
+/// state exposed to later layout stages.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedPrecomposedVectorBindings {
+    profile_progress: StagingPrecomposedVectorProfileProgressToken,
+    admission_progress: ResourceAdmissionProgressToken,
+    epoch: PrecomposedVectorLayoutEpoch,
+    receipts: Vec<ValidatedPrecomposedVectorReceipt>,
+    pub(super) math_receipts: Vec<crate::ValidatedMathVectorReceipt>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl ValidatedPrecomposedVectorBindings {
+    pub const fn epoch(&self) -> &PrecomposedVectorLayoutEpoch {
+        &self.epoch
+    }
+
+    pub fn receipts(&self) -> &[ValidatedPrecomposedVectorReceipt] {
+        &self.receipts
+    }
+
+    pub fn math_receipts(&self) -> &[crate::ValidatedMathVectorReceipt] {
+        &self.math_receipts
+    }
+
+    pub fn receipt(&self, owner: NodeId) -> Option<&ValidatedPrecomposedVectorReceipt> {
+        self.receipts
+            .binary_search_by_key(&owner, ValidatedPrecomposedVectorReceipt::node_id)
+            .ok()
+            .map(|index| &self.receipts[index])
+    }
+
+    pub fn math_receipt(&self, owner: NodeId) -> Option<&crate::ValidatedMathVectorReceipt> {
+        self.math_receipts
+            .binary_search_by_key(&owner, crate::ValidatedMathVectorReceipt::node_id)
+            .ok()
+            .map(|index| &self.math_receipts[index])
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    #[cfg(test)]
+    pub(super) fn reseal_binding_set_for_test(&mut self) {
+        self.canonical_jcs =
+            encode_precomposed_vector_binding_set(&self.epoch, &self.receipts, &self.math_receipts);
+        self.fingerprint = sha256(self.canonical_jcs.as_bytes());
+    }
+
+    pub fn verify(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        profile: &StagingPrecomposedVectorProfileAuthorization,
+        limits: &M4EffectiveResourceLimits,
+        admitted: &AdmittedResourceLedger,
+    ) -> Result<(), PrecomposedVectorBindingError> {
+        let expected = build_precomposed_vector_bindings(package, profile, limits, admitted)
+            .map_err(|_| PrecomposedVectorBindingError::ReceiptMismatch)?;
+        if self != &expected
+            || !self
+                .receipts
+                .iter()
+                .all(ValidatedPrecomposedVectorReceipt::integrity_matches)
+            || !self
+                .math_receipts
+                .iter()
+                .all(crate::ValidatedMathVectorReceipt::integrity_matches)
+            || !profile.matches_progress(&self.profile_progress)
+            || !admitted.token().matches_progress(&self.admission_progress)
+        {
+            return Err(PrecomposedVectorBindingError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrecomposedVectorBindingError {
+    ProfileMismatch,
+    AdmissionMismatch,
+    ResourceMismatch(NodeId),
+    InvalidScale(NodeId),
+    InvalidMetrics(NodeId),
+    StyleMismatch(NodeId),
+    AllocationFailure,
+    ReceiptMismatch,
+}
+
+impl std::fmt::Display for PrecomposedVectorBindingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ProfileMismatch => {
+                formatter.write_str("I9190: precomposed vector profile binding mismatch")
+            }
+            Self::AdmissionMismatch => {
+                formatter.write_str("I9190: precomposed vector admission binding mismatch")
+            }
+            Self::ResourceMismatch(owner) => write!(
+                formatter,
+                "I9190: precomposed vector resource binding mismatch at node {}",
+                owner.get()
+            ),
+            Self::InvalidScale(owner) => write!(
+                formatter,
+                "P1102: precomposed vector uniform scale mismatch at node {}",
+                owner.get()
+            ),
+            Self::InvalidMetrics(owner) => write!(
+                formatter,
+                "P1102: precomposed vector metric relation mismatch at node {}",
+                owner.get()
+            ),
+            Self::StyleMismatch(owner) => write!(
+                formatter,
+                "I9190: precomposed vector style binding mismatch at node {}",
+                owner.get()
+            ),
+            Self::AllocationFailure => {
+                formatter.write_str("P1102: precomposed vector binding allocation failed")
+            }
+            Self::ReceiptMismatch => {
+                formatter.write_str("I9190: precomposed vector binding receipt mismatch")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PrecomposedVectorBindingError {}
+
+pub fn bind_staging_precomposed_vectors(
+    package: &ValidatedStagingSemanticPackage,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+    admitted: &AdmittedResourceLedger,
+) -> Result<ValidatedPrecomposedVectorBindings, PrecomposedVectorBindingError> {
+    let bindings = build_precomposed_vector_bindings(package, profile, limits, admitted)?;
+    bindings.verify(package, profile, limits, admitted)?;
+    Ok(bindings)
+}
+
+fn build_precomposed_vector_bindings(
+    package: &ValidatedStagingSemanticPackage,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+    admitted: &AdmittedResourceLedger,
+) -> Result<ValidatedPrecomposedVectorBindings, PrecomposedVectorBindingError> {
+    profile
+        .authorizes(package, limits)
+        .map_err(|_| PrecomposedVectorBindingError::ProfileMismatch)?;
+    package
+        .checked_wire()
+        .map_err(|_| PrecomposedVectorBindingError::ProfileMismatch)?;
+    let media = close_staging_declared_media(admitted, package.resources())
+        .map_err(|_| PrecomposedVectorBindingError::AdmissionMismatch)?;
+    if !admitted.matches_declarations(
+        typaxis_resource_admission::staging_declared_base_catalog(package.resources())
+            .map_err(|_| PrecomposedVectorBindingError::AdmissionMismatch)?
+            .resource_catalog(),
+    ) || profile.vector_owners().count() != package.precomposed_vector_metrics().len()
+    {
+        return Err(PrecomposedVectorBindingError::AdmissionMismatch);
+    }
+    let epoch =
+        PrecomposedVectorLayoutEpoch::new(package, profile, limits, admitted, media.fingerprint());
+    let mut receipts = Vec::new();
+    receipts
+        .try_reserve_exact(package.precomposed_vector_metrics().len())
+        .map_err(|_| PrecomposedVectorBindingError::AllocationFailure)?;
+    let math_count = package
+        .precomposed_vector_metrics()
+        .iter()
+        .filter(|metrics| {
+            matches!(
+                metrics.kind(),
+                PrecomposedVectorKind::MathVector | PrecomposedVectorKind::MathVectorBlock
+            )
+        })
+        .count();
+    let mut math_receipts = Vec::new();
+    math_receipts
+        .try_reserve_exact(math_count)
+        .map_err(|_| PrecomposedVectorBindingError::AllocationFailure)?;
+
+    for metrics in package.precomposed_vector_metrics() {
+        package
+            .verify_precomposed_vector_metrics(metrics)
+            .map_err(|_| PrecomposedVectorBindingError::ReceiptMismatch)?;
+        let owner = metrics.node_id();
+        let image_id = metrics.resource_binding().image_id();
+        let declaration = package
+            .resources()
+            .images
+            .get(image_id.get() as usize)
+            .filter(|declaration| declaration.image_id == image_id)
+            .ok_or(PrecomposedVectorBindingError::ResourceMismatch(owner))?;
+        let image = admitted
+            .image(image_id)
+            .ok_or(PrecomposedVectorBindingError::ResourceMismatch(owner))?;
+        let attestation = image
+            .safe_vector_attestation()
+            .ok_or(PrecomposedVectorBindingError::ResourceMismatch(owner))?;
+        let media_attestation = media
+            .images()
+            .get(image_id.get() as usize)
+            .filter(|value| value.image_id() == image_id)
+            .ok_or(PrecomposedVectorBindingError::ResourceMismatch(owner))?;
+        let resource = bind_precomposed_vector_resource(
+            owner,
+            metrics.kind(),
+            declaration,
+            &attestation,
+            media_attestation,
+            profile,
+            limits,
+        )?;
+        let placement = bind_precomposed_vector_placement(package, metrics, &resource)?;
+        let alternative = metrics.alternative().alternative().to_owned();
+        let language = metrics.language().map(|value| value.canonical().to_owned());
+        let mut receipt = ValidatedPrecomposedVectorReceipt {
+            epoch_fingerprint: epoch.fingerprint(),
+            node_id: owner,
+            kind: metrics.kind(),
+            owner_source_span: metrics.owner_source_span(),
+            metrics_fingerprint: metrics.fingerprint(),
+            resource,
+            placement,
+            alternative_sha256: sha256(alternative.as_bytes()),
+            alternative,
+            language,
+            canonical_jcs: String::new(),
+            fingerprint: [0; 32],
+        };
+        receipt.canonical_jcs = encode_precomposed_vector_receipt(&receipt);
+        receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+        if !receipt.integrity_matches() {
+            return Err(PrecomposedVectorBindingError::ReceiptMismatch);
+        }
+        if matches!(
+            metrics.kind(),
+            PrecomposedVectorKind::MathVector | PrecomposedVectorKind::MathVectorBlock
+        ) {
+            math_receipts.push(crate::math::issue_precomposed_math_vector_receipt(
+                &receipt,
+                metrics,
+                declaration,
+            )?);
+        }
+        receipts.push(receipt);
+    }
+    if receipts
+        .windows(2)
+        .any(|pair| pair[0].node_id >= pair[1].node_id)
+        || math_receipts
+            .windows(2)
+            .any(|pair| pair[0].node_id() >= pair[1].node_id())
+    {
+        return Err(PrecomposedVectorBindingError::ReceiptMismatch);
+    }
+    let canonical_jcs = encode_precomposed_vector_binding_set(&epoch, &receipts, &math_receipts);
+    Ok(ValidatedPrecomposedVectorBindings {
+        profile_progress: profile.progress_token(),
+        admission_progress: admitted.progress_token(),
+        epoch,
+        receipts,
+        math_receipts,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
+fn bind_precomposed_vector_resource(
+    owner: NodeId,
+    kind: PrecomposedVectorKind,
+    declaration: &typaxis_document::StagingM4ImageDeclaration,
+    attestation: &SafeVectorAdmissionAttestation,
+    media_attestation: &typaxis_resource_admission::StagingDeclaredImageAttestation,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<BoundPrecomposedVectorResource, PrecomposedVectorBindingError> {
+    let declared_media = match declaration.media {
+        ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1) => {
+            BoundPrecomposedVectorMedia::SafeSvg1
+        }
+        ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => {
+            BoundPrecomposedVectorMedia::SafeSvg2
+        }
+        ImageMediaDeclaration::Declared(ImageMediaType::Png)
+        | ImageMediaDeclaration::LegacyUnspecified => {
+            return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
+        }
+    };
+    let admitted_media = match attestation.media_kind() {
+        AdmittedImageMediaKind::SafeVector => BoundPrecomposedVectorMedia::SafeSvg1,
+        AdmittedImageMediaKind::SafeVector2 => BoundPrecomposedVectorMedia::SafeSvg2,
+        AdmittedImageMediaKind::Png => {
+            return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
+        }
+    };
+    let kind_media_matches = match kind {
+        PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::VectorFigure => true,
+        PrecomposedVectorKind::MathVector | PrecomposedVectorKind::MathVectorBlock => {
+            declared_media == BoundPrecomposedVectorMedia::SafeSvg2
+        }
+    };
+    let provenance_matches = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => declaration.vector_provenance.is_none(),
+        BoundPrecomposedVectorMedia::SafeSvg2 => declaration.vector_provenance.is_some(),
+    };
+    let declared_domain_media = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => ImageMediaType::SvgSafe1,
+        BoundPrecomposedVectorMedia::SafeSvg2 => ImageMediaType::SvgSafe2,
+    };
+    let media_identity_matches = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => {
+            media_attestation.safe_vector_parser_id().is_none()
+                && media_attestation.safe_vector_ir_id().is_none()
+        }
+        BoundPrecomposedVectorMedia::SafeSvg2 => {
+            media_attestation.safe_vector_parser_id() == Some(attestation.parser_id())
+                && media_attestation.safe_vector_ir_id() == Some(attestation.ir_id())
+        }
+    };
+    let expected_hash_matches = match declared_media {
+        BoundPrecomposedVectorMedia::SafeSvg1 => declaration
+            .expected_sha256
+            .map_or(true, |value| value == attestation.source_sha256()),
+        BoundPrecomposedVectorMedia::SafeSvg2 => {
+            declaration.expected_sha256 == Some(attestation.source_sha256())
+        }
+    };
+    if declaration.image_id != attestation.image_id()
+        || media_attestation.image_id() != attestation.image_id()
+        || media_attestation.declared() != declared_domain_media
+        || media_attestation.attested() != attestation.media_kind()
+        || media_attestation.content_hash() != attestation.source_sha256()
+        || declared_media != admitted_media
+        || !kind_media_matches
+        || !provenance_matches
+        || !expected_hash_matches
+        || attestation.parser_id() != attestation.parser_profile().parser_id()
+        || attestation.ir_id() != attestation.parser_profile().ir_id()
+        || attestation.ir_fingerprint_id() != attestation.parser_profile().ir_fingerprint_id()
+        || attestation.limits_fingerprint() != limits.fingerprint()
+        || attestation.profile_fingerprint() != profile.profile_receipt_fingerprint()
+        || !media_identity_matches
+        || media_attestation.safe_vector_ir_fingerprint() != Some(attestation.ir_fingerprint())
+        || media_attestation.m4_limits_fingerprint() != Some(limits.fingerprint())
+        || media_attestation.m4_profile_fingerprint() != Some(profile.profile_receipt_fingerprint())
+    {
+        return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
+    }
+    Ok(BoundPrecomposedVectorResource {
+        image_id: attestation.image_id(),
+        declared_media,
+        admitted_media,
+        source_sha256: attestation.source_sha256(),
+        parser_profile: attestation.parser_profile(),
+        parser_id: attestation.parser_id(),
+        ir_id: attestation.ir_id(),
+        ir_fingerprint_id: attestation.ir_fingerprint_id(),
+        ir_fingerprint: attestation.ir_fingerprint(),
+        intrinsic_width: attestation.intrinsic_width(),
+        intrinsic_height: attestation.intrinsic_height(),
+        view_box: attestation.view_box(),
+        limits_fingerprint: attestation.limits_fingerprint(),
+        profile_fingerprint: attestation.profile_fingerprint(),
+    })
+}
+
+fn bind_precomposed_vector_placement(
+    package: &ValidatedStagingSemanticPackage,
+    metrics: &typaxis_syntax::ValidatedPrecomposedVectorMetrics,
+    resource: &BoundPrecomposedVectorResource,
+) -> Result<PrecomposedVectorPlacementInput, PrecomposedVectorBindingError> {
+    let owner = metrics.node_id();
+    let paint = ResolvedRgb8::BLACK;
+    let result = match (metrics.kind(), metrics.payload()) {
+        (
+            PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::MathVector,
+            PrecomposedVectorMetricPayload::Inline {
+                metrics: values,
+                spacing,
+            },
+        ) => PrecomposedVectorInlinePlacementInput::from_validated_metrics(
+            values,
+            spacing,
+            resource.intrinsic_width,
+            resource.intrinsic_height,
+            paint,
+        )
+        .map(PrecomposedVectorPlacementInput::Inline),
+        (
+            PrecomposedVectorKind::VectorFigure,
+            PrecomposedVectorMetricPayload::Figure { viewport },
+        ) => {
+            let style = package
+                .precomposed_vector_style(owner)
+                .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            package
+                .verify_precomposed_vector_style(style)
+                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            let style = VectorFigureStyleInput::from_computed(style)
+                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            VectorFigurePlacementInput::from_validated_viewport(
+                viewport,
+                resource.intrinsic_width,
+                resource.intrinsic_height,
+                paint,
+                style,
+            )
+            .map(PrecomposedVectorPlacementInput::VectorFigure)
+        }
+        (
+            PrecomposedVectorKind::MathVectorBlock,
+            PrecomposedVectorMetricPayload::MathBlock { metrics: values },
+        ) => {
+            let style = package
+                .precomposed_vector_style(owner)
+                .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            package
+                .verify_precomposed_vector_style(style)
+                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            let style = MathVectorBlockStyleInput::from_computed(style)
+                .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
+            MathVectorBlockPlacementInput::from_validated_metrics(
+                values,
+                resource.intrinsic_width,
+                resource.intrinsic_height,
+                paint,
+                style,
+            )
+            .map(PrecomposedVectorPlacementInput::MathVectorBlock)
+        }
+        _ => return Err(PrecomposedVectorBindingError::InvalidMetrics(owner)),
+    };
+    result.map_err(|error| match error {
+        PrecomposedVectorGeometryError::NonUniformScale
+        | PrecomposedVectorGeometryError::ScaleOutOfRange => {
+            PrecomposedVectorBindingError::InvalidScale(owner)
+        }
+        PrecomposedVectorGeometryError::ArithmeticOverflow
+        | PrecomposedVectorGeometryError::MetricRelation => {
+            PrecomposedVectorBindingError::InvalidMetrics(owner)
+        }
+    })
+}
+
+fn placement_matches_kind(
+    placement: &PrecomposedVectorPlacementInput,
+    kind: PrecomposedVectorKind,
+) -> bool {
+    matches!(
+        (placement, kind),
+        (
+            PrecomposedVectorPlacementInput::Inline(_),
+            PrecomposedVectorKind::InlineVector | PrecomposedVectorKind::MathVector
+        ) | (
+            PrecomposedVectorPlacementInput::VectorFigure(_),
+            PrecomposedVectorKind::VectorFigure
+        ) | (
+            PrecomposedVectorPlacementInput::MathVectorBlock(_),
+            PrecomposedVectorKind::MathVectorBlock
+        )
+    )
+}
+
+fn placement_paint(placement: &PrecomposedVectorPlacementInput) -> ResolvedRgb8 {
+    match placement {
+        PrecomposedVectorPlacementInput::Inline(value) => value.paint(),
+        PrecomposedVectorPlacementInput::VectorFigure(value) => value.paint(),
+        PrecomposedVectorPlacementInput::MathVectorBlock(value) => value.paint(),
+    }
+}
+
+fn encode_precomposed_vector_receipt(value: &ValidatedPrecomposedVectorReceipt) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, PRECOMPOSED_VECTOR_BINDING_ALGORITHM);
+    output.push_str(",\"alternative_sha256\":");
+    push_hash(&mut output, value.alternative_sha256);
+    output.push_str(",\"epoch\":");
+    push_hash(&mut output, value.epoch_fingerprint);
+    output.push_str(",\"kind\":");
+    push_jcs_string(&mut output, value.kind.as_str());
+    output.push_str(",\"language\":");
+    match &value.language {
+        Some(language) => push_jcs_string(&mut output, language),
+        None => output.push_str("null"),
+    }
+    output.push_str(",\"metrics_fingerprint\":");
+    push_hash(&mut output, value.metrics_fingerprint);
+    output.push_str(",\"node_id\":");
+    output.push_str(&value.node_id.get().to_string());
+    output.push_str(",\"owner_source_span\":");
+    push_source_span(&mut output, value.owner_source_span);
+    output.push_str(",\"placement_input\":");
+    push_precomposed_vector_placement(&mut output, &value.placement);
+    output.push_str(",\"resource\":");
+    push_bound_precomposed_vector_resource(&mut output, &value.resource);
+    output.push('}');
+    output
+}
+
+fn encode_precomposed_vector_binding_set(
+    epoch: &PrecomposedVectorLayoutEpoch,
+    receipts: &[ValidatedPrecomposedVectorReceipt],
+    math_receipts: &[crate::ValidatedMathVectorReceipt],
+) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_jcs_string(&mut output, PRECOMPOSED_VECTOR_BINDING_SET_ALGORITHM);
+    output.push_str(",\"epoch\":");
+    push_hash(&mut output, epoch.fingerprint());
+    output.push_str(",\"math_receipts\":[");
+    for (index, receipt) in math_receipts.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        push_hash(&mut output, receipt.fingerprint());
+    }
+    output.push_str("],\"receipts\":[");
+    for (index, receipt) in receipts.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        push_hash(&mut output, receipt.fingerprint());
+    }
+    output.push_str("]}");
+    output
+}
+
+fn push_bound_precomposed_vector_resource(
+    output: &mut String,
+    value: &BoundPrecomposedVectorResource,
+) {
+    output.push_str("{\"admitted_media\":");
+    push_jcs_string(output, value.admitted_media.as_str());
+    output.push_str(",\"declared_media\":");
+    push_jcs_string(output, value.declared_media.as_str());
+    output.push_str(",\"image_id\":");
+    output.push_str(&value.image_id.get().to_string());
+    output.push_str(",\"intrinsic_height\":");
+    output.push_str(&value.intrinsic_height.get().raw().to_string());
+    output.push_str(",\"intrinsic_width\":");
+    output.push_str(&value.intrinsic_width.get().raw().to_string());
+    output.push_str(",\"ir_fingerprint\":");
+    push_hash(output, value.ir_fingerprint);
+    output.push_str(",\"ir_fingerprint_id\":");
+    push_jcs_string(output, value.ir_fingerprint_id);
+    output.push_str(",\"ir_id\":");
+    push_jcs_string(output, value.ir_id);
+    output.push_str(",\"limits_fingerprint\":");
+    push_hash(output, value.limits_fingerprint);
+    output.push_str(",\"parser_id\":");
+    push_jcs_string(output, value.parser_id);
+    output.push_str(",\"profile_fingerprint\":");
+    push_hash(output, value.profile_fingerprint);
+    output.push_str(",\"source_sha256\":");
+    push_hash(output, value.source_sha256);
+    output.push_str(",\"view_box\":[");
+    for (index, coordinate) in value.view_box.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&coordinate.to_string());
+    }
+    output.push_str("]}");
+}
+
+fn push_precomposed_vector_placement(output: &mut String, value: &PrecomposedVectorPlacementInput) {
+    output.push('{');
+    match value {
+        PrecomposedVectorPlacementInput::Inline(value) => {
+            output.push_str("\"kind\":\"inline\",\"metrics\":");
+            push_bound_vector_metrics(output, value.metrics());
+            output.push_str(",\"paint\":");
+            push_resolved_rgb8(output, value.paint());
+            output.push_str(",\"scale\":");
+            output.push_str(&value.scale().get().raw().to_string());
+            output.push_str(",\"spacing_after\":");
+            output.push_str(&value.spacing_after().get().raw().to_string());
+            output.push_str(",\"spacing_before\":");
+            output.push_str(&value.spacing_before().get().raw().to_string());
+        }
+        PrecomposedVectorPlacementInput::VectorFigure(value) => {
+            output.push_str("\"kind\":\"vector_figure\",\"paint\":");
+            push_resolved_rgb8(output, value.paint());
+            output.push_str(",\"scale\":");
+            output.push_str(&value.scale().get().raw().to_string());
+            output.push_str(",\"style_fingerprint\":");
+            push_hash(output, value.style().fingerprint());
+            output.push_str(",\"viewport\":{\"height\":");
+            output.push_str(&value.viewport_height().get().raw().to_string());
+            output.push_str(",\"width\":");
+            output.push_str(&value.viewport_width().get().raw().to_string());
+            output.push('}');
+        }
+        PrecomposedVectorPlacementInput::MathVectorBlock(value) => {
+            output.push_str("\"kind\":\"math_vector_block\",\"metrics\":");
+            push_bound_vector_metrics(output, value.metrics());
+            output.push_str(",\"paint\":");
+            push_resolved_rgb8(output, value.paint());
+            output.push_str(",\"scale\":");
+            output.push_str(&value.scale().get().raw().to_string());
+            output.push_str(",\"style_fingerprint\":");
+            push_hash(output, value.style().fingerprint());
+        }
+    }
+    output.push('}');
+}
+
+fn push_bound_vector_metrics(
+    output: &mut String,
+    value: typaxis_layout_contract::BoundPrecomposedVectorMetrics,
+) {
+    output.push_str("{\"advance\":");
+    output.push_str(&value.advance().get().raw().to_string());
+    output.push_str(",\"ascent\":");
+    output.push_str(&value.ascent().get().raw().to_string());
+    output.push_str(",\"baseline\":");
+    output.push_str(&value.baseline().get().raw().to_string());
+    output.push_str(",\"descent\":");
+    output.push_str(&value.descent().get().raw().to_string());
+    output.push_str(",\"origin_x\":");
+    output.push_str(&value.origin_x().raw().to_string());
+    output.push_str(",\"viewport\":{\"height\":");
+    output.push_str(&value.viewport_height().get().raw().to_string());
+    output.push_str(",\"width\":");
+    output.push_str(&value.viewport_width().get().raw().to_string());
+    output.push_str("},\"viewport_right_from_pen\":");
+    output.push_str(&value.viewport_right_from_pen().raw().to_string());
+    output.push('}');
+}
+
+fn push_resolved_rgb8(output: &mut String, value: ResolvedRgb8) {
+    output.push_str("{\"blue\":");
+    output.push_str(&value.blue().to_string());
+    output.push_str(",\"green\":");
+    output.push_str(&value.green().to_string());
+    output.push_str(",\"red\":");
+    output.push_str(&value.red().to_string());
+    output.push('}');
+}
+
+fn push_source_span(output: &mut String, value: SourceSpan) {
+    output.push_str("{\"end_byte\":");
+    output.push_str(&value.end_byte().get().to_string());
+    output.push_str(",\"source_id\":");
+    output.push_str(&value.source_id().get().to_string());
+    output.push_str(",\"start_byte\":");
+    output.push_str(&value.start_byte().get().to_string());
+    output.push('}');
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingSafeVectorPlacement {
@@ -818,6 +1766,157 @@ fn push_hash(output: &mut String, value: [u8; 32]) {
     output.push('"');
 }
 
+#[cfg(test)]
+pub(crate) struct StagingPrecomposedVectorBindingFixture {
+    pub package: ValidatedStagingSemanticPackage,
+    pub profile: StagingPrecomposedVectorProfileAuthorization,
+    pub limits: M4EffectiveResourceLimits,
+    pub admitted: AdmittedResourceLedger,
+    pub bindings: ValidatedPrecomposedVectorBindings,
+}
+
+#[cfg(test)]
+pub(crate) fn staging_precomposed_vector_binding_fixture(
+) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_binding_fixture_with_media(false)
+}
+
+#[cfg(test)]
+fn staging_precomposed_vector_binding_fixture_with_generic_safe_svg1(
+) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
+    staging_precomposed_vector_binding_fixture_with_media(true)
+}
+
+#[cfg(test)]
+fn staging_precomposed_vector_binding_fixture_with_media(
+    generic_safe_svg1: bool,
+) -> Result<StagingPrecomposedVectorBindingFixture, Box<dyn std::error::Error>> {
+    use std::fs;
+    use std::path::PathBuf;
+    use typaxis_core::{
+        ConfigResourceRoot, EffectiveConfig, EffectiveDataVersions, HostAdmissionContext, HostPath,
+        M4ResourceLimits, PdfStreamCompression, ResourceLimits, ValidatedResourceLimits,
+        DEFAULT_ALLOWED_URI_SCHEMES,
+    };
+    use typaxis_resource_admission::{
+        staging_declared_base_catalog, AdmittedResourceResolver, HostResourceAdmissionSession,
+    };
+    use typaxis_syntax::machine_profile_boundary::wire::{
+        DocumentPackageDecodePolicy, StagingSemanticDocumentPackageDecoder,
+        StagingSemanticDocumentPackageEncoder, WireImageMediaType, WireStagingM4Block,
+        WireStagingM4Inline,
+    };
+    use typaxis_syntax::StagingSemanticPackageParser;
+
+    let job = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/machine-package/staging/production-book-1/precomposed-vector");
+    let package_path = job.join("document-package.json");
+    let base_limits = ValidatedResourceLimits::new(ResourceLimits::default())?;
+    let limits = M4EffectiveResourceLimits::new(base_limits.clone(), M4ResourceLimits::default())?;
+    let decoded = StagingSemanticDocumentPackageDecoder::new().decode(
+        &fs::read(&package_path)?,
+        &DocumentPackageDecodePolicy::new(&base_limits),
+    )?;
+    let mut wire = decoded.into_wire();
+    let mut document = wire.document().clone();
+    let mut resources = wire.resources().clone();
+    let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0] else {
+        panic!("precomposed-vector fixture root is not a semantic container");
+    };
+    if generic_safe_svg1 {
+        let mut safe_svg1 = resources.images[0].clone();
+        safe_svg1.image_id = 1;
+        safe_svg1.uri = "svg/ordered-pair.svg".to_owned();
+        safe_svg1.expected_sha256 =
+            Some("1d2a24ba4c7ecf28e586e988ffef2c079bded1397cf9994b89c5aa4cd5b8f7b3".to_owned());
+        safe_svg1.media_type = WireImageMediaType::SvgSafe1;
+        safe_svg1.vector_provenance = None;
+        resources.images.push(safe_svg1);
+
+        let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
+            panic!("precomposed-vector fixture first child is not a paragraph");
+        };
+        let WireStagingM4Inline::InlineVector { image_id, .. } = &mut children[0] else {
+            panic!("precomposed-vector fixture first inline is not a vector");
+        };
+        *image_id = 1;
+
+        let WireStagingM4Block::VectorFigure {
+            image_id, viewport, ..
+        } = &mut blocks[1]
+        else {
+            panic!("precomposed-vector fixture second block is not a vector Figure");
+        };
+        *image_id = 1;
+        viewport.width = 1_835_008;
+    } else {
+        // The syntax-only fixture predates intrinsic-resource scale proof and
+        // gives this shared 30pt resource a 28pt generic-inline viewport.
+        // Make only the positive binding fixture uniform; the scale test below
+        // owns the explicit nonuniform negative case.
+        let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
+            panic!("precomposed-vector fixture first child is not a paragraph");
+        };
+        let WireStagingM4Inline::InlineVector { metrics, .. } = &mut children[0] else {
+            panic!("precomposed-vector fixture first inline is not a vector");
+        };
+        metrics.viewport.width = 1_966_080;
+    }
+    wire.replace_typed_regions(document, resources);
+    let encoded = StagingSemanticDocumentPackageEncoder::new().encode(&wire)?;
+    let decoded = StagingSemanticDocumentPackageDecoder::new().decode(
+        encoded.as_bytes(),
+        &DocumentPackageDecodePolicy::new(&base_limits),
+    )?;
+    let package = StagingSemanticPackageParser::new().parse(decoded, &base_limits)?;
+    let profile_session = StagingPrecomposedVectorProfileSessionIdentity::fresh();
+    let profile = StagingPrecomposedVectorProfileAuthorization::bind_profile_receipt(
+        sha256(b"typaxis.precomposed-vector-fixture-profile/1"),
+        &package,
+        &limits,
+        &profile_session,
+    )?;
+    let base = staging_declared_base_catalog(package.resources())?;
+    let config = EffectiveConfig::new(
+        true,
+        PdfStreamCompression::None,
+        vec![ConfigResourceRoot::ProjectRoot],
+        DEFAULT_ALLOWED_URI_SCHEMES
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect(),
+        EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0")
+            .expect("registered fixture data versions"),
+        ResourceLimits::default(),
+    )?;
+    let context = HostAdmissionContext::new(
+        HostPath::new(package_path)?,
+        HostPath::new(job)?,
+        None,
+        Vec::new(),
+    );
+    let host = HostResourceAdmissionSession::new(&context, &config, &base)?;
+    let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+        &base,
+        &limits,
+        profile.profile_receipt_fingerprint(),
+        host.roots(),
+    )?;
+    for declaration in &package.resources().images {
+        let pending = resolver.read_image(host.open_image(declaration.image_id)?)?;
+        resolver.parse_and_bind_declared_image(pending)?;
+    }
+    let admitted = resolver.finish()?;
+    let bindings = bind_staging_precomposed_vectors(&package, &profile, &limits, &admitted)?;
+    Ok(StagingPrecomposedVectorBindingFixture {
+        package,
+        profile,
+        limits,
+        admitted,
+        bindings,
+    })
+}
+
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub struct StagingSafeVectorLayoutFixture {
     pub package: ValidatedStagingSemanticPackage,
@@ -904,6 +2003,377 @@ pub fn staging_safe_vector_layout_fixture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn raw_length(value: i64) -> Length {
+        Length::from_raw(value).unwrap()
+    }
+
+    fn positive(value: i64) -> PositiveLength {
+        PositiveLength::new(raw_length(value)).unwrap()
+    }
+
+    fn nonnegative(value: i64) -> typaxis_core::NonNegativeLength {
+        typaxis_core::NonNegativeLength::new(raw_length(value)).unwrap()
+    }
+
+    fn reseal_receipt(value: &mut ValidatedPrecomposedVectorReceipt) {
+        value.canonical_jcs = encode_precomposed_vector_receipt(value);
+        value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+    }
+
+    fn reseal_bindings(value: &mut ValidatedPrecomposedVectorBindings) {
+        value.canonical_jcs = encode_precomposed_vector_binding_set(
+            &value.epoch,
+            &value.receipts,
+            &value.math_receipts,
+        );
+        value.fingerprint = sha256(value.canonical_jcs.as_bytes());
+    }
+
+    fn assert_binding_tamper_fails(
+        fixture: &StagingPrecomposedVectorBindingFixture,
+        mut bindings: ValidatedPrecomposedVectorBindings,
+    ) {
+        for receipt in &mut bindings.receipts {
+            reseal_receipt(receipt);
+        }
+        reseal_bindings(&mut bindings);
+        assert_eq!(
+            bindings.verify(
+                &fixture.package,
+                &fixture.profile,
+                &fixture.limits,
+                &fixture.admitted,
+            ),
+            Err(PrecomposedVectorBindingError::ReceiptMismatch)
+        );
+        assert!(bindings
+            .verify(
+                &fixture.package,
+                &fixture.profile,
+                &fixture.limits,
+                &fixture.admitted,
+            )
+            .unwrap_err()
+            .to_string()
+            .starts_with("I9190:"));
+    }
+
+    #[test]
+    fn precomposed_vector_binding_closes_four_kinds_and_backend_inputs() {
+        let fixture = staging_precomposed_vector_binding_fixture().unwrap();
+        assert_eq!(fixture.bindings.receipts().len(), 4);
+        assert_eq!(fixture.bindings.math_receipts().len(), 2);
+        assert_eq!(
+            fixture
+                .bindings
+                .receipts()
+                .iter()
+                .map(ValidatedPrecomposedVectorReceipt::kind)
+                .collect::<Vec<_>>(),
+            [
+                PrecomposedVectorKind::InlineVector,
+                PrecomposedVectorKind::MathVector,
+                PrecomposedVectorKind::VectorFigure,
+                PrecomposedVectorKind::MathVectorBlock,
+            ]
+        );
+        fixture
+            .bindings
+            .verify(
+                &fixture.package,
+                &fixture.profile,
+                &fixture.limits,
+                &fixture.admitted,
+            )
+            .unwrap();
+        let repeated = staging_precomposed_vector_binding_fixture().unwrap();
+        assert_eq!(fixture.bindings.epoch(), repeated.bindings.epoch());
+        assert_eq!(
+            fixture.bindings.canonical_jcs(),
+            repeated.bindings.canonical_jcs()
+        );
+        assert_eq!(
+            fixture.bindings.fingerprint(),
+            repeated.bindings.fingerprint()
+        );
+        let foreign_session = StagingPrecomposedVectorProfileSessionIdentity::fresh();
+        let foreign_profile = StagingPrecomposedVectorProfileAuthorization::bind_profile_receipt(
+            fixture.profile.profile_receipt_fingerprint(),
+            &fixture.package,
+            &fixture.limits,
+            &foreign_session,
+        )
+        .unwrap();
+        assert_eq!(
+            fixture.bindings.verify(
+                &fixture.package,
+                &foreign_profile,
+                &fixture.limits,
+                &fixture.admitted,
+            ),
+            Err(PrecomposedVectorBindingError::ReceiptMismatch)
+        );
+        assert!(fixture
+            .bindings
+            .canonical_jcs()
+            .contains(PRECOMPOSED_VECTOR_BINDING_SET_ALGORITHM));
+        assert!(!fixture
+            .bindings
+            .canonical_jcs()
+            .contains("svg/x-plus-y.svg"));
+        assert!(!fixture.bindings.canonical_jcs().contains("(a)x+y"));
+
+        let inline = fixture.bindings.receipt(NodeId::new(3)).unwrap();
+        let PrecomposedVectorPlacementInput::Inline(inline_input) = inline.placement() else {
+            panic!("inline vector must have only inline placement input");
+        };
+        assert_eq!(inline_input.spacing_before().get().raw(), 16_384);
+        assert_eq!(inline_input.spacing_after().get().raw(), 16_384);
+        assert_eq!(inline_input.scale().get().raw(), 65_536);
+        assert_eq!(inline_input.paint(), ResolvedRgb8::BLACK);
+        let metrics = inline_input.metrics();
+        assert_eq!(metrics.advance().get().raw(), 1_900_544);
+        assert_eq!(metrics.viewport_width().get().raw(), 1_966_080);
+        let line_baseline = raw_length(4_000_000);
+        let viewport_top = metrics.viewport_top(line_baseline).unwrap();
+        assert_eq!(metrics.line_baseline(viewport_top), Some(line_baseline));
+
+        let figure = fixture.bindings.receipt(NodeId::new(5)).unwrap();
+        let PrecomposedVectorPlacementInput::VectorFigure(figure_input) = figure.placement() else {
+            panic!("vector Figure must have only Figure placement input");
+        };
+        assert!(figure_input.style().keep_caption());
+        assert_eq!(figure_input.paint(), ResolvedRgb8::BLACK);
+
+        let block = fixture.bindings.receipt(NodeId::new(6)).unwrap();
+        let PrecomposedVectorPlacementInput::MathVectorBlock(block_input) = block.placement()
+        else {
+            panic!("math block must have only math-block placement input");
+        };
+        assert!(block_input
+            .style()
+            .equation_number_style()
+            .font_families()
+            .is_none());
+        assert_eq!(block_input.paint(), ResolvedRgb8::BLACK);
+        assert_eq!(
+            block_input.metrics().viewport_width().get().raw(),
+            1_966_080
+        );
+
+        for receipt in fixture.bindings.receipts() {
+            assert_eq!(receipt.resource().image_id(), ImageResourceId::new(0));
+            assert_eq!(
+                receipt.resource().declared_media(),
+                BoundPrecomposedVectorMedia::SafeSvg2
+            );
+            assert_eq!(
+                receipt.resource().admitted_media(),
+                BoundPrecomposedVectorMedia::SafeSvg2
+            );
+            assert_eq!(
+                receipt.resource().parser_profile(),
+                SafeVectorParserProfile::SafeSvg2
+            );
+            assert_eq!(
+                receipt.resource().limits_fingerprint(),
+                fixture.limits.fingerprint()
+            );
+            assert_eq!(
+                receipt.resource().profile_fingerprint(),
+                fixture.profile.profile_receipt_fingerprint()
+            );
+        }
+
+        let mixed = staging_precomposed_vector_binding_fixture_with_generic_safe_svg1().unwrap();
+        mixed
+            .bindings
+            .verify(
+                &mixed.package,
+                &mixed.profile,
+                &mixed.limits,
+                &mixed.admitted,
+            )
+            .unwrap();
+        for owner in [NodeId::new(3), NodeId::new(5)] {
+            let resource = mixed.bindings.receipt(owner).unwrap().resource();
+            assert_eq!(resource.image_id(), ImageResourceId::new(1));
+            assert_eq!(
+                resource.declared_media(),
+                BoundPrecomposedVectorMedia::SafeSvg1
+            );
+            assert_eq!(
+                resource.admitted_media(),
+                BoundPrecomposedVectorMedia::SafeSvg1
+            );
+            assert_eq!(resource.parser_profile(), SafeVectorParserProfile::SafeSvg1);
+        }
+        for owner in [NodeId::new(4), NodeId::new(6)] {
+            let resource = mixed.bindings.receipt(owner).unwrap().resource();
+            assert_eq!(resource.image_id(), ImageResourceId::new(0));
+            assert_eq!(
+                resource.declared_media(),
+                BoundPrecomposedVectorMedia::SafeSvg2
+            );
+            assert_eq!(
+                resource.admitted_media(),
+                BoundPrecomposedVectorMedia::SafeSvg2
+            );
+            assert_eq!(resource.parser_profile(), SafeVectorParserProfile::SafeSvg2);
+        }
+    }
+
+    #[test]
+    fn precomposed_vector_scale_uses_one_half_even_scale_for_both_axes() {
+        let metrics = typaxis_document::PrecomposedVectorMetrics {
+            advance: positive(2),
+            ascent: positive(1),
+            baseline: nonnegative(1),
+            descent: nonnegative(0),
+            origin_x: raw_length(0),
+            viewport: typaxis_document::PrecomposedVectorViewport {
+                width: positive(2),
+                height: positive(1),
+            },
+        };
+        let spacing = typaxis_document::PrecomposedVectorSpacing {
+            before: nonnegative(0),
+            after: nonnegative(0),
+        };
+        let input = PrecomposedVectorInlinePlacementInput::from_validated_metrics(
+            metrics,
+            spacing,
+            positive(3),
+            positive(2),
+            ResolvedRgb8::BLACK,
+        )
+        .unwrap();
+        assert_eq!(input.scale().get().raw(), 43_691);
+        assert_ne!(
+            i128::from(input.metrics().viewport_width().get().raw()) * 2,
+            i128::from(input.metrics().viewport_height().get().raw()) * 3,
+            "rounded axes must not be rejected by an exact cross-product test"
+        );
+
+        let mut nonuniform = metrics;
+        nonuniform.viewport.height = positive(2);
+        assert_eq!(
+            PrecomposedVectorInlinePlacementInput::from_validated_metrics(
+                nonuniform,
+                spacing,
+                positive(3),
+                positive(2),
+                ResolvedRgb8::BLACK,
+            ),
+            Err(PrecomposedVectorGeometryError::NonUniformScale)
+        );
+
+        let mut tie_to_zero = metrics;
+        tie_to_zero.viewport.width = positive(1);
+        assert_eq!(
+            PrecomposedVectorInlinePlacementInput::from_validated_metrics(
+                tie_to_zero,
+                spacing,
+                positive(131_072),
+                positive(65_536),
+                ResolvedRgb8::BLACK,
+            ),
+            Err(PrecomposedVectorGeometryError::ScaleOutOfRange)
+        );
+    }
+
+    #[test]
+    fn precomposed_vector_binding_rejects_self_consistent_component_swaps() {
+        let fixture = staging_precomposed_vector_binding_fixture().unwrap();
+
+        let mut wrong_image = fixture.bindings.clone();
+        wrong_image.receipts[0].resource.image_id = ImageResourceId::new(1);
+        assert_binding_tamper_fails(&fixture, wrong_image);
+
+        let mut wrong_media = fixture.bindings.clone();
+        wrong_media.receipts[0].resource.declared_media = BoundPrecomposedVectorMedia::SafeSvg1;
+        assert_binding_tamper_fails(&fixture, wrong_media);
+
+        let mut wrong_admitted_media = fixture.bindings.clone();
+        wrong_admitted_media.receipts[0].resource.admitted_media =
+            BoundPrecomposedVectorMedia::SafeSvg1;
+        assert_binding_tamper_fails(&fixture, wrong_admitted_media);
+
+        let mut wrong_source_hash = fixture.bindings.clone();
+        wrong_source_hash.receipts[0].resource.source_sha256[0] ^= 1;
+        assert_binding_tamper_fails(&fixture, wrong_source_hash);
+
+        let mut wrong_parser = fixture.bindings.clone();
+        wrong_parser.receipts[0].resource.parser_id = "typaxis.safe-svg-parser/wrong";
+        assert_binding_tamper_fails(&fixture, wrong_parser);
+
+        let mut wrong_parser_profile = fixture.bindings.clone();
+        wrong_parser_profile.receipts[0].resource.parser_profile =
+            SafeVectorParserProfile::SafeSvg1;
+        assert_binding_tamper_fails(&fixture, wrong_parser_profile);
+
+        let mut wrong_ir = fixture.bindings.clone();
+        wrong_ir.receipts[0].resource.ir_fingerprint[0] ^= 1;
+        assert_binding_tamper_fails(&fixture, wrong_ir);
+
+        let mut wrong_ir_id = fixture.bindings.clone();
+        wrong_ir_id.receipts[0].resource.ir_id = "typaxis.safe-vector-ir/wrong";
+        assert_binding_tamper_fails(&fixture, wrong_ir_id);
+
+        let mut wrong_profile = fixture.bindings.clone();
+        wrong_profile.receipts[0].resource.profile_fingerprint[0] ^= 1;
+        assert_binding_tamper_fails(&fixture, wrong_profile);
+
+        let mut wrong_limits = fixture.bindings.clone();
+        wrong_limits.receipts[0].resource.limits_fingerprint[0] ^= 1;
+        assert_binding_tamper_fails(&fixture, wrong_limits);
+
+        let mut wrong_epoch = fixture.bindings.clone();
+        wrong_epoch.receipts[0].epoch_fingerprint[0] ^= 1;
+        assert_binding_tamper_fails(&fixture, wrong_epoch);
+
+        let mut wrong_metrics = fixture.bindings.clone();
+        wrong_metrics.receipts[0].metrics_fingerprint[0] ^= 1;
+        assert_binding_tamper_fails(&fixture, wrong_metrics);
+
+        let mut wrong_style = fixture.bindings.clone();
+        let (before_block, block) = wrong_style.receipts.split_at_mut(3);
+        std::mem::swap(&mut before_block[2].placement, &mut block[0].placement);
+        assert_binding_tamper_fails(&fixture, wrong_style);
+
+        let mut wrong_alternative = fixture.bindings.clone();
+        wrong_alternative.receipts[0].alternative = "別の代替テキスト".to_owned();
+        wrong_alternative.receipts[0].alternative_sha256 =
+            sha256(wrong_alternative.receipts[0].alternative.as_bytes());
+        assert_binding_tamper_fails(&fixture, wrong_alternative);
+
+        let mut wrong_language = fixture.bindings.clone();
+        wrong_language.receipts[0].language = Some("en-US".to_owned());
+        assert_binding_tamper_fails(&fixture, wrong_language);
+
+        let mut wrong_paint = fixture.bindings.clone();
+        let syntax_metrics = fixture
+            .package
+            .precomposed_vector_metrics_for(NodeId::new(3))
+            .unwrap();
+        let PrecomposedVectorMetricPayload::Inline { metrics, spacing } = syntax_metrics.payload()
+        else {
+            unreachable!();
+        };
+        let resource = &wrong_paint.receipts[0].resource;
+        wrong_paint.receipts[0].placement = PrecomposedVectorPlacementInput::Inline(
+            PrecomposedVectorInlinePlacementInput::from_validated_metrics(
+                metrics,
+                spacing,
+                resource.intrinsic_width,
+                resource.intrinsic_height,
+                ResolvedRgb8::new(1, 2, 3),
+            )
+            .unwrap(),
+        );
+        assert_binding_tamper_fails(&fixture, wrong_paint);
+    }
 
     #[test]
     fn vector_layout_preserves_intrinsic_ratio_and_closes_selected_figure() {

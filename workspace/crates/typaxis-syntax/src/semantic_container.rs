@@ -649,6 +649,189 @@ impl StagingSemanticContainerProfileView {
     }
 }
 
+#[derive(Clone)]
+pub struct StagingPrecomposedVectorProfileSessionIdentity(std::sync::Arc<()>);
+
+impl StagingPrecomposedVectorProfileSessionIdentity {
+    pub fn fresh() -> Self {
+        Self(std::sync::Arc::new(()))
+    }
+}
+
+impl std::fmt::Debug for StagingPrecomposedVectorProfileSessionIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("StagingPrecomposedVectorProfileSessionIdentity(..)")
+    }
+}
+
+impl PartialEq for StagingPrecomposedVectorProfileSessionIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for StagingPrecomposedVectorProfileSessionIdentity {}
+
+/// Session-bound dependency-inversion projection issued only after the
+/// machine-profile owner has accepted the complete precomposed-vector policy.
+/// The deterministic portion closes the exact syntax receipts and effective
+/// limits; the machine-profile receipt fingerprint closes the policy itself.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingPrecomposedVectorProfileAuthorization {
+    package_sha256: [u8; 32],
+    semantic_fingerprint: [u8; 32],
+    limits_fingerprint: [u8; 32],
+    vector_bindings: Vec<(NodeId, [u8; 32])>,
+    profile_receipt_fingerprint: [u8; 32],
+    session: StagingPrecomposedVectorProfileSessionIdentity,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingPrecomposedVectorProfileProgressToken {
+    session: StagingPrecomposedVectorProfileSessionIdentity,
+    authorization_fingerprint: [u8; 32],
+    profile_receipt_fingerprint: [u8; 32],
+}
+
+impl StagingPrecomposedVectorProfileAuthorization {
+    #[doc(hidden)]
+    pub fn bind_profile_receipt(
+        profile_receipt_fingerprint: [u8; 32],
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+        session: &StagingPrecomposedVectorProfileSessionIdentity,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        if profile_receipt_fingerprint == [0; 32] {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        let vector_bindings = precomposed_vector_profile_bindings(package, limits)?;
+        let canonical_jcs =
+            encode_precomposed_vector_profile_authorization(package, limits, &vector_bindings);
+        let authorization = Self {
+            package_sha256: package.canonical_jcs_sha256(),
+            semantic_fingerprint: package.semantic_fingerprint(),
+            limits_fingerprint: limits.fingerprint(),
+            vector_bindings,
+            profile_receipt_fingerprint,
+            session: session.clone(),
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        };
+        authorization.authorizes(package, limits)?;
+        Ok(authorization)
+    }
+
+    pub fn vector_owners(&self) -> impl ExactSizeIterator<Item = NodeId> + '_ {
+        self.vector_bindings.iter().map(|(owner, _)| *owner)
+    }
+
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    pub const fn profile_receipt_fingerprint(&self) -> [u8; 32] {
+        self.profile_receipt_fingerprint
+    }
+
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+
+    pub fn progress_token(&self) -> StagingPrecomposedVectorProfileProgressToken {
+        StagingPrecomposedVectorProfileProgressToken {
+            session: self.session.clone(),
+            authorization_fingerprint: self.fingerprint,
+            profile_receipt_fingerprint: self.profile_receipt_fingerprint,
+        }
+    }
+
+    pub fn matches_progress(&self, token: &StagingPrecomposedVectorProfileProgressToken) -> bool {
+        self.session == token.session
+            && self.fingerprint == token.authorization_fingerprint
+            && self.profile_receipt_fingerprint == token.profile_receipt_fingerprint
+    }
+
+    #[doc(hidden)]
+    pub fn belongs_to_session(
+        &self,
+        session: &StagingPrecomposedVectorProfileSessionIdentity,
+    ) -> bool {
+        self.session == *session
+    }
+
+    pub fn authorizes(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        let vector_bindings = precomposed_vector_profile_bindings(package, limits)?;
+        let canonical_jcs =
+            encode_precomposed_vector_profile_authorization(package, limits, &vector_bindings);
+        if self.package_sha256 != package.canonical_jcs_sha256()
+            || self.semantic_fingerprint != package.semantic_fingerprint()
+            || self.limits_fingerprint != limits.fingerprint()
+            || self.vector_bindings != vector_bindings
+            || self.canonical_jcs != canonical_jcs
+            || self.fingerprint != sha256(canonical_jcs.as_bytes())
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        Ok(())
+    }
+}
+
+fn precomposed_vector_profile_bindings(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<Vec<(NodeId, [u8; 32])>, StagingSemanticSyntaxError> {
+    package.checked_wire()?;
+    if package.limits() != limits.base() {
+        return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+    }
+    let mut bindings = Vec::new();
+    bindings
+        .try_reserve_exact(package.precomposed_vector_metrics().len())
+        .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+    for metrics in package.precomposed_vector_metrics() {
+        package.verify_precomposed_vector_metrics(metrics)?;
+        bindings.push((metrics.node_id(), metrics.fingerprint()));
+    }
+    if bindings.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+        return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+    }
+    Ok(bindings)
+}
+
+fn encode_precomposed_vector_profile_authorization(
+    package: &ValidatedStagingSemanticPackage,
+    limits: &M4EffectiveResourceLimits,
+    vector_bindings: &[(NodeId, [u8; 32])],
+) -> String {
+    let mut output = String::from(
+        "{\"algorithm\":\"typaxis.precomposed-vector-profile-authorization/1\",\"limits_fingerprint\":",
+    );
+    push_hash(&mut output, limits.fingerprint());
+    output.push_str(",\"package_sha256\":");
+    push_hash(&mut output, package.canonical_jcs_sha256());
+    output.push_str(",\"semantic_fingerprint\":");
+    push_hash(&mut output, package.semantic_fingerprint());
+    output.push_str(",\"vector_bindings\":[");
+    for (index, (owner, metrics)) in vector_bindings.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"metrics_fingerprint\":");
+        push_hash(&mut output, *metrics);
+        output.push_str(",\"node_id\":");
+        output.push_str(&owner.get().to_string());
+        output.push('}');
+    }
+    output.push_str("]}");
+    output
+}
+
 /// Dependency-inversion view retained by the profile owner and consumed by
 /// downstream private stages without a reverse dependency on
 /// `typaxis-machine-profile`.

@@ -5,7 +5,8 @@ use typaxis_syntax::machine_profile_boundary::{
     PrecomposedVectorStyleKind, StagingM4Block, PRECOMPOSED_VECTOR_STYLE_REGISTRY_VERSION,
 };
 use typaxis_syntax::{
-    PrecomposedVectorKind, PrecomposedVectorMetricPayload, StagingSafeVectorProfileView,
+    PrecomposedVectorKind, PrecomposedVectorMetricPayload,
+    StagingPrecomposedVectorProfileAuthorization, StagingSafeVectorProfileView,
     ValidatedStagingSemanticPackage,
 };
 
@@ -242,6 +243,7 @@ pub struct StagingPrecomposedVectorProfileReceipt {
     uses: Vec<PrecomposedVectorUseAuthorization>,
     canonical_jcs: String,
     fingerprint: [u8; 32],
+    authorization: StagingPrecomposedVectorProfileAuthorization,
 }
 
 impl StagingPrecomposedVectorProfileReceipt {
@@ -269,13 +271,21 @@ impl StagingPrecomposedVectorProfileReceipt {
         self.fingerprint
     }
 
+    pub const fn authorization(&self) -> &StagingPrecomposedVectorProfileAuthorization {
+        &self.authorization
+    }
+
     pub fn verify(
         &self,
         package: &ValidatedStagingSemanticPackage,
         limits: &M4EffectiveResourceLimits,
         session: &StagingSemanticContainerSessionIdentity,
     ) -> Result<(), StagingPrecomposedVectorProfileError> {
-        if self.session != *session {
+        if self.session != *session
+            || !self
+                .authorization
+                .belongs_to_session(session.precomposed_vector_profile_session())
+        {
             return Err(StagingPrecomposedVectorProfileError::ReceiptMismatch);
         }
         self.authorizes(package, limits)
@@ -308,6 +318,9 @@ impl StagingPrecomposedVectorProfileReceipt {
             || self.uses != uses
             || self.canonical_jcs != canonical_jcs
             || self.fingerprint != sha256(canonical_jcs.as_bytes())
+            || self.authorization.profile_receipt_fingerprint() != self.fingerprint
+            || self.authorization.vector_owners().ne(self.vector_owners())
+            || self.authorization.authorizes(package, limits).is_err()
         {
             return Err(StagingPrecomposedVectorProfileError::ReceiptMismatch);
         }
@@ -504,6 +517,14 @@ pub fn preflight_staging_precomposed_vector_profile(
         &resources,
         &uses,
     );
+    let fingerprint = sha256(canonical_jcs.as_bytes());
+    let authorization = StagingPrecomposedVectorProfileAuthorization::bind_profile_receipt(
+        fingerprint,
+        package,
+        limits,
+        session.precomposed_vector_profile_session(),
+    )
+    .map_err(|_| StagingPrecomposedVectorProfileError::ReceiptMismatch)?;
     let receipt = StagingPrecomposedVectorProfileReceipt {
         package_sha256: package.canonical_jcs_sha256(),
         semantic_fingerprint: package.semantic_fingerprint(),
@@ -512,8 +533,9 @@ pub fn preflight_staging_precomposed_vector_profile(
         semantic_container_count,
         resources,
         uses,
-        fingerprint: sha256(canonical_jcs.as_bytes()),
+        fingerprint,
         canonical_jcs,
+        authorization,
     };
     receipt.verify(package, limits, session)?;
     Ok(receipt)
@@ -1295,6 +1317,18 @@ mod tests {
         assert!(receipt
             .canonical_jcs()
             .contains("\"metric_names\":[\"viewport\"]"));
+        assert_eq!(
+            receipt.authorization().profile_receipt_fingerprint(),
+            receipt.fingerprint()
+        );
+        assert_eq!(
+            receipt.authorization().vector_owners().collect::<Vec<_>>(),
+            receipt.vector_owners().collect::<Vec<_>>()
+        );
+        receipt
+            .authorization()
+            .authorizes(&package, &limits)
+            .unwrap();
         receipt.verify(&package, &limits, &session).unwrap();
         assert_eq!(
             receipt.verify(
@@ -1302,6 +1336,18 @@ mod tests {
                 &limits,
                 &StagingSemanticContainerSessionIdentity::fresh()
             ),
+            Err(StagingPrecomposedVectorProfileError::ReceiptMismatch)
+        );
+
+        let foreign_session = StagingSemanticContainerSessionIdentity::fresh();
+        let foreign =
+            preflight_staging_precomposed_vector_profile(&package, &limits, &foreign_session)
+                .unwrap();
+        let mut swapped =
+            preflight_staging_precomposed_vector_profile(&package, &limits, &session).unwrap();
+        swapped.authorization = foreign.authorization;
+        assert_eq!(
+            swapped.verify(&package, &limits, &session),
             Err(StagingPrecomposedVectorProfileError::ReceiptMismatch)
         );
 
