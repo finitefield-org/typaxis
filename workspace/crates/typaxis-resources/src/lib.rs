@@ -35,7 +35,10 @@ pub use vector_content::{
 
 use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};
-use typaxis_core::{DisplayTextSpan, FontInstanceId, ImageResourceId, ValidatedResourceLimits};
+use std::sync::Arc;
+use typaxis_core::{
+    sha256, DisplayTextSpan, FontInstanceId, ImageResourceId, ValidatedResourceLimits,
+};
 use typaxis_display_list::{
     ClusterExtraction, DisplayCommand, DisplayDocument, ValidatedDisplayDocument,
 };
@@ -212,6 +215,61 @@ pub const PDF_IMAGE_WITH_ALPHA_OBJECT_BLUEPRINT: [PdfImageIndirectObjectRole; 2]
     PdfImageIndirectObjectRole::SoftMaskImageXObject,
 ];
 
+pub const JPEG_PDF_PLAN_ID: &str = "typaxis.jpeg-pdf-plan/1";
+
+/// Media-specific closure facts for a JPEG image plan. The encoded payload in
+/// the parent plan is the attested, metadata-free normalized JPEG stream; no
+/// caller can manufacture these facts without the sealed encoder receipt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FrozenPdfJpegPlan {
+    source_sha256: [u8; 32],
+    normalized_sha256: [u8; 32],
+    pixel_sha256: [u8; 32],
+    decoded_byte_length: u64,
+    peak_workspace_bytes: u64,
+    color_kind: JpegColorKind,
+    sampling: JpegSampling,
+    color_transform: u8,
+    limits_fingerprint: [u8; 32],
+    profile_fingerprint: [u8; 32],
+}
+
+impl FrozenPdfJpegPlan {
+    pub const fn plan_id(&self) -> &'static str {
+        JPEG_PDF_PLAN_ID
+    }
+    pub const fn source_sha256(&self) -> [u8; 32] {
+        self.source_sha256
+    }
+    pub const fn normalized_sha256(&self) -> [u8; 32] {
+        self.normalized_sha256
+    }
+    pub const fn pixel_sha256(&self) -> [u8; 32] {
+        self.pixel_sha256
+    }
+    pub const fn decoded_byte_length(&self) -> u64 {
+        self.decoded_byte_length
+    }
+    pub const fn peak_workspace_bytes(&self) -> u64 {
+        self.peak_workspace_bytes
+    }
+    pub const fn color_kind(&self) -> JpegColorKind {
+        self.color_kind
+    }
+    pub const fn sampling(&self) -> JpegSampling {
+        self.sampling
+    }
+    pub const fn color_transform(&self) -> u8 {
+        self.color_transform
+    }
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.profile_fingerprint
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FrozenPdfAlphaMask {
     encoded_bytes: Vec<u8>,
@@ -242,13 +300,14 @@ impl FrozenPdfAlphaMask {
 pub struct FrozenPdfImagePlan {
     image_id: ImageResourceId,
     admitted_sha256: [u8; 32],
-    encoded_bytes: Vec<u8>,
+    encoded_bytes: Arc<[u8]>,
     width: NonZeroU32,
     height: NonZeroU32,
     color_space: ImageColorSpace,
     bits_per_component: u8,
     encoding: ImageEncoding,
     alpha_mask: Option<FrozenPdfAlphaMask>,
+    jpeg: Option<FrozenPdfJpegPlan>,
 }
 impl FrozenPdfImagePlan {
     pub const fn image_id(&self) -> ImageResourceId {
@@ -277,6 +336,9 @@ impl FrozenPdfImagePlan {
     }
     pub const fn alpha_mask(&self) -> Option<&FrozenPdfAlphaMask> {
         self.alpha_mask.as_ref()
+    }
+    pub const fn jpeg_plan(&self) -> Option<&FrozenPdfJpegPlan> {
+        self.jpeg.as_ref()
     }
     pub fn indirect_object_blueprint(&self) -> &[PdfImageIndirectObjectRole] {
         if self.alpha_mask.is_some() {
@@ -372,7 +434,7 @@ impl VerifiedEncoderReceiptOwner {
         VerifiedEncoderReceipt(VerifiedEncoderOutput::Image(FrozenPdfImagePlan {
             image_id: output.image_id,
             admitted_sha256: output.admitted_sha256,
-            encoded_bytes: output.encoded_bytes,
+            encoded_bytes: Arc::from(output.encoded_bytes),
             width: output.width,
             height: output.height,
             color_space: output.color_space,
@@ -385,7 +447,58 @@ impl VerifiedEncoderReceiptOwner {
                 bits_per_component: mask.bits_per_component,
                 encoding: mask.encoding,
             }),
+            jpeg: None,
         }))
+    }
+
+    fn issue_jpeg(
+        &self,
+        admitted: &AdmittedImage,
+    ) -> Result<VerifiedEncoderReceipt, ResourceError> {
+        if admitted.media_kind() != AdmittedImageMediaKind::JpegBaseline {
+            return Err(ResourceError::InvalidImagePlan);
+        }
+        let attestation = admitted
+            .jpeg_attestation()
+            .ok_or(ResourceError::InvalidImagePlan)?;
+        if attestation.image_id() != admitted.image_id()
+            || attestation.source_sha256() != admitted.content_hash()
+            || attestation.width() != admitted.width()
+            || attestation.height() != admitted.height()
+            || attestation.decoded_byte_length() != admitted.decoded_bytes()
+            || sha256(attestation.normalized_bytes()) != attestation.normalized_sha256()
+        {
+            return Err(ResourceError::InvalidImagePlan);
+        }
+        let (color_space, color_transform) = match attestation.color_kind() {
+            JpegColorKind::Grayscale => (ImageColorSpace::Gray, 0),
+            JpegColorKind::YCbCr => (ImageColorSpace::Rgb, 1),
+        };
+        Ok(VerifiedEncoderReceipt(VerifiedEncoderOutput::Image(
+            FrozenPdfImagePlan {
+                image_id: admitted.image_id(),
+                admitted_sha256: admitted.content_hash(),
+                encoded_bytes: attestation.normalized_stream(),
+                width: attestation.width(),
+                height: attestation.height(),
+                color_space,
+                bits_per_component: 8,
+                encoding: ImageEncoding::Jpeg,
+                alpha_mask: None,
+                jpeg: Some(FrozenPdfJpegPlan {
+                    source_sha256: attestation.source_sha256(),
+                    normalized_sha256: attestation.normalized_sha256(),
+                    pixel_sha256: attestation.pixel_sha256(),
+                    decoded_byte_length: attestation.decoded_byte_length(),
+                    peak_workspace_bytes: attestation.peak_workspace_bytes(),
+                    color_kind: attestation.color_kind(),
+                    sampling: attestation.sampling(),
+                    color_transform,
+                    limits_fingerprint: attestation.limits_fingerprint(),
+                    profile_fingerprint: attestation.profile_fingerprint(),
+                }),
+            },
+        )))
     }
 }
 
@@ -628,6 +741,7 @@ impl FrozenPdfResourcePlans {
             {
                 return Err(ResourceError::InvalidImagePlan);
             }
+            validate_media_specific_image_plan(image, &plan)?;
             aggregate_plan_bytes = aggregate_plan_bytes
                 .checked_add(encoded_bytes)
                 .ok_or(ResourceError::ResourceLimit)?;
@@ -680,6 +794,53 @@ impl FrozenPdfResourcePlans {
     pub fn into_plans(self) -> (Vec<FrozenPdfFontPlan>, Vec<FrozenPdfImagePlan>) {
         (self.fonts, self.images)
     }
+}
+
+fn validate_media_specific_image_plan(
+    image: &AdmittedImage,
+    plan: &FrozenPdfImagePlan,
+) -> Result<(), ResourceError> {
+    match image.media_kind() {
+        AdmittedImageMediaKind::Png => {
+            if plan.jpeg.is_some() || plan.encoding == ImageEncoding::Jpeg {
+                return Err(ResourceError::InvalidImagePlan);
+            }
+        }
+        AdmittedImageMediaKind::JpegBaseline => {
+            let admitted = image
+                .jpeg_attestation()
+                .ok_or(ResourceError::InvalidImagePlan)?;
+            let frozen = plan.jpeg.as_ref().ok_or(ResourceError::InvalidImagePlan)?;
+            let (color_space, color_transform) = match admitted.color_kind() {
+                JpegColorKind::Grayscale => (ImageColorSpace::Gray, 0),
+                JpegColorKind::YCbCr => (ImageColorSpace::Rgb, 1),
+            };
+            if plan.encoding != ImageEncoding::Jpeg
+                || plan.bits_per_component != 8
+                || plan.alpha_mask.is_some()
+                || plan.color_space != color_space
+                || plan.encoded_bytes.as_ref() != admitted.normalized_bytes()
+                || frozen.source_sha256 != admitted.source_sha256()
+                || frozen.source_sha256 != plan.admitted_sha256
+                || frozen.normalized_sha256 != admitted.normalized_sha256()
+                || frozen.normalized_sha256 != sha256(&plan.encoded_bytes)
+                || frozen.pixel_sha256 != admitted.pixel_sha256()
+                || frozen.decoded_byte_length != admitted.decoded_byte_length()
+                || frozen.peak_workspace_bytes != admitted.peak_workspace_bytes()
+                || frozen.color_kind != admitted.color_kind()
+                || frozen.sampling != admitted.sampling()
+                || frozen.color_transform != color_transform
+                || frozen.limits_fingerprint != admitted.limits_fingerprint()
+                || frozen.profile_fingerprint != admitted.profile_fingerprint()
+            {
+                return Err(ResourceError::InvalidImagePlan);
+            }
+        }
+        AdmittedImageMediaKind::SafeVector | AdmittedImageMediaKind::SafeVector2 => {
+            return Err(ResourceError::InvalidImagePlan);
+        }
+    }
+    Ok(())
 }
 
 fn validate_pdf_font_metrics(metrics: &PdfFontMetrics) -> Result<(), ResourceError> {
@@ -1195,7 +1356,14 @@ impl ResourceFinalizer for ReferenceResourceFinalizer {
                 .admitted
                 .image(*image_id)
                 .ok_or(ResourceError::MissingLogicalResource)?;
-            receipts.push(owner.issue_image(decode_png_for_pdf(admitted)?));
+            let receipt = match admitted.media_kind() {
+                AdmittedImageMediaKind::Png => owner.issue_image(decode_png_for_pdf(admitted)?),
+                AdmittedImageMediaKind::JpegBaseline => owner.issue_jpeg(admitted)?,
+                AdmittedImageMediaKind::SafeVector | AdmittedImageMediaKind::SafeVector2 => {
+                    return Err(ResourceError::InvalidImagePlan);
+                }
+            };
+            receipts.push(receipt);
         }
         FrozenPdfResourcePlans::from_verified_receipts(
             input.display,
@@ -1255,13 +1423,14 @@ pub fn freeze_admitted_png_images_for_pdf(
         plans.push(FrozenPdfImagePlan {
             image_id: output.image_id,
             admitted_sha256: output.admitted_sha256,
-            encoded_bytes: output.encoded_bytes,
+            encoded_bytes: Arc::from(output.encoded_bytes),
             width: output.width,
             height: output.height,
             color_space: output.color_space,
             bits_per_component: output.bits_per_component,
             encoding: output.encoding,
             alpha_mask,
+            jpeg: None,
         });
     }
     Ok(plans)

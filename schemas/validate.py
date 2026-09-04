@@ -117,6 +117,12 @@ STAGING_ACCESSIBILITY_FIXTURE_DIR = (
     / "production-book-1"
     / "accessibility"
 )
+STAGING_JPEG_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR
+    / "staging"
+    / "production-book-1"
+    / "jpeg-media"
+)
 JSON_SAFE_INTEGER_MAX = 9_007_199_254_740_991
 MAX_AST_NESTING_DEPTH = 64
 MAX_FONT_SUBSET_TAGS = 26**6
@@ -6432,6 +6438,7 @@ def main() -> int:
             *expected_versioned_current,
             "machine-accessibility-manifest.schema.json",
             "machine-book-navigation-manifest.schema.json",
+            "machine-jpeg-manifest.schema.json",
             "machine-math-manifest.schema.json",
             "machine-math-vector-manifest.schema.json",
             "machine-precomposed-vector-evidence.schema.json",
@@ -6643,6 +6650,131 @@ def main() -> int:
             raise ValidationFailure(
                 "private 1.4 manifest accepted declared/attested media mismatch"
             )
+
+        jpeg_document_path = STAGING_JPEG_FIXTURE_DIR / "job" / "document-package.json"
+        jpeg_manifest_path = STAGING_JPEG_FIXTURE_DIR / "manifest.json"
+        jpeg_document = load_json(jpeg_document_path)
+        jpeg_manifest = load_json(jpeg_manifest_path)
+        jpeg_document_errors = schema_errors(
+            private_m4_validators["document-package.schema.json"], jpeg_document
+        )
+        if jpeg_document_errors:
+            raise ValidationFailure(
+                "private 1.4 DocumentPackage rejected the JPEG fixture: "
+                + " | ".join(jpeg_document_errors)
+            )
+        if not schema_errors(
+            versioned_current_validators["document-package.schema.json"],
+            jpeg_document,
+        ):
+            raise ValidationFailure(
+                "versioned 1.3 DocumentPackage accepted the private JPEG fixture"
+            )
+        jpeg_manifest_errors = schema_errors(
+            private_m4_validators["machine-jpeg-manifest.schema.json"],
+            jpeg_manifest,
+        )
+        if jpeg_manifest_errors:
+            raise ValidationFailure(
+                "private 1.4 JPEG manifest was rejected: "
+                + " | ".join(jpeg_manifest_errors)
+            )
+        for path, value, label in (
+            (jpeg_document_path, jpeg_document, "JPEG DocumentPackage"),
+            (jpeg_manifest_path, jpeg_manifest, "JPEG manifest"),
+        ):
+            if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
+                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+
+        jpeg_source = (STAGING_JPEG_FIXTURE_DIR / "job" / "input.tsf").read_bytes()
+        source_declaration = jpeg_document["sources"][0]
+        if (
+            len(jpeg_source) != source_declaration["utf8_byte_length"]
+            or hashlib.sha256(jpeg_source).hexdigest() != source_declaration["sha256"]
+        ):
+            raise ValidationFailure("private 1.4 JPEG source closure drifted")
+        jpeg_hex_by_uri = {
+            "color-2x1.jpg": "color-2x1.jpg.hex",
+            "gray-2x1.jpg": "gray-2x1.jpg.hex",
+            "color-17x9-422.jpg": "color-17x9-422.jpg.hex",
+        }
+        jpeg_declarations = jpeg_document["resources"]["images"]
+        jpeg_records = jpeg_manifest["resources"]
+        if len(jpeg_declarations) != len(jpeg_records):
+            raise ValidationFailure("private 1.4 JPEG resource coverage is incomplete")
+        occurrences: list[int] = []
+        object_numbers: list[int] = []
+        resource_names: list[str] = []
+        for declaration, record in zip(jpeg_declarations, jpeg_records, strict=True):
+            hex_path = STAGING_JPEG_FIXTURE_DIR / jpeg_hex_by_uri[declaration["uri"]]
+            resource_bytes = bytes.fromhex(hex_path.read_text(encoding="ascii").strip())
+            used = bool(record["usages"])
+            if (
+                declaration["media_type"] != "jpeg-baseline"
+                or record["image_id"] != declaration["image_id"]
+                or record["uri"] != declaration["uri"]
+                or record["declared_media_type"] != declaration["media_type"]
+                or record["attested_media_kind"] != declaration["media_type"]
+                or record["source_byte_length"] != len(resource_bytes)
+                or record["source_sha256"]
+                != hashlib.sha256(resource_bytes).hexdigest()
+                or record["source_sha256"] != declaration["expected_sha256"]
+                or used != (record["pdf_plan_fingerprint"] is not None)
+                or used != (record["pdf_object_number"] is not None)
+                or used != (record["pdf_resource_name"] is not None)
+                or used != (record["pdf_color_transform"] is not None)
+            ):
+                raise ValidationFailure("private 1.4 JPEG declaration/PDF closure drifted")
+            occurrences.extend(usage["occurrence"] for usage in record["usages"])
+            if used:
+                object_numbers.append(record["pdf_object_number"])
+                resource_names.append(record["pdf_resource_name"])
+        if sorted(occurrences) != list(range(len(occurrences))):
+            raise ValidationFailure("private 1.4 JPEG occurrences are not dense")
+        if len(object_numbers) != len(set(object_numbers)) or len(resource_names) != len(
+            set(resource_names)
+        ):
+            raise ValidationFailure("private 1.4 JPEG PDF objects are not one-to-one")
+        if jpeg_manifest["page_count"] != 3 or [
+            usage["page_index"]
+            for record in jpeg_records
+            for usage in record["usages"]
+        ] != [0, 1, 2]:
+            raise ValidationFailure("private 1.4 JPEG page placement drifted")
+        if jpeg_records[2]["usages"] or any(
+            jpeg_records[2][field] is not None
+            for field in (
+                "pdf_color_transform",
+                "pdf_object_number",
+                "pdf_plan_fingerprint",
+                "pdf_resource_name",
+            )
+        ):
+            raise ValidationFailure("private 1.4 unused JPEG acquired a PDF plan or object")
+
+        jpeg_tampers = []
+        wrong_component = copy.deepcopy(jpeg_manifest)
+        wrong_component["component_ids"]["decoder"] = "jpeg-decoder/latest"
+        jpeg_tampers.append(("decoder identity", wrong_component))
+        wrong_media = copy.deepcopy(jpeg_manifest)
+        wrong_media["resources"][0]["attested_media_kind"] = "png"
+        jpeg_tampers.append(("media identity", wrong_media))
+        wrong_transform = copy.deepcopy(jpeg_manifest)
+        wrong_transform["resources"][0]["pdf_color_transform"] = 0
+        jpeg_tampers.append(("color transform", wrong_transform))
+        missing_plan = copy.deepcopy(jpeg_manifest)
+        missing_plan["resources"][0]["pdf_plan_fingerprint"] = None
+        jpeg_tampers.append(("used resource plan", missing_plan))
+        extra_member = copy.deepcopy(jpeg_manifest)
+        extra_member["resources"][0]["interpolate"] = True
+        jpeg_tampers.append(("extra member", extra_member))
+        for label, mutant in jpeg_tampers:
+            if not schema_errors(
+                private_m4_validators["machine-jpeg-manifest.schema.json"], mutant
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 JPEG manifest accepted {label} tamper"
+                )
 
         vector_document_path = STAGING_SAFE_VECTOR_FIXTURE_DIR / "job" / "document-package.json"
         vector_manifest_path = STAGING_SAFE_VECTOR_FIXTURE_DIR / "manifest.json"

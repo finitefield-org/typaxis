@@ -169,6 +169,7 @@ pub enum StagingSemanticSyntaxError {
     },
     PrecomposedVectorStaging(NodeId),
     SvgSafe2Staging(ImageResourceId),
+    JpegStaging(ImageResourceId),
     MathSourceTextLimit,
     MathSpeechLimit,
     InvalidResource,
@@ -252,12 +253,16 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
                 "P1102: svg-safe-2 image {} requires the versioned vector pipeline",
                 id.get()
             ),
+            Self::JpegStaging(id) => write!(
+                formatter,
+                "R7100: jpeg-baseline image {} requires the JPEG profile",
+                id.get()
+            ),
             Self::MathSourceTextLimit => formatter.write_str("T2100: math source limit exceeded"),
             Self::MathSpeechLimit => formatter.write_str("T2101: math speech limit exceeded"),
             Self::InvalidResource => formatter.write_str("P1102: invalid declared-media resource"),
-            Self::InvalidPageGeometry => {
-                formatter.write_str("P1102: SafeVector requires one closed default page frame")
-            }
+            Self::InvalidPageGeometry => formatter
+                .write_str("P1102: private media profile requires one closed default page frame"),
             Self::InvalidStyle => formatter.write_str("L5101: invalid staging style"),
             Self::InapplicableStyle => {
                 formatter.write_str("L5101: inapplicable staging style property")
@@ -629,6 +634,14 @@ impl StagingSemanticContainerProfileView {
         package: &ValidatedStagingSemanticPackage,
         limits: &ValidatedResourceLimits,
     ) -> Result<Self, StagingSemanticSyntaxError> {
+        Self::new_with_jpeg_policy(package, limits, false)
+    }
+
+    fn new_with_jpeg_policy(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &ValidatedResourceLimits,
+        permits_jpeg: bool,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
         package.checked_wire()?;
         if package.limits() != limits {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
@@ -639,6 +652,13 @@ impl StagingSemanticContainerProfileView {
             })
         {
             return Err(StagingSemanticSyntaxError::SvgSafe2Staging(image.image_id));
+        }
+        if !permits_jpeg {
+            if let Some(image) = package.resources.images.iter().find(|image| {
+                image.media == ImageMediaDeclaration::Declared(ImageMediaType::JpegBaseline)
+            }) {
+                return Err(StagingSemanticSyntaxError::JpegStaging(image.image_id));
+            }
         }
         if let Some(owner) =
             first_precomposed_vector_owner(&package.document.blocks).or_else(|| {
@@ -979,6 +999,349 @@ impl StagingM4PageGeometry {
     pub const fn fingerprint(&self) -> [u8; 32] {
         self.fingerprint
     }
+}
+
+/// Closed Figure use accepted by the private baseline-JPEG component.  The
+/// profile intentionally admits only image-only, non-floating Figure blocks;
+/// a later production-profile composition can add text/caption layout without
+/// weakening this receipt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingJpegFigureProfileUse {
+    owner: NodeId,
+    image_id: ImageResourceId,
+    alternative: String,
+    source_span: SourceSpan,
+    page_break_before: bool,
+}
+
+impl StagingJpegFigureProfileUse {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn image_id(&self) -> ImageResourceId {
+        self.image_id
+    }
+    pub fn alternative(&self) -> &str {
+        &self.alternative
+    }
+    pub const fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+    pub const fn page_break_before(&self) -> bool {
+        self.page_break_before
+    }
+}
+
+/// Dependency-inversion projection for MI4-11.  It binds the exact private
+/// contract package, JPEG resource set, Figure use order, page geometry, and
+/// effective limits before the host is permitted to open image resources.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingJpegProfileView {
+    base: StagingSemanticContainerProfileView,
+    limits_fingerprint: [u8; 32],
+    jpeg_resource_ids: Vec<ImageResourceId>,
+    figures: Vec<StagingJpegFigureProfileUse>,
+    page_geometry: StagingM4PageGeometry,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingJpegProfileView {
+    pub fn new(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        let base = StagingSemanticContainerProfileView::new_with_jpeg_policy(
+            package,
+            limits.base(),
+            true,
+        )?;
+        let wire = package.checked_wire()?;
+        validate_jpeg_profile_styles(wire.style_sheet())?;
+        let page_geometry = StagingM4PageGeometry::from_wire(wire.page_masters())?;
+        validate_jpeg_profile_page_master_extensions(
+            wire.page_masters(),
+            wire.advanced_page_masters(),
+        )?;
+        if !package.document().footnotes.is_empty() {
+            return Err(StagingSemanticSyntaxError::InvalidNesting);
+        }
+        if !package.resources().font_faces.is_empty() {
+            return Err(StagingSemanticSyntaxError::InvalidResource);
+        }
+        let mut jpeg_resource_ids = Vec::new();
+        jpeg_resource_ids
+            .try_reserve_exact(package.resources().images.len())
+            .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+        for image in &package.resources().images {
+            match image.media {
+                ImageMediaDeclaration::Declared(ImageMediaType::JpegBaseline) => {
+                    jpeg_resource_ids.push(image.image_id)
+                }
+                _ => return Err(StagingSemanticSyntaxError::InvalidResource),
+            }
+        }
+        if jpeg_resource_ids.is_empty() || jpeg_resource_ids.windows(2).any(|ids| ids[0] >= ids[1])
+        {
+            return Err(StagingSemanticSyntaxError::InvalidResource);
+        }
+        let resources: BTreeSet<_> = jpeg_resource_ids.iter().copied().collect();
+        let mut figures = Vec::new();
+        let mut page_break_before = false;
+        collect_jpeg_profile_figures(
+            &package.document().blocks,
+            &resources,
+            &mut page_break_before,
+            &mut figures,
+        )?;
+        if figures.is_empty() || page_break_before {
+            return Err(StagingSemanticSyntaxError::InvalidNesting);
+        }
+        let canonical_jcs = encode_jpeg_profile_view(
+            package,
+            base.profile_fingerprint(),
+            limits.fingerprint(),
+            &jpeg_resource_ids,
+            &figures,
+            page_geometry.fingerprint(),
+        );
+        Ok(Self {
+            base,
+            limits_fingerprint: limits.fingerprint(),
+            jpeg_resource_ids,
+            figures,
+            page_geometry,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        })
+    }
+
+    pub const fn base(&self) -> &StagingSemanticContainerProfileView {
+        &self.base
+    }
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+    pub fn jpeg_resource_ids(&self) -> &[ImageResourceId] {
+        &self.jpeg_resource_ids
+    }
+    pub fn figures(&self) -> &[StagingJpegFigureProfileUse] {
+        &self.figures
+    }
+    pub const fn page_geometry(&self) -> &StagingM4PageGeometry {
+        &self.page_geometry
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+    pub fn authorizes(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        let expected = Self::new(package, limits)?;
+        if self == &expected {
+            Ok(())
+        } else {
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        }
+    }
+}
+
+fn collect_jpeg_profile_figures(
+    blocks: &[StagingM4Block],
+    resources: &BTreeSet<ImageResourceId>,
+    page_break_before: &mut bool,
+    output: &mut Vec<StagingJpegFigureProfileUse>,
+) -> Result<(), StagingSemanticSyntaxError> {
+    for block in blocks {
+        match block {
+            StagingM4Block::Figure {
+                common,
+                image_id,
+                placement,
+                alternative,
+                has_nonempty_alternative,
+                caption,
+            } => {
+                if !common.classes.is_empty()
+                    || *placement != StagingM4FigurePlacement::Block
+                    || !*has_nonempty_alternative
+                    || alternative.is_empty()
+                    || !caption.is_empty()
+                    || !resources.contains(image_id)
+                {
+                    return Err(StagingSemanticSyntaxError::InvalidBlock(common.node_id));
+                }
+                output
+                    .try_reserve(1)
+                    .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+                output.push(StagingJpegFigureProfileUse {
+                    owner: common.node_id,
+                    image_id: *image_id,
+                    alternative: alternative.clone(),
+                    source_span: common.span,
+                    page_break_before: std::mem::take(page_break_before),
+                });
+            }
+            StagingM4Block::PageBreak { common } => {
+                if !common.classes.is_empty() || *page_break_before {
+                    return Err(StagingSemanticSyntaxError::InvalidNesting);
+                }
+                *page_break_before = true;
+            }
+            StagingM4Block::SemanticContainer { common, blocks, .. } => {
+                if !common.classes.is_empty() {
+                    return Err(StagingSemanticSyntaxError::InvalidBlock(common.node_id));
+                }
+                collect_jpeg_profile_figures(blocks, resources, page_break_before, output)?
+            }
+            other => {
+                return Err(StagingSemanticSyntaxError::InvalidBlock(
+                    other.common().node_id,
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The private JPEG slice has an explicit body-width placement policy and no
+/// style-layout input. Accepting an authored Figure rule or class here would
+/// make a valid declaration appear to work while silently ignoring it. Keep
+/// the profile closed to absent styles or declarations that are exactly the
+/// neutral semantic-container defaults used by the staging fixture.
+fn validate_jpeg_profile_styles(
+    sheet: &WireStagingStyleSheet,
+) -> Result<(), StagingSemanticSyntaxError> {
+    for rule in &sheet.rules {
+        if rule.extends.is_some()
+            || rule.selector != "semantic_container"
+            || rule
+                .declarations
+                .iter()
+                .any(|declaration| !jpeg_profile_declaration_is_neutral(declaration))
+        {
+            return Err(StagingSemanticSyntaxError::InapplicableStyle);
+        }
+    }
+    Ok(())
+}
+
+/// The dedicated JPEG paginator consumes only a single body rectangle. Close
+/// every page-master field that it does not consume so a header, footer,
+/// footnote region, trim override, or column request can never be accepted and
+/// then disappear from the rendered document.
+fn validate_jpeg_profile_page_master_extensions(
+    base: &typaxis_document_package::WirePageMasterSet,
+    advanced: &typaxis_document_package::WireAdvancedPageMasterSet,
+) -> Result<(), StagingSemanticSyntaxError> {
+    let [master] = base.masters.as_slice() else {
+        return Err(StagingSemanticSyntaxError::InvalidPageGeometry);
+    };
+    let [extension] = advanced.masters.as_slice() else {
+        return Err(StagingSemanticSyntaxError::InvalidPageGeometry);
+    };
+    let expected_trim = typaxis_document_package::WireRect {
+        x: 0,
+        y: 0,
+        width: master.width,
+        height: master.height,
+    };
+    if master.header.is_some()
+        || master.footer.is_some()
+        || master.footnote.is_some()
+        || extension.master_id != master.master_id
+        || extension.trim != expected_trim
+        || extension.header_content.is_some()
+        || extension.footer_content.is_some()
+        || extension.column_layout.is_some()
+        || !matches!(
+            advanced.page_progression,
+            typaxis_document_package::WirePageProgression::LeftToRight
+        )
+        || !matches!(
+            advanced.writing_mode,
+            typaxis_document_package::WirePageWritingMode::HorizontalTopToBottom
+        )
+    {
+        return Err(StagingSemanticSyntaxError::InvalidPageGeometry);
+    }
+    Ok(())
+}
+
+fn jpeg_profile_declaration_is_neutral(
+    declaration: &typaxis_document_package::WireStagingStyleDeclaration,
+) -> bool {
+    match (declaration.name.as_str(), &declaration.value) {
+        (
+            "space_before" | "space_after" | "start_indent" | "end_indent",
+            WireStagingStyleValue::Length { value: 0 },
+        )
+        | ("keep_with_next", WireStagingStyleValue::Boolean { value: false })
+        | ("keep_caption", WireStagingStyleValue::Boolean { value: true }) => true,
+        ("text_align", WireStagingStyleValue::Keyword { value }) => value == "start",
+        ("width" | "page", WireStagingStyleValue::Keyword { value }) => value == "auto",
+        _ => false,
+    }
+}
+
+fn encode_jpeg_profile_view(
+    package: &ValidatedStagingSemanticPackage,
+    base: [u8; 32],
+    limits: [u8; 32],
+    resources: &[ImageResourceId],
+    figures: &[StagingJpegFigureProfileUse],
+    page_geometry: [u8; 32],
+) -> String {
+    let mut output = String::from(
+        "{\"algorithm\":\"typaxis.production-book-jpeg-authorization/1\",\"base_profile_fingerprint\":",
+    );
+    push_hash(&mut output, base);
+    output.push_str(",\"figures\":[");
+    for (index, figure) in figures.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"alternative_sha256\":");
+        push_hash(&mut output, sha256(figure.alternative.as_bytes()));
+        output.push_str(",\"image_id\":");
+        output.push_str(&figure.image_id.get().to_string());
+        output.push_str(",\"node_id\":");
+        output.push_str(&figure.owner.get().to_string());
+        output.push_str(",\"page_break_before\":");
+        output.push_str(if figure.page_break_before {
+            "true"
+        } else {
+            "false"
+        });
+        output.push_str(",\"span\":{");
+        output.push_str("\"end_byte\":");
+        output.push_str(&figure.source_span.end_byte().get().to_string());
+        output.push_str(",\"source_id\":");
+        output.push_str(&figure.source_span.source_id().get().to_string());
+        output.push_str(",\"start_byte\":");
+        output.push_str(&figure.source_span.start_byte().get().to_string());
+        output.push_str("}}");
+    }
+    output.push_str("],\"limits_fingerprint\":");
+    push_hash(&mut output, limits);
+    output.push_str(",\"package_fingerprint\":");
+    push_hash(&mut output, package.semantic_fingerprint());
+    output.push_str(",\"page_geometry_fingerprint\":");
+    push_hash(&mut output, page_geometry);
+    output.push_str(",\"resources\":[");
+    for (index, resource) in resources.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&resource.get().to_string());
+    }
+    output.push_str("]}");
+    output
 }
 
 fn positive_length(raw: i64) -> Result<PositiveLength, StagingSemanticSyntaxError> {
@@ -3657,6 +4020,12 @@ fn lower_resources(
                 }
                 (ImageMediaType::Png, None)
             }
+            WireImageMediaType::JpegBaseline => {
+                if image.vector_provenance.is_some() {
+                    return Err(StagingSemanticSyntaxError::InvalidResource);
+                }
+                (ImageMediaType::JpegBaseline, None)
+            }
             WireImageMediaType::SvgSafe1 => {
                 if image.vector_provenance.is_some() {
                     return Err(StagingSemanticSyntaxError::InvalidResource);
@@ -4629,6 +4998,7 @@ mod tests {
     const VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/vector-media/job/document-package.json"));
     const MATH_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/math/job/document-package.json"));
     const PRECOMPOSED_VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package.json"));
+    const JPEG_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/jpeg-media/job/document-package.json"));
 
     fn parse(bytes: &[u8]) -> Result<ValidatedStagingSemanticPackage, Box<dyn std::error::Error>> {
         let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
@@ -4657,6 +5027,20 @@ mod tests {
             .expect("default limits are valid");
         let decoded = StagingSemanticDocumentPackageDecoder::new()
             .decode(FIXTURE, &DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let mut wire = decoded.into_wire();
+        update(&mut wire);
+        StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap()
+            .into_bytes()
+    }
+
+    fn mutate_jpeg_and_encode(update: impl FnOnce(&mut WireStagingM4DocumentPackage)) -> Vec<u8> {
+        let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
+            .expect("default limits are valid");
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(JPEG_FIXTURE, &DocumentPackageDecodePolicy::new(&limits))
             .unwrap();
         let mut wire = decoded.into_wire();
         update(&mut wire);
@@ -4748,6 +5132,163 @@ mod tests {
         assert_eq!(
             package.semantic_fingerprint(),
             reparsed.semantic_fingerprint()
+        );
+    }
+
+    #[test]
+    fn jpeg_media_lowering_and_private_profile_are_closed() {
+        let package = parse(JPEG_FIXTURE).unwrap();
+        assert_eq!(package.resources().images.len(), 3);
+        assert!(package.resources().images.iter().all(|image| {
+            image.media == ImageMediaDeclaration::Declared(ImageMediaType::JpegBaseline)
+                && image.vector_provenance.is_none()
+        }));
+        let base = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap();
+        assert!(matches!(
+            StagingSemanticContainerProfileView::new(&package, &base),
+            Err(StagingSemanticSyntaxError::JpegStaging(_))
+        ));
+        let limits = M4EffectiveResourceLimits::defaults_for(&base);
+        let view = StagingJpegProfileView::new(&package, &limits).unwrap();
+        assert_eq!(
+            view.jpeg_resource_ids(),
+            [
+                ImageResourceId::new(0),
+                ImageResourceId::new(1),
+                ImageResourceId::new(2)
+            ]
+        );
+        assert_eq!(view.figures().len(), 3);
+        assert_eq!(view.figures()[0].image_id(), ImageResourceId::new(0));
+        assert_eq!(view.figures()[1].image_id(), ImageResourceId::new(0));
+        assert_eq!(view.figures()[2].image_id(), ImageResourceId::new(1));
+        assert!(!view.figures()[0].page_break_before());
+        assert!(!view.figures()[1].page_break_before());
+        assert!(view.figures()[2].page_break_before());
+        view.authorizes(&package, &limits).unwrap();
+    }
+
+    #[test]
+    fn jpeg_private_profile_rejects_unhandled_styles_and_classes() {
+        let base = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap();
+        let limits = M4EffectiveResourceLimits::defaults_for(&base);
+
+        let figure_rule = mutate_jpeg_and_encode(|wire| {
+            let mut sheet = wire.style_sheet().clone();
+            sheet.rules[0].selector = "figure".to_owned();
+            wire.replace_style_sheet(sheet);
+        });
+        let package = parse(&figure_rule).unwrap();
+        assert!(matches!(
+            StagingJpegProfileView::new(&package, &limits),
+            Err(StagingSemanticSyntaxError::InapplicableStyle)
+        ));
+
+        let nonneutral_container = mutate_jpeg_and_encode(|wire| {
+            let mut sheet = wire.style_sheet().clone();
+            sheet.rules[0].declarations[0].value = WireStagingStyleValue::Length { value: 1 };
+            wire.replace_style_sheet(sheet);
+        });
+        let package = parse(&nonneutral_container).unwrap();
+        assert!(matches!(
+            StagingJpegProfileView::new(&package, &limits),
+            Err(StagingSemanticSyntaxError::InapplicableStyle)
+        ));
+
+        let figure_class = mutate_jpeg_and_encode(|wire| {
+            let mut document = wire.document().clone();
+            let WireStagingM4Block::SemanticContainer { blocks, .. } = &mut document.blocks[0]
+            else {
+                panic!("fixture root must remain a semantic container");
+            };
+            let WireStagingM4Block::Figure { classes, .. } = &mut blocks[0] else {
+                panic!("fixture first child must remain a figure");
+            };
+            classes.push("styled".to_owned());
+            wire.replace_typed_regions(document, wire.resources().clone());
+        });
+        let package = parse(&figure_class).unwrap();
+        assert!(matches!(
+            StagingJpegProfileView::new(&package, &limits),
+            Err(StagingSemanticSyntaxError::InvalidBlock(_))
+        ));
+    }
+
+    #[test]
+    fn jpeg_private_profile_rejects_non_jpeg_resources() {
+        let base = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap();
+        let limits = M4EffectiveResourceLimits::defaults_for(&base);
+
+        let unused_font = mutate_jpeg_and_encode(|wire| {
+            let document = wire.document().clone();
+            let mut resources = wire.resources().clone();
+            resources
+                .font_faces
+                .push(typaxis_document_package::WireStagingM4FontFace {
+                    font_face_id: 0,
+                    family: "Unused".to_owned(),
+                    uri: "unused.ttf".to_owned(),
+                    face_index: 0,
+                    expected_sha256: None,
+                    media_type: WireFontMediaType::SfntTrueTypeGlyf,
+                });
+            wire.replace_typed_regions(document, resources);
+        });
+        let package = parse(&unused_font).unwrap();
+        assert_eq!(
+            StagingJpegProfileView::new(&package, &limits),
+            Err(StagingSemanticSyntaxError::InvalidResource)
+        );
+
+        let png_declaration = mutate_jpeg_and_encode(|wire| {
+            let document = wire.document().clone();
+            let mut resources = wire.resources().clone();
+            resources.images[0].media_type = WireImageMediaType::Png;
+            wire.replace_typed_regions(document, resources);
+        });
+        let package = parse(&png_declaration).unwrap();
+        assert_eq!(
+            StagingJpegProfileView::new(&package, &limits),
+            Err(StagingSemanticSyntaxError::InvalidResource)
+        );
+    }
+
+    #[test]
+    fn jpeg_private_profile_rejects_unhandled_page_master_extensions() {
+        let package = parse(JPEG_FIXTURE).unwrap();
+        let wire = package.checked_wire().unwrap();
+        let base = wire.page_masters();
+        let advanced = wire.advanced_page_masters();
+
+        let mut with_header = base.clone();
+        with_header.masters[0].header = Some(typaxis_document_package::WireRect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        });
+        assert_eq!(
+            validate_jpeg_profile_page_master_extensions(&with_header, advanced),
+            Err(StagingSemanticSyntaxError::InvalidPageGeometry)
+        );
+
+        let mut with_trim_override = advanced.clone();
+        with_trim_override.masters[0].trim.width -= 1;
+        assert_eq!(
+            validate_jpeg_profile_page_master_extensions(base, &with_trim_override),
+            Err(StagingSemanticSyntaxError::InvalidPageGeometry)
+        );
+
+        let mut with_columns = advanced.clone();
+        with_columns.masters[0].column_layout = Some(typaxis_document_package::WireColumnLayout {
+            count: 2,
+            gap: 0,
+            fill: typaxis_document_package::WireColumnFill::Sequential,
+            balance: typaxis_document_package::WireColumnBalance::None,
+        });
+        assert_eq!(
+            validate_jpeg_profile_page_master_extensions(base, &with_columns),
+            Err(StagingSemanticSyntaxError::InvalidPageGeometry)
         );
     }
 

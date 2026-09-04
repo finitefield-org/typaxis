@@ -28,6 +28,7 @@ impl SemanticContainerKind {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ImageMediaType {
     Png,
+    JpegBaseline,
     SvgSafe1,
     SvgSafe2,
 }
@@ -36,6 +37,7 @@ impl ImageMediaType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::JpegBaseline => "jpeg-baseline",
             Self::SvgSafe1 => "svg-safe-1",
             Self::SvgSafe2 => "svg-safe-2",
         }

@@ -5,6 +5,7 @@ mod advanced_float;
 mod advanced_header_footer;
 mod block_vector;
 mod inline_vector;
+mod jpeg;
 mod math;
 mod math_vector;
 mod safe_vector;
@@ -57,6 +58,11 @@ pub use inline_vector::{
     StagingInlineVectorLine, StagingInlineVectorLogicalUnit, StagingInlineVectorParagraphInput,
     StagingInlineVectorPlacement, StagingInlineVectorSelectedLayout,
     StagingInlineVectorSelectedLayoutReceipt, PRECOMPOSED_VECTOR_SELECTED_LAYOUT_ALGORITHM,
+};
+pub use jpeg::{
+    layout_staging_jpeg_figures, StagingJpegLayoutError, StagingJpegPlacement,
+    StagingJpegSelectedLayout, STAGING_JPEG_SELECTED_LAYOUT_ALGORITHM,
+    STAGING_JPEG_SIZING_ALGORITHM,
 };
 pub use math::{
     layout_staging_math, BoundPrecomposedMathSource, MathFlowId, MathReceiptKey,

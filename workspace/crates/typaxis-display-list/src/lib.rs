@@ -6,6 +6,7 @@ mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
 mod combined_vector;
+mod jpeg;
 mod math;
 mod precomposed_vector;
 mod safe_vector;
@@ -54,6 +55,11 @@ pub use combined_vector::{
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use combined_vector::{
     staging_combined_vector_figure_fixture, StagingCombinedVectorFigureFixture,
+};
+pub use jpeg::{
+    build_staging_jpeg_display, build_staging_jpeg_display_with_ids, StagingJpegDisplay,
+    StagingJpegDisplayDraw, StagingJpegDisplayError, StagingJpegDisplayFacts,
+    STAGING_JPEG_DISPLAY_ALGORITHM,
 };
 pub use math::{
     build_staging_math_display, StagingMathDisplay, StagingMathDisplayError, StagingMathDraw,

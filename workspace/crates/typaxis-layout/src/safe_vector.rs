@@ -602,7 +602,7 @@ fn bind_precomposed_vector_resource(
         ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => {
             BoundPrecomposedVectorMedia::SafeSvg2
         }
-        ImageMediaDeclaration::Declared(ImageMediaType::Png)
+        ImageMediaDeclaration::Declared(ImageMediaType::Png | ImageMediaType::JpegBaseline)
         | ImageMediaDeclaration::LegacyUnspecified => {
             return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
         }
@@ -610,7 +610,7 @@ fn bind_precomposed_vector_resource(
     let admitted_media = match attestation.media_kind() {
         AdmittedImageMediaKind::SafeVector => BoundPrecomposedVectorMedia::SafeSvg1,
         AdmittedImageMediaKind::SafeVector2 => BoundPrecomposedVectorMedia::SafeSvg2,
-        AdmittedImageMediaKind::Png => {
+        AdmittedImageMediaKind::Png | AdmittedImageMediaKind::JpegBaseline => {
             return Err(PrecomposedVectorBindingError::ResourceMismatch(owner));
         }
     };
@@ -1470,6 +1470,7 @@ fn admitted_matches_profile(
                     && image.m4_profile_fingerprint() == Some(profile.profile_fingerprint())
             }
             ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2) => false,
+            ImageMediaDeclaration::Declared(ImageMediaType::JpegBaseline) => false,
             ImageMediaDeclaration::LegacyUnspecified => false,
         }
     })

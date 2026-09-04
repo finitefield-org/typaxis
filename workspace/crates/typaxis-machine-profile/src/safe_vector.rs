@@ -581,7 +581,8 @@ fn collect_precomposed_vector_authorization(
                     image.image_id,
                 ));
             }
-            (ImageMediaType::SvgSafe1, Some(_)) | (ImageMediaType::Png, _) => {
+            (ImageMediaType::SvgSafe1, Some(_))
+            | (ImageMediaType::Png | ImageMediaType::JpegBaseline, _) => {
                 return Err(StagingPrecomposedVectorProfileError::ReceiptMismatch);
             }
         };
@@ -922,7 +923,7 @@ fn collect_vector_contract(
                     image.image_id,
                 ));
             }
-            ImageMediaDeclaration::Declared(ImageMediaType::Png)
+            ImageMediaDeclaration::Declared(ImageMediaType::Png | ImageMediaType::JpegBaseline)
             | ImageMediaDeclaration::LegacyUnspecified => {}
         }
     }

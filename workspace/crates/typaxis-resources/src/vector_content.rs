@@ -468,8 +468,9 @@ fn prepare_aliases(
         let ImageMediaDeclaration::Declared(declared_media) = declaration.media else {
             return Err(VectorContentPlanningError::DeclarationMismatch);
         };
-        if declared_media == ImageMediaType::Png {
-            continue;
+        match declared_media {
+            ImageMediaType::Png | ImageMediaType::JpegBaseline => continue,
+            ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2 => {}
         }
         let image = admitted
             .image(declaration.image_id)

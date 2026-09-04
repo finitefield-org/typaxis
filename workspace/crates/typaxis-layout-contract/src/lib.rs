@@ -7,14 +7,16 @@ pub use tagged_structure::*;
 use core::num::NonZeroU16;
 use std::collections::BTreeSet;
 use typaxis_core::{
-    sha256, AdmittedResourceFingerprint, DocumentFingerprint, FontFaceId, FontInstanceId,
-    FootnoteId, GeneratedBufferKey, GenerationKind, Length, NodeId, NonNegativeLength, PageName,
-    PositiveLength, PositiveUnitless16_16, Rect, ReferenceFingerprint, StyleFingerprint, TextSpan,
-    Unitless16_16, Utf8ByteOffset,
+    document_fingerprint_from_jcs, generated_text_reference_fingerprint, sha256,
+    style_fingerprint_from_jcs, AdmittedResourceFingerprint, DocumentFingerprint, FontFaceId,
+    FontInstanceId, FootnoteId, GeneratedBufferKey, GenerationKind, Length,
+    M4EffectiveResourceLimits, NodeId, NonNegativeLength, PageName, PositiveLength,
+    PositiveUnitless16_16, Rect, ReferenceFingerprint, StyleFingerprint, TextSpan, Unitless16_16,
+    Utf8ByteOffset,
 };
 use typaxis_resource_admission::{
-    AdmittedFontInstanceRef, AdmittedFontInstanceTable, AdmittedResourceLedgerToken,
-    ResourceAdmissionError,
+    close_staging_declared_media, AdmittedFontInstanceRef, AdmittedFontInstanceTable,
+    AdmittedResourceLedgerToken, ResourceAdmissionError,
 };
 use typaxis_style::{
     MachineTextAlign, PrecomposedVectorComputedStyleReceipt,
@@ -26,7 +28,8 @@ use typaxis_syntax::layout_contract_boundary::{
 };
 use typaxis_syntax::{
     PackageComputedStyle, PackageGeneratedTextBinding, PackageParagraphTextSite,
-    PackageShapeTextError, PackageStyleError, ValidatedMachinePackage, ValidatedParsedPackage,
+    PackageShapeTextError, PackageStyleError, StagingJpegProfileView, ValidatedMachinePackage,
+    ValidatedParsedPackage, ValidatedStagingSemanticPackage,
 };
 
 /// Exact identity of all validated inputs that can affect one layout state.
@@ -626,6 +629,7 @@ fn round_positive_ratio_ties_even(
 pub enum LayoutEpochError {
     AdmittedResourceDocumentMismatch,
     PackageEpochMismatch,
+    StagingReceiptMismatch,
 }
 
 impl LayoutEpoch {
@@ -645,6 +649,29 @@ impl LayoutEpoch {
             style: package.epoch_identity().style(),
             admitted_resources: admitted_resources.fingerprint(),
             references: generated_text.generated_text().reference_fingerprint(),
+        })
+    }
+
+    /// Private contract-1.4 bridge for the JPEG vertical slice.  Every
+    /// nominal fingerprint is recomputed from a typed receipt; callers cannot
+    /// stamp arbitrary hash bytes into a publication-trusted Display epoch.
+    #[doc(hidden)]
+    pub fn from_staging_jpeg_inputs(
+        package: &ValidatedStagingSemanticPackage,
+        profile: &StagingJpegProfileView,
+        limits: &M4EffectiveResourceLimits,
+        admitted_resources: AdmittedResourceLedgerToken<'_>,
+    ) -> Result<Self, LayoutEpochError> {
+        profile
+            .authorizes(package, limits)
+            .map_err(|_| LayoutEpochError::StagingReceiptMismatch)?;
+        close_staging_declared_media(admitted_resources.ledger(), package.resources())
+            .map_err(|_| LayoutEpochError::AdmittedResourceDocumentMismatch)?;
+        Ok(Self {
+            document: document_fingerprint_from_jcs(package.semantic_jcs()),
+            style: style_fingerprint_from_jcs(profile.canonical_jcs()),
+            admitted_resources: admitted_resources.fingerprint(),
+            references: generated_text_reference_fingerprint(&[]),
         })
     }
 

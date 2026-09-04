@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-jpeg-manifest.schema.json",
+  "title": "Typaxis JPEG Manifest 1.4",
+  "description": "Private MI4 JPEG declaration, bounded admission, Figure layout, DrawImage, DCT plan, and serialized PDF closure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "admitted_fingerprint",
+    "algorithm",
+    "authorization_fingerprint",
+    "component_ids",
+    "declared_media_fingerprint",
+    "display_fingerprint",
+    "limits_fingerprint",
+    "package_fingerprint",
+    "page_count",
+    "pdf_closure_fingerprint",
+    "pdf_sha256",
+    "profile_fingerprint",
+    "resources",
+    "selected_layout_fingerprint",
+    "selected_state_fingerprint"
+  ],
+  "properties": {
+    "admitted_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "algorithm": {"const": "typaxis.jpeg-manifest/1"},
+    "authorization_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "component_ids": {"$ref": "#/$defs/component_ids"},
+    "declared_media_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "display_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "limits_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "package_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "page_count": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+    "pdf_closure_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "pdf_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "profile_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/resource"}
+    },
+    "selected_layout_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "selected_state_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "component_ids": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decoder",
+        "marker_preflight",
+        "pdf_plan",
+        "pixel_observation",
+        "resource_profile",
+        "sanitizer"
+      ],
+      "properties": {
+        "decoder": {"const": "jpeg-decoder/0.3.2+platform_independent"},
+        "marker_preflight": {"const": "typaxis.jpeg-marker-preflight/1"},
+        "pdf_plan": {"const": "typaxis.jpeg-pdf-plan/1"},
+        "pixel_observation": {"const": "typaxis.jpeg-pixel-observation/1"},
+        "resource_profile": {"const": "typaxis.resource-profile/jpeg-baseline/1"},
+        "sanitizer": {"const": "typaxis.jpeg-segment-sanitizer/1"}
+      }
+    },
+    "nullable_sha256": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/sha256"}
+      ]
+    },
+    "nullable_object_number": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "integer", "minimum": 1, "maximum": 4294967295}
+      ]
+    },
+    "nullable_color_transform": {
+      "oneOf": [
+        {"type": "null"},
+        {"enum": [0, 1]}
+      ]
+    },
+    "nullable_resource_name": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^/Im(?:0|[1-9][0-9]*)$"}
+      ]
+    },
+    "rect": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {"$ref": "common.schema.json#/$defs/length"},
+        {"$ref": "common.schema.json#/$defs/length"},
+        {"$ref": "common.schema.json#/$defs/positive_length"},
+        {"$ref": "common.schema.json#/$defs/positive_length"}
+      ],
+      "items": false
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alternative_sha256",
+        "bounds",
+        "display_draw_fingerprint",
+        "occurrence",
+        "owner",
+        "page_index",
+        "selected_placement_fingerprint"
+      ],
+      "properties": {
+        "alternative_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "bounds": {"$ref": "#/$defs/rect"},
+        "display_draw_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "occurrence": {"$ref": "common.schema.json#/$defs/id32"},
+        "owner": {"$ref": "common.schema.json#/$defs/id32"},
+        "page_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "selected_placement_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attested_media_kind",
+        "color",
+        "declared_media_type",
+        "decoded_byte_length",
+        "height",
+        "image_id",
+        "normalized_byte_length",
+        "normalized_sha256",
+        "pdf_color_transform",
+        "pdf_object_number",
+        "pdf_plan_fingerprint",
+        "pdf_resource_name",
+        "peak_workspace_bytes",
+        "pixel_sha256",
+        "sampling",
+        "source_byte_length",
+        "source_sha256",
+        "uri",
+        "usages",
+        "width"
+      ],
+      "properties": {
+        "attested_media_kind": {"const": "jpeg-baseline"},
+        "color": {"enum": ["grayscale", "ycbcr"]},
+        "declared_media_type": {"const": "jpeg-baseline"},
+        "decoded_byte_length": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "height": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "image_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "normalized_byte_length": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "normalized_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_color_transform": {"$ref": "#/$defs/nullable_color_transform"},
+        "pdf_object_number": {"$ref": "#/$defs/nullable_object_number"},
+        "pdf_plan_fingerprint": {"$ref": "#/$defs/nullable_sha256"},
+        "pdf_resource_name": {"$ref": "#/$defs/nullable_resource_name"},
+        "peak_workspace_bytes": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "pixel_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "sampling": {
+          "enum": ["gray-1x1", "ycbcr-4:4:4", "ycbcr-4:2:2", "ycbcr-4:4:0", "ycbcr-4:2:0"]
+        },
+        "source_byte_length": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "source_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "uri": {"$ref": "common.schema.json#/$defs/portable_relative_path"},
+        "usages": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/usage"}
+        },
+        "width": {"$ref": "common.schema.json#/$defs/positive_safe_integer"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"color": {"const": "grayscale"}}},
+          "then": {
+            "properties": {
+              "pdf_color_transform": {"oneOf": [{"const": 0}, {"type": "null"}]},
+              "sampling": {"const": "gray-1x1"}
+            }
+          },
+          "else": {
+            "properties": {
+              "pdf_color_transform": {"oneOf": [{"const": 1}, {"type": "null"}]},
+              "sampling": {"enum": ["ycbcr-4:4:4", "ycbcr-4:2:2", "ycbcr-4:4:0", "ycbcr-4:2:0"]}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"usages": {"maxItems": 0}}},
+          "then": {
+            "properties": {
+              "pdf_color_transform": {"type": "null"},
+              "pdf_object_number": {"type": "null"},
+              "pdf_plan_fingerprint": {"type": "null"},
+              "pdf_resource_name": {"type": "null"}
+            }
+          },
+          "else": {
+            "properties": {
+              "pdf_color_transform": {"enum": [0, 1]},
+              "pdf_object_number": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+              "pdf_plan_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+              "pdf_resource_name": {"type": "string", "pattern": "^/Im(?:0|[1-9][0-9]*)$"},
+              "usages": {"minItems": 1}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

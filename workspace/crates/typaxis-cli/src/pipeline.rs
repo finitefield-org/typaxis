@@ -4379,6 +4379,7 @@ fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Fail
         | Error::InvalidMetadata
         | Error::InvalidSafeVector
         | Error::InvalidSafeVectorV2(_)
+        | Error::InvalidJpeg(_)
         | Error::DeclaredMediaMismatch
         | Error::SvgSafe2Staging
         | Error::InvalidFontFamily
@@ -7410,6 +7411,548 @@ pub(crate) mod tests {
         assert_eq!(
             DocumentPackageContractId::CURRENT.as_str(),
             "typaxis.contract/1.3"
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    struct StagingMachineJpegRun {
+        _root: MachineFixtureRoot,
+        limits: typaxis_core::M4EffectiveResourceLimits,
+        package: typaxis_syntax::ValidatedStagingSemanticPackage,
+        profile: typaxis_machine_profile::StagingJpegProfileReceipt,
+        admitted: typaxis_resources::AdmittedResourceLedger,
+        media: typaxis_resources::StagingDeclaredMediaLedger,
+        selected: typaxis_layout::StagingJpegSelectedLayout,
+        pdf: typaxis_pdf::StagingJpegPdf,
+        manifest: typaxis_manifest::StagingJpegManifest,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn decode_fixture_hex(source: &str) -> Vec<u8> {
+        let digits: Vec<_> = source.bytes().filter(u8::is_ascii_hexdigit).collect();
+        assert_eq!(digits.len() % 2, 0);
+        digits
+            .chunks_exact(2)
+            .map(|pair| {
+                let high = char::from(pair[0]).to_digit(16).unwrap();
+                let low = char::from(pair[1]).to_digit(16).unwrap();
+                u8::try_from((high << 4) | low).unwrap()
+            })
+            .collect()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn materialize_staging_jpeg_fixture(label: &str) -> MachineFixtureRoot {
+        let root = MachineFixtureRoot::new(label);
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/machine-package/staging/production-book-1/jpeg-media");
+        fs::write(
+            root.path().join("document-package.json"),
+            fs::read(fixture.join("job/document-package.json")).unwrap(),
+        )
+        .unwrap();
+        fs::write(root.path().join("input.tsf"), b"x\n").unwrap();
+        fs::write(
+            root.path().join("color-2x1.jpg"),
+            decode_fixture_hex(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/jpeg-media/color-2x1.jpg.hex"
+            ))),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("gray-2x1.jpg"),
+            decode_fixture_hex(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/jpeg-media/gray-2x1.jpg.hex"
+            ))),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("color-17x9-422.jpg"),
+            decode_fixture_hex(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/jpeg-media/color-17x9-422.jpg.hex"
+            ))),
+        )
+        .unwrap();
+        root
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_jpeg() -> StagingMachineJpegRun {
+        use typaxis_core::{M4EffectiveResourceLimits, M4ResourceLimits};
+        use typaxis_machine_profile::preflight_staging_jpeg_profile;
+        use typaxis_resources::{close_staging_declared_media, staging_declared_base_catalog};
+
+        let root = materialize_staging_jpeg_fixture("jpeg");
+        let package_path = root.path().join("document-package.json");
+        let bytes = fs::read(&package_path).unwrap();
+        let config = config();
+        let limits =
+            M4EffectiveResourceLimits::new(config.limits().clone(), M4ResourceLimits::default())
+                .unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                &bytes,
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let package = typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse(decoded, config.limits())
+            .unwrap();
+
+        // This receipt is deliberately issued before a resource host session
+        // can expose the declared paths.
+        let profile = preflight_staging_jpeg_profile(&package, &limits).unwrap();
+        let base = staging_declared_base_catalog(package.resources()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(root.path().to_path_buf()).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let session = HostResourceAdmissionSession::new(&admission, &config, &base).unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &base,
+            &limits,
+            profile.authorization().profile_fingerprint(),
+            session.roots(),
+        )
+        .unwrap();
+        for declaration in &package.resources().images {
+            let pending = resolver
+                .read_image(session.open_image(declaration.image_id).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_image(pending).unwrap();
+        }
+        let admitted = resolver.finish().unwrap();
+        let media = close_staging_declared_media(&admitted, package.resources()).unwrap();
+        let selected = typaxis_layout::layout_staging_jpeg_figures(
+            &package,
+            profile.authorization(),
+            &limits,
+            &admitted,
+        )
+        .unwrap();
+        let display = typaxis_display_list::build_staging_jpeg_display(&selected).unwrap();
+        display.verify(&selected).unwrap();
+        let pdf =
+            typaxis_pdf::write_staging_jpeg_pdf(display, &admitted, &limits, &config).unwrap();
+        let manifest = typaxis_manifest::build_staging_jpeg_manifest(
+            &package, &profile, &limits, &admitted, &media, &selected, &pdf,
+        )
+        .unwrap();
+        StagingMachineJpegRun {
+            _root: root,
+            limits,
+            package,
+            profile,
+            admitted,
+            media,
+            selected,
+            pdf,
+            manifest,
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn jpeg_renderer_tools_available() -> bool {
+        ["mutool", "pdftoppm", "pdfinfo"].iter().all(|tool| {
+            std::process::Command::new(tool)
+                .arg("-v")
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn render_jpeg_pdf(renderer: &str, pdf: &Path, output: &Path) -> Vec<Vec<u8>> {
+        let mut command = match renderer {
+            "mutool" => {
+                let mut command = std::process::Command::new("mutool");
+                command
+                    .args(["draw", "-q", "-F", "ppm", "-r", "72", "-o"])
+                    .arg(output.join("page-%d.ppm"))
+                    .arg(pdf);
+                command
+            }
+            "pdftoppm" => {
+                let mut command = std::process::Command::new("pdftoppm");
+                command
+                    .args(["-r", "72", "-f", "1", "-l", "3"])
+                    .arg(pdf)
+                    .arg(output.join("page"));
+                command
+            }
+            _ => panic!("unsupported JPEG fixture renderer"),
+        };
+        let output_result = command.output().unwrap();
+        assert!(
+            output_result.status.success(),
+            "{renderer} failed: {}",
+            String::from_utf8_lossy(&output_result.stderr)
+        );
+        (1..=3)
+            .map(|page| fs::read(output.join(format!("page-{page}.ppm"))).unwrap())
+            .collect()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn ppm_raster(bytes: &[u8]) -> (usize, usize, &[u8]) {
+        fn next_token<'a>(bytes: &'a [u8], offset: &mut usize) -> &'a [u8] {
+            loop {
+                while bytes
+                    .get(*offset)
+                    .is_some_and(|byte| byte.is_ascii_whitespace())
+                {
+                    *offset += 1;
+                }
+                if bytes.get(*offset) != Some(&b'#') {
+                    break;
+                }
+                while bytes.get(*offset).is_some_and(|byte| *byte != b'\n') {
+                    *offset += 1;
+                }
+            }
+            let start = *offset;
+            while bytes
+                .get(*offset)
+                .is_some_and(|byte| !byte.is_ascii_whitespace())
+            {
+                *offset += 1;
+            }
+            bytes.get(start..*offset).unwrap()
+        }
+
+        let mut offset = 0;
+        assert_eq!(next_token(bytes, &mut offset), b"P6");
+        let width = std::str::from_utf8(next_token(bytes, &mut offset))
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        let height = std::str::from_utf8(next_token(bytes, &mut offset))
+            .unwrap()
+            .parse::<usize>()
+            .unwrap();
+        assert_eq!(next_token(bytes, &mut offset), b"255");
+        assert!(bytes
+            .get(offset)
+            .is_some_and(|byte| byte.is_ascii_whitespace()));
+        offset += 1;
+        let pixels = bytes.get(offset..).unwrap();
+        assert_eq!(pixels.len(), width * height * 3);
+        (width, height, pixels)
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn ppm_pixel(pixels: &[u8], width: usize, x: usize, y: usize) -> [u8; 3] {
+        let start = (y * width + x) * 3;
+        pixels[start..start + 3].try_into().unwrap()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn jpeg_nonwhite_bounds(
+        pixels: &[u8],
+        width: usize,
+        height: usize,
+    ) -> (usize, usize, usize, usize) {
+        let mut left = width;
+        let mut top = height;
+        let mut right = 0;
+        let mut bottom = 0;
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = ppm_pixel(pixels, width, x, y);
+                if pixel.iter().any(|channel| *channel < 240) {
+                    left = left.min(x);
+                    top = top.min(y);
+                    right = right.max(x);
+                    bottom = bottom.max(y);
+                }
+            }
+        }
+        (left, top, right, bottom)
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn verify_machine_jpeg_renderer_differential(
+        first: &StagingMachineJpegRun,
+        second: &StagingMachineJpegRun,
+    ) {
+        if !jpeg_renderer_tools_available() {
+            return;
+        }
+        let root = first._root.path().join("renderer-differential");
+        let mut rendered = Vec::new();
+        for (run_name, run) in [("first", first), ("second", second)] {
+            let pdf = root.join(format!("{run_name}.pdf"));
+            fs::create_dir_all(root.join(format!("mutool-{run_name}"))).unwrap();
+            fs::create_dir_all(root.join(format!("pdftoppm-{run_name}"))).unwrap();
+            fs::write(&pdf, run.pdf.pdf().bytes()).unwrap();
+            let info = std::process::Command::new("pdfinfo")
+                .arg(&pdf)
+                .output()
+                .unwrap();
+            assert!(info.status.success());
+            let info = String::from_utf8(info.stdout).unwrap();
+            assert_eq!(
+                info.lines()
+                    .find_map(|line| line.strip_prefix("Pages:"))
+                    .map(str::trim)
+                    .and_then(|value| value.parse::<u32>().ok()),
+                Some(3)
+            );
+            for renderer in ["mutool", "pdftoppm"] {
+                let pages =
+                    render_jpeg_pdf(renderer, &pdf, &root.join(format!("{renderer}-{run_name}")));
+                assert_eq!(pages.len(), 3);
+                rendered.push((run_name, renderer, pages));
+            }
+        }
+
+        for (_, _, pages) in &rendered {
+            for page in pages {
+                let (width, height, pixels) = ppm_raster(page);
+                assert_eq!((width, height), (1000, 800));
+                assert_eq!(ppm_pixel(pixels, width, 50, 300), [255, 255, 255]);
+            }
+            for page in &pages[..2] {
+                let (width, height, pixels) = ppm_raster(page);
+                let color = ppm_pixel(pixels, width, 500, 300);
+                assert!((35..=70).contains(&color[0]));
+                assert!((85..=120).contains(&color[1]));
+                assert!((135..=170).contains(&color[2]));
+                let (left, top, right, bottom) = jpeg_nonwhite_bounds(pixels, width, height);
+                assert!((99..=100).contains(&left));
+                assert!((99..=100).contains(&top));
+                assert!((899..=900).contains(&right));
+                assert!((499..=500).contains(&bottom));
+            }
+            let (width, _, pixels) = ppm_raster(&pages[2]);
+            assert!(ppm_pixel(pixels, width, 700, 300)
+                .iter()
+                .all(|value| *value <= 16));
+        }
+        assert_eq!(rendered[0].2, rendered[2].2);
+        assert_eq!(rendered[1].2, rendered[3].2);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_jpeg_closes_admission_layout_dct_pdf_and_manifest() {
+        let first = run_staging_machine_jpeg();
+        let second = run_staging_machine_jpeg();
+        assert_eq!(first.pdf.pdf().bytes(), second.pdf.pdf().bytes());
+        assert_eq!(first.manifest, second.manifest);
+        assert_eq!(
+            first.manifest.canonical_jcs(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/jpeg-media/manifest.json"
+            ))
+            .trim_end()
+        );
+        assert_eq!(first.selected.placements().len(), 3);
+        assert_eq!(first.selected.page_count(), 3);
+        assert_eq!(first.pdf.display_facts().draws().len(), 3);
+        assert_eq!(first.pdf.facts().resources().len(), 2);
+        assert_eq!(first.pdf.facts().resources()[0].placement_count(), 2);
+        assert_eq!(first.pdf.facts().resources()[1].placement_count(), 1);
+        assert_eq!(first.manifest.resources().len(), 3);
+        assert_eq!(first.manifest.resources()[0].usages().len(), 2);
+        assert_eq!(first.manifest.resources()[1].usages().len(), 1);
+        assert!(first.manifest.resources()[2].usages().is_empty());
+        assert_eq!(first.manifest.resources()[2].pdf_plan_fingerprint(), None);
+        assert_eq!(first.manifest.resources()[2].pdf_object_number(), None);
+        assert_eq!(first.manifest.resources()[2].pdf_resource_name(), None);
+        assert_eq!(first.manifest.resources()[2].pdf_color_transform(), None);
+        assert_eq!(first.manifest.resources()[0].pdf_color_transform(), Some(1));
+        assert_eq!(first.manifest.resources()[1].pdf_color_transform(), Some(0));
+        let bytes = first.pdf.pdf().bytes();
+        assert_eq!(
+            bytes
+                .windows(b"/Filter /DCTDecode".len())
+                .filter(|window| *window == b"/Filter /DCTDecode")
+                .count(),
+            2
+        );
+        let color_transform_1 = b"/DecodeParms << /ColorTransform 1 >>";
+        let color_transform_0 = b"/DecodeParms << /ColorTransform 0 >>";
+        assert!(bytes
+            .windows(color_transform_1.len())
+            .any(|window| window == color_transform_1));
+        assert!(bytes
+            .windows(color_transform_0.len())
+            .any(|window| window == color_transform_0));
+        first
+            .manifest
+            .verify(
+                &first.package,
+                &first.profile,
+                &first.limits,
+                &first.admitted,
+                &first.media,
+                &first.selected,
+                &first.pdf,
+            )
+            .unwrap();
+
+        let exported = crate::artifacts::staging_m4_document_package_from_attested_media(
+            &first.package,
+            &first.media,
+        )
+        .unwrap();
+        assert!(exported.contains("\"media_type\":\"jpeg-baseline\""));
+        assert!(wire::StrictDocumentPackageDecoder::new()
+            .decode(
+                exported.as_bytes(),
+                &wire::DocumentPackageDecodePolicy::new(first.limits.base())
+            )
+            .is_err());
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+
+        let image_ids: Vec<_> = first
+            .selected
+            .placements()
+            .iter()
+            .map(|placement| placement.image_id())
+            .collect();
+        assert!(matches!(
+            typaxis_display_list::build_staging_jpeg_display_with_ids(
+                &first.selected,
+                &image_ids[..image_ids.len() - 1]
+            ),
+            Err(typaxis_display_list::StagingJpegDisplayError::MissingDrawImage(_))
+        ));
+        let mut extra_ids = image_ids.clone();
+        extra_ids.push(ImageResourceId::new(99));
+        assert_eq!(
+            typaxis_display_list::build_staging_jpeg_display_with_ids(&first.selected, &extra_ids)
+                .unwrap_err(),
+            typaxis_display_list::StagingJpegDisplayError::ExtraDrawImage(ImageResourceId::new(99))
+        );
+        let mut wrong_ids = image_ids;
+        wrong_ids[0] = ImageResourceId::new(99);
+        assert!(matches!(
+            typaxis_display_list::build_staging_jpeg_display_with_ids(&first.selected, &wrong_ids),
+            Err(typaxis_display_list::StagingJpegDisplayError::WrongDrawImage { .. })
+        ));
+        verify_machine_jpeg_renderer_differential(&first, &second);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_jpeg_hash_tamper_fails_before_decoder_attestation() {
+        use typaxis_core::{M4EffectiveResourceLimits, M4ResourceLimits};
+        use typaxis_machine_profile::preflight_staging_jpeg_profile;
+        use typaxis_resources::staging_declared_base_catalog;
+
+        let root = materialize_staging_jpeg_fixture("jpeg-hash-tamper");
+        let color_path = root.path().join("color-2x1.jpg");
+        let mut color = fs::read(&color_path).unwrap();
+        color[0] ^= 1;
+        fs::write(&color_path, color).unwrap();
+        let package_path = root.path().join("document-package.json");
+        let config = config();
+        let limits =
+            M4EffectiveResourceLimits::new(config.limits().clone(), M4ResourceLimits::default())
+                .unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                &fs::read(&package_path).unwrap(),
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let package = typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse(decoded, config.limits())
+            .unwrap();
+        let profile = preflight_staging_jpeg_profile(&package, &limits).unwrap();
+        let base = staging_declared_base_catalog(package.resources()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(root.path().to_path_buf()).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let session = HostResourceAdmissionSession::new(&admission, &config, &base).unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &base,
+            &limits,
+            profile.authorization().profile_fingerprint(),
+            session.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_image(session.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            resolver.parse_and_bind_declared_image(pending),
+            Err(typaxis_resources::ResourceAdmissionError::ExpectedHashMismatch)
+        );
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_jpeg_declared_media_mismatch_fails_before_decoder_attestation() {
+        use typaxis_core::{M4EffectiveResourceLimits, M4ResourceLimits};
+        use typaxis_machine_profile::preflight_staging_jpeg_profile;
+        use typaxis_resources::staging_declared_base_catalog;
+
+        let root = materialize_staging_jpeg_fixture("jpeg-media-mismatch");
+        let package_path = root.path().join("document-package.json");
+        let png_hash: String = sha256(MACHINE_FIGURE_PNG)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let package_bytes = String::from_utf8(fs::read(&package_path).unwrap())
+            .unwrap()
+            .replacen(
+                "79e2920f0d0a54a47757a37eccbcb638db7a4354248f0f1626f3a165f8e616dd",
+                &png_hash,
+                1,
+            )
+            .into_bytes();
+        fs::write(&package_path, &package_bytes).unwrap();
+        fs::write(root.path().join("color-2x1.jpg"), MACHINE_FIGURE_PNG).unwrap();
+        let config = config();
+        let limits =
+            M4EffectiveResourceLimits::new(config.limits().clone(), M4ResourceLimits::default())
+                .unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                &package_bytes,
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let package = typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse(decoded, config.limits())
+            .unwrap();
+        let profile = preflight_staging_jpeg_profile(&package, &limits).unwrap();
+        let base = staging_declared_base_catalog(package.resources()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(root.path().to_path_buf()).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let session = HostResourceAdmissionSession::new(&admission, &config, &base).unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &base,
+            &limits,
+            profile.authorization().profile_fingerprint(),
+            session.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_image(session.open_image(ImageResourceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            resolver.parse_and_bind_declared_image(pending),
+            Err(typaxis_resources::ResourceAdmissionError::DeclaredMediaMismatch)
         );
     }
 

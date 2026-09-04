@@ -2377,7 +2377,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-11 JPEG admission、figure layout、PDF embeddingを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-10
 - Design inputs: docs/25 §7 JPEG、§13.4 media plan
 - Primary files:
@@ -2424,6 +2424,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_jpeg --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (2026-09-05, macOS):
+  - private contract 1.4のWire DTO、domain、syntax lowering、versioned Schemaへexact `jpeg-baseline`を追加し、専用production-book component preflightをresource open前に発行するようにした。current/frozen 1.3 Schema、public capabilities、通常CLI selectorは変更せず、旧profile、非JPEG image、font resource、未消費style/class/page-master拡張をfail closedに保った。
+  - in-tree marker/entropy preflightでimmediate JFIF APP0、8-bit SOF0、single all-component scan、GrayとYCbCr 4:4:4/4:2:2/4:4:0/4:2:0、DQT/DHT/DRI/restart/table closureをcheckedに検査した。pixel、decoded workspace、unbounded worker channelの全live coefficient row、source+normalized spoolをexternal decoder allocation前に上限照合し、full Gray8/RGB8 decode後にJFIF APP0だけを除くdeterministic sanitizer receiptへsource/normalized/pixel hash、dimensions、sampling、limits/profile fingerprintを封印した。
+  - Figureをbody widthへpixel aspect比・ties-to-evenで配置し、fragment/page/height境界、明示page break、`DrawImage` occurrenceをlayout epochへ閉じた。late finalizerはused `ImageResourceId`ごとに一つのshared normalized stream planを生成し、DeviceGray/DeviceRGB、8-bit、`/DCTDecode`、explicit `/ColorTransform 0|1`のexact image XObjectだけをserializeする。fixtureは同一IDの2回配置を一つのXObjectへ集約し、宣言済み未使用IDにはplan/objectを生成しないことも検査する。
+  - private JPEG manifest/Schemaへdeclaration、bytes-derived attestation、全component ID、source/normalized/pixel facts、selected placement、display draw、PDF plan/object、最終PDF hashを同じIDで双方向closureした。Grayと4種のYCbCr positive、全prefix truncation、progressive/unsupported color/metadata/invalid entropy/empty table、huge dimension、media/hash/ID、exact/max+1、二回build byte一致を検査し、MuPDFとPopplerで3 pageのgeometry/color differentialを確認した。
+  - `jpeg-decoder = 0.3.2`をdefault feature off + `platform_independent`でresource-admissionだけへexact pinし、archive checksum、license、feature/direct edge、unsafe/native review、RustSec advisory-db commitをone-line JCS dependency auditへ固定した。指定8 verification、workspace全targetのlocked check/test、strict clippy、format、Rust/Cargo 1.75でのadmission check/JPEG test、feature tree、diff/whitespace reviewをlocal exit 0で確認し、`.github/workflows/`は変更していない。
 - Non-goals:
   - MI4-10で採択していないJPEG variant
 

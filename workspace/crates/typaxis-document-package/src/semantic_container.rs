@@ -53,6 +53,7 @@ impl Serialize for WireStagingSemanticContainerKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WireImageMediaType {
     Png,
+    JpegBaseline,
     SvgSafe1,
     SvgSafe2,
 }
@@ -61,6 +62,7 @@ impl WireImageMediaType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::JpegBaseline => "jpeg-baseline",
             Self::SvgSafe1 => "svg-safe-1",
             Self::SvgSafe2 => "svg-safe-2",
         }
@@ -71,6 +73,7 @@ impl<'de> Deserialize<'de> for WireImageMediaType {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         match String::deserialize(deserializer)?.as_str() {
             "png" => Ok(Self::Png),
+            "jpeg-baseline" => Ok(Self::JpegBaseline),
             "svg-safe-1" => Ok(Self::SvgSafe1),
             "svg-safe-2" => Ok(Self::SvgSafe2),
             _ => Err(de::Error::custom("unknown image media_type")),
@@ -3026,6 +3029,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package.json"
     ));
+    const JPEG_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/jpeg-media/job/document-package.json"
+    ));
 
     fn policy() -> DocumentPackageDecodePolicy<'static> {
         let limits = Box::leak(Box::new(
@@ -3413,6 +3420,40 @@ mod tests {
             .is_err());
         assert!(crate::StrictDocumentPackageDecoder::new()
             .decode(VECTOR_FIXTURE, &policy())
+            .is_err());
+        assert_eq!(
+            typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+    }
+
+    #[test]
+    fn jpeg_media_wire_round_trip_is_private_closed_and_typed() {
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(JPEG_FIXTURE, &policy())
+            .unwrap();
+        let images = &decoded.wire().resources().images;
+        assert_eq!(images.len(), 3);
+        assert!(images
+            .iter()
+            .all(|image| image.media_type == WireImageMediaType::JpegBaseline));
+        assert!(images.iter().all(|image| image.vector_provenance.is_none()));
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(decoded.wire())
+            .unwrap();
+        assert_eq!(encoded, decoded.canonical_jcs());
+        assert!(encoded.contains("\"media_type\":\"jpeg-baseline\""));
+        assert!(crate::StrictDocumentPackageDecoder::new()
+            .decode(JPEG_FIXTURE, &policy())
+            .is_err());
+
+        let generic = String::from_utf8(JPEG_FIXTURE.to_vec()).unwrap().replacen(
+            "jpeg-baseline",
+            "image/jpeg",
+            1,
+        );
+        assert!(StagingSemanticDocumentPackageDecoder::new()
+            .decode(generic.as_bytes(), &policy())
             .is_err());
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),

@@ -303,7 +303,7 @@ fn assemble(
                     declaration.image_id,
                 ));
             }
-            ImageMediaDeclaration::Declared(ImageMediaType::Png)
+            ImageMediaDeclaration::Declared(ImageMediaType::Png | ImageMediaType::JpegBaseline)
             | ImageMediaDeclaration::LegacyUnspecified => continue,
         }
         let image = admitted.image(declaration.image_id).ok_or(

@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+jpeg-decoder = { version = "=0.3.2", default-features = false, features = ["platform_independent"] }
 png = "=0.18.1"
 typaxis-core = { path = "../typaxis-core" }
 typaxis-diagnostics = { path = "../typaxis-diagnostics" }

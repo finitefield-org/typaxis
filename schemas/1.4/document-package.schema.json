@@ -2310,6 +2310,7 @@
             "media_type": {
               "enum": [
                 "png",
+                "jpeg-baseline",
                 "svg-safe-1"
               ]
             }

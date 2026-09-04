@@ -18,6 +18,7 @@ mod basic_styles;
 mod book_navigation;
 mod capabilities;
 mod descriptor;
+mod jpeg;
 mod math;
 mod preflight;
 mod safe_vector;
@@ -86,6 +87,11 @@ pub use descriptor::{
     MachineVectorFeaturesByProfile, MachineVectorFormat, MachineVectorInlineKind,
     MachineVectorKind, MachineVectorMediaByKind, MachineVectorMetric, MachineVectorProfile,
     PrecomposedVectorCapabilityProjection, SourceCountBounds,
+};
+pub use jpeg::{
+    preflight_staging_jpeg_profile, StagingJpegProfileDescriptor, StagingJpegProfileError,
+    StagingJpegProfileReceipt, STAGING_JPEG_PROFILE_ALGORITHM, STAGING_JPEG_PROFILE_ID,
+    STAGING_JPEG_RESOURCE_PROFILE_ID,
 };
 pub use math::{
     preflight_staging_math_profile, StagingMathProfileError, StagingMathProfileReceipt,

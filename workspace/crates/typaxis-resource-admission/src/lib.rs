@@ -1,6 +1,13 @@
 #![forbid(unsafe_code)]
 
+mod jpeg;
 mod safe_vector;
+
+pub use jpeg::{
+    JpegAdmissionAttestation, JpegColorKind, JpegFailureReason, JpegSampling, JPEG_DECODER_ID,
+    JPEG_MARKER_PREFLIGHT_ID, JPEG_PIXEL_OBSERVATION_ID, JPEG_RESOURCE_PROFILE_ID,
+    JPEG_SANITIZER_ID,
+};
 
 pub use safe_vector::{
     SafeVectorAlpha, SafeVectorClipDefinition, SafeVectorClipUse, SafeVectorDraw, SafeVectorDrawV2,
@@ -141,6 +148,7 @@ impl AdmittedFontMediaKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdmittedImageMediaKind {
     Png,
+    JpegBaseline,
     SafeVector,
     SafeVector2,
 }
@@ -149,6 +157,7 @@ impl AdmittedImageMediaKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::JpegBaseline => "jpeg-baseline",
             Self::SafeVector => "svg-safe-1",
             Self::SafeVector2 => "svg-safe-2",
         }
@@ -317,6 +326,7 @@ pub struct AdmittedImage {
     height: NonZeroU32,
     decoded_bytes: u64,
     safe_vector: Option<AdmittedSafeVector>,
+    jpeg: Option<JpegAdmissionAttestation>,
     m4_limits_fingerprint: Option<[u8; 32]>,
     m4_profile_fingerprint: Option<[u8; 32]>,
 }
@@ -342,6 +352,7 @@ impl AdmittedImage {
             height,
             decoded_bytes,
             safe_vector: None,
+            jpeg: None,
             m4_limits_fingerprint: None,
             m4_profile_fingerprint: None,
         }
@@ -367,6 +378,7 @@ impl AdmittedImage {
             height: NonZeroU32::MIN,
             decoded_bytes: ir.allocation_charge(),
             safe_vector: Some(AdmittedSafeVector::V1(Arc::new(ir))),
+            jpeg: None,
             m4_limits_fingerprint: Some(m4_limits_fingerprint),
             m4_profile_fingerprint: Some(m4_profile_fingerprint),
         }
@@ -390,8 +402,34 @@ impl AdmittedImage {
             height: NonZeroU32::MIN,
             decoded_bytes: ir.allocation_charge(),
             safe_vector: Some(AdmittedSafeVector::V2(Arc::new(ir))),
+            jpeg: None,
             m4_limits_fingerprint: Some(m4_limits_fingerprint),
             m4_profile_fingerprint: Some(m4_profile_fingerprint),
+        }
+    }
+
+    fn from_verified_jpeg(
+        image_id: ImageResourceId,
+        uri: PortablePath,
+        bytes: Vec<u8>,
+        sha256: [u8; 32],
+        attestation: JpegAdmissionAttestation,
+    ) -> Self {
+        debug_assert_eq!(attestation.image_id(), image_id);
+        debug_assert_eq!(attestation.source_sha256(), sha256);
+        Self {
+            image_id,
+            uri,
+            bytes,
+            sha256,
+            media_kind: AdmittedImageMediaKind::JpegBaseline,
+            width: attestation.width(),
+            height: attestation.height(),
+            decoded_bytes: attestation.decoded_byte_length(),
+            safe_vector: None,
+            m4_limits_fingerprint: Some(attestation.limits_fingerprint()),
+            m4_profile_fingerprint: Some(attestation.profile_fingerprint()),
+            jpeg: Some(attestation),
         }
     }
     pub const fn image_id(&self) -> ImageResourceId {
@@ -447,6 +485,9 @@ impl AdmittedImage {
     }
     pub const fn admitted_safe_vector(&self) -> Option<&AdmittedSafeVector> {
         self.safe_vector.as_ref()
+    }
+    pub const fn jpeg_attestation(&self) -> Option<&JpegAdmissionAttestation> {
+        self.jpeg.as_ref()
     }
     pub const fn m4_limits_fingerprint(&self) -> Option<[u8; 32]> {
         self.m4_limits_fingerprint
@@ -536,7 +577,7 @@ impl VectorContentKey {
         let media_type = match image.media_kind() {
             AdmittedImageMediaKind::SafeVector => VectorContentMediaType::SafeSvg1,
             AdmittedImageMediaKind::SafeVector2 => VectorContentMediaType::SafeSvg2,
-            AdmittedImageMediaKind::Png => {
+            AdmittedImageMediaKind::Png | AdmittedImageMediaKind::JpegBaseline => {
                 return Err(VectorContentKeyError::WrongMedia(image.image_id()));
             }
         };
@@ -673,6 +714,7 @@ pub enum ResourceAdmissionError {
     SvgSafe2Staging,
     InvalidSafeVector,
     InvalidSafeVectorV2(SafeVectorFailureReason),
+    InvalidJpeg(JpegFailureReason),
     VectorNodeLimit,
     VectorPathSegmentLimit,
     VectorNestingLimit,
@@ -732,6 +774,28 @@ impl ResourceAdmissionError {
             Self::InvalidSafeVectorV2(SafeVectorFailureReason::ResourceConflict) => {
                 "R7100 resource_conflict: equal SafeVector digests name different bytes"
             }
+            Self::InvalidJpeg(reason) => match reason {
+                JpegFailureReason::Malformed => "R7100 malformed: JPEG is malformed",
+                JpegFailureReason::UnsupportedProcess => {
+                    "R7100 unsupported_process: JPEG process is not admitted"
+                }
+                JpegFailureReason::ForbiddenMetadata => {
+                    "R7100 forbidden_metadata: JPEG metadata is not admitted"
+                }
+                JpegFailureReason::InvalidTables => "R7100 invalid_tables: JPEG tables are invalid",
+                JpegFailureReason::InvalidEntropy => {
+                    "R7100 invalid_entropy: JPEG entropy stream is invalid"
+                }
+                JpegFailureReason::DecodeMismatch => {
+                    "R7100 decode_mismatch: JPEG decoder observation does not match preflight"
+                }
+                JpegFailureReason::SanitizerMismatch => {
+                    "R7100 sanitizer_mismatch: JPEG sanitizer output is invalid"
+                }
+                JpegFailureReason::PixelLimit => "R7110: JPEG pixel limit was exceeded",
+                JpegFailureReason::DecodeLimit => "R7111: JPEG decode workspace limit was exceeded",
+                JpegFailureReason::SpoolLimit => "R7100: JPEG spool limit was exceeded",
+            },
             Self::VectorNodeLimit => "R7120: safe vector node limit was exceeded",
             Self::VectorPathSegmentLimit => "R7121: safe vector path segment limit was exceeded",
             Self::VectorNestingLimit => "R7122: safe vector nesting limit was exceeded",
@@ -1092,6 +1156,10 @@ enum VerifiedMetadata {
         height: NonZeroU32,
         decoded_bytes: u64,
     },
+    Jpeg {
+        source: PendingResourceBytes,
+        attestation: JpegAdmissionAttestation,
+    },
     SafeVector {
         source: PendingResourceBytes,
         ir: Box<SafeVectorIr>,
@@ -1156,6 +1224,24 @@ impl VerifiedMetadataReceiptOwner {
             width,
             height,
             decoded_bytes,
+        }))
+    }
+    fn issue_jpeg(
+        &self,
+        source: PendingResourceBytes,
+        attestation: JpegAdmissionAttestation,
+    ) -> Result<VerifiedMetadataReceipt, ResourceAdmissionError> {
+        if source.image_id() != Some(attestation.image_id())
+            || source.content_hash() != attestation.source_sha256()
+            || source.face_index().is_some()
+            || attestation.decoded_byte_length() == 0
+            || attestation.normalized_bytes().is_empty()
+        {
+            return Err(ResourceAdmissionError::InvalidMetadata);
+        }
+        Ok(VerifiedMetadataReceipt(VerifiedMetadata::Jpeg {
+            source,
+            attestation,
         }))
     }
     fn issue_safe_vector(
@@ -1592,6 +1678,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
+            ImageMediaType::JpegBaseline => {
+                return Err(ResourceAdmissionError::DeclaredMediaMismatch)
+            }
             ImageMediaType::SvgSafe1 => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
             ImageMediaType::SvgSafe2 => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
         };
@@ -1599,6 +1688,59 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         }
         self.parse_and_bind_png_after_policy(source)
+    }
+
+    /// Contract-1.4 JPEG path. The cheap container identity and declared hash
+    /// are checked before the bounded marker walk or external decoder can
+    /// allocate pixel storage.
+    pub fn parse_and_bind_declared_jpeg(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionError> {
+        self.ensure_session(&source)?;
+        let PendingResourceId::Image(image_id) = source.id else {
+            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+        };
+        let declared = *self
+            .declared_media_policy
+            .as_ref()
+            .and_then(|policy| policy.images.get(image_id.get() as usize))
+            .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
+        if declared != ImageMediaType::JpegBaseline {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        let declaration = self
+            .declarations
+            .images
+            .get(image_id.get() as usize)
+            .filter(|candidate| candidate.image_id == image_id)
+            .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        if declaration
+            .expected_sha256
+            .is_some_and(|expected| expected != source.content_hash())
+        {
+            return Err(ResourceAdmissionError::ExpectedHashMismatch);
+        }
+        if attest_image_media_kind(source.bytes()) != Ok(AdmittedImageMediaKind::JpegBaseline) {
+            return Err(ResourceAdmissionError::DeclaredMediaMismatch);
+        }
+        let limits = self
+            .m4_limits
+            .as_ref()
+            .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        let profile_fingerprint = self
+            .m4_profile_fingerprint
+            .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        let attestation = jpeg::admit_jpeg(
+            image_id,
+            source.content_hash(),
+            source.bytes(),
+            limits,
+            profile_fingerprint,
+        )?;
+        let owner = VerifiedMetadataReceiptOwner::new();
+        let receipt = owner.issue_jpeg(source, attestation)?;
+        self.bind_verified_metadata(receipt)
     }
 
     /// Stable-byte-only SafeVector path. The declaration/hash/limit receipt is
@@ -1620,7 +1762,9 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let parser_profile = match declared {
             ImageMediaType::SvgSafe1 => SafeVectorParserProfile::SafeSvg1,
             ImageMediaType::SvgSafe2 => SafeVectorParserProfile::SafeSvg2,
-            ImageMediaType::Png => return Err(ResourceAdmissionError::DeclaredMediaMismatch),
+            ImageMediaType::Png | ImageMediaType::JpegBaseline => {
+                return Err(ResourceAdmissionError::DeclaredMediaMismatch)
+            }
         };
         let declaration = self
             .declarations
@@ -1646,7 +1790,10 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 ),
             });
         }
-        if attest_image_media_kind(source.bytes()) == Ok(AdmittedImageMediaKind::Png) {
+        if matches!(
+            attest_image_media_kind(source.bytes()),
+            Ok(AdmittedImageMediaKind::Png | AdmittedImageMediaKind::JpegBaseline)
+        ) {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         }
         let limits = self
@@ -1752,6 +1899,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?
         {
             ImageMediaType::Png => self.parse_and_bind_declared_png(source),
+            ImageMediaType::JpegBaseline => self.parse_and_bind_declared_jpeg(source),
             ImageMediaType::SvgSafe1 | ImageMediaType::SvgSafe2 => {
                 self.parse_and_bind_declared_safe_vector(source)
             }
@@ -1800,6 +1948,15 @@ impl<'roots> AdmittedResourceResolver<'roots> {
     ) -> Result<(), ResourceAdmissionFailureOutcome> {
         let subject = source.error_subject();
         self.parse_and_bind_declared_safe_vector(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
+    pub fn parse_and_bind_declared_jpeg_with_subject(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = source.error_subject();
+        self.parse_and_bind_declared_jpeg(source)
             .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
     }
 
@@ -1891,6 +2048,52 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                     width,
                     height,
                     decoded_bytes,
+                );
+                let replaced = self.images.insert(id, image);
+                debug_assert!(replaced.is_none());
+            }
+            VerifiedMetadata::Jpeg {
+                source,
+                attestation,
+            } => {
+                self.ensure_session(&source)?;
+                let id = source
+                    .image_id()
+                    .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+                let declaration = self
+                    .declarations
+                    .images
+                    .get(id.get() as usize)
+                    .filter(|candidate| candidate.image_id == id)
+                    .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+                if source.uri() != &declaration.uri
+                    || source.face_index().is_some()
+                    || attestation.image_id() != id
+                    || attestation.source_sha256() != source.content_hash()
+                    || self
+                        .m4_limits
+                        .as_ref()
+                        .map(M4EffectiveResourceLimits::fingerprint)
+                        != Some(attestation.limits_fingerprint())
+                    || self.m4_profile_fingerprint != Some(attestation.profile_fingerprint())
+                {
+                    return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+                }
+                if declaration
+                    .expected_sha256
+                    .is_some_and(|expected| expected != source.content_hash())
+                {
+                    return Err(ResourceAdmissionError::ExpectedHashMismatch);
+                }
+                if self.images.contains_key(&id) {
+                    return Err(ResourceAdmissionError::ConflictingLogicalResource);
+                }
+                let image = AdmittedImage::from_verified_jpeg(
+                    id,
+                    source.uri,
+                    source.bytes,
+                    source.sha256,
+                    attestation,
                 );
                 let replaced = self.images.insert(id, image);
                 debug_assert!(replaced.is_none());
@@ -2006,6 +2209,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let subject = match &receipt.0 {
             VerifiedMetadata::Font { source, .. }
             | VerifiedMetadata::Image { source, .. }
+            | VerifiedMetadata::Jpeg { source, .. }
             | VerifiedMetadata::SafeVector { source, .. }
             | VerifiedMetadata::SafeVector2 { source, .. } => source.error_subject(),
         };
@@ -2285,6 +2489,10 @@ fn attest_declared_font_media_kind(
 fn attest_image_media_kind(bytes: &[u8]) -> Result<AdmittedImageMediaKind, ResourceAdmissionError> {
     if bytes.get(..8) == Some(b"\x89PNG\r\n\x1a\n") {
         Ok(AdmittedImageMediaKind::Png)
+    } else if bytes.get(..4) == Some(&[0xff, 0xd8, 0xff, 0xe0])
+        && bytes.get(6..11) == Some(b"JFIF\0")
+    {
+        Ok(AdmittedImageMediaKind::JpegBaseline)
     } else {
         Err(ResourceAdmissionError::InvalidMetadata)
     }
@@ -2575,6 +2783,48 @@ impl AdmittedResourceLedger {
                 canonical.push('}');
                 continue;
             }
+            if let Some(jpeg) = image.jpeg_attestation() {
+                canonical.push_str("\"color_kind\":");
+                push_jcs_string(&mut canonical, jpeg.color_kind().as_str());
+                canonical.push_str(",\"decoded_byte_length\":");
+                canonical.push_str(&jpeg.decoded_byte_length().to_string());
+                canonical.push_str(",\"decoder_id\":");
+                push_jcs_string(&mut canonical, jpeg.decoder_id());
+                canonical.push_str(",\"image_id\":");
+                canonical.push_str(&image.image_id().get().to_string());
+                canonical.push_str(",\"limits_fingerprint\":");
+                push_hash_hex(&mut canonical, jpeg.limits_fingerprint());
+                canonical.push_str(",\"marker_preflight_id\":");
+                push_jcs_string(&mut canonical, jpeg.marker_preflight_id());
+                canonical.push_str(",\"media_kind\":");
+                push_jcs_string(&mut canonical, image.media_kind().as_str());
+                canonical.push_str(",\"normalized_byte_length\":");
+                canonical.push_str(&jpeg.normalized_bytes().len().to_string());
+                canonical.push_str(",\"normalized_sha256\":");
+                push_hash_hex(&mut canonical, jpeg.normalized_sha256());
+                canonical.push_str(",\"peak_workspace_bytes\":");
+                canonical.push_str(&jpeg.peak_workspace_bytes().to_string());
+                canonical.push_str(",\"pixel_height\":");
+                canonical.push_str(&jpeg.height().get().to_string());
+                canonical.push_str(",\"pixel_observation_id\":");
+                push_jcs_string(&mut canonical, jpeg.pixel_observation_id());
+                canonical.push_str(",\"pixel_sha256\":");
+                push_hash_hex(&mut canonical, jpeg.pixel_sha256());
+                canonical.push_str(",\"pixel_width\":");
+                canonical.push_str(&jpeg.width().get().to_string());
+                canonical.push_str(",\"profile_fingerprint\":");
+                push_hash_hex(&mut canonical, jpeg.profile_fingerprint());
+                canonical.push_str(",\"resource_profile_id\":");
+                push_jcs_string(&mut canonical, jpeg.resource_profile_id());
+                canonical.push_str(",\"sampling\":");
+                push_jcs_string(&mut canonical, jpeg.sampling().as_str());
+                canonical.push_str(",\"sanitizer_id\":");
+                push_jcs_string(&mut canonical, jpeg.sanitizer_id());
+                canonical.push_str(",\"sha256\":");
+                push_hash_hex(&mut canonical, image.content_hash());
+                canonical.push('}');
+                continue;
+            }
             canonical.push_str("\"decoded_bytes\":");
             canonical.push_str(&image.decoded_bytes().to_string());
             canonical.push_str(",\"image_id\":");
@@ -2645,6 +2895,7 @@ pub struct StagingDeclaredImageAttestation {
     m4_limits_fingerprint: Option<[u8; 32]>,
     safe_vector_parser_id: Option<&'static str>,
     m4_profile_fingerprint: Option<[u8; 32]>,
+    jpeg: Option<JpegAdmissionAttestation>,
 }
 
 impl StagingDeclaredImageAttestation {
@@ -2680,6 +2931,9 @@ impl StagingDeclaredImageAttestation {
     }
     pub const fn m4_profile_fingerprint(&self) -> Option<[u8; 32]> {
         self.m4_profile_fingerprint
+    }
+    pub const fn jpeg_attestation(&self) -> Option<&JpegAdmissionAttestation> {
+        self.jpeg.as_ref()
     }
 }
 
@@ -2872,6 +3126,7 @@ pub fn close_staging_declared_media(
         };
         let expected = match declared {
             ImageMediaType::Png => AdmittedImageMediaKind::Png,
+            ImageMediaType::JpegBaseline => AdmittedImageMediaKind::JpegBaseline,
             ImageMediaType::SvgSafe1 => AdmittedImageMediaKind::SafeVector,
             ImageMediaType::SvgSafe2 => AdmittedImageMediaKind::SafeVector2,
         };
@@ -2885,6 +3140,19 @@ pub fn close_staging_declared_media(
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         }
         let vector = image.admitted_safe_vector();
+        if expected == AdmittedImageMediaKind::JpegBaseline {
+            let jpeg = image
+                .jpeg_attestation()
+                .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+            if jpeg.image_id() != image.image_id()
+                || jpeg.source_sha256() != image.content_hash()
+                || jpeg.width() != image.width()
+                || jpeg.height() != image.height()
+                || jpeg.decoded_byte_length() != image.decoded_bytes()
+            {
+                return Err(ResourceAdmissionError::ReceiptIdentityMismatch);
+            }
+        }
         let is_v2 = matches!(vector, Some(AdmittedSafeVector::V2(_)));
         images.push(StagingDeclaredImageAttestation {
             image_id: image.image_id(),
@@ -2895,9 +3163,10 @@ pub fn close_staging_declared_media(
             safe_vector_ir_fingerprint: vector.map(AdmittedSafeVector::fingerprint),
             safe_vector_ir_id: is_v2.then_some(SAFE_VECTOR_IR_ID_V2),
             safe_vector_allocation_charge: vector.map(AdmittedSafeVector::allocation_charge),
-            m4_limits_fingerprint: image.m4_limits_fingerprint(),
+            m4_limits_fingerprint: vector.and_then(|_| image.m4_limits_fingerprint()),
             safe_vector_parser_id: is_v2.then_some(SAFE_SVG_PARSER_ID_V2),
-            m4_profile_fingerprint: image.m4_profile_fingerprint(),
+            m4_profile_fingerprint: vector.and_then(|_| image.m4_profile_fingerprint()),
+            jpeg: image.jpeg_attestation().cloned(),
         });
     }
     let canonical_jcs = encode_staging_declared_media(&fonts, &images);
@@ -2946,6 +3215,40 @@ fn encode_staging_declared_media(
         push_jcs_string(&mut output, image.declared.as_str());
         output.push_str(",\"image_id\":");
         output.push_str(&image.image_id.get().to_string());
+        if let Some(jpeg) = &image.jpeg {
+            output.push_str(",\"jpeg_color_kind\":");
+            push_jcs_string(&mut output, jpeg.color_kind().as_str());
+            output.push_str(",\"jpeg_decoded_byte_length\":");
+            output.push_str(&jpeg.decoded_byte_length().to_string());
+            output.push_str(",\"jpeg_decoder_id\":");
+            push_jcs_string(&mut output, jpeg.decoder_id());
+            output.push_str(",\"jpeg_height\":");
+            output.push_str(&jpeg.height().get().to_string());
+            output.push_str(",\"jpeg_limits_fingerprint\":");
+            push_hash_hex(&mut output, jpeg.limits_fingerprint());
+            output.push_str(",\"jpeg_marker_preflight_id\":");
+            push_jcs_string(&mut output, jpeg.marker_preflight_id());
+            output.push_str(",\"jpeg_normalized_byte_length\":");
+            output.push_str(&jpeg.normalized_bytes().len().to_string());
+            output.push_str(",\"jpeg_normalized_sha256\":");
+            push_hash_hex(&mut output, jpeg.normalized_sha256());
+            output.push_str(",\"jpeg_peak_workspace_bytes\":");
+            output.push_str(&jpeg.peak_workspace_bytes().to_string());
+            output.push_str(",\"jpeg_pixel_observation_id\":");
+            push_jcs_string(&mut output, jpeg.pixel_observation_id());
+            output.push_str(",\"jpeg_pixel_sha256\":");
+            push_hash_hex(&mut output, jpeg.pixel_sha256());
+            output.push_str(",\"jpeg_profile_fingerprint\":");
+            push_hash_hex(&mut output, jpeg.profile_fingerprint());
+            output.push_str(",\"jpeg_resource_profile_id\":");
+            push_jcs_string(&mut output, jpeg.resource_profile_id());
+            output.push_str(",\"jpeg_sampling\":");
+            push_jcs_string(&mut output, jpeg.sampling().as_str());
+            output.push_str(",\"jpeg_sanitizer_id\":");
+            push_jcs_string(&mut output, jpeg.sanitizer_id());
+            output.push_str(",\"jpeg_width\":");
+            output.push_str(&jpeg.width().get().to_string());
+        }
         if let Some(charge) = image.safe_vector_allocation_charge {
             output.push_str(",\"safe_vector_allocation_charge\":");
             output.push_str(&charge.to_string());

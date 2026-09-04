@@ -64,6 +64,10 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
             || !matches!(
                 (declaration.media_type, attestation.declared()),
                 (WireImageMediaType::Png, ImageMediaType::Png)
+                    | (
+                        WireImageMediaType::JpegBaseline,
+                        ImageMediaType::JpegBaseline
+                    )
                     | (WireImageMediaType::SvgSafe1, ImageMediaType::SvgSafe1)
             )
             || declaration
@@ -75,6 +79,7 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
         }
         declaration.media_type = match attestation.attested() {
             AdmittedImageMediaKind::Png => WireImageMediaType::Png,
+            AdmittedImageMediaKind::JpegBaseline => WireImageMediaType::JpegBaseline,
             AdmittedImageMediaKind::SafeVector => WireImageMediaType::SvgSafe1,
             AdmittedImageMediaKind::SafeVector2 => {
                 return Err(

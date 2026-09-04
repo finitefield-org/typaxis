@@ -5,6 +5,7 @@ mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
+mod jpeg;
 mod math;
 mod safe_vector;
 mod safe_vector_v2;
@@ -35,6 +36,10 @@ pub use book_navigation::{
     BookNavigationPdfObservationV2, BookNavigationPdfOutlineObservation,
     BookNavigationPdfOutlineObservationV2, BookXmpObservationV2, StagingBookNavigationPdf,
     BOOK_NAVIGATION_PDF_ALGORITHM, BOOK_NAVIGATION_PDF_ALGORITHM_V2, BOOK_XMP_ALGORITHM,
+};
+pub use jpeg::{
+    write_staging_jpeg_pdf, StagingJpegPdf, StagingJpegPdfError, StagingJpegPdfFacts,
+    StagingJpegPdfImageObject, STAGING_JPEG_PDF_CLOSURE_ALGORITHM,
 };
 pub use math::{
     write_staging_math_pdf, StagingMathPdf, StagingMathPdfError, StagingMathPdfObservation,
@@ -2521,6 +2526,13 @@ impl FrozenPdfGraph {
             .iter()
             .map(|binding| (binding.logical_id, &binding.name))
     }
+    pub fn image_resource_objects(
+        &self,
+    ) -> impl Iterator<Item = (ImageResourceId, &PdfName, ObjectId)> {
+        self.image_bindings
+            .iter()
+            .map(|binding| (binding.logical_id, &binding.name, binding.object_id))
+    }
     pub fn table_closures(&self) -> &[TableDisplayClosureReceipt] {
         &self.table_closures
     }
@@ -4255,6 +4267,16 @@ fn write_stream(
     data: &[u8],
     filter: Option<&[u8]>,
 ) -> Result<(), PdfError> {
+    write_stream_with_decode_parms(output, dictionary, data, filter, None)
+}
+
+fn write_stream_with_decode_parms(
+    output: &mut LimitedPdfBuffer,
+    dictionary: &PdfDictionary,
+    data: &[u8],
+    filter: Option<&[u8]>,
+    decode_parms: Option<&PdfDictionary>,
+) -> Result<(), PdfError> {
     if dictionary
         .keys()
         .any(|key| key.is(b"Length") || key.is(b"Filter") || key.is(b"DecodeParms"))
@@ -4263,9 +4285,16 @@ fn write_stream(
     }
     let data_len = i64::try_from(data.len()).map_err(|_| PdfError::OutputTooLarge)?;
     output.extend(b"<<")?;
+    let mut decode_parms_pending = decode_parms;
     let mut filter_pending = filter;
     let mut length_pending = true;
     for (key, value) in dictionary {
+        if decode_parms_pending.is_some() && b"DecodeParms".as_slice() < key.0.as_slice() {
+            let parameters = decode_parms_pending
+                .take()
+                .ok_or(PdfError::ResourcePlanMismatch)?;
+            write_decode_parms_entry(output, parameters)?;
+        }
         if filter_pending.is_some() && b"Filter".as_slice() < key.0.as_slice() {
             let filter = filter_pending
                 .take()
@@ -4280,6 +4309,9 @@ fn write_stream(
         write_pdf_name(output, key)?;
         output.push(b' ')?;
         write_pdf_value(output, value)?;
+    }
+    if let Some(parameters) = decode_parms_pending {
+        write_decode_parms_entry(output, parameters)?;
     }
     if let Some(filter) = filter_pending {
         write_filter_entry(output, filter)?;
@@ -4296,6 +4328,14 @@ fn write_stream(
     } else {
         output.extend(b"\nendstream")
     }
+}
+
+fn write_decode_parms_entry(
+    output: &mut LimitedPdfBuffer,
+    parameters: &PdfDictionary,
+) -> Result<(), PdfError> {
+    output.extend(b" /DecodeParms ")?;
+    write_dictionary(output, parameters)
 }
 
 fn write_filter_entry(output: &mut LimitedPdfBuffer, filter: &[u8]) -> Result<(), PdfError> {
@@ -4681,12 +4721,32 @@ fn write_image_stream(
             plan.encoded_bytes(),
             Some(b"FlateDecode"),
         ),
-        ImageEncoding::Jpeg => write_stream(
-            output,
-            &dictionary,
-            plan.encoded_bytes(),
-            Some(b"DCTDecode"),
-        ),
+        ImageEncoding::Jpeg => {
+            let jpeg = plan.jpeg_plan().ok_or(PdfError::ResourcePlanMismatch)?;
+            let expected_transform = match plan.color_space() {
+                ImageColorSpace::Gray => 0,
+                ImageColorSpace::Rgb => 1,
+                ImageColorSpace::Cmyk => return Err(PdfError::ResourcePlanMismatch),
+            };
+            if jpeg.color_transform() != expected_transform
+                || plan.bits_per_component() != 8
+                || plan.alpha_mask().is_some()
+            {
+                return Err(PdfError::ResourcePlanMismatch);
+            }
+            let mut decode_parms = PdfDictionary::new();
+            decode_parms.insert(
+                pdf_name(b"ColorTransform")?,
+                PdfValue::Integer(i64::from(expected_transform)),
+            );
+            write_stream_with_decode_parms(
+                output,
+                &dictionary,
+                plan.encoded_bytes(),
+                Some(b"DCTDecode"),
+                Some(&decode_parms),
+            )
+        }
     }
 }
 
@@ -6177,6 +6237,31 @@ mod tests {
             require_staging_serialized_image_xobjects(b"/Subtype /Image", 2),
             Err(StagingMachineFigurePdfError::ImageXObjectClosure)
         );
+    }
+
+    #[test]
+    fn jpeg_dct_stream_has_canonical_explicit_color_transform() {
+        let mut dictionary = PdfDictionary::new();
+        dictionary.insert(name(b"BitsPerComponent"), PdfValue::Integer(8));
+        dictionary.insert(name(b"ColorSpace"), PdfValue::Name(name(b"DeviceRGB")));
+        dictionary.insert(name(b"Height"), PdfValue::Integer(1));
+        dictionary.insert(name(b"Subtype"), PdfValue::Name(name(b"Image")));
+        dictionary.insert(name(b"Type"), PdfValue::Name(name(b"XObject")));
+        dictionary.insert(name(b"Width"), PdfValue::Integer(2));
+        let mut decode_parms = PdfDictionary::new();
+        decode_parms.insert(name(b"ColorTransform"), PdfValue::Integer(1));
+        let mut output = LimitedPdfBuffer::new(1_024);
+        write_stream_with_decode_parms(
+            &mut output,
+            &dictionary,
+            &[0xff, 0xd8, 0xff, 0xd9],
+            Some(b"DCTDecode"),
+            Some(&decode_parms),
+        )
+        .unwrap();
+        let header = b"<< /BitsPerComponent 8 /ColorSpace /DeviceRGB /DecodeParms << /ColorTransform 1 >> /Filter /DCTDecode /Height 1 /Length 4 /Subtype /Image /Type /XObject /Width 2 >>\nstream\n";
+        assert!(output.bytes.starts_with(header));
+        assert!(output.bytes.ends_with(b"\xFF\xD8\xFF\xD9\nendstream"));
     }
 
     #[test]

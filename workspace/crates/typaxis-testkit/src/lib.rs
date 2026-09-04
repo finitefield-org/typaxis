@@ -1963,11 +1963,22 @@ mod tests {
             .into_iter()
             .filter_map(|(name, declaration)| {
                 let dependency = declared_package_name(name, &declaration);
+                let compact_declaration: String = declaration
+                    .chars()
+                    .filter(|character| !character.is_ascii_whitespace())
+                    .collect();
                 let forbidden_workspace_edge =
                     dependency.starts_with("typaxis-") && is_denied(crate_name, &dependency);
                 let forbidden_parser_supply_chain = crate_name == "typaxis-resource-admission"
                     && !dependency.starts_with("typaxis-")
-                    && !(dependency == "png" && declaration == "\"=0.18.1\"");
+                    && !matches!(
+                        (dependency.as_str(), compact_declaration.as_str()),
+                        ("png", "\"=0.18.1\"")
+                            | (
+                                "jpeg-decoder",
+                                "{version=\"=0.3.2\",default-features=false,features=[\"platform_independent\"]}"
+                            )
+                    );
                 let forbidden_math_supply_chain =
                     crate_name == "typaxis-math" && !dependency.starts_with("typaxis-");
                 (forbidden_workspace_edge
@@ -2170,6 +2181,130 @@ mod tests {
     }
 
     #[test]
+    fn forbidden_dependency_edges_pin_jpeg_decoder_supply_chain() {
+        let root = workspace_root();
+        let admission_manifest = root.join("crates/typaxis-resource-admission/Cargo.toml");
+        let declarations = workspace_dependency_declarations(&admission_manifest);
+        assert!(declarations.iter().any(|(name, declaration)| {
+            let compact: String = declaration
+                .chars()
+                .filter(|character| !character.is_ascii_whitespace())
+                .collect();
+            name == "jpeg-decoder"
+                && compact
+                    == "{version=\"=0.3.2\",default-features=false,features=[\"platform_independent\"]}"
+        }));
+
+        let mut direct_requesters = Vec::new();
+        for entry in
+            fs::read_dir(root.join("crates")).expect("workspace crates directory must be readable")
+        {
+            let entry = entry.expect("crate directory entry must be readable");
+            if !entry
+                .file_type()
+                .expect("file type must be readable")
+                .is_dir()
+            {
+                continue;
+            }
+            let manifest = entry.path().join("Cargo.toml");
+            let declarations = workspace_dependency_declarations(&manifest);
+            if declarations.iter().any(|(name, declaration)| {
+                declared_package_name(name.clone(), declaration) == "jpeg-decoder"
+            }) {
+                direct_requesters.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
+        direct_requesters.sort();
+        assert_eq!(direct_requesters, ["typaxis-resource-admission"]);
+
+        let lock = fs::read_to_string(root.join("Cargo.lock"))
+            .expect("workspace lockfile must be readable");
+        let jpeg_entry = lock
+            .split("[[package]]")
+            .find(|entry| entry.lines().any(|line| line == "name = \"jpeg-decoder\""))
+            .expect("jpeg-decoder must be locked");
+        for required in [
+            "version = \"0.3.2\"",
+            "source = \"registry+https://github.com/rust-lang/crates.io-index\"",
+            "checksum = \"00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07\"",
+        ] {
+            assert!(
+                jpeg_entry.lines().any(|line| line == required),
+                "jpeg-decoder lock entry is missing {required}"
+            );
+        }
+        assert!(
+            !jpeg_entry.contains("dependencies = [") && !jpeg_entry.contains("\"rayon\""),
+            "the locked JPEG decoder graph must not enable rayon"
+        );
+
+        let source = fs::read_to_string(root.join("crates/typaxis-resource-admission/src/jpeg.rs"))
+            .expect("JPEG admission source must be readable");
+        for forbidden_api in [
+            "std::fs",
+            "std::net",
+            "std::process",
+            "Command::",
+            "TcpStream",
+            "UdpSocket",
+            "libloading",
+            "extern \"C\"",
+        ] {
+            assert!(
+                !source.contains(forbidden_api),
+                "JPEG admission uses forbidden host API: {forbidden_api}"
+            );
+        }
+
+        let audit = fs::read_to_string(root.join("dependency-audit.json"))
+            .expect("dependency audit must be checked in");
+        assert_eq!(audit.lines().count(), 1, "dependency audit must be JCS");
+        assert!(audit.ends_with('\n'));
+        assert_eq!(
+            sha256_hex(audit.as_bytes()),
+            "b042be36da9f3e8508a02743d466ff41d40fd2165905c8741c75710120d8af9c"
+        );
+        assert!(audit.starts_with(concat!(
+            "{\"advisory_database\":{\"commit\":",
+            "\"5a0ebedfe8bdd2e295b171f4162f8c977bcad9a5\",",
+            "\"url\":\"https://github.com/RustSec/advisory-db\"},",
+            "\"algorithm\":\"typaxis.dependency-audit/1\",",
+            "\"ignored_advisories\":[],\"packages\":["
+        )));
+        let jpeg_record = concat!(
+            "{\"advisory_ids\":[],",
+            "\"archive_sha256\":\"00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07\",",
+            "\"direct_edges\":[\"typaxis-resource-admission:normal\"],",
+            "\"license\":\"MIT OR Apache-2.0\",\"msrv\":\"1.61\",",
+            "\"name\":\"jpeg-decoder\",",
+            "\"resolved_features\":[\"platform_independent\"],",
+            "\"unsafe_or_native_code\":false,\"version\":\"0.3.2\"}"
+        );
+        let read_fonts_record = concat!(
+            "{\"advisory_ids\":[],",
+            "\"archive_sha256\":\"5b8250b8f09ed4b9ba9271e06f10e7b1f03e8f8e3619e2368a991ecb25efa204\",",
+            "\"direct_edges\":[\"typaxis-resources:development\",\"typaxis-shaping:normal\"],",
+            "\"license\":\"MIT OR Apache-2.0\",\"msrv\":\"1.75\",",
+            "\"name\":\"read-fonts\",",
+            "\"resolved_features\":[\"default\",\"libm\",\"std\"],",
+            "\"unsafe_or_native_code\":false,\"version\":\"0.31.3\"}"
+        );
+        let jpeg_position = audit
+            .find(jpeg_record)
+            .expect("JPEG audit record must be exact");
+        let read_fonts_position = audit
+            .find(read_fonts_record)
+            .expect("read-fonts audit record must be exact");
+        assert!(
+            jpeg_position < read_fonts_position,
+            "packages must be sorted"
+        );
+        assert_eq!(audit.matches("\"name\":").count(), 2);
+        assert!(audit.contains("\"unresolved_applicable_advisories\":[]"));
+    }
+
+    #[test]
     fn forbidden_dependency_edges_pin_the_math_parser_supply_chain() {
         let manifest = fs::read_to_string(workspace_root().join("crates/typaxis-math/Cargo.toml"))
             .expect("math manifest must be readable");
@@ -2258,6 +2393,21 @@ mod tests {
                 "typaxis-resource-admission",
                 "[dependencies]\npng = \"0.18.1\"\n",
                 "typaxis-resource-admission -> png",
+            ),
+            (
+                "typaxis-resource-admission",
+                "[dependencies]\njpeg-decoder = \"=0.3.2\"\n",
+                "typaxis-resource-admission -> jpeg-decoder",
+            ),
+            (
+                "typaxis-resource-admission",
+                "[dependencies]\njpeg-decoder = { version = \"=0.3.2\", features = [\"platform_independent\"] }\n",
+                "typaxis-resource-admission -> jpeg-decoder",
+            ),
+            (
+                "typaxis-resource-admission",
+                "[dependencies]\njpeg-decoder = { version = \"=0.3.2\", default-features = false }\n",
+                "typaxis-resource-admission -> jpeg-decoder",
             ),
         ];
 
