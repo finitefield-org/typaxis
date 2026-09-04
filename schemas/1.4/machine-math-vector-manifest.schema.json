@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-math-vector-manifest.schema.json",
+  "title": "Typaxis Producer-Composed Math Vector Manifest 1.4",
+  "description": "Private MI4 source-TeX, alternative, metric, placement, and SafeVector-use closure for producer-composed math.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["algorithm", "contract", "facts", "fingerprints"],
+  "properties": {
+    "algorithm": {"const": "typaxis.math-vector-manifest/1"},
+    "contract": {"const": "typaxis.contract/1.4"},
+    "facts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/fact"}
+    },
+    "fingerprints": {"$ref": "#/$defs/fingerprints"}
+  },
+  "$defs": {
+    "fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding_set_sha256", "package_sha256", "safe_vector_manifest_sha256"],
+      "properties": {
+        "binding_set_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "package_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "safe_vector_manifest_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "language": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+    },
+    "text_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["end_byte", "start_byte", "text_id"],
+      "properties": {
+        "end_byte": {"$ref": "common.schema.json#/$defs/id32"},
+        "start_byte": {"$ref": "common.schema.json#/$defs/id32"},
+        "text_id": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "source_tex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exact_slice_sha256", "text_buffer_sha256", "text_span"],
+      "properties": {
+        "exact_slice_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "text_buffer_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "text_span": {"$ref": "#/$defs/text_span"}
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine_id", "engine_version", "rules_version"],
+      "properties": {
+        "engine_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\u0020-\\u007E]+$"},
+        "engine_version": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\u0020-\\u007E]+$"},
+        "rules_version": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\u0020-\\u007E]+$"}
+      }
+    },
+    "inline_placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spacing_after", "spacing_before"],
+      "properties": {
+        "spacing_after": {"$ref": "common.schema.json#/$defs/nonnegative_length"},
+        "spacing_before": {"$ref": "common.schema.json#/$defs/nonnegative_length"}
+      }
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "fingerprint", "flow_id", "parent_flow_id", "parent_position", "terminal", "terminal_receipt_fingerprint"],
+      "properties": {
+        "algorithm": {"const": "typaxis.math-vector-flow/1"},
+        "fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "flow_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "parent_flow_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "parent_position": {"$ref": "common.schema.json#/$defs/id32"},
+        "terminal": {"const": 1},
+        "terminal_receipt_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "block_placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alignment", "end_indent", "flow", "keep_with_next", "space_after", "space_before", "start_indent", "style_fingerprint"],
+      "properties": {
+        "alignment": {"enum": ["center", "end", "start"]},
+        "end_indent": {"$ref": "common.schema.json#/$defs/nonnegative_length"},
+        "flow": {"$ref": "#/$defs/flow"},
+        "keep_with_next": {"type": "boolean"},
+        "space_after": {"$ref": "common.schema.json#/$defs/nonnegative_length"},
+        "space_before": {"$ref": "common.schema.json#/$defs/nonnegative_length"},
+        "start_indent": {"$ref": "common.schema.json#/$defs/nonnegative_length"},
+        "style_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "equation_number": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_gap", "node_id", "source_span", "text_span"],
+      "properties": {
+        "minimum_gap": {"$ref": "common.schema.json#/$defs/positive_length"},
+        "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "source_span": {"$ref": "common.schema.json#/$defs/source_span"},
+        "text_span": {"$ref": "#/$defs/text_span"}
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alternative_sha256",
+        "common_binding_fingerprint",
+        "display_command_fingerprint",
+        "kind",
+        "language",
+        "mapped_source_span",
+        "math_binding_fingerprint",
+        "metrics",
+        "node_id",
+        "owner_source_span",
+        "pdf_use_fingerprint",
+        "placement",
+        "producer",
+        "resolved_actual_text_sha256",
+        "safe_vector_usage_fingerprint",
+        "selected_placement_fingerprint",
+        "source_tex"
+      ],
+      "properties": {
+        "alternative_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "common_binding_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "display_command_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "equation_number": {"$ref": "#/$defs/equation_number"},
+        "kind": {"enum": ["math_vector", "math_vector_block"]},
+        "language": {"$ref": "#/$defs/language"},
+        "mapped_source_span": {"$ref": "common.schema.json#/$defs/source_span"},
+        "math_binding_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "metrics": {"$ref": "machine-safe-vector-manifest.schema.json#/$defs/v2_metrics"},
+        "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "owner_source_span": {"$ref": "common.schema.json#/$defs/source_span"},
+        "pdf_use_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "placement": {
+          "oneOf": [
+            {"$ref": "#/$defs/inline_placement"},
+            {"$ref": "#/$defs/block_placement"}
+          ]
+        },
+        "producer": {"$ref": "#/$defs/producer"},
+        "resolved_actual_text_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "safe_vector_usage_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "selected_placement_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "source_tex": {"$ref": "#/$defs/source_tex"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "math_vector"}}, "required": ["kind"]},
+          "then": {
+            "properties": {"placement": {"$ref": "#/$defs/inline_placement"}},
+            "not": {"required": ["equation_number"]}
+          },
+          "else": {
+            "properties": {"placement": {"$ref": "#/$defs/block_placement"}}
+          }
+        }
+      ]
+    }
+  }
+}

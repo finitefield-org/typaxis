@@ -1,9 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::VerifiedPdfBytesReceipt;
 use typaxis_core::{
     push_jcs_string, sha256, AffineTransform, ImageResourceId, M4EffectiveResourceLimits, NodeId,
 };
-use typaxis_display_list::{StagingDrawVectorV2, StagingPrecomposedVectorDisplay};
+use typaxis_display_list::{
+    StagingCombinedVectorDisplayV2, StagingCombinedVectorKindV2, StagingCombinedVectorUsageV2,
+    StagingDrawVectorV2, StagingPrecomposedVectorDisplay,
+};
 use typaxis_resources::{
     AdmittedSafeVector, FrozenSafeVectorFormPlanV2, SafeVectorClipDefinition, SafeVectorClipUse,
     SafeVectorDraw, SafeVectorDrawV2, SafeVectorFillRule, SafeVectorIr, SafeVectorIrV2,
@@ -11,9 +15,6 @@ use typaxis_resources::{
     SafeVectorSegment, SafeVectorTransform, StagingSafeVectorFormPlansV2,
     VectorContentCandidateRegistry, VectorContentKey, VectorExtGStateAlphaPair,
 };
-use typaxis_syntax::PrecomposedVectorKind;
-
-use crate::VerifiedPdfBytesReceipt;
 
 pub const STAGING_SAFE_VECTOR_PDF_CONTRIBUTION_V2_ALGORITHM: &str =
     "typaxis.safe-vector-pdf-contribution/2";
@@ -191,7 +192,7 @@ impl StagingSafeVectorPdfPageResourceV2 {
 pub struct StagingSafeVectorPdfSemanticUsageHookV2 {
     usage_id: u32,
     owner: NodeId,
-    kind: PrecomposedVectorKind,
+    kind: StagingCombinedVectorKindV2,
     page_index: u32,
     paint_ordinal: u32,
     display_command_fingerprint: [u8; 32],
@@ -206,7 +207,7 @@ impl StagingSafeVectorPdfSemanticUsageHookV2 {
         self.owner
     }
 
-    pub const fn kind(&self) -> PrecomposedVectorKind {
+    pub const fn kind(&self) -> StagingCombinedVectorKindV2 {
         self.kind
     }
 
@@ -403,6 +404,22 @@ impl StagingSafeVectorPdfContributionV2 {
         }
         Ok(())
     }
+
+    pub fn verify_combined(
+        &self,
+        display: &StagingCombinedVectorDisplayV2,
+        plans: &StagingSafeVectorFormPlansV2,
+        registry: &VectorContentCandidateRegistry,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StagingSafeVectorPdfV2Error> {
+        let expected = build_staging_combined_safe_vector_pdf_contribution_v2(
+            display, plans, registry, limits,
+        )?;
+        if self != &expected {
+            return Err(StagingSafeVectorPdfV2Error::ContributionMismatch);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -477,6 +494,93 @@ pub fn build_staging_safe_vector_pdf_contribution_v2(
     )
 }
 
+/// Builds the final-writer contribution for the single production vector
+/// resource set. Safe-SVG 1 Figures and all precomposed vector kinds share
+/// the same content-key Form allocation and page XObject dictionaries.
+pub fn build_staging_combined_safe_vector_pdf_contribution_v2(
+    display: &StagingCombinedVectorDisplayV2,
+    plans: &StagingSafeVectorFormPlansV2,
+    registry: &VectorContentCandidateRegistry,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfV2Error> {
+    display
+        .verify_resource_closure()
+        .map_err(|_| StagingSafeVectorPdfV2Error::DisplayMismatch)?;
+    plans
+        .verify_combined_pdf_closure(display, registry, limits)
+        .map_err(|_| StagingSafeVectorPdfV2Error::FormPlanMismatch)?;
+    let mut inputs = Vec::new();
+    inputs
+        .try_reserve_exact(display.usages().len())
+        .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
+    inputs.extend(display.usages().iter().map(PdfUsageInput::from_combined));
+    build_staging_safe_vector_pdf_contribution_v2_from_inputs(
+        display.receipt().fingerprint(),
+        display.receipt().page_count(),
+        &inputs,
+        plans,
+        registry,
+        limits,
+        limits.base().get().max_spool_bytes,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct PdfUsageInput {
+    usage_id: u32,
+    owner: NodeId,
+    kind: StagingCombinedVectorKindV2,
+    image_id: ImageResourceId,
+    content_key: VectorContentKey,
+    ir_fingerprint: [u8; 32],
+    page_index: u32,
+    paint_ordinal: u32,
+    viewport: typaxis_core::Rect,
+    scale: i32,
+    matrix: AffineTransform,
+    color: [u8; 3],
+    display_command_fingerprint: [u8; 32],
+}
+
+impl PdfUsageInput {
+    fn from_precomposed(command: &StagingDrawVectorV2) -> Self {
+        let color = command.resolved_current_color();
+        Self {
+            usage_id: command.usage_id(),
+            owner: command.owner(),
+            kind: command.kind().into(),
+            image_id: command.image_id(),
+            content_key: command.content_key(),
+            ir_fingerprint: command.ir_fingerprint(),
+            page_index: command.page_index(),
+            paint_ordinal: command.paint_ordinal(),
+            viewport: command.viewport(),
+            scale: command.scale_raw(),
+            matrix: command.matrix(),
+            color: [color.red(), color.green(), color.blue()],
+            display_command_fingerprint: command.fingerprint(),
+        }
+    }
+
+    fn from_combined(usage: &StagingCombinedVectorUsageV2) -> Self {
+        Self {
+            usage_id: usage.usage_id(),
+            owner: usage.owner(),
+            kind: usage.kind(),
+            image_id: usage.image_id(),
+            content_key: *usage.content_key(),
+            ir_fingerprint: usage.ir_fingerprint(),
+            page_index: usage.page_index(),
+            paint_ordinal: usage.paint_ordinal(),
+            viewport: usage.viewport(),
+            scale: usage.scale_raw(),
+            matrix: usage.matrix(),
+            color: usage.resolved_current_color(),
+            display_command_fingerprint: usage.display_command_fingerprint(),
+        }
+    }
+}
+
 fn build_staging_safe_vector_pdf_contribution_v2_with_spool_limit(
     display: &StagingPrecomposedVectorDisplay,
     plans: &StagingSafeVectorFormPlansV2,
@@ -490,6 +594,55 @@ fn build_staging_safe_vector_pdf_contribution_v2_with_spool_limit(
     plans
         .verify_pdf_closure(display, registry, limits)
         .map_err(|_| StagingSafeVectorPdfV2Error::FormPlanMismatch)?;
+
+    let mut inputs = Vec::new();
+    inputs
+        .try_reserve_exact(
+            usize::try_from(display.receipt().command_count())
+                .map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
+        )
+        .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
+    inputs.extend(display.commands().map(PdfUsageInput::from_precomposed));
+    build_staging_safe_vector_pdf_contribution_v2_from_inputs(
+        display.receipt().fingerprint(),
+        u32::try_from(display.pages().len())
+            .map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
+        &inputs,
+        plans,
+        registry,
+        limits,
+        spool_limit,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_staging_safe_vector_pdf_contribution_v2_from_inputs(
+    display_fingerprint: [u8; 32],
+    page_count: u32,
+    inputs: &[PdfUsageInput],
+    plans: &StagingSafeVectorFormPlansV2,
+    registry: &VectorContentCandidateRegistry,
+    limits: &M4EffectiveResourceLimits,
+    spool_limit: u64,
+) -> Result<StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfV2Error> {
+    if plans.display_fingerprint() != display_fingerprint
+        || u32::try_from(inputs.len()).ok() != Some(plans.page_do_count_delta())
+    {
+        return Err(StagingSafeVectorPdfV2Error::FormPlanMismatch);
+    }
+    if inputs.iter().any(|input| {
+        registry
+            .candidate(&input.content_key)
+            .map_or(true, |candidate| {
+                candidate.canonical_ir().fingerprint() != input.ir_fingerprint
+                    || !candidate
+                        .aliases()
+                        .iter()
+                        .any(|alias| alias.image_id() == input.image_id)
+            })
+    }) {
+        return Err(StagingSafeVectorPdfV2Error::CandidateMismatch);
+    }
 
     let mut spool = SpoolBudget::new(spool_limit);
     let mut forms = Vec::new();
@@ -604,39 +757,37 @@ fn build_staging_safe_vector_pdf_contribution_v2_with_spool_limit(
     usages
         .try_reserve_exact(usage_capacity)
         .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
-    for command in display.commands() {
-        let form = form_for_command(command, &forms)?;
-        validate_placement(
-            command,
+    for input in inputs {
+        let form = form_for_content_key(&input.content_key, &forms)?;
+        validate_placement_values(
+            input.matrix,
+            input.scale,
+            input.viewport,
             plans
-                .plan(&command.content_key())
+                .plan(&input.content_key)
                 .ok_or(StagingSafeVectorPdfV2Error::FormPlanMismatch)?,
         )?;
-        let content = encode_page_usage(command, form, &mut spool)?;
+        let content = encode_page_usage_values(input.matrix, input.color, form, &mut spool)?;
         let content_fingerprint = sha256(&content);
         usages.push(StagingSafeVectorPdfUsageV2 {
-            usage_id: command.usage_id(),
-            image_id: command.image_id(),
-            content_key: command.content_key(),
-            page_index: command.page_index(),
-            paint_ordinal: command.paint_ordinal(),
+            usage_id: input.usage_id,
+            image_id: input.image_id,
+            content_key: input.content_key,
+            page_index: input.page_index,
+            paint_ordinal: input.paint_ordinal,
             form_relative_object_role: form.relative_object_role,
             form_resource_name: form.resource_name.clone(),
-            matrix: command.matrix(),
-            resolved_current_color: [
-                command.resolved_current_color().red(),
-                command.resolved_current_color().green(),
-                command.resolved_current_color().blue(),
-            ],
+            matrix: input.matrix,
+            resolved_current_color: input.color,
             content,
             content_fingerprint,
             semantic_hook: StagingSafeVectorPdfSemanticUsageHookV2 {
-                usage_id: command.usage_id(),
-                owner: command.owner(),
-                kind: command.kind(),
-                page_index: command.page_index(),
-                paint_ordinal: command.paint_ordinal(),
-                display_command_fingerprint: command.fingerprint(),
+                usage_id: input.usage_id,
+                owner: input.owner,
+                kind: input.kind,
+                page_index: input.page_index,
+                paint_ordinal: input.paint_ordinal,
+                display_command_fingerprint: input.display_command_fingerprint,
             },
         });
     }
@@ -644,11 +795,11 @@ fn build_staging_safe_vector_pdf_contribution_v2_with_spool_limit(
         return Err(StagingSafeVectorPdfV2Error::ContributionMismatch);
     }
 
-    let pages = build_page_contributions(display, &forms, &usages)?;
+    let pages = build_page_contributions(page_count, inputs, &forms, &usages)?;
     validate_contribution_counts(plans, &forms, &ext_g_states, &pages, &usages)?;
     let spool_bytes = spool.used();
     let canonical_jcs = encode_contribution_receipt(
-        display.receipt().fingerprint(),
+        display_fingerprint,
         plans.fingerprint(),
         registry.receipt().fingerprint(),
         limits.fingerprint(),
@@ -660,7 +811,7 @@ fn build_staging_safe_vector_pdf_contribution_v2_with_spool_limit(
         spool_bytes,
     );
     Ok(StagingSafeVectorPdfContributionV2 {
-        display_fingerprint: display.receipt().fingerprint(),
+        display_fingerprint,
         form_plans_fingerprint: plans.fingerprint(),
         candidate_registry_fingerprint: registry.receipt().fingerprint(),
         limits_fingerprint: limits.fingerprint(),
@@ -1286,24 +1437,23 @@ fn pdf_fixed(raw: i64) -> String {
     }
 }
 
-fn form_for_command<'a>(
-    command: &StagingDrawVectorV2,
+fn form_for_content_key<'a>(
+    content_key: &VectorContentKey,
     forms: &'a [StagingSafeVectorPdfFormV2],
 ) -> Result<&'a StagingSafeVectorPdfFormV2, StagingSafeVectorPdfV2Error> {
     forms
-        .binary_search_by(|form| form.content_key.cmp(&command.content_key()))
+        .binary_search_by(|form| form.content_key.cmp(content_key))
         .ok()
         .and_then(|index| forms.get(index))
         .ok_or(StagingSafeVectorPdfV2Error::FormPlanMismatch)
 }
 
-fn validate_placement(
-    command: &StagingDrawVectorV2,
+fn validate_placement_values(
+    matrix: AffineTransform,
+    scale: i32,
+    viewport: typaxis_core::Rect,
     plan: &FrozenSafeVectorFormPlanV2,
 ) -> Result<(), StagingSafeVectorPdfV2Error> {
-    let matrix = command.matrix();
-    let scale = command.scale_raw();
-    let viewport = command.viewport();
     if scale <= 0
         || matrix.a.raw() != scale
         || matrix.b.raw() != 0
@@ -1319,20 +1469,6 @@ fn validate_placement(
         return Err(StagingSafeVectorPdfV2Error::InvalidPlacement);
     }
     Ok(())
-}
-
-fn encode_page_usage(
-    command: &StagingDrawVectorV2,
-    form: &StagingSafeVectorPdfFormV2,
-    spool: &mut SpoolBudget,
-) -> Result<Vec<u8>, StagingSafeVectorPdfV2Error> {
-    let color = command.resolved_current_color();
-    encode_page_usage_values(
-        command.matrix(),
-        [color.red(), color.green(), color.blue()],
-        form,
-        spool,
-    )
 }
 
 fn encode_page_usage_values(
@@ -1361,35 +1497,47 @@ fn encode_page_usage_values(
 }
 
 fn build_page_contributions(
-    display: &StagingPrecomposedVectorDisplay,
+    page_count: u32,
+    inputs: &[PdfUsageInput],
     forms: &[StagingSafeVectorPdfFormV2],
     usages: &[StagingSafeVectorPdfUsageV2],
 ) -> Result<Vec<StagingSafeVectorPdfPageV2>, StagingSafeVectorPdfV2Error> {
     let mut pages = Vec::new();
     pages
-        .try_reserve_exact(display.pages().len())
+        .try_reserve_exact(
+            usize::try_from(page_count).map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
+        )
         .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
-    for display_page in display.pages() {
+    for page_index in 0..page_count {
+        let page_usage_count = inputs
+            .iter()
+            .filter(|input| input.page_index == page_index)
+            .count();
+        let mut page_inputs: Vec<&PdfUsageInput> = Vec::new();
+        page_inputs
+            .try_reserve_exact(page_usage_count)
+            .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
+        page_inputs.extend(inputs.iter().filter(|input| input.page_index == page_index));
+        page_inputs.sort_unstable_by_key(|input| input.paint_ordinal);
         let mut unique = BTreeMap::new();
         let mut usage_ids = Vec::new();
         usage_ids
-            .try_reserve_exact(display_page.commands().len())
+            .try_reserve_exact(page_inputs.len())
             .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
-        for command in display_page.commands() {
-            let form = form_for_command(command, forms)?;
-            if usize::try_from(command.usage_id())
+        for input in page_inputs {
+            let form = form_for_content_key(&input.content_key, forms)?;
+            if usize::try_from(input.usage_id)
                 .ok()
                 .and_then(|index| usages.get(index))
                 .map_or(true, |usage| {
-                    usage.usage_id != command.usage_id()
-                        || usage.page_index != display_page.page_index()
+                    usage.usage_id != input.usage_id || usage.page_index != page_index
                 })
             {
                 return Err(StagingSafeVectorPdfV2Error::ContributionMismatch);
             }
-            usage_ids.push(command.usage_id());
+            usage_ids.push(input.usage_id);
             match unique.insert(
-                command.content_key(),
+                input.content_key,
                 (form.relative_object_role, form.resource_name.clone()),
             ) {
                 Some(previous)
@@ -1407,18 +1555,17 @@ fn build_page_contributions(
         resources.extend(unique.into_iter().map(
             |(content_key, (form_relative_object_role, resource_name))| {
                 StagingSafeVectorPdfPageResourceV2 {
-                    page_index: display_page.page_index(),
+                    page_index,
                     content_key,
                     form_relative_object_role,
                     resource_name,
                 }
             },
         ));
-        let fingerprint = sha256(
-            encode_page_contribution(display_page.page_index(), &resources, &usage_ids).as_bytes(),
-        );
+        let fingerprint =
+            sha256(encode_page_contribution(page_index, &resources, &usage_ids).as_bytes());
         pages.push(StagingSafeVectorPdfPageV2 {
-            page_index: display_page.page_index(),
+            page_index,
             resources,
             usage_ids,
             requires_existing_top_left_page_root_y_flip: true,
@@ -2389,8 +2536,9 @@ mod tests {
     use super::*;
     use typaxis_core::{EffectiveConfigFingerprint, LayoutStateFingerprint, PdfStreamCompression};
     use typaxis_resources::{
-        finalize_staging_safe_vector_forms_v2, staging_safe_vector_v2_ir_fixture,
-        StagingSafeVectorV2IrFixture, VectorContentCandidateRegistry,
+        finalize_staging_combined_safe_vector_forms_v2, finalize_staging_safe_vector_forms_v2,
+        staging_safe_vector_v2_ir_fixture, StagingSafeVectorV2IrFixture,
+        VectorContentCandidateRegistry,
     };
 
     fn build_fixture(
@@ -2843,5 +2991,49 @@ mod tests {
             .windows(b"/Resources << >>".len())
             .any(|window| window == b"/Resources << >>"));
         assert_eq!(byte_occurrences(first.bytes(), b"/ExtGState"), 0);
+    }
+
+    #[test]
+    fn combined_safe_vector_pdf_contribution_keeps_existing_figure_vector_native() {
+        let fixture = typaxis_display_list::staging_combined_vector_figure_fixture().unwrap();
+        let registry = VectorContentCandidateRegistry::from_admitted(
+            &fixture.figure.layout.admitted,
+            fixture.figure.layout.package.resources(),
+        )
+        .unwrap();
+        let plans = finalize_staging_combined_safe_vector_forms_v2(
+            &fixture.display,
+            &registry,
+            &fixture.figure.layout.limits,
+        )
+        .unwrap();
+        let contribution = build_staging_combined_safe_vector_pdf_contribution_v2(
+            &fixture.display,
+            &plans,
+            &registry,
+            &fixture.figure.layout.limits,
+        )
+        .unwrap();
+        let [usage] = contribution.usages() else {
+            panic!("Figure fixture must emit one PDF vector usage");
+        };
+        assert_eq!(
+            usage.semantic_hook().kind(),
+            StagingCombinedVectorKindV2::Figure
+        );
+        assert_eq!(byte_occurrences(usage.content(), b"/V0 Do"), 1);
+        assert!(byte_occurrences(contribution.forms()[0].content_stream(), b" m\n") > 0);
+        assert_eq!(
+            byte_occurrences(contribution.forms()[0].content_stream(), b"/Subtype /Image"),
+            0
+        );
+        contribution
+            .verify_combined(
+                &fixture.display,
+                &plans,
+                &registry,
+                &fixture.figure.layout.limits,
+            )
+            .unwrap();
     }
 }

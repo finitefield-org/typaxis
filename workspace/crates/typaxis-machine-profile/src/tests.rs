@@ -623,6 +623,85 @@ fn public_capability_isolation_keeps_private_vector_projection_out_of_seven_prof
     assert!(!private_schema.contains("vector_features"));
 }
 
+#[test]
+fn precomposed_vector_capability_projection_is_complete_ordered_and_preflight_symmetric() {
+    let descriptor = crate::descriptor::PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR;
+    assert_eq!(
+        descriptor.blocks(),
+        [
+            "display_math",
+            "figure",
+            "heading",
+            "list",
+            "math_vector_block",
+            "page_break",
+            "paragraph",
+            "semantic_container",
+            "table",
+            "vector_figure",
+        ]
+    );
+    assert_eq!(
+        descriptor.inlines(),
+        [
+            "anchor",
+            "emphasis",
+            "footnote_reference",
+            "hard_break",
+            "inline_math",
+            "inline_vector",
+            "link",
+            "math_vector",
+            "reference",
+            "soft_break",
+            "strong",
+            "text",
+        ]
+    );
+    assert_eq!(descriptor.style_block_types(), descriptor.blocks());
+    assert_eq!(descriptor.style_selectors(), descriptor.blocks());
+    let encoded = crate::capabilities::encode_private_production_book_capability_descriptor();
+    assert!(encoded.starts_with(concat!(
+        "{\"blocks\":[\"display_math\",\"figure\",\"heading\",\"list\",",
+        "\"math_vector_block\",\"page_break\",\"paragraph\",",
+        "\"semantic_container\",\"table\",\"vector_figure\"],",
+        "\"image_formats\":[\"jpeg\",\"png\",\"svg\"],",
+        "\"inlines\":{\"kinds\":[\"anchor\",\"emphasis\",\"footnote_reference\",",
+        "\"hard_break\",\"inline_math\",\"inline_vector\",\"link\",",
+        "\"math_vector\",\"reference\",",
+        "\"soft_break\",\"strong\",\"text\"]}"
+    )));
+    assert!(encoded.contains(concat!(
+        "\"components\":[\"typaxis.resource-profile/png/1\",",
+        "\"typaxis.resource-profile/safe-vector/2\",",
+        "\"typaxis.resource-profile/jpeg-baseline/1\",",
+        "\"typaxis.resource-profile/truetype-glyf/1\",",
+        "\"typaxis.resource-profile/sfnt-cff1/1\"]"
+    )));
+    assert!(encoded
+        .contains("\"image_media\":[\"png\",\"svg-safe-1\",\"svg-safe-2\",\"jpeg-baseline\"]"));
+    assert!(encoded.contains("\"vector_metrics\":[\"advance\",\"ascent\",\"baseline\",\"descent\",\"origin_x\",\"viewport\"]"));
+    assert!(!encoded.contains("\"image_formats\":[\"svg-safe-1\""));
+    let future_profile_order = [
+        "typaxis.machine-pdf/basic-document-1",
+        "typaxis.machine-pdf/columns-1",
+        "typaxis.machine-pdf/float-1",
+        "typaxis.machine-pdf/footnote-1",
+        "typaxis.machine-pdf/header-footer-1",
+        "typaxis.machine-pdf/paragraph-1",
+        crate::descriptor::PrivateProductionBookCapabilityDescriptor::PROFILE_ID,
+        "typaxis.machine-pdf/table-1",
+    ];
+    assert_eq!(
+        future_profile_order[5],
+        crate::descriptor::PrivateProductionBookCapabilityDescriptor::DEFAULT_PROFILE_ID
+    );
+    assert_eq!(
+        future_profile_order[6],
+        "typaxis.machine-pdf/production-book-1"
+    );
+}
+
 fn compact_json_fixture(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut in_string = false;

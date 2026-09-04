@@ -1114,7 +1114,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V17 SafeVector/math-vector/build manifestとcapability stagingを閉じる
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-V07, MI4-V13, MI4-V14, MI4-V16
 - Design inputs: docs/27 §3、§11、§12、§13
 - Primary files:
@@ -1163,6 +1163,13 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile precomposed_vector_capability_projection --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-machine-profile public_capability_isolation --locked`
   - `python3 schemas/validate.py`
+- Completion record:
+  - SafeVector manifest `/2`、producer-composed math-vector manifest `/1`、book-navigation manifest `/2`、tagged-PDF manifest `/2`を追加した。SafeVector `/2`はcontent key順のresource、numeric image-ID順のaliasとconditional provenance、paint順のplacement、parser/IR/allocation/intrinsic facts、V16 final-writer receipt由来のabsolute Form/page/content object、alias別/全placement countを保持する。math-vector `/1`はmathだけのsource TeX span/hash、resolved alternative/ActualText、全metric、spacing/block style/flow/equation number、binding/selected/Display/PDF-useを対応SafeVector usageへ結び、tagged-PDF `/2`はSafeVector → math-vector → taggedの一方向依存でFormula/Figure structure factを閉じる。
+  - private 1.4 build-manifest Schemaへproduction-book profileと四つのrecord/fingerprint pairを直接追加した。builtではzero-useを含め全pairをnonnull、failedでは各pairをboth-null/both-nonnullに固定し、book-navigation `/1`、SafeVector `/1`、旧contractの混在を拒否する。Rust側のstaging root fieldsもcompleted owner依存、semantic/canonical package、same-final-PDF closureを検証する。独立semantic validatorはJCS fingerprint、resource/alias/usage順、kind conditional、metric/matrix/count、package/engine/PDF/object allocation、unused aliasを再導出し、root `images`を既存PNG-only契約のままSafeVector alias registryと分離する。
+  - private production descriptorへ設計§12のcomplete block/inline/style/vector vocabulary、`image_formats = [jpeg, png, svg]`、SafeVector resource-set `/2`のADR固定component/media順を登録した。vector set/value配列はUTF-8 byte順、JSON memberはJCS順でencodingし、preflight accepted kind/mediaとの双方向一致をtestした。公開serializer、current/frozen capability Schema、七profile tuple、paragraph default、既存capability golden bytesは変更していない。
+  - 承認された既存Figure経路の補修として、`svg-safe-1` Figureをprecomposed四kindと同じcombined Display、content-key Form plan、PDF contribution、final tagged writerへ結合した。package内SafeVector FigureとFigure Display commandを上流でexact coverage検証し、旧writerまたは欠落Figure streamは`I9190`相当で失敗する。最終PDF testはFigureを一つのvector-native Form/`Do`/`Figure`/`Alt`として出力し、Image raster subtype不在、決定的bytes、SafeVector `/2` manifestへのprojection、math binding不在を確認する。
+  - milestone指定の6 command、workspace all-target/all-feature locked tests、workspace doc-tests、workspace Clippy `-D warnings`、workspace check、fmt check、Python PDF structure suite（28 tests）、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。Schema validatorは26 private 1.4 schemas、4301 refs、208 exact-rule invalid fixturesを通過した。workspace runのexternal-validator二testは既存の`ignored`指定どおりであり、外部適合性のsuccessには数えない。
+  - レビューでは既存Figureを最終PDFでplaceholder paintへ落とせる欠落、combined DisplayのFigure stream省略、Figureを除外していたvector observation count、combined Form planのzero-use時limits未結合、final writerのpackage/admission/structure/selection receipt結合不足、root engine identityとfailed package contract versionの検証不足を修正した。全修正後に差分を再読し、findingは0件。追加primary外変更はcombined Display/resource/PDF経路、fixture補助、PDF observation getter/re-export、Schema説明と本recordに限定した。private CLI combined corpus/publication/reproducibility gateはMI4-V18/V19のままとする。
 - Non-goals:
   - current Schema alias、public profile tupleの切替
 

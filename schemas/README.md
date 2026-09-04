@@ -15,11 +15,11 @@
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
 | contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: independent private staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Yes: MI4-04 SafeVector and MI4-05 math Schema/Rust/PDF slices in the private twenty-three-schema registry | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Yes: MI4-04 SafeVector and MI4-05 math Schema/Rust/PDF slices in the private registry | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | No: MI4-11/12 must add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Yes: MI4-V03 strict private Wire/Schema/domain and fail-closed legacy dispatch; validation/admission/layout/PDF remain staged | No; current aliases remain 1.3 | No; MI4-V19 then MI4-13 gate |
+| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Yes through MI4-V17: strict Wire/domain, validation/admission/layout/PDF, versioned manifests/build closure, and private capability projection; combined CLI remains staged | No; current aliases remain 1.3 | No; MI4-V19 then MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -118,6 +118,14 @@ the legacy private image branches `media_type = png|svg-safe-1` plus
 MI4-V03 adds the separate `svg-safe-2` image branch with required nonnull hash
 and provenance, and the four closed producer-vector kinds with their exact
 metrics/source/alternative/number shape.
+MI4-V17 adds SafeVector `/2`, producer-composed math-vector `/1`,
+book-navigation `/2`, and tagged-PDF `/2` alternatives to their private
+manifest families, plus the production build-manifest record/fingerprint
+pairs. Built records are nonnull even for zero use; failed pairs are exactly
+both-null or both-nonnull. Existing `figure`/`svg-safe-1` usage is projected
+through the same SafeVector `/2` content-key/Form path. The private registry is
+now twenty-six Schemas; current aliases and their seven-profile capability
+bytes remain unchanged.
 Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
 
@@ -264,6 +272,12 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   kinds, exact `svg-safe-2` hash/provenance and source/resource closure,
   canonical JCS, conditional missing/null/forbidden/wrong-type negatives, and
   public 1.3 isolation;
+- validates MI4-V17's SafeVector `/2`, math-vector `/1`, book-navigation `/2`,
+  tagged-PDF `/2`, and production build-manifest chain, including all five
+  vector kinds, same-content aliases, fixed resource/paint/NodeId/structure
+  order, fingerprint/PDF joins, kind-conditional fields, unused aliases,
+  nonnull zero-use built records, failed-pair nullability, and `/1`/`/2`
+  version-swap rejection;
 - validates MI4-09's private accessibility DocumentPackage/manifest/PDF
   goldens, dense StructureNodeId/paint/page-local MCID/ParentTree closure,
   closed roles and validators, combined semantic coverage, typed tamper cases,

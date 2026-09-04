@@ -1484,6 +1484,103 @@ pub fn staging_precomposed_vector_display_two_alias_use_fixture(
     Ok(fixture.display)
 }
 
+/// Sealed zero-use Display used to prove that the legacy Figure stream can
+/// participate in the production SafeVector /2 pipeline without inventing a
+/// precomposed-vector placement. The empty inline selection fingerprint is
+/// fixture-local; the block selection and package/profile/limits/admission/
+/// binding identities come from verified receipts. Production callers must use
+/// the normal layout constructor above.
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub(super) fn staging_empty_precomposed_vector_display_for_combined_fixture(
+    package: &ValidatedStagingSemanticPackage,
+    admitted: &AdmittedResourceLedger,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    bindings: &ValidatedPrecomposedVectorBindings,
+    limits: &M4EffectiveResourceLimits,
+    page_count: u32,
+    block_selected_layout_fingerprint: [u8; 32],
+) -> Result<StagingPrecomposedVectorDisplay, StagingPrecomposedVectorDisplayError> {
+    if page_count == 0 || block_selected_layout_fingerprint == [0; 32] {
+        return Err(StagingPrecomposedVectorDisplayError::PageLimit);
+    }
+    profile
+        .authorizes(package, limits)
+        .map_err(|_| StagingPrecomposedVectorDisplayError::SelectedMismatch)?;
+    bindings
+        .verify(package, profile, limits, admitted)
+        .map_err(|_| StagingPrecomposedVectorDisplayError::SelectedMismatch)?;
+    if !bindings.receipts().is_empty() {
+        return Err(StagingPrecomposedVectorDisplayError::SelectedMismatch);
+    }
+    let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(
+            usize::try_from(page_count)
+                .map_err(|_| StagingPrecomposedVectorDisplayError::PageLimit)?,
+        )
+        .map_err(|_| StagingPrecomposedVectorDisplayError::AllocationFailure)?;
+    for page_index in 0..page_count {
+        let mut page = StagingPrecomposedVectorDisplayPage {
+            page_index,
+            commands: Vec::new(),
+            fingerprint: [0; 32],
+        };
+        page.fingerprint = sha256(encode_page_record(&page).as_bytes());
+        pages.push(page);
+    }
+    let fixture_fingerprint = |label: &[u8]| sha256(label);
+    let mut receipt = StagingPrecomposedVectorDisplayReceipt {
+        package_sha256: package.canonical_jcs_sha256(),
+        profile_fingerprint: profile.profile_fingerprint(),
+        limits_fingerprint: limits.fingerprint(),
+        admitted_fingerprint: admitted.fingerprint().bytes(),
+        binding_set_fingerprint: bindings.fingerprint(),
+        inline_selected_layout_fingerprint: fixture_fingerprint(
+            b"typaxis.fixture/empty-inline-selected",
+        ),
+        block_selected_layout_fingerprint,
+        page_geometry_fingerprint: profile.page_geometry().fingerprint(),
+        page_count,
+        command_count: 0,
+        content_key_count: 0,
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    receipt.canonical_jcs = encode_display(&receipt, &pages);
+    receipt.fingerprint = sha256(receipt.canonical_jcs.as_bytes());
+    let display = StagingPrecomposedVectorDisplay { pages, receipt };
+    display.verify_resource_closure()?;
+    Ok(display)
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn staging_empty_precomposed_vector_display_with_foreign_limits_for_test(
+    package: &ValidatedStagingSemanticPackage,
+    admitted: &AdmittedResourceLedger,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    bindings: &ValidatedPrecomposedVectorBindings,
+    limits: &M4EffectiveResourceLimits,
+    page_count: u32,
+    block_selected_layout_fingerprint: [u8; 32],
+    foreign_limits_fingerprint: [u8; 32],
+) -> Result<StagingPrecomposedVectorDisplay, StagingPrecomposedVectorDisplayError> {
+    let mut display = staging_empty_precomposed_vector_display_for_combined_fixture(
+        package,
+        admitted,
+        profile,
+        bindings,
+        limits,
+        page_count,
+        block_selected_layout_fingerprint,
+    )?;
+    display.receipt.limits_fingerprint = foreign_limits_fingerprint;
+    display.receipt.canonical_jcs = encode_display(&display.receipt, &display.pages);
+    display.receipt.fingerprint = sha256(display.receipt.canonical_jcs.as_bytes());
+    display.verify_resource_closure()?;
+    Ok(display)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

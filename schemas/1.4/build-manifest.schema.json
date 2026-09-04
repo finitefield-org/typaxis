@@ -101,6 +101,7 @@
         "typaxis.machine-pdf/footnote-1",
         "typaxis.machine-pdf/header-footer-1",
         "typaxis.machine-pdf/paragraph-1",
+        "typaxis.machine-pdf/production-book-1",
         "typaxis.machine-pdf/table-1",
         "typaxis.reference-source/1"
       ]
@@ -170,6 +171,54 @@
       "items": {
         "$ref": "machine-table-manifest.schema.json"
       }
+    },
+    "book_navigation_manifest": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/v2_manifest"}
+      ]
+    },
+    "book_navigation_manifest_fingerprint": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/sha256"}
+      ]
+    },
+    "math_vector_manifest": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "machine-math-vector-manifest.schema.json"}
+      ]
+    },
+    "math_vector_manifest_fingerprint": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/sha256"}
+      ]
+    },
+    "safe_vector_manifest": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "machine-safe-vector-manifest.schema.json#/$defs/v2_manifest"}
+      ]
+    },
+    "safe_vector_manifest_fingerprint": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/sha256"}
+      ]
+    },
+    "tagged_pdf_manifest": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "machine-accessibility-manifest.schema.json#/$defs/v2_manifest"}
+      ]
+    },
+    "tagged_pdf_manifest_fingerprint": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "common.schema.json#/$defs/sha256"}
+      ]
     }
   },
   "$defs": {
@@ -494,9 +543,164 @@
           "$ref": "common.schema.json#/$defs/positive_safe_integer"
         }
       }
+    },
+    "nullable_book_navigation_pair": {
+      "oneOf": [
+        {
+          "properties": {
+            "book_navigation_manifest": {"type": "null"},
+            "book_navigation_manifest_fingerprint": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "book_navigation_manifest": {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/v2_manifest"},
+            "book_navigation_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "nullable_math_vector_pair": {
+      "oneOf": [
+        {
+          "properties": {
+            "math_vector_manifest": {"type": "null"},
+            "math_vector_manifest_fingerprint": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "math_vector_manifest": {"$ref": "machine-math-vector-manifest.schema.json"},
+            "math_vector_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "nullable_safe_vector_pair": {
+      "oneOf": [
+        {
+          "properties": {
+            "safe_vector_manifest": {"type": "null"},
+            "safe_vector_manifest_fingerprint": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "safe_vector_manifest": {"$ref": "machine-safe-vector-manifest.schema.json#/$defs/v2_manifest"},
+            "safe_vector_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "nullable_tagged_pdf_pair": {
+      "oneOf": [
+        {
+          "properties": {
+            "tagged_pdf_manifest": {"type": "null"},
+            "tagged_pdf_manifest_fingerprint": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "tagged_pdf_manifest": {"$ref": "machine-accessibility-manifest.schema.json#/$defs/v2_manifest"},
+            "tagged_pdf_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+          }
+        }
+      ]
     }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": {
+          "input_profile": {"const": "typaxis.machine-pdf/production-book-1"}
+        },
+        "required": ["input_profile"]
+      },
+      "then": {
+        "properties": {
+          "contract": {"const": "typaxis.contract/1.4"},
+          "package_input": {
+            "oneOf": [
+              {"type": "null"},
+              {
+                "allOf": [
+                  {"$ref": "#/$defs/package_input_record"},
+                  {"properties": {"contract": {"const": "typaxis.contract/1.4"}}}
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "book_navigation_manifest",
+          "book_navigation_manifest_fingerprint",
+          "math_vector_manifest",
+          "math_vector_manifest_fingerprint",
+          "safe_vector_manifest",
+          "safe_vector_manifest_fingerprint",
+          "tagged_pdf_manifest",
+          "tagged_pdf_manifest_fingerprint"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {"status": {"const": "built"}},
+              "required": ["status"]
+            },
+            "then": {
+              "properties": {
+                "book_navigation_manifest": {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/v2_manifest"},
+                "book_navigation_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+                "math_vector_manifest": {"$ref": "machine-math-vector-manifest.schema.json"},
+                "math_vector_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+                "package_input": {
+                  "allOf": [
+                    {"$ref": "#/$defs/package_input_record"},
+                    {"properties": {"contract": {"const": "typaxis.contract/1.4"}}}
+                  ]
+                },
+                "safe_vector_manifest": {"$ref": "machine-safe-vector-manifest.schema.json#/$defs/v2_manifest"},
+                "safe_vector_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+                "tagged_pdf_manifest": {"$ref": "machine-accessibility-manifest.schema.json#/$defs/v2_manifest"},
+                "tagged_pdf_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"}
+              }
+            },
+            "else": {
+              "allOf": [
+                {"$ref": "#/$defs/nullable_book_navigation_pair"},
+                {"$ref": "#/$defs/nullable_math_vector_pair"},
+                {"$ref": "#/$defs/nullable_safe_vector_pair"},
+                {"$ref": "#/$defs/nullable_tagged_pdf_pair"}
+              ]
+            }
+          }
+        ]
+      },
+      "else": {
+        "properties": {
+          "images": {
+            "items": {
+              "properties": {
+                "attested_media_kind": {"const": "png"}
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["book_navigation_manifest"]},
+            {"required": ["book_navigation_manifest_fingerprint"]},
+            {"required": ["math_vector_manifest"]},
+            {"required": ["math_vector_manifest_fingerprint"]},
+            {"required": ["safe_vector_manifest"]},
+            {"required": ["safe_vector_manifest_fingerprint"]},
+            {"required": ["tagged_pdf_manifest"]},
+            {"required": ["tagged_pdf_manifest_fingerprint"]}
+          ]
+        }
+      }
+    },
     {
       "if": {
         "properties": {
@@ -580,6 +784,7 @@
               "typaxis.machine-pdf/footnote-1",
               "typaxis.machine-pdf/header-footer-1",
               "typaxis.machine-pdf/paragraph-1",
+              "typaxis.machine-pdf/production-book-1",
               "typaxis.machine-pdf/table-1"
             ]
           },

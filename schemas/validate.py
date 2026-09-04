@@ -5450,6 +5450,900 @@ def validate_book_navigation_semantics(
         raise ValidationFailure("book-navigation manifest producer differs")
 
 
+def _vector_v2_hash(label: str) -> str:
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
+def _vector_v2_span(owner: int) -> dict[str, int]:
+    start = owner * 2
+    return {"end_byte": start + 1, "source_id": 0, "start_byte": start}
+
+
+def _vector_v2_metrics() -> dict[str, int]:
+    return {
+        "advance": 65536,
+        "ascent": 49152,
+        "baseline": 49152,
+        "descent": 16384,
+        "origin_x": 0,
+        "viewport_height": 65536,
+        "viewport_width": 65536,
+    }
+
+
+def private_vector_v2_examples() -> tuple[
+    dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]
+]:
+    """Build one canonical-shape example of every MI4-V17 manifest."""
+
+    metrics = _vector_v2_metrics()
+    block_style = {
+        "alignment": "center",
+        "end_indent": 0,
+        "fingerprint": _vector_v2_hash("block-style"),
+        "keep_with_next": False,
+        "space_after": 65536,
+        "space_before": 65536,
+        "start_indent": 0,
+    }
+
+    def placement(kind: str, image_id: int, node_id: int, paint: int) -> dict[str, Any]:
+        value: dict[str, Any] = {
+            "alternative_sha256": _vector_v2_hash(f"alternative-{kind}"),
+            "display_command_fingerprint": _vector_v2_hash(f"display-{kind}"),
+            "fragment_ordinal": paint,
+            "frame_index": 0,
+            "image_id": image_id,
+            "kind": kind,
+            "language": "ja",
+            "matrix": [65536, 0, 0, 65536, 0, 0],
+            "node_id": node_id,
+            "page_index": 0,
+            "paint_ordinal": paint,
+            "pdf_content_object_number": 11,
+            "pdf_form_object_number": 20 if image_id == 0 else 21,
+            "pdf_page_object_number": 10,
+            "pdf_use_fingerprint": _vector_v2_hash(f"pdf-use-{kind}"),
+            "scale": 65536,
+            "selected_placement_fingerprint": _vector_v2_hash(f"selected-{kind}"),
+            "source_span": _vector_v2_span(node_id),
+            "usage_id": paint,
+            "viewport": [0, 0, 65536, 65536],
+        }
+        if kind == "figure":
+            value["placement"] = "block"
+        elif kind in {"inline_vector", "math_vector"}:
+            if kind == "inline_vector":
+                value["authored_actual_text_sha256"] = None
+            value.update(
+                {
+                    "binding_fingerprint": _vector_v2_hash(f"binding-{kind}"),
+                    "metric_receipt_fingerprint": _vector_v2_hash(f"metrics-{kind}"),
+                    "metrics": copy.deepcopy(metrics),
+                    "spacing_after": 0,
+                    "spacing_before": 0,
+                }
+            )
+        elif kind == "vector_figure":
+            value.update(
+                {
+                    "binding_fingerprint": _vector_v2_hash(f"binding-{kind}"),
+                    "block_style": copy.deepcopy(block_style),
+                    "keep_caption": True,
+                    "metric_receipt_fingerprint": _vector_v2_hash(f"metrics-{kind}"),
+                }
+            )
+        elif kind == "math_vector_block":
+            value.update(
+                {
+                    "binding_fingerprint": _vector_v2_hash(f"binding-{kind}"),
+                    "block_style": copy.deepcopy(block_style),
+                    "math_flow": {
+                        "algorithm": "typaxis.math-vector-flow/1",
+                        "flow_fingerprint": _vector_v2_hash("math-flow"),
+                        "flow_id": 0,
+                        "parent_flow_id": 0,
+                        "parent_position": 0,
+                        "terminal": 1,
+                        "terminal_receipt_fingerprint": _vector_v2_hash(
+                            "math-flow-terminal"
+                        ),
+                    },
+                    "metric_receipt_fingerprint": _vector_v2_hash(f"metrics-{kind}"),
+                    "metrics": copy.deepcopy(metrics),
+                }
+            )
+        else:  # pragma: no cover - fixture construction is closed above
+            raise AssertionError(kind)
+        return value
+
+    safe1_placements = [
+        placement("figure", 0, 100, 0),
+        placement("inline_vector", 0, 101, 1),
+        placement("vector_figure", 0, 102, 2),
+    ]
+    safe2_placements = [
+        placement("math_vector", 1, 103, 3),
+        placement("math_vector_block", 2, 104, 4),
+    ]
+    # The block owner contains both the mapped TeX slice and its optional
+    # source-owned equation-number leaf.
+    safe2_placements[1]["source_span"]["end_byte"] = 212
+
+    def usage_hashes(values: list[dict[str, Any]], image_id: int) -> list[str]:
+        return [
+            hashlib.sha256(jcs_bytes(value)).hexdigest()
+            for value in values
+            if value["image_id"] == image_id
+        ]
+
+    safe1_source = _vector_v2_hash("safe1-source")
+    safe2_source = _vector_v2_hash("safe2-source")
+    safe1_resource = {
+        "aliases": [
+            {
+                "admission_allocation_charge": 3,
+                "admission_attestation_fingerprint": _vector_v2_hash(
+                    "safe1-attestation"
+                ),
+                "admitted_sha256": safe1_source,
+                "expected_sha256": safe1_source,
+                "image_id": 0,
+                "placement_count": 3,
+                "uri": "math/safe1.svg",
+                "usage_fingerprints": usage_hashes(safe1_placements, 0),
+            }
+        ],
+        "allocation_charge": 3,
+        "allocation_charge_id": "typaxis.safe-vector-allocation-charge/1",
+        "content_key": {
+            "ir_fingerprint": _vector_v2_hash("safe1-ir"),
+            "ir_id": "typaxis.safe-vector-ir/1",
+            "media_type": "svg-safe-1",
+            "parser_id": "typaxis.safe-svg-parser/1",
+            "source_sha256": safe1_source,
+        },
+        "form_plan_fingerprint": _vector_v2_hash("safe1-form-plan"),
+        "intrinsic_height": 65536,
+        "intrinsic_width": 65536,
+        "ir_fingerprint_id": "typaxis.safe-vector-ir-fingerprint/1",
+        "ir_id": "typaxis.safe-vector-ir/1",
+        "parser_id": "typaxis.safe-svg-parser/1",
+        "pdf_form_object_number": 20,
+        "pdf_resource_name": "V0",
+        "placements": safe1_placements,
+        "svg_byte_length": 64,
+        "total_placement_count": 3,
+        "view_box": [0, 0, 65536, 65536],
+    }
+    safe2_aliases = []
+    for image_id, uri in ((1, "math/a.svg"), (2, "math/b.svg")):
+        safe2_aliases.append(
+            {
+                "admission_allocation_charge": 7,
+                "admission_attestation_fingerprint": _vector_v2_hash(
+                    f"safe2-attestation-{image_id}"
+                ),
+                "admitted_sha256": safe2_source,
+                "expected_sha256": safe2_source,
+                "image_id": image_id,
+                "placement_count": 1,
+                "provenance": {
+                    "engine_id": "texToSvg",
+                    "engine_version": "1.0.0",
+                    "rules_version": "typaxis-vmb-math/1",
+                },
+                "uri": uri,
+                "usage_fingerprints": usage_hashes(safe2_placements, image_id),
+            }
+        )
+    safe2_resource = {
+        "aliases": safe2_aliases,
+        "allocation_charge": 7,
+        "allocation_charge_id": "typaxis.safe-vector-allocation-charge/2",
+        "content_key": {
+            "ir_fingerprint": _vector_v2_hash("safe2-ir"),
+            "ir_id": "typaxis.safe-vector-ir/2",
+            "media_type": "svg-safe-2",
+            "parser_id": "typaxis.safe-svg-parser/2",
+            "source_sha256": safe2_source,
+        },
+        "form_plan_fingerprint": _vector_v2_hash("safe2-form-plan"),
+        "intrinsic_height": 65536,
+        "intrinsic_width": 65536,
+        "ir_fingerprint_id": "typaxis.safe-vector-ir-fingerprint/2",
+        "ir_id": "typaxis.safe-vector-ir/2",
+        "parser_id": "typaxis.safe-svg-parser/2",
+        "pdf_form_object_number": 21,
+        "pdf_resource_name": "V1",
+        "placements": safe2_placements,
+        "svg_byte_length": 80,
+        "total_placement_count": 2,
+        "view_box": [0, 0, 65536, 65536],
+    }
+    if safe1_source > safe2_source:
+        safe1_resource, safe2_resource = safe2_resource, safe1_resource
+    final_pdf_hash = _vector_v2_hash("final-vector-pdf")
+    safe = {
+        "algorithm": "typaxis.safe-vector-manifest/2",
+        "contract": "typaxis.contract/1.4",
+        "fingerprints": {
+            "admitted_sha256": _vector_v2_hash("admitted"),
+            "candidate_registry_sha256": _vector_v2_hash("candidates"),
+            "display_sha256": _vector_v2_hash("combined-display"),
+            "final_writer_sha256": _vector_v2_hash("final-writer"),
+            "form_plans_sha256": _vector_v2_hash("form-plans"),
+            "limits_sha256": _vector_v2_hash("limits"),
+            "package_sha256": _vector_v2_hash("semantic-package"),
+            "pdf_closure_sha256": _vector_v2_hash("pdf-closure"),
+            "pdf_contribution_sha256": _vector_v2_hash("pdf-contribution"),
+            "pdf_sha256": final_pdf_hash,
+            "profile_sha256": _vector_v2_hash("vector-profile"),
+        },
+        "placement_count": 5,
+        "resources": [safe1_resource, safe2_resource],
+    }
+
+    placements_by_kind = {
+        item["kind"]: item
+        for resource in safe["resources"]
+        for item in resource["placements"]
+    }
+    safe_fingerprint = hashlib.sha256(jcs_bytes(safe)).hexdigest()
+
+    def math_fact(kind: str, math_binding: str) -> dict[str, Any]:
+        selected = placements_by_kind[kind]
+        node_id = selected["node_id"]
+        value: dict[str, Any] = {
+            "alternative_sha256": selected["alternative_sha256"],
+            "common_binding_fingerprint": selected["binding_fingerprint"],
+            "display_command_fingerprint": selected["display_command_fingerprint"],
+            "kind": kind,
+            "language": selected["language"],
+            "mapped_source_span": _vector_v2_span(node_id),
+            "math_binding_fingerprint": math_binding,
+            "metrics": copy.deepcopy(metrics),
+            "node_id": node_id,
+            "owner_source_span": copy.deepcopy(selected["source_span"]),
+            "pdf_use_fingerprint": selected["pdf_use_fingerprint"],
+            "placement": (
+                {"spacing_after": 0, "spacing_before": 0}
+                if kind == "math_vector"
+                else {
+                    "alignment": "center",
+                    "end_indent": 0,
+                    "flow": {
+                        "algorithm": "typaxis.math-vector-flow/1",
+                        "fingerprint": _vector_v2_hash("math-flow"),
+                        "flow_id": 0,
+                        "parent_flow_id": 0,
+                        "parent_position": 0,
+                        "terminal": 1,
+                        "terminal_receipt_fingerprint": _vector_v2_hash(
+                            "math-flow-terminal"
+                        ),
+                    },
+                    "keep_with_next": False,
+                    "space_after": 65536,
+                    "space_before": 65536,
+                    "start_indent": 0,
+                    "style_fingerprint": _vector_v2_hash("block-style"),
+                }
+            ),
+            "producer": {
+                "engine_id": "texToSvg",
+                "engine_version": "1.0.0",
+                "rules_version": "typaxis-vmb-math/1",
+            },
+            "resolved_actual_text_sha256": _vector_v2_hash(f"actual-{kind}"),
+            "safe_vector_usage_fingerprint": hashlib.sha256(
+                jcs_bytes(selected)
+            ).hexdigest(),
+            "selected_placement_fingerprint": selected[
+                "selected_placement_fingerprint"
+            ],
+            "source_tex": {
+                "exact_slice_sha256": _vector_v2_hash(f"tex-{kind}"),
+                "text_buffer_sha256": _vector_v2_hash("tex-buffer"),
+                "text_span": {
+                    "end_byte": node_id * 2 + 1,
+                    "start_byte": node_id * 2,
+                    "text_id": 0,
+                },
+            },
+        }
+        if kind == "math_vector_block":
+            value["equation_number"] = {
+                "minimum_gap": 65536,
+                "node_id": 105,
+                "source_span": _vector_v2_span(105),
+                "text_span": {"end_byte": 1, "start_byte": 0, "text_id": 1},
+            }
+        return value
+
+    math_bindings = {
+        "math_vector": _vector_v2_hash("math-binding-inline"),
+        "math_vector_block": _vector_v2_hash("math-binding-block"),
+    }
+    math = {
+        "algorithm": "typaxis.math-vector-manifest/1",
+        "contract": "typaxis.contract/1.4",
+        "facts": sorted(
+            [math_fact(kind, binding) for kind, binding in math_bindings.items()],
+            key=lambda fact: fact["node_id"],
+        ),
+        "fingerprints": {
+            "binding_set_sha256": _vector_v2_hash("binding-set"),
+            "package_sha256": _vector_v2_hash("semantic-package"),
+            "safe_vector_manifest_sha256": safe_fingerprint,
+        },
+    }
+    math_fingerprint = hashlib.sha256(jcs_bytes(math)).hexdigest()
+
+    vector_structures = []
+    for structure_id, selected in enumerate(
+        sorted(placements_by_kind.values(), key=lambda item: item["node_id"]), start=1
+    ):
+        kind = selected["kind"]
+        fact: dict[str, Any] = {
+            "kind": kind,
+            "language": selected["language"],
+            "marked_content_record_fingerprint": _vector_v2_hash(f"marked-{kind}"),
+            "node_id": selected["node_id"],
+            "role": "Formula" if kind.startswith("math_vector") else "Figure",
+            "safe_vector_usage_fingerprint": hashlib.sha256(
+                jcs_bytes(selected)
+            ).hexdigest(),
+            "structure_node_id": structure_id,
+        }
+        if kind != "figure":
+            fact["metrics_fingerprint"] = selected["metric_receipt_fingerprint"]
+        if kind in math_bindings:
+            fact["math_binding_fingerprint"] = math_bindings[kind]
+        vector_structures.append(fact)
+    tagged = {
+        "accessibility_profile": "typaxis.pdfua1-profile/2",
+        "algorithm": "typaxis.tagged-pdf-manifest/2",
+        "contract": "typaxis.contract/1.4",
+        "document_language": "ja",
+        "engine": {"name": "typaxis", "version": "0.1.0"},
+        "fingerprints": {
+            "marked_content_sha256": _vector_v2_hash("marked-content"),
+            "math_vector_manifest_sha256": math_fingerprint,
+            "package_sha256": _vector_v2_hash("package-bytes"),
+            "pdf_observation_sha256": _vector_v2_hash("pdf-observation"),
+            "pdf_sha256": final_pdf_hash,
+            "profile_sha256": _vector_v2_hash("accessibility-profile"),
+            "safe_vector_manifest_sha256": safe_fingerprint,
+            "selected_binding_sha256": _vector_v2_hash("selected-binding"),
+            "structure_registry_sha256": _vector_v2_hash("structure-registry"),
+        },
+        "vector_structures": vector_structures,
+    }
+    book = {
+        "algorithm": "typaxis.book-navigation-manifest/2",
+        "contract": "typaxis.contract/1.4",
+        "document_language": "ja",
+        "engine": {"name": "typaxis", "version": "0.1.0"},
+        "fingerprints": {
+            "computed_language_sha256": _vector_v2_hash("computed-language"),
+            "destination_registry_sha256": _vector_v2_hash("destinations"),
+            "metadata_sha256": _vector_v2_hash("metadata"),
+            "outline_sha256": _vector_v2_hash("outline"),
+            "package_sha256": _vector_v2_hash("package-bytes"),
+            "pdf_observation_sha256": _vector_v2_hash("book-pdf-observation"),
+            "pdf_sha256": final_pdf_hash,
+            "profile_receipt_sha256": _vector_v2_hash("book-profile-receipt"),
+            "profile_view_sha256": _vector_v2_hash("book-profile-view"),
+            "selected_sha256": _vector_v2_hash("book-selected"),
+            "semantic_sha256": _vector_v2_hash("semantic-package"),
+        },
+        "language_paint_count": 5,
+        "object_numbers": {
+            "catalog": 1,
+            "info": 2,
+            "metadata": 3,
+            "outline_root": None,
+        },
+    }
+    return safe, math, book, tagged
+
+
+def validate_safe_vector_v2_semantics(manifest: dict[str, Any]) -> None:
+    if manifest.get("algorithm") != "typaxis.safe-vector-manifest/2":
+        raise ValidationFailure("SafeVector /2 algorithm differs")
+    resources = manifest["resources"]
+    resource_keys = [
+        (
+            bytes.fromhex(resource["content_key"]["source_sha256"]),
+            resource["content_key"]["media_type"].encode("utf-8"),
+            resource["content_key"]["parser_id"].encode("utf-8"),
+            resource["content_key"]["ir_id"].encode("utf-8"),
+            bytes.fromhex(resource["content_key"]["ir_fingerprint"]),
+        )
+        for resource in resources
+    ]
+    if any(left >= right for left, right in zip(resource_keys, resource_keys[1:])):
+        raise ValidationFailure("SafeVector /2 resources are not strict content-key order")
+
+    all_placements: list[dict[str, Any]] = []
+    all_alias_ids: set[int] = set()
+    used_resource_index = 0
+    form_object_numbers: set[int] = set()
+    page_objects: dict[int, tuple[int, int]] = {}
+
+    def scaled_dimension(intrinsic: int, scale: int) -> int:
+        quotient, remainder = divmod(intrinsic * scale, 65536)
+        if remainder * 2 > 65536 or (
+            remainder * 2 == 65536 and quotient % 2 == 1
+        ):
+            quotient += 1
+        return quotient
+
+    for resource in resources:
+        content_key = resource["content_key"]
+        allowed_kinds = (
+            {"figure", "inline_vector", "vector_figure"}
+            if content_key["media_type"] == "svg-safe-1"
+            else {
+                "inline_vector",
+                "math_vector",
+                "math_vector_block",
+                "vector_figure",
+            }
+        )
+        aliases = resource["aliases"]
+        placements = resource["placements"]
+        if [alias["image_id"] for alias in aliases] != sorted(
+            alias["image_id"] for alias in aliases
+        ) or len({alias["image_id"] for alias in aliases}) != len(aliases):
+            raise ValidationFailure("SafeVector /2 aliases are not strict numeric image-ID order")
+        alias_ids = {alias["image_id"] for alias in aliases}
+        if not all_alias_ids.isdisjoint(alias_ids):
+            raise ValidationFailure("SafeVector /2 reuses an image alias across resources")
+        all_alias_ids.update(alias_ids)
+        paint_order = [
+            (placement["page_index"], placement["paint_ordinal"])
+            for placement in placements
+        ]
+        if any(left >= right for left, right in zip(paint_order, paint_order[1:])):
+            raise ValidationFailure("SafeVector /2 placements are not strict paint order")
+        if resource["total_placement_count"] != len(placements):
+            raise ValidationFailure("SafeVector /2 resource placement count differs")
+        if placements:
+            if (
+                resource["form_plan_fingerprint"] is None
+                or resource["pdf_form_object_number"] is None
+                or resource["pdf_resource_name"] != f"V{used_resource_index}"
+                or resource["pdf_form_object_number"] in form_object_numbers
+            ):
+                raise ValidationFailure("SafeVector /2 Form allocation differs")
+            form_object_numbers.add(resource["pdf_form_object_number"])
+            used_resource_index += 1
+        elif any(
+            resource[name] is not None
+            for name in (
+                "form_plan_fingerprint",
+                "pdf_form_object_number",
+                "pdf_resource_name",
+            )
+        ):
+            raise ValidationFailure("unused SafeVector /2 resource acquired a Form")
+        for placement in placements:
+            if placement["kind"] not in allowed_kinds:
+                raise ValidationFailure("SafeVector /2 placement kind/media profile differs")
+            if placement["image_id"] not in alias_ids:
+                raise ValidationFailure("SafeVector /2 placement has no resource alias")
+            if placement["pdf_form_object_number"] != resource["pdf_form_object_number"]:
+                raise ValidationFailure("SafeVector /2 placement uses a foreign Form object")
+            viewport = placement["viewport"]
+            matrix = placement["matrix"]
+            scale = placement["scale"]
+            if (
+                matrix != [scale, 0, 0, scale, viewport[0], viewport[1]]
+                or viewport[2]
+                != scaled_dimension(resource["intrinsic_width"], scale)
+                or viewport[3]
+                != scaled_dimension(resource["intrinsic_height"], scale)
+            ):
+                raise ValidationFailure("SafeVector /2 placement geometry differs")
+            metrics = placement.get("metrics")
+            if metrics is not None and (
+                metrics["baseline"] > metrics["viewport_height"]
+                or metrics["ascent"] < metrics["baseline"]
+                or metrics["descent"]
+                < metrics["viewport_height"] - metrics["baseline"]
+                or not -JSON_SAFE_INTEGER_MAX
+                <= metrics["origin_x"] + metrics["viewport_width"]
+                <= JSON_SAFE_INTEGER_MAX
+                or metrics["viewport_width"] != viewport[2]
+                or metrics["viewport_height"] != viewport[3]
+            ):
+                raise ValidationFailure("SafeVector /2 metric relation differs")
+            page_pair = (
+                placement["pdf_page_object_number"],
+                placement["pdf_content_object_number"],
+            )
+            previous_page_pair = page_objects.setdefault(
+                placement["page_index"], page_pair
+            )
+            if previous_page_pair != page_pair or page_pair[0] == page_pair[1]:
+                raise ValidationFailure("SafeVector /2 page object allocation differs")
+        for alias in aliases:
+            expected_usages = [
+                hashlib.sha256(jcs_bytes(placement)).hexdigest()
+                for placement in placements
+                if placement["image_id"] == alias["image_id"]
+            ]
+            if (
+                alias["admitted_sha256"] != content_key["source_sha256"]
+                or alias["expected_sha256"] not in (None, content_key["source_sha256"])
+                or alias["placement_count"] != len(expected_usages)
+                or alias["usage_fingerprints"] != expected_usages
+                or alias["admission_allocation_charge"] != resource["allocation_charge"]
+            ):
+                raise ValidationFailure("SafeVector /2 alias/resource/usage closure differs")
+        all_placements.extend(placements)
+
+    page_object_numbers = [number for pair in page_objects.values() for number in pair]
+    global_paint_order = [
+        (placement["page_index"], placement["paint_ordinal"])
+        for placement in all_placements
+    ]
+    placement_owners = [placement["node_id"] for placement in all_placements]
+    if (
+        len(page_object_numbers) != len(set(page_object_numbers))
+        or not form_object_numbers.isdisjoint(page_object_numbers)
+    ):
+        raise ValidationFailure("SafeVector /2 final object numbers overlap")
+    if len(global_paint_order) != len(set(global_paint_order)):
+        raise ValidationFailure("SafeVector /2 reuses a selected paint")
+    if len(placement_owners) != len(set(placement_owners)):
+        raise ValidationFailure("SafeVector /2 reuses a source owner")
+    if manifest["placement_count"] != len(all_placements):
+        raise ValidationFailure("SafeVector /2 root placement count differs")
+    usage_ids = sorted(placement["usage_id"] for placement in all_placements)
+    if usage_ids != list(range(len(all_placements))):
+        raise ValidationFailure("SafeVector /2 usage IDs are not dense and unique")
+
+
+def validate_book_navigation_v2_semantics(manifest: dict[str, Any]) -> None:
+    if manifest.get("algorithm") != "typaxis.book-navigation-manifest/2":
+        raise ValidationFailure("book-navigation /2 algorithm differs")
+    object_numbers = manifest["object_numbers"]
+    allocated = [
+        object_numbers["catalog"],
+        object_numbers["info"],
+        object_numbers["metadata"],
+    ]
+    if object_numbers["outline_root"] is not None:
+        allocated.append(object_numbers["outline_root"])
+    if len(allocated) != len(set(allocated)):
+        raise ValidationFailure("book-navigation /2 object allocation overlaps")
+
+
+def validate_math_vector_semantics(
+    manifest: dict[str, Any], safe: dict[str, Any], safe_fingerprint: str
+) -> None:
+    if (
+        manifest["fingerprints"]["safe_vector_manifest_sha256"] != safe_fingerprint
+        or manifest["fingerprints"]["package_sha256"]
+        != safe["fingerprints"]["package_sha256"]
+    ):
+        raise ValidationFailure("math-vector manifest references a foreign SafeVector manifest")
+    facts = manifest["facts"]
+    if [fact["node_id"] for fact in facts] != sorted(
+        fact["node_id"] for fact in facts
+    ) or len({fact["node_id"] for fact in facts}) != len(facts):
+        raise ValidationFailure("math-vector facts are not strict NodeId order")
+    safe_by_owner = {
+        placement["node_id"]: placement
+        for resource in safe["resources"]
+        for placement in resource["placements"]
+    }
+    safe_math_owners = {
+        owner
+        for owner, placement in safe_by_owner.items()
+        if placement["kind"] in {"math_vector", "math_vector_block"}
+    }
+    if {fact["node_id"] for fact in facts} != safe_math_owners:
+        raise ValidationFailure("math-vector manifest coverage differs")
+    equation_number_ids = [
+        fact["equation_number"]["node_id"]
+        for fact in facts
+        if "equation_number" in fact
+    ]
+    if (
+        len(equation_number_ids) != len(set(equation_number_ids))
+        or not set(equation_number_ids).isdisjoint(safe_by_owner)
+    ):
+        raise ValidationFailure("math-vector equation-number owners differ")
+    aliases_by_image = {
+        alias["image_id"]: alias
+        for resource in safe["resources"]
+        for alias in resource["aliases"]
+    }
+    for fact in facts:
+        placement = safe_by_owner.get(fact["node_id"])
+        if placement is None or placement["kind"] != fact["kind"]:
+            raise ValidationFailure("math-vector fact has no matching SafeVector usage")
+        alias = aliases_by_image.get(placement["image_id"])
+        if alias is None or alias.get("provenance") != fact["producer"]:
+            raise ValidationFailure("math-vector producer provenance differs")
+        if fact["kind"] == "math_vector":
+            expected_placement = {
+                "spacing_after": placement["spacing_after"],
+                "spacing_before": placement["spacing_before"],
+            }
+        else:
+            style = placement["block_style"]
+            flow = placement["math_flow"]
+            expected_placement = {
+                "alignment": style["alignment"],
+                "end_indent": style["end_indent"],
+                "flow": {
+                    "algorithm": flow["algorithm"],
+                    "fingerprint": flow["flow_fingerprint"],
+                    "flow_id": flow["flow_id"],
+                    "parent_flow_id": flow["parent_flow_id"],
+                    "parent_position": flow["parent_position"],
+                    "terminal": flow["terminal"],
+                    "terminal_receipt_fingerprint": flow[
+                        "terminal_receipt_fingerprint"
+                    ],
+                },
+                "keep_with_next": style["keep_with_next"],
+                "space_after": style["space_after"],
+                "space_before": style["space_before"],
+                "start_indent": style["start_indent"],
+                "style_fingerprint": style["fingerprint"],
+            }
+        if (
+            fact["alternative_sha256"] != placement["alternative_sha256"]
+            or fact["common_binding_fingerprint"]
+            != placement["binding_fingerprint"]
+            or fact["display_command_fingerprint"]
+            != placement["display_command_fingerprint"]
+            or fact["language"] != placement["language"]
+            or fact["metrics"] != placement["metrics"]
+            or fact["owner_source_span"] != placement["source_span"]
+            or fact["pdf_use_fingerprint"] != placement["pdf_use_fingerprint"]
+            or fact["placement"] != expected_placement
+            or fact["safe_vector_usage_fingerprint"]
+            != hashlib.sha256(jcs_bytes(placement)).hexdigest()
+            or fact["selected_placement_fingerprint"]
+            != placement["selected_placement_fingerprint"]
+        ):
+            raise ValidationFailure("math-vector/SafeVector fact closure differs")
+        for span_name in ("mapped_source_span", "owner_source_span"):
+            span = fact[span_name]
+            if span["start_byte"] >= span["end_byte"]:
+                raise ValidationFailure("math-vector source span is empty or reversed")
+        text_span = fact["source_tex"]["text_span"]
+        mapped_span = fact["mapped_source_span"]
+        owner_span = fact["owner_source_span"]
+        if (
+            text_span["start_byte"] >= text_span["end_byte"]
+            or mapped_span["source_id"] != owner_span["source_id"]
+            or mapped_span["start_byte"] < owner_span["start_byte"]
+            or mapped_span["end_byte"] > owner_span["end_byte"]
+            or text_span["end_byte"] - text_span["start_byte"]
+            != mapped_span["end_byte"] - mapped_span["start_byte"]
+        ):
+            raise ValidationFailure("math-vector TeX text span is empty or reversed")
+        equation_number = fact.get("equation_number")
+        if equation_number is not None:
+            number_source = equation_number["source_span"]
+            number_text = equation_number["text_span"]
+            if (
+                fact["kind"] != "math_vector_block"
+                or equation_number["node_id"] != fact["node_id"] + 1
+                or number_source["start_byte"] >= number_source["end_byte"]
+                or number_source["source_id"] != owner_span["source_id"]
+                or number_source["start_byte"] < owner_span["start_byte"]
+                or number_source["end_byte"] > owner_span["end_byte"]
+                or number_source["start_byte"] < mapped_span["end_byte"]
+                or number_text["start_byte"] >= number_text["end_byte"]
+                or number_text["end_byte"] - number_text["start_byte"]
+                != number_source["end_byte"] - number_source["start_byte"]
+            ):
+                raise ValidationFailure("math-vector equation-number closure differs")
+
+
+def validate_tagged_pdf_v2_semantics(
+    manifest: dict[str, Any], safe: dict[str, Any], math: dict[str, Any]
+) -> None:
+    safe_fingerprint = hashlib.sha256(jcs_bytes(safe)).hexdigest()
+    math_fingerprint = hashlib.sha256(jcs_bytes(math)).hexdigest()
+    if (
+        manifest["fingerprints"]["safe_vector_manifest_sha256"] != safe_fingerprint
+        or manifest["fingerprints"]["math_vector_manifest_sha256"] != math_fingerprint
+        or manifest["fingerprints"]["pdf_sha256"]
+        != safe["fingerprints"]["pdf_sha256"]
+    ):
+        raise ValidationFailure("tagged-PDF /2 references a foreign vector manifest")
+    structures = manifest["vector_structures"]
+    ids = [fact["structure_node_id"] for fact in structures]
+    if ids != sorted(ids) or len(set(ids)) != len(ids):
+        raise ValidationFailure("tagged-PDF /2 structures are not strict StructureNodeId order")
+    safe_by_owner = {
+        placement["node_id"]: placement
+        for resource in safe["resources"]
+        for placement in resource["placements"]
+    }
+    math_by_owner = {fact["node_id"]: fact for fact in math["facts"]}
+    structure_owners = [fact["node_id"] for fact in structures]
+    if (
+        len(structures) != safe["placement_count"]
+        or len(structure_owners) != len(set(structure_owners))
+        or set(structure_owners) != set(safe_by_owner)
+    ):
+        raise ValidationFailure("tagged-PDF /2 vector structure coverage differs")
+    for fact in structures:
+        placement = safe_by_owner.get(fact["node_id"])
+        if placement is None or (
+            fact["kind"] != placement["kind"]
+            or fact["language"] != placement["language"]
+            or fact["role"]
+            != (
+                "Formula"
+                if placement["kind"] in {"math_vector", "math_vector_block"}
+                else "Figure"
+            )
+            or fact["safe_vector_usage_fingerprint"]
+            != hashlib.sha256(jcs_bytes(placement)).hexdigest()
+        ):
+            raise ValidationFailure("tagged-PDF /2 SafeVector structure join differs")
+        if fact["kind"] == "figure":
+            if "metrics_fingerprint" in fact or "math_binding_fingerprint" in fact:
+                raise ValidationFailure("existing Figure acquired precomposed-vector facts")
+        else:
+            if fact.get("metrics_fingerprint") != placement["metric_receipt_fingerprint"]:
+                raise ValidationFailure("tagged-PDF /2 metric binding differs")
+            math_fact = math_by_owner.get(fact["node_id"])
+            if fact["kind"] in {"math_vector", "math_vector_block"}:
+                if math_fact is None or fact.get("math_binding_fingerprint") != math_fact[
+                    "math_binding_fingerprint"
+                ]:
+                    raise ValidationFailure("tagged-PDF /2 math binding differs")
+            elif "math_binding_fingerprint" in fact:
+                raise ValidationFailure("generic vector acquired a math binding")
+
+
+def validate_vector_build_manifest_semantics(manifest: dict[str, Any]) -> None:
+    pairs = (
+        ("book_navigation_manifest", "book_navigation_manifest_fingerprint"),
+        ("math_vector_manifest", "math_vector_manifest_fingerprint"),
+        ("safe_vector_manifest", "safe_vector_manifest_fingerprint"),
+        ("tagged_pdf_manifest", "tagged_pdf_manifest_fingerprint"),
+    )
+    for record_name, fingerprint_name in pairs:
+        record = manifest[record_name]
+        fingerprint = manifest[fingerprint_name]
+        if (record is None) != (fingerprint is None):
+            raise ValidationFailure("production vector manifest pair has mixed nullability")
+        if record is not None and hashlib.sha256(jcs_bytes(record)).hexdigest() != fingerprint:
+            raise ValidationFailure(f"production {record_name} fingerprint differs")
+    safe = manifest["safe_vector_manifest"]
+    image_ids = [image["image_id"] for image in manifest["images"]]
+    vector_alias_ids = (
+        {
+            alias["image_id"]
+            for resource in safe["resources"]
+            for alias in resource["aliases"]
+        }
+        if safe is not None
+        else set()
+    )
+    if (
+        image_ids != sorted(image_ids)
+        or len(set(image_ids)) != len(image_ids)
+        or any(image["attested_media_kind"] != "png" for image in manifest["images"])
+        or not set(image_ids).isdisjoint(vector_alias_ids)
+    ):
+        raise ValidationFailure(
+            "production raster image records conflict with the SafeVector alias registry"
+        )
+    book = manifest["book_navigation_manifest"]
+    math = manifest["math_vector_manifest"]
+    tagged = manifest["tagged_pdf_manifest"]
+    root_engine = manifest["engine"]
+    root_child_engine = {
+        "name": root_engine["name"],
+        "version": root_engine["version"],
+    }
+    package_input = manifest["package_input"]
+    semantic_hashes = [
+        value
+        for value in (
+            book["fingerprints"]["semantic_sha256"] if book is not None else None,
+            safe["fingerprints"]["package_sha256"] if safe is not None else None,
+            math["fingerprints"]["package_sha256"] if math is not None else None,
+        )
+        if value is not None
+    ]
+    canonical_hashes = [
+        value
+        for value in (
+            package_input["canonical_sha256"] if package_input is not None else None,
+            book["fingerprints"]["package_sha256"] if book is not None else None,
+            tagged["fingerprints"]["package_sha256"] if tagged is not None else None,
+        )
+        if value is not None
+    ]
+    if (
+        len(set(semantic_hashes)) > 1
+        or len(set(canonical_hashes)) > 1
+        or (
+            book is not None
+            and tagged is not None
+            and (
+                book["document_language"] != tagged["document_language"]
+                or book["engine"] != tagged["engine"]
+            )
+        )
+        or (
+            book is not None
+            and book["engine"] != root_child_engine
+        )
+        or (
+            tagged is not None
+            and tagged["engine"] != root_child_engine
+        )
+    ):
+        raise ValidationFailure("production vector manifests do not close over one package")
+    if safe is not None:
+        validate_safe_vector_v2_semantics(safe)
+    if book is not None:
+        validate_book_navigation_v2_semantics(book)
+    if math is not None:
+        if safe is None:
+            raise ValidationFailure("math-vector manifest is missing its SafeVector owner")
+        validate_math_vector_semantics(
+            math, safe, manifest["safe_vector_manifest_fingerprint"]
+        )
+    if tagged is not None:
+        if safe is None or math is None:
+            raise ValidationFailure("tagged-PDF manifest is missing a vector owner")
+        validate_tagged_pdf_v2_semantics(tagged, safe, math)
+    pdf_hashes = [
+        value
+        for value in (
+            book["fingerprints"]["pdf_sha256"] if book is not None else None,
+            safe["fingerprints"]["pdf_sha256"] if safe is not None else None,
+            tagged["fingerprints"]["pdf_sha256"] if tagged is not None else None,
+            manifest["output"]["sha256"] if manifest["output"] is not None else None,
+        )
+        if value is not None
+    ]
+    if len(set(pdf_hashes)) > 1:
+        raise ValidationFailure("production vector manifests do not close over one PDF")
+    if safe is not None and book is not None:
+        book_object_numbers = {
+            number
+            for number in book["object_numbers"].values()
+            if number is not None
+        }
+        vector_object_numbers = {
+            number
+            for resource in safe["resources"]
+            for placement in resource["placements"]
+            for number in (
+                placement["pdf_page_object_number"],
+                placement["pdf_content_object_number"],
+                placement["pdf_form_object_number"],
+            )
+        }
+        if not book_object_numbers.isdisjoint(vector_object_numbers):
+            raise ValidationFailure(
+                "production navigation and vector PDF object allocations overlap"
+            )
+    if manifest["status"] == "failed":
+        return
+    if None in (book, math, safe, tagged, package_input, manifest["output"]):
+        raise ValidationFailure("built production manifest has an absent vector record")
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -5521,6 +6415,7 @@ def main() -> int:
             "machine-accessibility-manifest.schema.json",
             "machine-book-navigation-manifest.schema.json",
             "machine-math-manifest.schema.json",
+            "machine-math-vector-manifest.schema.json",
             "machine-safe-vector-manifest.schema.json",
             "machine-semantic-container-manifest.schema.json",
         }
@@ -6912,6 +7807,678 @@ def main() -> int:
             extra_accessibility_member,
         ):
             raise ValidationFailure("private 1.4 accessibility manifest accepted an extra member")
+
+        safe_v2, math_vector, book_v2, tagged_v2 = private_vector_v2_examples()
+        vector_v2_instances = (
+            (
+                "SafeVector /2",
+                "machine-safe-vector-manifest.schema.json",
+                safe_v2,
+            ),
+            (
+                "math-vector /1",
+                "machine-math-vector-manifest.schema.json",
+                math_vector,
+            ),
+            (
+                "book-navigation /2",
+                "machine-book-navigation-manifest.schema.json",
+                book_v2,
+            ),
+            (
+                "tagged-PDF /2",
+                "machine-accessibility-manifest.schema.json",
+                tagged_v2,
+            ),
+        )
+        for label, schema_name, instance in vector_v2_instances:
+            errors = schema_errors(private_m4_validators[schema_name], instance)
+            if errors:
+                raise ValidationFailure(
+                    f"private 1.4 {label} example was rejected: "
+                    + " | ".join(errors)
+                )
+        safe_v2_fingerprint = hashlib.sha256(jcs_bytes(safe_v2)).hexdigest()
+        validate_safe_vector_v2_semantics(safe_v2)
+        validate_book_navigation_v2_semantics(book_v2)
+        validate_math_vector_semantics(math_vector, safe_v2, safe_v2_fingerprint)
+        validate_tagged_pdf_v2_semantics(tagged_v2, safe_v2, math_vector)
+
+        def production_vector_build(
+            safe_record: dict[str, Any] | None,
+            math_record: dict[str, Any] | None,
+            book_record: dict[str, Any] | None,
+            tagged_record: dict[str, Any] | None,
+            *,
+            status: str,
+        ) -> dict[str, Any]:
+            value = copy.deepcopy(load_json(MINIMAL_DIR / "build-manifest.json"))
+            value["contract"] = "typaxis.contract/1.4"
+            value["input_profile"] = "typaxis.machine-pdf/production-book-1"
+            value["package_input"] = {
+                "bytes": 1,
+                "canonical_sha256": _vector_v2_hash("package-bytes"),
+                "contract": "typaxis.contract/1.4",
+                "profile_receipt_sha256": _vector_v2_hash("profile-receipt"),
+                "sha256": _vector_v2_hash("package-source"),
+                "uri": "document-package.json",
+            }
+            value["status"] = status
+            value["layout"] = value["layout"] if status == "built" else None
+            value["output"] = value["output"] if status == "built" else None
+            if value["layout"] is not None:
+                value["layout"]["profile_receipt_sha256"] = _vector_v2_hash(
+                    "profile-receipt"
+                )
+            if value["output"] is not None and safe_record is not None:
+                value["output"]["sha256"] = safe_record["fingerprints"]["pdf_sha256"]
+            # Root `images` retains its existing raster/pixel contract. Vector
+            # aliases and intrinsic fixed-point dimensions are owned once by
+            # the nested SafeVector /2 record.
+            value["images"] = []
+            for record_name, fingerprint_name, record in (
+                (
+                    "book_navigation_manifest",
+                    "book_navigation_manifest_fingerprint",
+                    book_record,
+                ),
+                (
+                    "math_vector_manifest",
+                    "math_vector_manifest_fingerprint",
+                    math_record,
+                ),
+                (
+                    "safe_vector_manifest",
+                    "safe_vector_manifest_fingerprint",
+                    safe_record,
+                ),
+                (
+                    "tagged_pdf_manifest",
+                    "tagged_pdf_manifest_fingerprint",
+                    tagged_record,
+                ),
+            ):
+                value[record_name] = copy.deepcopy(record)
+                value[fingerprint_name] = (
+                    hashlib.sha256(jcs_bytes(record)).hexdigest()
+                    if record is not None
+                    else None
+                )
+            return value
+
+        production_built = production_vector_build(
+            safe_v2,
+            math_vector,
+            book_v2,
+            tagged_v2,
+            status="built",
+        )
+        production_build_validator = private_m4_validators[
+            "build-manifest.schema.json"
+        ]
+        production_errors = schema_errors(
+            production_build_validator, production_built
+        )
+        if production_errors:
+            raise ValidationFailure(
+                "private 1.4 production vector build was rejected: "
+                + " | ".join(production_errors)
+            )
+        validate_vector_build_manifest_semantics(production_built)
+
+        production_with_raster = copy.deepcopy(production_built)
+        production_with_raster["images"].append(
+            {
+                "attested_media_kind": "png",
+                "bytes": 1,
+                "decoded_bytes": 4,
+                "image_id": 2_147_483_647,
+                "pixel_height": 1,
+                "pixel_width": 1,
+                "sha256": _vector_v2_hash("independent-raster-image"),
+                "uri": "images/independent.png",
+            }
+        )
+        production_with_raster["images"].sort(key=lambda image: image["image_id"])
+        if schema_errors(production_build_validator, production_with_raster):
+            raise ValidationFailure(
+                "private 1.4 production vector build rejected an independent raster image"
+            )
+        validate_vector_build_manifest_semantics(production_with_raster)
+
+        vector_in_raster_images = copy.deepcopy(production_built)
+        first_resource = safe_v2["resources"][0]
+        first_alias = first_resource["aliases"][0]
+        vector_in_raster_images["images"].append(
+            {
+                "attested_media_kind": first_resource["content_key"]["media_type"],
+                "bytes": first_resource["svg_byte_length"],
+                "decoded_bytes": first_alias["admission_allocation_charge"],
+                "image_id": first_alias["image_id"],
+                "pixel_height": first_resource["intrinsic_height"],
+                "pixel_width": first_resource["intrinsic_width"],
+                "sha256": first_alias["admitted_sha256"],
+                "uri": first_alias["uri"],
+            }
+        )
+        if not schema_errors(production_build_validator, vector_in_raster_images):
+            raise ValidationFailure(
+                "private 1.4 build overloaded the raster image record with vector facts"
+            )
+
+        production_failed = production_vector_build(
+            None, None, None, None, status="failed"
+        )
+        if schema_errors(production_build_validator, production_failed):
+            raise ValidationFailure(
+                "private 1.4 production failed build rejected all-null vector pairs"
+            )
+        validate_vector_build_manifest_semantics(production_failed)
+        failed_after_book = production_vector_build(
+            None, None, book_v2, None, status="failed"
+        )
+        if schema_errors(production_build_validator, failed_after_book):
+            raise ValidationFailure(
+                "private 1.4 failed build rejected a completed navigation owner"
+            )
+        validate_vector_build_manifest_semantics(failed_after_book)
+        failed_after_tagged = production_vector_build(
+            safe_v2, math_vector, None, tagged_v2, status="failed"
+        )
+        if schema_errors(production_build_validator, failed_after_tagged):
+            raise ValidationFailure(
+                "private 1.4 failed build rejected a completed vector chain"
+            )
+        validate_vector_build_manifest_semantics(failed_after_tagged)
+
+        zero_safe = copy.deepcopy(safe_v2)
+        zero_safe["placement_count"] = 0
+        zero_safe["resources"] = []
+        zero_safe_fingerprint = hashlib.sha256(jcs_bytes(zero_safe)).hexdigest()
+        zero_math = copy.deepcopy(math_vector)
+        zero_math["facts"] = []
+        zero_math["fingerprints"][
+            "safe_vector_manifest_sha256"
+        ] = zero_safe_fingerprint
+        zero_math_fingerprint = hashlib.sha256(jcs_bytes(zero_math)).hexdigest()
+        zero_tagged = copy.deepcopy(tagged_v2)
+        zero_tagged["vector_structures"] = []
+        zero_tagged["fingerprints"][
+            "safe_vector_manifest_sha256"
+        ] = zero_safe_fingerprint
+        zero_tagged["fingerprints"][
+            "math_vector_manifest_sha256"
+        ] = zero_math_fingerprint
+        zero_build = production_vector_build(
+            zero_safe, zero_math, book_v2, zero_tagged, status="built"
+        )
+        if schema_errors(production_build_validator, zero_build):
+            raise ValidationFailure(
+                "private 1.4 built production rejected nonnull zero-use manifests"
+            )
+        validate_vector_build_manifest_semantics(zero_build)
+
+        unused_alias_safe = copy.deepcopy(safe_v2)
+        unused_resource = copy.deepcopy(
+            next(
+                resource
+                for resource in unused_alias_safe["resources"]
+                if resource["content_key"]["media_type"] == "svg-safe-1"
+            )
+        )
+        unused_resource["content_key"]["source_sha256"] = "f" * 64
+        unused_resource["content_key"]["ir_fingerprint"] = _vector_v2_hash(
+            "unused-ir"
+        )
+        unused_resource["aliases"] = [
+            {
+                "admission_allocation_charge": unused_resource["allocation_charge"],
+                "admission_attestation_fingerprint": _vector_v2_hash(
+                    "unused-attestation"
+                ),
+                "admitted_sha256": "f" * 64,
+                "expected_sha256": "f" * 64,
+                "image_id": 9,
+                "placement_count": 0,
+                "uri": "math/unused.svg",
+                "usage_fingerprints": [],
+            }
+        ]
+        unused_resource["form_plan_fingerprint"] = None
+        unused_resource["pdf_form_object_number"] = None
+        unused_resource["pdf_resource_name"] = None
+        unused_resource["placements"] = []
+        unused_resource["total_placement_count"] = 0
+        unused_alias_safe["resources"].append(unused_resource)
+        unused_errors = schema_errors(
+            private_m4_validators["machine-safe-vector-manifest.schema.json"],
+            unused_alias_safe,
+        )
+        if unused_errors:
+            raise ValidationFailure(
+                "private 1.4 SafeVector /2 rejected an unused alias: "
+                + " | ".join(unused_errors)
+            )
+        validate_safe_vector_v2_semantics(unused_alias_safe)
+
+        missing_metric = copy.deepcopy(safe_v2)
+        math_inline = next(
+            placement
+            for resource in missing_metric["resources"]
+            for placement in resource["placements"]
+            if placement["kind"] == "math_vector"
+        )
+        del math_inline["metrics"]
+        safe1_provenance = copy.deepcopy(safe_v2)
+        safe1_alias = next(
+            resource["aliases"][0]
+            for resource in safe1_provenance["resources"]
+            if resource["content_key"]["media_type"] == "svg-safe-1"
+        )
+        safe1_alias["provenance"] = {
+            "engine_id": "foreign",
+            "engine_version": "1",
+            "rules_version": "1",
+        }
+        wrong_parser_version = copy.deepcopy(safe_v2)
+        safe2_record = next(
+            resource
+            for resource in wrong_parser_version["resources"]
+            if resource["content_key"]["media_type"] == "svg-safe-2"
+        )
+        safe2_record["parser_id"] = "typaxis.safe-svg-parser/1"
+        whitespace_producer = copy.deepcopy(safe_v2)
+        next(
+            alias
+            for resource in whitespace_producer["resources"]
+            for alias in resource["aliases"]
+            if "provenance" in alias
+        )["provenance"]["engine_id"] = "\t"
+        wrong_profile_kind = copy.deepcopy(safe_v2)
+        safe1_inline = next(
+            placement
+            for resource in wrong_profile_kind["resources"]
+            if resource["content_key"]["media_type"] == "svg-safe-1"
+            for placement in resource["placements"]
+            if placement["kind"] == "inline_vector"
+        )
+        safe1_inline["kind"] = "math_vector"
+        del safe1_inline["authored_actual_text_sha256"]
+        for label, invalid in (
+            ("missing kind metric", missing_metric),
+            ("Safe-SVG 1 provenance", safe1_provenance),
+            ("parser/profile version swap", wrong_parser_version),
+            ("invalid producer identity", whitespace_producer),
+            ("kind/media profile mismatch", wrong_profile_kind),
+        ):
+            if not schema_errors(
+                private_m4_validators["machine-safe-vector-manifest.schema.json"],
+                invalid,
+            ):
+                raise ValidationFailure(
+                    f"private 1.4 SafeVector /2 accepted {label}"
+                )
+
+        unordered_resources = copy.deepcopy(safe_v2)
+        unordered_resources["resources"].reverse()
+        wrong_placement_count = copy.deepcopy(safe_v2)
+        wrong_placement_count["placement_count"] += 1
+        wrong_alias_usage = copy.deepcopy(safe_v2)
+        wrong_alias_usage["resources"][0]["aliases"][0][
+            "usage_fingerprints"
+        ] = []
+        wrong_placement_geometry = copy.deepcopy(safe_v2)
+        next(
+            placement
+            for resource in wrong_placement_geometry["resources"]
+            for placement in resource["placements"]
+        )["matrix"][4] += 1
+        wrong_metric_relation = copy.deepcopy(safe_v2)
+        wrong_metric = next(
+            placement["metrics"]
+            for resource in wrong_metric_relation["resources"]
+            for placement in resource["placements"]
+            if "metrics" in placement
+        )
+        wrong_metric["baseline"] = wrong_metric["viewport_height"] + 1
+        wrong_form_name = copy.deepcopy(safe_v2)
+        next(
+            resource
+            for resource in wrong_form_name["resources"]
+            if resource["placements"]
+        )["pdf_resource_name"] = "V99"
+        wrong_origin_extent = copy.deepcopy(safe_v2)
+        next(
+            placement["metrics"]
+            for resource in wrong_origin_extent["resources"]
+            for placement in resource["placements"]
+            if "metrics" in placement
+        )["origin_x"] = JSON_SAFE_INTEGER_MAX
+        duplicate_alias_id = copy.deepcopy(safe_v2)
+        duplicate_alias_resources = [
+            resource
+            for resource in duplicate_alias_id["resources"]
+            if resource["aliases"]
+        ]
+        duplicate_alias_resources[1]["aliases"][0]["image_id"] = (
+            duplicate_alias_resources[0]["aliases"][0]["image_id"]
+        )
+
+        def refresh_alias_usage_fingerprints(resource: dict[str, Any]) -> None:
+            for alias in resource["aliases"]:
+                matching = [
+                    placement
+                    for placement in resource["placements"]
+                    if placement["image_id"] == alias["image_id"]
+                ]
+                alias["placement_count"] = len(matching)
+                alias["usage_fingerprints"] = [
+                    hashlib.sha256(jcs_bytes(placement)).hexdigest()
+                    for placement in matching
+                ]
+
+        duplicate_global_paint = copy.deepcopy(safe_v2)
+        used_resources = [
+            resource
+            for resource in duplicate_global_paint["resources"]
+            if resource["placements"]
+        ]
+        used_resources[1]["placements"][0]["paint_ordinal"] = used_resources[0][
+            "placements"
+        ][0]["paint_ordinal"]
+        refresh_alias_usage_fingerprints(used_resources[1])
+
+        duplicate_source_owner = copy.deepcopy(safe_v2)
+        used_resources = [
+            resource
+            for resource in duplicate_source_owner["resources"]
+            if resource["placements"]
+        ]
+        used_resources[1]["placements"][0]["node_id"] = used_resources[0][
+            "placements"
+        ][0]["node_id"]
+        refresh_alias_usage_fingerprints(used_resources[1])
+        for label, invalid in (
+            ("resource order", unordered_resources),
+            ("placement count", wrong_placement_count),
+            ("alias usage closure", wrong_alias_usage),
+            ("placement geometry", wrong_placement_geometry),
+            ("metric relation", wrong_metric_relation),
+            ("origin extent overflow", wrong_origin_extent),
+            ("Form resource name", wrong_form_name),
+            ("cross-resource alias reuse", duplicate_alias_id),
+            ("kind/media profile mismatch", wrong_profile_kind),
+            ("duplicate selected paint", duplicate_global_paint),
+            ("duplicate source owner", duplicate_source_owner),
+        ):
+            try:
+                validate_safe_vector_v2_semantics(invalid)
+            except ValidationFailure:
+                pass
+            else:
+                raise ValidationFailure(
+                    f"private 1.4 SafeVector semantic validation accepted {label} tamper"
+                )
+
+        inline_equation_number = copy.deepcopy(math_vector)
+        inline_fact = next(
+            fact
+            for fact in inline_equation_number["facts"]
+            if fact["kind"] == "math_vector"
+        )
+        inline_fact["equation_number"] = copy.deepcopy(
+            next(
+                fact["equation_number"]
+                for fact in math_vector["facts"]
+                if fact["kind"] == "math_vector_block"
+            )
+        )
+        if not schema_errors(
+            private_m4_validators["machine-math-vector-manifest.schema.json"],
+            inline_equation_number,
+        ):
+            raise ValidationFailure(
+                "private 1.4 math-vector accepted an inline equation number"
+            )
+        wrong_math_package = copy.deepcopy(math_vector)
+        wrong_math_package["fingerprints"]["package_sha256"] = _vector_v2_hash(
+            "foreign-semantic-package"
+        )
+        try:
+            validate_math_vector_semantics(
+                wrong_math_package, safe_v2, safe_v2_fingerprint
+            )
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 math-vector closure accepted a foreign package"
+            )
+        wrong_math_placement = copy.deepcopy(math_vector)
+        next(
+            fact
+            for fact in wrong_math_placement["facts"]
+            if fact["kind"] == "math_vector"
+        )["placement"]["spacing_before"] += 1
+        wrong_math_source = copy.deepcopy(math_vector)
+        wrong_math_source["facts"][0]["owner_source_span"]["source_id"] += 1
+        wrong_math_producer = copy.deepcopy(math_vector)
+        wrong_math_producer["facts"][0]["producer"]["rules_version"] = (
+            "foreign-rules/1"
+        )
+        missing_math_fact = copy.deepcopy(math_vector)
+        missing_math_fact["facts"].pop()
+        overlapping_equation_number = copy.deepcopy(math_vector)
+        block_fact = next(
+            fact
+            for fact in overlapping_equation_number["facts"]
+            if fact["kind"] == "math_vector_block"
+        )
+        block_fact["equation_number"]["source_span"] = {
+            "end_byte": block_fact["owner_source_span"]["end_byte"] + 1,
+            "source_id": block_fact["owner_source_span"]["source_id"],
+            "start_byte": block_fact["owner_source_span"]["end_byte"] - 1,
+        }
+        wrong_equation_number_owner = copy.deepcopy(math_vector)
+        next(
+            fact["equation_number"]
+            for fact in wrong_equation_number_owner["facts"]
+            if "equation_number" in fact
+        )["node_id"] += 1
+        for label, invalid in (
+            ("placement relation", wrong_math_placement),
+            ("owner source span", wrong_math_source),
+            ("producer provenance", wrong_math_producer),
+            ("missing math fact", missing_math_fact),
+            ("overlapping equation number", overlapping_equation_number),
+            ("wrong equation-number owner", wrong_equation_number_owner),
+        ):
+            try:
+                validate_math_vector_semantics(
+                    invalid, safe_v2, safe_v2_fingerprint
+                )
+            except ValidationFailure:
+                pass
+            else:
+                raise ValidationFailure(
+                    f"private 1.4 math-vector semantic validation accepted {label} tamper"
+                )
+        generic_math_binding = copy.deepcopy(tagged_v2)
+        next(
+            fact
+            for fact in generic_math_binding["vector_structures"]
+            if fact["kind"] == "inline_vector"
+        )["math_binding_fingerprint"] = _vector_v2_hash("foreign-math-binding")
+        if not schema_errors(
+            private_m4_validators["machine-accessibility-manifest.schema.json"],
+            generic_math_binding,
+        ):
+            raise ValidationFailure(
+                "private 1.4 tagged-PDF /2 accepted a generic-vector math binding"
+            )
+        wrong_tagged_pdf = copy.deepcopy(tagged_v2)
+        wrong_tagged_pdf["fingerprints"]["pdf_sha256"] = _vector_v2_hash(
+            "foreign-tagged-pdf"
+        )
+        try:
+            validate_tagged_pdf_v2_semantics(
+                wrong_tagged_pdf, safe_v2, math_vector
+            )
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 tagged-PDF semantic validation accepted a foreign PDF"
+            )
+        duplicate_tagged_owner = copy.deepcopy(tagged_v2)
+        duplicate_tagged_owner["vector_structures"][1]["node_id"] = (
+            duplicate_tagged_owner["vector_structures"][0]["node_id"]
+        )
+        try:
+            validate_tagged_pdf_v2_semantics(
+                duplicate_tagged_owner, safe_v2, math_vector
+            )
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 tagged-PDF semantic validation accepted duplicate coverage"
+            )
+        overlapping_book_objects = copy.deepcopy(book_v2)
+        overlapping_book_objects["object_numbers"]["info"] = (
+            overlapping_book_objects["object_numbers"]["catalog"]
+        )
+        try:
+            validate_book_navigation_v2_semantics(overlapping_book_objects)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 book-navigation semantic validation accepted object overlap"
+            )
+
+        built_null_record = copy.deepcopy(production_built)
+        built_null_record["math_vector_manifest"] = None
+        built_null_record["math_vector_manifest_fingerprint"] = None
+        failed_mixed_pair = copy.deepcopy(production_failed)
+        failed_mixed_pair["safe_vector_manifest_fingerprint"] = _vector_v2_hash(
+            "synthetic-empty"
+        )
+        version_swapped_navigation = copy.deepcopy(production_built)
+        version_swapped_navigation["book_navigation_manifest"] = book_manifest
+        version_swapped_navigation[
+            "book_navigation_manifest_fingerprint"
+        ] = hashlib.sha256(jcs_bytes(book_manifest)).hexdigest()
+        wrong_production_contract = copy.deepcopy(production_built)
+        wrong_production_contract["package_input"]["contract"] = (
+            "typaxis.contract/1.3"
+        )
+        wrong_failed_production_contract = copy.deepcopy(production_failed)
+        wrong_failed_production_contract["package_input"]["contract"] = (
+            "typaxis.contract/1.3"
+        )
+        wrong_production_root_contract = copy.deepcopy(production_built)
+        wrong_production_root_contract["contract"] = "typaxis.contract/1.3"
+        for label, invalid in (
+            ("built null pair", built_null_record),
+            ("failed mixed-null pair", failed_mixed_pair),
+            ("book-navigation /1 version swap", version_swapped_navigation),
+            ("production package contract swap", wrong_production_contract),
+            (
+                "failed production package contract swap",
+                wrong_failed_production_contract,
+            ),
+            ("production root contract swap", wrong_production_root_contract),
+        ):
+            if not schema_errors(production_build_validator, invalid):
+                raise ValidationFailure(
+                    f"private 1.4 production build accepted {label}"
+                )
+        wrong_root_fingerprint = copy.deepcopy(production_built)
+        wrong_root_fingerprint["safe_vector_manifest_fingerprint"] = _vector_v2_hash(
+            "foreign-safe-manifest"
+        )
+        try:
+            validate_vector_build_manifest_semantics(wrong_root_fingerprint)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 production vector closure accepted a wrong fingerprint"
+            )
+        wrong_root_images = copy.deepcopy(production_with_raster)
+        wrong_root_images["images"][0]["image_id"] = safe_v2["resources"][0][
+            "aliases"
+        ][0]["image_id"]
+        try:
+            validate_vector_build_manifest_semantics(wrong_root_images)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 production vector closure accepted foreign image facts"
+            )
+        wrong_root_package = copy.deepcopy(production_built)
+        wrong_root_package["package_input"]["canonical_sha256"] = _vector_v2_hash(
+            "foreign-package"
+        )
+        try:
+            validate_vector_build_manifest_semantics(wrong_root_package)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 production vector closure accepted a foreign package"
+            )
+        wrong_root_engine = copy.deepcopy(production_built)
+        wrong_root_engine["tagged_pdf_manifest"]["engine"]["version"] = "9.9.9"
+        wrong_root_engine["tagged_pdf_manifest_fingerprint"] = hashlib.sha256(
+            jcs_bytes(wrong_root_engine["tagged_pdf_manifest"])
+        ).hexdigest()
+        try:
+            validate_vector_build_manifest_semantics(wrong_root_engine)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 production vector closure accepted a foreign engine"
+            )
+        wrong_all_child_engines = copy.deepcopy(production_built)
+        for record_name in ("book_navigation_manifest", "tagged_pdf_manifest"):
+            wrong_all_child_engines[record_name]["engine"]["version"] = "9.9.9"
+            wrong_all_child_engines[f"{record_name}_fingerprint"] = hashlib.sha256(
+                jcs_bytes(wrong_all_child_engines[record_name])
+            ).hexdigest()
+        try:
+            validate_vector_build_manifest_semantics(wrong_all_child_engines)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 production vector closure accepted foreign child engines"
+            )
+        wrong_root_object_allocation = copy.deepcopy(production_built)
+        first_form_object = next(
+            resource["pdf_form_object_number"]
+            for resource in safe_v2["resources"]
+            if resource["pdf_form_object_number"] is not None
+        )
+        wrong_root_object_allocation["book_navigation_manifest"]["object_numbers"][
+            "catalog"
+        ] = first_form_object
+        wrong_root_object_allocation["book_navigation_manifest_fingerprint"] = (
+            hashlib.sha256(
+                jcs_bytes(wrong_root_object_allocation["book_navigation_manifest"])
+            ).hexdigest()
+        )
+        try:
+            validate_vector_build_manifest_semantics(wrong_root_object_allocation)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "private 1.4 production vector closure accepted object overlap"
+            )
 
         m4_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         m4_config["contract"] = "typaxis.contract/1.4"

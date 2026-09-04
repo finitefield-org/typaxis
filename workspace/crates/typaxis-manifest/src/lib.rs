@@ -4,10 +4,17 @@ mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
+mod book_navigation_v2;
 mod math;
+mod math_vector;
 mod safe_vector;
+mod safe_vector_v2;
 mod semantic_container;
 mod tagged_pdf;
+mod tagged_pdf_v2;
+mod vector_build_manifest;
+#[cfg(test)]
+mod vector_v2_fixture;
 
 pub use advanced_columns::project_staging_columns_manifest;
 pub use advanced_float::project_staging_float_manifest;
@@ -19,14 +26,29 @@ pub use book_navigation::{
     build_staging_book_navigation_manifest, StagingBookNavigationManifest,
     StagingBookNavigationManifestError, STAGING_BOOK_NAVIGATION_MANIFEST_ALGORITHM,
 };
+pub use book_navigation_v2::{
+    build_staging_book_navigation_manifest_v2, StagingBookNavigationManifestV2,
+    StagingBookNavigationManifestV2Error, STAGING_BOOK_NAVIGATION_MANIFEST_V2_ALGORITHM,
+};
 pub use math::{
     build_staging_math_manifest, StagingMathManifest, StagingMathManifestError,
     StagingMathManifestFact, STAGING_MATH_MANIFEST_ALGORITHM,
+};
+pub use math_vector::{
+    build_staging_math_vector_manifest, StagingMathVectorManifest, StagingMathVectorManifestError,
+    StagingMathVectorManifestFact, STAGING_MATH_VECTOR_MANIFEST_ALGORITHM,
 };
 pub use safe_vector::{
     build_staging_safe_vector_manifest, StagingSafeVectorManifest, StagingSafeVectorManifestError,
     StagingSafeVectorManifestResource, StagingSafeVectorManifestUsage,
     STAGING_SAFE_VECTOR_MANIFEST_ALGORITHM,
+};
+pub use safe_vector_v2::{
+    build_staging_safe_vector_manifest_v2, StagingSafeVectorManifestAliasV2,
+    StagingSafeVectorManifestPlacementV2, StagingSafeVectorManifestResourceV2,
+    StagingSafeVectorManifestV2, StagingSafeVectorManifestV2Error,
+    StagingSafeVectorPlacementDetailsV2, StagingVectorMetricFactV2,
+    STAGING_SAFE_VECTOR_MANIFEST_V2_ALGORITHM,
 };
 pub use semantic_container::{
     build_staging_semantic_container_manifest, StagingDeclaredMediaManifestRecord,
@@ -36,6 +58,15 @@ pub use semantic_container::{
 pub use tagged_pdf::{
     build_staging_tagged_pdf_manifest, StagingTaggedPdfManifest, StagingTaggedPdfManifestError,
     STAGING_TAGGED_PDF_MANIFEST_ALGORITHM,
+};
+pub use tagged_pdf_v2::{
+    build_staging_tagged_pdf_manifest_v2, StagingTaggedPdfManifestV2,
+    StagingTaggedPdfManifestV2Error, StagingTaggedPdfVectorStructureFactV2,
+    STAGING_TAGGED_PDF_MANIFEST_V2_ALGORITHM,
+};
+pub use vector_build_manifest::{
+    StagingProductionBuildManifestVectorFields, StagingProductionBuildManifestVectorFieldsError,
+    StagingVectorBuildStatus,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};

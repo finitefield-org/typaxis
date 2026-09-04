@@ -649,6 +649,15 @@ impl BookNavigationPdfObservationV2 {
     pub const fn destination_registry_sha256(&self) -> [u8; 32] {
         self.destination_registry_sha256
     }
+    pub const fn profile_sha256(&self) -> [u8; 32] {
+        self.profile_sha256
+    }
+    pub const fn selected_sha256(&self) -> [u8; 32] {
+        self.selected_sha256
+    }
+    pub const fn final_writer_sha256(&self) -> [u8; 32] {
+        self.final_writer_sha256
+    }
     pub const fn final_pdf_sha256(&self) -> [u8; 32] {
         self.final_pdf_sha256
     }
@@ -663,6 +672,18 @@ impl BookNavigationPdfObservationV2 {
     }
     pub const fn language_paint_count(&self) -> u32 {
         self.language_paint_count
+    }
+    pub const fn info_object(&self) -> u32 {
+        self.info_object
+    }
+    pub const fn catalog_object(&self) -> u32 {
+        self.catalog_object
+    }
+    pub const fn metadata_object(&self) -> u32 {
+        self.metadata_object
+    }
+    pub const fn outline_root_object(&self) -> Option<u32> {
+        self.outline_root_object
     }
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs

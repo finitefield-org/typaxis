@@ -2,43 +2,97 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.typaxis.invalid/1.4/machine-book-navigation-manifest.schema.json",
   "title": "Typaxis Book Navigation Manifest 1.4",
-  "description": "Private MI4 metadata, computed-language, selected-destination, outline, and PDF observation closure.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "algorithm",
-    "contract",
-    "document_language",
-    "engine",
-    "fingerprints",
-    "languages",
-    "metadata",
-    "outline",
-    "pdf",
-    "profile_id",
-    "resource_limits"
+  "description": "Private MI4 metadata, computed-language, selected-destination, outline, and PDF observation closure. Version 2 is the compact production-root audit record.",
+  "oneOf": [
+    {"$ref": "#/$defs/v1_manifest"},
+    {"$ref": "#/$defs/v2_manifest"}
   ],
-  "properties": {
-    "algorithm": {"const": "typaxis.book-navigation-manifest/1"},
-    "contract": {"const": "typaxis.contract/1.4"},
-    "document_language": {"$ref": "#/$defs/language_tag"},
-    "engine": {"$ref": "#/$defs/engine"},
-    "fingerprints": {"$ref": "#/$defs/fingerprints"},
-    "languages": {
-      "type": "array",
-      "minItems": 1,
-      "items": {"$ref": "#/$defs/language_record"}
-    },
-    "metadata": {"$ref": "#/$defs/metadata"},
-    "outline": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/outline_entry"}
-    },
-    "pdf": {"$ref": "#/$defs/pdf"},
-    "profile_id": {"const": "typaxis.machine-pdf/production-book-1"},
-    "resource_limits": {"$ref": "#/$defs/resource_limits"}
-  },
   "$defs": {
+    "v1_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "contract",
+        "document_language",
+        "engine",
+        "fingerprints",
+        "languages",
+        "metadata",
+        "outline",
+        "pdf",
+        "profile_id",
+        "resource_limits"
+      ],
+      "properties": {
+        "algorithm": {"const": "typaxis.book-navigation-manifest/1"},
+        "contract": {"const": "typaxis.contract/1.4"},
+        "document_language": {"$ref": "#/$defs/language_tag"},
+        "engine": {"$ref": "#/$defs/engine"},
+        "fingerprints": {"$ref": "#/$defs/fingerprints"},
+        "languages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/language_record"}},
+        "metadata": {"$ref": "#/$defs/metadata"},
+        "outline": {"type": "array", "items": {"$ref": "#/$defs/outline_entry"}},
+        "pdf": {"$ref": "#/$defs/pdf"},
+        "profile_id": {"const": "typaxis.machine-pdf/production-book-1"},
+        "resource_limits": {"$ref": "#/$defs/resource_limits"}
+      }
+    },
+    "v2_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "contract", "document_language", "engine", "fingerprints", "language_paint_count", "object_numbers"],
+      "properties": {
+        "algorithm": {"const": "typaxis.book-navigation-manifest/2"},
+        "contract": {"const": "typaxis.contract/1.4"},
+        "document_language": {"$ref": "#/$defs/language_tag"},
+        "engine": {"$ref": "#/$defs/engine"},
+        "fingerprints": {"$ref": "#/$defs/v2_fingerprints"},
+        "language_paint_count": {"$ref": "common.schema.json#/$defs/id32"},
+        "object_numbers": {"$ref": "#/$defs/v2_object_numbers"}
+      }
+    },
+    "v2_fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "computed_language_sha256",
+        "destination_registry_sha256",
+        "metadata_sha256",
+        "outline_sha256",
+        "package_sha256",
+        "pdf_observation_sha256",
+        "pdf_sha256",
+        "profile_receipt_sha256",
+        "profile_view_sha256",
+        "selected_sha256",
+        "semantic_sha256"
+      ],
+      "properties": {
+        "computed_language_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "destination_registry_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "metadata_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "outline_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "package_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_observation_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "profile_receipt_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "profile_view_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "selected_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "semantic_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "v2_object_numbers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalog", "info", "metadata", "outline_root"],
+      "properties": {
+        "catalog": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "info": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "metadata": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "outline_root": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 1, "maximum": 4294967295}]}
+      }
+    },
     "engine": {
       "type": "object",
       "additionalProperties": false,

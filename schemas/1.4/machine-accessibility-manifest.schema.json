@@ -2,62 +2,152 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.typaxis.invalid/1.4/machine-accessibility-manifest.schema.json",
   "title": "Typaxis Tagged PDF Accessibility Manifest 1.4",
-  "description": "Private MI4-09 structure, marked-content, tagged-PDF, and validator closure.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "accessibility_profile",
-    "algorithm",
-    "contract",
-    "destinations",
-    "document_language",
-    "engine",
-    "fingerprints",
-    "marked_content",
-    "metadata",
-    "outline",
-    "pdf",
-    "profile_id",
-    "structure",
-    "validators"
+  "description": "Private MI4 structure, marked-content, tagged-PDF, and validator closure. Version 2 records the SafeVector/math-vector structure join.",
+  "oneOf": [
+    {"$ref": "#/$defs/v1_manifest"},
+    {"$ref": "#/$defs/v2_manifest"}
   ],
-  "properties": {
-    "accessibility_profile": {"const": "typaxis.pdfua1-profile/1"},
-    "algorithm": {"const": "typaxis.tagged-pdf-manifest/1"},
-    "contract": {"const": "typaxis.contract/1.4"},
-    "destinations": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/destination"}
-    },
-    "document_language": {"$ref": "#/$defs/language"},
-    "engine": {"$ref": "#/$defs/engine"},
-    "fingerprints": {"$ref": "#/$defs/fingerprints"},
-    "marked_content": {"$ref": "#/$defs/marked_content"},
-    "metadata": {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/metadata"},
-    "outline": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/outline"}
-    },
-    "pdf": {"$ref": "#/$defs/pdf"},
-    "profile_id": {"const": "typaxis.machine-pdf/production-book-1"},
-    "structure": {
-      "type": "array",
-      "minItems": 1,
-      "items": {"$ref": "#/$defs/structure"}
-    },
-    "validators": {
-      "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
-      "prefixItems": [
-        {"const": "typaxis.tagged-pdf-validator/1"},
-        {"const": "verapdf-greenfield/1.30.2:ua1"},
-        {"const": "typaxis.matterhorn-assessment/1"}
-      ],
-      "items": false
-    }
-  },
   "$defs": {
+    "v1_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accessibility_profile",
+        "algorithm",
+        "contract",
+        "destinations",
+        "document_language",
+        "engine",
+        "fingerprints",
+        "marked_content",
+        "metadata",
+        "outline",
+        "pdf",
+        "profile_id",
+        "structure",
+        "validators"
+      ],
+      "properties": {
+        "accessibility_profile": {"const": "typaxis.pdfua1-profile/1"},
+        "algorithm": {"const": "typaxis.tagged-pdf-manifest/1"},
+        "contract": {"const": "typaxis.contract/1.4"},
+        "destinations": {"type": "array", "items": {"$ref": "#/$defs/destination"}},
+        "document_language": {"$ref": "#/$defs/language"},
+        "engine": {"$ref": "#/$defs/engine"},
+        "fingerprints": {"$ref": "#/$defs/fingerprints"},
+        "marked_content": {"$ref": "#/$defs/marked_content"},
+        "metadata": {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/metadata"},
+        "outline": {"type": "array", "items": {"$ref": "#/$defs/outline"}},
+        "pdf": {"$ref": "#/$defs/pdf"},
+        "profile_id": {"const": "typaxis.machine-pdf/production-book-1"},
+        "structure": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/structure"}},
+        "validators": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {"const": "typaxis.tagged-pdf-validator/1"},
+            {"const": "verapdf-greenfield/1.30.2:ua1"},
+            {"const": "typaxis.matterhorn-assessment/1"}
+          ],
+          "items": false
+        }
+      }
+    },
+    "v2_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accessibility_profile", "algorithm", "contract", "document_language", "engine", "fingerprints", "vector_structures"],
+      "properties": {
+        "accessibility_profile": {"const": "typaxis.pdfua1-profile/2"},
+        "algorithm": {"const": "typaxis.tagged-pdf-manifest/2"},
+        "contract": {"const": "typaxis.contract/1.4"},
+        "document_language": {"$ref": "#/$defs/language"},
+        "engine": {"$ref": "#/$defs/engine"},
+        "fingerprints": {"$ref": "#/$defs/v2_fingerprints"},
+        "vector_structures": {"type": "array", "items": {"$ref": "#/$defs/v2_vector_structure"}}
+      }
+    },
+    "v2_fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "marked_content_sha256",
+        "math_vector_manifest_sha256",
+        "package_sha256",
+        "pdf_observation_sha256",
+        "pdf_sha256",
+        "profile_sha256",
+        "safe_vector_manifest_sha256",
+        "selected_binding_sha256",
+        "structure_registry_sha256"
+      ],
+      "properties": {
+        "marked_content_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "math_vector_manifest_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "package_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_observation_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "pdf_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "profile_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "safe_vector_manifest_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "selected_binding_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "structure_registry_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "v2_vector_structure_common": {
+      "type": "object",
+      "required": ["kind", "language", "marked_content_record_fingerprint", "node_id", "role", "safe_vector_usage_fingerprint", "structure_node_id"],
+      "properties": {
+        "kind": {"enum": ["figure", "inline_vector", "math_vector", "math_vector_block", "vector_figure"]},
+        "language": {"$ref": "#/$defs/language"},
+        "marked_content_record_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "node_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "role": {"enum": ["Figure", "Formula"]},
+        "safe_vector_usage_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "structure_node_id": {"$ref": "common.schema.json#/$defs/id32"}
+      }
+    },
+    "v2_figure_structure": {
+      "type": "object",
+      "required": ["kind", "role"],
+      "properties": {
+        "kind": {"const": "figure"},
+        "role": {"const": "Figure"}
+      }
+    },
+    "v2_generic_structure": {
+      "type": "object",
+      "required": ["kind", "metrics_fingerprint", "role"],
+      "properties": {
+        "kind": {"enum": ["inline_vector", "vector_figure"]},
+        "metrics_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "role": {"const": "Figure"}
+      }
+    },
+    "v2_math_structure": {
+      "type": "object",
+      "required": ["kind", "math_binding_fingerprint", "metrics_fingerprint", "role"],
+      "properties": {
+        "kind": {"enum": ["math_vector", "math_vector_block"]},
+        "math_binding_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "metrics_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+        "role": {"const": "Formula"}
+      }
+    },
+    "v2_vector_structure": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "allOf": [
+        {"$ref": "#/$defs/v2_vector_structure_common"},
+        {
+          "oneOf": [
+            {"$ref": "#/$defs/v2_figure_structure"},
+            {"$ref": "#/$defs/v2_generic_structure"},
+            {"$ref": "#/$defs/v2_math_structure"}
+          ]
+        }
+      ]
+    },
     "id": {"type": "integer", "minimum": 0, "maximum": 4294967295},
     "object_number": {"type": "integer", "minimum": 1, "maximum": 4294967295},
     "nullable_id": {

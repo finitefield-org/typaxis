@@ -46,6 +46,7 @@ pub use safe_vector::{
     STAGING_SAFE_VECTOR_PDF_ALGORITHM,
 };
 pub use safe_vector_v2::{
+    build_staging_combined_safe_vector_pdf_contribution_v2,
     build_staging_safe_vector_pdf_contribution_v2, seal_staging_safe_vector_pdf_v2,
     write_staging_safe_vector_pdf_contribution_v2, StagingSafeVectorPdfClosureV2,
     StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfExtGStateV2,
@@ -73,9 +74,9 @@ pub use tagged_pdf::{
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use tagged_pdf_v2::staging_tagged_vector_pdf_v2_fixture;
 pub use tagged_pdf_v2::{
-    write_staging_tagged_pdf_v2, StagingTaggedPdfV2, TaggedPdfObjectObservationV2,
-    TaggedPdfObservationV2, TaggedPdfV2Error, TAGGED_PDF_OBSERVATION_ALGORITHM_V2,
-    TAGGED_PDF_VALIDATOR_ALGORITHM_V2,
+    write_staging_tagged_pdf_v2, write_staging_tagged_pdf_v2_with_combined_vectors,
+    StagingTaggedPdfV2, TaggedPdfObjectObservationV2, TaggedPdfObservationV2, TaggedPdfV2Error,
+    TAGGED_PDF_OBSERVATION_ALGORITHM_V2, TAGGED_PDF_VALIDATOR_ALGORITHM_V2,
 };
 
 use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};

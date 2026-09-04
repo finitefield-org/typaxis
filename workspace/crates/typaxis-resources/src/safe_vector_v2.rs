@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use typaxis_core::{push_jcs_string, sha256, ImageResourceId, M4EffectiveResourceLimits};
-use typaxis_display_list::{StagingDrawVectorV2, StagingPrecomposedVectorDisplay};
+use typaxis_display_list::{StagingCombinedVectorDisplayV2, StagingPrecomposedVectorDisplay};
 use typaxis_resource_admission::{AdmittedSafeVector, VectorContentKey};
 
 use crate::{VectorContentCandidateRegistry, VectorContentPlanningError, VectorExtGStateAlphaPair};
@@ -241,6 +241,19 @@ impl StagingSafeVectorFormPlansV2 {
         }
         Ok(())
     }
+
+    pub fn verify_combined_pdf_closure(
+        &self,
+        display: &StagingCombinedVectorDisplayV2,
+        registry: &VectorContentCandidateRegistry,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StagingSafeVectorResourceV2Error> {
+        let expected = finalize_staging_combined_safe_vector_forms_v2(display, registry, limits)?;
+        if self != &expected {
+            return Err(StagingSafeVectorResourceV2Error::ReceiptMismatch);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -301,6 +314,17 @@ struct CandidateUsageAccumulator {
     usages: Vec<StagingSafeVectorUsageV2>,
 }
 
+#[derive(Clone, Copy)]
+struct PlanningUsage {
+    usage_id: u32,
+    image_id: ImageResourceId,
+    content_key: VectorContentKey,
+    ir_fingerprint: [u8; 32],
+    page_index: u32,
+    paint_ordinal: u32,
+    display_command_fingerprint: [u8; 32],
+}
+
 pub fn finalize_staging_safe_vector_forms_v2(
     display: &StagingPrecomposedVectorDisplay,
     registry: &VectorContentCandidateRegistry,
@@ -313,6 +337,81 @@ pub fn finalize_staging_safe_vector_forms_v2(
         return Err(StagingSafeVectorResourceV2Error::LimitsMismatch);
     }
 
+    let mut usages = Vec::new();
+    usages
+        .try_reserve_exact(
+            usize::try_from(display.receipt().command_count())
+                .map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
+        )
+        .map_err(|_| StagingSafeVectorResourceV2Error::AllocationFailure)?;
+    usages.extend(display.commands().map(|command| PlanningUsage {
+        usage_id: command.usage_id(),
+        image_id: command.image_id(),
+        content_key: command.content_key(),
+        ir_fingerprint: command.ir_fingerprint(),
+        page_index: command.page_index(),
+        paint_ordinal: command.paint_ordinal(),
+        display_command_fingerprint: command.fingerprint(),
+    }));
+    assemble_form_plans_v2(
+        display.receipt().fingerprint(),
+        display.receipt().content_key_count(),
+        display.receipt().command_count(),
+        &usages,
+        registry,
+        limits,
+    )
+}
+
+/// Forms one content-key-sorted plan set from both the legacy Figure Display
+/// and the four precomposed vector kinds. The combined Display has already
+/// bound each Figure occurrence to the selected physical paint order.
+pub fn finalize_staging_combined_safe_vector_forms_v2(
+    display: &StagingCombinedVectorDisplayV2,
+    registry: &VectorContentCandidateRegistry,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StagingSafeVectorFormPlansV2, StagingSafeVectorResourceV2Error> {
+    display
+        .verify_resource_closure()
+        .map_err(|_| StagingSafeVectorResourceV2Error::DisplayMismatch)?;
+    if display.receipt().limits_sha256() != limits.fingerprint() {
+        return Err(StagingSafeVectorResourceV2Error::LimitsMismatch);
+    }
+    let mut keys = BTreeSet::new();
+    let mut usages = Vec::new();
+    usages
+        .try_reserve_exact(display.usages().len())
+        .map_err(|_| StagingSafeVectorResourceV2Error::AllocationFailure)?;
+    usages.extend(display.usages().iter().map(|usage| {
+        keys.insert(*usage.content_key());
+        PlanningUsage {
+            usage_id: usage.usage_id(),
+            image_id: usage.image_id(),
+            content_key: *usage.content_key(),
+            ir_fingerprint: usage.ir_fingerprint(),
+            page_index: usage.page_index(),
+            paint_ordinal: usage.paint_ordinal(),
+            display_command_fingerprint: usage.display_command_fingerprint(),
+        }
+    }));
+    assemble_form_plans_v2(
+        display.receipt().fingerprint(),
+        u32::try_from(keys.len()).map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
+        display.receipt().usage_count(),
+        &usages,
+        registry,
+        limits,
+    )
+}
+
+fn assemble_form_plans_v2(
+    display_fingerprint: [u8; 32],
+    content_key_count: u32,
+    page_do_count_delta: u32,
+    usages: &[PlanningUsage],
+    registry: &VectorContentCandidateRegistry,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StagingSafeVectorFormPlansV2, StagingSafeVectorResourceV2Error> {
     let mut joined = BTreeMap::new();
     for candidate in registry.candidates() {
         let mut alias_counts = BTreeMap::new();
@@ -340,15 +439,15 @@ pub fn finalize_staging_safe_vector_forms_v2(
         }
     }
 
-    for command in display.commands() {
-        join_command(command, registry, &mut joined)?;
+    for usage in usages {
+        join_usage(*usage, registry, &mut joined)?;
     }
 
     let selected_candidate_count = joined
         .values()
         .filter(|accumulator| !accumulator.usages.is_empty())
         .count();
-    if u32::try_from(selected_candidate_count).ok() != Some(display.receipt().content_key_count()) {
+    if u32::try_from(selected_candidate_count).ok() != Some(content_key_count) {
         return Err(StagingSafeVectorResourceV2Error::CandidateMismatch);
     }
 
@@ -408,7 +507,15 @@ pub fn finalize_staging_safe_vector_forms_v2(
                 usage_count,
             },
         ));
-        let total_usage_count = u32::try_from(accumulator.usages.len())
+        let mut selected_usages = accumulator.usages;
+        selected_usages.sort_unstable_by_key(|usage| (usage.page_index, usage.paint_ordinal));
+        if selected_usages.windows(2).any(|pair| {
+            (pair[0].page_index, pair[0].paint_ordinal)
+                >= (pair[1].page_index, pair[1].paint_ordinal)
+        }) {
+            return Err(StagingSafeVectorResourceV2Error::ReceiptMismatch);
+        }
+        let total_usage_count = u32::try_from(selected_usages.len())
             .map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?;
         let mut plan = FrozenSafeVectorFormPlanV2 {
             content_key: *candidate.key(),
@@ -418,7 +525,7 @@ pub fn finalize_staging_safe_vector_forms_v2(
             ext_g_states,
             alias_usage_counts,
             total_usage_count,
-            usages: accumulator.usages,
+            usages: selected_usages,
             canonical_jcs: String::new(),
             fingerprint: [0; 32],
         };
@@ -440,16 +547,18 @@ pub fn finalize_staging_safe_vector_forms_v2(
     }
 
     let mut page_bindings = BTreeSet::new();
-    for command in display.commands() {
-        page_bindings.insert((command.page_index(), command.content_key()));
+    for usage in usages {
+        page_bindings.insert((usage.page_index, usage.content_key));
     }
     let page_resource_binding_count_delta = u32::try_from(page_bindings.len())
         .map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?;
-    let page_do_count_delta = display.receipt().command_count();
+    if u32::try_from(usages.len()).ok() != Some(page_do_count_delta) {
+        return Err(StagingSafeVectorResourceV2Error::CountOverflow);
+    }
     let audit_candidate_count = registry.receipt().candidate_count();
     let audit_alias_count = registry.receipt().alias_count();
     let canonical_jcs = encode_form_plans(
-        display.receipt().fingerprint(),
+        display_fingerprint,
         registry.receipt().fingerprint(),
         limits.fingerprint(),
         audit_candidate_count,
@@ -462,7 +571,7 @@ pub fn finalize_staging_safe_vector_forms_v2(
         &plans,
     );
     Ok(StagingSafeVectorFormPlansV2 {
-        display_fingerprint: display.receipt().fingerprint(),
+        display_fingerprint,
         candidate_registry_fingerprint: registry.receipt().fingerprint(),
         limits_fingerprint: limits.fingerprint(),
         audit_candidate_count,
@@ -596,41 +705,38 @@ pub fn staging_safe_vector_v2_ir_fixture(
     ))
 }
 
-fn join_command(
-    command: &StagingDrawVectorV2,
+fn join_usage(
+    usage: PlanningUsage,
     registry: &VectorContentCandidateRegistry,
     joined: &mut BTreeMap<VectorContentKey, CandidateUsageAccumulator>,
 ) -> Result<(), StagingSafeVectorResourceV2Error> {
     let candidate = registry
-        .candidate(&command.content_key())
+        .candidate(&usage.content_key)
         .ok_or(StagingSafeVectorResourceV2Error::CandidateMismatch)?;
-    if candidate.key() != &command.content_key()
-        || candidate.canonical_ir().fingerprint() != command.ir_fingerprint()
+    if candidate.key() != &usage.content_key
+        || candidate.canonical_ir().fingerprint() != usage.ir_fingerprint
     {
         return Err(StagingSafeVectorResourceV2Error::CandidateMismatch);
     }
     let alias = candidate
         .aliases()
-        .binary_search_by_key(&command.image_id(), |alias| alias.image_id())
+        .binary_search_by_key(&usage.image_id, |alias| alias.image_id())
         .ok()
         .and_then(|index| candidate.aliases().get(index))
         .ok_or(StagingSafeVectorResourceV2Error::AliasMismatch(
-            command.image_id(),
+            usage.image_id,
         ))?;
-    if alias.admitted_sha256() != command.content_key().source_sha256() {
+    if alias.admitted_sha256() != usage.content_key.source_sha256() {
         return Err(StagingSafeVectorResourceV2Error::AliasMismatch(
-            command.image_id(),
+            usage.image_id,
         ));
     }
     let accumulator = joined
         .get_mut(candidate.key())
         .ok_or(StagingSafeVectorResourceV2Error::CandidateMismatch)?;
-    let count = accumulator
-        .alias_counts
-        .get_mut(&command.image_id())
-        .ok_or(StagingSafeVectorResourceV2Error::AliasMismatch(
-            command.image_id(),
-        ))?;
+    let count = accumulator.alias_counts.get_mut(&usage.image_id).ok_or(
+        StagingSafeVectorResourceV2Error::AliasMismatch(usage.image_id),
+    )?;
     *count = count
         .checked_add(1)
         .ok_or(StagingSafeVectorResourceV2Error::CountOverflow)?;
@@ -639,11 +745,11 @@ fn join_command(
         .try_reserve(1)
         .map_err(|_| StagingSafeVectorResourceV2Error::AllocationFailure)?;
     accumulator.usages.push(StagingSafeVectorUsageV2 {
-        usage_id: command.usage_id(),
-        image_id: command.image_id(),
-        page_index: command.page_index(),
-        paint_ordinal: command.paint_ordinal(),
-        display_command_fingerprint: command.fingerprint(),
+        usage_id: usage.usage_id,
+        image_id: usage.image_id,
+        page_index: usage.page_index,
+        paint_ordinal: usage.paint_ordinal,
+        display_command_fingerprint: usage.display_command_fingerprint,
     });
     Ok(())
 }
@@ -862,6 +968,48 @@ mod tests {
         assert_eq!(
             plans.verify_pdf_closure(&fixture.display, &registry, &fixture.layout.limits),
             Err(StagingSafeVectorResourceV2Error::ReceiptMismatch)
+        );
+    }
+
+    #[test]
+    fn combined_safe_vector_forms_project_existing_figure_into_one_form() {
+        let fixture = typaxis_display_list::staging_combined_vector_figure_fixture().unwrap();
+        let registry = VectorContentCandidateRegistry::from_admitted(
+            &fixture.figure.layout.admitted,
+            fixture.figure.layout.package.resources(),
+        )
+        .unwrap();
+        let plans = finalize_staging_combined_safe_vector_forms_v2(
+            &fixture.display,
+            &registry,
+            &fixture.figure.layout.limits,
+        )
+        .unwrap();
+        assert_eq!(plans.plans().len(), 1);
+        assert_eq!(plans.plans()[0].total_usage_count(), 1);
+        assert_eq!(plans.plans()[0].alias_usage_counts()[0].usage_count(), 1);
+        assert_eq!(plans.page_do_count_delta(), 1);
+        plans
+            .verify_combined_pdf_closure(&fixture.display, &registry, &fixture.figure.layout.limits)
+            .unwrap();
+    }
+
+    #[test]
+    fn combined_safe_vector_forms_reject_foreign_limits() {
+        let fixture = typaxis_display_list::staging_combined_vector_figure_fixture().unwrap();
+        let registry = VectorContentCandidateRegistry::from_admitted(
+            &fixture.figure.layout.admitted,
+            fixture.figure.layout.package.resources(),
+        )
+        .unwrap();
+        let mut extension = *fixture.figure.layout.limits.extension().get();
+        extension.max_math_layout_units -= 1;
+        let foreign =
+            M4EffectiveResourceLimits::new(fixture.figure.layout.limits.base().clone(), extension)
+                .unwrap();
+        assert_eq!(
+            finalize_staging_combined_safe_vector_forms_v2(&fixture.display, &registry, &foreign),
+            Err(StagingSafeVectorResourceV2Error::LimitsMismatch)
         );
     }
 }

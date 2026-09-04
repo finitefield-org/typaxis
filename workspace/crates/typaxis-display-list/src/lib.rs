@@ -5,6 +5,7 @@ mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
+mod combined_vector;
 mod math;
 mod precomposed_vector;
 mod safe_vector;
@@ -43,6 +44,16 @@ pub use book_navigation::{
     BookNavigationSelectedReceiptV2, BookVectorLanguagePaintV2,
     BOOK_DESTINATION_REGISTRY_ALGORITHM, BOOK_NAVIGATION_SELECTED_ALGORITHM,
     BOOK_NAVIGATION_SELECTED_ALGORITHM_V2,
+};
+pub use combined_vector::{
+    build_staging_combined_vector_display_v2, StagingCombinedVectorDisplayErrorV2,
+    StagingCombinedVectorDisplayReceiptV2, StagingCombinedVectorDisplayV2,
+    StagingCombinedVectorKindV2, StagingCombinedVectorUsageRelationV2,
+    StagingCombinedVectorUsageV2, STAGING_COMBINED_VECTOR_DISPLAY_ALGORITHM_V2,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use combined_vector::{
+    staging_combined_vector_figure_fixture, StagingCombinedVectorFigureFixture,
 };
 pub use math::{
     build_staging_math_display, StagingMathDisplay, StagingMathDisplayError, StagingMathDraw,
@@ -95,10 +106,11 @@ pub use tagged_structure::{
 pub use typaxis_layout::{
     build_structure_registry, build_structure_registry_v2, select_structure_bindings,
     GeneratedStructureKey, GeneratedStructureSlot, SelectedStructureAnnotationInput,
-    SelectedStructureBindingReceipt, SelectedStructurePage, SelectedStructurePaintInput,
-    SelectedStructurePaintOwner, StructureArtifactClass, StructureNodeId, StructureNodeRecord,
-    StructureOwner, StructureRegistryReceipt, StructureRegistryReceiptV2, StructureRole,
-    StructureTableAttributes,
+    SelectedStructureBindingReceipt, SelectedStructureBindingReceiptV2, SelectedStructurePage,
+    SelectedStructurePaintBindingV2, SelectedStructurePaintInput, SelectedStructurePaintInputV2,
+    SelectedStructurePaintOwner, SelectedStructurePaintV2, StructureArtifactClass, StructureNodeId,
+    StructureNodeRecord, StructureOwner, StructureRegistryReceipt, StructureRegistryReceiptV2,
+    StructureRole, StructureTableAttributes,
 };
 
 use typaxis_core::{

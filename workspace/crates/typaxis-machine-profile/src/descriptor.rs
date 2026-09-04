@@ -425,35 +425,29 @@ impl PrecomposedVectorCapabilityProjection {
     }
 }
 
-#[cfg(test)]
 const PRIVATE_VECTOR_BLOCK_ADDITIONS: &[MachineVectorBlockKind] = &[
     MachineVectorBlockKind::MathVectorBlock,
     MachineVectorBlockKind::VectorFigure,
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_IMAGE_FORMATS: &[MachineCoarseImageFormat] = &[
     MachineCoarseImageFormat::Jpeg,
     MachineCoarseImageFormat::Png,
     MachineCoarseImageFormat::Svg,
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_INLINE_ADDITIONS: &[MachineVectorInlineKind] = &[
     MachineVectorInlineKind::InlineVector,
     MachineVectorInlineKind::MathVector,
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_FEATURES: &[MachineVectorFeature] = &[
     MachineVectorFeature::ClipPath,
     MachineVectorFeature::CurrentColor,
     MachineVectorFeature::PaintOpacity,
     MachineVectorFeature::SharedFormXObject,
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_SAFE_1_FEATURES: &[MachineVectorFeature] = &[
     MachineVectorFeature::ClipPath,
     MachineVectorFeature::SharedFormXObject,
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_FEATURES_BY_PROFILE: &[MachineVectorFeaturesByProfile] = &[
     MachineVectorFeaturesByProfile {
         profile: MachineVectorProfile::SvgSafe1,
@@ -464,18 +458,13 @@ const PRIVATE_VECTOR_FEATURES_BY_PROFILE: &[MachineVectorFeaturesByProfile] = &[
         features: PRIVATE_VECTOR_FEATURES,
     },
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_FORMATS: &[MachineVectorFormat] = &[MachineVectorFormat::Svg];
-#[cfg(test)]
 const PRIVATE_VECTOR_SAFE_1_MEDIA: &[MachineVectorProfile] = &[MachineVectorProfile::SvgSafe1];
-#[cfg(test)]
 const PRIVATE_VECTOR_SAFE_2_MEDIA: &[MachineVectorProfile] = &[MachineVectorProfile::SvgSafe2];
-#[cfg(test)]
 const PRIVATE_VECTOR_SAFE_1_2_MEDIA: &[MachineVectorProfile] = &[
     MachineVectorProfile::SvgSafe1,
     MachineVectorProfile::SvgSafe2,
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_MEDIA_BY_KIND: &[MachineVectorMediaByKind] = &[
     MachineVectorMediaByKind {
         kind: MachineVectorKind::Figure,
@@ -498,7 +487,6 @@ const PRIVATE_VECTOR_MEDIA_BY_KIND: &[MachineVectorMediaByKind] = &[
         media: PRIVATE_VECTOR_SAFE_1_2_MEDIA,
     },
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_METRICS: &[MachineVectorMetric] = &[
     MachineVectorMetric::Advance,
     MachineVectorMetric::Ascent,
@@ -507,13 +495,11 @@ const PRIVATE_VECTOR_METRICS: &[MachineVectorMetric] = &[
     MachineVectorMetric::OriginX,
     MachineVectorMetric::Viewport,
 ];
-#[cfg(test)]
 const PRIVATE_VECTOR_PROFILES: &[MachineVectorProfile] = &[
     MachineVectorProfile::SvgSafe1,
     MachineVectorProfile::SvgSafe2,
 ];
 
-#[cfg(test)]
 pub(crate) const PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION:
     PrecomposedVectorCapabilityProjection = PrecomposedVectorCapabilityProjection {
     block_additions: PRIVATE_VECTOR_BLOCK_ADDITIONS,
@@ -527,6 +513,89 @@ pub(crate) const PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION:
     vector_metrics: PRIVATE_VECTOR_METRICS,
     vector_profiles: PRIVATE_VECTOR_PROFILES,
 };
+
+pub(crate) const PRIVATE_PRODUCTION_BLOCKS: &[&str] = &[
+    "display_math",
+    "figure",
+    "heading",
+    "list",
+    "math_vector_block",
+    "page_break",
+    "paragraph",
+    "semantic_container",
+    "table",
+    "vector_figure",
+];
+pub(crate) const PRIVATE_PRODUCTION_INLINES: &[&str] = &[
+    "anchor",
+    "emphasis",
+    "footnote_reference",
+    "hard_break",
+    "inline_math",
+    "inline_vector",
+    "link",
+    "math_vector",
+    "reference",
+    "soft_break",
+    "strong",
+    "text",
+];
+pub(crate) const PRIVATE_PRODUCTION_STYLE_BLOCK_TYPES: &[&str] = PRIVATE_PRODUCTION_BLOCKS;
+pub(crate) const PRIVATE_PRODUCTION_STYLE_SELECTORS: &[&str] = PRIVATE_PRODUCTION_BLOCKS;
+
+/// ADR-fixed order. These arrays are semantic tuples and are deliberately not
+/// passed through the set sorter used by capability vocabularies.
+pub(crate) const PRIVATE_PRODUCTION_RESOURCE_COMPONENTS: &[&str] = &[
+    "typaxis.resource-profile/png/1",
+    "typaxis.resource-profile/safe-vector/2",
+    "typaxis.resource-profile/jpeg-baseline/1",
+    "typaxis.resource-profile/truetype-glyf/1",
+    "typaxis.resource-profile/sfnt-cff1/1",
+];
+pub(crate) const PRIVATE_PRODUCTION_IMAGE_MEDIA: &[&str] =
+    &["png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"];
+pub(crate) const PRIVATE_PRODUCTION_FONT_MEDIA: &[&str] =
+    &["sfnt-truetype-glyf", "ttc-truetype-glyf", "sfnt-cff1"];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PrivateProductionBookCapabilityDescriptor;
+
+impl PrivateProductionBookCapabilityDescriptor {
+    pub(crate) const PROFILE_ID: &'static str = "typaxis.machine-pdf/production-book-1";
+    pub(crate) const RESOURCE_SET_ID: &'static str = "typaxis.production-book-resource-set/2";
+    pub(crate) const DEFAULT_PROFILE_ID: &'static str = "typaxis.machine-pdf/paragraph-1";
+    pub(crate) const fn vector(self) -> PrecomposedVectorCapabilityProjection {
+        PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION
+    }
+    pub(crate) const fn blocks(self) -> &'static [&'static str] {
+        PRIVATE_PRODUCTION_BLOCKS
+    }
+    pub(crate) const fn inlines(self) -> &'static [&'static str] {
+        PRIVATE_PRODUCTION_INLINES
+    }
+    pub(crate) const fn style_block_types(self) -> &'static [&'static str] {
+        PRIVATE_PRODUCTION_STYLE_BLOCK_TYPES
+    }
+    pub(crate) const fn style_selectors(self) -> &'static [&'static str] {
+        PRIVATE_PRODUCTION_STYLE_SELECTORS
+    }
+    pub(crate) const fn resource_components(self) -> &'static [&'static str] {
+        PRIVATE_PRODUCTION_RESOURCE_COMPONENTS
+    }
+    pub(crate) const fn image_media(self) -> &'static [&'static str] {
+        PRIVATE_PRODUCTION_IMAGE_MEDIA
+    }
+    pub(crate) const fn font_media(self) -> &'static [&'static str] {
+        PRIVATE_PRODUCTION_FONT_MEDIA
+    }
+}
+
+pub(crate) const PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR:
+    PrivateProductionBookCapabilityDescriptor = PrivateProductionBookCapabilityDescriptor;
+
+// The public tuple remains seven profiles in MI4-V17; retain the staged
+// publication insertion anchor while keeping paragraph-1 the default.
+const _: &str = PrivateProductionBookCapabilityDescriptor::DEFAULT_PROFILE_ID;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachinePdfFeature {

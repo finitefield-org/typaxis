@@ -13,9 +13,9 @@ pub use safe_vector::{
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use safe_vector::{staging_safe_vector_resource_fixture, StagingSafeVectorResourceFixture};
 pub use safe_vector_v2::{
-    finalize_staging_safe_vector_form_plans_v2, finalize_staging_safe_vector_forms_v2,
-    FrozenSafeVectorExtGStatePlanV2, FrozenSafeVectorFormPlanV2,
-    StagingSafeVectorAliasUsageCountV2, StagingSafeVectorFormPlansV2,
+    finalize_staging_combined_safe_vector_forms_v2, finalize_staging_safe_vector_form_plans_v2,
+    finalize_staging_safe_vector_forms_v2, FrozenSafeVectorExtGStatePlanV2,
+    FrozenSafeVectorFormPlanV2, StagingSafeVectorAliasUsageCountV2, StagingSafeVectorFormPlansV2,
     StagingSafeVectorResourceV2Error, StagingSafeVectorUsageV2,
     STAGING_SAFE_VECTOR_FORM_PLANS_V2_ALGORITHM, STAGING_SAFE_VECTOR_FORM_PLAN_V2_ALGORITHM,
 };

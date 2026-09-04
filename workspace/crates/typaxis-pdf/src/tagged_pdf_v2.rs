@@ -2,20 +2,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use typaxis_core::{
     push_jcs_string, sha256, DisplayTextBufferId, DisplayTextSpan, EffectiveConfigFingerprint,
-    EngineIdentity, FontFaceId, LayoutStateFingerprint, M4EffectiveResourceLimits,
-    PdfStreamCompression, Utf8ByteOffset,
+    EngineIdentity, FontFaceId, ImageResourceId, LayoutStateFingerprint, M4EffectiveResourceLimits,
+    NodeId, PdfStreamCompression, Utf8ByteOffset,
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 use typaxis_core::{Length, Point};
 use typaxis_display_list::{
     BookNavigationSelectedReceiptV2, DestinationView, FormulaStructureKidV2,
     MarkedContentBindingKindV2, MarkedContentOwner, MarkedContentPlanReceiptV2,
-    StagingPrecomposedVectorDisplay, StructureArtifactClass, StructureNodeId, StructureOwner,
-    StructureParentTreeValue, StructureRegistryReceiptV2, StructureRole,
-    VectorFormStructureIsolationReceiptV2, VectorMarkedContentPlanV2,
-    VectorMarkedContentSerializationV2,
+    StagingCombinedVectorDisplayV2, StagingCombinedVectorKindV2, StagingPrecomposedVectorDisplay,
+    StructureArtifactClass, StructureNodeId, StructureOwner, StructureParentTreeValue,
+    StructureRegistryReceiptV2, StructureRole, VectorFormStructureIsolationReceiptV2,
+    VectorMarkedContentPlanV2, VectorMarkedContentSerializationV2,
 };
-use typaxis_resource_admission::AdmittedResourceLedger;
+use typaxis_resource_admission::{AdmittedImageMediaKind, AdmittedResourceLedger};
 use typaxis_resources::{
     finalize_staging_pdf_text_fonts, FrozenPdfFontPlan, FrozenStagingPdfTextFontPlan,
     StagingPdfTextClusterUsage, StagingSafeVectorFormPlansV2, VectorContentCandidateRegistry,
@@ -25,9 +25,9 @@ use typaxis_shaping::{
     StagingEquationNumberShapeReceipt,
 };
 use typaxis_syntax::{
-    StagingAccessibilityProfileAuthorizationV2, StagingBookNavigationProfileAuthorizationV2,
-    ValidatedStagingBookNavigationV2, ValidatedStagingSemanticPackage,
-    ValidatedStagingStructureSemanticsV2,
+    machine_profile_boundary::StagingM4Block, StagingAccessibilityProfileAuthorizationV2,
+    StagingBookNavigationProfileAuthorizationV2, ValidatedStagingBookNavigationV2,
+    ValidatedStagingSemanticPackage, ValidatedStagingStructureSemanticsV2,
 };
 
 use crate::{
@@ -209,6 +209,7 @@ pub struct StagingTaggedPdfV2 {
     final_pdf: VerifiedPdfBytesReceipt,
     observation: TaggedPdfObservationV2,
     book_navigation: BookNavigationPdfObservationV2,
+    vector_final_writer: StagingSafeVectorPdfFinalWriterObservationV2,
     safe_vector: StagingSafeVectorPdfClosureV2,
 }
 
@@ -227,6 +228,13 @@ impl StagingTaggedPdfV2 {
 
     pub const fn book_navigation(&self) -> &BookNavigationPdfObservationV2 {
         &self.book_navigation
+    }
+
+    /// Absolute vector object/use facts issued only after the complete PDF
+    /// object graph has been allocated. Manifest projection must consume this
+    /// receipt instead of deriving object numbers from relative Form plans.
+    pub const fn vector_final_writer(&self) -> &StagingSafeVectorPdfFinalWriterObservationV2 {
+        &self.vector_final_writer
     }
 
     pub const fn safe_vector(&self) -> &StagingSafeVectorPdfClosureV2 {
@@ -552,6 +560,92 @@ pub fn write_staging_tagged_pdf_v2(
     engine: &EngineIdentity,
     config_fingerprint: EffectiveConfigFingerprint,
 ) -> Result<StagingTaggedPdfV2, TaggedPdfV2Error> {
+    write_staging_tagged_pdf_v2_inner(
+        package,
+        navigation,
+        semantics,
+        profile,
+        book_profile,
+        book,
+        registry,
+        serialization,
+        vector_display,
+        None,
+        form_isolation,
+        admitted,
+        form_plans,
+        candidates,
+        vector,
+        limits,
+        engine,
+        config_fingerprint,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn write_staging_tagged_pdf_v2_with_combined_vectors(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    profile: &StagingAccessibilityProfileAuthorizationV2,
+    book_profile: &StagingBookNavigationProfileAuthorizationV2,
+    book: &BookNavigationSelectedReceiptV2,
+    registry: &StructureRegistryReceiptV2,
+    serialization: VectorMarkedContentSerializationV2<'_>,
+    vector_display: &StagingPrecomposedVectorDisplay,
+    combined_display: &StagingCombinedVectorDisplayV2,
+    form_isolation: &VectorFormStructureIsolationReceiptV2,
+    admitted: &AdmittedResourceLedger,
+    form_plans: &StagingSafeVectorFormPlansV2,
+    candidates: &VectorContentCandidateRegistry,
+    vector: &StagingSafeVectorPdfContributionV2,
+    limits: &M4EffectiveResourceLimits,
+    engine: &EngineIdentity,
+    config_fingerprint: EffectiveConfigFingerprint,
+) -> Result<StagingTaggedPdfV2, TaggedPdfV2Error> {
+    write_staging_tagged_pdf_v2_inner(
+        package,
+        navigation,
+        semantics,
+        profile,
+        book_profile,
+        book,
+        registry,
+        serialization,
+        vector_display,
+        Some(combined_display),
+        form_isolation,
+        admitted,
+        form_plans,
+        candidates,
+        vector,
+        limits,
+        engine,
+        config_fingerprint,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_staging_tagged_pdf_v2_inner(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    profile: &StagingAccessibilityProfileAuthorizationV2,
+    book_profile: &StagingBookNavigationProfileAuthorizationV2,
+    book: &BookNavigationSelectedReceiptV2,
+    registry: &StructureRegistryReceiptV2,
+    serialization: VectorMarkedContentSerializationV2<'_>,
+    vector_display: &StagingPrecomposedVectorDisplay,
+    combined_display: Option<&StagingCombinedVectorDisplayV2>,
+    form_isolation: &VectorFormStructureIsolationReceiptV2,
+    admitted: &AdmittedResourceLedger,
+    form_plans: &StagingSafeVectorFormPlansV2,
+    candidates: &VectorContentCandidateRegistry,
+    vector: &StagingSafeVectorPdfContributionV2,
+    limits: &M4EffectiveResourceLimits,
+    engine: &EngineIdentity,
+    config_fingerprint: EffectiveConfigFingerprint,
+) -> Result<StagingTaggedPdfV2, TaggedPdfV2Error> {
     profile
         .authorizes(package, navigation, semantics, limits)
         .map_err(|_| TaggedPdfV2Error::ProfileMismatch)?;
@@ -577,10 +671,31 @@ pub fn write_staging_tagged_pdf_v2(
         )
         .map_err(|_| TaggedPdfV2Error::MarkedContentMismatch)?;
     let vector_plan = serialization.plan();
-    vector
-        .verify(vector_display, form_plans, candidates, limits)
-        .map_err(|_| TaggedPdfV2Error::VectorMismatch)?;
+    match combined_display {
+        Some(combined) => {
+            if combined.receipt().package_sha256() != package.canonical_jcs_sha256()
+                || combined.receipt().semantic_sha256() != package.semantic_fingerprint()
+                || combined.receipt().admitted_sha256() != admitted.fingerprint().bytes()
+                || combined.receipt().limits_sha256() != limits.fingerprint()
+                || combined.receipt().precomposed_display_sha256()
+                    != vector_display.receipt().fingerprint()
+                || combined.receipt().structure_registry_sha256() != registry.fingerprint()
+                || combined.receipt().selected_binding_sha256()
+                    != vector_plan.selected_binding().fingerprint()
+                || usize::try_from(combined.receipt().page_count()).ok() != Some(book.pages().len())
+            {
+                return Err(TaggedPdfV2Error::VectorMismatch);
+            }
+            vector
+                .verify_combined(combined, form_plans, candidates, limits)
+                .map_err(|_| TaggedPdfV2Error::VectorMismatch)?;
+        }
+        None => vector
+            .verify(vector_display, form_plans, candidates, limits)
+            .map_err(|_| TaggedPdfV2Error::VectorMismatch)?,
+    }
     let marked = vector_plan.marked_content();
+    validate_safe_vector_figure_coverage(package, admitted, vector)?;
     validate_cross_closure_v2(book, registry, marked, vector)?;
     validate_form_isolation(vector, form_isolation)?;
 
@@ -685,6 +800,7 @@ pub fn write_staging_tagged_pdf_v2(
         registry,
         vector_plan,
         &book_navigation,
+        vector,
         &safe_vector,
         &xmp,
         object_observations,
@@ -695,8 +811,84 @@ pub fn write_staging_tagged_pdf_v2(
         final_pdf,
         observation,
         book_navigation,
+        vector_final_writer,
         safe_vector,
     })
+}
+
+fn validate_safe_vector_figure_coverage(
+    package: &ValidatedStagingSemanticPackage,
+    admitted: &AdmittedResourceLedger,
+    vector: &StagingSafeVectorPdfContributionV2,
+) -> Result<(), TaggedPdfV2Error> {
+    let mut expected = BTreeMap::new();
+    collect_safe_vector_figures(&package.document().blocks, admitted, &mut expected)?;
+    for footnote in &package.document().footnotes {
+        collect_safe_vector_figures(&footnote.blocks, admitted, &mut expected)?;
+    }
+
+    let mut observed = BTreeSet::new();
+    for usage in vector
+        .usages()
+        .iter()
+        .filter(|usage| usage.semantic_hook().kind() == StagingCombinedVectorKindV2::Figure)
+    {
+        let owner = usage.semantic_hook().owner();
+        if expected.get(&owner) != Some(&usage.image_id()) || !observed.insert(owner) {
+            return Err(TaggedPdfV2Error::VectorMismatch);
+        }
+    }
+    if observed.len() != expected.len() {
+        return Err(TaggedPdfV2Error::VectorMismatch);
+    }
+    Ok(())
+}
+
+fn collect_safe_vector_figures(
+    blocks: &[StagingM4Block],
+    admitted: &AdmittedResourceLedger,
+    output: &mut BTreeMap<NodeId, ImageResourceId>,
+) -> Result<(), TaggedPdfV2Error> {
+    for block in blocks {
+        match block {
+            StagingM4Block::Figure {
+                common,
+                image_id,
+                caption,
+                ..
+            } => {
+                let image = admitted
+                    .image(*image_id)
+                    .ok_or(TaggedPdfV2Error::VectorMismatch)?;
+                if image.media_kind() == AdmittedImageMediaKind::SafeVector
+                    && output.insert(common.node_id, *image_id).is_some()
+                {
+                    return Err(TaggedPdfV2Error::VectorMismatch);
+                }
+                collect_safe_vector_figures(caption, admitted, output)?;
+            }
+            StagingM4Block::VectorFigure { caption, .. }
+            | StagingM4Block::SemanticContainer {
+                blocks: caption, ..
+            } => collect_safe_vector_figures(caption, admitted, output)?,
+            StagingM4Block::List { items, .. } => {
+                for item in items {
+                    collect_safe_vector_figures(&item.blocks, admitted, output)?;
+                }
+            }
+            StagingM4Block::Table { head, body, .. } => {
+                for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                    collect_safe_vector_figures(&cell.blocks, admitted, output)?;
+                }
+            }
+            StagingM4Block::Paragraph { .. }
+            | StagingM4Block::Heading { .. }
+            | StagingM4Block::PageBreak { .. }
+            | StagingM4Block::DisplayMath { .. }
+            | StagingM4Block::MathVectorBlock { .. } => {}
+        }
+    }
+    Ok(())
 }
 
 fn validate_cross_closure_v2(
@@ -719,43 +911,70 @@ fn validate_cross_closure_v2(
     {
         return Err(TaggedPdfV2Error::NavigationMismatch);
     }
-    let vector_records = marked
-        .records()
-        .iter()
-        .filter_map(|record| match record.binding() {
-            MarkedContentBindingKindV2::Vector {
-                usage_id,
-                display_command_fingerprint,
-            } => Some((record, usage_id, display_command_fingerprint)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if vector_records.len() != vector.usages().len() {
-        return Err(TaggedPdfV2Error::VectorMismatch);
-    }
-    for ((record, usage_id, display_fingerprint), usage) in
-        vector_records.iter().zip(vector.usages())
-    {
-        let MarkedContentOwner::Structure(owner) = record.owner() else {
-            return Err(TaggedPdfV2Error::VectorMismatch);
-        };
+    let mut matched_records = BTreeSet::new();
+    for usage in vector.usages() {
         let hook = usage.semantic_hook();
         let node = registry
-            .node(owner.structure_node_id())
+            .source_node(hook.owner())
             .ok_or(TaggedPdfV2Error::StructureMismatch)?;
-        if *usage_id != usage.usage_id()
-            || *display_fingerprint != hook.display_command_fingerprint()
-            || record.page_index() != usage.page_index()
-            || record.paint_ordinal_start() != usage.paint_ordinal()
-            || hook.owner()
-                != match node.owner() {
-                    StructureOwner::Source(owner) => owner,
-                    StructureOwner::Generated(_) => return Err(TaggedPdfV2Error::VectorMismatch),
+        let record_index = marked
+            .records()
+            .iter()
+            .position(|record| {
+                record.page_index() == usage.page_index()
+                    && record.paint_ordinal_start() == usage.paint_ordinal()
+                    && record.selected_paint_ids().len() == 1
+                    && matches!(
+                        record.owner(),
+                        MarkedContentOwner::Structure(owner)
+                            if owner.structure_node_id() == node.structure_node_id()
+                    )
+                    && match (hook.kind(), record.binding()) {
+                        (
+                            StagingCombinedVectorKindV2::Figure,
+                            MarkedContentBindingKindV2::Standard,
+                        ) => true,
+                        (
+                            kind,
+                            MarkedContentBindingKindV2::Vector {
+                                usage_id,
+                                display_command_fingerprint,
+                            },
+                        ) => {
+                            kind.precomposed().is_some()
+                                && usage_id == usage.usage_id()
+                                && display_command_fingerprint == hook.display_command_fingerprint()
+                        }
+                        _ => false,
+                    }
+            })
+            .ok_or(TaggedPdfV2Error::VectorMismatch)?;
+        if !matched_records.insert(record_index)
+            || node.owner() != StructureOwner::Source(hook.owner())
+            || match hook.kind() {
+                StagingCombinedVectorKindV2::Figure => {
+                    node.role() != StructureRole::Figure || node.vector_binding_v2().is_some()
                 }
-            || node.vector_binding_v2().map(|binding| binding.kind()) != Some(hook.kind())
+                kind => {
+                    node.vector_binding_v2().map(|binding| binding.kind()) != kind.precomposed()
+                }
+            }
         {
             return Err(TaggedPdfV2Error::VectorMismatch);
         }
+    }
+    let precomposed_count = vector
+        .usages()
+        .iter()
+        .filter(|usage| usage.semantic_hook().kind().precomposed().is_some())
+        .count();
+    let vector_record_count = marked
+        .records()
+        .iter()
+        .filter(|record| matches!(record.binding(), MarkedContentBindingKindV2::Vector { .. }))
+        .count();
+    if matched_records.len() != vector.usages().len() || vector_record_count != precomposed_count {
+        return Err(TaggedPdfV2Error::VectorMismatch);
     }
     for (annotation, link) in marked.annotations().iter().zip(book.links()) {
         let structure = registry
@@ -777,7 +996,12 @@ fn validate_form_isolation(
 ) -> Result<(), TaggedPdfV2Error> {
     if isolation.form_mcid_count() != 0
         || isolation.form_structure_property_count() != 0
-        || usize::try_from(isolation.page_do_usage_count()) != Ok(vector.usages().len())
+        || usize::try_from(isolation.page_do_usage_count())
+            != Ok(vector
+                .usages()
+                .iter()
+                .filter(|usage| usage.semantic_hook().kind().precomposed().is_some())
+                .count())
     {
         return Err(TaggedPdfV2Error::FormStructureViolation);
     }
@@ -1263,8 +1487,22 @@ fn emit_page_content_and_pages_v2(
                             )?);
                         }
                         MarkedContentBindingKindV2::Standard => {
-                            for _ in record.selected_paint_ids() {
-                                content.extend_from_slice(b"0 0 m 0 0 l S\n");
+                            let figure_usage = vector.usages().iter().find(|usage| {
+                                usage.page_index() == record.page_index()
+                                    && usage.paint_ordinal() == record.paint_ordinal_start()
+                                    && usage.semantic_hook().kind()
+                                        == StagingCombinedVectorKindV2::Figure
+                            });
+                            if let Some(usage) = figure_usage {
+                                if record.selected_paint_ids().len() != 1 {
+                                    return Err(TaggedPdfV2Error::VectorMismatch);
+                                }
+                                content.extend_from_slice(usage.content());
+                                content.push(b'\n');
+                            } else {
+                                for _ in record.selected_paint_ids() {
+                                    content.extend_from_slice(b"0 0 m 0 0 l S\n");
+                                }
                             }
                         }
                     }
@@ -2068,6 +2306,7 @@ fn build_tagged_observation_v2(
     registry: &StructureRegistryReceiptV2,
     vector_plan: &VectorMarkedContentPlanV2,
     book_navigation: &BookNavigationPdfObservationV2,
+    vector: &StagingSafeVectorPdfContributionV2,
     safe_vector: &StagingSafeVectorPdfClosureV2,
     xmp: &str,
     objects: Vec<TaggedPdfObjectObservationV2>,
@@ -2083,19 +2322,14 @@ fn build_tagged_observation_v2(
     if book_navigation.final_pdf_sha256() != final_pdf.content_hash()
         || book_navigation.document_language() != document_language
         || book_navigation.xmp_sha256() != sha256(xmp.as_bytes())
+        || safe_vector.contribution_fingerprint() != vector.fingerprint()
     {
         return Err(TaggedPdfV2Error::ReceiptMismatch);
     }
     let marked_content_count = marked.pages().iter().try_fold(0u32, |sum, page| {
         sum.checked_add(page.marked_content_count())
     });
-    let vector_usage_count = usize_to_u32(
-        marked
-            .records()
-            .iter()
-            .filter(|record| matches!(record.binding(), MarkedContentBindingKindV2::Vector { .. }))
-            .count(),
-    )?;
+    let vector_usage_count = usize_to_u32(vector.usages().len())?;
     let equation_number_count = usize_to_u32(
         marked
             .records()
@@ -2658,11 +2892,13 @@ mod tests {
     use typaxis_core::{M4ResourceLimits, ResourceLimits, ValidatedResourceLimits};
     use typaxis_display_list::{
         build_vector_marked_content_plan_v2, prove_vector_form_structure_isolation_v2,
-        select_staging_book_navigation_v2, staging_precomposed_vector_tagged_pdf_fixture,
-        BookNavigationSelectedPage,
+        select_staging_book_navigation_v2, staging_combined_vector_figure_fixture,
+        staging_precomposed_vector_tagged_pdf_fixture, BookNavigationSelectedPage,
+        MarkedContentStandardPaintInputV2, SelectedStructurePaintOwner,
     };
     use typaxis_resources::{
-        finalize_staging_safe_vector_forms_v2, VectorContentCandidateRegistry,
+        finalize_staging_combined_safe_vector_forms_v2, finalize_staging_safe_vector_forms_v2,
+        VectorContentCandidateRegistry,
     };
     use typaxis_syntax::{
         validate_staging_book_navigation_v2, validate_staging_structure_semantics_v2,
@@ -2995,6 +3231,168 @@ mod tests {
                 assert!(!contains_bytes(form_stream, forbidden));
             }
         });
+    }
+
+    #[test]
+    fn combined_figure_reaches_final_tagged_pdf_as_accessible_vector_form() {
+        let fixture = staging_combined_vector_figure_fixture().unwrap();
+        let package = &fixture.figure.layout.package;
+        let limits = &fixture.figure.layout.limits;
+        let page_geometry = fixture.figure.display.page_geometry();
+        let pages = (0..u32::try_from(fixture.figure.display.pages().len()).unwrap())
+            .map(|page_index| BookNavigationSelectedPage {
+                page_index,
+                width_raw: page_geometry.page_width().get().raw(),
+                height_raw: page_geometry.page_height().get().raw(),
+            })
+            .collect::<Vec<_>>();
+        let book = select_staging_book_navigation_v2(
+            &fixture.navigation,
+            &fixture.book_profile,
+            limits,
+            fixture
+                .figure
+                .display
+                .receipt()
+                .selected_layout_fingerprint(),
+            u64::from(fixture.figure.display.receipt().command_count()),
+            &pages,
+            &[],
+            &[],
+            &[],
+            &fixture.precomposed,
+        )
+        .unwrap();
+        let standard_paints = fixture
+            .figure
+            .display
+            .commands()
+            .map(|command| {
+                let node = fixture.registry.source_node(command.owner()).unwrap();
+                MarkedContentStandardPaintInputV2 {
+                    page_index: command.page_index(),
+                    paint_ordinal: command.occurrence(),
+                    semantic_fragment_ordinal: 0,
+                    owner: SelectedStructurePaintOwner::Structure(node.structure_node_id()),
+                }
+            })
+            .collect::<Vec<_>>();
+        let form_isolation =
+            prove_vector_form_structure_isolation_v2(&fixture.precomposed).unwrap();
+        let vector_plan = build_vector_marked_content_plan_v2(
+            &fixture.registry,
+            &fixture.accessibility,
+            limits,
+            &fixture.navigation,
+            &fixture.book_profile,
+            &book,
+            &standard_paints,
+            &[],
+            &fixture.precomposed,
+            &form_isolation,
+            &fixture.block_selected,
+            &fixture.math_flows,
+        )
+        .unwrap();
+        assert_eq!(vector_plan.selected_binding(), &fixture.selected);
+        let serialization = vector_plan
+            .authorize_pdf_serialization(
+                &fixture.registry,
+                &fixture.accessibility,
+                limits,
+                &fixture.navigation,
+                &fixture.book_profile,
+                &book,
+                &fixture.precomposed,
+                &form_isolation,
+                &fixture.block_selected,
+                &fixture.math_flows,
+            )
+            .unwrap();
+        let candidates = VectorContentCandidateRegistry::from_admitted(
+            &fixture.figure.layout.admitted,
+            package.resources(),
+        )
+        .unwrap();
+        let incomplete_form_plans =
+            finalize_staging_safe_vector_forms_v2(&fixture.precomposed, &candidates, limits)
+                .unwrap();
+        let incomplete_vector = crate::build_staging_safe_vector_pdf_contribution_v2(
+            &fixture.precomposed,
+            &incomplete_form_plans,
+            &candidates,
+            limits,
+        )
+        .unwrap();
+        assert!(matches!(
+            write_staging_tagged_pdf_v2(
+                package,
+                &fixture.navigation,
+                &fixture.semantics,
+                &fixture.accessibility,
+                &fixture.book_profile,
+                &book,
+                &fixture.registry,
+                serialization,
+                &fixture.precomposed,
+                &form_isolation,
+                &fixture.figure.layout.admitted,
+                &incomplete_form_plans,
+                &candidates,
+                &incomplete_vector,
+                limits,
+                &EngineIdentity::compiled(),
+                EffectiveConfigFingerprint::from_untrusted_bytes(sha256(
+                    b"tagged-incomplete-figure-effective-config-v2",
+                )),
+            ),
+            Err(TaggedPdfV2Error::VectorMismatch)
+        ));
+        let form_plans =
+            finalize_staging_combined_safe_vector_forms_v2(&fixture.display, &candidates, limits)
+                .unwrap();
+        let vector = crate::build_staging_combined_safe_vector_pdf_contribution_v2(
+            &fixture.display,
+            &form_plans,
+            &candidates,
+            limits,
+        )
+        .unwrap();
+        let write = || {
+            write_staging_tagged_pdf_v2_with_combined_vectors(
+                package,
+                &fixture.navigation,
+                &fixture.semantics,
+                &fixture.accessibility,
+                &fixture.book_profile,
+                &book,
+                &fixture.registry,
+                serialization,
+                &fixture.precomposed,
+                &fixture.display,
+                &form_isolation,
+                &fixture.figure.layout.admitted,
+                &form_plans,
+                &candidates,
+                &vector,
+                limits,
+                &EngineIdentity::compiled(),
+                EffectiveConfigFingerprint::from_untrusted_bytes(sha256(
+                    b"tagged-combined-figure-effective-config-v2",
+                )),
+            )
+            .unwrap()
+        };
+        let first = write();
+        let second = write();
+        assert_eq!(first.bytes(), second.bytes());
+        assert_eq!(first.observation().vector_usage_count(), 1);
+        assert_eq!(first.observation().form_object_count(), 1);
+        assert_eq!(byte_occurrences(first.bytes(), b"/Subtype /Form"), 1);
+        assert_eq!(byte_occurrences(first.bytes(), b"/V0 Do"), 1);
+        assert_eq!(byte_occurrences(first.bytes(), b"/S /Figure"), 1);
+        assert_eq!(byte_occurrences(first.bytes(), b"/Alt <FEFF"), 1);
+        assert_eq!(byte_occurrences(first.bytes(), b"/Subtype /Image"), 0);
     }
 
     #[test]

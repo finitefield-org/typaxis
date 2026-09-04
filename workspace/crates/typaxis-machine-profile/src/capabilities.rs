@@ -1,6 +1,7 @@
 use crate::descriptor::MachineProfileDescriptor;
-#[cfg(test)]
-use crate::descriptor::PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
+use crate::descriptor::{
+    PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION, PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR,
+};
 use typaxis_core::{
     push_jcs_string, DocumentPackageContractId, MachineInputLimitBounds, MachinePdfProfileId,
     COORDINATE_UNIT, PRODUCT_NAME,
@@ -171,7 +172,6 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
 
 /// Canonical private projection used to close the future vector vocabulary
 /// without adding an eighth entry to the public profile tuple.
-#[cfg(test)]
 pub(crate) fn encode_private_precomposed_vector_capability_projection() -> String {
     let projection = PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
     let mut output = String::from("{\"blocks\":");
@@ -241,6 +241,97 @@ pub(crate) fn encode_private_precomposed_vector_capability_projection() -> Strin
     output.push('}');
     output
 }
+
+/// Complete private `production-book-1` projection. It is intentionally not
+/// reachable from the public capability serializer until the profile switch
+/// milestone; keeping it executable here lets preflight and descriptor tests
+/// prove the staged vocabulary in both directions.
+pub(crate) fn encode_private_production_book_capability_descriptor() -> String {
+    let descriptor = PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR;
+    let projection = descriptor.vector();
+    let mut output = String::from("{\"blocks\":");
+    push_named_values(&mut output, descriptor.blocks(), |value| value);
+    output.push_str(",\"image_formats\":");
+    push_named_values(&mut output, projection.coarse_image_formats(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"inlines\":{\"kinds\":");
+    push_named_values(&mut output, descriptor.inlines(), |value| value);
+    output.push_str("},\"profile\":");
+    push_jcs_string(
+        &mut output,
+        crate::descriptor::PrivateProductionBookCapabilityDescriptor::PROFILE_ID,
+    );
+    output.push_str(",\"resource_set\":{\"components\":");
+    push_named_values(&mut output, descriptor.resource_components(), |value| value);
+    output.push_str(",\"font_media\":");
+    push_named_values(&mut output, descriptor.font_media(), |value| value);
+    output.push_str(",\"id\":");
+    push_jcs_string(
+        &mut output,
+        crate::descriptor::PrivateProductionBookCapabilityDescriptor::RESOURCE_SET_ID,
+    );
+    output.push_str(",\"image_media\":");
+    push_named_values(&mut output, descriptor.image_media(), |value| value);
+    output.push_str("},\"style_block_types\":");
+    push_named_values(&mut output, descriptor.style_block_types(), |value| value);
+    output.push_str(",\"style_selectors\":");
+    push_named_values(&mut output, descriptor.style_selectors(), |value| value);
+    output.push_str(",\"vector_features\":");
+    push_named_values(&mut output, projection.vector_features(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"vector_features_by_profile\":{");
+    for (index, entry) in projection
+        .vector_features_by_profile()
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if index > 0 {
+            output.push(',');
+        }
+        push_jcs_string(&mut output, entry.profile().as_str());
+        output.push(':');
+        push_named_values(&mut output, entry.features(), |value| value.as_str());
+    }
+    output.push_str("},\"vector_formats\":");
+    push_named_values(&mut output, projection.vector_formats(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"vector_media_by_kind\":{");
+    for (index, entry) in projection
+        .vector_media_by_kind()
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if index > 0 {
+            output.push(',');
+        }
+        push_jcs_string(&mut output, entry.kind().as_str());
+        output.push(':');
+        push_named_values(&mut output, entry.media(), |value| value.as_str());
+    }
+    output.push_str("},\"vector_metrics\":");
+    push_named_values(&mut output, projection.vector_metrics(), |value| {
+        value.as_str()
+    });
+    output.push_str(",\"vector_profiles\":");
+    push_named_values(&mut output, projection.vector_profiles(), |value| {
+        value.as_str()
+    });
+    output.push('}');
+    output
+}
+
+// Keep the private staging serializers type-checked in non-test builds without
+// exposing them through the public seven-profile capability surface. The
+// publication milestone can connect the same staged descriptor to its owner.
+const _: [fn() -> String; 2] = [
+    encode_private_precomposed_vector_capability_projection,
+    encode_private_production_book_capability_descriptor,
+];
 
 fn push_profile(
     output: &mut String,
