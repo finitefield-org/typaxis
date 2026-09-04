@@ -2291,6 +2291,57 @@ pub struct StagingSafeVectorIsolatedPdfFixtureV2 {
     object_count: u32,
 }
 
+/// Semantic role for one vector use in the assertion-only MI4-V18 corpus PDF.
+#[cfg(any(test, feature = "staging-fixtures"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StagingSafeVectorIsolatedRoleV2 {
+    Formula,
+    Figure,
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+impl StagingSafeVectorIsolatedRoleV2 {
+    const fn pdf_name(self) -> &'static str {
+        match self {
+            Self::Formula => "Formula",
+            Self::Figure => "Figure",
+        }
+    }
+}
+
+/// Ordered text/role metadata wrapped around one real vector `Do` in the
+/// assertion-only corpus PDF. The complete tagged writer remains the owner of
+/// production structure trees; this record exists only to make all-category
+/// extraction independently inspectable in MI4-V18.
+#[cfg(any(test, feature = "staging-fixtures"))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingSafeVectorIsolatedSemanticUseV2 {
+    usage_id: u32,
+    role: StagingSafeVectorIsolatedRoleV2,
+    preceding_text: String,
+    actual_text: String,
+    language: String,
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+impl StagingSafeVectorIsolatedSemanticUseV2 {
+    pub fn new(
+        usage_id: u32,
+        role: StagingSafeVectorIsolatedRoleV2,
+        preceding_text: String,
+        actual_text: String,
+        language: String,
+    ) -> Self {
+        Self {
+            usage_id,
+            role,
+            preceding_text,
+            actual_text,
+            language,
+        }
+    }
+}
+
 #[cfg(any(test, feature = "staging-fixtures"))]
 impl StagingSafeVectorIsolatedPdfFixtureV2 {
     pub fn bytes(&self) -> &[u8] {
@@ -2316,8 +2367,64 @@ pub fn staging_safe_vector_isolated_pdf_fixture_v2(
     page_width: i64,
     page_height: i64,
 ) -> Result<StagingSafeVectorIsolatedPdfFixtureV2, StagingSafeVectorPdfV2Error> {
+    staging_safe_vector_isolated_pdf_fixture_v2_inner(
+        contribution,
+        page_width,
+        page_height,
+        None,
+        &[],
+        "",
+    )
+}
+
+/// Build an assertion-only vector PDF whose marked-content ActualText follows
+/// the exact all-category corpus order. This supplements, but never replaces,
+/// the fully tagged production fixture used by the manifest closure.
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub fn staging_safe_vector_accessible_isolated_pdf_fixture_v2(
+    contribution: &StagingSafeVectorPdfContributionV2,
+    page_width: i64,
+    page_height: i64,
+    semantics: &[StagingSafeVectorIsolatedSemanticUseV2],
+    page_trailing_text: &[String],
+    document_language: &str,
+) -> Result<StagingSafeVectorIsolatedPdfFixtureV2, StagingSafeVectorPdfV2Error> {
+    staging_safe_vector_isolated_pdf_fixture_v2_inner(
+        contribution,
+        page_width,
+        page_height,
+        Some(semantics),
+        page_trailing_text,
+        document_language,
+    )
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+fn staging_safe_vector_isolated_pdf_fixture_v2_inner(
+    contribution: &StagingSafeVectorPdfContributionV2,
+    page_width: i64,
+    page_height: i64,
+    semantics: Option<&[StagingSafeVectorIsolatedSemanticUseV2]>,
+    page_trailing_text: &[String],
+    document_language: &str,
+) -> Result<StagingSafeVectorIsolatedPdfFixtureV2, StagingSafeVectorPdfV2Error> {
     if page_width <= 0 || page_height <= 0 || contribution.pages.is_empty() {
         return Err(StagingSafeVectorPdfV2Error::InvalidPlacement);
+    }
+    if let Some(semantics) = semantics {
+        if semantics.len() != contribution.usages.len()
+            || page_trailing_text.len() != contribution.pages.len()
+            || !isolated_language_is_valid(document_language)
+            || semantics.iter().enumerate().any(|(index, semantic)| {
+                usize::try_from(semantic.usage_id).ok() != Some(index)
+                    || !isolated_accessible_text_is_valid(&semantic.actual_text)
+                    || !isolated_language_is_valid(&semantic.language)
+                    || semantic.preceding_text.contains('\0')
+            })
+            || page_trailing_text.iter().any(|text| text.contains('\0'))
+        {
+            return Err(StagingSafeVectorPdfV2Error::InvalidPlacement);
+        }
     }
     let page_object_count = contribution
         .pages
@@ -2434,8 +2541,41 @@ pub fn staging_safe_vector_isolated_pdf_fixture_v2(
                 .ok()
                 .and_then(|usage_index| contribution.usages.get(usage_index))
                 .ok_or(StagingSafeVectorPdfV2Error::ContributionMismatch)?;
-            content.extend_from_slice(&usage.content);
-            content.push(b'\n');
+            if let Some(semantics) = semantics {
+                let semantic = semantics
+                    .get(
+                        usize::try_from(*usage_id)
+                            .map_err(|_| StagingSafeVectorPdfV2Error::ContributionMismatch)?,
+                    )
+                    .filter(|semantic| semantic.usage_id == *usage_id)
+                    .ok_or(StagingSafeVectorPdfV2Error::ContributionMismatch)?;
+                append_isolated_actual_text(
+                    &mut content,
+                    "Span",
+                    &semantic.preceding_text,
+                    document_language,
+                    b"0 0 m 0 0 l S",
+                );
+                append_isolated_actual_text(
+                    &mut content,
+                    semantic.role.pdf_name(),
+                    &semantic.actual_text,
+                    &semantic.language,
+                    &usage.content,
+                );
+            } else {
+                content.extend_from_slice(&usage.content);
+                content.push(b'\n');
+            }
+        }
+        if semantics.is_some() {
+            append_isolated_actual_text(
+                &mut content,
+                "Span",
+                &page_trailing_text[index],
+                document_language,
+                b"0 0 m 0 0 l S",
+            );
         }
         content.extend_from_slice(b"Q");
         let mut object = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
@@ -2492,6 +2632,56 @@ pub fn staging_safe_vector_isolated_pdf_fixture_v2(
         usages,
         object_count: object_count_u32,
     })
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+fn isolated_accessible_text_is_valid(value: &str) -> bool {
+    value.chars().any(|character| !character.is_whitespace())
+        && !value.chars().any(|character| {
+            character <= '\u{001f}' || ('\u{007f}'..='\u{009f}').contains(&character)
+        })
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+fn isolated_language_is_valid(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+fn append_isolated_actual_text(
+    output: &mut Vec<u8>,
+    role: &str,
+    text: &str,
+    language: &str,
+    paint: &[u8],
+) {
+    if text.is_empty() {
+        return;
+    }
+    output.extend_from_slice(
+        format!(
+            "/{role} << /ActualText <{}> /Lang <{}> >> BDC\n",
+            isolated_utf16be_hex(text),
+            isolated_utf16be_hex(language),
+        )
+        .as_bytes(),
+    );
+    output.extend_from_slice(paint);
+    output.extend_from_slice(b"\nEMC\n");
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+fn isolated_utf16be_hex(value: &str) -> String {
+    use std::fmt::Write;
+
+    let mut output = String::from("FEFF");
+    for unit in value.encode_utf16() {
+        write!(&mut output, "{unit:04X}").expect("writing to String is infallible");
+    }
+    output
 }
 
 #[cfg(any(test, feature = "staging-fixtures"))]

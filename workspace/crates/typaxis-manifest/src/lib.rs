@@ -13,7 +13,7 @@ mod semantic_container;
 mod tagged_pdf;
 mod tagged_pdf_v2;
 mod vector_build_manifest;
-#[cfg(test)]
+#[cfg(any(test, feature = "staging-fixtures"))]
 mod vector_v2_fixture;
 
 pub use advanced_columns::project_staging_columns_manifest;
@@ -67,6 +67,12 @@ pub use tagged_pdf_v2::{
 pub use vector_build_manifest::{
     StagingProductionBuildManifestVectorFields, StagingProductionBuildManifestVectorFieldsError,
     StagingVectorBuildStatus,
+};
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub use vector_v2_fixture::{
+    build_figure_vector_v2_manifests, build_vector_v2_manifests, manifest_figure_vector_v2_fixture,
+    manifest_vector_v2_fixture, ManifestFigureVectorV2Fixture, ManifestVectorV2Fixture,
+    ManifestVectorV2Products,
 };
 
 use core::num::{NonZeroU16, NonZeroU64};

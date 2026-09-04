@@ -26,7 +26,7 @@ use typaxis_syntax::{
     ValidatedStagingBookNavigationV2, ValidatedStagingStructureSemanticsV2,
 };
 
-pub(crate) struct ManifestVectorV2Fixture {
+pub struct ManifestVectorV2Fixture {
     pub display: StagingPrecomposedVectorDisplayFixture,
     pub navigation: ValidatedStagingBookNavigationV2,
     pub semantics: ValidatedStagingStructureSemanticsV2,
@@ -43,14 +43,14 @@ pub(crate) struct ManifestVectorV2Fixture {
     pub pdf: StagingTaggedPdfV2,
 }
 
-pub(crate) struct ManifestVectorV2Products {
+pub struct ManifestVectorV2Products {
     pub safe: crate::StagingSafeVectorManifestV2,
     pub math: crate::StagingMathVectorManifest,
     pub book: crate::StagingBookNavigationManifestV2,
     pub tagged: crate::StagingTaggedPdfManifestV2,
 }
 
-pub(crate) struct ManifestFigureVectorV2Fixture {
+pub struct ManifestFigureVectorV2Fixture {
     pub display: StagingCombinedVectorFigureFixture,
     pub book: BookNavigationSelectedReceiptV2,
     pub form_isolation: VectorFormStructureIsolationReceiptV2,
@@ -61,7 +61,7 @@ pub(crate) struct ManifestFigureVectorV2Fixture {
     pub pdf: StagingTaggedPdfV2,
 }
 
-pub(crate) fn build_vector_v2_manifests(
+pub fn build_vector_v2_manifests(
     fixture: &ManifestVectorV2Fixture,
 ) -> Result<ManifestVectorV2Products, Box<dyn std::error::Error>> {
     let package = &fixture.display.layout.package;
@@ -121,7 +121,7 @@ pub(crate) fn build_vector_v2_manifests(
     })
 }
 
-pub(crate) fn build_figure_vector_v2_manifests(
+pub fn build_figure_vector_v2_manifests(
     fixture: &ManifestFigureVectorV2Fixture,
 ) -> Result<ManifestVectorV2Products, Box<dyn std::error::Error>> {
     let package = &fixture.display.figure.layout.package;
@@ -178,8 +178,7 @@ pub(crate) fn build_figure_vector_v2_manifests(
     })
 }
 
-pub(crate) fn manifest_vector_v2_fixture(
-) -> Result<ManifestVectorV2Fixture, Box<dyn std::error::Error>> {
+pub fn manifest_vector_v2_fixture() -> Result<ManifestVectorV2Fixture, Box<dyn std::error::Error>> {
     const SCALE: i64 = 65_536;
     let display = staging_precomposed_vector_tagged_pdf_fixture()?;
     let package = &display.layout.package;
@@ -336,7 +335,7 @@ pub(crate) fn manifest_vector_v2_fixture(
     })
 }
 
-pub(crate) fn manifest_figure_vector_v2_fixture(
+pub fn manifest_figure_vector_v2_fixture(
 ) -> Result<ManifestFigureVectorV2Fixture, Box<dyn std::error::Error>> {
     let display = staging_combined_vector_figure_fixture()?;
     let package = &display.figure.layout.package;

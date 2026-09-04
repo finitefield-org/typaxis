@@ -1,8 +1,15 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "precomposed-vector-fixtures")]
+mod precomposed_vector;
 mod safe_vector_pdf;
 mod tagged_pdf_v2;
 
+#[cfg(feature = "precomposed-vector-fixtures")]
+pub use precomposed_vector::{
+    build_precomposed_vector_artifacts, publish_precomposed_vector_artifacts,
+    reject_precomposed_vector_svg, PrecomposedVectorArtifactSet, PrecomposedVectorBuildSchedule,
+};
 pub use safe_vector_pdf::{
     inspect_safe_vector_pdf, SafeVectorPdfIndependentError, SafeVectorPdfIndependentExpectations,
     SafeVectorPdfIndependentReport,

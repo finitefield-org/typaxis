@@ -1507,3 +1507,99 @@ fn machine_vector_staging_slice_is_not_advertised_by_the_public_cli() {
         .contains("P1103: unknown DocumentPackage contract at /contract"));
     assert!(!fixture.join("vector.pdf").exists());
 }
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn public_m4_vector_isolation_cli_end_to_end() {
+    let repository = repository_root();
+    let fixture =
+        repository.join("samples/machine-package/staging/production-book-1/precomposed-vector");
+
+    for arguments in [
+        strings(&["--help"]),
+        strings(&["build-package", "--help"]),
+        strings(&["check-package", "--help"]),
+    ] {
+        let help = run(&repository, &arguments);
+        assert!(help.status.success());
+        let help = String::from_utf8(help.stdout).unwrap();
+        for private_name in [
+            "private-production-book",
+            "production-book-1",
+            "typaxis.contract/1.4",
+            "inline_vector",
+            "math_vector",
+            "vector_figure",
+            "math_vector_block",
+            "svg-safe-2",
+        ] {
+            assert!(
+                !help.contains(private_name),
+                "public help leaked {private_name}"
+            );
+        }
+    }
+
+    let capabilities = run(&repository, &strings(&["capabilities", "--format", "json"]));
+    assert!(capabilities.status.success());
+    assert!(capabilities.stderr.is_empty());
+    assert_eq!(
+        capabilities.stdout,
+        fs::read(repository.join("samples/machine-package/capabilities.json")).unwrap()
+    );
+    let capabilities = String::from_utf8(capabilities.stdout).unwrap();
+    for private_name in [
+        "production-book-1",
+        "inline_vector",
+        "math_vector",
+        "vector_figure",
+        "math_vector_block",
+        "svg-safe-2",
+    ] {
+        assert!(
+            !capabilities.contains(private_name),
+            "public capabilities leaked {private_name}"
+        );
+    }
+
+    let current_schema = fs::read(repository.join("schemas/document-package.schema.json")).unwrap();
+    assert_eq!(
+        current_schema,
+        fs::read(repository.join("schemas/1.3/document-package.schema.json")).unwrap()
+    );
+    assert!(!String::from_utf8(current_schema)
+        .unwrap()
+        .contains("inline_vector"));
+
+    let rejected_contract = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "document-package.json",
+            "--package-root",
+            ".",
+            "--profile",
+            "typaxis.machine-pdf/paragraph-1",
+        ]),
+    );
+    assert_eq!(rejected_contract.status.code(), Some(1));
+    assert!(String::from_utf8(rejected_contract.stderr)
+        .unwrap()
+        .contains("P1103: unknown DocumentPackage contract at /contract"));
+
+    let rejected_profile = run(
+        &fixture,
+        &strings(&[
+            "check-package",
+            "document-package.json",
+            "--package-root",
+            ".",
+            "--profile",
+            "typaxis.machine-pdf/production-book-1",
+        ]),
+    );
+    assert_eq!(rejected_profile.status.code(), Some(2));
+    assert!(String::from_utf8(rejected_profile.stderr)
+        .unwrap()
+        .contains("unknown machine PDF profile `typaxis.machine-pdf/production-book-1`"));
+}

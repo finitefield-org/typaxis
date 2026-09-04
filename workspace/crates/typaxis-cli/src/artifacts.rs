@@ -102,6 +102,20 @@ fn hex_hash(value: [u8; 32]) -> String {
     output
 }
 
+/// Publish the MI4-V18 generated evidence through the CLI artifact owner.
+///
+/// This remains test-only so neither the private contract nor its artifact
+/// vocabulary can become reachable from the public command surface. The
+/// testkit enforces an absent destination, portable leaf names, and atomic
+/// directory publication.
+#[cfg(test)]
+pub(crate) fn publish_staging_precomposed_vector_evidence(
+    artifacts: &typaxis_testkit::PrecomposedVectorArtifactSet,
+    output: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    typaxis_testkit::publish_precomposed_vector_artifacts(artifacts, output)
+}
+
 pub const GENERATED_TRACE_TEXT_REQUIRES_OPT_IN: &str =
     "generated text requires `--trace-text` for a complete trace";
 

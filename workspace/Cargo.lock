@@ -422,6 +422,7 @@ dependencies = [
  "typaxis-resources",
  "typaxis-shaping",
  "typaxis-syntax",
+ "typaxis-testkit",
  "typaxis-text",
 ]
 
@@ -684,6 +685,7 @@ dependencies = [
  "typaxis-document",
  "typaxis-layout",
  "typaxis-machine-profile",
+ "typaxis-manifest",
  "typaxis-pagination",
  "typaxis-pdf",
  "typaxis-resources",

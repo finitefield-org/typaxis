@@ -8180,4 +8180,289 @@ pub(crate) mod tests {
             .unwrap();
         assert!(status.success());
     }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn precomposed_vector_corpus_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/machine-package/staging/production-book-1/precomposed-vector")
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn byte_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
+        haystack
+            .windows(needle.len())
+            .filter(|window| *window == needle)
+            .count()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_precomposed_vector_closes_private_production_pipeline_and_legacy_paths() {
+        use typaxis_testkit::{build_precomposed_vector_artifacts, PrecomposedVectorBuildSchedule};
+
+        let artifacts =
+            build_precomposed_vector_artifacts(PrecomposedVectorBuildSchedule::Forward).unwrap();
+        for required in [
+            "artifact-index.json",
+            "block-layout-trace.json",
+            "book-navigation-manifest.json",
+            "build-manifest-vector.json",
+            "corpus-admission.json",
+            "corpus-display.json",
+            "corpus-output.pdf",
+            "dedupe-ten-use.pdf",
+            "dedupe-two-alias.pdf",
+            "display-v2.json",
+            "effective-document-package.json",
+            "figure-build-manifest-vector.json",
+            "figure-output.pdf",
+            "inline-layout-trace.json",
+            "math-vector-manifest.json",
+            "output.pdf",
+            "pdf-observation.json",
+            "phase-receipts.json",
+            "safe-vector-manifest.json",
+            "tagged-pdf-manifest.json",
+            "verification.json",
+        ] {
+            assert!(artifacts.file(required).is_some(), "missing {required}");
+        }
+        let pdf = artifacts.file("output.pdf").unwrap();
+        assert!(pdf.starts_with(b"%PDF-1.7"));
+        assert_eq!(byte_occurrences(pdf, b"/Subtype /Form"), 1);
+        assert_eq!(byte_occurrences(pdf, b"/V0 Do"), 4);
+        assert_eq!(byte_occurrences(pdf, b"/Subtype /Image"), 0);
+        assert_eq!(byte_occurrences(pdf, b"/MCID"), 10);
+        assert!(!pdf.windows(3).any(|window| window == b"x+y"));
+        let ten = artifacts.file("dedupe-ten-use.pdf").unwrap();
+        assert_eq!(byte_occurrences(ten, b"/Subtype /Form"), 1);
+        assert_eq!(byte_occurrences(ten, b"/V0 Do"), 10);
+        assert_eq!(byte_occurrences(ten, b"/Subtype /Image"), 0);
+        let aliases = artifacts.file("dedupe-two-alias.pdf").unwrap();
+        assert_eq!(byte_occurrences(aliases, b"/Subtype /Form"), 1);
+        assert_eq!(byte_occurrences(aliases, b" Do"), 4);
+        assert_eq!(byte_occurrences(aliases, b"/Subtype /Image"), 0);
+        let corpus = artifacts.file("corpus-output.pdf").unwrap();
+        assert_eq!(byte_occurrences(corpus, b"/Subtype /Form"), 12);
+        assert_eq!(byte_occurrences(corpus, b" Do"), 33);
+        assert_eq!(byte_occurrences(corpus, b"/Formula <<"), 29);
+        assert_eq!(byte_occurrences(corpus, b"/Figure <<"), 4);
+        assert_eq!(byte_occurrences(corpus, b"/Subtype /Image"), 0);
+        assert!(!corpus.windows(3).any(|window| window == b"x+y"));
+        let effective_package = artifacts.file("effective-document-package.json").unwrap();
+        assert_eq!(
+            byte_occurrences(effective_package, b"\"contract\":\"typaxis.contract/1.4\""),
+            1
+        );
+        for kind in [
+            b"\"kind\":\"inline_vector\"".as_slice(),
+            b"\"kind\":\"math_vector\"",
+            b"\"kind\":\"vector_figure\"",
+            b"\"kind\":\"math_vector_block\"",
+        ] {
+            assert!(
+                effective_package
+                    .windows(kind.len())
+                    .any(|window| window == kind),
+                "effective package is missing {}",
+                String::from_utf8_lossy(kind)
+            );
+        }
+        let phases = artifacts.file("phase-receipts.json").unwrap();
+        let mut cursor = 0usize;
+        for phase in [
+            "wire",
+            "syntax-metrics-source-language",
+            "profile-style",
+            "resource-admission",
+            "metric-math-binding",
+            "inline-block-layout",
+            "display-navigation",
+            "content-form-plan",
+            "structure-marked-content",
+            "final-tagged-pdf-observations",
+            "manifests",
+        ] {
+            let found = phases[cursor..]
+                .windows(phase.len())
+                .position(|window| window == phase.as_bytes())
+                .unwrap_or_else(|| panic!("missing ordered phase {phase}"));
+            cursor += found + phase.len();
+        }
+        for (name, payload) in artifacts.files() {
+            if name.ends_with(".json") {
+                assert!(payload.ends_with(b"\n"), "{name} has no final LF");
+                assert!(!payload.contains(&b'\r'), "{name} contains CR");
+            }
+        }
+
+        let output_override = std::env::var_os("TYPAXIS_PRECOMPOSED_VECTOR_ARTIFACT_DIR");
+        let output = output_override
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../target/machine-e2e/precomposed-vector")
+            });
+        if output_override.is_some() {
+            assert!(
+                !output.exists(),
+                "private artifact output override must name an absent directory"
+            );
+        } else if output.exists() {
+            fs::remove_dir_all(&output).unwrap();
+        }
+        crate::artifacts::publish_staging_precomposed_vector_evidence(&artifacts, &output).unwrap();
+        assert_eq!(fs::read(output.join("output.pdf")).unwrap(), pdf);
+
+        // Existing /1 owners remain executable in the same private gate. The
+        // new /2 pipeline supplements them and cannot stand in for them.
+        let legacy_vector = run_staging_machine_vector();
+        legacy_vector
+            .manifest
+            .verify(
+                &legacy_vector.package,
+                &legacy_vector.profile,
+                &legacy_vector.limits,
+                &legacy_vector.admitted,
+                &legacy_vector.media,
+                &legacy_vector.selected,
+                &legacy_vector.display,
+                &legacy_vector.plans,
+                &legacy_vector.pdf,
+            )
+            .unwrap();
+        let legacy_math = run_staging_machine_math();
+        assert!(!legacy_math.manifest.facts().is_empty());
+        let legacy_navigation = run_staging_machine_book_navigation();
+        assert!(!legacy_navigation.manifest.canonical_jcs().is_empty());
+        let legacy_tagged = run_staging_machine_accessibility();
+        assert!(!legacy_tagged.manifest.canonical_jcs().is_empty());
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_precomposed_vector_negative_svg_corpus_and_side_effect_policy_are_terminal() {
+        use typaxis_testkit::reject_precomposed_vector_svg;
+
+        let root = precomposed_vector_corpus_root();
+        let negative = fs::read_to_string(root.join("negative.tsv")).unwrap();
+        let mut negative_rows = 0usize;
+        for line in negative.lines().skip(1) {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            assert_eq!(fields.len(), 3);
+            let reason = reject_precomposed_vector_svg(&root, fields[2]).unwrap();
+            assert_eq!(reason.as_str(), fields[1], "negative case {}", fields[0]);
+            negative_rows += 1;
+        }
+        assert_eq!(negative_rows, 6);
+
+        let ledger = fs::read_to_string(root.join("negative-integration.tsv")).unwrap();
+        let header = ledger.lines().next().unwrap();
+        assert_eq!(
+            header,
+            "case_id\texpected_phase\texpected_code\tlocation\tpackage_read\tresource_opened\tlayout_started\tpdf_started\tvisible_artifacts\towner_test"
+        );
+        let mut ids = std::collections::BTreeSet::new();
+        let mut row_count = 0usize;
+        for line in ledger.lines().skip(1) {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            assert_eq!(fields.len(), 10, "invalid negative ledger row: {line}");
+            assert!(
+                ids.insert(fields[0]),
+                "duplicate negative case {}",
+                fields[0]
+            );
+            assert!(matches!(
+                &fields[2][..1],
+                "P" | "T" | "S" | "F" | "L" | "G" | "R" | "I"
+            ));
+            assert_eq!(fields[2].len(), 5);
+            assert!(!fields[3].is_empty());
+            assert_eq!(fields[4], "true");
+            let resource_opened = fields[5] == "true";
+            let layout_started = fields[6] == "true";
+            let pdf_started = fields[7] == "true";
+            match fields[1] {
+                "wire" | "syntax" | "profile" | "style" => {
+                    assert!(!resource_opened && !layout_started && !pdf_started)
+                }
+                "resource" => assert!(resource_opened && !layout_started && !pdf_started),
+                "binding" => assert!(resource_opened && !layout_started && !pdf_started),
+                "layout" | "content-form" | "structure" => {
+                    assert!(resource_opened && layout_started && !pdf_started)
+                }
+                "pdf" | "manifest" => {
+                    assert!(resource_opened && layout_started && pdf_started)
+                }
+                phase => panic!("unknown failure phase {phase}"),
+            }
+            assert_eq!(fields[8], "diagnostics,manifest");
+            assert!(!fields[9].is_empty());
+            row_count += 1;
+        }
+        assert_eq!(row_count, 38);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_precomposed_vector_reproducibility_ignores_private_completion_schedule() {
+        use typaxis_testkit::{build_precomposed_vector_artifacts, PrecomposedVectorBuildSchedule};
+
+        let forward =
+            build_precomposed_vector_artifacts(PrecomposedVectorBuildSchedule::Forward).unwrap();
+        let reverse =
+            build_precomposed_vector_artifacts(PrecomposedVectorBuildSchedule::ReverseCompletion)
+                .unwrap();
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.canonical_digest(), reverse.canonical_digest());
+        assert_eq!(forward.file("output.pdf"), reverse.file("output.pdf"));
+        assert_eq!(
+            forward.file("artifact-index.json"),
+            reverse.file("artifact-index.json")
+        );
+    }
+
+    #[test]
+    fn public_m4_vector_isolation_keeps_contract_profile_capability_and_cli_surface_frozen() {
+        use std::str::FromStr;
+
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+        assert!(typaxis_core::MachinePdfProfileId::from_str(
+            "typaxis.machine-pdf/production-book-1"
+        )
+        .is_err());
+        let private =
+            fs::read(precomposed_vector_corpus_root().join("document-package.json")).unwrap();
+        assert!(wire::StrictDocumentPackageDecoder::new()
+            .decode(
+                &private,
+                &wire::DocumentPackageDecodePolicy::new(config().limits()),
+            )
+            .is_err());
+        let capability = typaxis_machine_profile::encode_capabilities_canonical(
+            typaxis_machine_profile::HostCapabilityDescriptor::compiled(),
+        );
+        assert_eq!(
+            capability.as_bytes(),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/capabilities.json"
+            ))
+        );
+        for private_name in [
+            "production-book-1",
+            "inline_vector",
+            "math_vector",
+            "vector_figure",
+            "math_vector_block",
+            "svg-safe-2",
+        ] {
+            assert!(!capability.contains(private_name));
+        }
+        assert!(!crate::cli::COMMANDS.contains(&"private-production-book"));
+    }
 }

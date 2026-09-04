@@ -4946,7 +4946,7 @@ mod tests {
 
         let zero_width = String::from_utf8(PRECOMPOSED_VECTOR_FIXTURE.to_vec())
             .unwrap()
-            .replacen("\"width\":1835008", "\"width\":0", 1);
+            .replacen("\"width\":1966080", "\"width\":0", 1);
         assert!(parse(zero_width.as_bytes())
             .unwrap_err()
             .to_string()

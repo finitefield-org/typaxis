@@ -51,6 +51,22 @@ class MachineReproducibilityResult:
         }
 
 
+@dataclass(frozen=True)
+class PrivateStagingReproducibilityResult:
+    revision: str
+    source_snapshot_sha256: str
+    published_artifact_set_sha256: str
+    artifact_sha256: dict[str, str]
+
+    def as_json(self) -> dict[str, object]:
+        return {
+            "artifacts": dict(sorted(self.artifact_sha256.items())),
+            "published_artifact_set_sha256": self.published_artifact_set_sha256,
+            "revision": self.revision,
+            "source_snapshot_sha256": self.source_snapshot_sha256,
+        }
+
+
 def filtered_environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
     """Remove all ambient Typaxis config before build and CLI execution."""
 
@@ -325,9 +341,12 @@ def _materialize_worktree_snapshot(
     repository: Path,
     destination: Path,
     files: Sequence[Path],
+    *,
+    reverse_creation_order: bool = False,
 ) -> None:
     destination.mkdir()
-    for relative in files:
+    ordered_files = reversed(files) if reverse_creation_order else iter(files)
+    for relative in ordered_files:
         source = repository / relative
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -559,6 +578,182 @@ def verify_machine_reproducibility(
         )
 
 
+_PRIVATE_PRECOMPOSED_VECTOR_ARTIFACTS = (
+    "artifact-index.json",
+    "block-layout-trace.json",
+    "book-navigation-manifest.json",
+    "build-manifest-vector.json",
+    "corpus-admission.json",
+    "corpus-display.json",
+    "corpus-output.pdf",
+    "dedupe-ten-use.pdf",
+    "dedupe-two-alias.pdf",
+    "display-v2.json",
+    "effective-document-package.json",
+    "figure-build-manifest-vector.json",
+    "figure-output.pdf",
+    "inline-layout-trace.json",
+    "math-vector-manifest.json",
+    "output.pdf",
+    "pdf-observation.json",
+    "phase-receipts.json",
+    "safe-vector-manifest.json",
+    "tagged-pdf-manifest.json",
+    "verification.json",
+)
+
+
+def _private_staging_artifacts(checkout: Path) -> dict[str, bytes]:
+    directory = checkout / "workspace/target/machine-e2e/precomposed-vector"
+    if not directory.is_dir():
+        raise ReproducibilityError(
+            f"private precomposed-vector test did not publish {directory}"
+        )
+    names = tuple(
+        sorted(
+            path.relative_to(directory).as_posix()
+            for path in directory.rglob("*")
+            if path.is_file()
+        )
+    )
+    if names != _PRIVATE_PRECOMPOSED_VECTOR_ARTIFACTS:
+        missing = sorted(set(_PRIVATE_PRECOMPOSED_VECTOR_ARTIFACTS) - set(names))
+        extra = sorted(set(names) - set(_PRIVATE_PRECOMPOSED_VECTOR_ARTIFACTS))
+        raise ReproducibilityError(
+            "private precomposed-vector artifact set differs: "
+            f"missing={missing}, extra={extra}"
+        )
+    return {name: (directory / name).read_bytes() for name in names}
+
+
+def _run_private_precomposed_vector_test(
+    checkout: Path,
+    target: Path,
+    *,
+    cargo: str,
+    environment: Mapping[str, str],
+) -> dict[str, bytes]:
+    manifest = checkout / "workspace/Cargo.toml"
+    build_environment = dict(environment)
+    build_environment["CARGO_TARGET_DIR"] = os.fspath(target)
+    build_environment["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(
+        _machine_build_rustflags(checkout, target)
+    )
+    _run_checked(
+        [
+            cargo,
+            "test",
+            "--manifest-path",
+            manifest,
+            "--locked",
+            "--package",
+            "typaxis-cli",
+            "machine_precomposed_vector_closes_private",
+            "--",
+            "--test-threads=1",
+        ],
+        cwd=checkout,
+        environment=build_environment,
+    )
+    artifacts = _private_staging_artifacts(checkout)
+    _run_checked(
+        [
+            sys.executable,
+            checkout / "tools/verify_precomposed_vector.py",
+            checkout / "workspace/target/machine-e2e/precomposed-vector",
+            "--repository",
+            checkout,
+        ],
+        cwd=checkout,
+        environment=environment,
+    )
+    return artifacts
+
+
+def verify_private_staging_reproducibility(
+    repository: Path,
+    *,
+    revision: str = "HEAD",
+    cargo: str = "cargo",
+) -> PrivateStagingReproducibilityResult:
+    """Verify MI4-V18 bytes across path, locale, timezone, and creation order."""
+
+    root = release.repository_root(repository)
+    environment = filtered_environment()
+    selected_revision = _resolve_commit(root, revision, environment)
+    head_revision = _resolve_commit(root, "HEAD", environment)
+    if selected_revision != head_revision:
+        raise ReproducibilityError(
+            "private staging mode requires --revision to resolve to the current HEAD"
+        )
+    files = _listed_worktree_files(root, environment)
+    source_snapshot_sha256 = _source_snapshot_sha256(root, files)
+    with tempfile.TemporaryDirectory(prefix=MACHINE_TEMPORARY_PREFIX) as raw_temporary:
+        temporary = Path(raw_temporary)
+        first_checkout = temporary / "checkout-alpha"
+        second_checkout = temporary / "typaxis-source-under-a-different-name"
+        _materialize_worktree_snapshot(root, first_checkout, files)
+        _materialize_worktree_snapshot(
+            root,
+            second_checkout,
+            files,
+            reverse_creation_order=True,
+        )
+        if (
+            _source_snapshot_sha256(first_checkout, files) != source_snapshot_sha256
+            or _source_snapshot_sha256(second_checkout, files)
+            != source_snapshot_sha256
+        ):
+            raise ReproducibilityError("aliased source snapshots differ from the worktree")
+
+        first_environment = dict(environment)
+        first_environment.update({"LC_ALL": "C", "LANG": "C", "TZ": "UTC"})
+        second_environment = dict(environment)
+        second_environment.update(
+            {
+                "LC_ALL": "ja_JP.UTF-8",
+                "LANG": "ja_JP.UTF-8",
+                "TZ": "Asia/Tokyo",
+            }
+        )
+        first_artifacts = _run_private_precomposed_vector_test(
+            first_checkout,
+            temporary / MACHINE_TARGET_DIRECTORY_NAMES[1],
+            cargo=cargo,
+            environment=first_environment,
+        )
+        second_artifacts = _run_private_precomposed_vector_test(
+            second_checkout,
+            temporary / MACHINE_TARGET_DIRECTORY_NAMES[2],
+            cargo=cargo,
+            environment=second_environment,
+        )
+        for name in _PRIVATE_PRECOMPOSED_VECTOR_ARTIFACTS:
+            if first_artifacts[name] != second_artifacts[name]:
+                raise ReproducibilityError(
+                    f"private staging {name} bytes differ across environments: "
+                    f"{_sha256(first_artifacts[name])} != "
+                    f"{_sha256(second_artifacts[name])}"
+                )
+        digest = hashlib.sha256()
+        for name in _PRIVATE_PRECOMPOSED_VECTOR_ARTIFACTS:
+            encoded_name = name.encode("utf-8")
+            payload = first_artifacts[name]
+            digest.update(len(encoded_name).to_bytes(8, "big"))
+            digest.update(encoded_name)
+            digest.update(len(payload).to_bytes(8, "big"))
+            digest.update(payload)
+        return PrivateStagingReproducibilityResult(
+            revision=selected_revision,
+            source_snapshot_sha256=source_snapshot_sha256,
+            published_artifact_set_sha256=digest.hexdigest(),
+            artifact_sha256={
+                name: _sha256(payload)
+                for name, payload in sorted(first_artifacts.items())
+            },
+        )
+
+
 def verify_reproducibility(
     repository: Path,
     *,
@@ -645,13 +840,31 @@ def _parse_arguments(arguments: list[str]) -> argparse.Namespace:
         type=Path,
         help="positive machine expected.json to verify across aliased worktree snapshots",
     )
+    parser.add_argument(
+        "--private-staging-test",
+        choices=("precomposed-vector",),
+        help="private staging integration gate to verify across hostile environments",
+    )
     return parser.parse_args(arguments)
 
 
 def main(arguments: list[str] | None = None) -> int:
     options = _parse_arguments(sys.argv[1:] if arguments is None else arguments)
+    if options.machine_fixture is not None and options.private_staging_test is not None:
+        print(
+            "reproducibility error: --machine-fixture and --private-staging-test "
+            "are mutually exclusive",
+            file=sys.stderr,
+        )
+        return 2
     try:
-        if options.machine_fixture is not None:
+        if options.private_staging_test is not None:
+            private_staging = verify_private_staging_reproducibility(
+                options.repository,
+                revision=options.revision,
+                cargo=options.cargo,
+            )
+        elif options.machine_fixture is not None:
             machine = verify_machine_reproducibility(
                 options.repository,
                 options.machine_fixture,
@@ -665,6 +878,16 @@ def main(arguments: list[str] | None = None) -> int:
     except (ReproducibilityError, release.ReleaseError, OSError, UnicodeError) as error:
         print(f"reproducibility error: {error}", file=sys.stderr)
         return 1
+    if options.private_staging_test is not None:
+        print(
+            json.dumps(
+                private_staging.as_json(),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        return 0
     if options.machine_fixture is not None:
         print(
             json.dumps(

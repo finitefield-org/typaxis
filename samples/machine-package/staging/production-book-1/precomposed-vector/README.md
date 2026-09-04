@@ -1,7 +1,8 @@
 # VMB precomposed-vector corpus
 
-This directory is the checked-in producer-interface corpus for `MI4-V01` and
-the canonical private contract-1.4 Wire fixture added by `MI4-V03`. The
+This directory is the checked-in producer-interface corpus for `MI4-V01`, the
+canonical private contract-1.4 Wire fixture added by `MI4-V03`, and the
+generated-evidence expectations closed by `MI4-V18`. The
 `document-package.json` fixture is accepted only by the private 1.4 decoder and
 Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
@@ -22,6 +23,21 @@ not add a standalone production PDF receipt:
 - `negative.tsv` binds rejected SVG fixtures under `negative-svg/` to the
   closed Safe-SVG 2 `R7100` reason vocabulary. These files are parser test
   inputs and are never referenced by the document package.
+- `negative-integration.tsv` is the fail-closed integration matrix. Each row
+  names the owning executable Rust test together with the terminal phase,
+  diagnostic code/location, phase-receipt side effects, and the only visible
+  failed-build artifacts. It includes wire/profile, admission/binding,
+  layout, Form/content, structure, final-PDF, manifest, and exact max+1 limit
+  failures; it is evidence metadata rather than an instruction to synthesize
+  a failure at verification time.
+- `assertion-traceability.tsv` maps every assertion group in design §15.1–15.5
+  to its checked-in fixture or generated artifact and its executable Rust or
+  independent-verifier owner.
+- `expected.json` is the strict private runner expectation. It fixes the
+  private command/profile identity, successful phase side effects, page and
+  normalized-extraction expectations, advertised four-kind coverage, and the
+  byte length and SHA-256 of every distinct corpus SVG. It is canonical JCS
+  plus one LF and conforms to the private 1.4 fixture-expectation Schema.
 - `document-package.json` and `input.tsf` form the canonical strict-Wire/JCS
   fixture covering all four vector kinds, nullable actual text, source TeX,
   spacing, equation-number child shape, and one `svg-safe-2` provenance record.
@@ -62,9 +78,31 @@ not add a standalone production PDF receipt:
   outline, marked-content, extraction, and Form-isolation closure. Separate
   synthetic cases check IDTree closure, Unicode equation numbers, and
   ActualText-only font extraction. All three final writer observations
-  (tagged PDF, book navigation, and SafeVector) close over the same PDF hash;
-  no generated PDF or host-specific fixture path is checked in here. Combined
-  Japanese-book pipeline integration and external validation remain V18/V19.
+  (tagged PDF, book navigation, and SafeVector) close over the same PDF hash.
+- The `MI4-V18` crate-private integration runner composes those production
+  owners in strict receipt order, publishes the complete generated artifact
+  set only below `workspace/target/machine-e2e/precomposed-vector/`, reruns the
+  legacy SafeVector/native-math/navigation/tagged `/1` owners, and separately
+  generates the one-Form/ten-`Do` proof plus a two-logical-ID, two-provenance,
+  one-Form alias proof. It also stable-reads and admits all 13 logical corpus
+  resources through the Safe-SVG 2 parser, closes the two equal hashes to 12
+  content candidates, and publishes that canonical receipt as
+  `corpus-admission.json`. The assertion-only all-category projection emits
+  `corpus-display.json` and an eight-page `corpus-output.pdf`: all 33 ledger
+  occurrences use the admitted vector paths as 12 shared Form XObjects and 33
+  `Do` operations, preserve Formula/Figure ActualText and language in document
+  order, and never rasterize. It supplements rather than replaces the
+  fully-tagged four-kind production PDF and its structure tree. The runner also
+  publishes `effective-document-package.json`, the exact canonical checked
+  package consumed by that production path; its hash is joined to the
+  SafeVector, math-vector, tagged-PDF, and book-navigation package identities.
+  The independent verifier joins these generated PDF/Display/package facts to
+  this directory's all-category Japanese corpus ledgers and fails on a missing,
+  extra, stale, rasterized, or inconsistent artifact. Host evidence binds the
+  exact package, source set, TeX set, fragment-text set, all four ledgers,
+  expectation, verifier, Cargo lockfile, Git revision, and complete worktree
+  snapshot. Generated PDFs and host evidence are never checked in here.
+  External renderer and conformance validation remain `MI4-V19`.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,
@@ -133,6 +171,27 @@ geometry is expanded into the Safe-SVG 2 path/shape subset. They intentionally
 contain no `use`, text/font nodes, CSS, script, animation, image, or external
 reference. Typaxis must validate and place these bytes; it must not add a VMB
 preprocessor or fall back to native math, PNG, or omitted content.
+
+Run the private integration and independent verification from the repository
+root with:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli \
+  machine_precomposed_vector_closes_private --locked
+python3 tools/verify_precomposed_vector.py \
+  workspace/target/machine-e2e/precomposed-vector --repository .
+```
+
+`verify_precomposed_vector.py --emit-host-evidence PATH` writes one canonical,
+Schema-validated host record with atomic replacement. Its aggregate mode uses
+`--require-host-evidence DIRECTORY --required-host macos --required-host linux`
+and accepts only current-revision, successful records with one identical
+artifact-set hash. Aggregation recomputes the current source, verifier, and
+fixture identities, so two mutually consistent but stale records are still
+rejected. The distinct path/locale/timezone/filesystem-order gate is owned by
+`tools/verify_reproducibility.py --private-staging-test precomposed-vector`;
+this is a repository verification-tool option, never a public `typaxis` CLI
+option.
 
 The PDF contribution tests use `x-plus-y.svg` for exact public black
 `currentColor`, `fraction-equality.svg` for distinct fill/stroke alpha,

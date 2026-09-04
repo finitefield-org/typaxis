@@ -298,6 +298,24 @@ impl VectorContentCandidateRegistry {
         canonicalize_candidates(prepare_aliases(admitted, declarations)?)
     }
 
+    /// Test-only scheduler seam: vary owner-private preparation completion
+    /// without changing the declared resource sequence that is part of the
+    /// package input. Canonicalization must erase this schedule difference.
+    #[cfg(any(test, feature = "staging-fixtures"))]
+    pub fn staging_from_admitted_with_reverse_completion(
+        admitted: &AdmittedResourceLedger,
+        declarations: &StagingM4ResourceCatalog,
+        reverse_completion: bool,
+    ) -> Result<Self, VectorContentPlanningError> {
+        close_staging_declared_media(admitted, declarations)
+            .map_err(|_| VectorContentPlanningError::DeclarationMismatch)?;
+        let mut prepared = prepare_aliases(admitted, declarations)?;
+        if reverse_completion {
+            prepared.reverse();
+        }
+        canonicalize_candidates(prepared)
+    }
+
     pub fn candidates(&self) -> &[VectorContentCandidate] {
         &self.candidates
     }

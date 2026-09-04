@@ -35,7 +35,8 @@
     "command": {
       "enum": [
         "build-package",
-        "check-package"
+        "check-package",
+        "private-production-book"
       ]
     },
     "contract": {
@@ -70,6 +71,7 @@
         "typaxis.machine-pdf/footnote-1",
         "typaxis.machine-pdf/header-footer-1",
         "typaxis.machine-pdf/paragraph-1",
+        "typaxis.machine-pdf/production-book-1",
         "typaxis.machine-pdf/table-1"
       ]
     },
@@ -91,6 +93,7 @@
         "manifest_progress",
         "normalized_extracted_text",
         "page_count",
+        "precomposed_vector_corpus",
         "primary_code",
         "side_effects",
         "visible_artifacts"
@@ -124,6 +127,9 @@
           ],
           "minimum": 1
         },
+        "precomposed_vector_corpus": {
+          "$ref": "#/$defs/precomposed_vector_corpus"
+        },
         "primary_code": {
           "anyOf": [
             {
@@ -149,6 +155,39 @@
               "trace"
             ]
           }
+        }
+      }
+    },
+    "precomposed_vector_corpus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "do_count",
+        "form_count",
+        "normalized_extracted_text",
+        "page_count",
+        "placement_count",
+        "resource_count"
+      ],
+      "properties": {
+        "do_count": {
+          "const": 33
+        },
+        "form_count": {
+          "const": 12
+        },
+        "normalized_extracted_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "page_count": {
+          "const": 8
+        },
+        "placement_count": {
+          "const": 33
+        },
+        "resource_count": {
+          "const": 12
         }
       }
     },

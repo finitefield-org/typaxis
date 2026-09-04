@@ -4765,8 +4765,14 @@ def combined_fixture_items(
     return sorted(items, key=utf8_sort_key)
 
 
-def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator]) -> tuple[int, int]:
+def validate_machine_fixture_bundle(
+    validators: dict[str, Draft202012Validator],
+    private_m4_validators: dict[str, Draft202012Validator],
+) -> tuple[int, int]:
     expectation_validator = validators["machine-fixture-expectation.schema.json"]
+    private_expectation_validator = private_m4_validators[
+        "machine-fixture-expectation.schema.json"
+    ]
     matrix_validator = validators["machine-fixture-matrix.schema.json"]
     capabilities_validator = validators["machine-capabilities.schema.json"]
 
@@ -4787,12 +4793,23 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
     expected_paths = sorted(MACHINE_FIXTURE_DIR.glob("**/expected.json"))
     if not expected_paths:
         raise ValidationFailure("machine fixture bundle contains no expected.json files")
+    private_expected_path = STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "expected.json"
+    matrix_expected_paths = [path for path in expected_paths if path != private_expected_path]
     for path in expected_paths:
+        is_private_expectation = path == private_expected_path
         instance = load_json(path)
-        errors = schema_errors(expectation_validator, instance)
+        selected_expectation_validator = (
+            private_expectation_validator
+            if is_private_expectation
+            else expectation_validator
+        )
+        errors = schema_errors(selected_expectation_validator, instance)
         if errors:
             raise ValidationFailure(f"{path}: expectation rejected: " + " | ".join(errors))
-        if path.read_bytes() != jcs_bytes(instance):
+        expected_bytes = jcs_bytes(instance)
+        if is_private_expectation:
+            expected_bytes += b"\n"
+        if path.read_bytes() != expected_bytes:
             raise ValidationFailure(f"{path}: expectation is not canonical JCS")
         fixture_id = instance["fixture_id"]
         if fixture_id in expectations:
@@ -4822,8 +4839,9 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             raise ValidationFailure(f"{path}: failure outcome claims a PDF result")
         if outcome["exit_code"] == 2 and visible:
             raise ValidationFailure(f"{path}: usage failure claims visible artifacts")
+        resource_root = path.parent if is_private_expectation else path.parent / "job"
         for index, record in enumerate(instance["resource_hashes"]):
-            verify_file_record(path.parent / "job", record, f"{path} resource {index}")
+            verify_file_record(resource_root, record, f"{path} resource {index}")
 
         try:
             package_value = load_json(package)
@@ -5091,10 +5109,10 @@ def validate_machine_fixture_bundle(validators: dict[str, Draft202012Validator])
             "M1 decoder matrix rows differ from docs/25 §15.1: "
             f"expected={required_decoder_rows}, observed={observed_decoder_rows}"
         )
-    if listed_paths != set(expected_paths):
+    if listed_paths != set(matrix_expected_paths):
         raise ValidationFailure(
             "machine matrices do not cover every expectation exactly once: "
-            f"missing={sorted(str(path) for path in set(expected_paths) - listed_paths)}"
+            f"missing={sorted(str(path) for path in set(matrix_expected_paths) - listed_paths)}"
         )
     return len(expected_paths), len(matrix_paths)
 
@@ -6416,6 +6434,7 @@ def main() -> int:
             "machine-book-navigation-manifest.schema.json",
             "machine-math-manifest.schema.json",
             "machine-math-vector-manifest.schema.json",
+            "machine-precomposed-vector-evidence.schema.json",
             "machine-safe-vector-manifest.schema.json",
             "machine-semantic-container-manifest.schema.json",
         }
@@ -9212,7 +9231,7 @@ def main() -> int:
             raise ValidationFailure("MI2-07 DocumentPackage fixture is not canonical JCS")
         jcs_golden_count = validate_jcs_golden(effective_config)
         machine_expectation_count, machine_matrix_count = validate_machine_fixture_bundle(
-            validators
+            validators, private_m4_validators
         )
 
         compatibility_metadata = load_json(

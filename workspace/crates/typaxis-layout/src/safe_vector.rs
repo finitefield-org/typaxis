@@ -1920,10 +1920,17 @@ fn staging_precomposed_vector_binding_fixture_with_media(
         let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
             panic!("precomposed-vector fixture first child is not a paragraph");
         };
-        let WireStagingM4Inline::InlineVector { image_id, .. } = &mut children[0] else {
+        let WireStagingM4Inline::InlineVector {
+            image_id, metrics, ..
+        } = &mut children[0]
+        else {
             panic!("precomposed-vector fixture first inline is not a vector");
         };
         *image_id = 1;
+        // This variant intentionally swaps in the 28pt ordered-pair Safe-SVG
+        // 1 resource, so its viewport must use that resource's intrinsic
+        // width. The canonical Safe-SVG 2 fixture itself remains 30pt.
+        metrics.viewport.width = 1_835_008;
 
         let WireStagingM4Block::VectorFigure {
             image_id, viewport, ..
@@ -1933,18 +1940,6 @@ fn staging_precomposed_vector_binding_fixture_with_media(
         };
         *image_id = 1;
         viewport.width = 1_835_008;
-    } else {
-        // The syntax-only fixture predates intrinsic-resource scale proof and
-        // gives this shared 30pt resource a 28pt generic-inline viewport.
-        // Make only the positive binding fixture uniform; the scale test below
-        // owns the explicit nonuniform negative case.
-        let WireStagingM4Block::Paragraph { children, .. } = &mut blocks[0] else {
-            panic!("precomposed-vector fixture first child is not a paragraph");
-        };
-        let WireStagingM4Inline::InlineVector { metrics, .. } = &mut children[0] else {
-            panic!("precomposed-vector fixture first inline is not a vector");
-        };
-        metrics.viewport.width = 1_966_080;
     }
     if matches!(
         block_case,

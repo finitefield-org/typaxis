@@ -1283,6 +1283,44 @@ pub struct StagingPrecomposedVectorDisplayFixture {
     pub display: StagingPrecomposedVectorDisplay,
 }
 
+/// One already-laid-out occurrence used by the MI4-V18 all-category corpus
+/// fixture. The constructor is deliberately test-only: production Display
+/// commands must still be derived from selected layout receipts.
+#[cfg(any(test, feature = "staging-fixtures"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StagingPrecomposedVectorCorpusDisplayInput {
+    kind: PrecomposedVectorKind,
+    image_id: ImageResourceId,
+    page_index: u32,
+    paint_ordinal: u32,
+    viewport: Rect,
+    pen_origin_x: Option<Length>,
+    baseline: Option<NonNegativeLength>,
+}
+
+#[cfg(any(test, feature = "staging-fixtures"))]
+impl StagingPrecomposedVectorCorpusDisplayInput {
+    pub const fn new(
+        kind: PrecomposedVectorKind,
+        image_id: ImageResourceId,
+        page_index: u32,
+        paint_ordinal: u32,
+        viewport: Rect,
+        pen_origin_x: Option<Length>,
+        baseline: Option<NonNegativeLength>,
+    ) -> Self {
+        Self {
+            kind,
+            image_id,
+            page_index,
+            paint_ordinal,
+            viewport,
+            pen_origin_x,
+            baseline,
+        }
+    }
+}
+
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub fn staging_precomposed_vector_display_fixture(
 ) -> Result<StagingPrecomposedVectorDisplayFixture, Box<dyn std::error::Error>> {
@@ -1482,6 +1520,155 @@ pub fn staging_precomposed_vector_display_two_alias_use_fixture(
     fixture.display.receipt.fingerprint = sha256(fixture.display.receipt.canonical_jcs.as_bytes());
     fixture.display.verify_resource_closure()?;
     Ok(fixture.display)
+}
+
+/// Rebind the four-kind production templates to the fully admitted MI4-V18
+/// corpus. This fixture keeps real content keys, intrinsic viewports, and page
+/// paint order, while using synthetic owner receipts only below the test-only
+/// Form/PDF boundary.
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub fn staging_precomposed_vector_corpus_display_fixture(
+    fixture: &StagingPrecomposedVectorDisplayFixture,
+    admitted: &AdmittedResourceLedger,
+    inputs: &[StagingPrecomposedVectorCorpusDisplayInput],
+) -> Result<StagingPrecomposedVectorDisplay, Box<dyn std::error::Error>> {
+    if inputs.is_empty() {
+        return Err("precomposed corpus Display requires at least one occurrence".into());
+    }
+    let page_count = inputs
+        .last()
+        .and_then(|input| input.page_index.checked_add(1))
+        .ok_or("precomposed corpus Display page count overflow")?;
+    let mut pages = (0..page_count)
+        .map(|page_index| StagingPrecomposedVectorDisplayPage {
+            page_index,
+            commands: Vec::new(),
+            fingerprint: [0; 32],
+        })
+        .collect::<Vec<_>>();
+    let templates = fixture
+        .display
+        .commands()
+        .map(|command| (command.kind(), command.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if templates.len() != 4 {
+        return Err("precomposed corpus Display requires four kind templates".into());
+    }
+    let mut previous_order = None;
+    let mut next_math_flow_id = 0u32;
+    for (index, input) in inputs.iter().enumerate() {
+        let order = (input.page_index, input.paint_ordinal);
+        if previous_order.is_some_and(|previous| previous >= order) {
+            return Err("precomposed corpus Display order is not canonical".into());
+        }
+        previous_order = Some(order);
+        let mut command = templates
+            .get(&input.kind)
+            .cloned()
+            .ok_or("precomposed corpus Display kind has no template")?;
+        let image = admitted
+            .image(input.image_id)
+            .ok_or("precomposed corpus Display image was not admitted")?;
+        let content_key = VectorContentKey::from_admitted(image)?;
+        let usage_id = u32::try_from(index)?;
+        command.usage_id = usage_id;
+        command.owner = NodeId::new(
+            1_000u32
+                .checked_add(usage_id)
+                .ok_or("precomposed corpus Display owner overflow")?,
+        );
+        command.image_id = input.image_id;
+        command.content_key = content_key;
+        command.ir_fingerprint = content_key.ir_fingerprint();
+        command.binding_fingerprint =
+            sha256(format!("typaxis.precomposed-vector-corpus-binding/{usage_id}").as_bytes());
+        command.selected_placement_fingerprint =
+            sha256(format!("typaxis.precomposed-vector-corpus-selected/{usage_id}").as_bytes());
+        command.page_index = input.page_index;
+        command.frame_index = 0;
+        command.fragment_ordinal = 0;
+        command.paint_ordinal = input.paint_ordinal;
+        command.viewport = input.viewport;
+        command.scale = 65_536;
+        command.matrix = placement_matrix(input.viewport, command.scale);
+        match (&mut command.relation, input.pen_origin_x, input.baseline) {
+            (
+                StagingDrawVectorV2Relation::Inline { baseline_metrics },
+                Some(pen_origin_x),
+                Some(baseline),
+            ) => {
+                baseline_metrics.metric_receipt_fingerprint = sha256(
+                    format!("typaxis.precomposed-vector-corpus-metrics/{usage_id}").as_bytes(),
+                );
+                baseline_metrics.pen_origin_x = pen_origin_x;
+                baseline_metrics.baseline = baseline;
+                baseline_metrics.baseline_y = input
+                    .viewport
+                    .y()
+                    .checked_add(baseline.get())
+                    .ok_or("precomposed corpus inline baseline overflow")?;
+            }
+            (
+                StagingDrawVectorV2Relation::MathVectorBlock {
+                    baseline_metrics,
+                    math_flow,
+                },
+                Some(pen_origin_x),
+                Some(baseline),
+            ) => {
+                baseline_metrics.metric_receipt_fingerprint = sha256(
+                    format!("typaxis.precomposed-vector-corpus-metrics/{usage_id}").as_bytes(),
+                );
+                baseline_metrics.pen_origin_x = pen_origin_x;
+                baseline_metrics.baseline = baseline;
+                baseline_metrics.baseline_y = input
+                    .viewport
+                    .y()
+                    .checked_add(baseline.get())
+                    .ok_or("precomposed corpus block baseline overflow")?;
+                math_flow.flow_id = MathVectorFlowId::new(next_math_flow_id);
+                next_math_flow_id = next_math_flow_id
+                    .checked_add(1)
+                    .ok_or("precomposed corpus math-flow ID overflow")?;
+                math_flow.flow_fingerprint =
+                    sha256(format!("typaxis.precomposed-vector-corpus-flow/{usage_id}").as_bytes());
+                math_flow.parent_flow_id = FlowId::DOCUMENT_BODY;
+                math_flow.parent_position = input.paint_ordinal;
+                math_flow.terminal = MathVectorFlowTerminal::ONE;
+                math_flow.terminal_receipt_fingerprint = sha256(
+                    format!("typaxis.precomposed-vector-corpus-terminal/{usage_id}").as_bytes(),
+                );
+            }
+            (StagingDrawVectorV2Relation::VectorFigure { figure_caption }, None, None) => {
+                figure_caption.caption_flow_id = FlowId::DOCUMENT_BODY;
+                figure_caption.caption_owners.clear();
+                figure_caption.keep_caption = false;
+            }
+            _ => return Err("precomposed corpus Display metric/kind mismatch".into()),
+        }
+        command.fingerprint = sha256(encode_command_record(&command).as_bytes());
+        pages
+            .get_mut(usize::try_from(input.page_index)?)
+            .ok_or("precomposed corpus Display page is missing")?
+            .commands
+            .push(command);
+    }
+    if pages.iter().any(|page| page.commands.is_empty()) {
+        return Err("precomposed corpus Display contains an empty page".into());
+    }
+    for page in &mut pages {
+        page.fingerprint = sha256(encode_page_record(page).as_bytes());
+    }
+    let mut display = fixture.display.clone();
+    display.pages = pages;
+    display.receipt.admitted_fingerprint = admitted.fingerprint().bytes();
+    display.receipt.page_count = page_count;
+    display.receipt.command_count = u32::try_from(inputs.len())?;
+    display.receipt.content_key_count = distinct_content_key_count(&display.pages)?;
+    display.receipt.canonical_jcs = encode_display(&display.receipt, &display.pages);
+    display.receipt.fingerprint = sha256(display.receipt.canonical_jcs.as_bytes());
+    display.verify_resource_closure()?;
+    Ok(display)
 }
 
 /// Sealed zero-use Display used to prove that the legacy Figure stream can

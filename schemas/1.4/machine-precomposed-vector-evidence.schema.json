@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-precomposed-vector-evidence.schema.json",
+  "title": "Typaxis Private Precomposed Vector Host Evidence 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_set_sha256",
+    "artifacts",
+    "checks",
+    "contract",
+    "fixture",
+    "host",
+    "result",
+    "source",
+    "verifier"
+  ],
+  "properties": {
+    "artifact_set_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "artifacts": {
+      "type": "array",
+      "minItems": 20,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/artifact"}
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 20,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "contract": {"const": "typaxis.machine-precomposed-vector-evidence/1"},
+    "fixture": {"$ref": "#/$defs/fixture"},
+    "host": {"$ref": "#/$defs/host"},
+    "result": {"const": "passed"},
+    "source": {"$ref": "#/$defs/source"},
+    "verifier": {"$ref": "#/$defs/verifier"}
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bytes", "name", "sha256"],
+      "properties": {
+        "bytes": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "name": {
+          "enum": [
+            "block-layout-trace.json",
+            "book-navigation-manifest.json",
+            "build-manifest-vector.json",
+            "corpus-admission.json",
+            "corpus-display.json",
+            "corpus-output.pdf",
+            "dedupe-ten-use.pdf",
+            "dedupe-two-alias.pdf",
+            "display-v2.json",
+            "effective-document-package.json",
+            "figure-build-manifest-vector.json",
+            "figure-output.pdf",
+            "inline-layout-trace.json",
+            "math-vector-manifest.json",
+            "output.pdf",
+            "pdf-observation.json",
+            "phase-receipts.json",
+            "safe-vector-manifest.json",
+            "tagged-pdf-manifest.json",
+            "verification.json"
+          ]
+        },
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "result"],
+      "properties": {
+        "detail": {"type": "string", "minLength": 1},
+        "name": {
+          "enum": [
+            "artifact_index",
+            "block_atomicity",
+            "corpus_coverage",
+            "corpus_admission",
+            "corpus_pdf",
+            "dedupe_alias",
+            "dedupe_ten_use",
+            "display_manifest_pdf_closure",
+            "effective_package_identity",
+            "inline_baseline",
+            "inline_line_metrics",
+            "language_structure",
+            "legacy_figure_closure",
+            "manifest_dependency",
+            "negative_fixture_coverage",
+            "pdf_accessible_text",
+            "pdf_vector_only",
+            "phase_order",
+            "public_surface_isolation",
+            "resource_hashes"
+          ]
+        },
+        "result": {"const": "passed"}
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assertion_traceability_sha256",
+        "cases_sha256",
+        "expected_sha256",
+        "fixture_id",
+        "fragment_text_set_sha256",
+        "fragments_sha256",
+        "negative_sha256",
+        "package_sha256",
+        "resources_sha256",
+        "source_set_sha256",
+        "tex_set_sha256"
+      ],
+      "properties": {
+        "assertion_traceability_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "cases_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "expected_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "fixture_id": {"const": "mi4-v18.precomposed-vector-combined"},
+        "fragment_text_set_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "fragments_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "negative_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "package_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "resources_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "source_set_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "tex_set_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arch", "os", "target_triple"],
+      "properties": {
+        "arch": {"type": "string", "minLength": 1},
+        "os": {"enum": ["linux", "macos"]},
+        "target_triple": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"}
+      }
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cargo_lock_sha256", "revision", "snapshot_sha256"],
+      "properties": {
+        "cargo_lock_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "snapshot_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "version"],
+      "properties": {
+        "id": {"const": "typaxis.verify-precomposed-vector/1"},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "version": {"const": "1"}
+      }
+    }
+  }
+}

@@ -60,7 +60,9 @@ pub use safe_vector_v2::{
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use safe_vector_v2::{
+    staging_safe_vector_accessible_isolated_pdf_fixture_v2,
     staging_safe_vector_isolated_pdf_fixture_v2, StagingSafeVectorIsolatedPdfFixtureV2,
+    StagingSafeVectorIsolatedRoleV2, StagingSafeVectorIsolatedSemanticUseV2,
 };
 pub use semantic_container::{
     write_staging_semantic_container_pdf, StagingSemanticContainerPdf,

@@ -31,3 +31,6 @@ typaxis-display-list = { path = "../typaxis-display-list" }
 typaxis-resources = { path = "../typaxis-resources" }
 typaxis-pdf = { path = "../typaxis-pdf" }
 typaxis-manifest = { path = "../typaxis-manifest" }
+
+[dev-dependencies]
+typaxis-testkit = { path = "../typaxis-testkit", features = ["precomposed-vector-fixtures"] }

@@ -1175,7 +1175,7 @@ MI4-V19 -> MI4-13
 
 ### MI4-V18 Private CLI integration、combined fixture、negative/reproducibility gateを閉じる
 
-- Status: Pending
+- Status: Complete
 - Depends on: MI4-V17
 - Design inputs: docs/27 §15、§16 steps 8〜9
 - Primary files:
@@ -1220,6 +1220,14 @@ MI4-V19 -> MI4-13
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli public_m4_vector_isolation --locked`
   - `python3 -m unittest tools/test_precomposed_vector.py -v`
   - `python3 schemas/validate.py`
+- Completion record:
+  - test-only featureでcrate-private production runnerを構成し、Wireからmanifestまでのstrict phase順、4 vector kindを含む2-page tagged PDF、inline/block trace、Display、SafeVector/math-vector/navigation/tagged/root manifestを一つの生成artifact setへ閉じた。既存FigureのV17 final pathも別PDF/root manifestとして同じgateで再実行し、legacy SafeVector/native math/navigation/tagged `/1` ownerも置換せず再検証する。公開CLI、current 1.3 alias、七profile、capability goldenにはprivate command/profile/kind/mediaを追加していない。
+  - checked-in全category ledgerをexact case/category/resource/fragment/traceability setとして検査し、13 logical SVGを実stable-readとSafe-SVG 2 parserへ通して12 content keyへ閉じる`corpus-admission.json`を生成した。4 kindを含むproduction PDFに加え、全8 fragment・33 occurrenceを8 pageへ配置するassertion-only `corpus-output.pdf`と`corpus-display.json`を生成し、12 Form + 33 `Do`、29 Formula + 4 Figure、日本語本文を含むexact normalized extraction、baseline式、`advance`基準の不可分inline折返し、block非分割を検査する。別の実PDFでsame-content 10-useを1 Form + 10 `Do`、異なるproducer provenanceを持つ2 IDを1 Form + 4 `Do` + 2 alias factとして確認する。
+  - production ownerが実際に消費したcanonical checked packageを`effective-document-package.json`として発行し、そのexact SHA-256をbook/taggedのwire package identityおよびSafeVector/mathのsemantic package identityへ結合した。source bytes/hash、2 SVG bytes/hash/provenance、実Math font bytes/hash、全4 kindを独立verifierが再導出するため、checked-in最小Wire fixtureを実効入力と取り違えない。
+  - artifact ownerは全fileをsibling temporary directoryへ`create_new`で書き、各fileをsyncしてからfinal directoryをatomic renameする。既存destination、portableでないmember、stale temporary、partial publicationをfail closedにし、Python verifier内部runnerには既存pathを削除しない一意なtest-only出力先を渡す。生成setは20 indexed artifactと`artifact-index.json`の計21 fileで、missing/extra/hash/byte/canonical-orderを検査する。
+  - independent verifierはPDF object/Form/`Do`/path/no-raster/no-TeX、全categoryのFormula/Figure/Span ActualText・Lang・抽出順、baseline/line/block/structure、全child manifestのcanonical fingerprintとfinal-PDF dependency、実効package identity、既存Figure closure、全corpus admission/provenance、negative phase side-effect、non-ignored Rust test owner、design §15.1〜15.5 traceability、public surfaceを再導出する。23件のPython testはartifact/xref/raster/ActualText/baseline/math-flow/content-key/root dependency/effective package/Figure PDF/corpus admission/metric/negative owner/host evidence tamperをfail closedにする。per-host evidenceはSchema検証・canonical atomic writeを行い、aggregateはexact required host setと同一source/verifier/fixture/artifact bytesだけを受理する。
+  - milestone指定の6 command、workspace all-target/all-feature locked test、workspace check、Clippy `-D warnings`、fmt check、Python verifier suite、Schema validator、異名checkout／逆filesystem作成順／`C`+UTC対`ja_JP.UTF-8`+Asia/Tokyoのhostile reproducibility、`/usr/bin/git diff --check`をlocalで実行し、すべてexit 0。GitHub Actionsは使用していない。Schema validatorは27 private 1.4 schemas、4325 refs、55 machine expectationsを通過し、artifact setの全21 fileは二buildでbyte一致した。
+  - レビューではprivate expectationだけに閉じるSchema resource-root routing、atomic directory publication、cross-ID実PDF proof、全corpus実admission、全category実PDF/Displayと実効packageの生成証跡、既存Figure成果物の独立検証、root child fingerprint再計算、negative ownerを単なる同名functionで満たせる穴、case/category/traceability閉包、host evidenceのtarget triple/order/exact host set、並列gateの固定出力競合、inline pen originへの前置spacing反映、viewport幅でなく`advance`を使う折返し、atomic ownerに対するDisplay frame/fragment ordinal、複製templateに残っていたmath-flow/Figure-caption関係、corpus Display content keyとadmission IRの直接結合、canonical SafeSVG2 fixtureとmixed SafeSVG1 fixtureのviewport分離およびlanguage override同期を修正した。修正後に全差分を再読し、findingは0件。外部renderer、veraPDF、Matterhorn、macOS/Linux実host evidenceの収集とpublic publicationはMI4-V19/MI4-13のままとする。
 - Non-goals:
   - public CLI/profile publication
   - JPEG/CFF implementationの代替

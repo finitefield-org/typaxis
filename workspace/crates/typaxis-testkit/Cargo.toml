@@ -8,6 +8,16 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+precomposed-vector-fixtures = [
+  "dep:typaxis-manifest",
+  "typaxis-display-list/staging-fixtures",
+  "typaxis-layout/staging-fixtures",
+  "typaxis-manifest/staging-fixtures",
+  "typaxis-pdf/staging-fixtures",
+  "typaxis-resources/staging-fixtures",
+]
+
 [dependencies]
 typaxis-core = { path = "../typaxis-core" }
 typaxis-text = { path = "../typaxis-text" }
@@ -19,6 +29,7 @@ typaxis-resources = { path = "../typaxis-resources" }
 typaxis-display-list = { path = "../typaxis-display-list" }
 typaxis-pdf = { path = "../typaxis-pdf" }
 typaxis-syntax = { path = "../typaxis-syntax" }
+typaxis-manifest = { path = "../typaxis-manifest", optional = true }
 
 [dev-dependencies]
 typaxis-machine-profile = { path = "../typaxis-machine-profile" }
