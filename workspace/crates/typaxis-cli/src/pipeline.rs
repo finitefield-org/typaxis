@@ -9226,6 +9226,7 @@ pub(crate) mod tests {
             "pdf-observation.json",
             "phase-receipts.json",
             "safe-vector-manifest.json",
+            "tagged-pdf-expectation.json",
             "tagged-pdf-manifest.json",
             "verification.json",
         ] {
@@ -9342,6 +9343,184 @@ pub(crate) mod tests {
         assert!(!legacy_navigation.manifest.canonical_jcs().is_empty());
         let legacy_tagged = run_staging_machine_accessibility();
         assert!(!legacy_tagged.manifest.canonical_jcs().is_empty());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn write_precomposed_vector_external_proof(directory: &Path, name: &str, payload: &[u8]) {
+        assert!(!payload.is_empty(), "external proof {name} is empty");
+        fs::write(directory.join(name), payload).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn canonical_manifest_bytes(value: &str) -> Vec<u8> {
+        let mut output = value.as_bytes().to_vec();
+        output.push(b'\n');
+        output
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn precomposed_vector_evidence_filename() -> String {
+        let architecture = match std::env::consts::ARCH {
+            "arm64" => "aarch64",
+            value => value,
+        };
+        let suffix = match std::env::consts::OS {
+            "macos" => "apple-darwin",
+            "linux" => "unknown-linux-gnu",
+            value => panic!("unsupported external evidence host {value}"),
+        };
+        format!("{architecture}-{suffix}.json")
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    #[ignore = "requires pinned MuPDF, Poppler, veraPDF 1.30.2, and local host evidence"]
+    fn machine_precomposed_vector_external() {
+        use typaxis_testkit::{build_precomposed_vector_artifacts, PrecomposedVectorBuildSchedule};
+
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let external_root = repository.join("target/machine-e2e");
+        let artifact_override =
+            std::env::var_os("TYPAXIS_PRECOMPOSED_VECTOR_EXTERNAL_ARTIFACT_DIR");
+        let artifact_directory = artifact_override
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| external_root.join("precomposed-vector-v19"));
+        let readiness_override = std::env::var_os("TYPAXIS_PRECOMPOSED_VECTOR_READINESS_DIR");
+        let readiness_directory = readiness_override
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| external_root.join("production-readiness"));
+        let evidence_directory = std::env::var_os("TYPAXIS_PRECOMPOSED_VECTOR_EVIDENCE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| external_root.join("precomposed-vector-host-evidence"));
+        for (directory, overridden) in [
+            (&artifact_directory, artifact_override.is_some()),
+            (&readiness_directory, readiness_override.is_some()),
+        ] {
+            if overridden {
+                assert!(
+                    !directory.exists(),
+                    "external output override must name an absent directory: {}",
+                    directory.display()
+                );
+            } else if directory.exists() {
+                fs::remove_dir_all(directory).unwrap();
+            }
+        }
+
+        let artifacts =
+            build_precomposed_vector_artifacts(PrecomposedVectorBuildSchedule::Forward).unwrap();
+        crate::artifacts::publish_staging_precomposed_vector_evidence(
+            &artifacts,
+            &artifact_directory,
+        )
+        .unwrap();
+        fs::create_dir_all(&readiness_directory).unwrap();
+
+        let semantic = run_staging_machine_semantic_container();
+        let vector = run_staging_machine_vector();
+        let jpeg = run_staging_machine_jpeg();
+        let cff = run_staging_machine_cff("v19-cff");
+        let math = run_staging_machine_math();
+        let navigation = run_staging_machine_book_navigation();
+        let accessibility = run_staging_machine_accessibility();
+        for (name, payload) in [
+            ("accessibility.pdf", accessibility.pdf.bytes()),
+            ("cff.pdf", cff.pdf.bytes()),
+            ("jpeg.pdf", jpeg.pdf.pdf().bytes()),
+            ("math.pdf", math.pdf.bytes()),
+            ("navigation.pdf", navigation.pdf.bytes()),
+            ("safe-vector-1.pdf", vector.pdf.bytes()),
+            ("safe-vector-2.pdf", artifacts.file("output.pdf").unwrap()),
+            ("semantic.pdf", semantic.pdf.bytes()),
+        ] {
+            write_precomposed_vector_external_proof(&readiness_directory, name, payload);
+        }
+        let manifests = [
+            (
+                "accessibility-manifest.json",
+                accessibility.manifest.canonical_jcs(),
+            ),
+            ("cff-manifest.json", cff.manifest.canonical_jcs()),
+            ("jpeg-manifest.json", jpeg.manifest.canonical_jcs()),
+            ("math-manifest.json", math.manifest.canonical_jcs()),
+            (
+                "navigation-manifest.json",
+                navigation.manifest.canonical_jcs(),
+            ),
+            (
+                "safe-vector-1-manifest.json",
+                vector.manifest.canonical_jcs(),
+            ),
+            ("semantic-manifest.json", semantic.manifest.canonical_jcs()),
+        ];
+        for (name, manifest) in manifests {
+            write_precomposed_vector_external_proof(
+                &readiness_directory,
+                name,
+                &canonical_manifest_bytes(manifest),
+            );
+        }
+        write_precomposed_vector_external_proof(
+            &readiness_directory,
+            "safe-vector-2-manifest.json",
+            artifacts.file("build-manifest-vector.json").unwrap(),
+        );
+
+        let verifier = repository.join("tools/verify_precomposed_vector.py");
+        let preparation = std::process::Command::new("python3")
+            .arg(&verifier)
+            .arg("--repository")
+            .arg(&repository)
+            .arg("--prepare-readiness")
+            .arg(&readiness_directory)
+            .output()
+            .unwrap();
+        assert!(
+            preparation.status.success(),
+            "production readiness receipt failed: {}",
+            String::from_utf8_lossy(&preparation.stderr)
+        );
+
+        let binary = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .join("typaxis");
+        assert!(binary.is_file(), "Typaxis binary identity is unavailable");
+        let evidence_path = evidence_directory.join(precomposed_vector_evidence_filename());
+        let mut command = std::process::Command::new("python3");
+        command
+            .arg(&verifier)
+            .arg(&artifact_directory)
+            .arg("--repository")
+            .arg(&repository)
+            .arg("--require-external-tools")
+            .arg("--readiness-directory")
+            .arg(&readiness_directory)
+            .arg("--binary")
+            .arg(&binary)
+            .arg("--emit-host-evidence")
+            .arg(&evidence_path);
+        for (variable, option) in [
+            ("TYPAXIS_MUTOOL", "--mutool"),
+            ("TYPAXIS_PDFTOTEXT", "--pdftotext"),
+            ("TYPAXIS_PDFINFO", "--pdfinfo"),
+            ("TYPAXIS_VERAPDF", "--verapdf"),
+        ] {
+            if let Some(value) = std::env::var_os(variable) {
+                command.arg(option).arg(value);
+            }
+        }
+        let verification = command.output().unwrap();
+        assert!(
+            verification.status.success(),
+            "MI4-V19 external evidence failed: {}",
+            String::from_utf8_lossy(&verification.stderr)
+        );
+        assert!(evidence_path.is_file());
     }
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]

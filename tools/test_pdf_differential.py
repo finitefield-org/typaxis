@@ -8,6 +8,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verify_pdf_differential as differential
@@ -31,6 +32,26 @@ def executable(path: Path, source: str) -> str:
 
 
 class PdfDifferentialTests(unittest.TestCase):
+    def test_external_command_timeout_and_warning_fail_closed(self) -> None:
+        with mock.patch.object(
+            differential.subprocess,
+            "run",
+            side_effect=differential.subprocess.TimeoutExpired("tool", 120),
+        ):
+            with self.assertRaisesRegex(
+                differential.PdfDifferentialError, "exceeded 120 seconds"
+            ):
+                differential._run(["tool"])
+        with tempfile.TemporaryDirectory() as raw:
+            noisy = executable(
+                Path(raw) / "noisy",
+                "import sys\nprint('warning', file=sys.stderr)",
+            )
+            with self.assertRaisesRegex(
+                differential.PdfDifferentialError, "emitted a warning"
+            ):
+                differential._run([noisy])
+
     def test_normalization_drops_unmapped_artifact_control_scalars(self) -> None:
         self.assertEqual(
             differential._normalized_text(b"Typaxis machine input\n\x01\n\f"),

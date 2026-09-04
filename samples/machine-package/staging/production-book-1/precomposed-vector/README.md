@@ -2,7 +2,7 @@
 
 This directory is the checked-in producer-interface corpus for `MI4-V01`, the
 canonical private contract-1.4 Wire fixture added by `MI4-V03`, and the
-generated-evidence expectations closed by `MI4-V18`. The
+generated/external evidence expectations closed by `MI4-V18` and `MI4-V19`. The
 `document-package.json` fixture is accepted only by the private 1.4 decoder and
 Schema; it must not be exposed by the public CLI or current 1.3 aliases.
 
@@ -102,7 +102,12 @@ not add a standalone production PDF receipt:
   exact package, source set, TeX set, fragment-text set, all four ledgers,
   expectation, verifier, Cargo lockfile, Git revision, and complete worktree
   snapshot. Generated PDFs and host evidence are never checked in here.
-  External renderer and conformance validation remain `MI4-V19`.
+  `MI4-V19` adds `tagged-pdf-expectation.json` for the independent `/2`
+  structure validator, bringing the current generated directory to 21 indexed
+  artifacts plus `artifact-index.json` (22 files total). It also adds the
+  pinned external renderer/extractor/veraPDF gate, exact Matterhorn 1.02 `/2`
+  assessment, and complete production resource-set `/2` proof without
+  publishing the private profile.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,
@@ -183,12 +188,25 @@ python3 tools/verify_precomposed_vector.py \
 ```
 
 `verify_precomposed_vector.py --emit-host-evidence PATH` writes one canonical,
-Schema-validated host record with atomic replacement. Its aggregate mode uses
+Schema-validated `/2` host record with atomic replacement. The writer requires
+`--require-external-tools`, the generated production readiness directory, the
+Typaxis binary, and pinned tool versions from
+`../external-tool-policy.json`; missing tools and veraPDF warnings fail. Run:
+
+```sh
+TYPAXIS_VERAPDF=/path/to/verapdf-1.30.2/verapdf \
+cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli \
+  machine_precomposed_vector_external --locked -- --ignored
+```
+
+The ignored test publishes proof/evidence below `target/machine-e2e/`. Its
+aggregate mode uses
 `--require-host-evidence DIRECTORY --required-host macos --required-host linux`
 and accepts only current-revision, successful records with one identical
-artifact-set hash. Aggregation recomputes the current source, verifier, and
-fixture identities, so two mutually consistent but stale records are still
-rejected. The distinct path/locale/timezone/filesystem-order gate is owned by
+artifact-set and production receipt. Aggregation recomputes current source,
+verifier, fixture, 73 resources, capability, Matterhorn, and tool-policy
+identities, so two mutually consistent but stale records are still rejected.
+The distinct path/locale/timezone/filesystem-order gate is owned by
 `tools/verify_reproducibility.py --private-staging-test precomposed-vector`;
 this is a repository verification-tool option, never a public `typaxis` CLI
 option.

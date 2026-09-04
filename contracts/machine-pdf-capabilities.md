@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes through ADR-0037: base/declared media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Private implementation is complete through MI4-12 and MI4-V18; MI4-V19 external combined evidence remains | No; public profile ID is rejected | No; MI4-V19 then MI4-13 gate |
+| `production-book-1` | Yes through ADR-0037: base/declared media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Private implementation and MI4-V19 external/readiness evidence are complete | No; public profile ID is rejected | No; MI4-13 atomic publication remains |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
@@ -741,9 +741,10 @@ set-valued arrays, including map values, use UTF-8-byte order; JSON object keys
 use the existing JCS order. The resource component/media arrays retain their
 explicit semantic order and are not globally sorted.
 
-MI4-V03 through MI4-V18 may populate only crate-private descriptors/tests.
-MI4-V19 must close combined feature evidence and depends on both existing
-MI4-11 JPEG and MI4-12 CFF work. It still cannot advertise availability.
+MI4-V03 through MI4-V18 populate only crate-private descriptors/tests.
+MI4-V19 has closed combined feature evidence over the existing MI4-11 JPEG and
+MI4-12 CFF work. Its complete future descriptor and resource-set receipt remain
+private and do not advertise availability.
 MI4-13 alone may add the eighth descriptor, placing `production-book-1` after
 `paragraph-1` and before `table-1`; `default_profile` remains `paragraph-1`.
 Until that transaction, the current accepted-contract array, seven profile
@@ -993,12 +994,16 @@ permitted. Closure contradictions are `I9190`.
 MI4-09 implements the private slice and adds a writer-independent
 `typaxis.tagged-pdf-validator/1`. Release evidence additionally fixes veraPDF
 Greenfield 1.30.2 with explicit `ua1` flavour and an empty warning allowlist,
-plus one reviewed row for every Matterhorn Protocol 1.1 failure condition.
+plus one reviewed row in `typaxis.matterhorn-assessment/2` for every Matterhorn
+Protocol 1.02 failure condition. The frozen version-1 assessment remains
+unchanged.
 Missing/wrong tools, malformed reports, warnings, failed/skipped checks, or an
 incomplete or hash-mismatched human ledger fail the gate. Machine validation
-alone may not be promoted to a full accessibility or PDF/UA conformance claim;
-MI4-13 alone may aggregate the complete evidence and publish the profile after
-MI4-V19 closes the producer-vector evidence dependency.
+alone may not be promoted to a full accessibility or PDF/UA conformance claim.
+MI4-V19 records all 136 items as 87 machine, 47 human, and 2 no-specific-test
+rows, with 99 fixture-scoped passes and 37 explicit not-applicable reasons,
+and binds them to the same PDF as MuPDF/Poppler and the independent structure
+validator. MI4-13 alone may publish the profile from that completed evidence.
 
 ## Compatible changes
 

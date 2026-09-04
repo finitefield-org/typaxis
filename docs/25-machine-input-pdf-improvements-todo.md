@@ -2280,7 +2280,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `ADR-0035`をAccepted targetとして追加し、PDF 1.7上のclosed `typaxis.pdfua1-profile/1`、全source semantic variantとgenerated wrapperのrole mapping、dense `StructureNodeId`、logical `/K` order、Table header、Note/reference、Link OBJR、outline `/SE`、Figure/Formula alternative、computed languageを固定した。tagはsealed syntax receiptを消費するlayout-contract-owned registryからのみ供給し、Display/PDFの座標・文字列・object orderによる推測を禁止する。
   - selected fragment/occurrenceを一つのstructure ownerまたはclosed artifactへbindし、Display paintを双方向closureした後だけfinal page paint orderでdense page-local MCIDを発行するreceipt chainを固定した。StructTreeRoot、RoleMap、MCR/OBJR、ParentTree、IDTree、page/annotation parent key、`typaxis.book-xmp/2`を同じPDF hashへ閉じ、header/footer/repeated table head/page numberをPagination artifact、engine decorationをLayout artifactとする。
   - production accessibility preflight、missing/extra/wrong-owner/order/MCID/alternative等の`I9190`、既存inclusive AST/depth/text/fragment/PDF/output/spool limitへのone-time chargeとMCID表現上限を固定した。untagged、role/artifact substitution、validator warning fallbackはなく、MI4-09だけがprivate implementationを担い、MI4-13までcurrent 1.3、frozen registry、七public profile/default/helpを変更しない。
-  - release validationはwriter-independent in-tree validator、exact veraPDF Greenfield 1.30.2のexplicit `ua1` flavour/empty warning allowlist、Matterhorn Protocol 1.1の136 failure-condition ledgerを同一artifactへ要求する。machine-only passは完全なPDF/UA/accessibility/legal conformance claimに昇格できない。
+  - release validationはwriter-independent in-tree validator、exact veraPDF Greenfield 1.30.2のexplicit `ua1` flavour/empty warning allowlist、MI4-V19でversion 2へ拡張したMatterhorn Protocol 1.02の136 failure-condition ledgerを同一artifactへ要求する。machine-only passは完全なPDF/UA/accessibility/legal conformance claimに昇格できない。
   - 指定vocabulary gate、changed Markdownのlocal link/table/fence/JSON検査、ADR/invariant連番、Schema validation、PDF structure/全Python unit test、dependency firewall、workspace all-target/all-feature locked check/test、strict clippy、format、diff/whitespaceをlocal exit 0で確認した。レビューで検出したretired M1-only helperを参照するlegacy unit testは、現行のexact public profile closureとunadopted profile拒否を検査するよう修正した。`.github/workflows/`は変更していない。
 - Non-goals:
   - 採択validatorで検証不能なconformance claim
@@ -2520,7 +2520,7 @@ acceptance、verificationは
 | MI4-V16 | Completed | MI4-V13, MI4-V15 |
 | MI4-V17 | Completed | MI4-V07, MI4-V13, MI4-V14, MI4-V16 |
 | MI4-V18 | Completed | MI4-V17 |
-| MI4-V19 | Pending | MI4-V18, MI4-11, MI4-12 |
+| MI4-V19 | Completed | MI4-V18, MI4-11, MI4-12 |
 
 `MI4-V19 -> MI4-13`はpublication dependencyである。MI4-V01/V02のCompletedは
 それぞれcorpus interfaceとdecision gate、MI4-V03〜V18はprivate product実装を
@@ -2554,6 +2554,9 @@ acceptance、verificationは
   - `tools/verify_machine_profile.py`
   - `tools/verify_pdf_differential.py`
   - `tools/verify_pdf_structure.py`
+  - `samples/machine-package/staging/production-book-1/publication-capabilities.json`
+  - `samples/machine-package/staging/production-book-1/publication-expectation.json`
+  - `samples/machine-package/staging/production-book-1/matterhorn-assessment.json`
 - Deliverables:
   - MI4 ADR群が採択した新contract/Schema/profileのatomic migration。
   - VMB相当production-book combined fixtureとindependent validation evidence。
@@ -2576,11 +2579,16 @@ acceptance、verificationは
   - 旧contract/profileのobservable behaviorが凍結fixtureと一致する。
   - 各resourceのdeclared media type、decoder attestation、manifest fact、PDF embedding planがlogical ID単位で一致する。
   - public profileはSafeVector/resource-set、book-navigation、tagged-PDFのversion-2 chainだけを参照し、frozen `/1` bytesと七profile/defaultを変更しない。
+  - MI4-V19の`publication-capabilities.json`を完全な期待値として使い、8-profile tupleでは`production-book-1`を`paragraph-1`と`table-1`の間に一度だけ置き、default `paragraph-1`を維持する。
+  - production descriptorのblocks/inlines/style/image/vector全fieldと、`typaxis.production-book-resource-set/2`のPNG、SafeVector `/2`、JPEG、TrueType、CFF component/media順が`publication-expectation.json`のcoverageと双方向一致する。
+  - SafeVector `/2`、math-vector `/1`、book-navigation `/2`、tagged-PDF `/2`、VMB combined/external evidenceのrevision・PDF・sidecar・resource・font・tool identityがMI4-V19 host index `/2`と一致する。
 - Verification:
   - `cargo fmt --manifest-path workspace/Cargo.toml --all -- --check`
   - `cargo test --manifest-path workspace/Cargo.toml --workspace --all-targets --locked`
   - `cargo clippy --manifest-path workspace/Cargo.toml --workspace --all-targets --locked -- -D warnings`
   - `python3 schemas/validate.py`
+  - `python3 -m unittest tools/test_precomposed_vector.py tools/test_pdf_differential.py tools/test_pdf_structure.py -v`
+  - `python3 tools/verify_precomposed_vector.py --repository . --require-host-evidence target/machine-e2e/precomposed-vector-host-evidence --required-host macos --required-host linux`
   - `python3 tools/verify_machine_profile.py --repository . --matrix samples/machine-package/matrices/m4-production.json --runs 2 --require-external-tools`
 - Non-goals:
   - M5 release/hardening gateの代替

@@ -160,6 +160,19 @@ observations, and separate declared/decoder-attested media facts. Crate tests
 and `schemas/validate.py` consume this slice; no public CLI selector accepts
 contract 1.4 or `production-book-1` before MI4-13.
 
+The private MI4-V19 publication-readiness inputs are directly under
+`staging/production-book-1/`. `publication-capabilities.json` freezes the exact
+future eight-profile descriptor while leaving the public seven-profile bytes
+unchanged; `publication-expectation.json` binds all 73 source/resource files
+and every advertised production field; `external-tool-policy.json` pins
+MuPDF 1.28.2, Poppler 26.08.0, and signed veraPDF 1.30.2 inputs; and
+`matterhorn-assessment.json` records every Matterhorn Protocol 1.02 item with
+its published detection method and an explicit passed or justified-N/A result.
+The veraPDF policy pins the signed installer and the canonical installed-tree
+payload, so matching version text alone cannot satisfy the host gate.
+Generated component proofs, receipts, PDFs, and per-host records stay below
+`target/machine-e2e/` and are not public fixtures.
+
 ## Regenerate hashes and expectations
 
 The bundle is generated, not hand-rehashed. Edit the generator inputs and run:
@@ -229,3 +242,26 @@ The aggregate rejects missing, failed, noncanonical, stale-revision, mismatched
 source/fixture, and cross-host artifact evidence. Run the current-host command
 explicitly on each managed host. This repository does not use GitHub Actions or
 GitHub workflow files.
+
+The MI4-V19 feature-local gate is separate from the public M3 gate:
+
+```text
+TYPAXIS_VERAPDF=/path/to/verapdf-1.30.2/verapdf \
+cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli \
+  machine_precomposed_vector_external --locked -- --ignored
+python3 tools/verify_precomposed_vector.py --repository . \
+  --require-host-evidence target/machine-e2e/precomposed-vector-host-evidence \
+  --required-host macos --required-host linux
+```
+
+The first command must run on independently managed macOS and Linux hosts at
+the same committed source revision with the pinned tool policy. It produces
+one canonical host record per target triple and fails instead of skipping when
+any renderer, extractor, validator, resource proof, or manual assessment is
+missing or stale.
+
+`tools/Dockerfile.precomposed-vector-evidence` is the reproducible Linux host
+definition: its Rust base image is digest-pinned and its MuPDF, Poppler, and
+FreeType source archives are hash-pinned. The signed veraPDF installation is
+mounted read-only and must match the policy's installed-tree payload hash;
+setting only a matching version string is insufficient.

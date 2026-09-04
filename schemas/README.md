@@ -19,7 +19,7 @@
 | contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | Yes: MI4-11/12 add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Yes through MI4-V17: strict Wire/domain, validation/admission/layout/PDF, versioned manifests/build closure, and private capability projection; combined CLI remains staged | No; current aliases remain 1.3 | No; MI4-V19 then MI4-13 gate |
+| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Yes through MI4-V19: strict Wire/domain, validation/admission/layout/PDF, versioned manifests/build closure, combined CLI, and external publication-readiness evidence | No; current aliases remain 1.3 | No; MI4-13 publication gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -77,8 +77,8 @@ metrics, and versioned SafeVector/resource-set, navigation, tagged-PDF, and
 manifest branches. ADR adoption and MI4-V01 add no Schema shape. MI4-V03 adds
 the strict private Wire/Schema/domain shape and keeps every legacy consumer
 fail-closed; later V milestones own validation, admission, layout, and PDF only
-inside the independent private 1.4 registry. MI4-V19 must
-close feature evidence before MI4-13 switches aliases and advertises the exact
+inside the independent private 1.4 registry. MI4-V19 closes
+feature evidence before MI4-13 switches aliases and advertises the exact
 resource-set `/2`/vector capability projection.
 `schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
 independent compatibility registries.
@@ -125,9 +125,10 @@ book-navigation `/2`, and tagged-PDF `/2` alternatives to their private
 manifest families, plus the production build-manifest record/fingerprint
 pairs. Built records are nonnull even for zero use; failed pairs are exactly
 both-null or both-nonnull. Existing `figure`/`svg-safe-1` usage is projected
-through the same SafeVector `/2` content-key/Form path. The private registry is
-now twenty-eight Schemas; current aliases and their seven-profile capability
-bytes remain unchanged.
+through the same SafeVector `/2` content-key/Form path. MI4-V19 adds the
+Matterhorn assessment `/2` shape, so the private registry now has twenty-nine
+Schemas; current aliases and their seven-profile capability bytes remain
+unchanged.
 Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
 

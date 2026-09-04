@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Independently verify generated private precomposed-vector artifacts.
+"""Independently verify private precomposed-vector artifacts and release evidence.
 
 The verifier consumes an output directory produced by the crate-private
-MI4-V18 runner. It never writes into the checked-in sample corpus. In normal
-mode it checks canonical sidecars, cross-layer receipt relations, PDF vector
+MI4-V18 runner and closes MI4-V19's external publication-readiness gate. It
+never writes into the checked-in sample corpus. In normal mode it checks
+canonical sidecars, cross-layer receipt relations, PDF vector
 operators/accessibility text, the combined corpus ledger, and negative-case
-coverage. It can also emit canonical per-host evidence or aggregate evidence
-from the required hosts.
+coverage. It can also verify the complete production proof set, emit canonical
+per-host evidence, or aggregate evidence from the required hosts.
 """
 
 from __future__ import annotations
@@ -18,19 +19,97 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from typing import Any, Iterable
 
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
+try:
+    from tools import verify_pdf_structure as pdf_structure
+    from tools import verify_pdf_differential as pdf_differential
+    from tools import matterhorn_protocol
+except ModuleNotFoundError:  # Direct `python3 tools/...` execution.
+    import verify_pdf_structure as pdf_structure
+    import verify_pdf_differential as pdf_differential
+    import matterhorn_protocol
 
-VERIFIER_ID = "typaxis.verify-precomposed-vector/1"
-VERIFIER_VERSION = "1"
-EVIDENCE_CONTRACT = "typaxis.machine-precomposed-vector-evidence/1"
+
+VERIFIER_ID = "typaxis.verify-precomposed-vector/2"
+VERIFIER_VERSION = "2"
+EXTERNAL_COMMAND_TIMEOUT_SECONDS = 120
+EVIDENCE_CONTRACT = "typaxis.machine-precomposed-vector-evidence/2"
 ARTIFACT_CONTRACT = "typaxis.private-precomposed-vector-artifacts/1"
 FIXTURE_ID = "mi4-v18.precomposed-vector-combined"
+PUBLICATION_FIXTURE_ID = "mi4-v19.production-readiness"
+PRODUCTION_READINESS_CONTRACT = "typaxis.production-book-resource-set-receipt/2"
+PRODUCTION_PROFILE = "typaxis.machine-pdf/production-book-1"
+PRODUCTION_COMPONENTS = [
+    "typaxis.resource-profile/png/1",
+    "typaxis.resource-profile/safe-vector/2",
+    "typaxis.resource-profile/jpeg-baseline/1",
+    "typaxis.resource-profile/truetype-glyf/1",
+    "typaxis.resource-profile/sfnt-cff1/1",
+]
+PRODUCTION_IMAGE_MEDIA = ["png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"]
+PRODUCTION_FONT_MEDIA = [
+    "sfnt-truetype-glyf",
+    "ttc-truetype-glyf",
+    "sfnt-cff1",
+]
+PRODUCTION_PROOF_FILES = {
+    "accessibility-manifest.json",
+    "accessibility.pdf",
+    "cff-manifest.json",
+    "cff.pdf",
+    "jpeg-manifest.json",
+    "jpeg.pdf",
+    "math-manifest.json",
+    "math.pdf",
+    "navigation-manifest.json",
+    "navigation.pdf",
+    "safe-vector-1-manifest.json",
+    "safe-vector-1.pdf",
+    "safe-vector-2-manifest.json",
+    "safe-vector-2.pdf",
+    "semantic-manifest.json",
+    "semantic.pdf",
+}
+PRODUCTION_RESOURCE_PATTERNS = (
+    "accessibility/job/*",
+    "book-navigation/job/*",
+    "cff-media/*.hex",
+    "cff-media/job/*",
+    "jpeg-media/*.hex",
+    "jpeg-media/job/*",
+    "math/job/*",
+    "precomposed-vector/*.tsv",
+    "precomposed-vector/document-package*.json",
+    "precomposed-vector/fragments/*",
+    "precomposed-vector/input.tsf",
+    "precomposed-vector/svg/*",
+    "precomposed-vector/tex/*",
+    "semantic-container/job/*",
+    "vector-media/job/*",
+)
+PRODUCTION_MANIFEST_ALGORITHMS = {
+    "accessibility-manifest.json": "typaxis.tagged-pdf-manifest/1",
+    "cff-manifest.json": "typaxis.cff1-manifest/1",
+    "jpeg-manifest.json": "typaxis.jpeg-manifest/1",
+    "math-manifest.json": "typaxis.math-manifest/1",
+    "navigation-manifest.json": "typaxis.book-navigation-manifest/1",
+    "safe-vector-1-manifest.json": "typaxis.safe-vector-manifest/1",
+    "semantic-manifest.json": "typaxis.semantic-container-manifest/1",
+}
+PRODUCTION_DIRECT_PDF_HASH_MANIFESTS = {
+    "cff-manifest.json",
+    "jpeg-manifest.json",
+    "math-manifest.json",
+    "safe-vector-1-manifest.json",
+}
 EXPECTED_ARTIFACTS = {
     "block-layout-trace.json",
     "book-navigation-manifest.json",
@@ -50,6 +129,7 @@ EXPECTED_ARTIFACTS = {
     "pdf-observation.json",
     "phase-receipts.json",
     "safe-vector-manifest.json",
+    "tagged-pdf-expectation.json",
     "tagged-pdf-manifest.json",
     "verification.json",
 }
@@ -285,11 +365,22 @@ REQUIRED_CHECKS = {
     "manifest_dependency",
     "negative_fixture_coverage",
     "pdf_accessible_text",
+    "pdf_structure_v2",
     "pdf_vector_only",
     "phase_order",
     "public_surface_isolation",
     "resource_hashes",
 }
+EXTERNAL_REQUIRED_CHECKS = {
+    "external_mupdf_multi_dpi",
+    "external_poppler_page_text",
+    "external_vector_operator",
+    "matterhorn_1_02",
+    "production_resource_set_v2",
+    "publication_capability_projection",
+    "verapdf_ua1",
+}
+RELEASE_REQUIRED_CHECKS = REQUIRED_CHECKS | EXTERNAL_REQUIRED_CHECKS
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _OBJECT = re.compile(rb"(?m)^(\d+) 0 obj\n(.*?)\nendobj\n", re.DOTALL)
 _ACTUAL_TEXT = re.compile(rb"/ActualText <([0-9A-F]+)>")
@@ -530,9 +621,562 @@ def _artifact_set_digest(artifacts: Iterable[tuple[str, bytes]]) -> str:
     return digest.hexdigest()
 
 
+def _atomic_json_write(path: Path, value: Any) -> None:
+    payload = canonical_json_bytes(value) + b"\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    if temporary.exists():
+        raise PrecomposedVectorError(f"temporary output already exists: {temporary}")
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _publication_root(repository: Path) -> Path:
+    return repository / "samples/machine-package/staging/production-book-1"
+
+
+def _production_component_records() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": PRODUCTION_COMPONENTS[0],
+            "media": ["png"],
+            "proofs": ["accessibility-manifest.json", "accessibility.pdf"],
+        },
+        {
+            "id": PRODUCTION_COMPONENTS[1],
+            "media": ["svg-safe-1", "svg-safe-2"],
+            "proofs": [
+                "safe-vector-1-manifest.json",
+                "safe-vector-1.pdf",
+                "safe-vector-2-manifest.json",
+                "safe-vector-2.pdf",
+            ],
+        },
+        {
+            "id": PRODUCTION_COMPONENTS[2],
+            "media": ["jpeg-baseline"],
+            "proofs": ["jpeg-manifest.json", "jpeg.pdf"],
+        },
+        {
+            "id": PRODUCTION_COMPONENTS[3],
+            "media": ["sfnt-truetype-glyf", "ttc-truetype-glyf"],
+            "proofs": ["math-manifest.json", "math.pdf"],
+        },
+        {
+            "id": PRODUCTION_COMPONENTS[4],
+            "media": ["sfnt-cff1"],
+            "proofs": ["cff-manifest.json", "cff.pdf"],
+        },
+    ]
+
+
+def _production_resource_records(repository: Path) -> list[dict[str, Any]]:
+    root = _publication_root(repository)
+    expectation = _load_json(root / "publication-expectation.json")
+    records = expectation.get("resource_hashes") if isinstance(expectation, dict) else None
+    if not isinstance(records, list) or len(records) != 73:
+        raise PrecomposedVectorError("publication expectation does not contain 73 resources")
+    expected_uris: set[str] = set()
+    for pattern in PRODUCTION_RESOURCE_PATTERNS:
+        for path in root.glob(pattern):
+            if path.is_symlink() or not path.is_file():
+                raise PrecomposedVectorError(
+                    f"publication input is not a regular file: {path.relative_to(root)}"
+                )
+            expected_uris.add(path.relative_to(root).as_posix())
+    actual_uris = [row.get("uri") if isinstance(row, dict) else None for row in records]
+    if actual_uris != sorted(expected_uris) or len(expected_uris) != 73:
+        raise PrecomposedVectorError(
+            "publication resource ledger is not the exact production input set"
+        )
+    normalized: list[dict[str, Any]] = []
+    previous = ""
+    for index, raw in enumerate(records):
+        row = _exact_object(raw, {"bytes", "sha256", "uri"}, f"publication resource {index}")
+        uri = row.get("uri")
+        if not isinstance(uri, str) or uri <= previous:
+            raise PrecomposedVectorError("publication resources are duplicated or noncanonical")
+        previous = uri
+        path = _contained_regular_file(root, uri, f"publication resource {index}")
+        payload = path.read_bytes()
+        normalized_row = {
+            "bytes": _integer(row.get("bytes"), f"publication resource {index}.bytes"),
+            "sha256": _hash(row.get("sha256"), f"publication resource {index}.sha256"),
+            "uri": uri,
+        }
+        if normalized_row["bytes"] != len(payload) or normalized_row["sha256"] != _sha256(payload):
+            raise PrecomposedVectorError(f"publication resource differs: {uri}")
+        normalized.append(normalized_row)
+    return normalized
+
+
+def _verify_production_proof_pairs(
+    manifests: dict[str, Any], pdf_payloads: dict[str, bytes]
+) -> None:
+    for manifest_name, algorithm in PRODUCTION_MANIFEST_ALGORITHMS.items():
+        manifest = manifests.get(manifest_name)
+        if not isinstance(manifest, dict) or manifest.get("algorithm") != algorithm:
+            raise PrecomposedVectorError(
+                f"production proof has the wrong manifest identity: {manifest_name}"
+            )
+        pdf_name = manifest_name.removesuffix("-manifest.json") + ".pdf"
+        pdf_payload = pdf_payloads[pdf_name]
+        if manifest_name in PRODUCTION_DIRECT_PDF_HASH_MANIFESTS:
+            if manifest.get("pdf_sha256") != _sha256(pdf_payload):
+                raise PrecomposedVectorError(
+                    f"production proof manifest targets a different PDF: {manifest_name}"
+                )
+        elif manifest_name in {
+            "accessibility-manifest.json",
+            "navigation-manifest.json",
+        }:
+            pdf = manifest.get("pdf")
+            fingerprints = manifest.get("fingerprints")
+            if (
+                manifest.get("contract") != "typaxis.contract/1.4"
+                or manifest.get("profile_id") != PRODUCTION_PROFILE
+                or not isinstance(pdf, dict)
+                or pdf.get("byte_length") != len(pdf_payload)
+                or not isinstance(fingerprints, dict)
+                or fingerprints.get("pdf_sha256") != _sha256(pdf_payload)
+            ):
+                raise PrecomposedVectorError(
+                    f"production proof manifest has stale profile/PDF facts: {manifest_name}"
+                )
+    if manifests.get("cff-manifest.json", {}).get("resource_profile_id") != (
+        "typaxis.resource-profile/sfnt-cff1/1"
+    ):
+        raise PrecomposedVectorError("CFF proof has the wrong resource profile")
+    vector_manifest = manifests.get("safe-vector-2-manifest.json")
+    if not isinstance(vector_manifest, dict) or vector_manifest.get("status") != "built":
+        raise PrecomposedVectorError("SafeVector /2 proof is not a built manifest")
+
+
+def _build_production_readiness_receipt(
+    directory: Path, repository: Path
+) -> dict[str, Any]:
+    entries = list(directory.iterdir())
+    invalid_entries = sorted(
+        entry.name
+        for entry in entries
+        if entry.is_symlink() or not entry.is_file()
+    )
+    if invalid_entries:
+        raise PrecomposedVectorError(
+            f"production proof directory contains invalid entries: {invalid_entries}"
+        )
+    actual = {
+        entry.name
+        for entry in entries
+    }
+    if actual not in (PRODUCTION_PROOF_FILES, PRODUCTION_PROOF_FILES | {"production-resource-set-receipt.json"}):
+        raise PrecomposedVectorError(
+            "production proof directory has missing or extra files: "
+            f"{sorted(actual ^ PRODUCTION_PROOF_FILES)}"
+        )
+    artifacts = []
+    manifests: dict[str, Any] = {}
+    pdf_payloads: dict[str, bytes] = {}
+    for name in sorted(PRODUCTION_PROOF_FILES):
+        path = directory / name
+        if path.is_symlink() or not path.is_file():
+            raise PrecomposedVectorError(f"production proof is not a regular file: {name}")
+        payload = path.read_bytes()
+        if not payload:
+            raise PrecomposedVectorError(f"production proof is empty: {name}")
+        if name.endswith(".json"):
+            manifests[name] = _load_json(path)
+        elif not payload.startswith(b"%PDF-"):
+            raise PrecomposedVectorError(f"production proof is not a PDF: {name}")
+        else:
+            pdf_payloads[name] = payload
+        artifacts.append({"bytes": len(payload), "name": name, "sha256": _sha256(payload)})
+    _verify_production_proof_pairs(manifests, pdf_payloads)
+    root = _publication_root(repository)
+    capability_path = root / "publication-capabilities.json"
+    expectation_path = root / "publication-expectation.json"
+    resources = _production_resource_records(repository)
+    return {
+        "artifacts": artifacts,
+        "capabilities_sha256": _sha256(capability_path.read_bytes()),
+        "components": _production_component_records(),
+        "contract": PRODUCTION_READINESS_CONTRACT,
+        "expectation_sha256": _sha256(expectation_path.read_bytes()),
+        "font_media": PRODUCTION_FONT_MEDIA,
+        "image_media": PRODUCTION_IMAGE_MEDIA,
+        "integration_proofs": [
+            "accessibility-manifest.json",
+            "accessibility.pdf",
+            "math-manifest.json",
+            "math.pdf",
+            "navigation-manifest.json",
+            "navigation.pdf",
+            "semantic-manifest.json",
+            "semantic.pdf",
+        ],
+        "profile": PRODUCTION_PROFILE,
+        "resource_count": len(resources),
+        "resource_ledger_sha256": _sha256(canonical_json_bytes(resources)),
+    }
+
+
+def write_production_readiness_receipt(directory: Path, repository: Path) -> Path:
+    directory = directory.resolve(strict=True)
+    if not directory.is_dir():
+        raise PrecomposedVectorError("production proof path is not a directory")
+    receipt = _build_production_readiness_receipt(directory, repository)
+    output = directory / "production-resource-set-receipt.json"
+    _atomic_json_write(output, receipt)
+    return output
+
+
+def verify_production_readiness(
+    directory: Path,
+    repository: Path,
+    *,
+    vector_pdf: bytes,
+    vector_manifest: bytes,
+) -> dict[str, Any]:
+    directory = directory.resolve(strict=True)
+    receipt_path = directory / "production-resource-set-receipt.json"
+    if receipt_path.is_symlink() or not receipt_path.is_file():
+        raise PrecomposedVectorError("production resource-set receipt is not a regular file")
+    receipt = _load_json(receipt_path)
+    if receipt_path.read_bytes() != canonical_json_bytes(receipt) + b"\n":
+        raise PrecomposedVectorError("production resource-set receipt is not JCS plus LF")
+    expected = _build_production_readiness_receipt(directory, repository)
+    if receipt != expected:
+        raise PrecomposedVectorError("production resource-set receipt differs from its proof set")
+    if (directory / "safe-vector-2.pdf").read_bytes() != vector_pdf or (
+        directory / "safe-vector-2-manifest.json"
+    ).read_bytes() != vector_manifest:
+        raise PrecomposedVectorError("SafeVector /2 production proof differs from the V18 output")
+    resources = _production_resource_records(repository)
+    font_uris = {
+        "accessibility/job/body.ttf",
+        "accessibility/job/collection.ttc",
+        "cff-media/typaxis-cff-fixture.otf.hex",
+        "math/job/math.ttf",
+    }
+    fonts = [row for row in resources if row["uri"] in font_uris]
+    if {row["uri"] for row in fonts} != font_uris:
+        raise PrecomposedVectorError("production font identity set is incomplete")
+    return {
+        "capabilities_sha256": expected["capabilities_sha256"],
+        "expectation_sha256": expected["expectation_sha256"],
+        "font_resources": fonts,
+        "readiness_sha256": _sha256(receipt_path.read_bytes()),
+        "resource_count": len(resources),
+        "resource_ledger_sha256": expected["resource_ledger_sha256"],
+        "resources": resources,
+    }
+
+
+def _resolve_external_tool(name: str, override: str | None) -> Path:
+    candidate = override
+    if candidate is None:
+        candidate = shutil.which(name)
+    elif os.sep not in candidate and (os.altsep is None or os.altsep not in candidate):
+        candidate = shutil.which(candidate)
+    if candidate is None:
+        raise PrecomposedVectorError(f"required external tool is unavailable: {name}")
+    path = Path(candidate).resolve(strict=True)
+    if not path.is_file():
+        raise PrecomposedVectorError(f"external tool is not a regular file: {path}")
+    return path
+
+
+def _capture(command: list[str]) -> tuple[bytes, bytes]:
+    try:
+        completed = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=EXTERNAL_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise PrecomposedVectorError(
+            f"external command exceeded {EXTERNAL_COMMAND_TIMEOUT_SECONDS} seconds: {command[0]}"
+        ) from error
+    except OSError as error:
+        raise PrecomposedVectorError(f"cannot execute {command[0]}: {error}") from error
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", "replace").strip()
+        raise PrecomposedVectorError(
+            f"external command failed ({completed.returncode}): {command[0]}: {detail}"
+        )
+    return completed.stdout, completed.stderr
+
+
+def _first_version_line(path: Path, arguments: list[str]) -> str:
+    stdout, stderr = _capture([os.fspath(path), *arguments])
+    lines = (stdout + stderr).decode("utf-8", "replace").splitlines()
+    try:
+        return next(line.strip() for line in lines if line.strip())
+    except StopIteration as error:
+        raise PrecomposedVectorError(f"external tool returned no version: {path}") from error
+
+
+def _tree_payload_sha256(root: Path) -> str:
+    payloads: list[tuple[str, bytes]] = []
+    for path in sorted(root.rglob("*"), key=lambda item: os.fsencode(item.relative_to(root))):
+        if path.is_symlink():
+            raise PrecomposedVectorError(f"tool payload contains a symlink: {path}")
+        if path.is_file():
+            payloads.append((path.relative_to(root).as_posix(), path.read_bytes()))
+        elif not path.is_dir():
+            raise PrecomposedVectorError(f"tool payload contains a special file: {path}")
+    if not payloads:
+        raise PrecomposedVectorError(f"tool payload is empty: {root}")
+    return _artifact_set_digest(payloads)
+
+
+def _tool_record(
+    name: str,
+    path: Path,
+    version_arguments: list[str],
+    *,
+    payload_root: Path | None = None,
+) -> dict[str, str]:
+    executable_sha256 = _sha256(path.read_bytes())
+    return {
+        "executable_sha256": executable_sha256,
+        "name": name,
+        "payload_sha256": (
+            _tree_payload_sha256(payload_root) if payload_root is not None else executable_sha256
+        ),
+        "version": _first_version_line(path, version_arguments),
+    }
+
+
+def _verify_verapdf(path: Path, pdf: Path) -> dict[str, Any]:
+    stdout, stderr = _capture(
+        [os.fspath(path), "-f", "ua1", "--format", "xml", os.fspath(pdf)]
+    )
+    if stderr:
+        raise PrecomposedVectorError(
+            "veraPDF emitted stderr instead of a clean validation result: "
+            + stderr.decode("utf-8", "replace").strip()
+        )
+    try:
+        root = ET.fromstring(stdout)
+    except ET.ParseError as error:
+        raise PrecomposedVectorError(f"veraPDF returned malformed XML: {error}") from error
+    releases = {
+        element.attrib.get("id"): element.attrib.get("version")
+        for element in root.findall("./buildInformation/releaseDetails")
+    }
+    if releases != {"apps": "1.30.2", "core": "1.30.2", "validation-model": "1.30.2"}:
+        raise PrecomposedVectorError(f"veraPDF release components are not pinned 1.30.2: {releases}")
+    jobs = root.findall("./jobs/job")
+    if len(jobs) != 1:
+        raise PrecomposedVectorError("veraPDF did not report exactly one job")
+    report = jobs[0].find("validationReport")
+    details = report.find("details") if report is not None else None
+    if (
+        report is None
+        or details is None
+        or report.attrib.get("jobEndStatus") != "normal"
+        or report.attrib.get("profileName") != "PDF/UA-1 validation profile"
+        or report.attrib.get("isCompliant") != "true"
+        or details.attrib
+        != {
+            "failedChecks": "0",
+            "failedRules": "0",
+            "passedChecks": "172",
+            "passedRules": "106",
+        }
+    ):
+        raise PrecomposedVectorError("veraPDF PDF/UA-1 report is warning, failed, or unpinned")
+    batch = root.find("./batchSummary")
+    validation_reports = root.find("./batchSummary/validationReports")
+    if (
+        batch is None
+        or validation_reports is None
+        or any(
+            batch.attrib.get(name) != "0"
+            for name in ("encrypted", "failedToParse", "outOfMemory", "veraExceptions")
+        )
+        or batch.attrib.get("totalJobs") != "1"
+        or validation_reports.attrib
+        != {"compliant": "1", "failedJobs": "0", "nonCompliant": "0"}
+        or validation_reports.text != "1"
+    ):
+        raise PrecomposedVectorError("veraPDF batch summary contains an error or warning result")
+    return {
+        "failed_checks": 0,
+        "failed_rules": 0,
+        "flavour": "ua1",
+        "passed_checks": 172,
+        "passed_rules": 106,
+        "profile": "PDF/UA-1 validation profile",
+        "version": "1.30.2",
+    }
+
+
+def verify_external_evidence(
+    *,
+    artifact_directory: Path,
+    repository: Path,
+    mutool: str | None,
+    pdftotext: str | None,
+    pdfinfo: str | None,
+    verapdf: str | None,
+    binary: str | None,
+) -> tuple[dict[str, Any], dict[str, str], list[dict[str, str]]]:
+    pdf = artifact_directory / "output.pdf"
+    pdf_payload = pdf.read_bytes()
+    pdf_sha256 = _sha256(pdf_payload)
+    paths = {
+        "mutool": _resolve_external_tool("mutool", mutool),
+        "pdfinfo": _resolve_external_tool("pdfinfo", pdfinfo),
+        "pdftotext": _resolve_external_tool("pdftotext", pdftotext),
+        "verapdf": _resolve_external_tool("verapdf", verapdf),
+    }
+    policy_path = _publication_root(repository) / "external-tool-policy.json"
+    policy = _load_json(policy_path)
+    expected_policy = {
+        "contract": "typaxis.external-pdf-tool-policy/1",
+        "mupdf_source": {
+            "sha256": "44075a84e329db55b9bef5f342a70fd26d69e48ad1d33cb89d9664581c641156",
+            "url": "https://mupdf.com/downloads/archive/mupdf-1.28.2-source.tar.gz",
+        },
+        "mutool_version": "mutool version 1.28.2",
+        "poppler_source": {
+            "sha256": "dc906e68cea698109706ac6aa3d2c9d4512fcfcac42d90b8afcda486d1b9abd0",
+            "url": "https://poppler.freedesktop.org/poppler-26.08.0.tar.xz",
+        },
+        "poppler_version": "26.08.0",
+        "render_dpis": [72, 144, 288],
+        "verapdf": {
+            "flavour": "ua1",
+            "installer_sha256": "6cc6341cb1af644044054b81f00a6590a7918abb18f762243de115258bcad838",
+            "payload_sha256": "e12acf5b4dd4d03b4e3abaf88ddb0ecccfc914afe65299f50681853d6ce5b63b",
+            "signature_sha256": "f33175e402f28c42e80866aa62aa337c5d7d7a16a4ea1ae4ff50b0f13343ff26",
+            "signer_fingerprint": "13DD102B4DD69354D12DE5A83184863278B17FE7",
+            "version": "1.30.2",
+        },
+    }
+    if policy != expected_policy:
+        raise PrecomposedVectorError("external PDF tool policy is not the pinned V19 policy")
+    binary_path = _resolve_external_tool("typaxis", binary)
+    try:
+        differential = pdf_differential.verify_pdf_differential(
+            [pdf],
+            expected_text="(1)",
+            expected_pages=2,
+            mutool=os.fspath(paths["mutool"]),
+            pdftotext=os.fspath(paths["pdftotext"]),
+            pdfinfo=os.fspath(paths["pdfinfo"]),
+            render_dpis=(72, 144, 288),
+            vector_expectations=pdf_differential.VectorPdfExpectations(1, 1, 4, 2),
+        )
+        structure = pdf_differential.inspect_vector_pdf_structure(
+            pdf_payload, pdf_differential.VectorPdfExpectations(1, 1, 4, 2)
+        )
+    except (OSError, pdf_differential.PdfDifferentialError) as error:
+        raise PrecomposedVectorError(f"external PDF differential failed: {error}") from error
+    vera = _verify_verapdf(paths["verapdf"], pdf)
+
+    publication = _publication_root(repository)
+    assessment_path = publication / "matterhorn-assessment.json"
+    assessment = _load_json(assessment_path)
+    expected_assessment = matterhorn_protocol.build_assessment(
+        pdf_sha256=pdf_sha256,
+        fixture_revision_sha256=_sha256(
+            (publication / "publication-expectation.json").read_bytes()
+        ),
+    )
+    if assessment != expected_assessment:
+        raise PrecomposedVectorError("Matterhorn /2 assessment is stale or incomplete")
+    method_counts = {
+        method: sum(item["method"] == method for item in assessment["items"])
+        for method in ("human", "machine", "no_specific_test")
+    }
+    status_counts = {
+        status: sum(item["status"] == status for item in assessment["items"])
+        for status in ("not_applicable", "passed")
+    }
+    if method_counts != {"human": 47, "machine": 87, "no_specific_test": 2} or status_counts != {
+        "not_applicable": 37,
+        "passed": 99,
+    }:
+        raise PrecomposedVectorError("Matterhorn /2 method or status closure differs")
+
+    tools = [
+        _tool_record("mutool", paths["mutool"], ["-v"]),
+        _tool_record("pdfinfo", paths["pdfinfo"], ["-v"]),
+        _tool_record("pdftotext", paths["pdftotext"], ["-v"]),
+        _tool_record(
+            "verapdf",
+            paths["verapdf"],
+            ["--version"],
+            payload_root=paths["verapdf"].parent,
+        ),
+    ]
+    tools.sort(key=lambda record: record["name"])
+    expected_versions = {
+        "mutool": policy["mutool_version"],
+        "pdfinfo": f"pdfinfo version {policy['poppler_version']}",
+        "pdftotext": f"pdftotext version {policy['poppler_version']}",
+        "verapdf": f"veraPDF {policy['verapdf']['version']}",
+    }
+    if {tool["name"]: tool["version"] for tool in tools} != expected_versions:
+        raise PrecomposedVectorError("external PDF tool versions differ from the pinned policy")
+    if next(tool for tool in tools if tool["name"] == "verapdf")[
+        "payload_sha256"
+    ] != policy["verapdf"]["payload_sha256"]:
+        raise PrecomposedVectorError("veraPDF payload differs from the pinned policy")
+    binary_record = {
+        "sha256": _sha256(binary_path.read_bytes()),
+        "version": _first_version_line(binary_path, ["--version"]),
+    }
+    if binary_record["version"] != "typaxis 0.1.0":
+        raise PrecomposedVectorError("Typaxis binary version differs from the source release")
+    external = {
+        "differential": {
+            "extracted_text_sha256": differential.extracted_text_sha256,
+            "page_count": differential.page_count,
+            "render_dpis": list(differential.render_dpis),
+            "render_sha256": differential.render_sha256,
+        },
+        "matterhorn": {
+            "assessment_sha256": _sha256(assessment_path.read_bytes()),
+            "human_item_count": method_counts["human"],
+            "item_count": len(assessment["items"]),
+            "machine_item_count": method_counts["machine"],
+            "not_applicable_count": status_counts["not_applicable"],
+            "passed_count": status_counts["passed"],
+        },
+        "pdf_sha256": pdf_sha256,
+        "tool_policy_sha256": _sha256(policy_path.read_bytes()),
+        "structure": {
+            "do_count": structure.do_count,
+            "ext_g_state_count": structure.ext_g_state_count,
+            "form_count": structure.form_count,
+            "page_root_y_flip_count": structure.page_root_y_flip_count,
+            "structure_sha256": structure.structure_sha256,
+        },
+        "verapdf": vera,
+    }
+    return external, binary_record, tools
+
+
 def _artifact_index(directory: Path) -> tuple[list[dict[str, Any]], dict[str, bytes]]:
+    index_path = directory / "artifact-index.json"
+    if index_path.is_symlink() or not index_path.is_file():
+        raise PrecomposedVectorError("artifact index is not a regular file")
     index = _exact_object(
-        _load_json(directory / "artifact-index.json"),
+        _load_json(index_path),
         {"artifacts", "contract"},
         "artifact index",
     )
@@ -1925,6 +2569,14 @@ def verify_artifacts(
     artifact_directory: Path,
     expectation_path: Path,
     repository: Path,
+    *,
+    require_external_tools: bool = False,
+    readiness_directory: Path | None = None,
+    mutool: str | None = None,
+    pdftotext: str | None = None,
+    pdfinfo: str | None = None,
+    verapdf: str | None = None,
+    binary: str | None = None,
 ) -> dict[str, Any]:
     directory = artifact_directory.resolve(strict=True)
     if not directory.is_dir():
@@ -2023,6 +2675,28 @@ def verify_artifacts(
     if verification["pdf_sha256"] != _sha256(payloads["output.pdf"]):
         raise PrecomposedVectorError("verification receipt PDF hash differs")
     extracted = _verify_pdf(payloads["output.pdf"], counts, expectation_path.parent)
+    try:
+        structure_expectation = pdf_structure.load_expectation(
+            directory / "tagged-pdf-expectation.json"
+        )
+        structure_result = pdf_structure.verify_tagged_pdf_structure_v2(
+            payloads["output.pdf"], structure_expectation
+        )
+    except pdf_structure.PdfValidationError as error:
+        raise PrecomposedVectorError(
+            f"independent tagged-PDF /2 validation failed: {error}"
+        ) from error
+    if (
+        structure_result.get("pdf_sha256") != verification["pdf_sha256"]
+        or structure_result.get("page_count") != normalized_counts["pages"]
+        or structure_result.get("form_count") != normalized_counts["forms"]
+        or structure_result.get("vector_count") != normalized_counts["placements"]
+        or structure_result.get("equation_number_count") != 1
+        or structure_result.get("extracted_text") != ["xたすy", "xたすy、式1", "(1)"]
+    ):
+        raise PrecomposedVectorError(
+            "independent tagged-PDF /2 observation differs from the fixture"
+        )
     normalized = " ".join(extracted)
     if normalized != expected_outcome["normalized_extracted_text"]:
         raise PrecomposedVectorError(
@@ -2460,13 +3134,54 @@ def verify_artifacts(
     ):
         raise PrecomposedVectorError("private contract or command leaked into public surfaces")
 
-    checks = [{"name": name, "result": "passed"} for name in sorted(REQUIRED_CHECKS)]
-    return {
+    result = {
         "artifact_records": records,
         "artifact_set_sha256": _artifact_set_digest(payloads.items()),
-        "checks": checks,
+        "checks": [{"name": name, "result": "passed"} for name in sorted(REQUIRED_CHECKS)],
         "fixture_hashes": fixture_hashes,
     }
+    if require_external_tools:
+        if readiness_directory is None:
+            raise PrecomposedVectorError(
+                "--readiness-directory is required with --require-external-tools"
+            )
+        external, binary_record, tools = verify_external_evidence(
+            artifact_directory=directory,
+            repository=repository,
+            mutool=mutool,
+            pdftotext=pdftotext,
+            pdfinfo=pdfinfo,
+            verapdf=verapdf,
+            binary=binary,
+        )
+        production = verify_production_readiness(
+            readiness_directory,
+            repository,
+            vector_pdf=payloads["output.pdf"],
+            vector_manifest=payloads["build-manifest-vector.json"],
+        )
+        if external["pdf_sha256"] != verification["pdf_sha256"]:
+            raise PrecomposedVectorError("external gates are not bound to the verified PDF")
+        result.update(
+            {
+                "binary": binary_record,
+                "checks": [
+                    {"name": name, "result": "passed"}
+                    for name in sorted(RELEASE_REQUIRED_CHECKS)
+                ],
+                "external": external,
+                "production": production,
+                "tools": tools,
+            }
+        )
+    elif any(
+        value is not None
+        for value in (readiness_directory, mutool, pdftotext, pdfinfo, verapdf, binary)
+    ):
+        raise PrecomposedVectorError(
+            "external tool/readiness options require --require-external-tools"
+        )
+    return result
 
 
 def _schema_validator(repository: Path) -> Draft202012Validator:
@@ -2510,13 +3225,31 @@ def _validate_evidence(repository: Path, evidence: Any, label: str) -> dict[str,
         raise PrecomposedVectorError(f"{label} does not match evidence Schema: {detail}")
     assert isinstance(evidence, dict)
     names = {check["name"] for check in evidence["checks"]}
-    if names != REQUIRED_CHECKS:
+    if names != RELEASE_REQUIRED_CHECKS:
         raise PrecomposedVectorError(f"{label} does not contain the exact required checks")
-    if [check["name"] for check in evidence["checks"]] != sorted(REQUIRED_CHECKS):
+    if [check["name"] for check in evidence["checks"]] != sorted(RELEASE_REQUIRED_CHECKS):
         raise PrecomposedVectorError(f"{label} check order is not canonical")
     artifact_names = [record["name"] for record in evidence["artifacts"]]
     if artifact_names != sorted(EXPECTED_ARTIFACTS):
         raise PrecomposedVectorError(f"{label} does not contain the exact artifact set")
+    output_hash = next(
+        record["sha256"]
+        for record in evidence["artifacts"]
+        if record["name"] == "output.pdf"
+    )
+    if evidence["external"]["pdf_sha256"] != output_hash:
+        raise PrecomposedVectorError(f"{label} external gates target a different PDF")
+    if evidence["external"]["tool_policy_sha256"] != _sha256(
+        (_publication_root(repository) / "external-tool-policy.json").read_bytes()
+    ):
+        raise PrecomposedVectorError(f"{label} external tool policy is stale")
+    current_production = _current_production_identity(repository)
+    for member, expected in current_production.items():
+        if member == "matterhorn_assessment_sha256":
+            if evidence["external"]["matterhorn"]["assessment_sha256"] != expected:
+                raise PrecomposedVectorError(f"{label} Matterhorn assessment is stale")
+        elif evidence["production"].get(member) != expected:
+            raise PrecomposedVectorError(f"{label} production identity is stale at {member}")
     host = evidence["host"]
     suffix = "apple-darwin" if host["os"] == "macos" else "unknown-linux-gnu"
     if host["target_triple"] != f"{host['arch']}-{suffix}":
@@ -2653,6 +3386,12 @@ def emit_host_evidence(
     repository: Path,
     expectation_path: Path,
 ) -> dict[str, Any]:
+    required_result_members = {"binary", "external", "production", "tools"}
+    missing = required_result_members - set(result)
+    if missing:
+        raise PrecomposedVectorError(
+            "host evidence requires the complete external gate: " + ", ".join(sorted(missing))
+        )
     fixture = {
         **result["fixture_hashes"],
         "expected_sha256": _sha256(expectation_path.read_bytes()),
@@ -2661,29 +3400,20 @@ def emit_host_evidence(
     evidence = {
         "artifact_set_sha256": result["artifact_set_sha256"],
         "artifacts": result["artifact_records"],
+        "binary": result["binary"],
         "checks": result["checks"],
         "contract": EVIDENCE_CONTRACT,
+        "external": result["external"],
         "fixture": fixture,
         "host": _host(),
+        "production": result["production"],
         "result": "passed",
         "source": _source_identity(repository),
+        "tools": result["tools"],
         "verifier": _verifier_identity(repository),
     }
     _validate_evidence(repository, evidence, "emitted host evidence")
-    payload = canonical_json_bytes(evidence) + b"\n"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}")
-    if temporary.exists():
-        raise PrecomposedVectorError(f"temporary evidence path already exists: {temporary}")
-    try:
-        with temporary.open("xb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, output)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+    _atomic_json_write(output, evidence)
     return evidence
 
 
@@ -2753,6 +3483,32 @@ def _current_fixture_identity(repository: Path) -> dict[str, str]:
     }
 
 
+def _current_production_identity(repository: Path) -> dict[str, Any]:
+    root = _publication_root(repository)
+    resources = _production_resource_records(repository)
+    font_uris = {
+        "accessibility/job/body.ttf",
+        "accessibility/job/collection.ttc",
+        "cff-media/typaxis-cff-fixture.otf.hex",
+        "math/job/math.ttf",
+    }
+    return {
+        "capabilities_sha256": _sha256(
+            (root / "publication-capabilities.json").read_bytes()
+        ),
+        "expectation_sha256": _sha256(
+            (root / "publication-expectation.json").read_bytes()
+        ),
+        "font_resources": [row for row in resources if row["uri"] in font_uris],
+        "matterhorn_assessment_sha256": _sha256(
+            (root / "matterhorn-assessment.json").read_bytes()
+        ),
+        "resource_count": 73,
+        "resource_ledger_sha256": _sha256(canonical_json_bytes(resources)),
+        "resources": resources,
+    }
+
+
 def require_host_evidence(
     directory: Path,
     required_hosts: list[str],
@@ -2788,9 +3544,50 @@ def require_host_evidence(
     selected = [evidence_by_host[host] for host in required_hosts]
     reference = selected[0]
     for evidence in selected[1:]:
-        for member in ("artifact_set_sha256", "artifacts", "fixture", "source", "verifier"):
+        for member in (
+            "artifact_set_sha256",
+            "artifacts",
+            "checks",
+            "fixture",
+            "production",
+            "source",
+            "verifier",
+        ):
             if evidence[member] != reference[member]:
                 raise PrecomposedVectorError(f"host evidence differs at {member}")
+        if evidence["binary"]["version"] != reference["binary"]["version"]:
+            raise PrecomposedVectorError("host evidence differs at binary version")
+        tool_versions = [(tool["name"], tool["version"]) for tool in evidence["tools"]]
+        reference_tool_versions = [
+            (tool["name"], tool["version"]) for tool in reference["tools"]
+        ]
+        if tool_versions != reference_tool_versions:
+            raise PrecomposedVectorError("host evidence differs at external tool versions")
+        tool_by_name = {tool["name"]: tool for tool in evidence["tools"]}
+        reference_tool_by_name = {tool["name"]: tool for tool in reference["tools"]}
+        if (
+            tool_by_name["verapdf"]["payload_sha256"]
+            != reference_tool_by_name["verapdf"]["payload_sha256"]
+        ):
+            raise PrecomposedVectorError("host evidence differs at pinned veraPDF payload")
+        stable_external = {
+            **evidence["external"],
+            "differential": {
+                key: value
+                for key, value in evidence["external"]["differential"].items()
+                if key != "render_sha256"
+            },
+        }
+        stable_reference = {
+            **reference["external"],
+            "differential": {
+                key: value
+                for key, value in reference["external"]["differential"].items()
+                if key != "render_sha256"
+            },
+        }
+        if stable_external != stable_reference:
+            raise PrecomposedVectorError("host evidence differs at stable external observations")
     if reference["source"] != _source_identity(repository):
         raise PrecomposedVectorError("host evidence contains stale source identity")
     if reference["verifier"] != _verifier_identity(repository):
@@ -2799,7 +3596,9 @@ def require_host_evidence(
         raise PrecomposedVectorError("host evidence contains stale fixture identity")
     return {
         "artifact_set_sha256": reference["artifact_set_sha256"],
-        "contract": "typaxis.machine-precomposed-vector-host-index/1",
+        "contract": "typaxis.machine-precomposed-vector-host-index/2",
+        "pdf_sha256": reference["external"]["pdf_sha256"],
+        "production_readiness_sha256": reference["production"]["readiness_sha256"],
         "hosts": [evidence_by_host[host]["host"] for host in sorted(required_hosts)],
         "revision": reference["source"]["revision"],
     }
@@ -2820,6 +3619,14 @@ def _parse_arguments(arguments: list[str]) -> argparse.Namespace:
     parser.add_argument("--emit-host-evidence", type=Path)
     parser.add_argument("--require-host-evidence", type=Path)
     parser.add_argument("--required-host", action="append", default=[])
+    parser.add_argument("--prepare-readiness", type=Path)
+    parser.add_argument("--readiness-directory", type=Path)
+    parser.add_argument("--require-external-tools", action="store_true")
+    parser.add_argument("--mutool")
+    parser.add_argument("--pdftotext")
+    parser.add_argument("--pdfinfo")
+    parser.add_argument("--verapdf")
+    parser.add_argument("--binary")
     return parser.parse_args(arguments)
 
 
@@ -2827,14 +3634,49 @@ def main(arguments: list[str] | None = None) -> int:
     options = _parse_arguments(sys.argv[1:] if arguments is None else arguments)
     try:
         repository = options.repository.resolve(strict=True)
-        if options.require_host_evidence is not None:
+        if options.prepare_readiness is not None:
+            if any(
+                value is not None
+                for value in (
+                    options.artifact_directory,
+                    options.emit_host_evidence,
+                    options.expectation,
+                    options.require_host_evidence,
+                    options.readiness_directory,
+                    options.mutool,
+                    options.pdftotext,
+                    options.pdfinfo,
+                    options.verapdf,
+                    options.binary,
+                )
+            ) or options.required_host or options.require_external_tools:
+                raise PrecomposedVectorError(
+                    "readiness preparation does not accept verification options"
+                )
+            path = write_production_readiness_receipt(
+                options.prepare_readiness, repository
+            )
+            result = {"receipt": os.fspath(path)}
+        elif options.require_host_evidence is not None:
             if (
                 options.artifact_directory is not None
                 or options.emit_host_evidence is not None
                 or options.expectation is not None
+                or options.readiness_directory is not None
+                or options.require_external_tools
+                or any(
+                    value is not None
+                    for value in (
+                        options.mutool,
+                        options.pdftotext,
+                        options.pdfinfo,
+                        options.verapdf,
+                        options.binary,
+                    )
+                )
             ):
                 raise PrecomposedVectorError(
-                    "aggregate mode does not accept artifact, expectation, or emit paths"
+                    "aggregate mode does not accept build or external tool options"
                 )
             result = require_host_evidence(
                 options.require_host_evidence.resolve(strict=True),
@@ -2849,7 +3691,18 @@ def main(arguments: list[str] | None = None) -> int:
                     "--required-host is available only with --require-host-evidence"
                 )
             expectation = options.expectation or _default_expectation(repository)
-            result = verify_artifacts(options.artifact_directory, expectation, repository)
+            result = verify_artifacts(
+                options.artifact_directory,
+                expectation,
+                repository,
+                require_external_tools=options.require_external_tools,
+                readiness_directory=options.readiness_directory,
+                mutool=options.mutool,
+                pdftotext=options.pdftotext,
+                pdfinfo=options.pdfinfo,
+                verapdf=options.verapdf,
+                binary=options.binary,
+            )
             if options.emit_host_evidence is not None:
                 result = emit_host_evidence(
                     options.emit_host_evidence,

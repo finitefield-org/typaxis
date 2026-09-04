@@ -13,7 +13,7 @@
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed capability contracts | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.3 output | Yes | Yes, current output | Yes | Yes |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: public selected-state and artifact closure | Yes | Yes, MI3-12 gate |
-| contract 1.4 / `production-book-1` target | Yes through ADR-0037 for base/media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and separate baseline-JPEG/CFF1 resources | Private implementation is complete through MI4-12 and MI4-V18; MI4-V19 external combined evidence remains | No | No; MI4-V19 then MI4-13 gate |
+| contract 1.4 / `production-book-1` target | Yes through ADR-0037 for base/media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and separate baseline-JPEG/CFF1 resources | Private implementation and MI4-V19 external/readiness evidence are complete | No | No; MI4-13 atomic publication remains |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
@@ -37,7 +37,7 @@
 - [x] MI4-V01 fixes the VMB Safe-SVG 2 producer-interface corpus without changing product/public behavior
 - [x] ADR-0037 fixes explicit producer-composed vector kinds, metrics/baseline/spacing, Safe-SVG 2, atomic inline/block layout, equation-number ownership, content-key Form dedupe, alternatives/language/structure, one-time limits/diagnostics, versioned SafeVector/resource-set/navigation/tagged-PDF `/2` chains, and the MI4-V19 -> MI4-13 publication dependency
 - [x] MI4-V03〜MI4-V18 implement ADR-0037 only in private 1.4 staging
-- [ ] MI4-V19 closes external combined evidence without publishing aliases
+- [x] MI4-V19 closes pinned MuPDF/Poppler/veraPDF, Matterhorn `/2`, complete resource-set `/2`, and macOS/Linux evidence without publishing aliases
 - [x] MI4-11 and MI4-12 implement the bounded JPEG and CFF1 components privately, including deterministic PDF plans, manifest closure, renderer/extractor checks, and old-public-surface isolation
 - [ ] MI4-13 publishes only the complete combined resource set with the other M4 slices
 

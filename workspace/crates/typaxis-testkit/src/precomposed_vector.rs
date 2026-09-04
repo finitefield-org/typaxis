@@ -201,6 +201,7 @@ pub fn build_precomposed_vector_artifacts(
     let figure_pdf = figure_fixture.pdf.bytes();
     let figure_observation = figure_fixture.pdf.observation();
     let phase_receipts = phase_receipts_json();
+    let tagged_pdf_expectation = tagged_pdf_expectation_json(observation);
     let verification = verification_json(
         fixture.display.display.receipt().page_count(),
         products.safe.resources().len(),
@@ -288,6 +289,7 @@ pub fn build_precomposed_vector_artifacts(
             "tagged-pdf-manifest.json",
             line(products.tagged.canonical_jcs().to_owned()),
         ),
+        ("tagged-pdf-expectation.json", line(tagged_pdf_expectation)),
         ("verification.json", line(verification)),
     ];
     if schedule == PrecomposedVectorBuildSchedule::ReverseCompletion {
@@ -302,6 +304,71 @@ pub fn build_precomposed_vector_artifacts(
     let index = artifact_index_json(&files);
     files.insert("artifact-index.json".to_owned(), line(index));
     Ok(PrecomposedVectorArtifactSet { files })
+}
+
+/// Writer-independent `/2` validator input for the closed publication
+/// fixture. Object hashes come from the sealed final-PDF observation while
+/// semantic expectations remain authored facts: deriving alternatives,
+/// languages, MCIDs, or Formula/number parentage by parsing the PDF would let
+/// the writer define its own oracle.
+fn tagged_pdf_expectation_json(observation: &typaxis_pdf::TaggedPdfObservationV2) -> String {
+    let mut output = String::from("{\"algorithm\":");
+    push_string(&mut output, observation.validator_algorithm());
+    output.push_str(",\"document_language\":");
+    push_string(&mut output, observation.document_language());
+    output.push_str(concat!(
+        ",\"equation_numbers\":[{\"exact_text\":\"(1)\",\"font_index\":0,",
+        "\"mcid\":2,\"page_index\":1,\"paint_language\":\"en-US\",",
+        "\"parent_structure_node_id\":6,\"structure_language\":null,",
+        "\"structure_node_id\":7}],\"form_count\":"
+    ));
+    output.push_str(&observation.form_object_count().to_string());
+    output.push_str(",\"object_budget_charge_count\":");
+    output.push_str(&observation.object_budget_charge_count().to_string());
+    output.push_str(",\"observation_algorithm\":");
+    push_string(&mut output, observation.algorithm());
+    output.push_str(",\"page_count\":2,\"pdf\":{\"byte_length\":");
+    output.push_str(&observation.pdf_byte_length().to_string());
+    output.push_str(",\"object_count\":");
+    output.push_str(&observation.object_count().to_string());
+    output.push_str(",\"objects\":[");
+    for (index, object) in observation.objects().iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"object_number\":");
+        output.push_str(&object.object_number().to_string());
+        output.push_str(",\"role\":");
+        push_string(&mut output, object.role());
+        output.push_str(",\"sha256\":\"");
+        output.push_str(&hex(object.sha256()));
+        output.push_str("\"}");
+    }
+    output.push_str("],\"sha256\":\"");
+    output.push_str(&hex(observation.pdf_sha256()));
+    output.push_str(concat!(
+        "\"},\"vectors\":[",
+        "{\"actual_text\":null,\"alternative\":\"丸括弧で囲んだ二項目\",",
+        "\"form_index\":0,\"kind\":\"inline_vector\",\"mcid\":0,",
+        "\"page_index\":0,\"paint_language\":\"en-US\",",
+        "\"structure_language\":\"en-US\",\"structure_node_id\":3},",
+        "{\"actual_text\":\"xたすy\",\"alternative\":\"xたすy\",",
+        "\"form_index\":0,\"kind\":\"math_vector\",\"mcid\":1,",
+        "\"page_index\":0,\"paint_language\":\"en-US\",",
+        "\"structure_language\":\"en-US\",\"structure_node_id\":4},",
+        "{\"actual_text\":null,\"alternative\":\"配置図\",",
+        "\"form_index\":0,\"kind\":\"vector_figure\",\"mcid\":0,",
+        "\"page_index\":1,\"paint_language\":\"en-US\",",
+        "\"structure_language\":\"en-US\",\"structure_node_id\":5},",
+        "{\"actual_text\":\"xたすy、式1\",\"alternative\":\"xたすy、式1\",",
+        "\"form_index\":0,\"kind\":\"math_vector_block\",\"mcid\":1,",
+        "\"page_index\":1,\"paint_language\":\"en-US\",",
+        "\"structure_language\":\"en-US\",\"structure_node_id\":6}],",
+        "\"xmp_sha256\":\""
+    ));
+    output.push_str(&hex(observation.xmp_sha256()));
+    output.push_str("\"}");
+    output
 }
 
 #[derive(Clone, Debug)]

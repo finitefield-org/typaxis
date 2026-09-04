@@ -105,6 +105,26 @@ STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR = (
     / "production-book-1"
     / "precomposed-vector"
 )
+STAGING_PRODUCTION_BOOK_FIXTURE_DIR = (
+    MACHINE_FIXTURE_DIR / "staging" / "production-book-1"
+)
+PRODUCTION_BOOK_RESOURCE_PATTERNS = (
+    "accessibility/job/*",
+    "book-navigation/job/*",
+    "cff-media/*.hex",
+    "cff-media/job/*",
+    "jpeg-media/*.hex",
+    "jpeg-media/job/*",
+    "math/job/*",
+    "precomposed-vector/*.tsv",
+    "precomposed-vector/document-package*.json",
+    "precomposed-vector/fragments/*",
+    "precomposed-vector/input.tsf",
+    "precomposed-vector/svg/*",
+    "precomposed-vector/tex/*",
+    "semantic-container/job/*",
+    "vector-media/job/*",
+)
 STAGING_BOOK_NAVIGATION_FIXTURE_DIR = (
     MACHINE_FIXTURE_DIR
     / "staging"
@@ -4624,6 +4644,203 @@ def machine_advertised_items(
     return sorted(items, key=utf8_sort_key)
 
 
+def production_book_advertised_items(capabilities: dict[str, Any]) -> list[str]:
+    """Project every frozen MI4-13 field into the publication coverage ledger."""
+
+    machine = capabilities["machine_input"]
+    profiles = machine["profiles"]
+    profile_id = "typaxis.machine-pdf/production-book-1"
+    matches = [profile for profile in profiles if profile.get("id") == profile_id]
+    if len(matches) != 1:
+        raise ValidationFailure("private capabilities lack one production-book-1 profile")
+    profile = matches[0]
+    position = profiles.index(profile) + 1
+    resource_set = profile["resource_set"]
+    items = {
+        f"available:{str(profile['available']).lower()}",
+        "contract:" + capabilities["contract"].rsplit("/", 1)[1],
+        "default_profile:" + machine["default_profile"].rsplit("/", 1)[1],
+        f"footnotes:{str(profile['footnotes']).lower()}",
+        "page_master_count:" + str(profile["page_master"]["count"]),
+        "page_selection_rules:"
+        + str(profile["page_master"]["selection_rules"]).lower(),
+        "profile:" + profile_id.rsplit("/", 1)[1],
+        f"profile_position:{position}",
+        "resource_set:"
+        + resource_set["id"].removeprefix("typaxis.").replace("/", "."),
+        "source_closure:" + profile["source_closure"],
+        "source_count:"
+        + f"{profile['source_count']['minimum']}-{profile['source_count']['maximum']}",
+    }
+    unsupported_pdf_features = profile["unsupported_pdf_features"]
+    if unsupported_pdf_features:
+        items.update(
+            f"unsupported_pdf_feature:{value}"
+            for value in unsupported_pdf_features
+        )
+    else:
+        items.add("unsupported_pdf_features:none")
+    for field, prefix in (
+        ("blocks", "block"),
+        ("font_formats", "font_format"),
+        ("image_formats", "image_format"),
+        ("page_values", "page_value"),
+        ("pdf_features", "pdf_feature"),
+        ("style_block_types", "style_block_type"),
+        ("style_properties", "style_property"),
+        ("style_selectors", "style_selector"),
+        ("vector_features", "vector_feature"),
+        ("vector_formats", "vector_format"),
+        ("vector_metrics", "vector_metric"),
+        ("vector_profiles", "vector_profile"),
+    ):
+        items.update(f"{prefix}:{value}" for value in profile[field])
+    items.update(f"inline:{value}" for value in profile["inlines"]["kinds"])
+    items.update(
+        f"reference_format:{value}"
+        for value in profile["inlines"]["reference_formats"]
+    )
+    items.update(
+        f"page_optional_frame:{value}"
+        for value in profile["page_master"]["optional_frames"]
+    )
+    items.update(
+        "resource_component:"
+        + value.removeprefix("typaxis.resource-profile/").replace("/", ".")
+        for value in resource_set["components"]
+    )
+    items.update(
+        f"resource_font_media:{value}" for value in resource_set["font_media"]
+    )
+    items.update(
+        f"resource_image_media:{value}" for value in resource_set["image_media"]
+    )
+    for vector_profile, features in profile["vector_features_by_profile"].items():
+        items.update(
+            f"vector_feature_profile:{vector_profile}.{feature}"
+            for feature in features
+        )
+    for kind, media in profile["vector_media_by_kind"].items():
+        items.update(f"vector_media:{kind}.{value}" for value in media)
+    return sorted(items, key=utf8_sort_key)
+
+
+def validate_publication_readiness_fixtures(
+    public_capabilities: dict[str, Any],
+    private_validators: dict[str, Draft202012Validator],
+) -> int:
+    root = STAGING_PRODUCTION_BOOK_FIXTURE_DIR
+    capabilities_path = root / "publication-capabilities.json"
+    expectation_path = root / "publication-expectation.json"
+    assessment_path = root / "matterhorn-assessment.json"
+    tool_policy_path = root / "external-tool-policy.json"
+    capabilities = load_json(capabilities_path)
+    expectation = load_json(expectation_path)
+    assessment = load_json(assessment_path)
+    tool_policy = load_json(tool_policy_path)
+    for path, value, schema_name in (
+        (capabilities_path, capabilities, "machine-capabilities.schema.json"),
+        (expectation_path, expectation, "machine-fixture-expectation.schema.json"),
+        (assessment_path, assessment, "machine-matterhorn-assessment.schema.json"),
+    ):
+        errors = schema_errors(private_validators[schema_name], value)
+        if errors:
+            raise ValidationFailure(f"{path}: private publication fixture rejected: " + " | ".join(errors))
+        if path.read_bytes() != jcs_bytes(value) + b"\n":
+            raise ValidationFailure(f"{path}: private publication fixture is not JCS plus LF")
+
+    if expectation["advertised_item_coverage"] != production_book_advertised_items(
+        capabilities
+    ):
+        raise ValidationFailure(
+            "publication expectation is not the exact bidirectional production capability projection"
+        )
+    if expectation["fixture_class"] != "publication" or expectation["package"] != (
+        "precomposed-vector/document-package.json"
+    ):
+        raise ValidationFailure("publication expectation identity or package handoff differs")
+    resources = expectation["resource_hashes"]
+    expected_resource_uris: set[str] = set()
+    for pattern in PRODUCTION_BOOK_RESOURCE_PATTERNS:
+        for path in root.glob(pattern):
+            if path.is_symlink() or not path.is_file():
+                raise ValidationFailure(
+                    f"publication input is not a regular file: {path.relative_to(root)}"
+                )
+            expected_resource_uris.add(path.relative_to(root).as_posix())
+    if (
+        len(resources) != 73
+        or len(expected_resource_uris) != 73
+        or [row["uri"] for row in resources] != sorted(expected_resource_uris)
+    ):
+        raise ValidationFailure("publication resource ledger is not the exact ordered 73-file set")
+    for index, record in enumerate(resources):
+        verify_file_record(root, record, f"publication resource {index}")
+
+    public_machine = public_capabilities["machine_input"]
+    private_machine = capabilities["machine_input"]
+    if capabilities["engine"] != public_capabilities["engine"]:
+        raise ValidationFailure("publication changed the existing engine descriptor")
+    for member in (
+        "coordinate_units",
+        "host_features",
+        "host_limits",
+        "limits",
+        "max_diagnostics",
+    ):
+        if private_machine[member] != public_machine[member]:
+            raise ValidationFailure(f"publication changed existing capability member {member}")
+    if capabilities["contract"] != "typaxis.contract/1.4" or private_machine[
+        "document_package_contracts"
+    ] != [*public_machine["document_package_contracts"], "typaxis.contract/1.4"]:
+        raise ValidationFailure("publication contract tuple is not the exact future extension")
+    if private_machine["default_profile"] != public_machine["default_profile"]:
+        raise ValidationFailure("publication changed the paragraph default profile")
+    private_profiles = private_machine["profiles"]
+    if private_profiles[:6] != public_machine["profiles"][:6] or private_profiles[7:] != (
+        public_machine["profiles"][6:]
+    ):
+        raise ValidationFailure("publication changed an existing public profile object")
+    if private_profiles[6]["id"] != "typaxis.machine-pdf/production-book-1":
+        raise ValidationFailure("production profile tuple position differs")
+
+    try:
+        from tools import matterhorn_protocol
+    except ModuleNotFoundError:
+        sys.path.insert(0, str(REPOSITORY_ROOT))
+        from tools import matterhorn_protocol
+    expected_assessment = matterhorn_protocol.build_assessment(
+        pdf_sha256=assessment["pdf_sha256"],
+        fixture_revision_sha256=hashlib.sha256(expectation_path.read_bytes()).hexdigest(),
+    )
+    if assessment != expected_assessment:
+        raise ValidationFailure("Matterhorn assessment differs from the fixed 136-item review")
+    if tool_policy_path.read_bytes() != jcs_bytes(tool_policy) + b"\n" or tool_policy != {
+        "contract": "typaxis.external-pdf-tool-policy/1",
+        "mupdf_source": {
+            "sha256": "44075a84e329db55b9bef5f342a70fd26d69e48ad1d33cb89d9664581c641156",
+            "url": "https://mupdf.com/downloads/archive/mupdf-1.28.2-source.tar.gz",
+        },
+        "mutool_version": "mutool version 1.28.2",
+        "poppler_source": {
+            "sha256": "dc906e68cea698109706ac6aa3d2c9d4512fcfcac42d90b8afcda486d1b9abd0",
+            "url": "https://poppler.freedesktop.org/poppler-26.08.0.tar.xz",
+        },
+        "poppler_version": "26.08.0",
+        "render_dpis": [72, 144, 288],
+        "verapdf": {
+            "flavour": "ua1",
+            "installer_sha256": "6cc6341cb1af644044054b81f00a6590a7918abb18f762243de115258bcad838",
+            "payload_sha256": "e12acf5b4dd4d03b4e3abaf88ddb0ecccfc914afe65299f50681853d6ce5b63b",
+            "signature_sha256": "f33175e402f28c42e80866aa62aa337c5d7d7a16a4ea1ae4ff50b0f13343ff26",
+            "signer_fingerprint": "13DD102B4DD69354D12DE5A83184863278B17FE7",
+            "version": "1.30.2",
+        },
+    }:
+        raise ValidationFailure("external PDF tool policy differs from the pinned V19 inputs")
+    return len(resources)
+
+
 def combined_fixture_items(
     package: dict[str, Any], fixture_root: Path, profile_id: str
 ) -> list[str]:
@@ -6441,6 +6658,7 @@ def main() -> int:
             "machine-jpeg-manifest.schema.json",
             "machine-math-manifest.schema.json",
             "machine-math-vector-manifest.schema.json",
+            "machine-matterhorn-assessment.schema.json",
             "machine-precomposed-vector-evidence.schema.json",
             "machine-safe-vector-manifest.schema.json",
             "machine-semantic-container-manifest.schema.json",
@@ -9377,6 +9595,10 @@ def main() -> int:
         machine_expectation_count, machine_matrix_count = validate_machine_fixture_bundle(
             validators, private_m4_validators
         )
+        publication_resource_count = validate_publication_readiness_fixtures(
+            load_json(MACHINE_FIXTURE_DIR / "capabilities.json"),
+            private_m4_validators,
+        )
 
         compatibility_metadata = load_json(
             COMPATIBILITY_DIR / "document-package-1.0-canonical.json"
@@ -9795,6 +10017,7 @@ def main() -> int:
             f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
             f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "
             f"{machine_expectation_count} machine expectations in {machine_matrix_count} matrices, "
+            f"{publication_resource_count} publication resources, "
             f"and config JCS hash {config_digest}"
         )
         return 0

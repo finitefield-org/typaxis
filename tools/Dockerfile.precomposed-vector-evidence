@@ -1,0 +1,68 @@
+FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
+
+ARG MUPDF_VERSION=1.28.2
+ARG MUPDF_SHA256=44075a84e329db55b9bef5f342a70fd26d69e48ad1d33cb89d9664581c641156
+ARG POPPLER_VERSION=26.08.0
+ARG POPPLER_SHA256=dc906e68cea698109706ac6aa3d2c9d4512fcfcac42d90b8afcda486d1b9abd0
+ARG FREETYPE_VERSION=2.13.3
+ARG FREETYPE_SHA256=0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       build-essential ca-certificates cmake curl git libfontconfig1-dev \
+       libfreetype-dev libjpeg-dev liblcms2-dev libopenjp2-7-dev libpng-dev \
+       libtiff-dev ninja-build openjdk-17-jre-headless pkg-config python3 \
+       python3-pip zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+      jsonschema==4.25.1 referencing==0.36.2
+
+WORKDIR /tmp/build
+RUN curl --fail --location --silent --show-error \
+      "https://mupdf.com/downloads/archive/mupdf-${MUPDF_VERSION}-source.tar.gz" \
+      --output mupdf.tar.gz \
+    && echo "${MUPDF_SHA256}  mupdf.tar.gz" | sha256sum --check --strict \
+    && tar -xzf mupdf.tar.gz \
+    && make -C "mupdf-${MUPDF_VERSION}-source" -j2 \
+      build=release HAVE_GLUT=no HAVE_X11=no install-tools \
+    && rm -rf "mupdf-${MUPDF_VERSION}-source" mupdf.tar.gz
+
+# Poppler 26.08.0 requires CMake 3.28 or newer, while bookworm provides 3.25.
+# Keep the managed-host builder version explicit instead of relying on an
+# unversioned host installation.
+RUN python3 -m pip install --break-system-packages --no-cache-dir cmake==3.31.6
+
+RUN curl --fail --location --silent --show-error \
+      "https://downloads.sourceforge.net/project/freetype/freetype2/${FREETYPE_VERSION}/freetype-${FREETYPE_VERSION}.tar.xz" \
+      --output freetype.tar.xz \
+    && echo "${FREETYPE_SHA256}  freetype.tar.xz" | sha256sum --check --strict \
+    && tar -xJf freetype.tar.xz \
+    && cmake -S "freetype-${FREETYPE_VERSION}" -B freetype-build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DBUILD_SHARED_LIBS=ON -DFT_DISABLE_BROTLI=ON -DFT_DISABLE_HARFBUZZ=ON \
+    && cmake --build freetype-build --parallel 2 \
+    && cmake --install freetype-build \
+    && ldconfig \
+    && rm -rf "freetype-${FREETYPE_VERSION}" freetype-build freetype.tar.xz
+
+RUN curl --fail --location --silent --show-error \
+      "https://poppler.freedesktop.org/poppler-${POPPLER_VERSION}.tar.xz" \
+      --output poppler.tar.xz \
+    && echo "${POPPLER_SHA256}  poppler.tar.xz" | sha256sum --check --strict \
+    && tar -xJf poppler.tar.xz \
+    && cmake -S "poppler-${POPPLER_VERSION}" -B poppler-build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DBUILD_CPP_TESTS=OFF -DBUILD_GTK_TESTS=OFF -DBUILD_MANUAL_TESTS=OFF \
+      -DBUILD_QT5_TESTS=OFF -DBUILD_QT6_TESTS=OFF -DENABLE_BOOST=OFF \
+      -DENABLE_CPP=OFF -DENABLE_GLIB=OFF -DENABLE_GOBJECT_INTROSPECTION=OFF \
+      -DENABLE_GPGME=OFF -DENABLE_GTK_DOC=OFF -DENABLE_LIBCURL=OFF \
+      -DENABLE_NSS3=OFF -DENABLE_QT5=OFF -DENABLE_QT6=OFF \
+      -DFONT_CONFIGURATION=generic \
+      -DENABLE_UNSTABLE_API_ABI_HEADERS=OFF -DENABLE_UTILS=ON \
+    && cmake --build poppler-build --parallel 2 \
+    && cmake --install poppler-build \
+    && ldconfig \
+    && rm -rf "poppler-${POPPLER_VERSION}" poppler-build poppler.tar.xz
+
+WORKDIR /work

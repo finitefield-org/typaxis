@@ -19,6 +19,9 @@ class PdfDifferentialError(Exception):
     pass
 
 
+EXTERNAL_COMMAND_TIMEOUT_SECONDS = 120
+
+
 @dataclass(frozen=True)
 class PdfDifferentialResult:
     page_count: int
@@ -59,13 +62,23 @@ def _run(command: Sequence[str]) -> bytes:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+            timeout=EXTERNAL_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as error:
+        raise PdfDifferentialError(
+            f"{command[0]!r} exceeded {EXTERNAL_COMMAND_TIMEOUT_SECONDS} seconds"
+        ) from error
     except OSError as error:
         raise PdfDifferentialError(f"cannot execute {command[0]!r}: {error}") from error
     if completed.returncode != 0:
         detail = completed.stderr.decode("utf-8", "replace").strip()
         raise PdfDifferentialError(
             f"{' '.join(command)} failed: {detail or completed.returncode}"
+        )
+    if completed.stderr:
+        raise PdfDifferentialError(
+            f"{' '.join(command)} emitted a warning: "
+            + completed.stderr.decode("utf-8", "replace").strip()
         )
     return completed.stdout
 

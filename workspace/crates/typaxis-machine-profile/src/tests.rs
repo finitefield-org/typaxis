@@ -618,9 +618,10 @@ fn public_capability_isolation_keeps_private_vector_projection_out_of_seven_prof
     }
 
     let private_schema = include_str!("../../../../schemas/1.4/machine-capabilities.schema.json");
-    assert!(private_schema.contains("\"minItems\": 7"));
-    assert!(private_schema.contains("\"maxItems\": 7"));
-    assert!(!private_schema.contains("vector_features"));
+    assert!(private_schema.contains("\"minItems\": 8"));
+    assert!(private_schema.contains("\"maxItems\": 8"));
+    assert!(private_schema.contains("production_book_profile"));
+    assert!(private_schema.contains("vector_features"));
 }
 
 #[test]
@@ -700,6 +701,35 @@ fn precomposed_vector_capability_projection_is_complete_ordered_and_preflight_sy
         future_profile_order[6],
         "typaxis.machine-pdf/production-book-1"
     );
+
+    let publication = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/",
+        "publication-capabilities.json"
+    ));
+    assert!(publication.ends_with('\n'));
+    assert!(publication.contains("\"contract\":\"typaxis.contract/1.4\""));
+    assert!(publication.contains(concat!(
+        "\"components\":[\"typaxis.resource-profile/png/1\",",
+        "\"typaxis.resource-profile/safe-vector/2\",",
+        "\"typaxis.resource-profile/jpeg-baseline/1\",",
+        "\"typaxis.resource-profile/truetype-glyf/1\",",
+        "\"typaxis.resource-profile/sfnt-cff1/1\"]"
+    )));
+    assert!(publication.contains(concat!(
+        "\"vector_metrics\":[\"advance\",\"ascent\",\"baseline\",",
+        "\"descent\",\"origin_x\",\"viewport\"]"
+    )));
+    let paragraph = publication
+        .find("\"id\":\"typaxis.machine-pdf/paragraph-1\"")
+        .unwrap();
+    let production = publication
+        .find("\"id\":\"typaxis.machine-pdf/production-book-1\"")
+        .unwrap();
+    let table = publication
+        .find("\"id\":\"typaxis.machine-pdf/table-1\"")
+        .unwrap();
+    assert!(paragraph < production && production < table);
 }
 
 fn compact_json_fixture(input: &str) -> String {
