@@ -1,13 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use typaxis_core::{DisplayTextSpan, FontFaceId, FontInstanceId, ValidatedResourceLimits};
-use typaxis_font::{Cid, CidBinding, FontSubsetPlan, OriginalGlyphId, UnicodeScalar};
-use typaxis_resource_admission::AdmittedResourceLedger;
+use typaxis_font::{
+    Cff1Subset, Cff1SubsetSession, Cid, CidBinding, FontSubsetPlan, OriginalGlyphId, UnicodeScalar,
+};
+use typaxis_resource_admission::{AdmittedFont, AdmittedFontMediaKind, AdmittedResourceLedger};
 
 use super::{
     subset_truetype, validate_original_glyph_bounds, validate_pdf_font_metrics,
-    validate_subset_postscript_name, ClusterExtractionPlan, FontEncoderOutput, FrozenPdfFontPlan,
-    ResourceError, VerifiedEncoderOutput, VerifiedEncoderReceiptOwner,
+    validate_subset_postscript_name, Cff1FontEncoderOutput, ClusterExtractionPlan,
+    FontEncoderOutput, FrozenPdfFontPlan, ResourceError, VerifiedEncoderOutput,
+    VerifiedEncoderReceiptOwner,
 };
 
 /// One source-text cluster and its already-shaped glyph sequence for a
@@ -152,6 +155,7 @@ pub fn finalize_staging_pdf_text_fonts(
         .try_reserve_exact(by_font.len())
         .map_err(|_| ResourceError::ResourceLimit)?;
     let mut aggregate_subset_bytes = 0u64;
+    let mut cff1_session = None::<Cff1SubsetSession>;
     for (font_face_id, clusters) in by_font {
         let admitted_font = admitted
             .font(font_face_id)
@@ -160,6 +164,60 @@ pub fn finalize_staging_pdf_text_fonts(
             .iter()
             .flat_map(|cluster| cluster.glyphs.iter().copied())
             .collect::<BTreeSet<_>>();
+        if admitted_font.media_kind() == AdmittedFontMediaKind::SfntCff1 {
+            let admission = admitted_font
+                .cff1_admission()
+                .ok_or(ResourceError::InvalidFontPlan)?;
+            let session =
+                cff1_session.get_or_insert_with(|| Cff1SubsetSession::from_admission(admission));
+            let subset = session
+                .subset(
+                    admission,
+                    font_face_id,
+                    FontInstanceId::new(font_face_id.get()),
+                    &requested,
+                    limits.get().max_cids_per_font,
+                )
+                .map_err(ResourceError::Cff1)?;
+            let (cid_bindings, extraction_plans, frozen_clusters) =
+                build_staging_cff1_plans(&clusters, &subset, limits)?;
+            let receipt = owner.issue_cff1_font(Cff1FontEncoderOutput {
+                font_face_id,
+                font_instance_id: FontInstanceId::new(font_face_id.get()),
+                admission,
+                subset,
+                cids: cid_bindings,
+                cluster_plans: extraction_plans,
+                profile_fingerprint: admitted_font
+                    .m4_profile_fingerprint()
+                    .ok_or(ResourceError::InvalidFontPlan)?,
+            })?;
+            let VerifiedEncoderOutput::Font(pdf_font) = receipt.0 else {
+                return Err(ResourceError::InvalidFontPlan);
+            };
+            validate_staging_font_plan(&pdf_font, admitted_font)?;
+            aggregate_subset_bytes = aggregate_subset_bytes
+                .checked_add(
+                    u64::try_from(pdf_font.subset_bytes().len())
+                        .map_err(|_| ResourceError::ResourceLimit)?,
+                )
+                .ok_or(ResourceError::ResourceLimit)?;
+            if aggregate_subset_bytes > limits.get().max_spool_bytes {
+                return Err(ResourceError::ResourceLimit);
+            }
+            output.push(FrozenStagingPdfTextFontPlan {
+                font_face_id,
+                pdf_font: *pdf_font,
+                clusters: frozen_clusters,
+            });
+            continue;
+        }
+        if !matches!(
+            admitted_font.media_kind(),
+            AdmittedFontMediaKind::SfntTrueTypeGlyf | AdmittedFontMediaKind::TtcTrueTypeGlyf
+        ) {
+            return Err(ResourceError::InvalidFontPlan);
+        }
         let subset = subset_truetype(
             admitted_font.bytes(),
             admitted_font.face_index(),
@@ -263,16 +321,7 @@ pub fn finalize_staging_pdf_text_fonts(
         let VerifiedEncoderOutput::Font(pdf_font) = receipt.0 else {
             return Err(ResourceError::InvalidFontPlan);
         };
-        validate_pdf_font_metrics(pdf_font.metrics())?;
-        validate_subset_postscript_name(&pdf_font)?;
-        validate_original_glyph_bounds(
-            pdf_font.subset_plan(),
-            admitted_font.metadata().glyph_count,
-        )?;
-        pdf_font
-            .subset_plan()
-            .validate()
-            .map_err(|_| ResourceError::InvalidFontPlan)?;
+        validate_staging_font_plan(&pdf_font, admitted_font)?;
         aggregate_subset_bytes = aggregate_subset_bytes
             .checked_add(
                 u64::try_from(pdf_font.subset_bytes().len())
@@ -284,7 +333,7 @@ pub fn finalize_staging_pdf_text_fonts(
         }
         output.push(FrozenStagingPdfTextFontPlan {
             font_face_id,
-            pdf_font,
+            pdf_font: *pdf_font,
             clusters: frozen_clusters,
         });
     }
@@ -295,4 +344,162 @@ pub fn finalize_staging_pdf_text_fonts(
         )
     });
     Ok(output)
+}
+
+fn validate_staging_font_plan(
+    pdf_font: &FrozenPdfFontPlan,
+    admitted_font: &AdmittedFont,
+) -> Result<(), ResourceError> {
+    validate_pdf_font_metrics(pdf_font.metrics(), pdf_font.program_kind())?;
+    validate_subset_postscript_name(pdf_font)?;
+    validate_original_glyph_bounds(pdf_font.subset_plan(), admitted_font.metadata().glyph_count)?;
+    pdf_font
+        .subset_plan()
+        .validate()
+        .map_err(|_| ResourceError::InvalidFontPlan)?;
+    match (pdf_font.program_kind(), admitted_font.media_kind()) {
+        (
+            super::PdfFontProgramKind::TrueTypeGlyf,
+            AdmittedFontMediaKind::SfntTrueTypeGlyf | AdmittedFontMediaKind::TtcTrueTypeGlyf,
+        ) => Ok(()),
+        (super::PdfFontProgramKind::OpenTypeCff1, AdmittedFontMediaKind::SfntCff1) => {
+            let required = pdf_font
+                .subset_plan()
+                .glyphs
+                .iter()
+                .map(|binding| binding.original_gid)
+                .collect::<BTreeSet<_>>();
+            super::validate_cff1_font_plan(pdf_font, admitted_font, &required)
+        }
+        _ => Err(ResourceError::InvalidFontPlan),
+    }
+}
+
+type StagingCff1Plans = (
+    Vec<CidBinding>,
+    Vec<ClusterExtractionPlan>,
+    Vec<FrozenStagingPdfTextClusterPlan>,
+);
+
+fn build_staging_cff1_plans(
+    clusters: &BTreeSet<StagingPdfTextClusterUsage>,
+    subset: &Cff1Subset,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingCff1Plans, ResourceError> {
+    if clusters
+        .iter()
+        .any(|cluster| cluster.glyphs.contains(&OriginalGlyphId::new(0)))
+    {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let mut unicode_by_glyph = BTreeMap::<OriginalGlyphId, Option<UnicodeScalar>>::new();
+    for cluster in clusters {
+        let scalars = cluster
+            .exact_text
+            .chars()
+            .map(UnicodeScalar::new)
+            .collect::<Vec<_>>();
+        if scalars.len() != cluster.glyphs.len() {
+            for glyph in &cluster.glyphs {
+                unicode_by_glyph.insert(*glyph, None);
+            }
+            continue;
+        }
+        for (glyph, scalar) in cluster.glyphs.iter().zip(scalars) {
+            match unicode_by_glyph.entry(*glyph) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(Some(scalar));
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    if entry.get().is_some_and(|existing| existing != scalar) {
+                        entry.insert(None);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut bindings = Vec::new();
+    bindings
+        .try_reserve_exact(subset.original_to_subset().len().saturating_sub(1))
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for (original_gid, subset_gid) in subset.original_to_subset() {
+        if original_gid.get() == 0 {
+            continue;
+        }
+        let expected = bindings
+            .len()
+            .checked_add(1)
+            .ok_or(ResourceError::ResourceLimit)?;
+        if expected > usize::from(limits.get().max_cids_per_font)
+            || usize::from(subset_gid.get()) != expected
+        {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        bindings.push(CidBinding {
+            cid: Cid::new(subset_gid.get()).ok_or(ResourceError::InvalidFontPlan)?,
+            subset_gid: *subset_gid,
+            unicode: unicode_by_glyph
+                .get(original_gid)
+                .copied()
+                .flatten()
+                .into_iter()
+                .collect(),
+            width_1000: u32::from(
+                *subset
+                    .original_widths()
+                    .get(original_gid)
+                    .ok_or(ResourceError::InvalidFontPlan)?,
+            ),
+        });
+    }
+
+    let mut extraction_plans = Vec::new();
+    let mut frozen_clusters = Vec::new();
+    extraction_plans
+        .try_reserve_exact(clusters.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    frozen_clusters
+        .try_reserve_exact(clusters.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for usage in clusters.iter().cloned() {
+        let scalars = usage
+            .exact_text
+            .chars()
+            .map(UnicodeScalar::new)
+            .collect::<Vec<_>>();
+        let mut cids = Vec::new();
+        cids.try_reserve_exact(usage.glyphs.len())
+            .map_err(|_| ResourceError::ResourceLimit)?;
+        for glyph in &usage.glyphs {
+            let subset_gid = subset
+                .original_to_subset()
+                .get(glyph)
+                .ok_or(ResourceError::InvalidFontPlan)?;
+            cids.push(Cid::new(subset_gid.get()).ok_or(ResourceError::InvalidFontPlan)?);
+        }
+        let extracted = cids
+            .iter()
+            .flat_map(|cid| bindings[usize::from(cid.get()) - 1].unicode.iter().copied())
+            .collect::<Vec<_>>();
+        let requires_actual_text = extracted != scalars;
+        extraction_plans.push(if requires_actual_text {
+            ClusterExtractionPlan::ActualText {
+                text_span: usage.text_span,
+                cids: cids.clone(),
+                unicode: scalars,
+            }
+        } else {
+            ClusterExtractionPlan::PerCid {
+                text_span: usage.text_span,
+                cids: cids.clone(),
+            }
+        });
+        frozen_clusters.push(FrozenStagingPdfTextClusterPlan {
+            usage,
+            cids,
+            requires_actual_text,
+        });
+    }
+    Ok((bindings, extraction_plans, frozen_clusters))
 }

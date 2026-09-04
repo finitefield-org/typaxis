@@ -37,14 +37,15 @@ use core::num::NonZeroU32;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use typaxis_core::{
-    sha256, DisplayTextSpan, FontInstanceId, ImageResourceId, ValidatedResourceLimits,
+    push_jcs_string, sha256, DisplayTextSpan, FontInstanceId, ImageResourceId,
+    ValidatedResourceLimits,
 };
 use typaxis_display_list::{
     ClusterExtraction, DisplayCommand, DisplayDocument, ValidatedDisplayDocument,
 };
 use typaxis_font::{
-    Cid, CidBinding, FontSubsetPlan, GlyphSubsetBinding, OriginalGlyphId, SubsetGlyphId,
-    UnicodeScalar,
+    Cff1Admission, Cff1EmbeddingPermission, Cff1Error, Cff1Subset, Cff1SubsetSession, Cid,
+    CidBinding, FontSubsetPlan, GlyphSubsetBinding, OriginalGlyphId, SubsetGlyphId, UnicodeScalar,
 };
 
 pub use typaxis_resource_admission::*;
@@ -63,6 +64,7 @@ pub enum ResourceError {
     UnexpectedLogicalResource,
     NonCanonicalFontInstanceKey,
     AdmittedLedgerEpochMismatch,
+    Cff1(Cff1Error),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -124,7 +126,10 @@ pub struct PdfFontMetrics {
     pub descent_1000: i32,
     pub cap_height_1000: i32,
     pub stem_v_1000: u32,
-    pub italic_angle_milli_degrees: i32,
+    /// Exact signed 16.16 value copied from the admitted OpenType `post`
+    /// table. PDF serialization converts it to a finite canonical decimal
+    /// without rounding.
+    pub italic_angle_fixed_16_16: i32,
     pub flags: u32,
     pub bbox_1000: [i32; 4],
 }
@@ -137,6 +142,7 @@ pub enum PdfFontIndirectObjectRole {
     EmbeddedFontProgram,
     ToUnicodeCMap,
     CidToGidMap,
+    CidSet,
 }
 pub const PDF_FONT_OBJECT_BLUEPRINT: [PdfFontIndirectObjectRole; 6] = [
     PdfFontIndirectObjectRole::Type0Font,
@@ -146,6 +152,78 @@ pub const PDF_FONT_OBJECT_BLUEPRINT: [PdfFontIndirectObjectRole; 6] = [
     PdfFontIndirectObjectRole::ToUnicodeCMap,
     PdfFontIndirectObjectRole::CidToGidMap,
 ];
+pub const PDF_CFF1_FONT_OBJECT_BLUEPRINT: [PdfFontIndirectObjectRole; 6] = [
+    PdfFontIndirectObjectRole::Type0Font,
+    PdfFontIndirectObjectRole::CidFont,
+    PdfFontIndirectObjectRole::FontDescriptor,
+    PdfFontIndirectObjectRole::EmbeddedFontProgram,
+    PdfFontIndirectObjectRole::ToUnicodeCMap,
+    PdfFontIndirectObjectRole::CidSet,
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PdfFontProgramKind {
+    TrueTypeGlyf,
+    OpenTypeCff1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FrozenPdfCff1Plan {
+    font_face_id: typaxis_core::FontFaceId,
+    admission_fingerprint: [u8; 32],
+    embedding_permission: Cff1EmbeddingPermission,
+    glyph_closure_fingerprint: [u8; 32],
+    selected_source_gids: Vec<OriginalGlyphId>,
+    subset_sha256: [u8; 32],
+    subset_fingerprint: [u8; 32],
+    dense_widths_1000: Vec<u32>,
+    limits_fingerprint: [u8; 32],
+    profile_fingerprint: [u8; 32],
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl FrozenPdfCff1Plan {
+    pub const fn plan_id(&self) -> &'static str {
+        typaxis_font::CFF1_PDF_PLAN_ID
+    }
+    pub const fn font_face_id(&self) -> typaxis_core::FontFaceId {
+        self.font_face_id
+    }
+    pub const fn admission_fingerprint(&self) -> [u8; 32] {
+        self.admission_fingerprint
+    }
+    pub const fn embedding_permission(&self) -> Cff1EmbeddingPermission {
+        self.embedding_permission
+    }
+    pub const fn glyph_closure_fingerprint(&self) -> [u8; 32] {
+        self.glyph_closure_fingerprint
+    }
+    pub fn selected_source_gids(&self) -> &[OriginalGlyphId] {
+        &self.selected_source_gids
+    }
+    pub const fn subset_sha256(&self) -> [u8; 32] {
+        self.subset_sha256
+    }
+    pub const fn subset_fingerprint(&self) -> [u8; 32] {
+        self.subset_fingerprint
+    }
+    pub fn dense_widths_1000(&self) -> &[u32] {
+        &self.dense_widths_1000
+    }
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.profile_fingerprint
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FrozenPdfFontPlan {
@@ -156,6 +234,8 @@ pub struct FrozenPdfFontPlan {
     subset_plan: FontSubsetPlan,
     metrics: PdfFontMetrics,
     cluster_plans: Vec<ClusterExtractionPlan>,
+    program_kind: PdfFontProgramKind,
+    cff1: Option<FrozenPdfCff1Plan>,
 }
 impl FrozenPdfFontPlan {
     pub const fn font_instance_id(&self) -> FontInstanceId {
@@ -182,12 +262,110 @@ impl FrozenPdfFontPlan {
     pub fn cluster_plans(&self) -> &[ClusterExtractionPlan] {
         &self.cluster_plans
     }
+    pub const fn program_kind(&self) -> PdfFontProgramKind {
+        self.program_kind
+    }
+    pub const fn cff1_plan(&self) -> Option<&FrozenPdfCff1Plan> {
+        self.cff1.as_ref()
+    }
     pub const fn indirect_object_blueprint(&self) -> &[PdfFontIndirectObjectRole; 6] {
-        &PDF_FONT_OBJECT_BLUEPRINT
+        match self.program_kind {
+            PdfFontProgramKind::TrueTypeGlyf => &PDF_FONT_OBJECT_BLUEPRINT,
+            PdfFontProgramKind::OpenTypeCff1 => &PDF_CFF1_FONT_OBJECT_BLUEPRINT,
+        }
     }
     pub const fn indirect_object_count(&self) -> u32 {
         PDF_FONT_OBJECT_BLUEPRINT.len() as u32
     }
+}
+
+/// Representative private CFF1 plan used by downstream staging conformance
+/// tests. Production callers cannot manufacture this plan: the helper exists
+/// only when test fixtures are enabled and still runs the real admission,
+/// evaluator, subsetter, and sealed encoder owner.
+#[cfg(any(test, feature = "staging-fixtures"))]
+pub fn staging_cff1_font_plan_fixture() -> Result<FrozenPdfFontPlan, ResourceError> {
+    const HEX: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/cff-media/typaxis-cff-fixture.otf.hex"
+    ));
+    let digits = HEX
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect::<Vec<_>>();
+    if digits.len() % 2 != 0 {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(digits.len() / 2)
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for pair in digits.chunks_exact(2) {
+        let nibble = |byte: u8| match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            _ => None,
+        };
+        let high = nibble(pair[0]).ok_or(ResourceError::InvalidFontPlan)?;
+        let low = nibble(pair[1]).ok_or(ResourceError::InvalidFontPlan)?;
+        bytes.push((high << 4) | low);
+    }
+    let base = typaxis_core::ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    let limits = typaxis_core::M4EffectiveResourceLimits::new(
+        base,
+        typaxis_core::M4ResourceLimits::default(),
+    )
+    .map_err(|_| ResourceError::ResourceLimit)?;
+    let admission =
+        typaxis_font::admit_sfnt_cff1(&bytes, 0, &limits).map_err(ResourceError::Cff1)?;
+    let selected = [OriginalGlyphId::new(1), OriginalGlyphId::new(2)]
+        .into_iter()
+        .collect();
+    let font_face_id = typaxis_core::FontFaceId::new(0);
+    let font_instance_id = FontInstanceId::new(0);
+    let mut session = Cff1SubsetSession::from_admission(&admission);
+    let subset = session
+        .subset(
+            &admission,
+            font_face_id,
+            font_instance_id,
+            &selected,
+            limits.base().get().max_cids_per_font,
+        )
+        .map_err(ResourceError::Cff1)?;
+    let cids = [
+        (1u16, SubsetGlyphId::new(1), OriginalGlyphId::new(1), 'A'),
+        (2u16, SubsetGlyphId::new(2), OriginalGlyphId::new(2), 'B'),
+    ]
+    .into_iter()
+    .map(|(cid, subset_gid, original_gid, scalar)| {
+        Ok(CidBinding {
+            cid: Cid::new(cid).ok_or(ResourceError::InvalidFontPlan)?,
+            subset_gid,
+            unicode: vec![UnicodeScalar::new(scalar)],
+            width_1000: u32::from(
+                *subset
+                    .original_widths()
+                    .get(&original_gid)
+                    .ok_or(ResourceError::InvalidFontPlan)?,
+            ),
+        })
+    })
+    .collect::<Result<Vec<_>, ResourceError>>()?;
+    let receipt = VerifiedEncoderReceiptOwner::new().issue_cff1_font(Cff1FontEncoderOutput {
+        font_face_id,
+        font_instance_id,
+        admission: &admission,
+        subset,
+        cids,
+        cluster_plans: vec![],
+        profile_fingerprint: sha256(b"typaxis.staging-cff1-font-plan-fixture/1"),
+    })?;
+    let VerifiedEncoderOutput::Font(plan) = receipt.0 else {
+        return Err(ResourceError::InvalidFontPlan);
+    };
+    Ok(*plan)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -358,8 +536,8 @@ impl FrozenPdfImagePlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum VerifiedEncoderOutput {
-    Font(FrozenPdfFontPlan),
-    Image(FrozenPdfImagePlan),
+    Font(Box<FrozenPdfFontPlan>),
+    Image(Box<FrozenPdfImagePlan>),
 }
 
 /// Sealed proof issued by the deterministic subsetter or image encoder. The
@@ -405,6 +583,17 @@ pub struct AlphaMaskEncoderOutput {
     pub bits_per_component: u8,
     pub encoding: ImageEncoding,
 }
+
+struct Cff1FontEncoderOutput<'a> {
+    font_face_id: typaxis_core::FontFaceId,
+    font_instance_id: FontInstanceId,
+    admission: &'a Cff1Admission,
+    subset: Cff1Subset,
+    cids: Vec<CidBinding>,
+    cluster_plans: Vec<ClusterExtractionPlan>,
+    profile_fingerprint: [u8; 32],
+}
+
 impl VerifiedEncoderReceiptOwner {
     #[allow(dead_code)] // reserved for the in-crate PDF resource encoders
     fn new() -> Self {
@@ -419,7 +608,7 @@ impl VerifiedEncoderReceiptOwner {
         let embedded_postscript_name =
             extract_subset_postscript_name(&subset_bytes, output.font_instance_id)?;
         Ok(VerifiedEncoderReceipt(VerifiedEncoderOutput::Font(
-            FrozenPdfFontPlan {
+            Box::new(FrozenPdfFontPlan {
                 font_instance_id: output.font_instance_id,
                 admitted_sha256: output.admitted_sha256,
                 subset_bytes,
@@ -427,11 +616,100 @@ impl VerifiedEncoderReceiptOwner {
                 subset_plan: output.subset_plan,
                 metrics: output.metrics,
                 cluster_plans: output.cluster_plans,
+                program_kind: PdfFontProgramKind::TrueTypeGlyf,
+                cff1: None,
+            }),
+        )))
+    }
+    fn issue_cff1_font(
+        &self,
+        output: Cff1FontEncoderOutput<'_>,
+    ) -> Result<VerifiedEncoderReceipt, ResourceError> {
+        let Cff1FontEncoderOutput {
+            font_face_id,
+            font_instance_id,
+            admission,
+            subset,
+            cids,
+            cluster_plans,
+            profile_fingerprint,
+        } = output;
+        if subset.closure().font_face_id() != font_face_id
+            || subset.closure().font_instance_id() != font_instance_id
+            || subset.closure().source_sha256() != admission.source_sha256()
+            || subset.postscript_name() != expected_subset_postscript_name(font_instance_id)?
+            || sha256(subset.bytes()) != subset.sha256()
+        {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        let embedded_postscript_name =
+            extract_subset_postscript_name(subset.bytes(), font_instance_id)?;
+        let mut dense_widths_1000 = Vec::new();
+        dense_widths_1000
+            .try_reserve_exact(subset.original_to_subset().len())
+            .map_err(|_| ResourceError::ResourceLimit)?;
+        let mut glyphs = Vec::new();
+        glyphs
+            .try_reserve_exact(subset.original_to_subset().len())
+            .map_err(|_| ResourceError::ResourceLimit)?;
+        for (expected_subset, (original_gid, subset_gid)) in
+            subset.original_to_subset().iter().enumerate()
+        {
+            if usize::from(subset_gid.get()) != expected_subset {
+                return Err(ResourceError::InvalidFontPlan);
+            }
+            let advance = *subset
+                .original_widths()
+                .get(original_gid)
+                .ok_or(ResourceError::InvalidFontPlan)?;
+            dense_widths_1000.push(u32::from(advance));
+            glyphs.push(GlyphSubsetBinding {
+                original_gid: *original_gid,
+                subset_gid: *subset_gid,
+            });
+        }
+        let metrics = subset.metrics();
+        let mut cff1 = FrozenPdfCff1Plan {
+            font_face_id,
+            admission_fingerprint: admission.fingerprint(),
+            embedding_permission: admission.embedding_permission(),
+            glyph_closure_fingerprint: subset.closure().fingerprint(),
+            selected_source_gids: subset.closure().source_gids().to_vec(),
+            subset_sha256: subset.sha256(),
+            subset_fingerprint: subset.fingerprint(),
+            dense_widths_1000,
+            limits_fingerprint: admission.limits_fingerprint(),
+            profile_fingerprint,
+            canonical_jcs: String::new(),
+            fingerprint: [0; 32],
+        };
+        cff1.canonical_jcs = encode_cff1_pdf_plan(font_instance_id, &cff1);
+        cff1.fingerprint = sha256(cff1.canonical_jcs.as_bytes());
+        let plan = FrozenPdfFontPlan {
+            font_instance_id,
+            admitted_sha256: admission.source_sha256(),
+            subset_bytes: subset.bytes().to_vec(),
+            embedded_postscript_name,
+            subset_plan: FontSubsetPlan { glyphs, cids },
+            metrics: PdfFontMetrics {
+                ascent_1000: metrics.ascent_1000,
+                descent_1000: metrics.descent_1000,
+                cap_height_1000: metrics.cap_height_1000,
+                stem_v_1000: metrics.stem_v_1000,
+                italic_angle_fixed_16_16: metrics.italic_angle_fixed_16_16,
+                flags: metrics.flags,
+                bbox_1000: metrics.bbox_1000,
             },
+            cluster_plans,
+            program_kind: PdfFontProgramKind::OpenTypeCff1,
+            cff1: Some(cff1),
+        };
+        Ok(VerifiedEncoderReceipt(VerifiedEncoderOutput::Font(
+            Box::new(plan),
         )))
     }
     pub fn issue_image(&self, output: ImageEncoderOutput) -> VerifiedEncoderReceipt {
-        VerifiedEncoderReceipt(VerifiedEncoderOutput::Image(FrozenPdfImagePlan {
+        VerifiedEncoderReceipt(VerifiedEncoderOutput::Image(Box::new(FrozenPdfImagePlan {
             image_id: output.image_id,
             admitted_sha256: output.admitted_sha256,
             encoded_bytes: Arc::from(output.encoded_bytes),
@@ -448,7 +726,7 @@ impl VerifiedEncoderReceiptOwner {
                 encoding: mask.encoding,
             }),
             jpeg: None,
-        }))
+        })))
     }
 
     fn issue_jpeg(
@@ -475,7 +753,7 @@ impl VerifiedEncoderReceiptOwner {
             JpegColorKind::YCbCr => (ImageColorSpace::Rgb, 1),
         };
         Ok(VerifiedEncoderReceipt(VerifiedEncoderOutput::Image(
-            FrozenPdfImagePlan {
+            Box::new(FrozenPdfImagePlan {
                 image_id: admitted.image_id(),
                 admitted_sha256: admitted.content_hash(),
                 encoded_bytes: attestation.normalized_stream(),
@@ -497,7 +775,7 @@ impl VerifiedEncoderReceiptOwner {
                     limits_fingerprint: attestation.limits_fingerprint(),
                     profile_fingerprint: attestation.profile_fingerprint(),
                 }),
-            },
+            }),
         )))
     }
 }
@@ -584,8 +862,8 @@ impl FrozenPdfResourcePlans {
         let mut images = Vec::new();
         for receipt in receipts {
             match receipt.0 {
-                VerifiedEncoderOutput::Font(plan) => fonts.push(plan),
-                VerifiedEncoderOutput::Image(plan) => images.push(plan),
+                VerifiedEncoderOutput::Font(plan) => fonts.push(*plan),
+                VerifiedEncoderOutput::Image(plan) => images.push(*plan),
             }
         }
         let instances = FontInstanceTable::from_display(display, admitted)?;
@@ -595,7 +873,7 @@ impl FrozenPdfResourcePlans {
         let mut aggregate_plan_bytes = 0u64;
         let mut font_map: BTreeMap<FontInstanceId, FrozenPdfFontPlan> = BTreeMap::new();
         for plan in fonts {
-            validate_pdf_font_metrics(&plan.metrics)?;
+            validate_pdf_font_metrics(&plan.metrics, plan.program_kind)?;
             validate_subset_postscript_name(&plan)?;
             plan.subset_plan
                 .validate()
@@ -609,6 +887,15 @@ impl FrozenPdfResourcePlans {
             let admitted_font = admitted
                 .font(instance.font_face_id())
                 .ok_or(ResourceError::MissingLogicalResource)?;
+            match (plan.program_kind, admitted_font.media_kind()) {
+                (
+                    PdfFontProgramKind::TrueTypeGlyf,
+                    AdmittedFontMediaKind::SfntTrueTypeGlyf
+                    | AdmittedFontMediaKind::TtcTrueTypeGlyf,
+                ) if plan.cff1.is_none() => {}
+                (PdfFontProgramKind::OpenTypeCff1, AdmittedFontMediaKind::SfntCff1) => {}
+                _ => return Err(ResourceError::InvalidFontPlan),
+            }
             validate_original_glyph_bounds(
                 &plan.subset_plan,
                 admitted_font.metadata().glyph_count,
@@ -634,7 +921,9 @@ impl FrozenPdfResourcePlans {
                 .collect();
             let mut required_glyphs = usage.glyphs.clone();
             required_glyphs.insert(OriginalGlyphId::new(0));
-            if !required_glyphs.is_subset(&planned_glyphs) {
+            if plan.program_kind == PdfFontProgramKind::OpenTypeCff1 {
+                validate_cff1_font_plan(&plan, admitted_font, &required_glyphs)?;
+            } else if !required_glyphs.is_subset(&planned_glyphs) {
                 return Err(ResourceError::IncompleteUsagePlan);
             }
             let cid_bindings: BTreeMap<_, _> = plan
@@ -843,11 +1132,21 @@ fn validate_media_specific_image_plan(
     Ok(())
 }
 
-fn validate_pdf_font_metrics(metrics: &PdfFontMetrics) -> Result<(), ResourceError> {
+fn validate_pdf_font_metrics(
+    metrics: &PdfFontMetrics,
+    program_kind: PdfFontProgramKind,
+) -> Result<(), ResourceError> {
     let [left, bottom, right, top] = metrics.bbox_1000;
     let symbolic = metrics.flags & 0x04 != 0;
     let nonsymbolic = metrics.flags & 0x20 != 0;
-    if left >= right || bottom >= top || metrics.stem_v_1000 == 0 || symbolic == nonsymbolic {
+    let italic = metrics.flags & 0x40 != 0;
+    if left >= right
+        || bottom >= top
+        || metrics.stem_v_1000 == 0
+        || symbolic == nonsymbolic
+        || (program_kind == PdfFontProgramKind::OpenTypeCff1
+            && italic != (metrics.italic_angle_fixed_16_16 != 0))
+    {
         return Err(ResourceError::InvalidFontPlan);
     }
     Ok(())
@@ -864,6 +1163,43 @@ fn validate_original_glyph_bounds(
             .any(|binding| u32::from(binding.original_gid.get()) >= admitted_glyph_count)
     {
         return Err(ResourceError::InvalidFontPlan);
+    }
+    Ok(())
+}
+
+fn validate_cff1_font_plan(
+    plan: &FrozenPdfFontPlan,
+    admitted: &AdmittedFont,
+    required_glyphs: &BTreeSet<OriginalGlyphId>,
+) -> Result<(), ResourceError> {
+    let admission = admitted
+        .cff1_admission()
+        .ok_or(ResourceError::InvalidFontPlan)?;
+    let cff = plan.cff1.as_ref().ok_or(ResourceError::InvalidFontPlan)?;
+    let planned_glyphs = plan
+        .subset_plan
+        .glyphs
+        .iter()
+        .map(|binding| binding.original_gid)
+        .collect::<BTreeSet<_>>();
+    if &planned_glyphs != required_glyphs
+        || cff.font_face_id != admitted.font_face_id()
+        || cff.admission_fingerprint != admission.fingerprint()
+        || cff.embedding_permission != admission.embedding_permission()
+        || cff.selected_source_gids != planned_glyphs.iter().copied().collect::<Vec<_>>()
+        || cff.subset_sha256 != sha256(&plan.subset_bytes)
+        || cff.dense_widths_1000.len() != plan.subset_plan.glyphs.len()
+        || cff.limits_fingerprint != admission.limits_fingerprint()
+        || Some(cff.profile_fingerprint) != admitted.m4_profile_fingerprint()
+        || plan.subset_plan.cids.len() + 1 != plan.subset_plan.glyphs.len()
+    {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    for (index, binding) in plan.subset_plan.cids.iter().enumerate() {
+        let expected = u16::try_from(index + 1).map_err(|_| ResourceError::ResourceLimit)?;
+        if binding.cid.get() != expected || binding.subset_gid.get() != expected {
+            return Err(ResourceError::InvalidFontPlan);
+        }
     }
     Ok(())
 }
@@ -895,6 +1231,55 @@ fn expected_subset_postscript_name(
     name.extend(tag.into_iter().map(char::from));
     name.push_str("+Typaxis");
     Ok(name)
+}
+
+fn encode_cff1_pdf_plan(font_instance_id: FontInstanceId, plan: &FrozenPdfCff1Plan) -> String {
+    let mut output = String::from("{\"admission_fingerprint\":");
+    push_resource_hash(&mut output, plan.admission_fingerprint);
+    output.push_str(",\"algorithm\":");
+    push_jcs_string(&mut output, typaxis_font::CFF1_PDF_PLAN_ID);
+    output.push_str(",\"dense_widths_1000\":[");
+    for (index, width) in plan.dense_widths_1000.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&width.to_string());
+    }
+    output.push_str("],\"embedding_permission\":");
+    push_jcs_string(&mut output, plan.embedding_permission.as_str());
+    output.push_str(",\"font_face_id\":");
+    output.push_str(&plan.font_face_id.get().to_string());
+    output.push_str(",\"font_instance_id\":");
+    output.push_str(&font_instance_id.get().to_string());
+    output.push_str(",\"glyph_closure_fingerprint\":");
+    push_resource_hash(&mut output, plan.glyph_closure_fingerprint);
+    output.push_str(",\"limits_fingerprint\":");
+    push_resource_hash(&mut output, plan.limits_fingerprint);
+    output.push_str(",\"profile_fingerprint\":");
+    push_resource_hash(&mut output, plan.profile_fingerprint);
+    output.push_str(",\"selected_source_gids\":[");
+    for (index, gid) in plan.selected_source_gids.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(&gid.get().to_string());
+    }
+    output.push_str("],\"subset_fingerprint\":");
+    push_resource_hash(&mut output, plan.subset_fingerprint);
+    output.push_str(",\"subset_sha256\":");
+    push_resource_hash(&mut output, plan.subset_sha256);
+    output.push('}');
+    output
+}
+
+fn push_resource_hash(output: &mut String, hash: [u8; 32]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push('"');
+    for byte in hash {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output.push('"');
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1112,9 +1497,13 @@ fn extract_subset_postscript_name(
     bytes: &[u8],
     font_instance_id: FontInstanceId,
 ) -> Result<String, ResourceError> {
-    if bytes.get(..4) != Some(&0x0001_0000u32.to_be_bytes()) {
+    let expected_encoding = if bytes.get(..4) == Some(&0x0001_0000u32.to_be_bytes()) {
+        1
+    } else if bytes.get(..4) == Some(b"OTTO") {
+        10
+    } else {
         return Err(ResourceError::InvalidFontPlan);
-    }
+    };
     let table_count = usize::from(read_subset_u16(bytes, 4)?);
     let directory_end = 12usize
         .checked_add(
@@ -1193,7 +1582,7 @@ fn extract_subset_postscript_name(
         }
         if found
             || read_subset_u16(table, record)? != 3
-            || read_subset_u16(table, record + 2)? != 1
+            || read_subset_u16(table, record + 2)? != expected_encoding
             || read_subset_u16(table, record + 4)? != 0x0409
             || usize::from(read_subset_u16(table, record + 8)?) != expected_utf16_len
         {
@@ -1316,6 +1705,12 @@ impl ResourceFinalizer for ReferenceResourceFinalizer {
         receipts
             .try_reserve_exact(usage.fonts.len() + usage.images.len())
             .map_err(|_| ResourceError::ResourceLimit)?;
+        // Type 2 work is charged once over the complete face/GID union. This
+        // prepass prevents FontInstanceId order from influencing aggregate
+        // limits or failure order when a face has multiple instances.
+        let mut cff1_face_unions =
+            BTreeMap::<typaxis_core::FontFaceId, (&Cff1Admission, BTreeSet<OriginalGlyphId>)>::new(
+            );
         for (font_instance_id, font_usage) in &usage.fonts {
             let instance = instances
                 .get(*font_instance_id)
@@ -1324,32 +1719,113 @@ impl ResourceFinalizer for ReferenceResourceFinalizer {
                 .admitted
                 .font(instance.font_face_id())
                 .ok_or(ResourceError::MissingLogicalResource)?;
-            let subset =
-                subset_truetype(admitted.bytes(), admitted.face_index(), &font_usage.glyphs)?;
-            let (cids, cluster_plans) = build_cid_plans(
-                input.display,
-                font_usage,
-                &subset.original_to_subset,
-                &subset.original_widths,
-                admitted.metadata().units_per_em,
-                input.limits,
-            )?;
-            let glyphs = subset
-                .original_to_subset
-                .iter()
-                .map(|(original_gid, subset_gid)| GlyphSubsetBinding {
-                    original_gid: *original_gid,
-                    subset_gid: *subset_gid,
-                })
-                .collect();
-            receipts.push(owner.issue_font(FontEncoderOutput {
-                font_instance_id: *font_instance_id,
-                admitted_sha256: admitted.content_hash(),
-                subset_bytes: subset.bytes,
-                subset_plan: FontSubsetPlan { glyphs, cids },
-                metrics: subset.metrics,
-                cluster_plans,
-            })?);
+            if admitted.media_kind() != AdmittedFontMediaKind::SfntCff1 {
+                continue;
+            }
+            let admission = admitted
+                .cff1_admission()
+                .ok_or(ResourceError::InvalidFontPlan)?;
+            let closure = Cff1SubsetSession::close_instance_selection(
+                admission,
+                admitted.font_face_id(),
+                *font_instance_id,
+                &font_usage.glyphs,
+                input.limits.get().max_cids_per_font,
+            )
+            .map_err(ResourceError::Cff1)?;
+            let entry = cff1_face_unions
+                .entry(admitted.font_face_id())
+                .or_insert_with(|| (admission, BTreeSet::new()));
+            if entry.0.fingerprint() != admission.fingerprint() {
+                return Err(ResourceError::InvalidFontPlan);
+            }
+            entry.1.extend(closure.source_gids().iter().copied());
+        }
+        let mut cff1_session = cff1_face_unions
+            .values()
+            .next()
+            .map(|(admission, _)| Cff1SubsetSession::from_admission(admission));
+        if let Some(session) = &mut cff1_session {
+            for (font_face_id, (admission, selected)) in &cff1_face_unions {
+                session
+                    .prepare_face(admission, *font_face_id, selected)
+                    .map_err(ResourceError::Cff1)?;
+            }
+        }
+        for (font_instance_id, font_usage) in &usage.fonts {
+            let instance = instances
+                .get(*font_instance_id)
+                .ok_or(ResourceError::MissingLogicalResource)?;
+            let admitted = input
+                .admitted
+                .font(instance.font_face_id())
+                .ok_or(ResourceError::MissingLogicalResource)?;
+            match admitted.media_kind() {
+                AdmittedFontMediaKind::SfntTrueTypeGlyf
+                | AdmittedFontMediaKind::TtcTrueTypeGlyf => {
+                    let subset = subset_truetype(
+                        admitted.bytes(),
+                        admitted.face_index(),
+                        &font_usage.glyphs,
+                    )?;
+                    let (cids, cluster_plans) = build_cid_plans(
+                        input.display,
+                        font_usage,
+                        &subset.original_to_subset,
+                        &subset.original_widths,
+                        admitted.metadata().units_per_em,
+                        input.limits,
+                    )?;
+                    let glyphs = subset
+                        .original_to_subset
+                        .iter()
+                        .map(|(original_gid, subset_gid)| GlyphSubsetBinding {
+                            original_gid: *original_gid,
+                            subset_gid: *subset_gid,
+                        })
+                        .collect();
+                    receipts.push(owner.issue_font(FontEncoderOutput {
+                        font_instance_id: *font_instance_id,
+                        admitted_sha256: admitted.content_hash(),
+                        subset_bytes: subset.bytes,
+                        subset_plan: FontSubsetPlan { glyphs, cids },
+                        metrics: subset.metrics,
+                        cluster_plans,
+                    })?);
+                }
+                AdmittedFontMediaKind::SfntCff1 => {
+                    let admission = admitted
+                        .cff1_admission()
+                        .ok_or(ResourceError::InvalidFontPlan)?;
+                    let session = cff1_session
+                        .as_mut()
+                        .ok_or(ResourceError::InvalidFontPlan)?;
+                    let subset = session
+                        .subset(
+                            admission,
+                            admitted.font_face_id(),
+                            *font_instance_id,
+                            &font_usage.glyphs,
+                            input.limits.get().max_cids_per_font,
+                        )
+                        .map_err(ResourceError::Cff1)?;
+                    let (cids, cluster_plans) =
+                        build_cff1_cid_plans(input.display, font_usage, &subset, input.limits)?;
+                    receipts.push(
+                        owner.issue_cff1_font(Cff1FontEncoderOutput {
+                            font_face_id: admitted.font_face_id(),
+                            font_instance_id: *font_instance_id,
+                            admission,
+                            subset,
+                            cids,
+                            cluster_plans,
+                            profile_fingerprint: admitted
+                                .m4_profile_fingerprint()
+                                .ok_or(ResourceError::InvalidFontPlan)?,
+                        })?,
+                    );
+                }
+            }
         }
         for image_id in &usage.images {
             let admitted = input
@@ -2061,17 +2537,18 @@ fn pdf_metrics(
         .map(scale)
         .transpose()?
         .unwrap_or(ascent);
-    let italic_angle_milli_degrees = post
+    let italic_angle_fixed_16_16 = post
         .filter(|table| table.len() >= 8)
         .and_then(|table| read_subset_i32(table, 4).ok())
-        .and_then(|fixed| i32::try_from(i64::from(fixed) * 1000 / 65_536).ok())
         .unwrap_or(0);
     Ok(PdfFontMetrics {
         ascent_1000: ascent,
         descent_1000: descent,
         cap_height_1000: cap_height,
         stem_v_1000: 80,
-        italic_angle_milli_degrees,
+        italic_angle_fixed_16_16,
+        // Preserve the frozen public TrueType descriptor policy exactly.
+        // The private CFF1 path supplies its own byte-derived flags.
         flags: 0x20,
         bbox_1000: bbox,
     })
@@ -2133,6 +2610,126 @@ fn build_cid_plans(
                 cids,
                 unicode: scalars,
             },
+            ClusterExtraction::Artifact => ClusterExtractionPlan::Artifact { cids },
+        });
+    }
+    Ok((bindings, plans))
+}
+
+fn build_cff1_cid_plans(
+    display: &ValidatedDisplayDocument,
+    usage: &DisplayFontUsage,
+    subset: &Cff1Subset,
+    limits: &ValidatedResourceLimits,
+) -> Result<(Vec<CidBinding>, Vec<ClusterExtractionPlan>), ResourceError> {
+    if usage.glyphs.contains(&OriginalGlyphId::new(0)) {
+        return Err(ResourceError::InvalidFontPlan);
+    }
+    let mut unicode_by_glyph = BTreeMap::<OriginalGlyphId, Option<UnicodeScalar>>::new();
+    for (extraction, glyphs) in &usage.clusters {
+        let ClusterExtraction::Unicode { text_span } = extraction else {
+            continue;
+        };
+        let scalars = display_scalars(display, *text_span)?;
+        if scalars.len() != glyphs.len() {
+            for glyph in glyphs {
+                unicode_by_glyph.insert(*glyph, None);
+            }
+            continue;
+        }
+        for (glyph, scalar) in glyphs.iter().zip(scalars) {
+            let candidate = UnicodeScalar::new(scalar.get());
+            match unicode_by_glyph.entry(*glyph) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(Some(candidate));
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    if entry.get().is_some_and(|existing| existing != candidate) {
+                        entry.insert(None);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut bindings = Vec::new();
+    bindings
+        .try_reserve_exact(subset.original_to_subset().len().saturating_sub(1))
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for (original_gid, subset_gid) in subset.original_to_subset() {
+        if original_gid.get() == 0 {
+            continue;
+        }
+        let expected = bindings
+            .len()
+            .checked_add(1)
+            .ok_or(ResourceError::ResourceLimit)?;
+        if expected > usize::from(limits.get().max_cids_per_font)
+            || usize::from(subset_gid.get()) != expected
+        {
+            return Err(ResourceError::InvalidFontPlan);
+        }
+        let cid = Cid::new(subset_gid.get()).ok_or(ResourceError::InvalidFontPlan)?;
+        let width_1000 = u32::from(
+            *subset
+                .original_widths()
+                .get(original_gid)
+                .ok_or(ResourceError::InvalidFontPlan)?,
+        );
+        bindings.push(CidBinding {
+            cid,
+            subset_gid: *subset_gid,
+            unicode: unicode_by_glyph
+                .get(original_gid)
+                .copied()
+                .flatten()
+                .into_iter()
+                .collect(),
+            width_1000,
+        });
+    }
+    let by_gid = bindings
+        .iter()
+        .map(|binding| (binding.subset_gid, binding))
+        .collect::<BTreeMap<_, _>>();
+    let mut plans = Vec::new();
+    plans
+        .try_reserve_exact(usage.clusters.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    for (extraction, glyphs) in &usage.clusters {
+        let mut cids = Vec::new();
+        cids.try_reserve_exact(glyphs.len())
+            .map_err(|_| ResourceError::ResourceLimit)?;
+        for glyph in glyphs {
+            let subset_gid = *subset
+                .original_to_subset()
+                .get(glyph)
+                .ok_or(ResourceError::InvalidFontPlan)?;
+            let binding = by_gid
+                .get(&subset_gid)
+                .ok_or(ResourceError::InvalidFontPlan)?;
+            cids.push(binding.cid);
+        }
+        plans.push(match extraction {
+            ClusterExtraction::Unicode { text_span } => {
+                let scalars = display_scalars(display, *text_span)?;
+                let extracted = cids
+                    .iter()
+                    .flat_map(|cid| bindings[usize::from(cid.get()) - 1].unicode.iter().copied())
+                    .collect::<Vec<_>>();
+                if extracted == scalars {
+                    ClusterExtractionPlan::PerCid {
+                        text_span: *text_span,
+                        cids,
+                    }
+                } else {
+                    ClusterExtractionPlan::ActualText {
+                        text_span: *text_span,
+                        cids,
+                        unicode: scalars,
+                    }
+                }
+            }
             ClusterExtraction::Artifact => ClusterExtractionPlan::Artifact { cids },
         });
     }
@@ -2454,6 +3051,56 @@ mod tests {
         independent.glyf().unwrap();
     }
 
+    #[test]
+    fn font_subset_cff_is_dense_deterministic_and_independently_parseable() {
+        let first = staging_cff1_font_plan_fixture().unwrap();
+        let second = staging_cff1_font_plan_fixture().unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.program_kind(), PdfFontProgramKind::OpenTypeCff1);
+        assert_eq!(first.embedded_postscript_name(), "AAAAAA+Typaxis");
+        assert_eq!(
+            first.indirect_object_blueprint(),
+            &PDF_CFF1_FONT_OBJECT_BLUEPRINT
+        );
+        assert_eq!(first.subset_plan().glyphs.len(), 3);
+        assert_eq!(first.subset_plan().cids.len(), 2);
+        assert_eq!(
+            first
+                .subset_plan()
+                .glyphs
+                .iter()
+                .map(|binding| (binding.original_gid.get(), binding.subset_gid.get()))
+                .collect::<Vec<_>>(),
+            [(0, 0), (1, 1), (2, 2)]
+        );
+        assert_eq!(
+            first
+                .subset_plan()
+                .cids
+                .iter()
+                .map(|binding| (binding.cid.get(), binding.subset_gid.get()))
+                .collect::<Vec<_>>(),
+            [(1, 1), (2, 2)]
+        );
+        let cff = first.cff1_plan().unwrap();
+        assert_eq!(
+            cff.selected_source_gids(),
+            [
+                OriginalGlyphId::new(0),
+                OriginalGlyphId::new(1),
+                OriginalGlyphId::new(2),
+            ]
+        );
+        assert_eq!(cff.dense_widths_1000().len(), 3);
+        assert_eq!(cff.subset_sha256(), sha256(first.subset_bytes()));
+        assert!(cff.canonical_jcs().contains(typaxis_font::CFF1_PDF_PLAN_ID));
+
+        let independent = read_fonts::FontRef::new(first.subset_bytes()).unwrap();
+        assert_eq!(independent.maxp().unwrap().num_glyphs(), 3);
+        assert_eq!(independent.hhea().unwrap().number_of_h_metrics(), 3);
+        assert_eq!(independent.cff().unwrap().top_dicts().count(), 1);
+    }
+
     fn subset_sfnt_with_postscript_name(name: &str) -> Vec<u8> {
         let encoded_name: Vec<_> = name.bytes().flat_map(|byte| [0, byte]).collect();
         let name_table_length = 18 + encoded_name.len();
@@ -2489,7 +3136,7 @@ mod tests {
                 descent_1000: -200,
                 cap_height_1000: 700,
                 stem_v_1000: 80,
-                italic_angle_milli_degrees: 0,
+                italic_angle_fixed_16_16: 0,
                 flags: 4,
                 bbox_1000: [0, -200, 1000, 800],
             },
@@ -2679,11 +3326,13 @@ mod tests {
                 descent_1000: -200,
                 cap_height_1000: 700,
                 stem_v_1000: 80,
-                italic_angle_milli_degrees: 0,
+                italic_angle_fixed_16_16: 0,
                 flags: 4,
                 bbox_1000: [0, -200, 1000, 800],
             },
             cluster_plans: vec![],
+            program_kind: PdfFontProgramKind::TrueTypeGlyf,
+            cff1: None,
         };
         assert_eq!(plan.indirect_object_count(), 6);
         assert_eq!(
@@ -2716,11 +3365,13 @@ mod tests {
                 descent_1000: -200,
                 cap_height_1000: 700,
                 stem_v_1000: 80,
-                italic_angle_milli_degrees: 0,
+                italic_angle_fixed_16_16: 0,
                 flags: 4,
                 bbox_1000: [0, -200, 1000, 800],
             },
             cluster_plans: vec![],
+            program_kind: PdfFontProgramKind::TrueTypeGlyf,
+            cff1: None,
         };
         assert_eq!(validate_subset_postscript_name(&valid), Ok(()));
         let mut mismatched = valid;
@@ -2765,28 +3416,45 @@ mod tests {
             descent_1000: -200,
             cap_height_1000: 700,
             stem_v_1000: 80,
-            italic_angle_milli_degrees: 0,
+            italic_angle_fixed_16_16: 0,
             flags: 4,
             bbox_1000: [0, -200, 1000, 800],
         };
-        assert_eq!(validate_pdf_font_metrics(&valid), Ok(()));
+        assert_eq!(
+            validate_pdf_font_metrics(&valid, PdfFontProgramKind::TrueTypeGlyf),
+            Ok(())
+        );
 
         let mut invalid_bbox = valid.clone();
         invalid_bbox.bbox_1000[2] = invalid_bbox.bbox_1000[0];
         assert_eq!(
-            validate_pdf_font_metrics(&invalid_bbox),
+            validate_pdf_font_metrics(&invalid_bbox, PdfFontProgramKind::TrueTypeGlyf),
             Err(ResourceError::InvalidFontPlan)
         );
         let mut invalid_stem = valid.clone();
         invalid_stem.stem_v_1000 = 0;
         assert_eq!(
-            validate_pdf_font_metrics(&invalid_stem),
+            validate_pdf_font_metrics(&invalid_stem, PdfFontProgramKind::TrueTypeGlyf),
             Err(ResourceError::InvalidFontPlan)
         );
-        let mut invalid_flags = valid;
+        let mut invalid_flags = valid.clone();
         invalid_flags.flags = 0x04 | 0x20;
         assert_eq!(
-            validate_pdf_font_metrics(&invalid_flags),
+            validate_pdf_font_metrics(&invalid_flags, PdfFontProgramKind::TrueTypeGlyf),
+            Err(ResourceError::InvalidFontPlan)
+        );
+
+        let mut frozen_true_type_italic = valid.clone();
+        frozen_true_type_italic.italic_angle_fixed_16_16 = 1;
+        assert_eq!(
+            validate_pdf_font_metrics(&frozen_true_type_italic, PdfFontProgramKind::TrueTypeGlyf,),
+            Ok(())
+        );
+
+        let mut cff_italic_mismatch = valid;
+        cff_italic_mismatch.italic_angle_fixed_16_16 = 1;
+        assert_eq!(
+            validate_pdf_font_metrics(&cff_italic_mismatch, PdfFontProgramKind::OpenTypeCff1),
             Err(ResourceError::InvalidFontPlan)
         );
     }

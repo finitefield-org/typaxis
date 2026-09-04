@@ -49,6 +49,7 @@ pub(crate) fn staging_m4_document_package_from_attested_media(
         declaration.media_type = match attestation.attested() {
             AdmittedFontMediaKind::SfntTrueTypeGlyf => WireFontMediaType::SfntTrueTypeGlyf,
             AdmittedFontMediaKind::TtcTrueTypeGlyf => WireFontMediaType::TtcTrueTypeGlyf,
+            AdmittedFontMediaKind::SfntCff1 => WireFontMediaType::SfntCff1,
         };
     }
     for (declaration, attestation) in resources.images.iter_mut().zip(media.images()) {

@@ -170,6 +170,7 @@ pub enum StagingSemanticSyntaxError {
     PrecomposedVectorStaging(NodeId),
     SvgSafe2Staging(ImageResourceId),
     JpegStaging(ImageResourceId),
+    CffStaging(FontFaceId),
     MathSourceTextLimit,
     MathSpeechLimit,
     InvalidResource,
@@ -256,6 +257,11 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
             Self::JpegStaging(id) => write!(
                 formatter,
                 "R7100: jpeg-baseline image {} requires the JPEG profile",
+                id.get()
+            ),
+            Self::CffStaging(id) => write!(
+                formatter,
+                "R7100: sfnt-cff1 font {} requires the CFF profile",
                 id.get()
             ),
             Self::MathSourceTextLimit => formatter.write_str("T2100: math source limit exceeded"),
@@ -634,13 +640,22 @@ impl StagingSemanticContainerProfileView {
         package: &ValidatedStagingSemanticPackage,
         limits: &ValidatedResourceLimits,
     ) -> Result<Self, StagingSemanticSyntaxError> {
-        Self::new_with_jpeg_policy(package, limits, false)
+        Self::new_with_media_policy(package, limits, false, false)
     }
 
     fn new_with_jpeg_policy(
         package: &ValidatedStagingSemanticPackage,
         limits: &ValidatedResourceLimits,
         permits_jpeg: bool,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        Self::new_with_media_policy(package, limits, permits_jpeg, false)
+    }
+
+    fn new_with_media_policy(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &ValidatedResourceLimits,
+        permits_jpeg: bool,
+        permits_cff: bool,
     ) -> Result<Self, StagingSemanticSyntaxError> {
         package.checked_wire()?;
         if package.limits() != limits {
@@ -658,6 +673,15 @@ impl StagingSemanticContainerProfileView {
                 image.media == ImageMediaDeclaration::Declared(ImageMediaType::JpegBaseline)
             }) {
                 return Err(StagingSemanticSyntaxError::JpegStaging(image.image_id));
+            }
+        }
+        if !permits_cff {
+            if let Some(font) =
+                package.resources.font_faces.iter().find(|font| {
+                    font.media == FontMediaDeclaration::Declared(FontMediaType::SfntCff1)
+                })
+            {
+                return Err(StagingSemanticSyntaxError::CffStaging(font.font_face_id));
             }
         }
         if let Some(owner) =
@@ -712,6 +736,101 @@ impl StagingSemanticContainerProfileView {
 
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs
+    }
+}
+
+/// Dependency-inversion projection for the private MI4-12 CFF component.
+/// It is the only syntax authorization that admits `sfnt-cff1` before the
+/// contract-1.4 publication gate; all older views fail before resource open.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagingCffProfileView {
+    base: StagingSemanticContainerProfileView,
+    limits_fingerprint: [u8; 32],
+    font_face_ids: Vec<FontFaceId>,
+    canonical_jcs: String,
+    fingerprint: [u8; 32],
+}
+
+impl StagingCffProfileView {
+    pub fn new(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        let base = StagingSemanticContainerProfileView::new_with_media_policy(
+            package,
+            limits.base(),
+            false,
+            true,
+        )?;
+        if !package.resources().images.is_empty() {
+            return Err(StagingSemanticSyntaxError::InvalidResource);
+        }
+        let mut font_face_ids = Vec::new();
+        font_face_ids
+            .try_reserve_exact(package.resources().font_faces.len())
+            .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+        for font in &package.resources().font_faces {
+            if font.media != FontMediaDeclaration::Declared(FontMediaType::SfntCff1)
+                || font.face_index != 0
+            {
+                return Err(StagingSemanticSyntaxError::InvalidResource);
+            }
+            font_face_ids.push(font.font_face_id);
+        }
+        if font_face_ids.is_empty() || font_face_ids.windows(2).any(|ids| ids[0] >= ids[1]) {
+            return Err(StagingSemanticSyntaxError::InvalidResource);
+        }
+        let mut canonical_jcs = String::from(
+            "{\"algorithm\":\"typaxis.production-book-cff-authorization/1\",\"base_profile_fingerprint\":",
+        );
+        push_hash(&mut canonical_jcs, base.profile_fingerprint());
+        canonical_jcs.push_str(",\"font_face_ids\":[");
+        for (index, id) in font_face_ids.iter().enumerate() {
+            if index > 0 {
+                canonical_jcs.push(',');
+            }
+            canonical_jcs.push_str(&id.get().to_string());
+        }
+        canonical_jcs.push_str("],\"limits_fingerprint\":");
+        push_hash(&mut canonical_jcs, limits.fingerprint());
+        canonical_jcs.push_str(",\"package_fingerprint\":");
+        push_hash(&mut canonical_jcs, package.semantic_fingerprint());
+        canonical_jcs.push('}');
+        Ok(Self {
+            base,
+            limits_fingerprint: limits.fingerprint(),
+            font_face_ids,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        })
+    }
+
+    pub const fn base(&self) -> &StagingSemanticContainerProfileView {
+        &self.base
+    }
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
+    pub fn font_face_ids(&self) -> &[FontFaceId] {
+        &self.font_face_ids
+    }
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+    pub const fn profile_fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+    pub fn authorizes(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        let expected = Self::new(package, limits)?;
+        if *self == expected {
+            Ok(())
+        } else {
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        }
     }
 }
 
@@ -3987,7 +4106,10 @@ fn lower_resources(
             || font.family.trim().is_empty()
             || font.family.chars().any(char::is_control)
             || !families.insert(font.family.as_str())
-            || (font.media_type == WireFontMediaType::SfntTrueTypeGlyf && font.face_index != 0)
+            || (matches!(
+                font.media_type,
+                WireFontMediaType::SfntTrueTypeGlyf | WireFontMediaType::SfntCff1
+            ) && font.face_index != 0)
         {
             return Err(StagingSemanticSyntaxError::InvalidResource);
         }
@@ -4001,6 +4123,7 @@ fn lower_resources(
             media: FontMediaDeclaration::Declared(match font.media_type {
                 WireFontMediaType::SfntTrueTypeGlyf => FontMediaType::SfntTrueTypeGlyf,
                 WireFontMediaType::TtcTrueTypeGlyf => FontMediaType::TtcTrueTypeGlyf,
+                WireFontMediaType::SfntCff1 => FontMediaType::SfntCff1,
             }),
         });
     }
@@ -4999,6 +5122,7 @@ mod tests {
     const MATH_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/math/job/document-package.json"));
     const PRECOMPOSED_VECTOR_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/precomposed-vector/document-package.json"));
     const JPEG_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/jpeg-media/job/document-package.json"));
+    const CFF_FIXTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../samples/machine-package/staging/production-book-1/cff-media/job/document-package.json"));
 
     fn parse(bytes: &[u8]) -> Result<ValidatedStagingSemanticPackage, Box<dyn std::error::Error>> {
         let limits = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default())
@@ -5166,6 +5290,41 @@ mod tests {
         assert!(!view.figures()[1].page_break_before());
         assert!(view.figures()[2].page_break_before());
         view.authorizes(&package, &limits).unwrap();
+    }
+
+    #[test]
+    fn font_media_cff_lowering_is_private_and_profile_bound() {
+        let package = parse(CFF_FIXTURE).unwrap();
+        assert_eq!(package.resources().font_faces.len(), 1);
+        assert_eq!(
+            package.resources().font_faces[0].media,
+            FontMediaDeclaration::Declared(FontMediaType::SfntCff1)
+        );
+        let base = ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap();
+        assert_eq!(
+            StagingSemanticContainerProfileView::new(&package, &base).unwrap_err(),
+            StagingSemanticSyntaxError::CffStaging(FontFaceId::new(0))
+        );
+        let limits = M4EffectiveResourceLimits::defaults_for(&base);
+        let view = StagingCffProfileView::new(&package, &limits).unwrap();
+        assert_eq!(view.font_face_ids(), [FontFaceId::new(0)]);
+        assert_eq!(view.limits_fingerprint(), limits.fingerprint());
+        view.authorizes(&package, &limits).unwrap();
+
+        let truetype = String::from_utf8(CFF_FIXTURE.to_vec()).unwrap().replacen(
+            "sfnt-cff1",
+            "sfnt-truetype-glyf",
+            1,
+        );
+        let package = parse(truetype.as_bytes()).unwrap();
+        assert!(StagingCffProfileView::new(&package, &limits).is_err());
+
+        let nonzero_face = String::from_utf8(CFF_FIXTURE.to_vec()).unwrap().replacen(
+            "\"face_index\":0",
+            "\"face_index\":1",
+            1,
+        );
+        assert!(parse(nonzero_face.as_bytes()).is_err());
     }
 
     #[test]

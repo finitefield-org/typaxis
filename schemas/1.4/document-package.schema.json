@@ -2278,7 +2278,8 @@
         "media_type": {
           "enum": [
             "sfnt-truetype-glyf",
-            "ttc-truetype-glyf"
+            "ttc-truetype-glyf",
+            "sfnt-cff1"
           ]
         }
       }

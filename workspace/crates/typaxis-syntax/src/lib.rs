@@ -23,9 +23,10 @@ pub use book_navigation::{
 };
 pub use semantic_container::{
     PrecomposedVectorActualTextResolution, PrecomposedVectorField, PrecomposedVectorKind,
-    PrecomposedVectorMetricPayload, StagingJpegFigureProfileUse, StagingJpegProfileView,
-    StagingM4PageGeometry, StagingMathLayoutBudgetGuard, StagingMathProfileAuthorization,
-    StagingMathProfileProgressToken, StagingMathProfileSessionIdentity, StagingMathProfileView,
+    PrecomposedVectorMetricPayload, StagingCffProfileView, StagingJpegFigureProfileUse,
+    StagingJpegProfileView, StagingM4PageGeometry, StagingMathLayoutBudgetGuard,
+    StagingMathProfileAuthorization, StagingMathProfileProgressToken,
+    StagingMathProfileSessionIdentity, StagingMathProfileView,
     StagingPrecomposedVectorProfileAuthorization, StagingPrecomposedVectorProfileProgressToken,
     StagingPrecomposedVectorProfileSessionIdentity, StagingSafeVectorProfileView,
     StagingSemanticContainerProfileView, StagingSemanticPackageParser, StagingSemanticSyntaxError,

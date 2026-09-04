@@ -1725,12 +1725,24 @@ impl ValidatedResourceLimits {
 /// and fingerprints must remain frozen until the 1.4 publication gate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct M4ResourceLimits {
+    pub max_cff_charstring_operations: u64,
+    pub max_cff_outline_segments: u64,
+    pub max_cff_subroutines: u32,
+    pub max_font_glyphs: u32,
+    pub max_font_subset_bytes: u64,
+    pub max_font_tables: u32,
     pub max_vector_nodes: u64,
     pub max_vector_path_segments: u64,
     pub max_vector_nesting_depth: u32,
     pub max_math_layout_units: u64,
 }
 
+pub const M4_HARD_MAX_CFF_CHARSTRING_OPERATIONS: u64 = 100_000_000;
+pub const M4_HARD_MAX_CFF_OUTLINE_SEGMENTS: u64 = 50_000_000;
+pub const M4_HARD_MAX_CFF_SUBROUTINES: u32 = 131_070;
+pub const M4_HARD_MAX_FONT_GLYPHS: u32 = 65_535;
+pub const M4_HARD_MAX_FONT_SUBSET_BYTES: u64 = 536_870_912;
+pub const M4_HARD_MAX_FONT_TABLES: u32 = 256;
 pub const M4_HARD_MAX_VECTOR_NODES: u64 = 1_000_000;
 pub const M4_HARD_MAX_VECTOR_PATH_SEGMENTS: u64 = 10_000_000;
 pub const M4_HARD_MAX_VECTOR_NESTING_DEPTH: u32 = 64;
@@ -1739,6 +1751,12 @@ pub const M4_HARD_MAX_MATH_LAYOUT_UNITS: u64 = 10_000_000;
 impl Default for M4ResourceLimits {
     fn default() -> Self {
         Self {
+            max_cff_charstring_operations: 10_000_000,
+            max_cff_outline_segments: 5_000_000,
+            max_cff_subroutines: 100_000,
+            max_font_glyphs: 65_535,
+            max_font_subset_bytes: 134_217_728,
+            max_font_tables: 64,
             max_vector_nodes: 100_000,
             max_vector_path_segments: 1_000_000,
             max_vector_nesting_depth: 32,
@@ -1750,6 +1768,13 @@ impl Default for M4ResourceLimits {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum M4ResourceLimitsError {
     ZeroLimit,
+    CffCharstringOperationsExceedHardMaximum,
+    CffOutlineSegmentsExceedHardMaximum,
+    CffSubroutinesExceedHardMaximum,
+    FontGlyphsExceedHardMaximum,
+    FontSubsetBytesExceedHardMaximum,
+    FontSubsetBytesExceedSpool,
+    FontTablesExceedHardMaximum,
     VectorNodesExceedHardMaximum,
     VectorPathSegmentsExceedHardMaximum,
     VectorNestingDepthExceedsHardMaximum,
@@ -1770,8 +1795,32 @@ impl M4ResourceLimits {
             || self.max_vector_path_segments == 0
             || self.max_vector_nesting_depth == 0
             || self.max_math_layout_units == 0
+            || self.max_font_tables == 0
+            || self.max_font_glyphs == 0
+            || self.max_cff_subroutines == 0
+            || self.max_cff_charstring_operations == 0
+            || self.max_cff_outline_segments == 0
+            || self.max_font_subset_bytes == 0
         {
             return Err(M4ResourceLimitsError::ZeroLimit);
+        }
+        if self.max_font_tables > M4_HARD_MAX_FONT_TABLES {
+            return Err(M4ResourceLimitsError::FontTablesExceedHardMaximum);
+        }
+        if self.max_font_glyphs > M4_HARD_MAX_FONT_GLYPHS {
+            return Err(M4ResourceLimitsError::FontGlyphsExceedHardMaximum);
+        }
+        if self.max_cff_subroutines > M4_HARD_MAX_CFF_SUBROUTINES {
+            return Err(M4ResourceLimitsError::CffSubroutinesExceedHardMaximum);
+        }
+        if self.max_cff_charstring_operations > M4_HARD_MAX_CFF_CHARSTRING_OPERATIONS {
+            return Err(M4ResourceLimitsError::CffCharstringOperationsExceedHardMaximum);
+        }
+        if self.max_cff_outline_segments > M4_HARD_MAX_CFF_OUTLINE_SEGMENTS {
+            return Err(M4ResourceLimitsError::CffOutlineSegmentsExceedHardMaximum);
+        }
+        if self.max_font_subset_bytes > M4_HARD_MAX_FONT_SUBSET_BYTES {
+            return Err(M4ResourceLimitsError::FontSubsetBytesExceedHardMaximum);
         }
         if self.max_vector_nodes > M4_HARD_MAX_VECTOR_NODES {
             return Err(M4ResourceLimitsError::VectorNodesExceedHardMaximum);
@@ -1822,11 +1871,26 @@ impl M4EffectiveResourceLimits {
         extension: M4ResourceLimits,
     ) -> Result<Self, M4ResourceLimitsError> {
         let extension = ValidatedM4ResourceLimits::new(extension)?;
+        if extension.get().max_font_subset_bytes > base.get().max_spool_bytes {
+            return Err(M4ResourceLimitsError::FontSubsetBytesExceedSpool);
+        }
         let mut canonical_jcs = String::from("{\"algorithm\":");
         push_jcs_string(&mut canonical_jcs, Self::ALGORITHM_ID);
         canonical_jcs.push_str(",\"base\":{");
         push_limits_jcs(&mut canonical_jcs, base.get());
-        canonical_jcs.push_str("},\"extension\":{\"max_math_layout_units\":");
+        canonical_jcs.push_str("},\"extension\":{\"max_cff_charstring_operations\":");
+        canonical_jcs.push_str(&extension.get().max_cff_charstring_operations.to_string());
+        canonical_jcs.push_str(",\"max_cff_outline_segments\":");
+        canonical_jcs.push_str(&extension.get().max_cff_outline_segments.to_string());
+        canonical_jcs.push_str(",\"max_cff_subroutines\":");
+        canonical_jcs.push_str(&extension.get().max_cff_subroutines.to_string());
+        canonical_jcs.push_str(",\"max_font_glyphs\":");
+        canonical_jcs.push_str(&extension.get().max_font_glyphs.to_string());
+        canonical_jcs.push_str(",\"max_font_subset_bytes\":");
+        canonical_jcs.push_str(&extension.get().max_font_subset_bytes.to_string());
+        canonical_jcs.push_str(",\"max_font_tables\":");
+        canonical_jcs.push_str(&extension.get().max_font_tables.to_string());
+        canonical_jcs.push_str(",\"max_math_layout_units\":");
         canonical_jcs.push_str(&extension.get().max_math_layout_units.to_string());
         canonical_jcs.push_str(",\"max_vector_nesting_depth\":");
         canonical_jcs.push_str(&extension.get().max_vector_nesting_depth.to_string());
@@ -1845,7 +1909,14 @@ impl M4EffectiveResourceLimits {
     }
 
     pub fn defaults_for(base: &ValidatedResourceLimits) -> Self {
-        Self::new(base.clone(), M4ResourceLimits::default()).expect("contract defaults are valid")
+        let defaults = M4ResourceLimits::default();
+        let extension = M4ResourceLimits {
+            max_font_subset_bytes: defaults
+                .max_font_subset_bytes
+                .min(base.get().max_spool_bytes),
+            ..defaults
+        };
+        Self::new(base.clone(), extension).expect("base-clamped contract defaults are valid")
     }
 
     pub const fn base(&self) -> &ValidatedResourceLimits {
@@ -2679,12 +2750,60 @@ mod tests {
         let defaults = M4ResourceLimits::default();
         assert!(ValidatedM4ResourceLimits::new(defaults).is_ok());
         assert!(ValidatedM4ResourceLimits::new(M4ResourceLimits {
+            max_cff_charstring_operations: M4_HARD_MAX_CFF_CHARSTRING_OPERATIONS,
+            max_cff_outline_segments: M4_HARD_MAX_CFF_OUTLINE_SEGMENTS,
+            max_cff_subroutines: M4_HARD_MAX_CFF_SUBROUTINES,
+            max_font_glyphs: M4_HARD_MAX_FONT_GLYPHS,
+            max_font_subset_bytes: M4_HARD_MAX_FONT_SUBSET_BYTES,
+            max_font_tables: M4_HARD_MAX_FONT_TABLES,
             max_vector_nodes: M4_HARD_MAX_VECTOR_NODES,
             max_vector_path_segments: M4_HARD_MAX_VECTOR_PATH_SEGMENTS,
             max_vector_nesting_depth: M4_HARD_MAX_VECTOR_NESTING_DEPTH,
             max_math_layout_units: M4_HARD_MAX_MATH_LAYOUT_UNITS,
         })
         .is_ok());
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_font_tables: M4_HARD_MAX_FONT_TABLES + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::FontTablesExceedHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_font_glyphs: M4_HARD_MAX_FONT_GLYPHS + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::FontGlyphsExceedHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_cff_subroutines: M4_HARD_MAX_CFF_SUBROUTINES + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::CffSubroutinesExceedHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_cff_charstring_operations: M4_HARD_MAX_CFF_CHARSTRING_OPERATIONS + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::CffCharstringOperationsExceedHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_cff_outline_segments: M4_HARD_MAX_CFF_OUTLINE_SEGMENTS + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::CffOutlineSegmentsExceedHardMaximum)
+        );
+        assert_eq!(
+            ValidatedM4ResourceLimits::new(M4ResourceLimits {
+                max_font_subset_bytes: M4_HARD_MAX_FONT_SUBSET_BYTES + 1,
+                ..defaults
+            }),
+            Err(M4ResourceLimitsError::FontSubsetBytesExceedHardMaximum)
+        );
         assert_eq!(
             ValidatedM4ResourceLimits::new(M4ResourceLimits {
                 max_vector_nodes: M4_HARD_MAX_VECTOR_NODES + 1,
@@ -2714,6 +2833,30 @@ mod tests {
             Err(M4ResourceLimitsError::MathLayoutUnitsExceedHardMaximum)
         );
         for limits in [
+            M4ResourceLimits {
+                max_font_tables: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_font_glyphs: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_cff_subroutines: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_cff_charstring_operations: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_cff_outline_segments: 0,
+                ..defaults
+            },
+            M4ResourceLimits {
+                max_font_subset_bytes: 0,
+                ..defaults
+            },
             M4ResourceLimits {
                 max_vector_nodes: 0,
                 ..defaults
@@ -2749,6 +2892,7 @@ mod tests {
         assert!(receipt
             .canonical_jcs()
             .contains("\"max_vector_nodes\":100000"));
+        assert!(receipt.canonical_jcs().contains("\"max_font_tables\":64"));
 
         let versions =
             EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap();
@@ -2785,5 +2929,24 @@ mod tests {
         )
         .unwrap();
         assert_ne!(receipt.fingerprint(), altered.fingerprint());
+
+        let too_small_spool = ResourceLimits {
+            max_spool_bytes: M4ResourceLimits::default().max_font_subset_bytes - 1,
+            ..ResourceLimits::default()
+        };
+        assert_eq!(
+            M4EffectiveResourceLimits::new(
+                ValidatedResourceLimits::new(too_small_spool.clone()).unwrap(),
+                M4ResourceLimits::default(),
+            ),
+            Err(M4ResourceLimitsError::FontSubsetBytesExceedSpool)
+        );
+
+        let small_base = ValidatedResourceLimits::new(too_small_spool).unwrap();
+        let small_defaults = M4EffectiveResourceLimits::defaults_for(&small_base);
+        assert_eq!(
+            small_defaults.extension().get().max_font_subset_bytes,
+            small_base.get().max_spool_bytes
+        );
     }
 }

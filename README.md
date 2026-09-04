@@ -15,7 +15,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, ADR-0028/0029/0030 | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | contract 1.3 generated artifacts | Yes | Yes | Yes | Yes |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: selected-state, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| contract 1.4 / `production-book-1` target | Yes through ADR-0037: base/media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and separate baseline-JPEG/CFF1 components | Existing private slices through MI4-09 plus MI4-V01 corpus; producer-vector product work remains MI4-V03〜V18, V19 is evidence, and JPEG/CFF remain MI4-11/12 | No; public CLI remains 1.3/seven-profile | No; MI4-V19 then MI4-13 gate |
+| contract 1.4 / `production-book-1` target | Yes through ADR-0037: base/media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and separate baseline-JPEG/CFF1 components | Private implementation is complete through MI4-12 and MI4-V18; MI4-V19 external combined evidence remains | No; public CLI remains 1.3/seven-profile | No; MI4-V19 then MI4-13 gate |
 
 `Contract-defined`はRust crate、public command、fixture E2E、release supportの存在を意味しない。M1は、明示的に管理するLinux・macOS hostで同一revision/source/artifactのactual evidenceを生成・集約して`Release-supported`となった。GitHub Actionsは使用していない。
 

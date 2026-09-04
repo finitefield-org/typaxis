@@ -5,6 +5,7 @@ mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
 mod book_navigation_v2;
+mod cff;
 mod jpeg;
 mod math;
 mod math_vector;
@@ -30,6 +31,10 @@ pub use book_navigation::{
 pub use book_navigation_v2::{
     build_staging_book_navigation_manifest_v2, StagingBookNavigationManifestV2,
     StagingBookNavigationManifestV2Error, STAGING_BOOK_NAVIGATION_MANIFEST_V2_ALGORITHM,
+};
+pub use cff::{
+    build_staging_cff1_manifest, StagingCff1Manifest, StagingCff1ManifestError,
+    StagingCff1ManifestInstance, StagingCff1ManifestResource, STAGING_CFF1_MANIFEST_ALGORITHM,
 };
 pub use jpeg::{
     build_staging_jpeg_manifest, StagingJpegManifest, StagingJpegManifestError,

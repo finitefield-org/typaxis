@@ -483,6 +483,7 @@ dependencies = [
 name = "typaxis-font"
 version = "0.1.0"
 dependencies = [
+ "read-fonts",
  "typaxis-core",
 ]
 

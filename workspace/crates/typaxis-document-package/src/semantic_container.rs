@@ -91,6 +91,7 @@ impl Serialize for WireImageMediaType {
 pub enum WireFontMediaType {
     SfntTrueTypeGlyf,
     TtcTrueTypeGlyf,
+    SfntCff1,
 }
 
 impl WireFontMediaType {
@@ -98,6 +99,7 @@ impl WireFontMediaType {
         match self {
             Self::SfntTrueTypeGlyf => "sfnt-truetype-glyf",
             Self::TtcTrueTypeGlyf => "ttc-truetype-glyf",
+            Self::SfntCff1 => "sfnt-cff1",
         }
     }
 }
@@ -107,6 +109,7 @@ impl<'de> Deserialize<'de> for WireFontMediaType {
         match String::deserialize(deserializer)?.as_str() {
             "sfnt-truetype-glyf" => Ok(Self::SfntTrueTypeGlyf),
             "ttc-truetype-glyf" => Ok(Self::TtcTrueTypeGlyf),
+            "sfnt-cff1" => Ok(Self::SfntCff1),
             _ => Err(de::Error::custom("unknown font media_type")),
         }
     }
@@ -3033,6 +3036,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/jpeg-media/job/document-package.json"
     ));
+    const CFF_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/cff-media/job/document-package.json"
+    ));
 
     fn policy() -> DocumentPackageDecodePolicy<'static> {
         let limits = Box::leak(Box::new(
@@ -3455,6 +3462,49 @@ mod tests {
         assert!(StagingSemanticDocumentPackageDecoder::new()
             .decode(generic.as_bytes(), &policy())
             .is_err());
+        assert_eq!(
+            typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
+    }
+
+    #[test]
+    fn font_media_cff_wire_round_trip_is_private_closed_and_typed() {
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(CFF_FIXTURE, &policy())
+            .unwrap();
+        let fonts = &decoded.wire().resources().font_faces;
+        assert_eq!(fonts.len(), 1);
+        assert_eq!(fonts[0].media_type, WireFontMediaType::SfntCff1);
+        assert_eq!(fonts[0].face_index, 0);
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(decoded.wire())
+            .unwrap();
+        assert_eq!(encoded, decoded.canonical_jcs());
+        assert!(encoded.contains("\"media_type\":\"sfnt-cff1\""));
+        assert!(crate::StrictDocumentPackageDecoder::new()
+            .decode(CFF_FIXTURE, &policy())
+            .is_err());
+
+        let alias =
+            String::from_utf8(CFF_FIXTURE.to_vec())
+                .unwrap()
+                .replacen("sfnt-cff1", "font/otf", 1);
+        assert!(StagingSemanticDocumentPackageDecoder::new()
+            .decode(alias.as_bytes(), &policy())
+            .is_err());
+        let collection_face = String::from_utf8(CFF_FIXTURE.to_vec()).unwrap().replacen(
+            "\"face_index\":0",
+            "\"face_index\":1",
+            1,
+        );
+        let collection_face = StagingSemanticDocumentPackageDecoder::new()
+            .decode(collection_face.as_bytes(), &policy())
+            .unwrap();
+        assert_eq!(
+            collection_face.wire().resources().font_faces[0].face_index,
+            1
+        );
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
             "typaxis.contract/1.3"

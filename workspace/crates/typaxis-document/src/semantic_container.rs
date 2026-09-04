@@ -125,6 +125,7 @@ pub struct StagingM4InlineVector {
 pub enum FontMediaType {
     SfntTrueTypeGlyf,
     TtcTrueTypeGlyf,
+    SfntCff1,
 }
 
 impl FontMediaType {
@@ -132,6 +133,7 @@ impl FontMediaType {
         match self {
             Self::SfntTrueTypeGlyf => "sfnt-truetype-glyf",
             Self::TtcTrueTypeGlyf => "ttc-truetype-glyf",
+            Self::SfntCff1 => "sfnt-cff1",
         }
     }
 }

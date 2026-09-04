@@ -18,7 +18,7 @@
 | contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Yes: MI4-04 SafeVector and MI4-05 math Schema/Rust/PDF slices in the private registry | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | No: MI4-11/12 must add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
+| contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | Yes: MI4-11/12 add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
 | contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Yes through MI4-V17: strict Wire/domain, validation/admission/layout/PDF, versioned manifests/build closure, and private capability projection; combined CLI remains staged | No; current aliases remain 1.3 | No; MI4-V19 then MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
@@ -67,8 +67,9 @@ shapes needed for the implementation, without changing current/frozen aliases.
 exact future `jpeg-baseline` and `sfnt-cff1` declarations, five distinct
 resource component IDs, bounded decode/evaluation and embedding policy,
 deterministic JPEG/CFF transforms, PDF plans, limits, and dependency identities.
-ADR adoption changes no Schema: MI4-11 and MI4-12 own those private additions,
-and MI4-13 alone may switch aliases or advertise the complete resource set.
+ADR adoption changed no Schema; MI4-11 and MI4-12 subsequently implemented
+those private additions, and MI4-13 alone may switch aliases or advertise the
+complete resource set.
 [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) adds the closed
 private `inline_vector`, `math_vector`, `vector_figure`, and
 `math_vector_block` shapes, `svg-safe-2` declaration/provenance, producer
@@ -113,8 +114,9 @@ The independent `schemas/1.4/` registry begins with MI4-02 private staging and
 is not frozen until MI4-13. Its base DocumentPackage shape adds
 the closed block-only `semantic_container` with
 `semantic_kind = result|proof|exercise` and requires
-the legacy private image branches `media_type = png|svg-safe-1` plus
-`resources.font_faces[*].media_type = sfnt-truetype-glyf|ttc-truetype-glyf`.
+the private image branches `media_type = png|svg-safe-1|svg-safe-2|jpeg-baseline`
+plus `resources.font_faces[*].media_type =
+sfnt-truetype-glyf|ttc-truetype-glyf|sfnt-cff1`.
 MI4-V03 adds the separate `svg-safe-2` image branch with required nonnull hash
 and provenance, and the four closed producer-vector kinds with their exact
 metrics/source/alternative/number shape.
@@ -124,19 +126,18 @@ manifest families, plus the production build-manifest record/fingerprint
 pairs. Built records are nonnull even for zero use; failed pairs are exactly
 both-null or both-nonnull. Existing `figure`/`svg-safe-1` usage is projected
 through the same SafeVector `/2` content-key/Form path. The private registry is
-now twenty-six Schemas; current aliases and their seven-profile capability
+now twenty-eight Schemas; current aliases and their seven-profile capability
 bytes remain unchanged.
 Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
 
-ADR-0036 contract-defines later additions `jpeg-baseline` and `sfnt-cff1`,
-but the private registry intentionally does not accept or advertise them at
-MI4-10 adoption. MI4-11 must add only the JPEG enum/attestation/decoded/
-sanitized/DCT-plan manifest facts. MI4-12 must separately add only the CFF
-enum/attestation/table/license/glyph/subset/FontFile3 facts and the six private
-font-limit members. Each addition must update every private 1.4 fixture and
-semantic check atomically while leaving top-level/current and frozen 1.0-1.3
-bytes unchanged.
+ADR-0036 contract-defines `jpeg-baseline` and `sfnt-cff1`; the private registry
+intentionally did not accept or advertise them at MI4-10 adoption. MI4-11 added
+only the JPEG enum/attestation/decoded/sanitized/DCT-plan facts. MI4-12 added
+only the CFF enum/attestation/table/license/glyph/subset/FontFile3 facts and the
+six private font-limit members. Both additions update their private 1.4
+fixtures and semantic checks while leaving top-level/current and frozen
+1.0-1.3 bytes unchanged. They remain unadvertised until MI4-13.
 
 ADR-0037 contract-defines `svg-safe-2`, four producer-vector kinds,
 closed metrics/spacing/source/alternative records, and the version-2

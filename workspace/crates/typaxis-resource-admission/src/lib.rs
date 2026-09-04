@@ -32,7 +32,7 @@ use typaxis_document::{
     FontFaceDeclaration, FontMediaDeclaration, FontMediaType, ImageDeclaration,
     ImageMediaDeclaration, ImageMediaType, ResourceCatalog, StagingM4ResourceCatalog,
 };
-use typaxis_font::{FontFamilyError, FontFamilyTable};
+use typaxis_font::{admit_sfnt_cff1, Cff1Admission, Cff1Error, FontFamilyError, FontFamilyTable};
 use typaxis_host_admission::{
     HostAdmissionError, HostAdmissionSession, HostReadIdentityLedger, HostReadIdentityLedgerToken,
     HostRootSetToken, OpenedContainedFile, RegisteredHostReadCandidate,
@@ -81,26 +81,37 @@ pub struct AdmittedFont {
     bytes: Vec<u8>,
     sha256: [u8; 32],
     metadata: AdmittedFontMetadata,
+    media_kind: AdmittedFontMediaKind,
+    cff1_admission: Option<Arc<Cff1Admission>>,
+    m4_profile_fingerprint: Option<[u8; 32]>,
 }
 impl AdmittedFont {
     fn from_verified(
-        font_face_id: FontFaceId,
-        uri: PortablePath,
+        source: PendingResourceBytes,
         family: String,
-        face_index: u32,
-        bytes: Vec<u8>,
-        sha256: [u8; 32],
         metadata: AdmittedFontMetadata,
-    ) -> Self {
-        Self {
+        media_kind: AdmittedFontMediaKind,
+        cff1_admission: Option<Cff1Admission>,
+        m4_profile_fingerprint: Option<[u8; 32]>,
+    ) -> Result<Self, ResourceAdmissionError> {
+        let PendingResourceId::Font(font_face_id) = source.id else {
+            return Err(ResourceAdmissionError::ReceiptKindMismatch);
+        };
+        let face_index = source
+            .face_index
+            .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+        Ok(Self {
             font_face_id,
-            uri,
+            uri: source.uri,
             family,
             face_index,
-            bytes,
-            sha256,
+            bytes: source.bytes,
+            sha256: source.sha256,
             metadata,
-        }
+            media_kind,
+            cff1_admission: cff1_admission.map(Arc::new),
+            m4_profile_fingerprint,
+        })
     }
     pub const fn font_face_id(&self) -> FontFaceId {
         self.font_face_id
@@ -126,12 +137,22 @@ impl AdmittedFont {
     pub const fn metadata(&self) -> &AdmittedFontMetadata {
         &self.metadata
     }
+    pub const fn media_kind(&self) -> AdmittedFontMediaKind {
+        self.media_kind
+    }
+    pub fn cff1_admission(&self) -> Option<&Cff1Admission> {
+        self.cff1_admission.as_deref()
+    }
+    pub const fn m4_profile_fingerprint(&self) -> Option<[u8; 32]> {
+        self.m4_profile_fingerprint
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdmittedFontMediaKind {
     SfntTrueTypeGlyf,
     TtcTrueTypeGlyf,
+    SfntCff1,
 }
 
 impl AdmittedFontMediaKind {
@@ -139,6 +160,7 @@ impl AdmittedFontMediaKind {
         match self {
             Self::SfntTrueTypeGlyf => "sfnt-truetype-glyf",
             Self::TtcTrueTypeGlyf => "ttc-truetype-glyf",
+            Self::SfntCff1 => "sfnt-cff1",
         }
     }
 }
@@ -715,6 +737,7 @@ pub enum ResourceAdmissionError {
     InvalidSafeVector,
     InvalidSafeVectorV2(SafeVectorFailureReason),
     InvalidJpeg(JpegFailureReason),
+    InvalidCff1(Cff1Error),
     VectorNodeLimit,
     VectorPathSegmentLimit,
     VectorNestingLimit,
@@ -795,6 +818,20 @@ impl ResourceAdmissionError {
                 JpegFailureReason::PixelLimit => "R7110: JPEG pixel limit was exceeded",
                 JpegFailureReason::DecodeLimit => "R7111: JPEG decode workspace limit was exceeded",
                 JpegFailureReason::SpoolLimit => "R7100: JPEG spool limit was exceeded",
+            },
+            Self::InvalidCff1(error) => match error {
+                Cff1Error::TableLimit => "R7130: CFF1 font table limit was exceeded",
+                Cff1Error::GlyphLimit => "R7131: CFF1 font glyph limit was exceeded",
+                Cff1Error::SubroutineLimit => "R7132: CFF1 font subroutine limit was exceeded",
+                Cff1Error::CharstringOperationLimit => {
+                    "R7133: CFF1 charstring operation limit was exceeded"
+                }
+                Cff1Error::OutlineSegmentLimit => "R7134: CFF1 outline segment limit was exceeded",
+                Cff1Error::SubsetByteLimit => "R7135: CFF1 subset byte limit was exceeded",
+                Cff1Error::InvalidGlyphClosure | Cff1Error::ReceiptMismatch => {
+                    "I9190: CFF1 receipt closure does not match"
+                }
+                _ => "R7100: CFF1 font is malformed, unsupported, or not embeddable",
             },
             Self::VectorNodeLimit => "R7120: safe vector node limit was exceeded",
             Self::VectorPathSegmentLimit => "R7121: safe vector path segment limit was exceeded",
@@ -1148,6 +1185,9 @@ enum VerifiedMetadata {
     Font {
         source: PendingResourceBytes,
         metadata: AdmittedFontMetadata,
+        media_kind: AdmittedFontMediaKind,
+        cff1_admission: Option<Box<Cff1Admission>>,
+        m4_profile_fingerprint: Option<[u8; 32]>,
     },
     Image {
         source: PendingResourceBytes,
@@ -1203,9 +1243,42 @@ impl VerifiedMetadataReceiptOwner {
         {
             return Err(ResourceAdmissionError::InvalidMetadata);
         }
+        let media_kind = attest_font_media_kind(source.bytes())?;
+        if media_kind == AdmittedFontMediaKind::SfntCff1 {
+            return Err(ResourceAdmissionError::InvalidMetadata);
+        }
         Ok(VerifiedMetadataReceipt(VerifiedMetadata::Font {
             source,
             metadata,
+            media_kind,
+            cff1_admission: None,
+            m4_profile_fingerprint: None,
+        }))
+    }
+    fn issue_cff1_font(
+        &self,
+        source: PendingResourceBytes,
+        admission: Cff1Admission,
+        m4_profile_fingerprint: [u8; 32],
+    ) -> Result<VerifiedMetadataReceipt, ResourceAdmissionError> {
+        if source.font_face_id().is_none()
+            || source.face_index() != Some(0)
+            || source.content_hash() != admission.source_sha256()
+            || source.byte_length() != admission.source_byte_length()
+            || admission.glyph_count() == 0
+            || admission.units_per_em() != 1_000
+        {
+            return Err(ResourceAdmissionError::InvalidMetadata);
+        }
+        Ok(VerifiedMetadataReceipt(VerifiedMetadata::Font {
+            source,
+            metadata: AdmittedFontMetadata {
+                units_per_em: admission.units_per_em(),
+                glyph_count: admission.glyph_count(),
+            },
+            media_kind: AdmittedFontMediaKind::SfntCff1,
+            cff1_admission: Some(Box::new(admission)),
+            m4_profile_fingerprint: Some(m4_profile_fingerprint),
         }))
     }
     fn issue_png(
@@ -1623,11 +1696,38 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let expected = match declared {
             FontMediaType::SfntTrueTypeGlyf => AdmittedFontMediaKind::SfntTrueTypeGlyf,
             FontMediaType::TtcTrueTypeGlyf => AdmittedFontMediaKind::TtcTrueTypeGlyf,
+            FontMediaType::SfntCff1 => AdmittedFontMediaKind::SfntCff1,
         };
         if observed != expected {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         }
-        self.parse_and_bind_sfnt_after_policy(source)
+        if expected != AdmittedFontMediaKind::SfntCff1 {
+            return self.parse_and_bind_sfnt_after_policy(source);
+        }
+        let declaration = self
+            .declarations
+            .font_faces
+            .get(font_face_id.get() as usize)
+            .filter(|candidate| candidate.font_face_id == font_face_id)
+            .ok_or(ResourceAdmissionError::MissingLogicalResource)?;
+        if declaration
+            .expected_sha256
+            .is_some_and(|expected_hash| expected_hash != source.content_hash())
+        {
+            return Err(ResourceAdmissionError::ExpectedHashMismatch);
+        }
+        let limits = self
+            .m4_limits
+            .as_ref()
+            .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        let profile_fingerprint = self
+            .m4_profile_fingerprint
+            .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
+        let admission = admit_sfnt_cff1(source.bytes(), 0, limits)
+            .map_err(ResourceAdmissionError::InvalidCff1)?;
+        let owner = VerifiedMetadataReceiptOwner::new();
+        let receipt = owner.issue_cff1_font(source, admission, profile_fingerprint)?;
+        self.bind_verified_metadata(receipt)
     }
     pub fn parse_and_bind_png(
         &mut self,
@@ -1965,7 +2065,13 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         receipt: VerifiedMetadataReceipt,
     ) -> Result<(), ResourceAdmissionError> {
         match receipt.0 {
-            VerifiedMetadata::Font { source, metadata } => {
+            VerifiedMetadata::Font {
+                source,
+                metadata,
+                media_kind,
+                cff1_admission,
+                m4_profile_fingerprint,
+            } => {
                 self.ensure_session(&source)?;
                 let id = source
                     .font_face_id()
@@ -1990,15 +2096,30 @@ impl<'roots> AdmittedResourceResolver<'roots> {
                 if self.fonts.contains_key(&id) {
                     return Err(ResourceAdmissionError::ConflictingLogicalResource);
                 }
+                match (media_kind, cff1_admission.as_deref()) {
+                    (AdmittedFontMediaKind::SfntCff1, Some(admission))
+                        if self
+                            .m4_limits
+                            .as_ref()
+                            .map(M4EffectiveResourceLimits::fingerprint)
+                            == Some(admission.limits_fingerprint())
+                            && self.m4_profile_fingerprint == m4_profile_fingerprint
+                            && m4_profile_fingerprint.is_some()
+                            && admission.source_sha256() == source.content_hash()
+                            && admission.source_byte_length() == source.byte_length() => {}
+                    (AdmittedFontMediaKind::SfntTrueTypeGlyf, None)
+                    | (AdmittedFontMediaKind::TtcTrueTypeGlyf, None)
+                        if m4_profile_fingerprint.is_none() => {}
+                    _ => return Err(ResourceAdmissionError::ReceiptIdentityMismatch),
+                }
                 let font = AdmittedFont::from_verified(
-                    id,
-                    source.uri,
+                    source,
                     declaration.family.clone(),
-                    declaration.face_index,
-                    source.bytes,
-                    source.sha256,
                     metadata,
-                );
+                    media_kind,
+                    cff1_admission.map(|admission| *admission),
+                    m4_profile_fingerprint,
+                )?;
                 let replaced = self.fonts.insert(id, font);
                 debug_assert!(replaced.is_none());
             }
@@ -2404,6 +2525,8 @@ fn attest_font_media_kind(bytes: &[u8]) -> Result<AdmittedFontMediaKind, Resourc
         Ok(AdmittedFontMediaKind::TtcTrueTypeGlyf)
     } else if bytes.get(..4) == Some(&0x0001_0000u32.to_be_bytes()) {
         Ok(AdmittedFontMediaKind::SfntTrueTypeGlyf)
+    } else if bytes.get(..4) == Some(b"OTTO") {
+        Ok(AdmittedFontMediaKind::SfntCff1)
     } else {
         Err(ResourceAdmissionError::InvalidMetadata)
     }
@@ -2440,11 +2563,24 @@ fn attest_declared_font_media_kind(
             usize::try_from(read_be_u32(bytes, offset_position)?)
                 .map_err(|_| ResourceAdmissionError::InvalidMetadata)?
         }
+        AdmittedFontMediaKind::SfntCff1 => {
+            if face_index != 0 {
+                return Err(ResourceAdmissionError::InvalidMetadata);
+            }
+            0usize
+        }
     };
     let signature_end = directory_offset
         .checked_add(4)
         .ok_or(ResourceAdmissionError::InvalidMetadata)?;
-    if bytes.get(directory_offset..signature_end) != Some(&0x0001_0000u32.to_be_bytes()) {
+    let observed_signature = bytes.get(directory_offset..signature_end);
+    let signature_matches = match media_kind {
+        AdmittedFontMediaKind::SfntTrueTypeGlyf | AdmittedFontMediaKind::TtcTrueTypeGlyf => {
+            observed_signature == Some(&0x0001_0000u32.to_be_bytes())
+        }
+        AdmittedFontMediaKind::SfntCff1 => observed_signature == Some(b"OTTO"),
+    };
+    if !signature_matches {
         return Err(ResourceAdmissionError::InvalidMetadata);
     }
     let table_count = usize::from(read_be_u16(
@@ -2458,7 +2594,8 @@ fn attest_declared_font_media_kind(
         .ok_or(ResourceAdmissionError::InvalidMetadata)?;
     let mut has_glyf = false;
     let mut has_loca = false;
-    let mut has_cff = false;
+    let mut has_cff1 = false;
+    let mut has_cff2 = false;
     for index in 0..table_count {
         let record = directory_start
             .checked_add(
@@ -2476,11 +2613,18 @@ fn attest_declared_font_media_kind(
         {
             b"glyf" => has_glyf = true,
             b"loca" => has_loca = true,
-            b"CFF " | b"CFF2" => has_cff = true,
+            b"CFF " => has_cff1 = true,
+            b"CFF2" => has_cff2 = true,
             _ => {}
         }
     }
-    if !has_glyf || !has_loca || has_cff {
+    let valid_outline_tables = match media_kind {
+        AdmittedFontMediaKind::SfntTrueTypeGlyf | AdmittedFontMediaKind::TtcTrueTypeGlyf => {
+            has_glyf && has_loca && !has_cff1 && !has_cff2
+        }
+        AdmittedFontMediaKind::SfntCff1 => has_cff1 && !has_cff2 && !has_glyf && !has_loca,
+    };
+    if !valid_outline_tables {
         return Err(ResourceAdmissionError::InvalidMetadata);
     }
     Ok(media_kind)
@@ -2723,6 +2867,36 @@ impl AdmittedResourceLedger {
             if index > 0 {
                 canonical.push(',');
             }
+            if let Some(admission) = font.cff1_admission() {
+                canonical.push_str("{\"admission_fingerprint\":");
+                push_hash_hex(&mut canonical, admission.fingerprint());
+                canonical.push_str(",\"embedding_permission\":");
+                push_jcs_string(&mut canonical, admission.embedding_permission().as_str());
+                canonical.push_str(",\"face_index\":");
+                canonical.push_str(&font.face_index().to_string());
+                canonical.push_str(",\"family\":");
+                push_jcs_string(&mut canonical, font.family());
+                canonical.push_str(",\"font_face_id\":");
+                canonical.push_str(&font.font_face_id().get().to_string());
+                canonical.push_str(",\"glyph_count\":");
+                canonical.push_str(&font.metadata().glyph_count.to_string());
+                canonical.push_str(",\"limits_fingerprint\":");
+                push_hash_hex(&mut canonical, admission.limits_fingerprint());
+                canonical.push_str(",\"media_kind\":");
+                push_jcs_string(&mut canonical, font.media_kind().as_str());
+                canonical.push_str(",\"profile_fingerprint\":");
+                push_hash_hex(
+                    &mut canonical,
+                    font.m4_profile_fingerprint()
+                        .expect("CFF1 font carries its profile identity"),
+                );
+                canonical.push_str(",\"sha256\":");
+                push_hash_hex(&mut canonical, font.content_hash());
+                canonical.push_str(",\"units_per_em\":");
+                canonical.push_str(&font.metadata().units_per_em.to_string());
+                canonical.push('}');
+                continue;
+            }
             canonical.push_str("{\"face_index\":");
             canonical.push_str(&font.face_index().to_string());
             canonical.push_str(",\"family\":");
@@ -2856,6 +3030,8 @@ pub struct StagingDeclaredFontAttestation {
     declared: FontMediaType,
     attested: AdmittedFontMediaKind,
     sha256: [u8; 32],
+    cff1_admission: Option<Arc<Cff1Admission>>,
+    m4_profile_fingerprint: Option<[u8; 32]>,
 }
 
 impl StagingDeclaredFontAttestation {
@@ -2879,6 +3055,12 @@ impl StagingDeclaredFontAttestation {
     }
     pub const fn content_hash(&self) -> [u8; 32] {
         self.sha256
+    }
+    pub fn cff1_admission(&self) -> Option<&Cff1Admission> {
+        self.cff1_admission.as_deref()
+    }
+    pub const fn m4_profile_fingerprint(&self) -> Option<[u8; 32]> {
+        self.m4_profile_fingerprint
     }
 }
 
@@ -3092,9 +3274,9 @@ pub fn close_staging_declared_media(
         let expected = match declared {
             FontMediaType::SfntTrueTypeGlyf => AdmittedFontMediaKind::SfntTrueTypeGlyf,
             FontMediaType::TtcTrueTypeGlyf => AdmittedFontMediaKind::TtcTrueTypeGlyf,
+            FontMediaType::SfntCff1 => AdmittedFontMediaKind::SfntCff1,
         };
-        let observed = attest_declared_font_media_kind(font.bytes(), font.face_index())
-            .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
+        let observed = font.media_kind();
         if font.font_face_id() != declaration.font_face_id
             || font.uri() != &declaration.uri
             || font.family() != declaration.family
@@ -3103,6 +3285,15 @@ pub fn close_staging_declared_media(
             || declaration
                 .expected_sha256
                 .is_some_and(|hash| hash != font.content_hash())
+            || match expected {
+                AdmittedFontMediaKind::SfntCff1 => {
+                    font.cff1_admission().is_none() || font.m4_profile_fingerprint().is_none()
+                }
+                AdmittedFontMediaKind::SfntTrueTypeGlyf
+                | AdmittedFontMediaKind::TtcTrueTypeGlyf => {
+                    font.cff1_admission().is_some() || font.m4_profile_fingerprint().is_some()
+                }
+            }
         {
             return Err(ResourceAdmissionError::DeclaredMediaMismatch);
         }
@@ -3114,6 +3305,8 @@ pub fn close_staging_declared_media(
             declared,
             attested: observed,
             sha256: font.content_hash(),
+            cff1_admission: font.cff1_admission.clone(),
+            m4_profile_fingerprint: font.m4_profile_fingerprint(),
         });
     }
     let mut images = Vec::new();
@@ -3190,14 +3383,36 @@ fn encode_staging_declared_media(
         }
         output.push_str("{\"attested_media_kind\":");
         push_jcs_string(&mut output, font.attested.as_str());
+        if let Some(admission) = font.cff1_admission.as_deref() {
+            output.push_str(",\"cff1_admission_fingerprint\":");
+            push_hash_hex(&mut output, admission.fingerprint());
+            output.push_str(",\"cff1_admission_id\":");
+            push_jcs_string(&mut output, typaxis_font::CFF1_ADMISSION_ID);
+        }
         output.push_str(",\"declared_media_type\":");
         push_jcs_string(&mut output, font.declared.as_str());
+        if let Some(admission) = font.cff1_admission.as_deref() {
+            output.push_str(",\"embedding_permission\":");
+            push_jcs_string(&mut output, admission.embedding_permission().as_str());
+        }
         output.push_str(",\"face_index\":");
         output.push_str(&font.face_index.to_string());
         output.push_str(",\"family\":");
         push_jcs_string(&mut output, &font.family);
         output.push_str(",\"font_face_id\":");
         output.push_str(&font.font_face_id.get().to_string());
+        if let Some(admission) = font.cff1_admission.as_deref() {
+            output.push_str(",\"limits_fingerprint\":");
+            push_hash_hex(&mut output, admission.limits_fingerprint());
+            output.push_str(",\"profile_fingerprint\":");
+            push_hash_hex(
+                &mut output,
+                font.m4_profile_fingerprint
+                    .expect("CFF1 admission carries its profile identity"),
+            );
+            output.push_str(",\"resource_profile_id\":");
+            push_jcs_string(&mut output, typaxis_font::CFF1_RESOURCE_PROFILE_ID);
+        }
         output.push_str(",\"sha256\":");
         push_hash_hex(&mut output, font.sha256);
         output.push_str(",\"uri\":");
@@ -3699,6 +3914,29 @@ mod tests {
 
     fn sfnt() -> Vec<u8> {
         sfnt_with_units_per_em(1000)
+    }
+
+    fn cff_fixture() -> Vec<u8> {
+        const HEX: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../samples/machine-package/staging/production-book-1/cff-media/typaxis-cff-fixture.otf.hex"
+        ));
+        let digits = HEX
+            .bytes()
+            .filter(|byte| !byte.is_ascii_whitespace())
+            .collect::<Vec<_>>();
+        assert_eq!(digits.len() % 2, 0);
+        digits
+            .chunks_exact(2)
+            .map(|pair| {
+                let nibble = |byte: u8| match byte {
+                    b'0'..=b'9' => byte - b'0',
+                    b'a'..=b'f' => byte - b'a' + 10,
+                    _ => panic!("CFF fixture contains a non-hex byte"),
+                };
+                (nibble(pair[0]) << 4) | nibble(pair[1])
+            })
+            .collect()
     }
 
     #[test]
@@ -4245,18 +4483,20 @@ mod tests {
     fn verified_font_metadata_receipt_rechecks_the_profile_units_range() {
         let owner = VerifiedMetadataReceiptOwner::new();
         let source = |units_per_em| {
+            let bytes = sfnt_with_units_per_em(units_per_em);
+            let source_sha256 = sha256(&bytes);
             owner.issue_font(
                 PendingResourceBytes {
                     session: ResourceAdmissionSessionIdentity::fresh(),
                     id: PendingResourceId::Font(FontFaceId::new(0)),
                     uri: PortablePath::new("font.ttf").unwrap(),
                     face_index: Some(0),
-                    bytes: vec![1],
-                    sha256: [2; 32],
+                    bytes,
+                    sha256: source_sha256,
                 },
                 AdmittedFontMetadata {
                     units_per_em,
-                    glyph_count: 1,
+                    glyph_count: 3,
                 },
             )
         };
@@ -4453,6 +4693,160 @@ mod tests {
         assert!(closed
             .canonical_jcs()
             .contains("\"declared_media_type\":\"ttc-truetype-glyf\""));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn otf_cff_stable_read_binds_admission_license_limits_profile_and_attestation() {
+        let bytes = cff_fixture();
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: vec![typaxis_document::StagingM4FontFaceDeclaration {
+                font_face_id: FontFaceId::new(0),
+                family: "Typaxis CFF Fixture".to_owned(),
+                uri: PortablePath::new("fixture.otf").unwrap(),
+                face_index: 0,
+                expected_sha256: Some(sha256(&bytes)),
+                media: FontMediaDeclaration::Declared(FontMediaType::SfntCff1),
+            }],
+            images: vec![],
+        };
+        let catalog = staging_declared_base_catalog(&declarations).unwrap();
+        let tree = TempTree::new("otf-cff");
+        fs::write(tree.path().join("fixture.otf"), &bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let limits = M4EffectiveResourceLimits::defaults_for(config.limits());
+        let profile_fingerprint = sha256(b"typaxis.test-cff-profile/1");
+
+        let admit = || {
+            let host = HostResourceAdmissionSession::new(
+                &host_context(tree.path(), &[]),
+                &config,
+                &catalog,
+            )
+            .unwrap();
+            let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+                &catalog,
+                &limits,
+                profile_fingerprint,
+                host.roots(),
+            )
+            .unwrap();
+            let pending = resolver
+                .read_font(host.open_font(FontFaceId::new(0)).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_sfnt(pending).unwrap();
+            resolver.finish().unwrap()
+        };
+
+        let first = admit();
+        let second = admit();
+        assert_eq!(first.fingerprint(), second.fingerprint());
+        let font = first.font(FontFaceId::new(0)).unwrap();
+        assert_eq!(font.media_kind(), AdmittedFontMediaKind::SfntCff1);
+        assert_eq!(font.content_hash(), sha256(&bytes));
+        assert_eq!(font.m4_profile_fingerprint(), Some(profile_fingerprint));
+        let admission = font.cff1_admission().unwrap();
+        assert_eq!(admission.source_sha256(), font.content_hash());
+        assert_eq!(admission.source_byte_length(), bytes.len() as u64);
+        assert_eq!(admission.glyph_count(), 4);
+        assert_eq!(admission.limits_fingerprint(), limits.fingerprint());
+        assert_eq!(admission.embedding_permission().as_str(), "installable");
+
+        let closed = close_staging_declared_media(&first, &declarations).unwrap();
+        assert_eq!(
+            closed.fonts()[0].attested(),
+            AdmittedFontMediaKind::SfntCff1
+        );
+        assert_eq!(
+            closed.fonts()[0].cff1_admission().unwrap().fingerprint(),
+            admission.fingerprint()
+        );
+        assert!(closed
+            .canonical_jcs()
+            .contains("typaxis.sfnt-cff1-admission/1"));
+        assert!(closed
+            .canonical_jcs()
+            .contains("\"embedding_permission\":\"installable\""));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn otf_cff_media_hash_and_private_limit_receipts_fail_closed() {
+        let bytes = cff_fixture();
+        let declaration = |media, expected_sha256| StagingM4ResourceCatalog {
+            font_faces: vec![typaxis_document::StagingM4FontFaceDeclaration {
+                font_face_id: FontFaceId::new(0),
+                family: "Typaxis CFF Fixture".to_owned(),
+                uri: PortablePath::new("fixture.otf").unwrap(),
+                face_index: 0,
+                expected_sha256,
+                media: FontMediaDeclaration::Declared(media),
+            }],
+            images: vec![],
+        };
+        let tree = TempTree::new("otf-cff-fail-closed");
+        fs::write(tree.path().join("fixture.otf"), &bytes).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        let limits = M4EffectiveResourceLimits::defaults_for(config.limits());
+
+        let wrong_media = declaration(FontMediaType::SfntTrueTypeGlyf, Some(sha256(&bytes)));
+        let catalog = staging_declared_base_catalog(&wrong_media).unwrap();
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &limits,
+            sha256(b"typaxis.test-cff-profile/1"),
+            host.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            resolver.parse_and_bind_declared_sfnt(pending),
+            Err(ResourceAdmissionError::DeclaredMediaMismatch)
+        );
+
+        let wrong_hash = declaration(FontMediaType::SfntCff1, Some([0; 32]));
+        let catalog = staging_declared_base_catalog(&wrong_hash).unwrap();
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &catalog,
+            &limits,
+            sha256(b"typaxis.test-cff-profile/1"),
+            host.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            resolver.parse_and_bind_declared_sfnt(pending),
+            Err(ResourceAdmissionError::ExpectedHashMismatch)
+        );
+
+        let valid = declaration(FontMediaType::SfntCff1, Some(sha256(&bytes)));
+        let catalog = staging_declared_base_catalog(&valid).unwrap();
+        let host =
+            HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                .unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots(
+            &catalog,
+            config.limits(),
+            host.roots(),
+        )
+        .unwrap();
+        let pending = resolver
+            .read_font(host.open_font(FontFaceId::new(0)).unwrap())
+            .unwrap();
+        assert_eq!(
+            resolver.parse_and_bind_declared_sfnt(pending),
+            Err(ResourceAdmissionError::ReceiptIdentityMismatch)
+        );
     }
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]

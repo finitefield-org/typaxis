@@ -18,7 +18,8 @@ use typaxis_display_list::{
 use typaxis_resource_admission::{AdmittedImageMediaKind, AdmittedResourceLedger};
 use typaxis_resources::{
     finalize_staging_pdf_text_fonts, FrozenPdfFontPlan, FrozenStagingPdfTextFontPlan,
-    StagingPdfTextClusterUsage, StagingSafeVectorFormPlansV2, VectorContentCandidateRegistry,
+    PdfFontProgramKind, StagingPdfTextClusterUsage, StagingSafeVectorFormPlansV2,
+    VectorContentCandidateRegistry,
 };
 use typaxis_shaping::{
     ShapeSourceSpan, ShapedCluster, StagingEquationNumberGlyphRun,
@@ -311,7 +312,7 @@ struct TaggedFontObjectPlanV2 {
     descriptor: u32,
     font_program: u32,
     to_unicode: u32,
-    cid_to_gid: u32,
+    auxiliary: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -414,7 +415,7 @@ impl TaggedObjectPlanV2 {
                 descriptor: take_object(&mut next)?,
                 font_program: take_object(&mut next)?,
                 to_unicode: take_object(&mut next)?,
-                cid_to_gid: take_object(&mut next)?,
+                auxiliary: take_object(&mut next)?,
             });
         }
         let annotation_start = next;
@@ -1154,33 +1155,66 @@ fn emit_equation_font_v2(
         .into_bytes(),
     )?;
 
-    let mut widths = String::from("[");
-    for binding in &font.subset_plan().cids {
-        widths.push_str(&format!("{} [{}] ", binding.cid.get(), binding.width_1000));
-    }
-    widths.push(']');
+    let widths = match font.program_kind() {
+        PdfFontProgramKind::TrueTypeGlyf => {
+            let mut widths = String::from("[");
+            for binding in &font.subset_plan().cids {
+                widths.push_str(&format!("{} [{}] ", binding.cid.get(), binding.width_1000));
+            }
+            widths.push(']');
+            widths
+        }
+        PdfFontProgramKind::OpenTypeCff1 => {
+            let cff = font
+                .cff1_plan()
+                .ok_or(TaggedPdfV2Error::EquationNumberMismatch)?;
+            let values = cff
+                .dense_widths_1000()
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("[0 [{values}]]")
+        }
+    };
+    let cid_subtype = match font.program_kind() {
+        PdfFontProgramKind::TrueTypeGlyf => "CIDFontType2",
+        PdfFontProgramKind::OpenTypeCff1 => "CIDFontType0",
+    };
+    let cid_mapping = match font.program_kind() {
+        PdfFontProgramKind::TrueTypeGlyf => {
+            format!(" /CIDToGIDMap {} 0 R", plan.auxiliary)
+        }
+        PdfFontProgramKind::OpenTypeCff1 => String::new(),
+    };
     objects.insert(
         plan.cid_font,
         format!("equation_font_cid:{index}"),
         format!(
-            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{base_font} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {} 0 R /DW 1000 /W {widths} /CIDToGIDMap {} 0 R >>",
-            plan.descriptor, plan.cid_to_gid
+            "<< /Type /Font /Subtype /{cid_subtype} /BaseFont /{base_font} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {} 0 R /DW 1000 /W {widths}{cid_mapping} >>",
+            plan.descriptor
         )
         .into_bytes(),
     )?;
 
     let metrics = font.metrics();
+    let (font_file_key, cid_set_entry) = match font.program_kind() {
+        PdfFontProgramKind::TrueTypeGlyf => ("FontFile2", String::new()),
+        PdfFontProgramKind::OpenTypeCff1 => {
+            ("FontFile3", format!(" /CIDSet {} 0 R", plan.auxiliary))
+        }
+    };
     objects.insert(
         plan.descriptor,
         format!("equation_font_descriptor:{index}"),
         format!(
-            "<< /Type /FontDescriptor /FontName /{base_font} /Flags {} /FontBBox [{} {} {} {}] /ItalicAngle {} /Ascent {} /Descent {} /CapHeight {} /StemV {} /FontFile2 {} 0 R >>",
+            "<< /Type /FontDescriptor /FontName /{base_font} /Flags {} /FontBBox [{} {} {} {}] /ItalicAngle {} /Ascent {} /Descent {} /CapHeight {} /StemV {} /{font_file_key} {} 0 R{cid_set_entry} >>",
             metrics.flags,
             metrics.bbox_1000[0],
             metrics.bbox_1000[1],
             metrics.bbox_1000[2],
             metrics.bbox_1000[3],
-            pdf_milli_number_v2(metrics.italic_angle_milli_degrees),
+            pdf_fixed_16_16_number_v2(metrics.italic_angle_fixed_16_16),
             metrics.ascent_1000,
             metrics.descent_1000,
             metrics.cap_height_1000,
@@ -1189,13 +1223,14 @@ fn emit_equation_font_v2(
         )
         .into_bytes(),
     )?;
+    let font_program_dictionary = match font.program_kind() {
+        PdfFontProgramKind::TrueTypeGlyf => format!("/Length1 {} ", font.subset_bytes().len()),
+        PdfFontProgramKind::OpenTypeCff1 => String::from("/Subtype /OpenType "),
+    };
     objects.insert(
         plan.font_program,
         format!("equation_font_program:{index}"),
-        stream_object_v2(
-            format!("/Length1 {} ", font.subset_bytes().len()).as_bytes(),
-            font.subset_bytes(),
-        ),
+        stream_object_v2(font_program_dictionary.as_bytes(), font.subset_bytes()),
     )?;
     let to_unicode = crate::to_unicode_cmap(font, limits.base().get().max_output_bytes)
         .map_err(map_equation_font_pdf_error_v2)?;
@@ -1204,13 +1239,26 @@ fn emit_equation_font_v2(
         format!("equation_font_to_unicode:{index}"),
         stream_object_v2(b"", &to_unicode),
     )?;
-    let cid_to_gid = crate::cid_to_gid_map(font, limits.base().get().max_output_bytes)
-        .map_err(map_equation_font_pdf_error_v2)?;
-    objects.insert(
-        plan.cid_to_gid,
-        format!("equation_font_cid_to_gid:{index}"),
-        stream_object_v2(b"", &cid_to_gid),
-    )?;
+    match font.program_kind() {
+        PdfFontProgramKind::TrueTypeGlyf => {
+            let cid_to_gid = crate::cid_to_gid_map(font, limits.base().get().max_output_bytes)
+                .map_err(map_equation_font_pdf_error_v2)?;
+            objects.insert(
+                plan.auxiliary,
+                format!("equation_font_cid_to_gid:{index}"),
+                stream_object_v2(b"", &cid_to_gid),
+            )?;
+        }
+        PdfFontProgramKind::OpenTypeCff1 => {
+            let cid_set = crate::cid_set(font, limits.base().get().max_output_bytes)
+                .map_err(map_equation_font_pdf_error_v2)?;
+            objects.insert(
+                plan.auxiliary,
+                format!("equation_font_cid_set:{index}"),
+                stream_object_v2(b"", &cid_set),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -1221,19 +1269,8 @@ fn map_equation_font_pdf_error_v2(error: crate::PdfError) -> TaggedPdfV2Error {
     }
 }
 
-fn pdf_milli_number_v2(value: i32) -> String {
-    let negative = value.is_negative();
-    let magnitude = value.unsigned_abs();
-    let whole = magnitude / 1_000;
-    let fraction = magnitude % 1_000;
-    if fraction == 0 {
-        return format!("{}{whole}", if negative { "-" } else { "" });
-    }
-    let mut digits = format!("{fraction:03}");
-    while digits.ends_with('0') {
-        digits.pop();
-    }
-    format!("{}{whole}.{digits}", if negative { "-" } else { "" })
+fn pdf_fixed_16_16_number_v2(value: i32) -> String {
+    crate::PdfDecimal::from_fixed_16_16(value).canonical()
 }
 
 fn emit_catalog_v2(

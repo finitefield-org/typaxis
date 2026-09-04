@@ -17,6 +17,7 @@ mod basic_page_breaks;
 mod basic_styles;
 mod book_navigation;
 mod capabilities;
+mod cff;
 mod descriptor;
 mod jpeg;
 mod math;
@@ -79,6 +80,11 @@ pub use book_navigation::{
     STAGING_BOOK_NAVIGATION_PROFILE_ALGORITHM_V2,
 };
 pub use capabilities::{encode_capabilities_canonical, HostCapabilityDescriptor};
+pub use cff::{
+    preflight_staging_cff_profile, StagingCffProfileDescriptor, StagingCffProfileError,
+    StagingCffProfileReceipt, STAGING_CFF_PROFILE_ALGORITHM, STAGING_CFF_PROFILE_ID,
+    STAGING_CFF_RESOURCE_PROFILE_ID,
+};
 pub use descriptor::{
     FootnoteCapability, MachineBlockKind, MachineCoarseImageFormat, MachineFontFormat,
     MachineImageFormat, MachineInlineKind, MachinePageFrame, MachinePageMasterCapability,

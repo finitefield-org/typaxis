@@ -2435,7 +2435,7 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
 
 ### MI4-12 OTF/CFF admission、glyph closure、PDF subsetを実装する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-10
 - Design inputs: docs/25 §7 font、§13.4 font embedding plan
 - Primary files:
@@ -2483,6 +2483,12 @@ M4のsemantic container、math、vector、tagged PDFは既存node、PNG、Actual
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine_otf_cff --locked`
   - `cargo test --manifest-path workspace/Cargo.toml --package typaxis-testkit forbidden_dependency_edges --locked`
   - `python3 schemas/validate.py`
+- Implementation notes (local macOS verification):
+  - private contract 1.4のfont-face Wire DTO、domain、syntax lowering、versioned Schemaへexact `sfnt-cff1`とface index 0を追加し、専用production-book component preflightをresource open前に発行するようにした。current/frozen 1.3 Schema、public capabilities、通常CLI selectorは変更せず、旧profile、bare CFF、CFF2、collection、TrueType glyfへの誤宣言をfail closedに保った。
+  - standalone `OTTO`のsfnt directory、table範囲・重複・checksum、required/optional table set、name-keyed CFF1、Top/Private DICT、charset、encoding、CharStrings、Global/Local Subrsをcheckedに検査した。Type 2 charstringはcall stackを明示管理するiterative evaluatorとし、table/glyph/subroutine/operation/outline-segment/subset-byteの6上限を作業・allocation前に照合し、同じface/source GIDの評価結果を一度だけcacheする。
+  - OS/2 `fsType`をstable-byte attestationから導出し、installable、preview-and-print、editable embeddingだけを許可した。shapingが選択したGID unionへ`.notdef`を加えてsource GID順のdense CIDへ写像し、hintとsubroutine callを除いたcanonical CID-keyed CFF1、deterministic subset PostScript名、`OTTO` table order/checksumを生成する。FontFile3 `/OpenType`、CIDFontType0、Identity-H、dense `/W`、ToUnicode、CIDSetを一つのtyped planとしてserializeし、unselected/missing/wrong-face glyphとserialized object tamperを拒否する。
+  - private CFF manifest/Schemaへdeclared/attested media、face index、source/normalized/subset hash、units、embedding permission、selected glyph closure、component ID、PDF object/stream、placement count、最終PDF hashを同じ`FontFaceId`/`FontInstanceId`で双方向closureした。fixtureは同じCFF resourceで`A`/`B`を複数回描画し、一つのembedded subsetを再利用する。二回buildのPDF/manifest byte一致、異名checkout不変性、Poppler `pdftotext`の`AB`抽出、MuPDF/Popplerのpage geometryとraster一致を検査した。
+  - `read-fonts = 0.31.3`をtypaxis-fontではdefault feature off + `std`だけでexact pinし、archive checksum、license、resolved feature/direct edge、unsafe/native review、RustSec advisory-db commitをone-line JCS dependency auditへ固定した。指定9 verification、workspace全target/all-feature locked test、doctest、strict clippy、format、Schema全fixture、Rust/Cargo 1.75でのtypaxis-font check/CFF test、feature tree、diff/whitespace reviewをlocal exit 0で確認し、`.github/workflows/`は変更していない。
 - Non-goals:
   - MI4-10で採択していないfont technology
 
@@ -2501,24 +2507,24 @@ acceptance、verificationは
 | MI4-V03 | Completed | MI4-V02 |
 | MI4-V04 | Completed | MI4-V03 |
 | MI4-V05 | Completed | MI4-V04 |
-| MI4-V06 | Pending | MI4-V03 |
-| MI4-V07 | Pending | MI4-V06 |
-| MI4-V08 | Pending | MI4-V04, MI4-V05, MI4-V06, MI4-V07 |
-| MI4-V09 | Pending | MI4-V08 |
-| MI4-V10 | Pending | MI4-V08 |
-| MI4-V11 | Pending | MI4-V10 |
-| MI4-V12 | Pending | MI4-V07, MI4-V09, MI4-V11 |
-| MI4-V13 | Pending | MI4-V07, MI4-V12 |
-| MI4-V14 | Pending | MI4-V04, MI4-V09, MI4-V11 |
-| MI4-V15 | Pending | MI4-V12, MI4-V14, MI4-09 |
-| MI4-V16 | Pending | MI4-V13, MI4-V15 |
-| MI4-V17 | Pending | MI4-V07, MI4-V13, MI4-V14, MI4-V16 |
-| MI4-V18 | Pending | MI4-V17 |
+| MI4-V06 | Completed | MI4-V03 |
+| MI4-V07 | Completed | MI4-V06 |
+| MI4-V08 | Completed | MI4-V04, MI4-V05, MI4-V06, MI4-V07 |
+| MI4-V09 | Completed | MI4-V08 |
+| MI4-V10 | Completed | MI4-V08 |
+| MI4-V11 | Completed | MI4-V10 |
+| MI4-V12 | Completed | MI4-V07, MI4-V09, MI4-V11 |
+| MI4-V13 | Completed | MI4-V07, MI4-V12 |
+| MI4-V14 | Completed | MI4-V04, MI4-V09, MI4-V11 |
+| MI4-V15 | Completed | MI4-V12, MI4-V14, MI4-09 |
+| MI4-V16 | Completed | MI4-V13, MI4-V15 |
+| MI4-V17 | Completed | MI4-V07, MI4-V13, MI4-V14, MI4-V16 |
+| MI4-V18 | Completed | MI4-V17 |
 | MI4-V19 | Pending | MI4-V18, MI4-11, MI4-12 |
 
 `MI4-V19 -> MI4-13`はpublication dependencyである。MI4-V01/V02のCompletedは
-それぞれcorpus interfaceとdecision gateだけを意味し、product/public supportを
-意味しない。
+それぞれcorpus interfaceとdecision gate、MI4-V03〜V18はprivate product実装を
+意味し、いずれもpublic supportを意味しない。
 
 ### MI4-13 M4 contract migrationとproduction-book profileを原子的に公開する
 

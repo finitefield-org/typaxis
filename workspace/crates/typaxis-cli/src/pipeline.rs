@@ -4380,6 +4380,7 @@ fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Fail
         | Error::InvalidSafeVector
         | Error::InvalidSafeVectorV2(_)
         | Error::InvalidJpeg(_)
+        | Error::InvalidCff1(_)
         | Error::DeclaredMediaMismatch
         | Error::SvgSafe2Staging
         | Error::InvalidFontFamily
@@ -7439,6 +7440,466 @@ pub(crate) mod tests {
                 u8::try_from((high << 4) | low).unwrap()
             })
             .collect()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    struct StagingMachineCffRun {
+        _root: MachineFixtureRoot,
+        limits: typaxis_core::M4EffectiveResourceLimits,
+        package: typaxis_syntax::ValidatedStagingSemanticPackage,
+        profile: typaxis_machine_profile::StagingCffProfileReceipt,
+        admitted: typaxis_resources::AdmittedResourceLedger,
+        media: typaxis_resources::StagingDeclaredMediaLedger,
+        plans: typaxis_resources::FrozenPdfResourcePlans,
+        observation: typaxis_pdf::StagingCff1PdfObservation,
+        pdf: typaxis_pdf::VerifiedPdfBytesReceipt,
+        manifest: typaxis_manifest::StagingCff1Manifest,
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn materialize_staging_cff_fixture(label: &str) -> MachineFixtureRoot {
+        let root = MachineFixtureRoot::new(label);
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/machine-package/staging/production-book-1/cff-media");
+        fs::write(
+            root.path().join("document-package.json"),
+            fs::read(fixture.join("job/document-package.json")).unwrap(),
+        )
+        .unwrap();
+        fs::write(root.path().join("input.tsf"), b"AB\n").unwrap();
+        fs::write(
+            root.path().join("typaxis-cff-fixture.otf"),
+            decode_fixture_hex(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../samples/machine-package/staging/production-book-1/cff-media/typaxis-cff-fixture.otf.hex"
+            ))),
+        )
+        .unwrap();
+        root
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn cff_shadow_machine_wire(font_sha256: [u8; 32]) -> wire::WireDocumentPackage {
+        let text = "AB";
+        let mut package = machine_wire(MachineFixtureKind::Blank);
+        package.sources[0].uri = "shadow-input.tsf".to_owned();
+        package.resources.font_faces = vec![wire::WireFontFace {
+            font_face_id: 0,
+            family: "Typaxis CFF Fixture".to_owned(),
+            uri: "typaxis-cff-fixture.otf".to_owned(),
+            face_index: 0,
+            expected_sha256: Some(font_sha256),
+        }];
+        package.text_buffers = vec![machine_text_buffer(text)];
+        package.document.blocks = vec![machine_paragraph(1, vec![machine_text_inline(text, 2)])];
+        let mut style = machine_style("paragraph");
+        let wire::WireStyleValue::FontFamilyList { families } = &mut style.declarations[0].value
+        else {
+            panic!("machine style fixture lost its font-family declaration")
+        };
+        *families = vec!["Typaxis CFF Fixture".to_owned()];
+        package.style_sheet.rules = vec![style];
+        package.page_masters.masters[0].body = wire::WireRect {
+            x: 1_310_720,
+            y: 1_310_720,
+            width: 7_378_560,
+            height: 7_378_560,
+        };
+        package
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn run_staging_machine_cff(label: &str) -> StagingMachineCffRun {
+        use typaxis_core::{M4EffectiveResourceLimits, M4ResourceLimits};
+        use typaxis_machine_profile::preflight_staging_cff_profile;
+        use typaxis_resources::{close_staging_declared_media, staging_declared_base_catalog};
+
+        let root = materialize_staging_cff_fixture(label);
+        let package_path = root.path().join("document-package.json");
+        let bytes = fs::read(&package_path).unwrap();
+        let config = EffectiveConfig::new(
+            false,
+            PdfStreamCompression::None,
+            vec![ConfigResourceRoot::ProjectRoot],
+            ["http", "https", "mailto", "tel"]
+                .map(str::to_owned)
+                .to_vec(),
+            EffectiveDataVersions::new("16.0.0", "typaxis-jlreq-horizontal/1.0.0").unwrap(),
+            ResourceLimits::default(),
+        )
+        .unwrap();
+        let limits =
+            M4EffectiveResourceLimits::new(config.limits().clone(), M4ResourceLimits::default())
+                .unwrap();
+        let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                &bytes,
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let package = typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse(decoded, config.limits())
+            .unwrap();
+
+        // Profile authorization is sealed before any host path can be opened.
+        let profile = preflight_staging_cff_profile(&package, &limits).unwrap();
+        let base = staging_declared_base_catalog(package.resources()).unwrap();
+        let admission = HostAdmissionContext::new(
+            HostPath::new(package_path).unwrap(),
+            HostPath::new(root.path().to_path_buf()).unwrap(),
+            None,
+            Vec::new(),
+        );
+        let session = HostResourceAdmissionSession::new(&admission, &config, &base).unwrap();
+        let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+            &base,
+            &limits,
+            profile.authorization().profile_fingerprint(),
+            session.roots(),
+        )
+        .unwrap();
+        for declaration in &package.resources().font_faces {
+            let pending = resolver
+                .read_font(session.open_font(declaration.font_face_id).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_sfnt(pending).unwrap();
+        }
+        let admitted = resolver.finish().unwrap();
+        let media = close_staging_declared_media(&admitted, package.resources()).unwrap();
+
+        // The private 1.4 container owns profile/media admission. Its admitted
+        // CFF ledger then enters the ordinary paragraph/display/PDF pipeline;
+        // no staging-only synthetic font plan is manufactured here.
+        let font_sha256 = admitted
+            .font(typaxis_core::FontFaceId::new(0))
+            .unwrap()
+            .content_hash();
+        let shadow_path = root.path().join("shadow-document-package.json");
+        let shadow_bytes = wire::DocumentPackageEncoder::default()
+            .to_jcs_vec(&cff_shadow_machine_wire(font_sha256))
+            .unwrap();
+        fs::write(&shadow_path, shadow_bytes).unwrap();
+        fs::write(root.path().join("shadow-input.tsf"), []).unwrap();
+        let options = MachineInputHostOptions::new(HostPath::new(shadow_path).unwrap(), None);
+        let (input_session, raw) = HostMachineInputSession::open(options, config.limits()).unwrap();
+        let decoded = input_session
+            .decode_and_bind(
+                &raw,
+                &wire::StrictDocumentPackageDecoder::new(),
+                &wire::DocumentPackageDecodePolicy::new(config.limits()),
+            )
+            .unwrap();
+        let sources = input_session
+            .admit_sources(&decoded, config.limits())
+            .unwrap();
+        let input = input_session.finish(raw, decoded, sources).unwrap();
+        let policy =
+            PackageValidationPolicy::new(config.limits(), config.allowed_uri_schemes()).unwrap();
+        let shadow = match DocumentPackageParser::new().parse(input, &policy) {
+            MachineParseOutcome::Parsed { package } => package,
+            MachineParseOutcome::Failed { failure, .. } => panic!("CFF shadow failed: {failure}"),
+        };
+        let shadow = shadow.package();
+        let generated_store = shadow
+            .materialize_initial_generated_text(config.limits())
+            .unwrap();
+        let generated = shadow
+            .bind_generated_text(&generated_store, config.limits())
+            .unwrap();
+        let epoch = LayoutEpoch::from_validated_inputs(generated, admitted.token()).unwrap();
+        let flow = build_reference_flow(shadow, generated, &admitted, epoch, &config).unwrap();
+        let pagination = ReferencePaginator::new()
+            .paginate_with_reflow(
+                shadow,
+                &flow,
+                config.limits(),
+                false,
+                |store, working_epoch| {
+                    let binding = shadow
+                        .bind_generated_text(store, config.limits())
+                        .map_err(|_| PaginationError::PackageEpochMismatch)?;
+                    build_reference_flow(shadow, binding, &admitted, working_epoch, &config)
+                        .map_err(|_| PaginationError::FatalLayout)
+                },
+            )
+            .unwrap()
+            .into_result();
+        let display = ValidatedDisplayDocument::paint_reference_paragraphs(
+            shadow,
+            &pagination,
+            pagination.selected_flow(),
+            &config,
+        )
+        .unwrap();
+        let plans = ReferenceResourceFinalizer::new()
+            .finalize(ResourceFinalizationInput {
+                display: &display,
+                admitted: &admitted,
+                limits: config.limits(),
+            })
+            .unwrap();
+        let graph = PdfBackend::build(display, plans.clone(), config.limits()).unwrap();
+        let observation = typaxis_pdf::observe_staging_cff1_pdf(&graph).unwrap();
+        let pdf = PdfBackend::serialize(graph, &config).unwrap();
+        let manifest = typaxis_manifest::build_staging_cff1_manifest(
+            &package,
+            &profile,
+            &limits,
+            &admitted,
+            &media,
+            &plans,
+            &observation,
+            &pdf,
+        )
+        .unwrap();
+        StagingMachineCffRun {
+            _root: root,
+            limits,
+            package,
+            profile,
+            admitted,
+            media,
+            plans,
+            observation,
+            pdf,
+            manifest,
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn cff_renderer_tools_available() -> bool {
+        ["mutool", "pdftoppm", "pdfinfo", "pdftotext"]
+            .iter()
+            .all(|tool| {
+                std::process::Command::new(tool)
+                    .arg("-v")
+                    .output()
+                    .is_ok_and(|output| output.status.success())
+            })
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn render_cff_pdf(renderer: &str, pdf: &Path, output: &Path) -> Vec<u8> {
+        fs::create_dir_all(output).unwrap();
+        let output_prefix = output.join("page");
+        let mut command = match renderer {
+            "mutool" => {
+                let mut command = std::process::Command::new("mutool");
+                command
+                    .args(["draw", "-q", "-F", "ppm", "-r", "72", "-o"])
+                    .arg(output.join("page.ppm"))
+                    .arg(pdf);
+                command
+            }
+            "pdftoppm" => {
+                let mut command = std::process::Command::new("pdftoppm");
+                command
+                    .args(["-r", "72", "-f", "1", "-l", "1", "-singlefile"])
+                    .arg(pdf)
+                    .arg(&output_prefix);
+                command
+            }
+            _ => panic!("unsupported CFF fixture renderer"),
+        };
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{renderer} failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        fs::read(output.join("page.ppm")).unwrap()
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    fn verify_machine_cff_renderer_and_extractor_differential(
+        first: &StagingMachineCffRun,
+        second: &StagingMachineCffRun,
+    ) {
+        if !cff_renderer_tools_available() {
+            return;
+        }
+        let root = first._root.path().join("renderer-differential");
+        fs::create_dir_all(&root).unwrap();
+        let mut rendered = Vec::new();
+        let mut extracted = Vec::new();
+        for (run_name, run) in [("first", first), ("second", second)] {
+            let pdf = root.join(format!("{run_name}.pdf"));
+            fs::write(&pdf, run.pdf.bytes()).unwrap();
+
+            let info = std::process::Command::new("pdfinfo")
+                .arg(&pdf)
+                .output()
+                .unwrap();
+            assert!(
+                info.status.success(),
+                "pdfinfo failed: {}",
+                String::from_utf8_lossy(&info.stderr)
+            );
+            let info = String::from_utf8(info.stdout).unwrap();
+            assert_eq!(
+                info.lines()
+                    .find_map(|line| line.strip_prefix("Pages:"))
+                    .map(str::trim)
+                    .and_then(|value| value.parse::<u32>().ok()),
+                Some(1)
+            );
+
+            let text_path = root.join(format!("{run_name}.txt"));
+            let text = std::process::Command::new("pdftotext")
+                .args(["-enc", "UTF-8", "-nopgbrk"])
+                .arg(&pdf)
+                .arg(&text_path)
+                .output()
+                .unwrap();
+            assert!(
+                text.status.success(),
+                "pdftotext failed: {}",
+                String::from_utf8_lossy(&text.stderr)
+            );
+            let text = fs::read_to_string(text_path).unwrap();
+            assert_eq!(
+                text.chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect::<String>(),
+                "AB"
+            );
+            extracted.push(text);
+
+            for renderer in ["mutool", "pdftoppm"] {
+                let page =
+                    render_cff_pdf(renderer, &pdf, &root.join(format!("{renderer}-{run_name}")));
+                rendered.push((run_name, renderer, page));
+            }
+        }
+
+        let mut bounds = Vec::new();
+        for (_, _, page) in &rendered {
+            let (width, height, pixels) = ppm_raster(page);
+            assert!(width > 0 && height > 0);
+            let nonwhite = jpeg_nonwhite_bounds(pixels, width, height);
+            assert!(nonwhite.0 < nonwhite.2 && nonwhite.1 < nonwhite.3);
+            bounds.push((
+                width,
+                height,
+                [nonwhite.0, nonwhite.1, nonwhite.2, nonwhite.3],
+            ));
+        }
+        assert_eq!(rendered[0].2, rendered[2].2);
+        assert_eq!(rendered[1].2, rendered[3].2);
+        assert_eq!(extracted[0], extracted[1]);
+        assert_eq!((bounds[0].0, bounds[0].1), (bounds[1].0, bounds[1].1));
+        for coordinate in 0..4 {
+            assert!(bounds[0].2[coordinate].abs_diff(bounds[1].2[coordinate]) <= 2);
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn machine_otf_cff_closes_admission_subset_pdf_text_and_manifest() {
+        let first = run_staging_machine_cff("cff-checkout-a");
+        let second = run_staging_machine_cff("cff-checkout-b");
+        assert_ne!(first._root.path(), second._root.path());
+        assert_eq!(first.plans, second.plans);
+        assert_eq!(first.observation, second.observation);
+        assert_eq!(first.pdf.bytes(), second.pdf.bytes());
+        assert_eq!(first.manifest, second.manifest);
+        verify_machine_cff_renderer_and_extractor_differential(&first, &second);
+
+        assert_eq!(first.plans.fonts().len(), 1);
+        assert!(first.plans.images().is_empty());
+        let plan = &first.plans.fonts()[0];
+        assert_eq!(
+            plan.program_kind(),
+            typaxis_resources::PdfFontProgramKind::OpenTypeCff1
+        );
+        let cff = plan.cff1_plan().unwrap();
+        assert_eq!(
+            cff.selected_source_gids()
+                .iter()
+                .map(|gid| gid.get())
+                .collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            plan.subset_plan()
+                .cids
+                .iter()
+                .map(|binding| {
+                    (
+                        binding.cid.get(),
+                        binding
+                            .unicode
+                            .iter()
+                            .map(|scalar| scalar.get())
+                            .collect::<String>(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            [(1, "A".to_owned()), (2, "B".to_owned())]
+        );
+
+        let observed = &first.observation.fonts()[0];
+        assert_eq!(observed.font_instance_id(), FontInstanceId::new(0));
+        assert_eq!(observed.cid_count(), 3);
+        assert!(observed
+            .object_numbers()
+            .windows(2)
+            .all(|pair| pair[0] + 1 == pair[1]));
+        let pdf = first.pdf.bytes();
+        for marker in [
+            b"/Subtype /CIDFontType0".as_slice(),
+            b"/Subtype /OpenType".as_slice(),
+            b"/FontFile3".as_slice(),
+            b"/CIDSet".as_slice(),
+            b"/Encoding /Identity-H".as_slice(),
+            b"<0001> <0041>".as_slice(),
+            b"<0002> <0042>".as_slice(),
+        ] {
+            assert!(pdf.windows(marker.len()).any(|window| window == marker));
+        }
+        for forbidden in [b"/FontFile2".as_slice(), b"/CIDToGIDMap".as_slice()] {
+            assert!(!pdf
+                .windows(forbidden.len())
+                .any(|window| window == forbidden));
+        }
+
+        assert_eq!(first.manifest.resources().len(), 1);
+        let resource = &first.manifest.resources()[0];
+        assert_eq!(resource.declared_media_type(), "sfnt-cff1");
+        assert_eq!(resource.attested_media_kind(), "sfnt-cff1");
+        assert_eq!(resource.embedding_permission(), "installable");
+        assert_eq!(resource.instances().len(), 1);
+        assert_eq!(resource.instances()[0].selected_source_gids(), [0, 1, 2]);
+        first
+            .manifest
+            .verify(
+                &first.package,
+                &first.profile,
+                &first.limits,
+                &first.admitted,
+                &first.media,
+                &first.plans,
+                &first.observation,
+                &first.pdf,
+            )
+            .unwrap();
+
+        let exported = crate::artifacts::staging_m4_document_package_from_attested_media(
+            &first.package,
+            &first.media,
+        )
+        .unwrap();
+        assert!(exported.contains("\"media_type\":\"sfnt-cff1\""));
+        assert!(wire::StrictDocumentPackageDecoder::new()
+            .decode(
+                exported.as_bytes(),
+                &wire::DocumentPackageDecodePolicy::new(first.limits.base())
+            )
+            .is_err());
+        assert_eq!(
+            DocumentPackageContractId::CURRENT.as_str(),
+            "typaxis.contract/1.3"
+        );
     }
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]

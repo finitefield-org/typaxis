@@ -2181,7 +2181,7 @@ mod tests {
     }
 
     #[test]
-    fn forbidden_dependency_edges_pin_jpeg_decoder_supply_chain() {
+    fn forbidden_dependency_edges_pin_jpeg_and_cff_supply_chain() {
         let root = workspace_root();
         let admission_manifest = root.join("crates/typaxis-resource-admission/Cargo.toml");
         let declarations = workspace_dependency_declarations(&admission_manifest);
@@ -2218,12 +2218,56 @@ mod tests {
         direct_requesters.sort();
         assert_eq!(direct_requesters, ["typaxis-resource-admission"]);
 
+        let mut read_fonts_declarations = Vec::new();
+        for entry in
+            fs::read_dir(root.join("crates")).expect("workspace crates directory must be readable")
+        {
+            let entry = entry.expect("crate directory entry must be readable");
+            if !entry
+                .file_type()
+                .expect("file type must be readable")
+                .is_dir()
+            {
+                continue;
+            }
+            let crate_name = entry.file_name().to_string_lossy().into_owned();
+            let manifest = entry.path().join("Cargo.toml");
+            for (name, declaration) in workspace_dependency_declarations(&manifest) {
+                if declared_package_name(name, &declaration) != "read-fonts" {
+                    continue;
+                }
+                let compact = declaration
+                    .chars()
+                    .filter(|character| !character.is_ascii_whitespace())
+                    .collect();
+                read_fonts_declarations.push((crate_name.clone(), compact));
+            }
+        }
+        read_fonts_declarations.sort();
+        assert_eq!(
+            read_fonts_declarations,
+            [
+                (
+                    "typaxis-font".to_owned(),
+                    "{version=\"=0.31.3\",default-features=false,features=[\"std\"]}".to_owned(),
+                ),
+                ("typaxis-resources".to_owned(), "\"=0.31.3\"".to_owned()),
+                ("typaxis-shaping".to_owned(), "\"=0.31.3\"".to_owned()),
+            ]
+        );
+
         let lock = fs::read_to_string(root.join("Cargo.lock"))
             .expect("workspace lockfile must be readable");
-        let jpeg_entry = lock
+        let jpeg_entries: Vec<_> = lock
             .split("[[package]]")
-            .find(|entry| entry.lines().any(|line| line == "name = \"jpeg-decoder\""))
-            .expect("jpeg-decoder must be locked");
+            .filter(|entry| entry.lines().any(|line| line == "name = \"jpeg-decoder\""))
+            .collect();
+        assert_eq!(
+            jpeg_entries.len(),
+            1,
+            "exactly one jpeg-decoder version may be locked"
+        );
+        let jpeg_entry = jpeg_entries[0];
         for required in [
             "version = \"0.3.2\"",
             "source = \"registry+https://github.com/rust-lang/crates.io-index\"",
@@ -2238,6 +2282,27 @@ mod tests {
             !jpeg_entry.contains("dependencies = [") && !jpeg_entry.contains("\"rayon\""),
             "the locked JPEG decoder graph must not enable rayon"
         );
+
+        let read_fonts_entries: Vec<_> = lock
+            .split("[[package]]")
+            .filter(|entry| entry.lines().any(|line| line == "name = \"read-fonts\""))
+            .collect();
+        assert_eq!(
+            read_fonts_entries.len(),
+            1,
+            "exactly one read-fonts version may be locked"
+        );
+        let read_fonts_entry = read_fonts_entries[0];
+        for required in [
+            "version = \"0.31.3\"",
+            "source = \"registry+https://github.com/rust-lang/crates.io-index\"",
+            "checksum = \"5b8250b8f09ed4b9ba9271e06f10e7b1f03e8f8e3619e2368a991ecb25efa204\"",
+        ] {
+            assert!(
+                read_fonts_entry.lines().any(|line| line == required),
+                "read-fonts lock entry is missing {required}"
+            );
+        }
 
         let source = fs::read_to_string(root.join("crates/typaxis-resource-admission/src/jpeg.rs"))
             .expect("JPEG admission source must be readable");
@@ -2257,13 +2322,31 @@ mod tests {
             );
         }
 
+        let cff_source = fs::read_to_string(root.join("crates/typaxis-font/src/cff.rs"))
+            .expect("CFF1 admission source must be readable");
+        for forbidden_api in [
+            "std::fs",
+            "std::net",
+            "std::process",
+            "Command::",
+            "TcpStream",
+            "UdpSocket",
+            "libloading",
+            "extern \"C\"",
+        ] {
+            assert!(
+                !cff_source.contains(forbidden_api),
+                "CFF1 admission uses forbidden host API: {forbidden_api}"
+            );
+        }
+
         let audit = fs::read_to_string(root.join("dependency-audit.json"))
             .expect("dependency audit must be checked in");
         assert_eq!(audit.lines().count(), 1, "dependency audit must be JCS");
         assert!(audit.ends_with('\n'));
         assert_eq!(
             sha256_hex(audit.as_bytes()),
-            "b042be36da9f3e8508a02743d466ff41d40fd2165905c8741c75710120d8af9c"
+            "988deca1f8c8053037b2a1113470c80618c1aaa256b53350e289a6618d2c1032"
         );
         assert!(audit.starts_with(concat!(
             "{\"advisory_database\":{\"commit\":",
@@ -2284,7 +2367,7 @@ mod tests {
         let read_fonts_record = concat!(
             "{\"advisory_ids\":[],",
             "\"archive_sha256\":\"5b8250b8f09ed4b9ba9271e06f10e7b1f03e8f8e3619e2368a991ecb25efa204\",",
-            "\"direct_edges\":[\"typaxis-resources:development\",\"typaxis-shaping:normal\"],",
+            "\"direct_edges\":[\"typaxis-font:normal\",\"typaxis-resources:development\",\"typaxis-shaping:normal\"],",
             "\"license\":\"MIT OR Apache-2.0\",\"msrv\":\"1.75\",",
             "\"name\":\"read-fonts\",",
             "\"resolved_features\":[\"default\",\"libm\",\"std\"],",

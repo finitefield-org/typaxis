@@ -1214,6 +1214,13 @@ fn validate_math_table(table: &[u8], glyph_count: u16) -> Result<MathTableInfo, 
     })
 }
 
+/// CFF admission shares the complete MATH-table parser without requiring a
+/// TrueType `glyf`/`loca` face. All glyph references remain bounded by the
+/// caller's already cross-checked CFF `maxp.numGlyphs`.
+pub(crate) fn validate_cff_math_table(table: &[u8], glyph_count: u16) -> Result<(), MathFontError> {
+    validate_math_table(table, glyph_count).map(|_| ())
+}
+
 fn validate_math_glyph_info(
     table: &[u8],
     glyph_info: usize,

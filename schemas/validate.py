@@ -8634,6 +8634,12 @@ def main() -> int:
         m4_config = load_instance(MINIMAL_DIR / "typaxis.toml")
         m4_config["contract"] = "typaxis.contract/1.4"
         m4_limit_defaults = {
+            "max_cff_charstring_operations": 10_000_000,
+            "max_cff_outline_segments": 5_000_000,
+            "max_cff_subroutines": 100_000,
+            "max_font_glyphs": 65_535,
+            "max_font_subset_bytes": 134_217_728,
+            "max_font_tables": 64,
             "max_vector_nodes": 100_000,
             "max_vector_path_segments": 1_000_000,
             "max_vector_nesting_depth": 32,
@@ -8653,6 +8659,12 @@ def main() -> int:
         ):
             raise ValidationFailure("versioned 1.3 package config accepted private M4 limits")
         for limit_name, maximum in (
+            ("max_cff_charstring_operations", 100_000_000),
+            ("max_cff_outline_segments", 50_000_000),
+            ("max_cff_subroutines", 131_070),
+            ("max_font_glyphs", 65_535),
+            ("max_font_subset_bytes", 536_870_912),
+            ("max_font_tables", 256),
             ("max_vector_nodes", 1_000_000),
             ("max_vector_path_segments", 10_000_000),
             ("max_vector_nesting_depth", 64),

@@ -9,4 +9,5 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+read-fonts = { version = "=0.31.3", default-features = false, features = ["std"] }
 typaxis-core = { path = "../typaxis-core" }

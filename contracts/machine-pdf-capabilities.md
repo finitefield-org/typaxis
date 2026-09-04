@@ -13,7 +13,7 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes through ADR-0037: base/declared media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Existing private slices through MI4-09 plus MI4-V01 corpus; producer-vector product work remains MI4-V03〜V18 and JPEG/CFF remains MI4-11/12 | No; public profile ID is rejected | No; MI4-V19 then MI4-13 gate |
+| `production-book-1` | Yes through ADR-0037: base/declared media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Private implementation is complete through MI4-12 and MI4-V18; MI4-V19 external combined evidence remains | No; public profile ID is rejected | No; MI4-V19 then MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
