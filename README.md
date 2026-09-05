@@ -60,6 +60,7 @@ Typaxis は、再現可能な PDF を生成する Rust 製組版エンジンで�
 - [Implementation checklist](docs/23-implementation-checklist.md)
 - [Machine input PDF統合の不足機能・文書改善計画](docs/25-machine-input-pdf-improvements.md)
 - [VMB向け組版済み数式ベクター配置の実装設計](docs/27-vmb-precomposed-math-vector.md)
+- [VMB全巻PDFの互換性・リソース予算・診断改善設計（提案）](docs/28-vmb-book-production-compatibility.md)
 
 ## 規範資料
 
