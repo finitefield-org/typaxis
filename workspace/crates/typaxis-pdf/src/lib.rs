@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 
 mod production_body_pages;
+mod production_body_objects;
+pub use production_body_objects::{build_production_body_objects, ProductionBodyObjectContribution,
+    ProductionBodyObject, ProductionBodyObjectChunk, ProductionBodyObjectRole,
+    ProductionBodyFontObjectPart, ProductionBodyObjectError};
 mod production_body_marked;
 pub use production_body_marked::{build_production_body_marked_content, ProductionBodyMarkedContent,
     ProductionBodyMarkedError, ProductionBodyMarkedPage};

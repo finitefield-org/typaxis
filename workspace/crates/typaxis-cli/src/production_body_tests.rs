@@ -1122,6 +1122,17 @@ fn production_body_page_content_places_5000_real_svg_aliases_with_one_shared_for
             assert_eq!(bytes.matches(" BDC\n").count(), bytes.matches("EMC\n").count());
         }
         assert_eq!(observed, 5000);
+        let objects = typaxis_pdf::build_production_body_objects(&marked, admitted, limits).unwrap();
+        use typaxis_pdf::ProductionBodyObjectRole as R;
+        assert_eq!(objects.objects().iter().filter(|o| matches!(o.role(), R::Vector(_))).count(), content.vectors().relative_objects().len());
+        assert_eq!(objects.objects().iter().filter(|o| matches!(o.role(), R::StructureNode(_))).count(), structure.registry().nodes().len());
+        assert!(!objects.objects().iter().any(|o| matches!(o.role(), R::Font { .. })));
+        let parent = objects.objects().iter().find(|o| o.role() == R::ParentTree).unwrap();
+        assert_eq!(production_object_references(parent).len(), 5000);
+        for (reference, group) in production_object_references(parent).into_iter().zip(structure.groups()) {
+            assert_eq!(reference, R::StructureNode(group.node()));
+        }
+        assert_eq!(objects.objects().iter().filter(|o| matches!(o.role(), R::PageContent(_))).count(), content.pages().len());
         assert_eq!(content.vectors().forms().len(), 1);
         assert_eq!(content.vectors().usages().len(), 5000);
         let plan = &content.plans().forms().plans()[0];

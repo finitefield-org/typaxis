@@ -1079,3 +1079,5 @@ fn production_authored_text_charges_output_across_paragraphs() {
 }
 
 include!("production_body_tests.rs");
+
+include!("production_object_tests.rs");

@@ -25,6 +25,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
 | Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
 | Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
+| Selected production PDF object contributions | Frozen body fonts, shared Forms, per-page resources and symbolic structure/MCR/ParentTree objects verified below, including 5,000 aliases; final page/catalog/navigation merge and serialization pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -1091,3 +1092,82 @@ the selected page, and the caption container has no invented paint/MCID.
 **4 passed**, including the three earlier focused cases and this added caption
 case. Log: `/private/tmp/typaxis-production-structure-focused.log`.
 All test processes for this checkpoint reached exit status 0; no wait remains.
+
+## Selected production PDF object contributions (2026-09-06)
+
+`typaxis-pdf/src/production_body_objects.rs` now creates typed object
+contributions from the exact borrowed marked body content. Indirect references
+are `ProductionBodyObjectChunk::Reference(ProductionBodyObjectRole)` values,
+separate from opaque byte chunks. The eventual final graph merger must resolve
+these references, rather than search/replace number-like strings in binary font
+programs or content streams. No absolute PDF object number, xref, catalog or
+successful publication receipt is issued at this stage.
+
+The contribution includes six objects per frozen body font (Type0, CIDFont,
+descriptor, subset program, ToUnicode and CIDToGIDMap/CIDSet), selected SVG
+Forms/ExtGStates, each page's marked content and its actual font/XObject resource
+dictionary, StructTreeRoot, ParentTree, optional IDTree and source StructElems.
+It uses the frozen TrueType/TTC/CFF body font plans, not a native-math font.
+Page resources reference only fonts and Forms actually used on that page.
+StructElem /K contains the selected MCRs in source-fragment order followed by
+its registry children; ParentTree page arrays preserve the dense MCID order,
+including empty arrays for blank pages. Alt and Lang remain occurrence/node
+attributes. Full source text ActualText is not repeated on StructElems.
+
+Every reference must resolve within the contribution except the typed Page
+references, which the final page tree owner must supply. Link StructElems need
+selected annotation OBJRs; until that navigation owner is connected, the builder
+returns `PendingNavigation` instead of dropping annotation children. This is an
+explicit remaining integration requirement, not a redefinition of the supported
+final book model. Outlines/catalog/metadata/page dictionaries, navigation and
+terminal/serialization authorization remain final-merge work.
+
+Object records and copied bytes extend the existing marked-content budgets.
+Temporary ToUnicode/CID-map buffers are bounded and conservatively charged as
+well as their retained stream copies. The local max_pdf_objects check is a
+lower-bound check on this contribution; the final merger must still check the
+complete graph, including its pages/catalog/metadata/navigation objects, before
+assigning numbers. Passing the local exact-count test does not imply a complete
+PDF fits that same count limit.
+
+Initial focused verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_objects --locked
+```
+
+Result: **3 passed**. Coverage: exact frozen TT/TTC/CFF subset programs,
+ToUnicode scalar entries, font object references and format-specific descriptor
+fields; actual VMB Form content and page-local resources; source-owner to
+MCR/Page/MCID and ParentTree joins; repeated-input determinism and foreign
+marked-content rejection; cumulative record/spool and local object-count
+exact/one-less boundaries. These are object contribution tests, not independent
+PDF extraction/rendering or full-book publication evidence.
+
+The complete CLI/PDF regression command then passed:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-pdf -p typaxis-cli --lib --bin typaxis --locked
+```
+
+Result: **281 passed** (CLI 205, PDF 76), no failures, three existing external-tool
+CLI tests ignored. The CLI run took 226.02 seconds, including the 5,000-alias
+fixture's setup/upstream phases. No isolated performance improvement is claimed.
+Log: `/private/tmp/typaxis-production-body-objects-verification.log`.
+The large fixture now builds the typed object contribution and asserts the
+selected relative vector object count, one StructElem per registry node, 5,000
+ParentTree references in the exact group order, the selected page-content count,
+and absence of fabricated native/body fonts. The existing one-Form/5,000-Do
+checks remain active. This is still alias/explicit-limit/internal evidence,
+not distinct 5,000/default-limit/public-build or complete-PDF evidence.
+
+A subsequent focused run added blank-page ParentTree/resource checks and a
+real internal-link fixture. The latter reaches selected marked content and is
+then rejected with `PendingNavigation` because its annotation OBJR is not yet
+supplied. The focused command above passed **4 tests** (three earlier cases plus
+the added case), log `/private/tmp/typaxis-production-body-objects-focused.log`.
+All processes started for this checkpoint completed with exit status 0.
