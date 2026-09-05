@@ -43,7 +43,7 @@ pub use preflight::{
 };
 pub use semantic_container::{
     encode_reference_document_package_v1_4, staging_m4_wire_ast_node_count,
-    DecodedStagingSemanticDocumentPackage, StagingSemanticDecodeError,
+    DecodedStagingSemanticDocumentPackage, ResourceCountAxis, StagingSemanticDecodeError,
     StagingSemanticDocumentPackageDecoder, StagingSemanticDocumentPackageEncoder,
     WireDocumentMetadata, WireDocumentOutline, WireFontMediaType, WireImageMediaType,
     WireOutlineEntry, WireOutlineSourceKind, WirePrecomposedVectorEquationNumber,

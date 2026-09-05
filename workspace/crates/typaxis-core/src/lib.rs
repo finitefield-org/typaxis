@@ -1774,6 +1774,29 @@ impl Default for M4ResourceLimits {
     }
 }
 
+/// Defaults are selected before file/environment/CLI overrides. Keeping the
+/// legacy defaults separate preserves frozen profiles and explicit old values.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MachineResourceDefaults {
+    pub base: ResourceLimits,
+    pub extension: M4ResourceLimits,
+}
+
+impl MachineResourceDefaults {
+    pub fn for_profile(profile: MachinePdfProfileId) -> Self {
+        let mut defaults = Self {
+            base: ResourceLimits::default(),
+            extension: M4ResourceLimits::default(),
+        };
+        if profile == MachinePdfProfileId::ProductionBook1 {
+            defaults.base.max_images = 8_192;
+            defaults.extension.max_vector_nodes = 262_144;
+            defaults.extension.max_vector_path_segments = 4_000_000;
+        }
+        defaults
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum M4ResourceLimitsError {
     ZeroLimit,

@@ -1,0 +1,31 @@
+{
+  "algorithm": "typaxis.vmb-book-fixture/1",
+  "cases": [
+    {
+      "exporter_revision": null,
+      "id": "chapter-fraction-equivalence",
+      "producer_declaration": {
+        "engine_id": "vmb-go-math-svg",
+        "engine_version": "2.0.0",
+        "rules_version": "vmb.math-safe-svg/1"
+      },
+      "purpose": "unchanged terminal-whitespace regression; producer metrics/semantic text are not visual or accessibility goldens",
+      "raw_svg": "svg/chapter-fraction-equivalence.svg",
+      "source": "user-provided vmb-typaxis-ch00k document-package.json, image 0 / node 7",
+      "source_package_sha256": "2590b2f54efc701d3130e1d3dc9129b13dbb9d83bb00b8cd5580239909212f9a",
+      "tex": "chapter-fraction-equivalence.tex"
+    }
+  ],
+  "files": [
+    {
+      "byte_length": 4150,
+      "path": "svg/chapter-fraction-equivalence.svg",
+      "sha256": "3f1e47acffd70426c0376aafaae3331152cce202a7fe926236f52fc699fc90a0"
+    },
+    {
+      "byte_length": 23,
+      "path": "chapter-fraction-equivalence.tex",
+      "sha256": "e69b8b24f5e7a6161ed484a643c43e6eaf7e7fa91ca9bf5eed06c6cfc2ba8a0f"
+    }
+  ]
+}

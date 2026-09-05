@@ -1,6 +1,6 @@
 # VMB全巻PDFの互換性・リソース予算・診断改善設計
 
-状態: Proposed（調査・設計のみ。製品コードの修正・全巻PDFの成功確認は未実施）
+状態: Implementing（[実装・検証台帳](28-vmb-book-production-progress.md)を参照。全巻PDFの成功確認は未実施）
 調査日: 2026-09-05
 Typaxis baseline: `718ab6c9e1309b7dc750c62554c954cae4333131`
 対象: `typaxis.contract/1.4` / `typaxis.machine-pdf/production-book-1`
@@ -595,3 +595,11 @@ cargo test --manifest-path workspace/Cargo.toml \
 最終レビューでは両文書の責務、profile/contract識別子、budget、単位、origin/baseline、provenance、fixture/runner、公開順を再照合した。相対リンク、JSON/TOML例、Markdown fenceの検査、および6桁小数→16.16の131,073個のresidue往復検証が成功した。11ptのorigin/Padding例も確認した。未解決の設計findingはない。
 
 製品実装・新規runnerの実行・原ノ味版/TrueType版の全巻PDF生成は未実施。§10とVMB側設計の入力・実装ゲートを、文書レビュー完了と取り違えない。
+
+
+## 13. 実装中の診断表現補足
+
+既存`CanonicalDiagnosticText`はraw input snippetを拒否する。既存Schemaを変えずに位置・tokenの原因情報を残すため、resource-local noteのtokenはUTF-8境界で80 bytesまで保持し、`token_percent=%31%30...`のpercent encoding（最大240 ASCII bytes）で投影する。復号可能な元tokenと`token_truncated`を保持し、SVG自体のbyte span/line/byte-columnは別表示する。閉じたSVG element/attribute名はそのまま表示し、未知名もpercent encodingを使う。この変更はraw excerptの無制限出力や診断文字列の一般的な制約緩和を許可しない。
+
+
+実CLI照合による補足: production-book-1のbuildは非圧縮設定を要求する。check/buildの共通TOMLに`pdf_stream_compression = "none"`を明示し、両方に`--config PATH`を渡す。checkには`--no-compress`がない。診断出力は`--emit-diagnostics PATH`、build manifestは`--emit-build-manifest PATH`を使う。画像予算以外のこの既存profile条件は本修正で変更しない。

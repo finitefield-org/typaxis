@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 use typaxis_core::{
     ConfigResourceRoot, DocumentPackageContractId, EffectiveConfig, EffectiveConfigError,
-    EffectiveDataVersions, M4ResourceLimits, PdfStreamCompression, ResourceLimits, CONTRACT,
-    DEFAULT_ALLOWED_URI_SCHEMES, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
-    REGISTERED_UNICODE_VERSION,
+    EffectiveDataVersions, M4ResourceLimits, MachinePdfProfileId, MachineResourceDefaults,
+    PdfStreamCompression, ResourceLimits, CONTRACT, DEFAULT_ALLOWED_URI_SCHEMES,
+    REGISTERED_JAPANESE_LINE_BREAK_VERSION, REGISTERED_UNICODE_VERSION,
 };
 
 const MAX_RAW_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
@@ -53,7 +53,26 @@ where
     K: Into<OsString>,
     V: Into<OsString>,
 {
-    let mut merged = MergedConfig::default();
+    load_for_profile(
+        MachinePdfProfileId::CURRENT,
+        config_path,
+        environment,
+        overrides,
+    )
+}
+
+pub(crate) fn load_for_profile<I, K, V>(
+    profile: MachinePdfProfileId,
+    config_path: Option<&Path>,
+    environment: I,
+    overrides: &ConfigOverrides,
+) -> Result<EffectiveConfig, ConfigError>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<OsString>,
+    V: Into<OsString>,
+{
+    let mut merged = MergedConfig::for_profile(profile);
     if let Some(path) = config_path {
         load_file(path, &mut merged)?;
     }
@@ -68,6 +87,14 @@ pub(crate) fn load_from_process_env(
     overrides: &ConfigOverrides,
 ) -> Result<EffectiveConfig, ConfigError> {
     load(config_path, env::vars_os(), overrides)
+}
+
+pub(crate) fn load_from_process_env_for_profile(
+    profile: MachinePdfProfileId,
+    config_path: Option<&Path>,
+    overrides: &ConfigOverrides,
+) -> Result<EffectiveConfig, ConfigError> {
+    load_for_profile(profile, config_path, env::vars_os(), overrides)
 }
 
 #[derive(Debug)]
@@ -269,6 +296,15 @@ impl Default for MergedConfig {
 }
 
 impl MergedConfig {
+    fn for_profile(profile: MachinePdfProfileId) -> Self {
+        let defaults = MachineResourceDefaults::for_profile(profile);
+        Self {
+            limits: defaults.base,
+            m4_limits: defaults.extension,
+            ..Self::default()
+        }
+    }
+
     fn apply(&mut self, key: &str, value: Value, origin: &str) -> Result<(), ConfigError> {
         match key {
             "contract" => {
@@ -1250,6 +1286,85 @@ mod tests {
             &["http", "https", "mailto", "tel"]
         );
         assert_eq!(config.limits().get(), &ResourceLimits::default());
+    }
+
+    #[test]
+    fn book_defaults_are_selected_before_overrides_and_leave_legacy_unchanged() {
+        let overrides = ConfigOverrides::default();
+        let load_book = |path: Option<&Path>, env: Vec<(&str, &str)>, cli: &ConfigOverrides| {
+            load_for_profile(MachinePdfProfileId::ProductionBook1, path, env, cli).unwrap()
+        };
+        let book = load_book(None, vec![], &overrides);
+        assert_eq!(book.limits().get().max_images, 8192);
+        let ext = book.m4_limits().unwrap().extension().get();
+        assert_eq!(ext.max_vector_nodes, 262_144);
+        assert_eq!(ext.max_vector_path_segments, 4_000_000);
+        assert_eq!(ext.max_vector_nesting_depth, 32);
+        for profile in [
+            MachinePdfProfileId::Paragraph1,
+            MachinePdfProfileId::BasicDocument1,
+            MachinePdfProfileId::Table1,
+            MachinePdfProfileId::Footnote1,
+            MachinePdfProfileId::HeaderFooter1,
+            MachinePdfProfileId::Columns1,
+            MachinePdfProfileId::Float1,
+        ] {
+            let legacy =
+                load_for_profile(profile, None, Vec::<(&str, &str)>::new(), &overrides).unwrap();
+            assert_eq!(legacy.limits().get(), &ResourceLimits::default());
+            assert_eq!(
+                legacy.m4_limits().unwrap().extension().get(),
+                &M4ResourceLimits::default()
+            );
+        }
+        let file = TempConfig::new(b"contract = \"typaxis.contract/1.4\"\n[limits]\nmax_images = 1024\nmax_vector_nodes = 100000\nmax_vector_path_segments = 1000000\n");
+        let explicit_old = load_book(Some(&file.0), vec![], &overrides);
+        assert_eq!(explicit_old.limits().get().max_images, 1024);
+        assert_eq!(
+            explicit_old.m4_limits().unwrap().extension().get(),
+            &M4ResourceLimits::default()
+        );
+        let env = vec![
+            ("TYPAXIS_LIMITS__MAX_IMAGES", "2048"),
+            ("TYPAXIS_LIMITS__MAX_VECTOR_NODES", "200000"),
+            ("TYPAXIS_LIMITS__MAX_VECTOR_PATH_SEGMENTS", "2000000"),
+        ];
+        let environment = load_book(Some(&file.0), env.clone(), &overrides);
+        assert_eq!(environment.limits().get().max_images, 2048);
+        assert_eq!(
+            environment
+                .m4_limits()
+                .unwrap()
+                .extension()
+                .get()
+                .max_vector_path_segments,
+            2_000_000
+        );
+        let mut cli = ConfigOverrides::default();
+        cli.set_limit("max_images", 5000).unwrap();
+        cli.set_limit("max_vector_nodes", 300_000).unwrap();
+        cli.set_limit("max_vector_path_segments", 3_000_000)
+            .unwrap();
+        let result = load_book(Some(&file.0), env, &cli);
+        assert_eq!(result.limits().get().max_images, 5000);
+        assert_eq!(
+            result
+                .m4_limits()
+                .unwrap()
+                .extension()
+                .get()
+                .max_vector_nodes,
+            300_000
+        );
+        assert_eq!(
+            result
+                .m4_limits()
+                .unwrap()
+                .extension()
+                .get()
+                .max_vector_path_segments,
+            3_000_000
+        );
     }
 
     #[test]

@@ -864,6 +864,89 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m4_profile() {
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
+fn machine_book_svg_failure_publishes_attribute_token_and_svg_position() {
+    let (_tree, job, artifacts, expected) = copy_fixture("profiles/production-book-1/combined", "book-svg-detail");
+    let path = job.join("document-package.json");
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let raw = fs::read(&path).unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new().decode(&raw, &DocumentPackageDecodePolicy::new(&limits)).unwrap();
+    let mut wire = decoded.wire().clone();
+    let mut resources = wire.resources().clone();
+    let image = resources.images.iter_mut().find(|image| image.media_type == typaxis_document_package::WireImageMediaType::SvgSafe2).unwrap();
+    let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n<path d=\"M 0 0 L 1000001 1 Z\" /></svg>";
+    let id = image.image_id;
+    fs::write(job.join(&image.uri), svg).unwrap();
+    image.expected_sha256 = Some(typaxis_core::sha256(svg).iter().map(|byte| format!("{byte:02x}")).collect());
+    wire.replace_typed_regions(wire.document().clone(), resources);
+    fs::write(&path, typaxis_document_package::StagingSemanticDocumentPackageEncoder::new().encode(&wire).unwrap()).unwrap();
+    let result = run_build_package(build_options(&job, &artifacts, &expected));
+    assert!(result.is_err());
+    assert!(!artifacts.join("output.pdf").exists());
+    let diagnostics = read_json(&artifacts.join("diagnostics.json"));
+    let first = &diagnostics["diagnostics"][0];
+    assert_eq!(first["code"], "R7100");
+    assert_eq!(first["message"], "svg_safe_2 coordinate_out_of_range");
+    assert_eq!(first["location"]["json_pointer"].as_str(), Some(format!("/resources/images/{id}").as_str()));
+    assert!(first["location"]["byte_offset"].is_null());
+    let notes = first["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 2);
+    let context = notes[1]["message"].as_str().unwrap();
+    for marker in ["attribute=d", "path=1", "line=2", "svg_byte=", "byte_column=", "token_percent=%31%30%30%30%30%30%31"] {
+        assert!(context.contains(marker), "missing {marker}: {context}");
+    }
+    assert_eq!(result.unwrap_err().message.matches("R7100").count(), 1);
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_image_count_failure_is_precise_in_check_and_build() {
+    for (limit, explicit) in [(8192u32, false), (1024u32, true)] {
+        let (_tree, job, artifacts, expected) = copy_fixture("profiles/production-book-1/combined", "book-image-count");
+        let path = job.join("document-package.json");
+        let raw = fs::read(&path).unwrap();
+        let limits = ValidatedResourceLimits::new(ResourceLimits { max_images: 10_000, ..ResourceLimits::default() }).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new().decode(&raw, &DocumentPackageDecodePolicy::new(&limits)).unwrap();
+        let mut wire = decoded.wire().clone();
+        let document = wire.document().clone();
+        let mut resources = wire.resources().clone();
+        let image = resources.images.iter().find(|image| image.media_type == typaxis_document_package::WireImageMediaType::Png).unwrap().clone();
+        while resources.images.len() <= limit as usize {
+            let mut alias = image.clone();
+            alias.image_id = resources.images.len() as u32;
+            resources.images.push(alias);
+        }
+        wire.replace_typed_regions(document, resources);
+        let encoded = typaxis_document_package::StagingSemanticDocumentPackageEncoder::new().encode(&wire).unwrap();
+        fs::write(&path, encoded).unwrap();
+        fs::create_dir_all(&artifacts).unwrap();
+        let check_diagnostics = artifacts.join("check-diagnostics.json");
+        let override_limits = if explicit { vec![("max_images".to_owned(), u64::from(limit))] } else { vec![] };
+        let result = run_check_package(CheckPackageOptions {
+            package: path, package_root: Some(job.clone()), profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(check_diagnostics.clone()),
+            common: CommonOptions { resource_roots: vec![job.clone()], limits: override_limits.clone(), ..CommonOptions::default() },
+        });
+        assert!(result.is_err());
+        let mut options = build_options(&job, &artifacts, &expected);
+        options.common.limits = override_limits;
+        let result = run_build_package(options);
+        assert!(result.is_err());
+        assert!(!artifacts.join("output.pdf").exists());
+        for diagnostics in [check_diagnostics, artifacts.join("diagnostics.json")] {
+            let json = read_json(&diagnostics);
+            let first = &json["diagnostics"][0];
+            assert_eq!(first["code"], "P1102");
+            assert_eq!(first["location"]["json_pointer"].as_str(), Some(format!("/resources/images/{limit}").as_str()));
+            assert!(first["message"].as_str().unwrap().contains(&format!("Images budget {limit} was exceeded by {}", limit + 1)));
+        }
+        let manifest = read_json(&artifacts.join("manifest.json"));
+        assert!(manifest["images"].as_array().unwrap().is_empty());
+        assert!(manifest["fonts"].as_array().unwrap().is_empty());
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
 fn machine_production_book_1_combined_public_profile() {
     let run = assert_success_fixture("profiles/production-book-1/combined");
     let manifest = read_json(&run.artifacts.join("manifest.json"));

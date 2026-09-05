@@ -979,6 +979,16 @@ pub fn reject_precomposed_vector_svg(
     let pending = resolver.read_image(session.open_image(image_id)?)?;
     match resolver.parse_and_bind_declared_safe_vector(pending) {
         Err(ResourceAdmissionError::InvalidSafeVectorV2(reason)) => Ok(reason),
+        Err(typaxis_resources::ResourceAdmissionError::SafeSvg2Detailed(failure)) => {
+            use typaxis_resources::{SafeSvg2DetailReason as Detail, SafeVectorFailureReason as Reason};
+            let reason = match failure.reason {
+                Detail::Category(reason) => reason,
+                Detail::UnsupportedAttribute | Detail::UnsupportedCommand => Reason::UnsupportedFeature,
+                _ => Reason::MalformedSvg,
+            };
+            if failure.budget.is_some() { return Err("unexpected SVG budget failure in lexical corpus".into()); }
+            Ok(reason)
+        }
         Err(error) => Err(format!("unexpected Safe-SVG 2 admission error: {error}").into()),
         Ok(()) => Err("negative Safe-SVG 2 resource was silently accepted".into()),
     }

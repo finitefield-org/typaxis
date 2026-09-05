@@ -4389,6 +4389,7 @@ fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Fail
         | Error::InvalidMetadata
         | Error::InvalidSafeVector
         | Error::InvalidSafeVectorV2(_)
+        | Error::SafeSvg2Detailed(_)
         | Error::InvalidJpeg(_)
         | Error::InvalidCff1(_)
         | Error::DeclaredMediaMismatch
@@ -4427,32 +4428,13 @@ pub(crate) fn map_public_resource_admission_error(
 ) -> Failure {
     use typaxis_resources::ResourceAdmissionError as Error;
 
-    let canonical = error.canonical_message();
-    let resource_message = if has_diagnostic_code(canonical) {
-        canonical.to_owned()
-    } else {
-        format!("R7100: {canonical}")
-    };
-    if canonical.starts_with("I9190:") {
-        return Failure::internal(canonical);
+    let code = error.production_diagnostic_code();
+    let resource_message = format!("{code}: {}", error.production_message());
+    if code == typaxis_diagnostics::I9190 {
+        return Failure::internal(resource_message);
     }
-    if matches!(
-        canonical.get(..5),
-        Some(
-            "R7110"
-                | "R7111"
-                | "R7120"
-                | "R7121"
-                | "R7122"
-                | "R7130"
-                | "R7131"
-                | "R7132"
-                | "R7133"
-                | "R7134"
-                | "R7135"
-        )
-    ) {
-        return Failure::limit(canonical);
+    if matches!(code.as_str(), "R7110" | "R7111" | "R7120" | "R7121" | "R7122" | "R7130" | "R7131" | "R7132" | "R7133" | "R7134" | "R7135") {
+        return Failure::limit(resource_message);
     }
     match error {
         Error::ResourceLimit
@@ -4466,6 +4448,7 @@ pub(crate) fn map_public_resource_admission_error(
         | Error::InvalidMetadata
         | Error::InvalidSafeVector
         | Error::InvalidSafeVectorV2(_)
+        | Error::SafeSvg2Detailed(_)
         | Error::InvalidJpeg(_)
         | Error::InvalidCff1(_)
         | Error::DeclaredMediaMismatch
@@ -4487,7 +4470,7 @@ pub(crate) fn map_public_resource_admission_error(
         | Error::ReceiptIdentityMismatch
         | Error::ReceiptSessionMismatch
         | Error::MissingAdmittedRootSet
-        | Error::RootSetMismatch => Failure::internal(format!("I9190: {canonical}")),
+        | Error::RootSetMismatch => Failure::internal(resource_message),
     }
 }
 

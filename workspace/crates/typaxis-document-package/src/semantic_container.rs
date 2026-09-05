@@ -858,14 +858,27 @@ pub enum StagingSemanticDecodeError {
         pointer: String,
         message: &'static str,
     },
+    ResourceCountLimit {
+        axis: ResourceCountAxis,
+        limit: u64,
+        observed: u64,
+        pointer: String,
+    },
     Limit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResourceCountAxis {
+    Images,
+    FontFaces,
 }
 
 impl StagingSemanticDecodeError {
     pub fn pointer(&self) -> Option<&str> {
         match self {
             Self::BookNavigationShape { pointer, .. }
-            | Self::PrecomposedVectorShape { pointer, .. } => Some(pointer),
+            | Self::PrecomposedVectorShape { pointer, .. }
+            | Self::ResourceCountLimit { pointer, .. } => Some(pointer),
             Self::Preflight(_) | Self::Json(_) | Self::Contract | Self::Shape(_) | Self::Limit => {
                 None
             }
@@ -902,6 +915,9 @@ impl fmt::Display for StagingSemanticDecodeError {
                 )
             }
             Self::Limit => formatter.write_str("contract-1.4 package exceeds a resource limit"),
+            Self::ResourceCountLimit { axis, limit, observed, .. } => write!(
+                formatter, "DocumentPackage {axis:?} budget {limit} was exceeded by {observed}"
+            ),
         }
     }
 }
@@ -915,6 +931,7 @@ impl std::error::Error for StagingSemanticDecodeError {
             | Self::Shape(_)
             | Self::BookNavigationShape { .. }
             | Self::PrecomposedVectorShape { .. }
+            | Self::ResourceCountLimit { .. }
             | Self::Limit => None,
         }
     }
@@ -994,8 +1011,6 @@ impl StagingSemanticDocumentPackageDecoder {
         {
             return Err(StagingSemanticDecodeError::Contract);
         }
-        validate_book_navigation_wire_shape(&root)?;
-        validate_precomposed_vector_wire_shape(&root)?;
         let expected: BTreeSet<&str> = [
             "contract",
             "coordinate_unit",
@@ -1011,6 +1026,16 @@ impl StagingSemanticDocumentPackageDecoder {
         .into_iter()
         .collect();
         if object.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected {
+            // These required root members already have public precise locations.
+            // Preserve them while keeping root shape ahead of resource counts.
+            for member in ["metadata", "outline"] {
+                if !object.contains_key(member) {
+                    return Err(StagingSemanticDecodeError::BookNavigationShape {
+                        pointer: format!("/{member}"),
+                        message: if member == "metadata" { "metadata is required" } else { "outline is required" },
+                    });
+                }
+            }
             return Err(StagingSemanticDecodeError::Shape(
                 "root members differ from the contract-1.4 scaffold",
             ));
@@ -1020,6 +1045,9 @@ impl StagingSemanticDocumentPackageDecoder {
                 "coordinate_unit must be pdf_point_1_65536",
             ));
         }
+        validate_resource_counts(&root, policy)?;
+        validate_book_navigation_wire_shape(&root)?;
+        validate_precomposed_vector_wire_shape(&root)?;
         let (page_masters, advanced_page_masters) = validate_frozen_carrier(&root, policy)?;
         let document: WireStagingM4Document = serde_json::from_value(
             object
@@ -1239,6 +1267,32 @@ fn attach_reference_media<'a>(
             return Err(StagingSemanticDecodeError::Shape(
                 "reference carrier already contains a media declaration",
             ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_resource_counts(
+    root: &Value,
+    policy: &DocumentPackageDecodePolicy<'_>,
+) -> Result<(), StagingSemanticDecodeError> {
+    let resources = root.get("resources").and_then(Value::as_object)
+        .ok_or(StagingSemanticDecodeError::Shape("resources must be an object"))?;
+    let fonts = resources.get("font_faces").and_then(Value::as_array)
+        .ok_or(StagingSemanticDecodeError::Shape("resource catalog arrays are required"))?;
+    let images = resources.get("images").and_then(Value::as_array)
+        .ok_or(StagingSemanticDecodeError::Shape("resource catalog arrays are required"))?;
+    let limits = policy.resource_limits().get();
+    for (axis, key, count, limit) in [
+        (ResourceCountAxis::FontFaces, "font_faces", fonts.len(), limits.max_fonts),
+        (ResourceCountAxis::Images, "images", images.len(), limits.max_images),
+    ] {
+        let limit = u64::from(limit);
+        if count as u64 > limit {
+            return Err(StagingSemanticDecodeError::ResourceCountLimit {
+                axis, limit, observed: limit + 1,
+                pointer: format!("/resources/{key}/{limit}"),
+            });
         }
     }
     Ok(())
@@ -3175,6 +3229,33 @@ mod tests {
             ValidatedResourceLimits::new(ResourceLimits::default()).unwrap(),
         ));
         DocumentPackageDecodePolicy::new(limits)
+    }
+
+    #[test]
+    fn resource_count_limits_preserve_original_pointer_and_first_attempt() {
+        for (axis, key, count, limit) in [
+            (ResourceCountAxis::Images, "images", 1025, 1024),
+            (ResourceCountAxis::FontFaces, "font_faces", 3, 2),
+        ] {
+            let limits = ValidatedResourceLimits::new(ResourceLimits {
+                max_images: 1024, max_fonts: 2, ..ResourceLimits::default()
+            }).unwrap();
+            let policy = DocumentPackageDecodePolicy::new(&limits);
+            let mut root: Value = serde_json::from_slice(FIXTURE).unwrap();
+            // Bad declarations prove that count rejection precedes resource parsing.
+            root["resources"][key] = Value::Array(vec![Value::Null; count]);
+            let input = serde_json::to_vec(&root).unwrap();
+            let error = StagingSemanticDocumentPackageDecoder::new().decode(&input, &policy).unwrap_err();
+            let pointer = format!("/resources/{key}/{limit}");
+            assert_eq!(error.pointer(), Some(pointer.as_str()));
+            assert!(matches!(error, StagingSemanticDecodeError::ResourceCountLimit {
+                axis: actual_axis, limit: actual_limit, observed, ..
+            } if actual_axis == axis && actual_limit == limit && observed == limit + 1));
+            root["unexpected"] = Value::Null;
+            let input = serde_json::to_vec(&root).unwrap();
+            assert!(matches!(StagingSemanticDocumentPackageDecoder::new().decode(&input, &policy),
+                Err(StagingSemanticDecodeError::Shape("root members differ from the contract-1.4 scaffold"))));
+        }
     }
 
     #[test]

@@ -28,7 +28,7 @@ use typaxis_diagnostics::{
     encode_diagnostics_canonical, encode_diagnostics_canonical_for_contract, DiagnosticBuilder,
     DiagnosticCode, DiagnosticLocation, DiagnosticSubject, GlobalDiagnosticScope,
     MachineDiagnosticBudget, MachineDiagnosticBudgetError, MachineDiagnosticLender,
-    MachineDiagnosticPhase, PublicMachineError, ResourceErrorSubject, Severity, I9110, I9113,
+    MachineDiagnosticPhase, PublicMachineError, ResourceErrorSubject, Severity,
     I9190, L5100, L5101, R7100,
 };
 use typaxis_document_package::{
@@ -163,7 +163,7 @@ fn run_build_package_with_host(
         &options.package,
         options.package_root.as_deref(),
     )?;
-    let loaded = load_config(&options.common)?;
+    let loaded = load_config_for_profile(&options.common, Some(options.profile))?;
     let config_contract = if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
         typaxis_core::DocumentPackageContractId::V1_4
     } else {
@@ -597,7 +597,7 @@ fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
         &options.package,
         options.package_root.as_deref(),
     )?;
-    let mut loaded = load_config(&options.common)?;
+    let mut loaded = load_config_for_profile(&options.common, Some(options.profile))?;
     let config_contract = if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
         typaxis_core::DocumentPackageContractId::V1_4
     } else {
@@ -2071,12 +2071,30 @@ fn emit_production_resource_diagnostic(
     let mut builder = DiagnosticBuilder::located(
         production_resource_diagnostic_code(error),
         Severity::Error,
-        error.canonical_message(),
+        error.production_message(),
         DiagnosticLocation::package_json(uri, pointer, None),
     )
     .map_err(|_| Failure::internal("production resource diagnostic text was not canonical"))?;
     if let Some(subject) = subject {
         builder = builder.subject(subject.clone());
+    }
+    if let ResourceAdmissionError::SafeSvg2Detailed(failure) = error {
+        let resource_uri = match subject {
+            Some(DiagnosticSubject::Resource(ResourceErrorSubject::Image(id))) => package.package().resources().images.get(id.get() as usize).map(|declaration| declaration.uri.as_str()),
+            _ => None,
+        };
+        if let Some(uri) = resource_uri {
+            builder = builder.note(format!("resource={uri}"))
+                .map_err(|_| Failure::internal("resource URI note is not canonical"))?;
+        }
+        let context = failure.context_note();
+        if !context.is_empty() {
+            builder = builder.note(context).map_err(|_| Failure::internal("SVG context note is not canonical"))?;
+        }
+        if let Some(budget) = failure.budget {
+            builder = builder.note(format!("scope={}; charge={}; limit={}; observed={}; used_before_resource={}", budget.scope.as_str(), budget.kind.as_str(), budget.limit, budget.observed, budget.used_before_resource))
+                .map_err(|_| Failure::internal("SVG budget note is not canonical"))?;
+        }
     }
     let _ = phase
         .emit(builder.build())
@@ -2085,23 +2103,7 @@ fn emit_production_resource_diagnostic(
 }
 
 fn production_resource_diagnostic_code(error: ResourceAdmissionError) -> DiagnosticCode {
-    let message = error.canonical_message();
-    if message.as_bytes().get(5) == Some(&b':') {
-        if let Some(code) = message.get(..5).and_then(DiagnosticCode::new) {
-            return code;
-        }
-    }
-    match error {
-        ResourceAdmissionError::UnsupportedContainedOpen => I9110,
-        ResourceAdmissionError::ResourceLengthMismatch => I9113,
-        ResourceAdmissionError::NonCanonicalResourceId
-        | ResourceAdmissionError::ReceiptKindMismatch
-        | ResourceAdmissionError::ReceiptIdentityMismatch
-        | ResourceAdmissionError::ReceiptSessionMismatch
-        | ResourceAdmissionError::MissingAdmittedRootSet
-        | ResourceAdmissionError::RootSetMismatch => I9190,
-        _ => R7100,
-    }
+    error.production_diagnostic_code()
 }
 
 fn emit_production_processing_diagnostic(
@@ -2173,7 +2175,10 @@ fn emit_machine_input_diagnostic(
     package_path: &Path,
 ) -> Result<(), Failure> {
     let public = public_machine_input_error(error.kind());
-    let message = canonical_machine_input_diagnostic_message(&public);
+    let message = match error.kind() {
+        MachineInputErrorKind::SemanticDecode(decode @ StagingSemanticDecodeError::ResourceCountLimit { .. }) => decode.to_string(),
+        _ => canonical_machine_input_diagnostic_message(&public).to_owned(),
+    };
     let builder = if matches!(
         public,
         PublicMachineError::CompiledHostUnavailable
@@ -2288,6 +2293,7 @@ fn public_semantic_decode_error(error: &StagingSemanticDecodeError) -> PublicMac
         StagingSemanticDecodeError::Contract => PublicMachineError::PackageContract,
         StagingSemanticDecodeError::Shape(_)
         | StagingSemanticDecodeError::BookNavigationShape { .. }
+        | StagingSemanticDecodeError::ResourceCountLimit { .. }
         | StagingSemanticDecodeError::PrecomposedVectorShape { .. } => {
             PublicMachineError::PackageMember
         }
@@ -3596,6 +3602,13 @@ struct LoadedConfig {
 }
 
 fn load_config(common: &CommonOptions) -> Result<LoadedConfig, Failure> {
+    load_config_for_profile(common, None)
+}
+
+fn load_config_for_profile(
+    common: &CommonOptions,
+    profile: Option<typaxis_core::MachinePdfProfileId>,
+) -> Result<LoadedConfig, Failure> {
     let config_path = match &common.config {
         Some(path) => Some(path.clone()),
         None => {
@@ -3621,8 +3634,12 @@ fn load_config(common: &CommonOptions) -> Result<LoadedConfig, Failure> {
             .set_limit(name, *value)
             .map_err(map_config_error)?;
     }
-    let effective = config::load_from_process_env(config_path.as_deref(), &overrides)
-        .map_err(map_config_error)?;
+    let effective = match profile {
+        Some(profile) => config::load_from_process_env_for_profile(
+            profile, config_path.as_deref(), &overrides,
+        ),
+        None => config::load_from_process_env(config_path.as_deref(), &overrides),
+    }.map_err(map_config_error)?;
     Ok(LoadedConfig {
         effective,
         path: config_path,

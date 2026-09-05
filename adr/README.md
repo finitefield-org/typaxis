@@ -53,3 +53,5 @@
 - [ADR-0035: Tagged PDF structure and accessibility validation](ADR-0035-tagged-pdf-structure-and-validation.md) — M4 targetとしてAccepted。PDF/UA-1 role tree、source reading order、selected-paint/MCID/ParentTree closure、artifact policy、`book-xmp/2`、veraPDF 1.30.2とMatterhorn 1.1 evidenceを固定し、MI4-09はMI4-13まで非公開stagingで実装する。
 - [ADR-0036: JPEG and OpenType/CFF resource profiles](ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) — M4 targetとしてAccepted。独立した`jpeg-baseline`/`sfnt-cff1` component、bounded decode、deterministic metadata strip/CID subset、embedding permission、PDF plan、exact dependency/limit policyを固定し、MI4-11/12はMI4-13まで非公開stagingで実装する。
 - [ADR-0037: Producer-composed math-vector placement](ADR-0037-producer-composed-math-vector.md) — M4 targetとしてAccepted。組版済み`svg-safe-2`、4つの明示kind、producer metric/baseline、atomic inline/block layout、content-key Form dedupe、SafeVector/resource-set・book-navigation・tagged-PDFのversioned `/2`経路を固定する。MI4-V03〜V19は非公開staging/evidenceであり、MI4-13だけが公開する。
+
+- [ADR-0038: VMB book production compatibility correction](ADR-0038-vmb-book-production-compatibility.md) — Safe-SVG 2のタグ末尾空白に限る仕様訂正、書籍用既定予算、元位置を保持する診断。実装・全巻検証は別途記録する。
