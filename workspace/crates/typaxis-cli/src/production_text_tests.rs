@@ -37,6 +37,7 @@ fn production_text_fixture(
     let base = typaxis_resources::staging_declared_base_catalog(package.resources()).unwrap();
     let root = MachineFixtureRoot::new("production-body-text");
     let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let mut copied_paths = std::collections::BTreeSet::new();
     for resource in value["resources"]["font_faces"]
         .as_array()
         .unwrap()
@@ -44,6 +45,9 @@ fn production_text_fixture(
         .chain(value["resources"]["images"].as_array().unwrap())
     {
         let uri = resource["uri"].as_str().unwrap();
+        // Alias declarations share a staged file; admission still opens and
+        // validates every declaration below, including all 5,000 aliases.
+        if !copied_paths.insert(uri) { continue; }
         let source = match uri {
             "vmb-block-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-block-720896.svg"),
             "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),

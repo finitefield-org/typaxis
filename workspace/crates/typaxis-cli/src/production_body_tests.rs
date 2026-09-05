@@ -745,3 +745,366 @@ fn production_body_font_and_text_contributions_preserve_cumulative_budget_and_ow
         ));
     });
 }
+
+#[test]
+fn production_body_page_content_interleaves_real_vmb_forms_and_text_at_selected_positions() {
+    use typaxis_pdf::ProductionBodyPageDrawSource as S;
+    let value = production_body_fixture(3_000_000);
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        let content =
+            typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+        content.verify(&fonts, admitted, limits).unwrap();
+        assert_eq!(content.pages().len(), 2);
+        assert_eq!(content.vectors().forms().len(), 2);
+        assert_eq!(content.vectors().usages().len(), 2);
+        assert_eq!(
+            content.pages()[0]
+                .draws()
+                .iter()
+                .map(|d| d.source())
+                .collect::<Vec<_>>(),
+            [
+                S::Text { paint_index: 0 },
+                S::Text { paint_index: 1 },
+                S::Vector { usage_index: 0 },
+                S::Text { paint_index: 2 },
+                S::Vector { usage_index: 1 }
+            ]
+        );
+        assert_eq!(
+            content.pages()[1].draws()[0].source(),
+            S::Text { paint_index: 3 }
+        );
+        for page in content.pages() {
+            let bytes = std::str::from_utf8(page.content()).unwrap();
+            assert_eq!(bytes.matches("1 0 0 -1 0 ").count(), 1);
+            assert_eq!(
+                bytes.matches(" Do").count(),
+                page.draws()
+                    .iter()
+                    .filter(|d| matches!(d.source(), S::Vector { .. }))
+                    .count()
+            );
+            assert!(!bytes.contains("/MCID"));
+            for (ordinal, draw) in page.draws().iter().enumerate() {
+                let original = match draw.source() {
+                    S::Text { paint_index } => content.text().paint_bytes(paint_index).unwrap(),
+                    S::Vector { usage_index } => {
+                        let vector = &content.vectors().usages()[usage_index];
+                        let typaxis_display_list::ProductionBodyDraw::Vector(v) =
+                            &display.draws()[draw.draw_index()]
+                        else {
+                            panic!("vector source")
+                        };
+                        assert_eq!(vector.matrix(), v.matrix());
+                        assert_eq!(vector.semantic_hook().owner(), v.binding().node_id());
+                        assert_eq!(
+                            vector.semantic_hook().display_command_fingerprint(),
+                            v.fingerprint()
+                        );
+                        vector.content()
+                    }
+                };
+                assert_eq!(page.draw_content(ordinal).unwrap(), original);
+            }
+        }
+        for form in content.vectors().forms() {
+            let bytes = std::str::from_utf8(form.content_stream()).unwrap();
+            assert!(bytes.contains(" re W n\n"));
+            assert!(
+                !bytes.contains("/ActualText")
+                    && !bytes.contains("/Alt")
+                    && !bytes.contains("/MCID")
+            );
+            assert!(bytes.contains(" c\n")); // Actual font outlines, not a placeholder rectangle.
+        }
+        assert!(content.vectors().pages()[1].resources().is_empty());
+        let again =
+            typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+        assert_eq!(content.vectors(), again.vectors());
+        assert_eq!(
+            content
+                .pages()
+                .iter()
+                .map(|p| p.content())
+                .collect::<Vec<_>>(),
+            again
+                .pages()
+                .iter()
+                .map(|p| p.content())
+                .collect::<Vec<_>>()
+        );
+        let other_fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        assert!(content.verify(&other_fonts, admitted, limits).is_err());
+    });
+}
+
+#[test]
+fn production_body_shared_form_keeps_alias_counts_and_per_occurrence_math_semantics() {
+    let mut value = production_body_fixture(3_000_000);
+    let mut alias = value["resources"]["images"][2].clone();
+    alias["image_id"] = 4.into();
+    value["resources"]["images"][4] = alias.clone();
+    alias["image_id"] = 5.into();
+    value["resources"]["images"]
+        .as_array_mut()
+        .unwrap()
+        .push(alias); // admitted, never placed
+    let inline_metrics =
+        value["document"]["blocks"][0]["blocks"][0]["children"][1]["metrics"].clone();
+    let block = &mut value["document"]["blocks"][0]["blocks"][1];
+    block["metrics"] = inline_metrics;
+    block["alt"] = "ブロック分数".into();
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        let content =
+            typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+        assert_eq!(content.vectors().forms().len(), 1);
+        assert_eq!(content.vectors().usages().len(), 2);
+        let plan = &content.plans().forms().plans()[0];
+        assert_eq!(
+            plan.alias_usage_counts()
+                .iter()
+                .map(|a| (a.image_id().get(), a.usage_count()))
+                .collect::<Vec<_>>(),
+            [(2, 1), (4, 1), (5, 0)]
+        );
+        assert_eq!(plan.total_usage_count(), 2);
+        let vectors = display
+            .draws()
+            .iter()
+            .filter_map(|d| match d {
+                typaxis_display_list::ProductionBodyDraw::Vector(v) => Some(v),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(vectors[0].content_key(), vectors[1].content_key());
+        assert_ne!(vectors[0].fingerprint(), vectors[1].fingerprint());
+        assert_ne!(
+            vectors[0].math_binding().unwrap().resolved_actual_text(),
+            vectors[1].math_binding().unwrap().resolved_actual_text()
+        );
+        assert_eq!(
+            vectors[1].math_binding().unwrap().resolved_actual_text(),
+            "ブロック分数"
+        );
+        assert_eq!(
+            content.vectors().usages()[0].form_relative_object_role(),
+            content.vectors().usages()[1].form_relative_object_role()
+        );
+        assert_eq!(
+            content
+                .pages()
+                .iter()
+                .map(|p| std::str::from_utf8(p.content())
+                    .unwrap()
+                    .matches(" Do")
+                    .count())
+                .sum::<usize>(),
+            2
+        );
+    });
+}
+
+#[test]
+fn production_body_page_content_preserves_blank_pages_and_cumulative_limits() {
+    let mut value = production_body_fixture(10_000_000);
+    let parts = value["document"]["blocks"][0]["blocks"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let page_break = |at: serde_json::Value| serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":{"source_id":0,"start_byte":at,"end_byte":at}});
+    let end = parts[2]["span"]["end_byte"].clone();
+    value["document"]["blocks"][0]["blocks"] = serde_json::json!([
+        page_break(0.into()),
+        parts[0],
+        parts[1],
+        page_break(end.clone()),
+        page_break(end.clone()),
+        parts[2],
+        page_break(end)
+    ]);
+    production_body_renumber(&mut value["document"], &mut 0);
+    let mut records = 0;
+    let mut output_bytes = 0;
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        let content =
+            typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+        records = content.plans().record_charge();
+        output_bytes = content
+            .pages()
+            .iter()
+            .map(|p| p.content().len() as u64)
+            .sum();
+        assert_eq!(
+            content
+                .pages()
+                .iter()
+                .map(|p| p.draws().len())
+                .collect::<Vec<_>>(),
+            [0, 5, 0, 1, 0]
+        );
+        assert_eq!(content.vectors().pages().len(), 5);
+        for index in [0, 2, 4] {
+            assert!(content.vectors().pages()[index].resources().is_empty());
+            assert!(content.vectors().pages()[index].usage_ids().is_empty());
+            let bytes = std::str::from_utf8(content.pages()[index].content()).unwrap();
+            assert!(!bytes.contains("Do") && !bytes.contains("Tj") && !bytes.contains("MCID"));
+        }
+    });
+    for (record_limit, output_limit, success) in [
+        (
+            records - 1,
+            ResourceLimits::default().max_output_bytes,
+            false,
+        ),
+        (records, output_bytes, true),
+        (records, output_bytes - 1, false),
+    ] {
+        let config = config_with_limits(ResourceLimits {
+            max_fragments: record_limit,
+            max_output_bytes: output_limit,
+            ..ResourceLimits::default()
+        });
+        with_production_body_resources(&value, &config, |lines, blocks, limits, admitted| {
+            let selected =
+                typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            let display =
+                typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                    .unwrap();
+            let fonts =
+                typaxis_resources::finalize_production_body_fonts(&display, admitted, limits)
+                    .unwrap();
+            let result = typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits);
+            assert_eq!(result.is_ok(), success);
+            if !success {
+                assert!(matches!(
+                    result,
+                    Err(typaxis_pdf::ProductionBodyPageError::OutputLimit)
+                        | Err(typaxis_pdf::ProductionBodyPageError::Forms(
+                            typaxis_resources::StagingSafeVectorResourceV2Error::RecordLimit
+                        ))
+                ));
+            }
+        });
+    }
+}
+
+#[test]
+fn production_body_page_content_places_5000_real_svg_aliases_with_one_shared_form() {
+    use serde_json::json;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_inline_vmb_fixture(false)).unwrap();
+    let image = value["resources"]["images"][2].clone();
+    let paragraph = value["document"]["blocks"][0]["blocks"][0].clone();
+    let formula = paragraph["children"][0].clone();
+    let text_id = formula["source_tex"]["text_span"]["text_id"]
+        .as_u64()
+        .unwrap() as usize;
+    let tex = value["text_buffers"][text_id]["utf8"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut images = Vec::new();
+    let mut paragraphs = Vec::new();
+    let mut buffers = Vec::new();
+    for index in 0..5000 {
+        let mut im = image.clone();
+        im["image_id"] = json!(index);
+        images.push(im);
+        let span =
+            json!({"source_id":0,"start_byte":index*tex.len(),"end_byte":(index+1)*tex.len()});
+        let mut p = paragraph.clone();
+        p["span"] = span.clone();
+        p["children"][0]["span"] = span.clone();
+        p["children"][0]["image_id"] = json!(index);
+        p["children"][0]["source_tex"]["text_span"]["text_id"] = json!(index);
+        paragraphs.push(p);
+        buffers.push(
+            json!({"text_id":index,"utf8":tex,"mappings":[{"kind":"identity","source_span":span,
+            "text_range":{"start_byte":0,"end_byte":tex.len()}}]}),
+        );
+    }
+    value["resources"]["images"] = json!(images);
+    value["document"]["blocks"][0]["blocks"] = json!(paragraphs);
+    value["document"]["blocks"][0]["span"]["end_byte"] = json!(5000 * tex.len());
+    value["text_buffers"] = json!(buffers);
+    value["sources"][0]["utf8_byte_length"] = json!(5000 * tex.len());
+    value["sources"][0]["sha256"] = json!(sha256(tex.repeat(5000).as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>());
+    production_body_renumber(&mut value["document"], &mut 0);
+    let config = config_with_limits(ResourceLimits {
+        max_images: 8192,
+        ..ResourceLimits::default()
+    });
+    with_production_body_resources(&value, &config, |lines, blocks, limits, admitted| {
+        assert_eq!(admitted.images().len(), 5000);
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        assert!(fonts.fonts().is_empty());
+        let content =
+            typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+        assert_eq!(content.vectors().forms().len(), 1);
+        assert_eq!(content.vectors().usages().len(), 5000);
+        let plan = &content.plans().forms().plans()[0];
+        assert_eq!(plan.alias_usage_counts().len(), 5000);
+        assert!(plan
+            .alias_usage_counts()
+            .iter()
+            .all(|a| a.usage_count() == 1));
+        assert!(content.pages().len() > 1);
+        assert_eq!(
+            content
+                .pages()
+                .iter()
+                .map(|p| p.draws().len())
+                .sum::<usize>(),
+            5000
+        );
+        assert_eq!(
+            content
+                .pages()
+                .iter()
+                .map(|p| std::str::from_utf8(p.content())
+                    .unwrap()
+                    .matches(" Do")
+                    .count())
+                .sum::<usize>(),
+            5000
+        );
+        assert!(content
+            .pages()
+            .iter()
+            .all(|p| !std::str::from_utf8(p.content()).unwrap().contains(" Tj")));
+        assert!(content
+            .vectors()
+            .usages()
+            .windows(2)
+            .all(|w| w[0].paint_ordinal() + 1 == w[1].paint_ordinal()
+                && w[0].page_index() <= w[1].page_index()));
+    });
+}

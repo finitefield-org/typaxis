@@ -609,12 +609,15 @@ fn collect_precomposed_vector_authorization(
 
     let descriptor = StagingPrecomposedVectorProfileDescriptor;
     let mut uses = Vec::new();
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(|_| StagingPrecomposedVectorProfileError::ReceiptMismatch)?;
     for ((owner, kind, image_id), metrics) in domain_uses
         .into_iter()
         .zip(package.precomposed_vector_metrics())
     {
-        package
-            .verify_precomposed_vector_metrics(metrics)
+        verifier
+            .verify_metrics(metrics)
             .map_err(|_| StagingPrecomposedVectorProfileError::ReceiptMismatch)?;
         if metrics.node_id() != owner
             || metrics.kind() != kind
@@ -646,8 +649,8 @@ fn collect_precomposed_vector_authorization(
                 let style = package
                     .precomposed_vector_style(owner)
                     .ok_or(StagingPrecomposedVectorProfileError::StyleMismatch(owner))?;
-                package
-                    .verify_precomposed_vector_style(style)
+                verifier
+                    .verify_style(owner, style)
                     .map_err(|_| StagingPrecomposedVectorProfileError::StyleMismatch(owner))?;
                 style
                     .verify_for(style_kind)

@@ -19,6 +19,7 @@ pub struct ProductionBodyFontPlans<'v, 'd, 's, 'p, 'a> {
     // One slot per draw. Vector draws deliberately have no font usage.
     draw_clusters: Vec<Option<(usize, usize)>>,
     record_charge: u64,
+    spool_charge: u64,
 }
 impl<'v, 'd, 's, 'p, 'a> ProductionBodyFontPlans<'v, 'd, 's, 'p, 'a> {
     pub fn fonts(&self) -> &[FrozenStagingPdfTextFontPlan] {
@@ -26,6 +27,9 @@ impl<'v, 'd, 's, 'p, 'a> ProductionBodyFontPlans<'v, 'd, 's, 'p, 'a> {
     }
     pub const fn display(&self) -> &'v ProductionBodyDisplay<'d, 's, 'p, 'a> {
         self.display
+    }
+    pub const fn spool_charge(&self) -> u64 {
+        self.spool_charge
     }
     pub const fn record_charge(&self) -> u64 {
         self.record_charge
@@ -162,5 +166,6 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
         fonts,
         draw_clusters,
         record_charge,
+        spool_charge: copied_bytes,
     })
 }

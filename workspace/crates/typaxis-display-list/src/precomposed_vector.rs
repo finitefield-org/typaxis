@@ -910,7 +910,7 @@ fn binding_for(
         .ok_or(StagingPrecomposedVectorDisplayError::SelectedMismatch)
 }
 
-fn content_key_for(
+pub(crate) fn content_key_for(
     binding: &ValidatedPrecomposedVectorReceipt,
     admitted: &AdmittedResourceLedger,
 ) -> Result<VectorContentKey, StagingPrecomposedVectorDisplayError> {
@@ -937,7 +937,7 @@ fn content_key_for(
     Ok(key)
 }
 
-fn binding_paint(binding: &ValidatedPrecomposedVectorReceipt) -> ResolvedRgb8 {
+pub(crate) fn binding_paint(binding: &ValidatedPrecomposedVectorReceipt) -> ResolvedRgb8 {
     match binding.placement() {
         PrecomposedVectorPlacementInput::Inline(value) => value.paint(),
         PrecomposedVectorPlacementInput::VectorFigure(value) => value.paint(),
@@ -945,7 +945,7 @@ fn binding_paint(binding: &ValidatedPrecomposedVectorReceipt) -> ResolvedRgb8 {
     }
 }
 
-fn placement_matrix(viewport: Rect, scale: i32) -> AffineTransform {
+pub(crate) fn placement_matrix(viewport: Rect, scale: i32) -> AffineTransform {
     AffineTransform {
         a: Unitless16_16::from_raw(scale),
         b: Unitless16_16::from_raw(0),

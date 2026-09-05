@@ -674,6 +674,10 @@ PDF writerはselected glyph位置とfrozen CID planから描画し、本文を�
 
 実装追補（2026-09-06）: `typaxis-display-list/src/production_body.rs`で共通ページ配置を本文glyph/SVGのpage-space displayへ投影し、`typaxis-resources/src/production_body.rs`でadmitted fontとexact displayに結びつく共有CID計画を追加した。`typaxis-pdf/src/production_body_text.rs`はその計画から実font size・位置・CIDを描画命令へ変換する。実VMBの2ページ入力と65,536本文glyphのCID共有を検証した。これは本文描画contributionまでであり、式番号、最終object/structure/navigation plan、public writerへの接続と独立render/extractは未完了である。詳しい証拠と未接続範囲は[実装台帳](28-vmb-book-production-progress.md)の同日追補を参照する。
 
+追加実装（2026-09-06）: `finalize_production_body_vectors`は同じ本文font/display ownerから内容キー順のForm計画を作り、`build_production_body_page_content`は本文とSVGを選択済みdraw順に同じページストリームへ結合する。SVGのmatrix/scale/currentColorはbound placementから取得し、FormにはAlt/ActualText/MCIDを入れない。共有Formのalias使用数と配置別の意味情報を別に保持する。空白ページにも一回だけpage root Y反転を置き、描画のないページへdummy glyph/Doを追加しない。最終structure ownerが各drawを正しいMCRへ結ぶため、source draw indexと描画byte範囲を公開する。これ自体をタグ付きPDFの最終認可や公開writerの完成とはしない。
+
+5,000 alias試験のCPUサンプルから、言語検証等で各vectorの検査のたびに全packageの`checked_wire`を繰り返す二乗処理を確認した。`PrecomposedVectorVerification`は全体検査後のimmutable packageを借用する非構築可能なscopeとし、言語・metrics・styleの個別照合を同じscopeで行う。既存単発APIは従来の全体検査を保持する。scope内でも別owner/sessionのmetrics、改変language/styleは拒否し、scope作成時は他nodeにある破損も検出する。言語・構造・profile・layout・式番号shapingのbatchへ接続する。PDF側もpageごとの全usage再走査を一回のpage groupingへ変更する。これは§6.5の調査後に確認した追加の書籍規模性能修正であり、検証内容やaliasごとのresource admission課金を省略する変更ではない。
+
 ### 14.4 追加の必須回帰・完了条件
 
 - native数式0の本文＋inline/block SVG、通常TrueType（MATHなし）でcheck/buildと独立render/extractが成功する。本文だけの入力も対応profileの範囲で同様に確認する。

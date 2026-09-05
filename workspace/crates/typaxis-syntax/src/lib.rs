@@ -37,7 +37,7 @@ pub use semantic_container::{
     ValidatedPrecomposedVectorEffectiveLanguage, ValidatedPrecomposedVectorEquationNumber,
     ValidatedPrecomposedVectorLanguageOverride, ValidatedPrecomposedVectorMetrics,
     ValidatedPrecomposedVectorTextBinding, ValidatedProductionMachinePackage,
-    ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
+    PrecomposedVectorVerification, ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
     PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM, PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
 };
 pub use tagged_structure::{

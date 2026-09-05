@@ -263,6 +263,7 @@ pub enum StagingSafeVectorResourceV2Error {
     AliasMismatch(ImageResourceId),
     LimitsMismatch,
     CountOverflow,
+    RecordLimit,
     ObjectRoleCountOverflow,
     AllocationFailure,
     ReceiptMismatch,
@@ -283,6 +284,9 @@ impl std::fmt::Display for StagingSafeVectorResourceV2Error {
                 id.get()
             ),
             Self::LimitsMismatch => formatter.write_str("I9190: vector Form plan limits mismatch"),
+            Self::RecordLimit => {
+                formatter.write_str("D8101: production vector record limit exceeded")
+            }
             Self::CountOverflow => formatter.write_str("D8101: vector Form plan count overflow"),
             Self::ObjectRoleCountOverflow => {
                 formatter.write_str("D8101: vector relative object-role count overflow")
@@ -398,6 +402,45 @@ pub fn finalize_staging_combined_safe_vector_forms_v2(
         display.receipt().fingerprint(),
         u32::try_from(keys.len()).map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
         display.receipt().usage_count(),
+        &usages,
+        registry,
+        limits,
+    )
+}
+
+pub(crate) fn finalize_production_display_forms(
+    display: &typaxis_display_list::ProductionBodyDisplay<'_, '_, '_, '_>,
+    registry: &VectorContentCandidateRegistry,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StagingSafeVectorFormPlansV2, StagingSafeVectorResourceV2Error> {
+    use typaxis_display_list::ProductionBodyDraw;
+    let mut keys = BTreeSet::new();
+    let mut usages = Vec::new();
+    for (draw_index, draw) in display.draws().iter().enumerate() {
+        let ProductionBodyDraw::Vector(vector) = draw else {
+            continue;
+        };
+        let usage_id = u32::try_from(usages.len())
+            .map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?;
+        keys.insert(vector.content_key());
+        usages
+            .try_reserve(1)
+            .map_err(|_| StagingSafeVectorResourceV2Error::AllocationFailure)?;
+        usages.push(PlanningUsage {
+            usage_id,
+            image_id: vector.binding().resource().image_id(),
+            content_key: vector.content_key(),
+            ir_fingerprint: vector.content_key().ir_fingerprint(),
+            page_index: vector.page_index(),
+            paint_ordinal: u32::try_from(draw_index)
+                .map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
+            display_command_fingerprint: vector.fingerprint(),
+        });
+    }
+    assemble_form_plans_v2(
+        display.fingerprint(),
+        u32::try_from(keys.len()).map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
+        u32::try_from(usages.len()).map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
         &usages,
         registry,
         limits,

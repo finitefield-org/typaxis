@@ -1221,14 +1221,35 @@ pub fn shape_staging_equation_number(
     layout_epoch_fingerprint: [u8; 32],
     owner_language: &ValidatedPrecomposedVectorEffectiveLanguage,
 ) -> Result<Option<StagingEquationNumberShapeReceipt>, StagingEquationNumberShapeError> {
-    package
-        .verify_precomposed_vector_metrics(metrics)
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+    shape_staging_equation_number_in_scope(
+        &verifier,
+        metrics,
+        admitted,
+        layout_epoch_fingerprint,
+        owner_language,
+    )
+}
+
+/// Shares whole-package integrity verification across an immutable batch.
+pub fn shape_staging_equation_number_in_scope(
+    verifier: &typaxis_syntax::PrecomposedVectorVerification<'_>,
+    metrics: &ValidatedPrecomposedVectorMetrics,
+    admitted: &AdmittedResourceLedger,
+    layout_epoch_fingerprint: [u8; 32],
+    owner_language: &ValidatedPrecomposedVectorEffectiveLanguage,
+) -> Result<Option<StagingEquationNumberShapeReceipt>, StagingEquationNumberShapeError> {
+    let package = verifier.package();
+    verifier
+        .verify_metrics(metrics)
         .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
     if metrics.kind() != PrecomposedVectorKind::MathVectorBlock {
         return Err(StagingEquationNumberShapeError::ReceiptMismatch);
     }
-    package
-        .verify_precomposed_vector_effective_language(owner_language)
+    verifier
+        .verify_language(owner_language)
         .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
     if owner_language.owner() != metrics.node_id()
         || owner_language.kind() != PrecomposedVectorKind::MathVectorBlock
@@ -1248,8 +1269,8 @@ pub fn shape_staging_equation_number(
     let style = package
         .precomposed_vector_style(owner)
         .ok_or(StagingEquationNumberShapeError::ReceiptMismatch)?;
-    package
-        .verify_precomposed_vector_style(style)
+    verifier
+        .verify_style(owner, style)
         .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
     let number_style = style
         .equation_number_text_style()
@@ -1278,9 +1299,7 @@ pub fn shape_staging_equation_number(
         .ok_or(StagingEquationNumberShapeError::MissingSelectedFont)?;
 
     let text_span = number.text().text_span();
-    let wire = package
-        .checked_wire()
-        .map_err(|_| StagingEquationNumberShapeError::ReceiptMismatch)?;
+    let wire = verifier.wire();
     let buffer = wire
         .text_buffers()
         .iter()

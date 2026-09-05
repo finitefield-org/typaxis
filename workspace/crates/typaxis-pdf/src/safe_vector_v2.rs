@@ -525,6 +525,55 @@ pub fn build_staging_combined_safe_vector_pdf_contribution_v2(
     )
 }
 
+pub(crate) fn build_production_body_vector_contribution(
+    plans: &typaxis_resources::ProductionBodyVectorPlans<'_, '_, '_, '_, '_, '_>,
+    admitted: &typaxis_resource_admission::AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    spool_limit: u64,
+) -> Result<StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfV2Error> {
+    use typaxis_display_list::ProductionBodyDraw;
+    plans
+        .verify(plans.fonts(), admitted, limits)
+        .map_err(|_| StagingSafeVectorPdfV2Error::DisplayMismatch)?;
+    let display = plans.fonts().display();
+    let mut inputs = Vec::new();
+    for (index, draw) in display.draws().iter().enumerate() {
+        let ProductionBodyDraw::Vector(vector) = draw else {
+            continue;
+        };
+        inputs
+            .try_reserve(1)
+            .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
+        inputs.push(PdfUsageInput {
+            usage_id: u32::try_from(inputs.len())
+                .map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
+            owner: vector.binding().node_id(),
+            kind: vector.binding().kind().into(),
+            image_id: vector.binding().resource().image_id(),
+            content_key: vector.content_key(),
+            ir_fingerprint: vector.content_key().ir_fingerprint(),
+            page_index: vector.page_index(),
+            paint_ordinal: u32::try_from(index)
+                .map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
+            viewport: vector.viewport(),
+            scale: vector.scale_raw(),
+            matrix: vector.matrix(),
+            color: vector.resolved_current_color(),
+            display_command_fingerprint: vector.fingerprint(),
+        });
+    }
+    build_staging_safe_vector_pdf_contribution_v2_from_inputs(
+        display.fingerprint(),
+        u32::try_from(display.selected().pages().len())
+            .map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
+        &inputs,
+        plans.forms(),
+        plans.registry(),
+        limits,
+        spool_limit,
+    )
+}
+
 #[derive(Clone, Copy)]
 struct PdfUsageInput {
     usage_id: u32,
@@ -635,10 +684,10 @@ fn build_staging_safe_vector_pdf_contribution_v2_from_inputs(
             .candidate(&input.content_key)
             .map_or(true, |candidate| {
                 candidate.canonical_ir().fingerprint() != input.ir_fingerprint
-                    || !candidate
+                    || candidate
                         .aliases()
-                        .iter()
-                        .any(|alias| alias.image_id() == input.image_id)
+                        .binary_search_by_key(&input.image_id, |alias| alias.image_id())
+                        .is_err()
             })
     }) {
         return Err(StagingSafeVectorPdfV2Error::CandidateMismatch);
@@ -1508,16 +1557,19 @@ fn build_page_contributions(
             usize::try_from(page_count).map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
         )
         .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
-    for page_index in 0..page_count {
-        let page_usage_count = inputs
-            .iter()
-            .filter(|input| input.page_index == page_index)
-            .count();
-        let mut page_inputs: Vec<&PdfUsageInput> = Vec::new();
-        page_inputs
-            .try_reserve_exact(page_usage_count)
+    let mut by_page = BTreeMap::<u32, Vec<&PdfUsageInput>>::new();
+    for input in inputs {
+        if input.page_index >= page_count {
+            return Err(StagingSafeVectorPdfV2Error::InvalidPlacement);
+        }
+        let group = by_page.entry(input.page_index).or_default();
+        group
+            .try_reserve(1)
             .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
-        page_inputs.extend(inputs.iter().filter(|input| input.page_index == page_index));
+        group.push(input);
+    }
+    for page_index in 0..page_count {
+        let mut page_inputs = by_page.remove(&page_index).unwrap_or_default();
         page_inputs.sort_unstable_by_key(|input| input.paint_ordinal);
         let mut unique = BTreeMap::new();
         let mut usage_ids = Vec::new();

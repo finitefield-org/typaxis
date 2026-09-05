@@ -1043,7 +1043,7 @@ fn precomposed_vector_profile_bindings(
     package: &ValidatedStagingSemanticPackage,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<Vec<(NodeId, [u8; 32])>, StagingSemanticSyntaxError> {
-    package.checked_wire()?;
+    let verifier = package.precomposed_vector_verifier()?;
     if package.limits() != limits.base() {
         return Err(StagingSemanticSyntaxError::ReceiptMismatch);
     }
@@ -1052,7 +1052,7 @@ fn precomposed_vector_profile_bindings(
         .try_reserve_exact(package.precomposed_vector_metrics().len())
         .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
     for metrics in package.precomposed_vector_metrics() {
-        package.verify_precomposed_vector_metrics(metrics)?;
+        verifier.verify_metrics(metrics)?;
         bindings.push((metrics.node_id(), metrics.fingerprint()));
     }
     if bindings.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
@@ -2470,6 +2470,12 @@ impl ValidatedStagingSemanticPackage {
         receipt: &ValidatedPrecomposedVectorEffectiveLanguage,
     ) -> Result<(), StagingSemanticSyntaxError> {
         self.checked_wire()?;
+        self.verify_precomposed_vector_effective_language_local(receipt)
+    }
+    fn verify_precomposed_vector_effective_language_local(
+        &self,
+        receipt: &ValidatedPrecomposedVectorEffectiveLanguage,
+    ) -> Result<(), StagingSemanticSyntaxError> {
         let metrics = self
             .precomposed_vector_metrics_for(receipt.owner)
             .ok_or(StagingSemanticSyntaxError::ReceiptMismatch)?;
@@ -2492,6 +2498,12 @@ impl ValidatedStagingSemanticPackage {
         receipt: &ValidatedPrecomposedVectorMetrics,
     ) -> Result<(), StagingSemanticSyntaxError> {
         self.checked_wire()?;
+        self.verify_precomposed_vector_metrics_local(receipt)
+    }
+    fn verify_precomposed_vector_metrics_local(
+        &self,
+        receipt: &ValidatedPrecomposedVectorMetrics,
+    ) -> Result<(), StagingSemanticSyntaxError> {
         let Some(owned) = self.precomposed_vector_metrics_for(receipt.node_id()) else {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         };
@@ -2505,6 +2517,13 @@ impl ValidatedStagingSemanticPackage {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         }
         Ok(())
+    }
+    /// Validates the whole immutable package once for a batch of vector owners.
+    pub fn precomposed_vector_verifier(
+        &self,
+    ) -> Result<PrecomposedVectorVerification<'_>, StagingSemanticSyntaxError> {
+        self.checked_wire()?;
+        Ok(PrecomposedVectorVerification { package: self })
     }
     pub fn checked_wire(
         &self,
@@ -2541,6 +2560,50 @@ impl ValidatedStagingSemanticPackage {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         }
         Ok(&self.wire)
+    }
+}
+
+/// An immutable borrow prevents package mutation for the lifetime of this
+/// verification scope. It cannot be constructed from a hash or another owner.
+pub struct PrecomposedVectorVerification<'a> {
+    package: &'a ValidatedStagingSemanticPackage,
+}
+impl<'a> PrecomposedVectorVerification<'a> {
+    pub const fn package(&self) -> &'a ValidatedStagingSemanticPackage {
+        self.package
+    }
+    pub const fn wire(&self) -> &'a WireStagingM4DocumentPackage {
+        &self.package.wire
+    }
+    pub fn verify_metrics(
+        &self,
+        receipt: &ValidatedPrecomposedVectorMetrics,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.package
+            .verify_precomposed_vector_metrics_local(receipt)
+    }
+    pub fn verify_language(
+        &self,
+        receipt: &ValidatedPrecomposedVectorEffectiveLanguage,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        self.package
+            .verify_precomposed_vector_effective_language_local(receipt)
+    }
+    pub fn verify_style(
+        &self,
+        owner: NodeId,
+        receipt: &PrecomposedVectorComputedStyleReceipt,
+    ) -> Result<(), StagingSemanticSyntaxError> {
+        if !self
+            .package
+            .precomposed_vector_styles
+            .get(&owner)
+            .is_some_and(|owned| std::ptr::eq(owned, receipt))
+            || receipt.verify_for(receipt.kind()).is_err()
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        Ok(())
     }
 }
 
@@ -5888,6 +5951,18 @@ mod tests {
         ));
         assert_ne!(math.fingerprint(), [0; 32]);
         package.verify_precomposed_vector_metrics(math).unwrap();
+        let scope = package.precomposed_vector_verifier().unwrap();
+        scope.verify_metrics(math).unwrap();
+        assert!(std::ptr::eq(scope.package(), &package));
+        for language in package.precomposed_vector_effective_languages().unwrap() {
+            scope.verify_language(&language).unwrap();
+            let mut bad_language = language.clone();
+            bad_language.fingerprint = [0; 32];
+            assert_eq!(
+                scope.verify_language(&bad_language),
+                Err(StagingSemanticSyntaxError::ReceiptMismatch)
+            );
+        }
 
         let same_input_new_session = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
         assert_eq!(
@@ -5902,8 +5977,19 @@ mod tests {
             Err(StagingSemanticSyntaxError::ReceiptMismatch)
         );
 
+        assert_eq!(
+            same_input_new_session
+                .precomposed_vector_verifier()
+                .unwrap()
+                .verify_metrics(math),
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        );
         let mut tampered = parse(PRECOMPOSED_VECTOR_FIXTURE).unwrap();
         tampered.precomposed_vector_metrics[0].fingerprint = [0; 32];
+        assert!(matches!(
+            tampered.precomposed_vector_verifier(),
+            Err(StagingSemanticSyntaxError::ReceiptMismatch)
+        ));
         let otherwise_intact = &tampered.precomposed_vector_metrics[1];
         assert_eq!(
             tampered.verify_precomposed_vector_metrics(otherwise_intact),

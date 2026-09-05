@@ -579,6 +579,9 @@ fn build_staging_precomposed_vector_blocks(
     blocks
         .try_reserve_exact(block_count)
         .map_err(|_| StagingPrecomposedVectorBlockLayoutError::AllocationFailure)?;
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(|_| StagingPrecomposedVectorBlockLayoutError::BindingMismatch)?;
     for receipt in bindings.receipts().iter().filter(|receipt| {
         matches!(
             receipt.kind(),
@@ -593,8 +596,8 @@ fn build_staging_precomposed_vector_blocks(
         let style = package
             .precomposed_vector_style(owner)
             .ok_or(StagingPrecomposedVectorBlockLayoutError::BindingMismatch)?;
-        package
-            .verify_precomposed_vector_style(style)
+        verifier
+            .verify_style(owner, style)
             .map_err(|_| StagingPrecomposedVectorBlockLayoutError::BindingMismatch)?;
         if metrics.fingerprint() != receipt.metrics_fingerprint()
             || style.fingerprint()

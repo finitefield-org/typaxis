@@ -1,15 +1,17 @@
 //! Source-ordered page-space projection. Structure/paint permits are separate
 //! owners; this stage does not authorize an untagged replacement PDF.
+use crate::precomposed_vector::{binding_paint, content_key_for, placement_matrix};
 use typaxis_core::{
-    sha256, DisplayTextBufferId, DisplayTextSpan, FontFaceId, Length, M4EffectiveResourceLimits,
-    NodeId, PositiveLength, Rect,
+    sha256, AffineTransform, DisplayTextBufferId, DisplayTextSpan, FontFaceId, Length,
+    M4EffectiveResourceLimits, NodeId, PositiveLength, Rect,
 };
 use typaxis_font::OriginalGlyphId;
+use typaxis_layout::PrecomposedVectorPlacementInput;
 use typaxis_layout::{
     ProductionPlacedInline, ValidatedMathVectorReceipt, ValidatedPrecomposedVectorReceipt,
 };
 use typaxis_pagination::{ProductionBodyFragmentSource, ProductionBodySelectedLayout};
-use typaxis_resource_admission::AdmittedResourceLedger;
+use typaxis_resource_admission::{AdmittedResourceLedger, VectorContentKey};
 use typaxis_syntax::PrecomposedVectorKind;
 
 pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/1";
@@ -111,8 +113,29 @@ pub struct ProductionBodyVectorDraw<'d> {
     binding: &'d ValidatedPrecomposedVectorReceipt,
     math_binding: Option<&'d ValidatedMathVectorReceipt>,
     viewport: Rect,
+    content_key: VectorContentKey,
+    scale_raw: i32,
+    matrix: AffineTransform,
+    color: [u8; 3],
+    fingerprint: [u8; 32],
 }
 impl<'d> ProductionBodyVectorDraw<'d> {
+    pub const fn content_key(&self) -> VectorContentKey {
+        self.content_key
+    }
+    pub const fn scale_raw(&self) -> i32 {
+        self.scale_raw
+    }
+    pub const fn matrix(&self) -> AffineTransform {
+        self.matrix
+    }
+    pub const fn resolved_current_color(&self) -> [u8; 3] {
+        self.color
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
     pub const fn page_index(&self) -> u32 {
         self.page_index
     }
@@ -143,6 +166,12 @@ pub struct ProductionBodyDisplay<'d, 's, 'p, 'a> {
     fingerprint: [u8; 32],
 }
 impl<'d, 's, 'p, 'a> ProductionBodyDisplay<'d, 's, 'p, 'a> {
+    pub fn resource_declarations(&self) -> &typaxis_document::StagingM4ResourceCatalog {
+        self.selected
+            .line_layout()
+            .source_flow()
+            .resource_declarations()
+    }
     pub fn draws(&self) -> &[ProductionBodyDraw<'d>] {
         &self.draws
     }
@@ -264,6 +293,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                             take(&mut remaining, 1, owner)?;
                             ProductionBodyDraw::Vector(vector_draw(
                                 selected,
+                                admitted,
                                 owner,
                                 index,
                                 fragment.page_index(),
@@ -294,6 +324,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                     .map_err(|_| error(block.owner(), E::AllocationFailure))?;
                 draws.push(ProductionBodyDraw::Vector(vector_draw(
                     selected,
+                    admitted,
                     block.owner(),
                     index,
                     fragment.page_index(),
@@ -317,6 +348,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
 }
 fn vector_draw<'d>(
     selected: &'d ProductionBodySelectedLayout<'_, '_, '_>,
+    admitted: &AdmittedResourceLedger,
     owner: NodeId,
     fragment_index: u32,
     page_index: u32,
@@ -336,7 +368,25 @@ fn vector_draw<'d>(
     {
         return Err(error(owner, E::ReceiptMismatch));
     }
+    let content_key =
+        content_key_for(binding, admitted).map_err(|_| error(owner, E::ReceiptMismatch))?;
+    let scale_raw = match binding.placement() {
+        PrecomposedVectorPlacementInput::Inline(p) => p.scale().get().raw(),
+        PrecomposedVectorPlacementInput::VectorFigure(p) => p.scale().get().raw(),
+        PrecomposedVectorPlacementInput::MathVectorBlock(p) => p.scale().get().raw(),
+    };
+    let paint = binding_paint(binding);
+    let mut fingerprint_input = [0u8; 72];
+    fingerprint_input[..32].copy_from_slice(&selected.fingerprint());
+    fingerprint_input[32..64].copy_from_slice(&binding.fingerprint());
+    fingerprint_input[64..68].copy_from_slice(&fragment_index.to_be_bytes());
+    fingerprint_input[68..].copy_from_slice(&page_index.to_be_bytes());
     Ok(ProductionBodyVectorDraw {
+        content_key,
+        scale_raw,
+        matrix: placement_matrix(viewport, scale_raw),
+        color: [paint.red(), paint.green(), paint.blue()],
+        fingerprint: sha256(&fingerprint_input),
         page_index,
         fragment_index,
         binding,

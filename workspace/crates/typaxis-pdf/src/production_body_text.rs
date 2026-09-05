@@ -51,6 +51,9 @@ impl<'f, 'v, 'd, 's, 'p, 'a> ProductionBodyTextContribution<'f, 'v, 'd, 's, 'p, 
         let p = self.paints.get(paint_index)?;
         Some(&self.bytes[p.start..p.end])
     }
+    pub fn byte_length(&self) -> u64 {
+        self.bytes.len() as u64
+    }
     pub const fn record_charge(&self) -> u64 {
         self.record_charge
     }
@@ -79,11 +82,13 @@ pub fn encode_production_body_text<'f, 'v, 'd, 's, 'p, 'a>(
         .verify(fonts.display(), admitted, limits)
         .map_err(|_| E::ReceiptMismatch)?;
     let mut record_charge = fonts.record_charge();
-    let maximum = limits
+    let remaining_spool = limits
         .base()
         .get()
-        .max_output_bytes
-        .min(limits.base().get().max_spool_bytes);
+        .max_spool_bytes
+        .checked_sub(fonts.spool_charge())
+        .ok_or(E::OutputLimit)?;
+    let maximum = limits.base().get().max_output_bytes.min(remaining_spool);
     let mut bytes = Vec::new();
     let mut paints = Vec::new();
     for (draw_index, draw) in fonts.display().draws().iter().enumerate() {

@@ -731,6 +731,7 @@ enum StructureSemanticNavigation<'a> {
 }
 
 struct SemanticCollector<'a> {
+    vectors: crate::PrecomposedVectorVerification<'a>,
     package: &'a ValidatedStagingSemanticPackage,
     navigation: StructureSemanticNavigation<'a>,
     generation: StructureSemanticGeneration,
@@ -771,6 +772,9 @@ pub fn validate_staging_structure_semantics(
         return Err(StagingStructureSemanticError::InvalidSemanticTree);
     }
     let mut collector = SemanticCollector {
+        vectors: package
+            .precomposed_vector_verifier()
+            .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?,
         package,
         navigation: StructureSemanticNavigation::V1(navigation),
         generation: StructureSemanticGeneration::V1,
@@ -875,6 +879,9 @@ pub fn validate_staging_structure_semantics_v2(
         return Err(StagingStructureSemanticError::InvalidSemanticTree);
     }
     let mut collector = SemanticCollector {
+        vectors: package
+            .precomposed_vector_verifier()
+            .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?,
         package,
         navigation: StructureSemanticNavigation::V2(navigation),
         generation: StructureSemanticGeneration::V2,
@@ -1104,8 +1111,8 @@ impl SemanticCollector<'_> {
             .package
             .precomposed_vector_metrics_for(owner)
             .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-        self.package
-            .verify_precomposed_vector_metrics(metrics)
+        self.vectors
+            .verify_metrics(metrics)
             .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
         if metrics.kind() != expected_kind {
             return Err(StagingStructureSemanticError::ReceiptMismatch);
@@ -1405,8 +1412,8 @@ impl SemanticCollector<'_> {
                         .package
                         .precomposed_vector_metrics_for(node)
                         .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-                    self.package
-                        .verify_precomposed_vector_metrics(metrics)
+                    self.vectors
+                        .verify_metrics(metrics)
                         .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
                     if metrics.kind() != PrecomposedVectorKind::MathVectorBlock {
                         return Err(StagingStructureSemanticError::ReceiptMismatch);
@@ -1635,8 +1642,8 @@ impl SemanticCollector<'_> {
                     .package
                     .precomposed_vector_metrics_for(node)
                     .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-                self.package
-                    .verify_precomposed_vector_metrics(metrics)
+                self.vectors
+                    .verify_metrics(metrics)
                     .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
                 if metrics.kind() != PrecomposedVectorKind::InlineVector {
                     return Err(StagingStructureSemanticError::ReceiptMismatch);
@@ -1667,8 +1674,8 @@ impl SemanticCollector<'_> {
                     .package
                     .precomposed_vector_metrics_for(node)
                     .ok_or(StagingStructureSemanticError::ReceiptMismatch)?;
-                self.package
-                    .verify_precomposed_vector_metrics(metrics)
+                self.vectors
+                    .verify_metrics(metrics)
                     .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?;
                 if metrics.kind() != PrecomposedVectorKind::MathVector {
                     return Err(StagingStructureSemanticError::ReceiptMismatch);

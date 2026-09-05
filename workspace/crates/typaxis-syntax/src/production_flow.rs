@@ -188,6 +188,9 @@ pub struct ProductionTextFlow<'a> {
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionTextFlow<'a> {
+    pub fn resource_declarations(&self) -> &typaxis_document::StagingM4ResourceCatalog {
+        self.package.resources()
+    }
     pub fn semantic_container_style(
         &self,
         owner: NodeId,

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod production_body_pages;
 mod production_body_text;
 mod advanced_columns;
 mod advanced_content;
@@ -15,6 +16,10 @@ mod semantic_container;
 mod tagged_pdf;
 mod tagged_pdf_v2;
 
+pub use production_body_pages::{
+    build_production_body_page_content, ProductionBodyPage, ProductionBodyPageContent,
+    ProductionBodyPageDraw, ProductionBodyPageDrawSource, ProductionBodyPageError,
+};
 pub use production_body_text::{
     encode_production_body_text, ProductionBodyTextContribution, ProductionBodyTextError,
     ProductionBodyTextPaint,

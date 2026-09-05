@@ -1834,6 +1834,9 @@ fn validate_languages_v2(
     base_limits_sha256: [u8; 32],
     limits: &M4EffectiveResourceLimits,
 ) -> Result<ComputedLanguageRegistryReceiptV2, BookNavigationSyntaxError> {
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(map_semantic_error)?;
     let vector_languages = package
         .precomposed_vector_effective_languages()
         .map_err(map_semantic_error)?;
@@ -1899,9 +1902,7 @@ fn validate_languages_v2(
                 || language.kind() != metrics.kind()
                 || node_kind != expected_kind
                 || language.language() != effective.as_ref()
-                || package
-                    .verify_precomposed_vector_effective_language(language)
-                    .is_err()
+                || verifier.verify_language(language).is_err()
             {
                 return Err(BookNavigationSyntaxError::mismatch());
             }

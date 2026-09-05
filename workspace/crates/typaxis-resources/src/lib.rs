@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
 mod production_body;
+mod production_vectors;
 mod safe_vector;
 mod safe_vector_v2;
 mod staging_text;
 mod vector_content;
 
+pub use production_vectors::{finalize_production_body_vectors, ProductionBodyVectorPlans};
 pub use production_body::{
     finalize_production_body_fonts, ProductionBodyFontPlans, PRODUCTION_BODY_FONTS_ALGORITHM,
 };

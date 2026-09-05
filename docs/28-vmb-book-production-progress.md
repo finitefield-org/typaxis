@@ -14,7 +14,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | Original image/font count diagnostic pointer | Unit and both CLI runner boundary tests passed |
 | Resolver cursor and finalized dense image lookup | Existing aggregate/order/admission regressions passed; mixed/5,000 performance evidence pending |
 | Real VMB fixtures and provenance ledger | Unchanged chapter SVG plus 20 actual-engine conversions, original/derived hashes and font notices stored; original maximum-complexity book cases and full provenance runner still pending |
-| 300–500 chapter and 5,000 placed distinct images / mixed aliases | Pending |
+| 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases admitted and placed through common page content below; distinct images, mixed PNG and public check/build gates pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | 8,193 and explicit 1,025 rejection passed; 8,192 positive boundary pending |
 | Detailed font diagnostics and TTC face list | Pending |
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | Pending |
@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and public PDF/structure connection still pending |
+| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -891,3 +891,108 @@ equation numbers and other body subflows, and eliminating the fake old standard
 text paint path. Independent rendered/extracted PDFs, semantic tags/links,
 Harano CID CFF, the formal VMB exporter, 5,000 placed distinct images and the
 whole-book gates remain incomplete. This step does not change those conditions.
+
+
+## Follow-up: shared SVG Forms and source-ordered body page content (2026-09-06)
+
+`ProductionBodyVectorDraw` now retains the content key, bound scale/currentColor,
+page placement matrix and an occurrence fingerprint derived from the selected
+owner. The existing admitted-resource closure checks determine the key; the PDF
+backend never reopens or rewrites SVG bytes. Resource declarations remain
+borrowed from the exact syntax package behind the selected display.
+
+Added `typaxis-resources/src/production_vectors.rs` and
+`typaxis-pdf/src/production_body_pages.rs`. Vector finalization starts from the
+sealed body font plan and charges the combined text/vector records before
+allocating Form joins and PDF page/usage collections. It reuses the admitted
+candidate registry and content-key-sorted Form planning. Every selected alias
+has its own usage count, including zero-use aliases in the selected candidate;
+Form streams remain free of Alt/ActualText/MCID. Per-occurrence common/math
+bindings remain in the display. The existing `/2` Form recipe is reused without
+pretending that the new selected display is an old staging display receipt.
+
+`build_production_body_page_content` merges actual body text and SVG `Do`
+contributions in the selected draw order. The content has one root Y flip per
+page, including explicit blank pages. Draw indices and byte ranges let the next
+structure owner insert marked content around the actual paint, rather than
+reconstructing its location. Text-only pages have no vector resource binding;
+formula-only content requires no body font or dummy text. Spool accounting
+continues from the font plan through text, vector streams and merged content;
+the text encoder now reserves only the remaining spool allowance after fonts.
+Page-content output bytes and cumulative record limits are checked at exact and
+one-less boundaries. The final PDF object graph still needs its global object
+and output budget closure.
+
+The reusable vector PDF writer groups inputs by page once and binary-searches
+aliases, replacing page-by-all-usages scans. Existing contribution fingerprints,
+Form isolation tests and frozen PDF regressions remain unchanged.
+
+### Performance finding from the 5,000-alias execution
+
+An initial live CPU sample found `validate_languages_v2` calling whole-package
+`checked_wire` from each vector-language verification. Thus 5,000 vectors caused
+repeated validation/hashing of all 5,000 metric receipts. The old run was
+explicitly terminated after identifying and fixing this quadratic operation;
+it is not counted as passed. Evidence:
+`/private/tmp/typaxis-5000-alias-sample.txt`.
+
+Added syntax-owned `PrecomposedVectorVerification`, constructible only after
+full package verification and holding an immutable borrow. Batch language,
+structure, resource-profile, layout and equation-number shaping paths verify
+individual metrics/language/style against this scope. Foreign-owner/session
+metrics, tampered language and package-wide corruption still fail; the old
+standalone API retains full validation. A scope cannot be created from a claimed
+hash or arbitrary copied receipt, and the borrow prevents package mutation while
+it remains live. Style ownership lookup uses the requested node directly.
+This changes verification work sharing, not public receipt content or admission
+charges.
+
+A later sample found the test setup copying the same staged SVG once per alias.
+The helper now copies each URI once, while the actual resolver continues reading,
+hashing and admitting every declaration. That old setup run was also explicitly
+terminated for the confirmed fix. Evidence:
+`/private/tmp/typaxis-5000-alias-scoped-sample.txt`.
+The subsequent current-run sample showed ordinary batch language/profile work;
+no repeated whole-package check per vector remained on that sampled path.
+These samples are local diagnostic evidence, not a formal release benchmark.
+
+### Verification
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax -p typaxis-shaping -p typaxis-machine-profile \
+  -p typaxis-layout -p typaxis-pagination -p typaxis-display-list \
+  -p typaxis-resources -p typaxis-pdf -p typaxis-cli \
+  --lib --bin typaxis --locked
+```
+
+Observed **648 passed**, no failures: CLI 198 passed / 3 existing external-tool
+ignored; display-list 56; layout 65; machine-profile 50; pagination 85; PDF 76;
+resources 28; shaping 24; syntax 66. The CLI suite, including the new 5,000-alias
+case, took 226.11 seconds in this debug run. This is suite elapsed time, not an
+isolated check/build benchmark or a promised performance target.
+Log: `/private/tmp/typaxis-production-page-verification.log`.
+
+New assertions cover source-order text/real inline fraction/text/block fraction,
+exact selected matrices, real curve commands in Forms, mixed text/vector pages,
+blank-page preservation, shared aliases with distinct ActualText retained on the
+source bindings, unused aliases, deterministic contributions, foreign font-plan
+owners and cumulative record/output boundaries. The initial boundary-test failure
+was caused by using `u64::MAX`, which is not JSON-safe; the test was corrected to
+the valid default output ceiling before the successful full run.
+
+The large case has **5,000 image declarations, 5,000 admitted aliases, 5,000
+selected inline occurrences and 5,000 page `Do`s sharing one Form**. It uses the
+unchanged actual engine-v2 fraction SVG with separate generated source spans and
+text buffers per occurrence. The test explicitly sets max_images=8,192. It does
+not prove the default-policy boundary, 5,000 distinct SVGs, mixed PNG, 8,000-plus
+occurrences, public `check-package`/`build-package` or an independently rendered
+final PDF. Those gates remain open.
+
+Next required connection is the final PDF object/structure/navigation owner:
+selected font dictionaries and Form objects, occurrence-local Formula/Figure
+semantics, marked content and extraction anchors, destinations/links and public
+writer closure must all consume these selected pages. Equation numbers and the
+remaining subflows still need the common display bridge. Harano CID CFF, the
+formal VMB exporter, distinct-image and whole-book gates remain incomplete.

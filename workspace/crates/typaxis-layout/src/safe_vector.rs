@@ -499,9 +499,12 @@ fn build_precomposed_vector_bindings(
         .try_reserve_exact(math_count)
         .map_err(|_| PrecomposedVectorBindingError::AllocationFailure)?;
 
+    let verifier = package
+        .precomposed_vector_verifier()
+        .map_err(|_| PrecomposedVectorBindingError::ReceiptMismatch)?;
     for metrics in package.precomposed_vector_metrics() {
-        package
-            .verify_precomposed_vector_metrics(metrics)
+        verifier
+            .verify_metrics(metrics)
             .map_err(|_| PrecomposedVectorBindingError::ReceiptMismatch)?;
         let owner = metrics.node_id();
         let image_id = metrics.resource_binding().image_id();
@@ -531,7 +534,7 @@ fn build_precomposed_vector_bindings(
             profile,
             limits,
         )?;
-        let placement = bind_precomposed_vector_placement(package, metrics, &resource)?;
+        let placement = bind_precomposed_vector_placement(&verifier, metrics, &resource)?;
         let alternative = metrics.alternative().alternative().to_owned();
         let language = metrics.language().map(|value| value.canonical().to_owned());
         let mut receipt = ValidatedPrecomposedVectorReceipt {
@@ -686,10 +689,11 @@ fn bind_precomposed_vector_resource(
 }
 
 fn bind_precomposed_vector_placement(
-    package: &ValidatedStagingSemanticPackage,
+    verifier: &typaxis_syntax::PrecomposedVectorVerification<'_>,
     metrics: &typaxis_syntax::ValidatedPrecomposedVectorMetrics,
     resource: &BoundPrecomposedVectorResource,
 ) -> Result<PrecomposedVectorPlacementInput, PrecomposedVectorBindingError> {
+    let package = verifier.package();
     let owner = metrics.node_id();
     let paint = ResolvedRgb8::BLACK;
     let result = match (metrics.kind(), metrics.payload()) {
@@ -714,8 +718,8 @@ fn bind_precomposed_vector_placement(
             let style = package
                 .precomposed_vector_style(owner)
                 .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
-            package
-                .verify_precomposed_vector_style(style)
+            verifier
+                .verify_style(owner, style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
             let style = VectorFigureStyleInput::from_computed(style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
@@ -735,8 +739,8 @@ fn bind_precomposed_vector_placement(
             let style = package
                 .precomposed_vector_style(owner)
                 .ok_or(PrecomposedVectorBindingError::StyleMismatch(owner))?;
-            package
-                .verify_precomposed_vector_style(style)
+            verifier
+                .verify_style(owner, style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
             let style = MathVectorBlockStyleInput::from_computed(style)
                 .map_err(|_| PrecomposedVectorBindingError::StyleMismatch(owner))?;
