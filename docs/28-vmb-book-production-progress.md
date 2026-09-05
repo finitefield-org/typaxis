@@ -78,7 +78,14 @@ No existing target files or other task's process were removed.
 Real-input probes:
 
 - `implementation-chapter-02`: unchanged chapter `check-package` succeeded. The initial build invocation omitted the required uncompressed policy and was rejected before layout. This is not a PDF success. A subsequent attempt confirmed check rejects the build-only `--no-compress` flag.
-- `implementation-chapter-04`: uses one shared TOML with contract 1.4 and `pdf_stream_compression = "none"` for both commands; execution pending at this ledger update.
+- `implementation-chapter-04`: with one shared TOML (contract 1.4, `pdf_stream_compression = "none"`), unchanged chapter check succeeded; build failed with `L5100: semantic_container is not allowed in this owner`. No PDF was published. `observed.json` and check/build diagnostics in that directory retain the command/results. Investigate the concrete semantic-container owner before changing either layout rules or exporter structure.
 - `implementation-book-font-probe-01/observed-02.json`: diagnostic-only full-book copy with the font replaced by the chapter TrueType passes the image count budget but fails at `P1102: semantic source span ownership mismatch`. This adds an exporter/source-mapping investigation; no source-span validation was relaxed. The original snapshot was preserved. An initial invocation had duplicated a configured root and was corrected by using a separate working directory.
 
 Known remaining SVG-detail work includes precise context for every transform/paint/non-path geometry failure, exact segment context on budget failures, context for a zero remaining document budget and clip-reference replay positions. The first detailed-error tests do not close those requirements. Complete positive resource-count boundaries, 5,000 placed distinct resources and performance observations also remain pending.
+
+
+Local implementation checkpoint: `9e98ab0` on `codex/vmb-book-production`.
+No branch push or publication has been performed. All verification processes
+started in this turn have reached terminal states; there is no outstanding wait.
+The companion VMB document was updated with the common compression config,
+actual CLI option names and full-book source-mapping investigation.

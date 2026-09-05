@@ -603,3 +603,6 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 
 実CLI照合による補足: production-book-1のbuildは非圧縮設定を要求する。check/buildの共通TOMLに`pdf_stream_compression = "none"`を明示し、両方に`--config PATH`を渡す。checkには`--no-compress`がない。診断出力は`--emit-diagnostics PATH`、build manifestは`--emit-build-manifest PATH`を使う。画像予算以外のこの既存profile条件は本修正で変更しない。
+
+
+実章probeでは、元SVGのまま`check-package`が成功し、共通非圧縮設定での`build-package`は`L5100: semantic_container is not allowed in this owner`で停止した。設計時に見えていなかった組版ownerの制約であり、全巻ゲート前に実ノードとproduction layoutのowner規則を照合して修正する。検査成功をPDF成功と扱わず、章ラッパーの削除や分割を既定の回避策にしない。全巻font-only probeの`semantic source span ownership mismatch`も別途調査する。
