@@ -13,14 +13,14 @@ Harano support is claimed until the corresponding gates have evidence.
 | Profile defaults and override precedence | Implemented; config tests and CLI negative boundaries passed |
 | Original image/font count diagnostic pointer | Unit and both CLI runner boundary tests passed |
 | Resolver cursor and finalized dense image lookup | Existing aggregate/order/admission regressions passed; mixed/5,000 performance evidence pending |
-| Real VMB fixtures and provenance ledger | First unchanged chapter SVG + TeX/hash provenance recorded; remaining cases and complete index pending |
+| Real VMB fixtures and provenance ledger | Unchanged chapter SVG plus 20 actual-engine conversions, original/derived hashes and font notices stored; original maximum-complexity book cases and full provenance runner still pending |
 | 300–500 chapter and 5,000 placed distinct images / mixed aliases | Pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | 8,193 and explicit 1,025 rejection passed; 8,192 positive boundary pending |
 | Detailed font diagnostics and TTC face list | Pending |
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | Pending |
 | Vertical tables, cmap 14, IVS shaping/extraction | Pending |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
-| VMB exporter geometry / metrics / semantics / source mapping | Pending; companion design lives in VMB docs |
+| VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
 | Shared body/math flow and selected text placement | Additional design §14; fixed text metrics and placeholder page/paint geometry must be replaced before full-book verification |
@@ -142,3 +142,116 @@ ownership in their math node; that scan found no mismatch. The error must not
 be misreported as a missing TeX identity mapping. VMB companion design §14 now
 specifies a complete generated source projection, original-source provenance,
 parent/child ranges and negative tests, without relaxing Typaxis validation.
+
+## VMB geometry/source implementation and actual-engine bridge
+
+VMB implementation branch: `codex/typaxis-book-export`. Added
+`vmb-core/internal/rendertypaxis/{math_vector,math_geometry,source_map}.go` and
+tests. The package is not yet registered as a complete renderer. Geometry
+lowering verifies the original result/hash, converts coordinates and placement
+metrics with bounded signed integer arithmetic, and preserves individual path
+paint operations, curves, fill rules and subpaths. Relative coordinates resolve
+before rounding. Contour collinearity and exact Bezier signed-area checks detect
+the tested collapse cases; these checks do not replace independent visual gates.
+
+The projection builder allocates source-order node/text IDs and closes parent
+spans after children. It keeps generated-source offsets separate from author
+provenance, gives repeated TeX different occurrence spans, validates UTF-8 and
+exact identity, and rejects overlapping text mappings and unclosed owners.
+Its connection to complete RenderBook wire traversal and final publication is
+still required; unit success is not a complete exporter.
+
+VMB checkpoint: `4cd1b05af72f7757f7336956f1acfad488553185`. A third generation
+from this final committed code also reproduced all 31 fixture files exactly.
+
+`vmb-core/tools/typaxis-math-fixtures` generates five authored test expressions
+through the actual VMB 2.0.0 engine, inline/block at two font sizes (20 conversion
+cases, 10 original SVGs and 20 derived SVGs). It emits hashes, metrics, TeX,
+semantic speech and complete engine artifact identities. Two generations of all
+31 files were byte-identical. The corpus, font source records and notices are
+stored in `samples/machine-package/staging/production-book-1/vmb-book/engine-v2/`.
+These are not 20 occurrences extracted from the user's book and are not approved
+PDF visual/accessibility goldens. The original chapter regression remains intact.
+
+Completed focused verification:
+
+```sh
+# In vmb-core:
+GOCACHE=/private/tmp/vmb-typaxis-go-test go test \
+  ./internal/rendertypaxis/... ./tools/typaxis-math-fixtures -count=1
+
+# In Typaxis:
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis \
+  machine_book_actual_vmb_engine_svg_corpus_is_admitted --locked
+```
+
+The VMB command passed (11 top-level tests, including actual engine conversions
+and adversarial subtests; the generator has no unit tests). The Rust command
+ran **1 test and passed**, checking the exact 20-case matrix, source/derived
+hashes and admission of every SVG through public check-package. It does not
+assert successful placement of those added resources.
+
+The broader Go command across `internal/render/...`, `internal/rendermath/...`
+and the new package first found an incorrect new negative test: its original
+quadratic contour already had zero signed area. The input was corrected to a
+nonzero contour that rounds to a retraced curve; the exact-area test now passes.
+A later run of all these packages except `cmd/mathcorpus` passed. The exclusion
+is an unresolved pre-existing input/artifact consistency gate, described below,
+not a successful full-Go-suite claim.
+
+Actual check/build and independent observations are retained under
+`workspace/target/vmb-design/20260905/implementation-engine-bridge-*`:
+
+| Probe | Evidence |
+| --- | --- |
+| 01 | Adding a second source was rejected by both commands: P1110, exactly one source. No PDF. The designed single projection is required. |
+| 02 | One source, 20 admitted SVGs: check succeeded; build rejected formula-only inline node 93 because its negative origin puts the viewport left of the line boundary. No PDF. The origin was not zeroed or clamped. |
+| 03 | 10 inline formulas with preceding/following text plus 10 block formulas: check and build succeeded. The 20 added nodes all have manifest selected/display/PDF-use facts. Every physical metric, source TeX hash and ActualText hash matches the engine fixture record. |
+
+Probe 03 used the existing combined package (including native math and its test
+font) as the host. It does not close the no-native-math/body-font requirement.
+MuPDF **1.28.2** read and rendered the PDF's **2 pages**; Poppler **26.08.0**
+extracted each of the five formula alternatives **4 times**. The 20 resources
+contain 14 distinct derived SVG hashes, including genuine inline/block aliases.
+The observed reading order **does not match** source order: the current bridge
+groups inline and block content separately. A rendered page was inspected and
+confirms that standard text does not use the selected line positions. Keep
+`extraction-comparison.json`, `conversion-observations.json`, the independent tool
+log and page images as failure evidence, not expected output. The tool versions
+are observations, not a newly approved pinned external-tool policy. Source-order,
+baseline/spacing, tags, full mask comparison and managed Linux gates remain open.
+
+### Existing corpus/migration consistency gate
+
+The complete Go run failed `TestCorpusArtifactsAreCurrentAndStrictCutoverFindingsAreZero`:
+the registered source corpus has 97,704 entries while current book input produces
+97,719. A temporary full regeneration found 205 added, 190 removed and 12 changed
+source records, in existing fractions-book topic files that this work did not
+modify. The source-set hashes are:
+
+- Recorded: `73a97f496190844dbffb4e85b6e267d4659ebbc08d9f9dbcf66a7d5f7d6f0950`.
+- Current: `81b2d9efdcf327fea1386f3c3fb332b7fa1e26366a30405212d24f292dbd01af`.
+
+After temporarily installing the six generated artifacts, a full mathcorpus
+test verified their freshness but failed the separate historical M3-09 migration
+record binding. That record retains the old source-set hash and meaning-preserving
+approval evidence. It was not rewritten or relabeled as approving later author
+changes. The six tracked artifacts were restored to their pre-task bytes; no
+engine corpus or historical approval record is changed by this implementation.
+Regenerated artifacts and the comparison are in
+`/private/tmp/vmb-typaxis-corpus-observation`; a compact comparison is also retained
+in probe 03. A source inventory/migration audit is required before claiming the
+whole repository suite or publishing the full-book gate.
+
+Current inventory additionally reports **7,739 speech-unresolved findings** for
+the fractions book's `ja/profile.epub` context. This is a different inventory
+from the original package's generic-alt placement count. Do not relabel it as
+7,739 unique PDF formula occurrences, silently manufacture semantic speech, or
+count parser/geometry acceptance as accessibility completion.
+
+All processes started for this follow-up are terminal. No full-book PDF, Harano
+support, 5,000-resource placement, new profile/capability publication or branch
+push has been completed. The next product work remains the formal exporter and
+the shared selected body/math flow, including negative-origin line starts.

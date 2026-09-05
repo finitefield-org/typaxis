@@ -899,6 +899,106 @@ fn machine_book_svg_failure_publishes_attribute_token_and_svg_position() {
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
+fn machine_book_actual_vmb_engine_svg_corpus_is_admitted() {
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/machine-package/staging/production-book-1/vmb-book/engine-v2");
+    let index = read_json(&corpus.join("fixture-index.json"));
+    assert_eq!(index["algorithm"], "vmb.typaxis-engine-fixtures/1");
+    let cases = index["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 20);
+    let identities = cases
+        .iter()
+        .map(|case| {
+            (
+                case["case_id"].as_str().unwrap(),
+                case["display"].as_str().unwrap(),
+                case["font_size_raw"].as_i64().unwrap(),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    for kind in ["fraction", "parentheses", "equivalence", "negation", "long"] {
+        for display in ["inline", "block"] {
+            for size in [720896, 786431] {
+                assert!(identities.contains(&(kind, display, size)));
+            }
+        }
+    }
+    let (_tree, job, artifacts, _expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "vmb-engine-svg-admission",
+    );
+    let path = job.join("document-package.json");
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let raw = fs::read(&path).unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new()
+        .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+        .unwrap();
+    let mut wire = decoded.wire().clone();
+    let mut resources = wire.resources().clone();
+    let template = resources
+        .images
+        .iter()
+        .find(|image| image.media_type == typaxis_document_package::WireImageMediaType::SvgSafe2)
+        .unwrap()
+        .clone();
+    for (case_index, case) in cases.iter().enumerate() {
+        let svg = fs::read(corpus.join(case["derived_svg"].as_str().unwrap())).unwrap();
+        let source = fs::read(corpus.join(case["source_svg"].as_str().unwrap())).unwrap();
+        let hex_hash = |bytes: &[u8]| {
+            typaxis_core::sha256(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
+        assert_eq!(hex_hash(&svg), case["derived_sha256"].as_str().unwrap());
+        assert_eq!(hex_hash(&source), case["source_sha256"].as_str().unwrap());
+        let mut image = template.clone();
+        image.image_id = resources.images.len() as u32;
+        image.uri = format!("svg/vmb-engine-{case_index}.svg");
+        image.expected_sha256 = Some(hex_hash(&svg));
+        let producer = image.vector_provenance.as_mut().unwrap();
+        producer.engine_id = case["engine_artifact"]["EngineID"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        producer.engine_version = case["engine_artifact"]["EngineVersion"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        producer.rules_version = index["rules_version"].as_str().unwrap().to_owned();
+        fs::write(job.join(&image.uri), svg).unwrap();
+        resources.images.push(image);
+    }
+    wire.replace_typed_regions(wire.document().clone(), resources);
+    fs::write(
+        &path,
+        typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap(),
+    )
+    .unwrap();
+    fs::create_dir_all(&artifacts).unwrap();
+    let check = run_check_package(CheckPackageOptions {
+        package: path,
+        package_root: Some(job.clone()),
+        profile: MachinePdfProfileId::ProductionBook1,
+        diagnostics: Some(artifacts.join("check-diagnostics.json")),
+        common: CommonOptions {
+            resource_roots: vec![job],
+            ..CommonOptions::default()
+        },
+    });
+    assert!(
+        check.is_ok(),
+        "actual VMB engine corpus rejected: {:?}",
+        check.err().map(|error| error.message)
+    );
+    // This test closes source/derived hash and resource admission. Placement,
+    // text shaping, reading order and the full-book PDF have separate gates.
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
 fn machine_book_image_count_failure_is_precise_in_check_and_build() {
     for (limit, explicit) in [(8192u32, false), (1024u32, true)] {
         let (_tree, job, artifacts, expected) = copy_fixture("profiles/production-book-1/combined", "book-image-count");

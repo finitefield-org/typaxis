@@ -16,6 +16,13 @@
       "tex": "chapter-fraction-equivalence.tex"
     }
   ],
+  "engine_corpus": {
+    "generator": "vmb-core/tools/typaxis-math-fixtures",
+    "generator_revision": "4cd1b05af72f7757f7336956f1acfad488553185",
+    "index": "engine-v2/fixture-index.json",
+    "kind": "test expressions rendered by the actual VMB engine; not extracted book occurrences",
+    "visual_or_accessibility_golden": false
+  },
   "files": [
     {
       "byte_length": 4150,
@@ -26,6 +33,196 @@
       "byte_length": 23,
       "path": "chapter-fraction-equivalence.tex",
       "sha256": "e69b8b24f5e7a6161ed484a643c43e6eaf7e7fa91ca9bf5eed06c6cfc2ba8a0f"
+    },
+    {
+      "byte_length": 4639,
+      "path": "engine-v2/equivalence-block-720896.svg",
+      "sha256": "d46803caef60e5b68c7a62d5b9811b30506209c9349d68dde6fd4448468c60d3"
+    },
+    {
+      "byte_length": 4657,
+      "path": "engine-v2/equivalence-block-786431.svg",
+      "sha256": "8752c127ed0b2ff6928660dadbc69018b7aa6a5102e3ea6aa9cc2b87ced3434f"
+    },
+    {
+      "byte_length": 3471,
+      "path": "engine-v2/equivalence-block.source.svg",
+      "sha256": "f577d8c3bdb62e2de98fe7f96d8cfcfd72457486f2f98cfc7d68ce7d6aab20aa"
+    },
+    {
+      "byte_length": 4639,
+      "path": "engine-v2/equivalence-inline-720896.svg",
+      "sha256": "d46803caef60e5b68c7a62d5b9811b30506209c9349d68dde6fd4448468c60d3"
+    },
+    {
+      "byte_length": 4657,
+      "path": "engine-v2/equivalence-inline-786431.svg",
+      "sha256": "8752c127ed0b2ff6928660dadbc69018b7aa6a5102e3ea6aa9cc2b87ced3434f"
+    },
+    {
+      "byte_length": 3472,
+      "path": "engine-v2/equivalence-inline.source.svg",
+      "sha256": "3bbde79ec09d24228d0031e28d284005a075e6e629d2739dd3fc8c3fc0bd0e1c"
+    },
+    {
+      "byte_length": 30364,
+      "path": "engine-v2/fixture-index.json",
+      "sha256": "f174fabc252b8330c522dcb15deef22f2670c32fdca8c43aaeef5129c3ed5a7e"
+    },
+    {
+      "byte_length": 5745,
+      "path": "engine-v2/font-source-manifest.json",
+      "sha256": "25a42884fe91ed62c3afdf33e56a0ba4f6fc4698e54175bf80c750250f1afea8"
+    },
+    {
+      "byte_length": 4034,
+      "path": "engine-v2/fraction-block-720896.svg",
+      "sha256": "5317e2068e1372ab4b93662ebdc097885c4781396775c47efd96a427f06454b4"
+    },
+    {
+      "byte_length": 4051,
+      "path": "engine-v2/fraction-block-786431.svg",
+      "sha256": "1ea616af997ee0a4a4f7fbbe4f1bb334b2749258c67de18e411210cb9e9e03e2"
+    },
+    {
+      "byte_length": 3133,
+      "path": "engine-v2/fraction-block.source.svg",
+      "sha256": "7ddb4d362add2a179de4209fda4aaa779bb831bb83c3b74c46fc0d4f2763351b"
+    },
+    {
+      "byte_length": 3971,
+      "path": "engine-v2/fraction-inline-720896.svg",
+      "sha256": "b2775f8e4dee68c2dadfb3a646f0a782e4ff4d7e57ea14b1397374edfb788ae6"
+    },
+    {
+      "byte_length": 3961,
+      "path": "engine-v2/fraction-inline-786431.svg",
+      "sha256": "bbfb86f5e2ba4f7348cefea9863a86c3dc628188a565badb870ecfa3a2a868db"
+    },
+    {
+      "byte_length": 3033,
+      "path": "engine-v2/fraction-inline.source.svg",
+      "sha256": "d5f550c3196c1430dc952f7aaa9f91915bf5cc206b00072f91d67de05503ef22"
+    },
+    {
+      "byte_length": 1456,
+      "path": "engine-v2/licenses/GUST-FONT-LICENSE-lm-math.txt",
+      "sha256": "2bd69affc3da00715116f713f57eab9707e96daf3562ad0215987b15b9c16f73"
+    },
+    {
+      "byte_length": 1377,
+      "path": "engine-v2/licenses/GUST-FONT-LICENSE-lm.txt",
+      "sha256": "49ea6cb9257bbee0a3979c48a774cd221550ac1c20c95549efe45fc99cc18050"
+    },
+    {
+      "byte_length": 4301,
+      "path": "engine-v2/licenses/OFL-1.1.txt",
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+    },
+    {
+      "byte_length": 29413,
+      "path": "engine-v2/long-block-720896.svg",
+      "sha256": "fc07a3d15f0080eb19ee864573948fef835e9f9919b877db96d5cfb791492290"
+    },
+    {
+      "byte_length": 29668,
+      "path": "engine-v2/long-block-786431.svg",
+      "sha256": "4a3ca81eee08a4676a5480a7fd85d20f21d7b11414d873d845c82d15d784af74"
+    },
+    {
+      "byte_length": 20905,
+      "path": "engine-v2/long-block.source.svg",
+      "sha256": "abb26e753d74594c552b85874edf0ad98903d5cebc427ef9682cfc0dd800b650"
+    },
+    {
+      "byte_length": 29413,
+      "path": "engine-v2/long-inline-720896.svg",
+      "sha256": "fc07a3d15f0080eb19ee864573948fef835e9f9919b877db96d5cfb791492290"
+    },
+    {
+      "byte_length": 29668,
+      "path": "engine-v2/long-inline-786431.svg",
+      "sha256": "4a3ca81eee08a4676a5480a7fd85d20f21d7b11414d873d845c82d15d784af74"
+    },
+    {
+      "byte_length": 20906,
+      "path": "engine-v2/long-inline.source.svg",
+      "sha256": "e9aa85d98f8c1f5fb332649fcfbdbe63c34b381a3b0db7eb30472b2bb4cefc35"
+    },
+    {
+      "byte_length": 1874,
+      "path": "engine-v2/negation-block-720896.svg",
+      "sha256": "554fee4104ac2dbaa9be7dc63b2d92dc3a018e4551c4616e00d0a3fd694f0d2b"
+    },
+    {
+      "byte_length": 1858,
+      "path": "engine-v2/negation-block-786431.svg",
+      "sha256": "a92ff6981029409834d69cfa4b1725daed9e06d0b306b75016f468d6bac6d8ca"
+    },
+    {
+      "byte_length": 1508,
+      "path": "engine-v2/negation-block.source.svg",
+      "sha256": "7439e1f5f7cbc449c3c5cf65859aeb24f92c4b3ca3ee8b459914475152abee02"
+    },
+    {
+      "byte_length": 1874,
+      "path": "engine-v2/negation-inline-720896.svg",
+      "sha256": "554fee4104ac2dbaa9be7dc63b2d92dc3a018e4551c4616e00d0a3fd694f0d2b"
+    },
+    {
+      "byte_length": 1858,
+      "path": "engine-v2/negation-inline-786431.svg",
+      "sha256": "a92ff6981029409834d69cfa4b1725daed9e06d0b306b75016f468d6bac6d8ca"
+    },
+    {
+      "byte_length": 1509,
+      "path": "engine-v2/negation-inline.source.svg",
+      "sha256": "ad215eb21c972b74931c75bc0f3808ae9f34d045e4ab9c79c7e488330226038f"
+    },
+    {
+      "byte_length": 14412,
+      "path": "engine-v2/notices/README-HaranoAji.en.md",
+      "sha256": "d87c9ab93a03bdd0bce96ebd073451babac45a568c641d52d2faa3d19e590409"
+    },
+    {
+      "byte_length": 4588,
+      "path": "engine-v2/notices/README-Latin-Modern-Math.txt",
+      "sha256": "e6fdd5fb44b656146fa988d191f58901c09a347d3f4fbaa3b45b24a6ad7ec30b"
+    },
+    {
+      "byte_length": 33548,
+      "path": "engine-v2/notices/README-Latin-Modern.txt",
+      "sha256": "7cac4a4a78985ccb1ed429bb2eddf32eeb2e413c94493c7b268385bb7b525250"
+    },
+    {
+      "byte_length": 4136,
+      "path": "engine-v2/parentheses-block-720896.svg",
+      "sha256": "102ce312d463ee1814a80df9bc4b4a7553660e20af04c1c4f2b43629250450f4"
+    },
+    {
+      "byte_length": 4155,
+      "path": "engine-v2/parentheses-block-786431.svg",
+      "sha256": "84bb5896f5eac7174204c58e5edf57e36d3055ebc3b78f2a30aeebb782e0f002"
+    },
+    {
+      "byte_length": 3071,
+      "path": "engine-v2/parentheses-block.source.svg",
+      "sha256": "fc0d64035f5469943d35beff5e831a41b1642c60284119c5bf369feeb1f10448"
+    },
+    {
+      "byte_length": 4020,
+      "path": "engine-v2/parentheses-inline-720896.svg",
+      "sha256": "ee5ea49d29f4fef7a62401b785c146f23c3599131b7160b7ffece6ccc231e3a6"
+    },
+    {
+      "byte_length": 4008,
+      "path": "engine-v2/parentheses-inline-786431.svg",
+      "sha256": "a2865b303f5b7de6d2175dfdaaf805d0f653b9a5c6e0532460255720874b21eb"
+    },
+    {
+      "byte_length": 3020,
+      "path": "engine-v2/parentheses-inline.source.svg",
+      "sha256": "6dc1b83db95daaa860f6d60d3d4b4681a975b4be600c12c38de74d24eb04b49b"
     }
   ]
 }

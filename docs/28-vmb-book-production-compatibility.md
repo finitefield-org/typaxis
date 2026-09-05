@@ -631,6 +631,8 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 新receiptのcanonical identityはlayout/displayの実装変更と一緒に更新し、旧recipeのfingerprintを新結果へ転用しない。1.4公開schemaに許容されない識別子やfieldの追加が必要なら§9.1の1.5公開へ束ねる。安全性診断の修正と新layoutの公開時期を混同せず、書籍ゲートが未達の間にcapabilitiesで完了を宣言しない。
 
+行頭の負originも新production bridgeで扱う。実engineの11pt数式は`origin_x=-0.6875pt`となり、spacing=0の式のみの段落を旧atomic-vector bridgeが空行overflowとして拒否することを確認した。候補行の`left=min(0, visual_left)`、`right=max(logical_advance, visual_right)`から必要幅を`right-left`として検査し、収まる候補のline originを`body_left-left`へ移す。これは行全体の配置補正であり、数式のorigin/advance/spacingを書き換えない。選択済みreceiptへこのoriginを含め、本文・SVG・タグ・リンクを同じ座標で投影する。実際の必要幅がbodyを超えた場合は依然としてoverflowとし、縮小やclipで隠さない。旧staging helperの凍結負例は新bridgeの正例で置換せず、別profile/recipeの試験として保持する。
+
 ### 14.3 本文fontとPDF出力の設計
 
 本文の全selected cluster usageを`StagingPdfTextClusterUsage`相当へまとめ、既存`finalize_staging_pdf_text_fonts`のTrueType/CFF subset経路へ接続する。現APIの公開constructorだけで任意glyphを信頼せず、production bridgeがshape receiptとadmitted fingerprintを照合したusageだけを渡す。本文・caption・式番号で同一faceを使う場合は一つのdocument font usage集合で課金・subsetし、呼出し単位で予算をリセットしない。native mathのglyph usageとの共有もfont instanceと元glyph/clusterのidentityで判断する。
@@ -642,6 +644,7 @@ PDF writerはselected glyph位置とfrozen CID planから描画し、本文を�
 ### 14.4 追加の必須回帰・完了条件
 
 - native数式0の本文＋inline/block SVG、通常TrueType（MATHなし）でcheck/buildと独立render/extractが成功する。本文だけの入力も対応profileの範囲で同様に確認する。
+- 負originを持つSVG数式だけの段落をspacing=0で行頭へ置き、行origin補正後のviewportがbody内に収まる。実engine 11ptで確認した負例を正例へ変える。前後本文があるケースだけでこの条件を代替しない。
 - 異なるadvanceのLatin文字と和文を含む2種類のfont、複数font sizeで、本文とSVGのbaseline/前後spaceが共通line receiptに一致する。font宣言順の変更で未選択fontが採用されない。
 - 「本文A→inline式→本文B→block式→caption→次段落」が狭いページを跨ぐ入力で、可視内容・抽出・structure読み順が一致する。本文だけの段落の欠落、page 0集中、式や本文の二重配置を拒否する。
 - 見出しdestinationと複数行linkのpage/矩形が選択済み配置に一致する。タグがあるだけ、PDF bytesが生成された、画像数が一致しただけでは合格にしない。
