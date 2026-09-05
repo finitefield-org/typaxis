@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Additional design §14; fixed text metrics and placeholder page/paint geometry must be replaced before full-book verification |
+| Shared body/math flow and selected text placement | Syntax-owned production text flow now preserves ordered regions, paragraph styles, exact text and atomic objects; shaping, unified pagination and selected PDF text still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -319,3 +319,75 @@ addition failures, some transformed/derived extent failures, and pre-tag lexical
 failures still need precise context/reasons. Full-book layout, formal exporter,
 Harano, placed 5,000-resource and independent-host gates remain open. No full-book
 PDF success is inferred from this diagnostic work.
+
+
+## Follow-up: syntax-owned production text flow
+
+The preceding goal turn made verified product progress on SVG diagnostics
+(commit `50356cb`). This follow-up starts the production flow required by §14,
+using the current worktree rather than treating the existing placeholder PDF
+text as a valid layout.
+
+Added `typaxis-syntax/src/production_flow.rs` and the syntax-owned
+`prepare_production_text_flow` entry point. The flow borrows a verified package
+and computed-language registry. It retains body-only paragraphs as well as
+paragraphs containing SVG/native math, with explicit begin/end boundaries for
+lists/items, tables/head/body rows/cells, captions, semantic containers, page
+breaks, display math and footnote definitions. Definitions remain in a separate
+footnote region; their paragraphs are not silently turned into body content.
+
+Paragraph font families, size, line height and block properties come from the
+existing checked cascade and inheritance rules. Semantic-container styles are
+read from the package owner. Vector-figure caption style inheritance preserves
+the current vector contract. No fixed 10pt character advance, 20pt line height,
+first-native-math font or generated reference label is introduced by this flow.
+
+Each inline site retains its source owner, exact source/TextSpan and effective
+language. Text borrows the package's UTF-8 bytes; emphasis/strong/link boundaries
+remain visible to the future shaping owner. SVG math, native math, references,
+footnote references, anchors and soft/hard breaks are typed objects. In
+particular the native TeX and reference target are not emitted as substitute
+body text. Reference labels and generated markers still require their owning
+resolution/placement stages.
+
+The new internal identity is `typaxis.production-text-flow/1`. Constructors and
+flow storage are private; downstream shaping must take the flow plus an index,
+not trust a copied site. Verification rejects another package instance and
+recomputes events, styles, text charge and fingerprint. Borrowed bytes avoid
+copying each text span; occurrence bytes and traversed nodes are bounded by the
+package limits. Recursive traversal relies on the already validated syntax
+nesting bound. This does not change the existing semantic receipt identity or
+publish a new contract/profile.
+
+Four new regressions cover the real combined fixture's 27 paragraph owners,
+interleaved native/block/SVG math, table/caption/footnote region boundaries,
+14pt heading versus 12pt body and tall-cell cascade, inline container/atomic
+ordering, exact Japanese/non-BMP UTF-8 borrowing, event/text/foreign-package
+receipt tampering, no-native-math input, and a missing body font size that must
+produce an owner-specific error rather than a guessed default.
+
+This is a completed syntax prerequisite, not a completed body-font or PDF fix.
+The public production build still uses the old fixed-metric helpers and native
+math font for standard PDF text. The new flow must next be consumed by admitted
+body-font shaping and unified line/page selection, then selected glyph/CID,
+structure and navigation projection. It is deliberately not wired into a writer
+that would claim to use its source order while continuing to paint at unrelated
+placeholder positions. Full-book and all other design gates remain required.
+
+Completed local verification for this flow prerequisite:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax --lib --locked
+# 66 passed, 0 failed (4 new flow tests).
+
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis --locked
+# 165 passed, 0 failed, 3 existing external-tool tests ignored.
+```
+
+All verification processes for this follow-up reached terminal states. These
+231 passing tests establish the new syntax prerequisite and old-path regression;
+they do not demonstrate that the PDF writer consumes the new flow.

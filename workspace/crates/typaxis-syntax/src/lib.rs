@@ -22,6 +22,9 @@ pub use book_navigation::{
     DOCUMENT_METADATA_ALGORITHM, OUTLINE_REGISTRY_ALGORITHM,
 };
 pub use semantic_container::{
+    prepare_production_text_flow, ProductionFlowError, ProductionFlowErrorKind,
+    ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent, ProductionInlineSite,
+    ProductionTextFlow, ProductionTextParagraph, PRODUCTION_TEXT_FLOW_ALGORITHM,
     PrecomposedVectorActualTextResolution, PrecomposedVectorField, PrecomposedVectorKind,
     PrecomposedVectorMetricPayload, ProductionMachineParseOutcome, StagingCffProfileView,
     StagingJpegFigureProfileUse, StagingJpegProfileView, StagingM4PageGeometry,

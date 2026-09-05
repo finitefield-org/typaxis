@@ -1,3 +1,11 @@
+#[path = "production_flow.rs"]
+mod production_flow;
+pub use production_flow::{
+    prepare_production_text_flow, ProductionFlowError, ProductionFlowErrorKind,
+    ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent, ProductionInlineSite,
+    ProductionTextFlow, ProductionTextParagraph, PRODUCTION_TEXT_FLOW_ALGORITHM,
+};
+
 use super::*;
 use typaxis_document::{
     FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,
