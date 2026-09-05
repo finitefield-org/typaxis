@@ -268,10 +268,10 @@ impl std::fmt::Display for StagingSemanticSyntaxError {
             Self::MathSpeechLimit => formatter.write_str("T2101: math speech limit exceeded"),
             Self::InvalidResource => formatter.write_str("P1102: invalid declared-media resource"),
             Self::InvalidPageGeometry => formatter
-                .write_str("P1102: private media profile requires one closed default page frame"),
-            Self::InvalidStyle => formatter.write_str("L5101: invalid staging style"),
+                .write_str("P1102: production-book-1 requires one closed default page frame"),
+            Self::InvalidStyle => formatter.write_str("L5101: invalid production style"),
             Self::InapplicableStyle => {
-                formatter.write_str("L5101: inapplicable staging style property")
+                formatter.write_str("L5101: inapplicable production style property")
             }
             Self::AstNodeLimit => formatter.write_str("P1102: semantic AST exceeds max_ast_nodes"),
             Self::AstDepthLimit => {
@@ -621,6 +621,45 @@ pub struct ValidatedStagingSemanticPackage {
     semantic_jcs: String,
 }
 
+/// Public contract-1.4 syntax result that retains the exact host-admission
+/// provenance used to decode and stable-read the package and its source.
+///
+/// Keeping this wrapper distinct from the staging semantic package prevents a
+/// decoder-only value from crossing the public production-book trust boundary.
+#[derive(Debug)]
+pub struct ValidatedProductionMachinePackage {
+    package: ValidatedStagingSemanticPackage,
+    provenance: MachineInputAdmissionProvenance,
+}
+
+impl ValidatedProductionMachinePackage {
+    pub const fn package(&self) -> &ValidatedStagingSemanticPackage {
+        &self.package
+    }
+
+    pub const fn provenance(&self) -> &MachineInputAdmissionProvenance {
+        &self.provenance
+    }
+
+    pub const fn contract(&self) -> typaxis_core::DocumentPackageContractId {
+        typaxis_core::DocumentPackageContractId::V1_4
+    }
+}
+
+/// Result of consuming a host-admitted contract-1.4 package at the syntax
+/// boundary. Failure returns only the sealed progress receipt; a caller cannot
+/// recover or replay the decoder-owned carrier.
+#[derive(Debug)]
+pub enum ProductionMachineParseOutcome {
+    Parsed {
+        package: Box<ValidatedProductionMachinePackage>,
+    },
+    Failed {
+        progress: Box<MachineInputProgress>,
+        failure: StagingSemanticSyntaxError,
+    },
+}
+
 /// Dependency-inversion view of the profile-owned authorization consumed by
 /// downstream staging phases. Its private fields prevent callers from
 /// implementing a look-alike receipt; construction rechecks the fixed M4
@@ -640,7 +679,7 @@ impl StagingSemanticContainerProfileView {
         package: &ValidatedStagingSemanticPackage,
         limits: &ValidatedResourceLimits,
     ) -> Result<Self, StagingSemanticSyntaxError> {
-        Self::new_with_media_policy(package, limits, false, false)
+        Self::new_with_media_policy(package, limits, false, false, false)
     }
 
     fn new_with_jpeg_policy(
@@ -648,7 +687,7 @@ impl StagingSemanticContainerProfileView {
         limits: &ValidatedResourceLimits,
         permits_jpeg: bool,
     ) -> Result<Self, StagingSemanticSyntaxError> {
-        Self::new_with_media_policy(package, limits, permits_jpeg, false)
+        Self::new_with_media_policy(package, limits, permits_jpeg, false, false)
     }
 
     fn new_with_media_policy(
@@ -656,17 +695,18 @@ impl StagingSemanticContainerProfileView {
         limits: &ValidatedResourceLimits,
         permits_jpeg: bool,
         permits_cff: bool,
+        permits_precomposed: bool,
     ) -> Result<Self, StagingSemanticSyntaxError> {
         package.checked_wire()?;
         if package.limits() != limits {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         }
-        if let Some(image) =
-            package.resources.images.iter().find(|image| {
+        if !permits_precomposed {
+            if let Some(image) = package.resources.images.iter().find(|image| {
                 image.media == ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2)
-            })
-        {
-            return Err(StagingSemanticSyntaxError::SvgSafe2Staging(image.image_id));
+            }) {
+                return Err(StagingSemanticSyntaxError::SvgSafe2Staging(image.image_id));
+            }
         }
         if !permits_jpeg {
             if let Some(image) = package.resources.images.iter().find(|image| {
@@ -684,21 +724,31 @@ impl StagingSemanticContainerProfileView {
                 return Err(StagingSemanticSyntaxError::CffStaging(font.font_face_id));
             }
         }
-        if let Some(owner) =
-            first_precomposed_vector_owner(&package.document.blocks).or_else(|| {
-                package
-                    .document
-                    .footnotes
-                    .iter()
-                    .find_map(|footnote| first_precomposed_vector_owner(&footnote.blocks))
-            })
-        {
-            return Err(StagingSemanticSyntaxError::PrecomposedVectorStaging(owner));
+        if !permits_precomposed {
+            if let Some(owner) =
+                first_precomposed_vector_owner(&package.document.blocks).or_else(|| {
+                    package
+                        .document
+                        .footnotes
+                        .iter()
+                        .find_map(|footnote| first_precomposed_vector_owner(&footnote.blocks))
+                })
+            {
+                return Err(StagingSemanticSyntaxError::PrecomposedVectorStaging(owner));
+            }
         }
         let mut container_count = 0u32;
-        validate_profile_container_domain(&package.document.blocks, &mut container_count)?;
+        validate_profile_container_domain(
+            &package.document.blocks,
+            &mut container_count,
+            permits_precomposed,
+        )?;
         for footnote in &package.document.footnotes {
-            validate_profile_container_domain(&footnote.blocks, &mut container_count)?;
+            validate_profile_container_domain(
+                &footnote.blocks,
+                &mut container_count,
+                permits_precomposed,
+            )?;
         }
         if usize::try_from(container_count) != Ok(package.semantic_container_count()) {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
@@ -739,9 +789,9 @@ impl StagingSemanticContainerProfileView {
     }
 }
 
-/// Dependency-inversion projection for the private MI4-12 CFF component.
-/// It is the only syntax authorization that admits `sfnt-cff1` before the
-/// contract-1.4 publication gate; all older views fail before resource open.
+/// Dependency-inversion projection for the MI4-12 CFF component. It is the
+/// only production syntax authorization that admits `sfnt-cff1`; all older
+/// contract/profile views fail before resource open.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingCffProfileView {
     base: StagingSemanticContainerProfileView,
@@ -761,6 +811,7 @@ impl StagingCffProfileView {
             limits.base(),
             false,
             true,
+            false,
         )?;
         if !package.resources().images.is_empty() {
             return Err(StagingSemanticSyntaxError::InvalidResource);
@@ -1519,6 +1570,7 @@ impl StagingSafeVectorProfileView {
             package,
             &vector_set,
             &mut figure_owners,
+            true,
         )?;
         for footnote in &package.document().footnotes {
             collect_vector_figure_owners(
@@ -1526,6 +1578,66 @@ impl StagingSafeVectorProfileView {
                 package,
                 &vector_set,
                 &mut figure_owners,
+                true,
+            )?;
+        }
+        let canonical_jcs = encode_safe_vector_profile_view(
+            package,
+            base.profile_fingerprint(),
+            limits.fingerprint(),
+            &vector_resource_ids,
+            &figure_owners,
+            page_geometry.fingerprint(),
+        );
+        Ok(Self {
+            base,
+            limits_fingerprint: limits.fingerprint(),
+            vector_resource_ids,
+            figure_owners,
+            page_geometry,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        })
+    }
+
+    fn new_for_production(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        let base = StagingSemanticContainerProfileView::new_with_media_policy(
+            package,
+            limits.base(),
+            true,
+            true,
+            true,
+        )?;
+        let page_geometry =
+            StagingM4PageGeometry::from_wire(package.checked_wire()?.page_masters())?;
+        let vector_resource_ids = package
+            .resources()
+            .images
+            .iter()
+            .filter_map(|image| {
+                (image.media == ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1))
+                    .then_some(image.image_id)
+            })
+            .collect::<Vec<_>>();
+        let vector_set = vector_resource_ids.iter().copied().collect::<BTreeSet<_>>();
+        let mut figure_owners = Vec::new();
+        collect_vector_figure_owners(
+            &package.document().blocks,
+            package,
+            &vector_set,
+            &mut figure_owners,
+            false,
+        )?;
+        for footnote in &package.document().footnotes {
+            collect_vector_figure_owners(
+                &footnote.blocks,
+                package,
+                &vector_set,
+                &mut figure_owners,
+                false,
             )?;
         }
         let canonical_jcs = encode_safe_vector_profile_view(
@@ -1570,12 +1682,13 @@ impl StagingSafeVectorProfileView {
     }
 }
 
-/// Closed private production-book authorization for the MI4-05 math slice.
+/// Closed production-book authorization for the MI4-05 math slice.
 /// Wrapping the SafeVector authorization proves that the target's required
 /// vector-media policy and page geometry were preflighted as one domain.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingMathProfileView {
     base: StagingSafeVectorProfileView,
+    production: bool,
     math_node_ids: Vec<NodeId>,
     canonical_jcs: String,
     fingerprint: [u8; 32],
@@ -1586,7 +1699,26 @@ impl StagingMathProfileView {
         package: &ValidatedStagingSemanticPackage,
         limits: &M4EffectiveResourceLimits,
     ) -> Result<Self, StagingSemanticSyntaxError> {
-        let base = StagingSafeVectorProfileView::new(package, limits)?;
+        Self::new_with_mode(package, limits, false)
+    }
+
+    pub fn new_for_production(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        Self::new_with_mode(package, limits, true)
+    }
+
+    fn new_with_mode(
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+        production: bool,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        let base = if production {
+            StagingSafeVectorProfileView::new_for_production(package, limits)?
+        } else {
+            StagingSafeVectorProfileView::new(package, limits)?
+        };
         if package.math_nodes().is_empty() || package.resources().font_faces.is_empty() {
             return Err(StagingSemanticSyntaxError::InvalidNesting);
         }
@@ -1629,6 +1761,7 @@ impl StagingMathProfileView {
         canonical_jcs.push('}');
         Ok(Self {
             base,
+            production,
             math_node_ids,
             fingerprint: sha256(canonical_jcs.as_bytes()),
             canonical_jcs,
@@ -1637,6 +1770,9 @@ impl StagingMathProfileView {
 
     pub const fn base(&self) -> &StagingSafeVectorProfileView {
         &self.base
+    }
+    pub const fn is_production(&self) -> bool {
+        self.production
     }
     pub fn math_node_ids(&self) -> &[NodeId] {
         &self.math_node_ids
@@ -1765,6 +1901,16 @@ impl StagingMathProfileAuthorization {
         if view != expected || profile_receipt_fingerprint == [0; 32] {
             return Err(StagingSemanticSyntaxError::ReceiptMismatch);
         }
+        Self::bind_checked(view, profile_receipt_fingerprint, package, limits, session)
+    }
+
+    fn bind_checked(
+        view: StagingMathProfileView,
+        profile_receipt_fingerprint: [u8; 32],
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+        session: &StagingMathProfileSessionIdentity,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
         {
             let mut budget = session
                 .0
@@ -1797,6 +1943,21 @@ impl StagingMathProfileAuthorization {
         };
         authorization.authorizes(package, limits)?;
         Ok(authorization)
+    }
+
+    #[doc(hidden)]
+    pub fn bind_production_profile_receipt(
+        view: StagingMathProfileView,
+        profile_receipt_fingerprint: [u8; 32],
+        package: &ValidatedStagingSemanticPackage,
+        limits: &M4EffectiveResourceLimits,
+        session: &StagingMathProfileSessionIdentity,
+    ) -> Result<Self, StagingSemanticSyntaxError> {
+        let expected = StagingMathProfileView::new_for_production(package, limits)?;
+        if view != expected || profile_receipt_fingerprint == [0; 32] {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        Self::bind_checked(view, profile_receipt_fingerprint, package, limits, session)
     }
 
     pub const fn view(&self) -> &StagingMathProfileView {
@@ -1837,7 +1998,11 @@ impl StagingMathProfileAuthorization {
         package: &ValidatedStagingSemanticPackage,
         limits: &M4EffectiveResourceLimits,
     ) -> Result<(), StagingSemanticSyntaxError> {
-        let expected = StagingMathProfileView::new(package, limits)?;
+        let expected = if self.view.is_production() {
+            StagingMathProfileView::new_for_production(package, limits)?
+        } else {
+            StagingMathProfileView::new(package, limits)?
+        };
         let budget_matches = self
             .session
             .0
@@ -1907,6 +2072,7 @@ fn collect_vector_figure_owners(
     package: &ValidatedStagingSemanticPackage,
     vectors: &BTreeSet<ImageResourceId>,
     output: &mut Vec<NodeId>,
+    reject_precomposed: bool,
 ) -> Result<(), StagingSemanticSyntaxError> {
     for block in blocks {
         match block {
@@ -1928,36 +2094,65 @@ fn collect_vector_figure_owners(
                     }
                     output.push(common.node_id);
                 }
-                collect_vector_figure_owners(caption, package, vectors, output)?;
+                collect_vector_figure_owners(
+                    caption,
+                    package,
+                    vectors,
+                    output,
+                    reject_precomposed,
+                )?;
             }
             StagingM4Block::List { items, .. } => {
                 for item in items {
-                    collect_vector_figure_owners(&item.blocks, package, vectors, output)?;
+                    collect_vector_figure_owners(
+                        &item.blocks,
+                        package,
+                        vectors,
+                        output,
+                        reject_precomposed,
+                    )?;
                 }
             }
             StagingM4Block::Table { head, body, .. } => {
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
-                    collect_vector_figure_owners(&cell.blocks, package, vectors, output)?;
+                    collect_vector_figure_owners(
+                        &cell.blocks,
+                        package,
+                        vectors,
+                        output,
+                        reject_precomposed,
+                    )?;
                 }
             }
             StagingM4Block::SemanticContainer { blocks, .. } => {
-                collect_vector_figure_owners(blocks, package, vectors, output)?;
+                collect_vector_figure_owners(blocks, package, vectors, output, reject_precomposed)?;
             }
             StagingM4Block::VectorFigure { common, .. }
-            | StagingM4Block::MathVectorBlock { common, .. } => {
+            | StagingM4Block::MathVectorBlock { common, .. }
+                if reject_precomposed =>
+            {
                 return Err(StagingSemanticSyntaxError::PrecomposedVectorStaging(
                     common.node_id,
                 ));
             }
             StagingM4Block::Paragraph { inline_vectors, .. }
-            | StagingM4Block::Heading { inline_vectors, .. } => {
+            | StagingM4Block::Heading { inline_vectors, .. }
+                if reject_precomposed =>
+            {
                 if let Some(vector) = inline_vectors.first() {
                     return Err(StagingSemanticSyntaxError::PrecomposedVectorStaging(
                         vector.node_id,
                     ));
                 }
             }
-            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => {}
+            StagingM4Block::VectorFigure { caption, .. } => {
+                collect_vector_figure_owners(caption, package, vectors, output, reject_precomposed)?
+            }
+            StagingM4Block::MathVectorBlock { .. }
+            | StagingM4Block::Paragraph { .. }
+            | StagingM4Block::Heading { .. }
+            | StagingM4Block::PageBreak { .. }
+            | StagingM4Block::DisplayMath { .. } => {}
         }
     }
     Ok(())
@@ -2002,6 +2197,7 @@ fn encode_safe_vector_profile_view(
 fn validate_profile_container_domain(
     blocks: &[StagingM4Block],
     count: &mut u32,
+    permits_precomposed: bool,
 ) -> Result<(), StagingSemanticSyntaxError> {
     for block in blocks {
         match block {
@@ -2012,27 +2208,33 @@ fn validate_profile_container_domain(
                 *count = count
                     .checked_add(1)
                     .ok_or(StagingSemanticSyntaxError::AstNodeLimit)?;
-                validate_profile_container_domain(blocks, count)?;
+                validate_profile_container_domain(blocks, count, permits_precomposed)?;
             }
             StagingM4Block::List { items, .. } => {
                 for item in items {
-                    validate_profile_container_domain(&item.blocks, count)?;
+                    validate_profile_container_domain(&item.blocks, count, permits_precomposed)?;
                 }
             }
             StagingM4Block::Table { head, body, .. } => {
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
-                    validate_profile_container_domain(&cell.blocks, count)?;
+                    validate_profile_container_domain(&cell.blocks, count, permits_precomposed)?;
                 }
             }
             StagingM4Block::Figure { caption, .. } => {
-                validate_profile_container_domain(caption, count)?;
+                validate_profile_container_domain(caption, count, permits_precomposed)?;
             }
             StagingM4Block::VectorFigure { common, .. }
-            | StagingM4Block::MathVectorBlock { common, .. } => {
+            | StagingM4Block::MathVectorBlock { common, .. }
+                if !permits_precomposed =>
+            {
                 return Err(StagingSemanticSyntaxError::PrecomposedVectorStaging(
                     common.node_id,
                 ));
             }
+            StagingM4Block::VectorFigure { caption, .. } => {
+                validate_profile_container_domain(caption, count, permits_precomposed)?;
+            }
+            StagingM4Block::MathVectorBlock { .. } => {}
             StagingM4Block::Paragraph { .. }
             | StagingM4Block::Heading { .. }
             | StagingM4Block::PageBreak { .. }
@@ -2609,6 +2811,77 @@ impl StagingSemanticPackageParser {
             semantic_fingerprint: sha256(semantic_jcs.as_bytes()),
             semantic_jcs,
         })
+    }
+
+    /// Consume the public host-admission receipt and bind the decoded M4
+    /// package to its stable source facts before returning syntax authority.
+    pub fn parse_admitted(
+        &self,
+        input: AdmittedSemanticMachinePackage,
+        limits: &ValidatedResourceLimits,
+    ) -> ProductionMachineParseOutcome {
+        let (decoded, sources, admission) = input.into_parts();
+        let consistent = admission.progress().stage() == MachineInputStage::SourcesAdmitted
+            && admission.progress().session_identity() == Some(admission.session_identity())
+            && admission.progress().fingerprint() == Some(admission.fingerprint())
+            && admission.progress().decoded().is_some_and(|facts| {
+                facts.contract() == typaxis_core::DocumentPackageContractId::V1_4
+                    && facts.canonical_sha256() == decoded.canonical_jcs_sha256()
+            })
+            && admission
+                .progress()
+                .package()
+                .is_some_and(|facts| facts.sha256() == decoded.raw_sha256())
+            && sources.len() == decoded.wire().sources().len()
+            && admission.progress().sources().len() == sources.len()
+            && sources
+                .iter()
+                .zip(decoded.wire().sources())
+                .zip(admission.progress().sources())
+                .all(|((source, declaration), progress)| {
+                    source.facts() == progress
+                        && source.facts().source_id().get() == declaration.source_id
+                        && source.facts().uri().as_str() == declaration.uri
+                        && source.facts().bytes() == u64::from(declaration.utf8_byte_length)
+                        && source.text().len() as u64 == source.facts().bytes()
+                });
+        if !consistent {
+            return ProductionMachineParseOutcome::Failed {
+                progress: Box::new(admission.into_failure_progress()),
+                failure: StagingSemanticSyntaxError::ReceiptMismatch,
+            };
+        }
+        match self.parse(decoded, limits) {
+            Ok(package)
+                if package.raw_sha256()
+                    == admission
+                        .progress()
+                        .package()
+                        .expect("consistent admission retains package facts")
+                        .sha256()
+                    && package.canonical_jcs_sha256()
+                        == admission
+                            .progress()
+                            .decoded()
+                            .expect("consistent admission retains decoded facts")
+                            .canonical_sha256() =>
+            {
+                ProductionMachineParseOutcome::Parsed {
+                    package: Box::new(ValidatedProductionMachinePackage {
+                        package,
+                        provenance: admission,
+                    }),
+                }
+            }
+            Ok(_) => ProductionMachineParseOutcome::Failed {
+                progress: Box::new(admission.into_failure_progress()),
+                failure: StagingSemanticSyntaxError::ReceiptMismatch,
+            },
+            Err(failure) => ProductionMachineParseOutcome::Failed {
+                progress: Box::new(admission.into_failure_progress()),
+                failure,
+            },
+        }
     }
 }
 

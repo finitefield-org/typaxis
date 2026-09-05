@@ -125,13 +125,19 @@
     "fonts": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/font_record"
+        "oneOf": [
+          {"$ref": "#/$defs/font_record"},
+          {"$ref": "#/$defs/production_font_record"}
+        ]
       }
     },
     "images": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/image_record"
+        "oneOf": [
+          {"$ref": "#/$defs/image_record"},
+          {"$ref": "#/$defs/production_image_record"}
+        ]
       }
     },
     "pdf_profile": {
@@ -544,6 +550,262 @@
         }
       }
     },
+    "media_declaration_font": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/declared_font_media_declaration"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "legacy_unspecified"}}
+        }
+      ]
+    },
+    "media_declaration_image": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/declared_image_media_declaration"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "legacy_unspecified"}}
+        }
+      ]
+    },
+    "declared_font_media_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "media_type"],
+      "properties": {
+        "kind": {"const": "declared"},
+        "media_type": {
+          "enum": ["sfnt-truetype-glyf", "ttc-truetype-glyf", "sfnt-cff1"]
+        }
+      }
+    },
+    "declared_image_media_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "media_type"],
+      "properties": {
+        "kind": {"const": "declared"},
+        "media_type": {
+          "enum": ["png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"]
+        }
+      }
+    },
+    "production_font_record": {
+      "oneOf": [
+        {"$ref": "#/$defs/attested_production_font_record"},
+        {"$ref": "#/$defs/legacy_production_font_declaration_record"}
+      ]
+    },
+    "legacy_production_font_declaration_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attested_media_kind",
+        "face_index",
+        "font_face_id",
+        "media_declaration",
+        "sha256",
+        "uri"
+      ],
+      "properties": {
+        "attested_media_kind": {"type": "null"},
+        "face_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "font_face_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "media_declaration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "legacy_unspecified"}}
+        },
+        "sha256": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "common.schema.json#/$defs/sha256"}
+          ]
+        },
+        "uri": {"$ref": "common.schema.json#/$defs/portable_relative_path"}
+      }
+    },
+    "attested_production_font_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attested_media_kind",
+        "bytes",
+        "face_index",
+        "font_face_id",
+        "glyph_count",
+        "media_declaration",
+        "sha256",
+        "units_per_em",
+        "uri"
+      ],
+      "properties": {
+        "attested_media_kind": {
+          "enum": [null, "sfnt-truetype-glyf", "ttc-truetype-glyf", "sfnt-cff1"]
+        },
+        "bytes": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "face_index": {"$ref": "common.schema.json#/$defs/id32"},
+        "font_face_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "glyph_count": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "media_declaration": {"$ref": "#/$defs/media_declaration_font"},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "units_per_em": {"type": "integer", "minimum": 16, "maximum": 16384},
+        "uri": {"$ref": "common.schema.json#/$defs/portable_relative_path"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "media_declaration": {
+                "properties": {"kind": {"const": "legacy_unspecified"}},
+                "required": ["kind"]
+              }
+            }
+          },
+          "then": {"properties": {"attested_media_kind": {"type": "null"}}},
+          "else": {
+            "oneOf": [
+              {
+                "properties": {
+                  "attested_media_kind": {"const": "sfnt-truetype-glyf"},
+                  "media_declaration": {
+                    "properties": {"media_type": {"const": "sfnt-truetype-glyf"}}
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "attested_media_kind": {"const": "ttc-truetype-glyf"},
+                  "media_declaration": {
+                    "properties": {"media_type": {"const": "ttc-truetype-glyf"}}
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "attested_media_kind": {"const": "sfnt-cff1"},
+                  "media_declaration": {
+                    "properties": {"media_type": {"const": "sfnt-cff1"}}
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "production_image_record": {
+      "oneOf": [
+        {"$ref": "#/$defs/attested_production_image_record"},
+        {"$ref": "#/$defs/legacy_production_image_declaration_record"}
+      ]
+    },
+    "legacy_production_image_declaration_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attested_media_kind",
+        "image_id",
+        "media_declaration",
+        "sha256",
+        "uri"
+      ],
+      "properties": {
+        "attested_media_kind": {"type": "null"},
+        "image_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "media_declaration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "legacy_unspecified"}}
+        },
+        "sha256": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "common.schema.json#/$defs/sha256"}
+          ]
+        },
+        "uri": {"$ref": "common.schema.json#/$defs/portable_relative_path"}
+      }
+    },
+    "attested_production_image_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attested_media_kind",
+        "bytes",
+        "decoded_bytes",
+        "image_id",
+        "media_declaration",
+        "pixel_height",
+        "pixel_width",
+        "sha256",
+        "uri"
+      ],
+      "properties": {
+        "attested_media_kind": {
+          "enum": [null, "png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"]
+        },
+        "bytes": {"$ref": "common.schema.json#/$defs/positive_safe_integer"},
+        "decoded_bytes": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
+        "image_id": {"$ref": "common.schema.json#/$defs/id32"},
+        "media_declaration": {"$ref": "#/$defs/media_declaration_image"},
+        "pixel_height": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "pixel_width": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "uri": {"$ref": "common.schema.json#/$defs/portable_relative_path"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "media_declaration": {
+                "properties": {"kind": {"const": "legacy_unspecified"}},
+                "required": ["kind"]
+              }
+            }
+          },
+          "then": {"properties": {"attested_media_kind": {"type": "null"}}},
+          "else": {
+            "oneOf": [
+              {
+                "properties": {
+                  "attested_media_kind": {"const": "png"},
+                  "media_declaration": {"properties": {"media_type": {"const": "png"}}}
+                }
+              },
+              {
+                "properties": {
+                  "attested_media_kind": {"const": "svg-safe-1"},
+                  "media_declaration": {"properties": {"media_type": {"const": "svg-safe-1"}}}
+                }
+              },
+              {
+                "properties": {
+                  "attested_media_kind": {"const": "svg-safe-2"},
+                  "media_declaration": {"properties": {"media_type": {"const": "svg-safe-2"}}}
+                }
+              },
+              {
+                "properties": {
+                  "attested_media_kind": {"const": "jpeg-baseline"},
+                  "media_declaration": {"properties": {"media_type": {"const": "jpeg-baseline"}}}
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
     "nullable_book_navigation_pair": {
       "oneOf": [
         {
@@ -620,16 +882,11 @@
       "then": {
         "properties": {
           "contract": {"const": "typaxis.contract/1.4"},
-          "package_input": {
-            "oneOf": [
-              {"type": "null"},
-              {
-                "allOf": [
-                  {"$ref": "#/$defs/package_input_record"},
-                  {"properties": {"contract": {"const": "typaxis.contract/1.4"}}}
-                ]
-              }
-            ]
+          "fonts": {
+            "items": {"$ref": "#/$defs/production_font_record"}
+          },
+          "images": {
+            "items": {"$ref": "#/$defs/production_image_record"}
           }
         },
         "required": [
@@ -652,6 +909,36 @@
               "properties": {
                 "book_navigation_manifest": {"$ref": "machine-book-navigation-manifest.schema.json#/$defs/v2_manifest"},
                 "book_navigation_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+                "fonts": {
+                  "items": {
+                    "allOf": [
+                      {"$ref": "#/$defs/production_font_record"},
+                      {
+                        "properties": {
+                          "attested_media_kind": {
+                            "enum": ["sfnt-truetype-glyf", "ttc-truetype-glyf", "sfnt-cff1"]
+                          },
+                          "media_declaration": {"$ref": "#/$defs/declared_font_media_declaration"}
+                        }
+                      }
+                    ]
+                  }
+                },
+                "images": {
+                  "items": {
+                    "allOf": [
+                      {"$ref": "#/$defs/production_image_record"},
+                      {
+                        "properties": {
+                          "attested_media_kind": {
+                            "enum": ["png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"]
+                          },
+                          "media_declaration": {"$ref": "#/$defs/declared_image_media_declaration"}
+                        }
+                      }
+                    ]
+                  }
+                },
                 "math_vector_manifest": {"$ref": "machine-math-vector-manifest.schema.json"},
                 "math_vector_manifest_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
                 "package_input": {
@@ -671,7 +958,65 @@
                 {"$ref": "#/$defs/nullable_book_navigation_pair"},
                 {"$ref": "#/$defs/nullable_math_vector_pair"},
                 {"$ref": "#/$defs/nullable_safe_vector_pair"},
-                {"$ref": "#/$defs/nullable_tagged_pdf_pair"}
+                {"$ref": "#/$defs/nullable_tagged_pdf_pair"},
+                {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "fonts": {
+                          "items": {"$ref": "#/$defs/legacy_production_font_declaration_record"}
+                        },
+                        "images": {
+                          "items": {"$ref": "#/$defs/legacy_production_image_declaration_record"}
+                        },
+                        "package_input": {
+                          "allOf": [
+                            {"$ref": "#/$defs/package_input_record"},
+                            {
+                              "properties": {
+                                "contract": {
+                                  "enum": [
+                                    "typaxis.contract/1.0",
+                                    "typaxis.contract/1.1",
+                                    "typaxis.contract/1.2",
+                                    "typaxis.contract/1.3"
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "fonts": {
+                          "items": {"$ref": "#/$defs/attested_production_font_record"}
+                        },
+                        "images": {
+                          "items": {"$ref": "#/$defs/attested_production_image_record"}
+                        },
+                        "package_input": {
+                          "oneOf": [
+                            {"type": "null"},
+                            {
+                              "allOf": [
+                                {"$ref": "#/$defs/package_input_record"},
+                                {
+                                  "properties": {
+                                    "contract": {
+                                      "enum": [null, "typaxis.contract/1.4"]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
               ]
             }
           }
@@ -679,12 +1024,11 @@
       },
       "else": {
         "properties": {
+          "fonts": {
+            "items": {"$ref": "#/$defs/font_record"}
+          },
           "images": {
-            "items": {
-              "properties": {
-                "attested_media_kind": {"const": "png"}
-              }
-            }
+            "items": {"$ref": "#/$defs/image_record"}
           }
         },
         "not": {

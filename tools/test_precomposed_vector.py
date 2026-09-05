@@ -56,7 +56,7 @@ class PrecomposedVectorVerifierTests(unittest.TestCase):
                 str(ROOT / "workspace/Cargo.toml"),
                 "--package",
                 "typaxis-cli",
-                "machine_precomposed_vector_closes_private",
+                "machine_precomposed_vector_closes_production_pipeline",
                 "--locked",
             ],
             cwd=ROOT,
@@ -68,12 +68,12 @@ class PrecomposedVectorVerifierTests(unittest.TestCase):
         )
         if completed.returncode != 0:
             raise AssertionError(
-                "private runner failed:\n"
+                "production receipt runner failed:\n"
                 + completed.stderr.decode("utf-8", "replace")
                 + completed.stdout.decode("utf-8", "replace")
             )
         if not cls.artifacts.is_dir():
-            raise AssertionError("private runner did not publish generated artifacts")
+            raise AssertionError("production receipt runner did not publish generated artifacts")
 
     @classmethod
     def tearDownClass(cls) -> None:

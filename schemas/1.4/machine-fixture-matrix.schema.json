@@ -32,6 +32,7 @@
         "typaxis.machine-pdf/header-footer-1",
         "typaxis.machine-pdf/m3-all",
         "typaxis.machine-pdf/paragraph-1",
+        "typaxis.machine-pdf/production-book-1",
         "typaxis.machine-pdf/table-1"
       ]
     },
@@ -96,7 +97,7 @@
         },
         "id": {
           "type": "string",
-          "pattern": "^(?:m1-(?:decoder-[0-9]{2}|closure-[a-z0-9-]+)|m2-basic-[a-z0-9-]+|m3-(?:all|columns-1|float-1|footnote|header-footer-1|table)-[a-z0-9-]+)$"
+          "pattern": "^(?:m1-(?:decoder-[0-9]{2}|closure-[a-z0-9-]+)|m2-basic-[a-z0-9-]+|m3-(?:all|columns-1|float-1|footnote|header-footer-1|table)-[a-z0-9-]+|m4-production-[a-z0-9-]+)$"
         },
         "test": {
           "type": "string",

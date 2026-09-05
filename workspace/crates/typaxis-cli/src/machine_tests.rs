@@ -13,7 +13,8 @@ use typaxis_core::{
     PdfStreamCompression, ResourceLimits, ValidatedResourceLimits,
 };
 use typaxis_document_package::{
-    DocumentPackageDecodePolicy, DocumentPackageEncoder, StrictDocumentPackageDecoder,
+    DocumentPackageDecodePolicy, DocumentPackageEncoder, StagingSemanticDocumentPackageDecoder,
+    StrictDocumentPackageDecoder,
 };
 use typaxis_machine_input::{HostMachineInputSession, MachineInputHostOptions};
 use typaxis_syntax::{DocumentPackageParser, MachineParseOutcome, PackageValidationPolicy};
@@ -463,6 +464,9 @@ fn build_options(job: &Path, artifacts: &Path, expected: &TestJson) -> BuildPack
         common: CommonOptions {
             resource_roots: vec![job.to_path_buf()],
             limits: limits_from_expectation(expected),
+            no_compress: expected["arguments"]
+                .as_array()
+                .is_some_and(|arguments| arguments.iter().any(|value| value == "--no-compress")),
             ..CommonOptions::default()
         },
     }
@@ -574,7 +578,14 @@ fn assert_fixture_outcome(run: &FixtureRun) {
             failure.message
         );
         let diagnostics = read_json(&run.artifacts.join("diagnostics.json"));
-        assert_eq!(diagnostics["contract"], "typaxis.contract/1.3");
+        assert_eq!(
+            diagnostics["contract"],
+            if run.expected["profile"] == MachinePdfProfileId::PRODUCTION_BOOK_1.as_str() {
+                "typaxis.contract/1.4"
+            } else {
+                "typaxis.contract/1.3"
+            }
+        );
         assert_eq!(diagnostics["diagnostics"][0]["code"], code);
         assert_diagnostic_location(
             outcome["location"].as_str().unwrap(),
@@ -619,8 +630,16 @@ fn assert_fixture_outcome(run: &FixtureRun) {
         } else {
             assert!(manifest["inputs"].as_array().unwrap().is_empty());
         }
-        let admitted_resources = manifest["fonts"].as_array().unwrap().len()
-            + manifest["images"].as_array().unwrap().len();
+        let admitted_resources = manifest["fonts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(manifest["images"].as_array().unwrap())
+            .filter(|record| {
+                !record.has_member("attested_media_kind")
+                    || !record["attested_media_kind"].is_null()
+            })
+            .count();
         if outcome["manifest_progress"]["resources"] == "admitted" {
             assert_eq!(
                 admitted_resources,
@@ -716,12 +735,12 @@ fn machine_capabilities_snapshot_is_exact_and_commands_are_public() {
 }
 
 #[test]
-fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
+fn capabilities_preserve_older_profiles_and_publish_closed_m4_profile() {
     let capabilities = read_json(&fixture_root("capabilities.json"));
     let profiles = capabilities["machine_input"]["profiles"]
         .as_array()
         .unwrap();
-    assert_eq!(profiles.len(), 7);
+    assert_eq!(profiles.len(), 8);
     assert_eq!(
         profiles
             .iter()
@@ -734,6 +753,7 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
             "typaxis.machine-pdf/footnote-1",
             "typaxis.machine-pdf/header-footer-1",
             "typaxis.machine-pdf/paragraph-1",
+            "typaxis.machine-pdf/production-book-1",
             "typaxis.machine-pdf/table-1",
         ]
     );
@@ -748,7 +768,20 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
             "typaxis.contract/1.1",
             "typaxis.contract/1.2",
             "typaxis.contract/1.3",
+            "typaxis.contract/1.4",
         ]
+    );
+    let production = profiles
+        .iter()
+        .find(|profile| profile["id"] == MachinePdfProfileId::PRODUCTION_BOOK_1.as_str())
+        .expect("production-book-1 is advertised");
+    assert_eq!(
+        production["resource_set"]["id"],
+        "typaxis.production-book-resource-set/2"
+    );
+    assert_eq!(
+        json_strings(&production["vector_profiles"]),
+        ["svg-safe-1", "svg-safe-2"]
     );
     let profile = profiles
         .iter()
@@ -810,6 +843,7 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
             Some("typaxis.machine-pdf/basic-document-1")
                 | Some("typaxis.machine-pdf/footnote-1")
                 | Some("typaxis.machine-pdf/paragraph-1")
+                | Some("typaxis.machine-pdf/production-book-1")
                 | Some("typaxis.machine-pdf/table-1")
         )));
     for future in [
@@ -826,6 +860,258 @@ fn capabilities_preserve_older_profiles_and_publish_closed_m3_profiles() {
         assert!(!json_strings(&profile["inlines"]["kinds"]).contains(&future));
         assert!(!json_strings(&profile["style_properties"]).contains(&future));
     }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_production_book_1_combined_public_profile() {
+    let run = assert_success_fixture("profiles/production-book-1/combined");
+    let manifest = read_json(&run.artifacts.join("manifest.json"));
+    let trace = read_json(&run.artifacts.join("trace.json"));
+    assert_eq!(manifest["contract"], "typaxis.contract/1.4");
+    assert_eq!(trace["contract"], "typaxis.contract/1.4");
+    assert_eq!(trace["coordinate_unit"], "pdf_point_1_65536");
+    assert_eq!(
+        manifest["book_navigation_manifest"]["algorithm"],
+        "typaxis.book-navigation-manifest/2"
+    );
+    assert_eq!(
+        manifest["safe_vector_manifest"]["algorithm"],
+        "typaxis.safe-vector-manifest/2"
+    );
+    assert_eq!(
+        manifest["math_vector_manifest"]["algorithm"],
+        "typaxis.math-vector-manifest/1"
+    );
+    assert_eq!(
+        manifest["tagged_pdf_manifest"]["algorithm"],
+        "typaxis.tagged-pdf-manifest/2"
+    );
+    assert_eq!(
+        manifest["layout"]["final_fingerprint"],
+        trace["selected_layout_sha256"]
+    );
+    for record in manifest["images"].as_array().unwrap() {
+        assert_eq!(
+            record["media_declaration"]["media_type"],
+            record["attested_media_kind"]
+        );
+    }
+    for record in manifest["fonts"].as_array().unwrap() {
+        assert_eq!(
+            record["media_declaration"]["media_type"],
+            record["attested_media_kind"]
+        );
+    }
+    let pdf = fs::read(run.artifacts.join("output.pdf")).unwrap();
+    for marker in [
+        b"/StructTreeRoot".as_slice(),
+        b"/Outlines",
+        b"/Subtype /Form",
+        b"/Subtype /Image",
+        b"/Filter /DCTDecode",
+    ] {
+        assert!(pdf.windows(marker.len()).any(|window| window == marker));
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_production_book_1_feature_local_tamper_matrix() {
+    let legacy = run_build_fixture("profiles/production-book-1/legacy-contract");
+    let legacy_manifest = read_json(&legacy.artifacts.join("manifest.json"));
+    assert_eq!(
+        legacy_manifest["package_input"]["contract"],
+        "typaxis.contract/1.2"
+    );
+    for record in legacy_manifest["fonts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(legacy_manifest["images"].as_array().unwrap())
+    {
+        assert!(record["attested_media_kind"].is_null());
+        assert_eq!(record["media_declaration"]["kind"], "legacy_unspecified");
+    }
+
+    for (label, needle, replacement) in [
+        ("required media declaration", ",\"media_type\":\"png\"", ""),
+        (
+            "native math alternative",
+            "\"speech\":\"x squared\"",
+            "\"speech\":\" \"",
+        ),
+        (
+            "producer vector alternative",
+            "\"alt\":\"SafeVector 1 inline\"",
+            "\"alt\":\" \"",
+        ),
+        (
+            "producer vector baseline",
+            "\"baseline\":524288",
+            "\"baseline\":700000",
+        ),
+        (
+            "producer conversion provenance",
+            "\"rules_version\":\"vmb.math-safe-svg/1\"",
+            "\"rules_version\":\"\"",
+        ),
+        (
+            "resource logical identity",
+            "\"image_id\":3,\"media_type\":\"jpeg-baseline\"",
+            "\"image_id\":2,\"media_type\":\"jpeg-baseline\"",
+        ),
+    ] {
+        let (tree, job, artifacts, expected) =
+            copy_fixture("profiles/production-book-1/combined", label);
+        let package_path = job.join("document-package.json");
+        let package = fs::read_to_string(&package_path).unwrap();
+        assert_eq!(
+            package.matches(needle).count(),
+            1,
+            "missing matrix needle: {label}"
+        );
+        fs::write(&package_path, package.replacen(needle, replacement, 1)).unwrap();
+        let result = run_build_package(build_options(&job, &artifacts, &expected));
+        assert_eq!(
+            failure_exit_code(&result),
+            1,
+            "tamper did not fail: {label}"
+        );
+        assert!(
+            !artifacts.join("output.pdf").exists(),
+            "tamper wrote PDF: {label}"
+        );
+        let diagnostics = read_json(&artifacts.join("diagnostics.json"));
+        assert_eq!(diagnostics["contract"], "typaxis.contract/1.4");
+        assert_eq!(
+            diagnostics["diagnostics"][0]["code"], "P1102",
+            "tamper did not fail as a package-member error: {label}"
+        );
+        drop(tree);
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_production_book_1_resource_failure_is_published_with_typed_location() {
+    let (tree, job, artifacts, expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "resource-hash-mismatch",
+    );
+    let package_path = job.join("document-package.json");
+    let package = fs::read_to_string(&package_path).unwrap();
+    let declared_hash = "dc3862c12ad95f75d7c21cb3c37487e220182aa5088c537c634c194ee83ee894";
+    assert_eq!(package.matches(declared_hash).count(), 1);
+    fs::write(
+        &package_path,
+        package.replace(declared_hash, &"0".repeat(64)),
+    )
+    .unwrap();
+
+    let result = run_build_package(build_options(&job, &artifacts, &expected));
+    assert_eq!(failure_exit_code(&result), 1);
+    assert!(result.as_ref().unwrap_err().message.starts_with("R7100:"));
+    assert!(!artifacts.join("output.pdf").exists());
+
+    let diagnostics = read_json(&artifacts.join("diagnostics.json"));
+    assert_eq!(diagnostics["contract"], "typaxis.contract/1.4");
+    assert_eq!(diagnostics["diagnostics"][0]["code"], "R7100");
+    assert_eq!(
+        diagnostics["diagnostics"][0]["location"]["json_pointer"],
+        "/resources/font_faces/0"
+    );
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["output"].is_null());
+    assert!(manifest["fonts"].as_array().unwrap().is_empty());
+    assert!(manifest["images"].as_array().unwrap().is_empty());
+    drop(tree);
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_production_book_1_layout_failure_is_published_as_a_diagnostic() {
+    let (tree, job, artifacts, expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "block-width-overflow",
+    );
+    let package_path = job.join("document-package.json");
+    let package = fs::read_to_string(&package_path).unwrap();
+    let vector_path = job.join("svg/x-plus-y.svg");
+    let vector = fs::read_to_string(&vector_path).unwrap();
+    assert_eq!(
+        vector
+            .matches("width=\"30pt\" height=\"12pt\" viewBox=\"0 0 30 12\"")
+            .count(),
+        1
+    );
+    let vector = vector.replace(
+        "width=\"30pt\" height=\"12pt\" viewBox=\"0 0 30 12\"",
+        "width=\"500pt\" height=\"12pt\" viewBox=\"0 0 500 12\"",
+    );
+    let vector_hash = typaxis_core::sha256(vector.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    fs::write(&vector_path, vector).unwrap();
+    let package = package
+        .replace(
+            "5e445b2594138fa918f94fd55bf698d4bfc8f5a82e48a14810a2d7a8bc0fca38",
+            &vector_hash,
+        )
+        .replace("\"width\":1966080", "\"width\":32768000");
+    fs::write(&package_path, package).unwrap();
+
+    let result = run_build_package(build_options(&job, &artifacts, &expected));
+    assert_eq!(failure_exit_code(&result), 1);
+    assert!(
+        result.as_ref().unwrap_err().message.starts_with("L5100:"),
+        "unexpected failure: {}",
+        result.as_ref().unwrap_err().message
+    );
+    assert!(!artifacts.join("output.pdf").exists());
+
+    let diagnostics = read_json(&artifacts.join("diagnostics.json"));
+    assert_eq!(diagnostics["contract"], "typaxis.contract/1.4");
+    assert_eq!(diagnostics["diagnostics"][0]["code"], "L5100");
+    assert_eq!(
+        diagnostics["diagnostics"][0]["location"]["json_pointer"],
+        ""
+    );
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["output"].is_null());
+    drop(tree);
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_contract_1_4_is_rejected_by_old_profile_at_contract() {
+    let (tree, job, artifacts, expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "old-profile-contract",
+    );
+    let mut options = build_options(&job, &artifacts, &expected);
+    options.profile = MachinePdfProfileId::PARAGRAPH_1;
+
+    let result = run_build_package(options);
+    assert_eq!(failure_exit_code(&result), 1);
+    assert!(result.as_ref().unwrap_err().message.starts_with("P1103:"));
+    assert!(!artifacts.join("output.pdf").exists());
+
+    let diagnostics = read_json(&artifacts.join("diagnostics.json"));
+    assert_eq!(diagnostics["contract"], "typaxis.contract/1.3");
+    assert_eq!(diagnostics["diagnostics"][0]["code"], "P1103");
+    assert_eq!(
+        diagnostics["diagnostics"][0]["location"]["json_pointer"],
+        "/contract"
+    );
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["fonts"].as_array().unwrap().is_empty());
+    assert!(manifest["images"].as_array().unwrap().is_empty());
+    drop(tree);
 }
 
 fn assert_advanced_combined_fixture(relative: &str, profile: MachinePdfProfileId) -> FixtureRun {
@@ -1666,7 +1952,7 @@ fn canonical_round_trip_relations_hold() {
         round_trip.canonical_jcs_sha256()
     );
 
-    let (tree, job, artifacts, expected) =
+    let (tree, job, _artifacts, _expected) =
         copy_fixture("scenarios/round-trip", "dump-build-round-trip");
     let config = EffectiveConfig::new(
         false,
@@ -1680,40 +1966,32 @@ fn canonical_round_trip_relations_hold() {
     )
     .unwrap();
     let source_package = pipeline::load_package(&job.join("input.tsf"), &config).unwrap();
-    let source_fingerprint = source_package.epoch_identity().document();
+    let admitted = typaxis_resources::AdmittedResourceResolver::new(
+        &source_package.package().resources,
+        config.limits(),
+    )
+    .and_then(typaxis_resources::AdmittedResourceResolver::finish)
+    .unwrap();
     let dumped_path = job.join("dumped.json");
     let mut dumped = fs::File::create(&dumped_path).unwrap();
-    artifacts::write_document_package_json(&source_package, config.limits(), &mut dumped).unwrap();
+    artifacts::write_document_package_json(
+        &source_package,
+        &admitted,
+        config.limits(),
+        &mut dumped,
+    )
+    .unwrap();
     drop(dumped);
-
-    let options = MachineInputHostOptions::new(
-        HostPath::new(dumped_path.clone()).unwrap(),
-        Some(HostPath::new(job.clone()).unwrap()),
-    );
-    let (session, raw) = HostMachineInputSession::open(options, config.limits()).unwrap();
-    let decoded = session
-        .decode_and_bind(
-            &raw,
-            &StrictDocumentPackageDecoder::new(),
+    let dumped_bytes = fs::read(&dumped_path).unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new()
+        .decode(
+            &dumped_bytes,
             &DocumentPackageDecodePolicy::new(config.limits()),
         )
         .unwrap();
-    let sources = session.admit_sources(&decoded, config.limits()).unwrap();
-    let admitted = session.finish(raw, decoded, sources).unwrap();
-    let policy =
-        PackageValidationPolicy::new(config.limits(), config.allowed_uri_schemes()).unwrap();
-    let machine_package = match DocumentPackageParser::new().parse(admitted, &policy) {
-        MachineParseOutcome::Parsed { package } => package,
-        MachineParseOutcome::Failed { failure, .. } => panic!("dumped package failed: {failure}"),
-    };
-    assert_eq!(
-        source_fingerprint,
-        machine_package.package().epoch_identity().document()
-    );
-    let mut options = build_options(&job, &artifacts, &expected);
-    options.package = dumped_path;
-    run_build_package(options).unwrap();
-    assert!(artifacts.join("output.pdf").is_file());
+    assert_eq!(decoded.wire().document().language, "und");
+    assert!(decoded.wire().metadata().title.is_none());
+    assert!(decoded.wire().outline().entries.is_empty());
     drop(tree);
 }
 

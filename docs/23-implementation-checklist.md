@@ -1,19 +1,19 @@
 # Implementation checklist
 
-このchecklistの`[x]`は、current contract 1.3のinvariantまたは明記したdelivery gateにRust type、Schema、validator、public E2Eの対応証拠があることを表す。公開範囲は[producer guide](26-machine-input-cli.md)、milestone completionとrich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
+このchecklistの`[x]`は、current contract 1.4のinvariantまたは明記したdelivery gateにRust type、Schema、validator、public E2Eの対応証拠があることを表す。公開範囲は[producer guide](26-machine-input-cli.md)、milestone completionとrich block/resourceの不足は[docs/25](25-machine-input-pdf-improvements.md)のsupport matrixを正とする。
 
 ## Machine input delivery gates
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| reference TSF pipeline | Yes, current 1.3 | Yes, bounded subset | Yes | No |
-| DocumentPackage portable Schema/export | Yes, current 1.3 plus frozen 1.0/1.1/1.2 input | Yes | Yes, package round trip | Yes |
+| reference TSF pipeline | Yes, current 1.4 | Yes, bounded subset | Yes | No |
+| DocumentPackage portable Schema/export | Yes, current 1.4 plus frozen 1.0/1.1/1.2/1.3 input | Yes | Yes | Yes, MI4-13 gate |
 | sealed machine ingestion | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed capability contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed capability contracts | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
-| contract 1.3 output | Yes | Yes, current output | Yes | Yes |
+| contract 1.3 output | Yes | Yes, frozen compatibility output | Yes | Yes |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: public selected-state and artifact closure | Yes | Yes, MI3-12 gate |
-| contract 1.4 / `production-book-1` target | Yes through ADR-0037 for base/media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and separate baseline-JPEG/CFF1 resources | Private implementation and MI4-V19 external/readiness evidence are complete | No | No; MI4-13 atomic publication remains |
+| contract 1.4 / `production-book-1` | Yes through ADR-0037 for base/media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and separate baseline-JPEG/CFF1 resources | Yes, complete receipt/artifact closure | Yes, combined public fixture | Yes, MI4-13 gate |
 
 - [x] ADR-0027 fixes command identity, package-root/resource-root separation, single-source M1, sealed receipt ownership, immutable profile semantics, contract 1.1 migration, and publication order
 - [x] `typaxis-machine-input -> typaxis-syntax` is forbidden; syntax remains the sole trusted package issuer
@@ -32,14 +32,14 @@
 - [x] ADR-0034 fixes explicit metadata, stable BCP 47 inheritance, source-bound outline/named destinations, deterministic Info/XMP/catalog/outline mapping, limits, diagnostics, and the MI4-07/MI4-13 gates
 - [x] MI4-07 implements the private 1.4 metadata/language/outline Wire-to-PDF/manifest/independent-validator closure while keeping current aliases, public descriptors, help, and default unchanged
 - [x] ADR-0035 fixes exhaustive source-bound PDF/UA-1 roles in a layout-contract-owned registry, logical reading order, selected-paint/artifact/MCID closure, alternatives/language/table/note/link/outline relations, `book-xmp/2`, existing-limit reuse, and exact veraPDF/Matterhorn evidence
-- [x] MI4-09 implements the private structure registry, selected-paint/artifact binding, dense MCID/ParentTree plan, tagged PDF/manifest closure, writer-independent validator, combined fixture, and old-public-surface isolation; MI4-13 publication and external release evidence remain unchecked gates
+- [x] MI4-09 implements the isolated structure registry, selected-paint/artifact binding, dense MCID/ParentTree plan, tagged PDF/manifest closure, writer-independent validator, combined fixture, and old-public-surface isolation; MI4-V19 and MI4-13 subsequently close external evidence and publication
 - [x] ADR-0036 fixes independent immutable PNG/SafeVector/baseline-JPEG/TrueType/CFF1 component IDs, exact `jpeg-baseline` and `sfnt-cff1` declarations/attestations, bounded color/metadata/container/operator domains, deterministic JPEG APP0 removal and hint-stripped CID subset, embedding-permission rejection, FontFile3/DCTDecode plans, inclusive limits, exact-pinned dependency edges, same-resource closure, and MI4-11/12/13 gates
 - [x] MI4-V01 fixes the VMB Safe-SVG 2 producer-interface corpus without changing product/public behavior
 - [x] ADR-0037 fixes explicit producer-composed vector kinds, metrics/baseline/spacing, Safe-SVG 2, atomic inline/block layout, equation-number ownership, content-key Form dedupe, alternatives/language/structure, one-time limits/diagnostics, versioned SafeVector/resource-set/navigation/tagged-PDF `/2` chains, and the MI4-V19 -> MI4-13 publication dependency
-- [x] MI4-V03〜MI4-V18 implement ADR-0037 only in private 1.4 staging
-- [x] MI4-V19 closes pinned MuPDF/Poppler/veraPDF, Matterhorn `/2`, complete resource-set `/2`, and macOS/Linux evidence without publishing aliases
+- [x] MI4-V03〜MI4-V18 implement ADR-0037 only in isolated 1.4 staging before publication
+- [x] MI4-V19 closes pinned MuPDF/Poppler/veraPDF, Matterhorn `/2`, complete resource-set `/2`, and macOS/Linux evidence before aliases are published
 - [x] MI4-11 and MI4-12 implement the bounded JPEG and CFF1 components privately, including deterministic PDF plans, manifest closure, renderer/extractor checks, and old-public-surface isolation
-- [ ] MI4-13 publishes only the complete combined resource set with the other M4 slices
+- [x] MI4-13 publishes only the complete combined resource set with the other M4 slices; current aliases, eight-profile capability, normal CLI dispatch, public matrix, and external evidence are one gate
 
 The ADR-0027/ownership/paragraph items are contract-boundary decisions; the
 command and evidence items are implementation/public/release claims backed by

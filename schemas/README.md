@@ -4,8 +4,8 @@
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| DocumentPackage portable shape | Yes, current 1.3 plus frozen 1.0/1.1/1.2 input | Yes: independent Schema/offline semantic validation | Yes, package commands | Yes |
-| `dump-ast` DocumentPackage export | Yes, current 1.3 | Yes, shared converter/encoder | Yes, supported package round trip | Yes |
+| DocumentPackage portable shape | Yes, current 1.4 plus frozen 1.0/1.1/1.2/1.3 input | Yes: independent Schema/offline semantic validation | Yes, package commands | Yes |
+| `dump-ast` DocumentPackage export | Yes, current 1.4 | Yes, resource-attested shared converter/encoder | Yes | Yes, MI4-13 gate |
 | sealed package/source admission | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed contract | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `typaxis.machine-pdf/basic-document-1` | Yes, ADR-0028 | Yes: full profile, receipt, multi-flow, style/list/break/figure/link closure | Yes, combined PDF/sidecars | Yes |
@@ -13,13 +13,13 @@
 | `typaxis.machine-pdf/footnote-1` | Yes, ADR-0030 | Yes: discovery/reflow, dedicated carry, Display/PDF, trace/manifest closure | Yes, zero and combined PDF/sidecars | Yes, MI3-07 gate |
 | contract 1.1 Schema registry | Yes | Yes: frozen eleven-schema compatibility registry | Compatibility input only | Frozen |
 | contract 1.2 Schema registry | Yes, ADR-0028/ADR-0029/ADR-0030 | Yes: frozen independent nineteen-schema compatibility registry | Compatibility input only | Frozen |
-| contract 1.3 Schema registry | Yes, ADR-0031 | Yes: current aliases plus complete independent twenty-schema registry | Yes, seven public profiles | Yes, MI3-12 gate |
-| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 target | Yes: independent private staging registry and canonical slice fixtures | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 math/safe-vector extension | Yes, ADR-0033 target | Yes: MI4-04 SafeVector and MI4-05 math Schema/Rust/PDF slices in the private registry | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 metadata/language/outline extension | Yes, ADR-0034 target | Yes: MI4-07 private Schema/Rust/PDF/validator slice | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 target | Yes: MI4-09 private structure/marked-content/PDF/validator manifest slice | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 target | Yes: MI4-11/12 add the separate private Schema/Rust/PDF/manifest slices | No; current aliases remain 1.3 | No, MI4-13 gate |
-| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 target | Yes through MI4-V19: strict Wire/domain, validation/admission/layout/PDF, versioned manifests/build closure, combined CLI, and external publication-readiness evidence | No; current aliases remain 1.3 | No; MI4-13 publication gate |
+| contract 1.3 Schema registry | Yes, ADR-0031 | Yes: frozen independent twenty-schema registry | Compatibility input and old-profile artifacts | Frozen after MI4-13 |
+| contract 1.4 semantic-container/declared-media registry | Yes, ADR-0032 | Yes | Yes, `production-book-1` | Yes, MI4-13 gate |
+| contract 1.4 math/safe-vector extension | Yes, ADR-0033 | Yes | Yes, `production-book-1` | Yes, MI4-13 gate |
+| contract 1.4 metadata/language/outline extension | Yes, ADR-0034 | Yes | Yes, `production-book-1` | Yes, MI4-13 gate |
+| contract 1.4 tagged-PDF/accessibility extension | Yes, ADR-0035 | Yes | Yes, `production-book-1` | Yes, MI4-13 gate |
+| contract 1.4 baseline-JPEG/CFF1 resource extension | Yes, ADR-0036 | Yes | Yes, `production-book-1` | Yes, MI4-13 gate |
+| contract 1.4 producer-composed math-vector extension | Yes, ADR-0037 | Yes through MI4-V19 | Yes, combined public fixture | Yes, MI4-13 gate |
 
 The offline validator proves portable Schema and semantic conformance only. It
 does not issue in-process admission or validation receipts. The `typaxis build`
@@ -45,50 +45,50 @@ and [ADR-0029](../adr/ADR-0029-table-profile.md) defines the table profile on
 that unchanged wire. [ADR-0030](../adr/ADR-0030-footnote-profile.md) defines
 the public footnote profile, and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md)
 defines the public advanced-pagination profiles.
-[ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) reserves
-the non-current 1.4 semantic-container/declared-media target and
-`production-book-1`; MI4-02 implements them only in the private staging
-registry and does not create a current alias or public descriptor.
+[ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) reserved
+the 1.4 semantic-container/declared-media target and `production-book-1`;
+MI4-02 first implemented them in an isolated staging registry.
 [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) fixes
 the `typaxis-math` source/alternative receipt and `svg-safe-1` subset. MI4-04
-implements the private SafeVector declaration/manifest/config slice and
-MI4-05 implements the private math Schema/Rust/PDF slice.
+implemented the isolated SafeVector declaration/manifest/config slice and
+MI4-05 implemented the math Schema/Rust/PDF slice.
 [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md) fixes the
 required closed metadata record, stable BCP 47 inheritance, explicit
 source-bound outline, and Info/XMP/catalog/outline mapping. MI4-07 updated the
-complete private 1.4 registry and all existing private fixtures atomically,
-while current/frozen aliases stayed byte-identical.
+complete isolated 1.4 registry and all existing fixtures atomically while the
+then-current aliases stayed byte-identical.
 [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md) fixes the
 PDF/UA-1 structure/marked-content/artifact projection, `book-xmp/2`, and exact
 validator evidence. It adds no DocumentPackage member or Schema bytes at ADR
-adoption; MI4-09 adds only the private versioned manifest/expectation
-shapes needed for the implementation, without changing current/frozen aliases.
+adoption; MI4-09 added the versioned manifest/expectation shapes needed for
+the implementation without changing then-current/frozen aliases.
 [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) fixes
-exact future `jpeg-baseline` and `sfnt-cff1` declarations, five distinct
+exact `jpeg-baseline` and `sfnt-cff1` declarations, five distinct
 resource component IDs, bounded decode/evaluation and embedding policy,
 deterministic JPEG/CFF transforms, PDF plans, limits, and dependency identities.
 ADR adoption changed no Schema; MI4-11 and MI4-12 subsequently implemented
-those private additions, and MI4-13 alone may switch aliases or advertise the
+those isolated additions before MI4-13 switched aliases and advertised the
 complete resource set.
-[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) adds the closed
-private `inline_vector`, `math_vector`, `vector_figure`, and
+[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) added the closed
+`inline_vector`, `math_vector`, `vector_figure`, and
 `math_vector_block` shapes, `svg-safe-2` declaration/provenance, producer
 metrics, and versioned SafeVector/resource-set, navigation, tagged-PDF, and
 manifest branches. ADR adoption and MI4-V01 add no Schema shape. MI4-V03 adds
-the strict private Wire/Schema/domain shape and keeps every legacy consumer
-fail-closed; later V milestones own validation, admission, layout, and PDF only
-inside the independent private 1.4 registry. MI4-V19 closes
-feature evidence before MI4-13 switches aliases and advertises the exact
-resource-set `/2`/vector capability projection.
-`schemas/1.0/`, `schemas/1.1/`, and `schemas/1.2/` contain frozen
-independent compatibility registries.
-Top-level `schemas/*.schema.json` files are current 1.3 aliases, including
-capability, fixture/matrix, and machine host-evidence Schemas. Current
-generators emit 1.3, while the typed DocumentPackage parser recognizes 1.0
-through 1.3. The public `build-package`, `check-package`, and capability CLI
-surface supports all seven immutable profiles.
+the strict isolated Wire/Schema/domain shape and kept every legacy consumer
+fail-closed; later V milestones closed validation, admission, layout, and PDF
+inside the independent 1.4 registry. MI4-V19 closed feature evidence before
+MI4-13 switched aliases and advertised the exact resource-set `/2` and vector
+capability projection.
 
-`schemas/1.3/` is the complete current versioned registry. It preserves the
+`schemas/1.0/`, `schemas/1.1/`, `schemas/1.2/`, and `schemas/1.3/` contain
+frozen independent compatibility registries. The twenty-nine top-level
+`schemas/*.schema.json` files are byte-identical aliases of the current
+`schemas/1.4/` registry, including capability, fixture/matrix, and machine
+host-evidence Schemas. Current generators emit 1.4, the typed DocumentPackage
+parser recognizes 1.0 through 1.4, and the public capability surface contains
+eight immutable profiles with `paragraph-1` still the default.
+
+`schemas/1.3/` is the complete frozen versioned registry. It preserves the
 1.2 artifact families described below and adds the required advanced package,
 capability, trace, and manifest shapes. MI2-02 added
 canonical multi-flow trace/manifest projections; MI2-03 added the additive
@@ -110,70 +110,70 @@ and forbidden for the other profiles. MI3-12 added the conditional
 `advanced_pagination` projection, froze the complete 1.3 registry, and switched
 the current aliases atomically.
 
-The independent `schemas/1.4/` registry begins with MI4-02 private staging and
-is not frozen until MI4-13. Its base DocumentPackage shape adds
+The independent `schemas/1.4/` registry began with MI4-02 isolated staging and
+was frozen and selected by the top-level aliases at MI4-13. Its base
+DocumentPackage shape adds
 the closed block-only `semantic_container` with
 `semantic_kind = result|proof|exercise` and requires
-the private image branches `media_type = png|svg-safe-1|svg-safe-2|jpeg-baseline`
+the image branches `media_type = png|svg-safe-1|svg-safe-2|jpeg-baseline`
 plus `resources.font_faces[*].media_type =
 sfnt-truetype-glyf|ttc-truetype-glyf|sfnt-cff1`.
 MI4-V03 adds the separate `svg-safe-2` image branch with required nonnull hash
 and provenance, and the four closed producer-vector kinds with their exact
 metrics/source/alternative/number shape.
 MI4-V17 adds SafeVector `/2`, producer-composed math-vector `/1`,
-book-navigation `/2`, and tagged-PDF `/2` alternatives to their private
+book-navigation `/2`, and tagged-PDF `/2` alternatives to their versioned
 manifest families, plus the production build-manifest record/fingerprint
 pairs. Built records are nonnull even for zero use; failed pairs are exactly
 both-null or both-nonnull. Existing `figure`/`svg-safe-1` usage is projected
 through the same SafeVector `/2` content-key/Form path. MI4-V19 adds the
-Matterhorn assessment `/2` shape, so the private registry now has twenty-nine
-Schemas; current aliases and their seven-profile capability bytes remain
-unchanged.
-Current and frozen Schemas do not gain those fields. Missing/null/unknown 1.4
+Matterhorn assessment `/2` shape, bringing the registry to twenty-nine
+Schemas; MI4-13 then published that complete set without changing any frozen
+registry.
+Frozen Schemas do not gain those fields. Missing/null/unknown 1.4
 media values are decode failures rather than legacy absence or defaults.
 
 ADR-0036 contract-defines `jpeg-baseline` and `sfnt-cff1`; the private registry
 intentionally did not accept or advertise them at MI4-10 adoption. MI4-11 added
 only the JPEG enum/attestation/decoded/sanitized/DCT-plan facts. MI4-12 added
 only the CFF enum/attestation/table/license/glyph/subset/FontFile3 facts and the
-six private font-limit members. Both additions update their private 1.4
-fixtures and semantic checks while leaving top-level/current and frozen
-1.0-1.3 bytes unchanged. They remain unadvertised until MI4-13.
+six font-limit members. Both additions updated the isolated 1.4 fixtures and
+semantic checks while leaving then-current and frozen 1.0-1.3 bytes unchanged.
+MI4-13 published both additions in `production-book-1`.
 
 ADR-0037 contract-defines `svg-safe-2`, four producer-vector kinds,
 closed metrics/spacing/source/alternative records, and the version-2
 SafeVector/resource-set/book-navigation/tagged-PDF artifact families. MI4-V01
 contains only a TSV/SVG producer-interface corpus. MI4-V03 implements the
 strict Wire/domain and applicable DocumentPackage Schema additions; V04 through
-V17 own the remaining private Schema/artifact additions in
-dependency order, MI4-V18 closes the crate-private combined fixture, and
-MI4-V19 closes external evidence. Until MI4-13, no top-level alias, public capability Schema,
-current encoder, or frozen registry contains those additions. Publication must
-switch the complete resource-set `/2`, language/navigation `/2`, tagged-PDF
-`/2`, manifest dispatch, profile descriptor, and Schema aliases in one change
-set; a `/1` fallback is not a valid partial registry.
+V17 owned the remaining isolated Schema/artifact additions in dependency
+order, MI4-V18 closed the combined fixture, and MI4-V19 closed external
+evidence. MI4-13 switched the complete resource-set `/2`,
+language/navigation `/2`, tagged-PDF `/2`, manifest dispatch, profile
+descriptor, current encoder, and Schema aliases in one change set; no frozen
+registry changed and no `/1` fallback was published.
 
-MI4-04 adds the private `machine-safe-vector-manifest` and a separate M4
+MI4-04 added `machine-safe-vector-manifest` and a separate M4
 effective-limit extension for vector nodes, path segments, nesting depth, and
 math layout units. The SafeVector fixture closes every declared resource over
 stable-byte hash, decoder attestation, canonical IR, selected use, Form plan,
 and PDF object, including the adopted parser/IR/charge identities; an unused
 admitted vector has no plan or PDF object. These
-private limit members do not alter the current 1.3 `ResourceLimits` JCS or
-fingerprint.
+M4 limit members are part of the current 1.4 `EffectiveConfig` JCS and remain
+absent from frozen old-profile artifact/config shapes.
 
-MI4-05 adds closed `inline_math`/`display_math` records and the private
+MI4-05 added closed `inline_math`/`display_math` records and the isolated
 `machine-math-manifest`. Its fixtures bind exact source/span, producer speech,
 parsed AST, admitted MATH font, layout/vector paint, selected placement, PDF
 `/ActualText`, and manifest observation while preserving 1.3 rejection and
 public alias bytes. MI4-07 adds ADR-0034's metadata/language/outline fields and
-book-navigation artifacts to this private registry. MI4-09 adds the private
+book-navigation artifacts to this registry. MI4-09 added the
 `machine-accessibility-manifest`, dense logical structure/selected paint/MCID/
 ParentTree closure, tagged PDF object observations, and the independent
-writer-free validation projection. The current aliases remain byte-for-byte
-1.3 and do not advertise or accept this target.
+writer-free validation projection. MI4-13 later published those complete
+branches through the current 1.4 aliases.
 
-The private semantic-container manifest projection uses a closed
+The production semantic-container manifest projection uses a closed
 `media_declaration` tagged union. `kind = declared` requires typed
 `media_type`; `kind = legacy_unspecified` forbids it. The separate
 `attested_media_kind` is decoder-issued, nonnull, and equal on every built M4
@@ -182,8 +182,8 @@ record. Current image records already require that field with value `png`; the
 old resource shapes. Legacy/null is permitted only for a sealed old-contract
 M4 request rejected before resource admission. Frozen old-profile
 success/failure Schemas gain no declaration or changed attestation member and
-retain their golden bytes. MI4-13 must validate the complete 1.4 registry
-independently before switching any top-level alias.
+retain their golden bytes. MI4-13 validated the complete 1.4 registry
+independently before switching every top-level alias.
 
 Schema `$id` values under `https://schemas.typaxis.invalid/1.0/`,
 `https://schemas.typaxis.invalid/1.1/`,
@@ -202,8 +202,7 @@ python3 schemas/validate.py
 
 It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
 
-- meta-validates the frozen 1.0/1.1/1.2, current/versioned 1.3, and private
-  1.4 Draft
+- meta-validates the frozen 1.0/1.1/1.2/1.3 and current/versioned 1.4 Draft
   2020-12 registries and resolves every registered `$ref` without
   cross-registering versions;
 - proves that the canonical 1.0 compatibility fixture is accepted by the
@@ -284,6 +283,10 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   goldens, dense StructureNodeId/paint/page-local MCID/ParentTree closure,
   closed roles and validators, combined semantic coverage, typed tamper cases,
   and public 1.3 alias isolation;
+- validates MI4-13's twenty-nine current 1.4 aliases, exact eight-profile
+  capability tuple/default, complete `production-book-1` descriptor and
+  combined fixture, M4 feature-local tamper matrix, old-profile/frozen-registry
+  isolation, legacy pre-resource rejection, and `m4-production.json` matrix;
 - checks that `samples/invalid/expected-errors.json` indexes every invalid fixture;
 - recomputes `config_sha256` from the effective TOML data model serialized with
   the supported RFC 8785 JSON Canonicalization Scheme subset;
@@ -294,15 +297,15 @@ It requires Python 3.11 or later and `jsonschema` 4.18 or later. The validator:
   selected-page-count, strict-fallback, and output-file relationships; and
 - verifies file facts used by the minimal manifest and manifest-order fixture.
 
-`package-config.schema.json` describes the fully merged 1.3 `EffectiveConfig` data
+`package-config.schema.json` describes the fully merged 1.4 `EffectiveConfig` data
 model that is hashed and passed to later phases. A user-authored `typaxis.toml`
 is a partial input and is not validated directly against this schema. The
 implementation first resolves defaults, the partial TOML file, environment
 overrides, and CLI overrides; it then validates and serializes the resulting
 complete `EffectiveConfig`. Its `allowed_uri_schemes` and `resource_roots`
 arrays are unique and sorted by UTF-8 bytes. Earlier raw inputs receive later
-compatible defaults before overrides and normalize to the same 1.3 JCS
-bytes/hash as semantically equal raw 1.3 input. Canonical document packages also
+compatible defaults before overrides and normalize to the same 1.4 JCS
+bytes/hash as semantically equal raw 1.4 input. Canonical document packages also
 write an explicit ordered-list `start`; an omitted source value resolves to
 `1`, while unordered lists write `null`.
 

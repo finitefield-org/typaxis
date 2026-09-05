@@ -150,10 +150,9 @@ impl StagingProductionBuildManifestVectorFields {
         self.tagged_pdf_fingerprint
     }
 
-    /// Canonical root-object projection consumed by the private production
-    /// runner. These members remain an unversioned part of the owner build
+    /// Canonical root-object projection consumed by the production manifest
+    /// owner. These members remain an unversioned part of the owner build
     /// manifest rather than a separately publishable public record.
-    #[cfg(any(test, feature = "staging-fixtures"))]
     pub fn canonical_root_projection(&self) -> String {
         encode_root_projection(self)
     }
@@ -181,7 +180,6 @@ impl std::fmt::Display for StagingProductionBuildManifestVectorFieldsError {
 }
 impl std::error::Error for StagingProductionBuildManifestVectorFieldsError {}
 
-#[cfg(any(test, feature = "staging-fixtures"))]
 fn encode_root_projection(value: &StagingProductionBuildManifestVectorFields) -> String {
     let mut out = String::from("{\"book_navigation_manifest\":");
     push_record(&mut out, value.book_navigation_record());
@@ -207,21 +205,18 @@ fn encode_root_projection(value: &StagingProductionBuildManifestVectorFields) ->
     out.push('}');
     out
 }
-#[cfg(any(test, feature = "staging-fixtures"))]
 fn push_record(out: &mut String, value: Option<&str>) {
     match value {
         Some(value) => out.push_str(value),
         None => out.push_str("null"),
     }
 }
-#[cfg(any(test, feature = "staging-fixtures"))]
 fn push_optional_hash(out: &mut String, value: Option<[u8; 32]>) {
     match value {
         Some(value) => push_hash(out, value),
         None => out.push_str("null"),
     }
 }
-#[cfg(any(test, feature = "staging-fixtures"))]
 fn push_hash(out: &mut String, value: [u8; 32]) {
     const H: &[u8; 16] = b"0123456789abcdef";
     out.push('"');

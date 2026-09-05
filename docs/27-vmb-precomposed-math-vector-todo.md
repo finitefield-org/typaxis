@@ -3,12 +3,12 @@
 Source: `docs/27-vmb-precomposed-math-vector.md`
 
 - Design baseline commit: `7d9a03ca9f34fa2bb659c3ac92f9f028d57ac7ff`（以後のreview fixは設計書と本書を同一change setで更新する）
-- 状態: Pending
-- 対象: 非公開の`typaxis.contract/1.4` / `typaxis.machine-pdf/production-book-1`
+- 状態: Completed（MI4-V01〜MI4-V19。公開はMI4-13で完了）
+- 対象: 現行`typaxis.contract/1.4` / 公開`typaxis.machine-pdf/production-book-1`
 - 公開owner: `MI4-13`
 - 前提: `MI4-02`、`MI4-04`、`MI4-05`、`MI4-07`、`MI4-09`、`MI4-10`がCompletedである現行repository
 
-この文書は、設計書で未割当だったproducer-composed vector機能を、既存M4 taskと衝突しない`MI4-V01`〜`MI4-V19`へ分解する。`MI4-V01`〜`MI4-V18`はcrate-privateな1.4 stagingだけを実装し、public current contract 1.3、七profile、default `paragraph-1`、公開Schema alias、CLI help、capability bytesを変更しない。`MI4-V19`は公開可能性を証明するfeature-local gateであり、public aliasと`production-book-1`を有効化する唯一のownerは、引き続きmaster planの`MI4-13`である。
+この文書は、設計書で未割当だったproducer-composed vector機能を、既存M4 taskと衝突しない`MI4-V01`〜`MI4-V19`へ分解した実装記録である。`MI4-V01`〜`MI4-V18`はcrate-privateな1.4 stagingだけを実装し、当時のpublic current contract 1.3、七profile、default `paragraph-1`、公開Schema alias、CLI help、capability bytesを変更しなかった。`MI4-V19`は公開可能性を証明するfeature-local gateであり、master planの`MI4-13`が2026-09-05にpublic aliasと`production-book-1`を有効化した。
 
 本拡張の詳細task/acceptanceは本書をsingle sourceとし、authoritative release schedulingは`docs/25-machine-input-pdf-improvements-todo.md`である。`MI4-V02`は[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md)と短いmilestone stub/dependency/linkをmasterへ登録済みであり、masterがrelease status/dependency、本書が詳細task/acceptanceを所有する。
 
@@ -1333,9 +1333,10 @@ MI4-V19 -> MI4-13
 | 11 error handling | MI4-V03〜V18各negative gate | V18 phase/code/location/side-effect matrix |
 | 12 acceptance tests | MI4-V01 corpus、V18 integration | V19 independent/external validation |
 
-## 7. MI4-13 handoff contract
+## 7. MI4-13 publication result
 
-`MI4-V19`完了後もpublic surfaceは変わっていない。master planの`MI4-13`は既存M4 sliceと本機能を同じchange setで次の順に公開する。
+`MI4-V19`完了時点ではpublic surfaceを変えず、master planの`MI4-13`が既存M4
+sliceと本機能を同じchange setで次の順に公開した。
 
 1. current 1.3 Schema/contract/capability/manifest/fixtureをfrozen versionとして保存し、byte regressionを通す。
 2. complete private 1.4 registryを検証してからcurrent contract/Schema aliasとWire encoder/decoder/`dump-ast` dispatchを切り替える。
@@ -1344,13 +1345,17 @@ MI4-V19 -> MI4-13
 5. public `check-package` / `build-package` / `dump-ast` / `capabilities` E2E、Schema、renderer、extractor、tagged validator、two-build、managed-host evidenceをpublic binaryで再実行する。
 6. docs/contract matrix/checklist/producer guide/CLI guideをimplemented + E2E completeへ一括更新し、partial profileやprivate staging selectorを残さない。
 
-MI4-13はvector parser/layout/PDF logicを再実装せず、V19でsealedになったreceipt/artifact ownerをpublic dispatchへ接続する。V19 evidenceがstale、wrong revision、wrong PDF hashになった場合は再生成し、publicationだけを進めない。
+MI4-13はvector parser/layout/PDF logicを再実装せず、V19でsealedになった
+receipt/artifact ownerをpublic dispatchへ接続した。現行surfaceはcontract 1.4、
+8-profile tuple、default `paragraph-1`、公開`production-book-1`、resource-set `/2`
+である。V19 evidenceがstale、wrong revision、wrong PDF hashになった場合は再生成し、
+publication evidenceとして受理しない。
 
 ## 8. Change-set and review gates
 
-### 8.1 Public isolation gate
+### 8.1 Pre-publication public isolation gate
 
-`MI4-V03`〜`MI4-V19`の各変更後、少なくとも次を確認する。
+`MI4-V03`〜`MI4-V19`の各変更後に確認したpublication前の条件を記録する。
 
 - current `typaxis_core::CONTRACT`は1.3のまま。
 - public `capabilities --format json`は七profileだけで、`production-book-1`、`svg-safe-2`、new vector kind/fieldを含まない。

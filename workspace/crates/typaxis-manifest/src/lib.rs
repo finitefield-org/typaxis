@@ -99,18 +99,22 @@ use typaxis_core::{
     push_generated_buffer_key_jcs, push_jcs_string, AdmittedResourceFingerprint,
     BuildExecutionContext, BuildExecutionError, EffectiveConfig, EffectiveConfigFingerprint,
     EngineIdentity, FontFaceId, FootnoteId, GeneratedBufferKey, HostPath, ImageResourceId,
-    LayoutStateFingerprint, MachinePdfProfileId, PortablePath, Rect, ReplacePolicy,
-    ResolvedDataTables, ShaperIdentity, SourceId, ValidatedResourceLimits, JSON_SAFE_INTEGER_MAX,
+    LayoutStateFingerprint, M4EffectiveResourceLimits, MachinePdfProfileId, PortablePath, Rect,
+    ReplacePolicy, ResolvedDataTables, ShaperIdentity, SourceId, ValidatedResourceLimits,
+    JSON_SAFE_INTEGER_MAX,
 };
 pub use typaxis_core::{OutputSink, PdfStreamCompression};
 use typaxis_display_list::FootnoteDisplayClosureReceipt;
+use typaxis_document::{FontMediaDeclaration, ImageMediaDeclaration};
 pub use typaxis_host_admission::HostReadIdentityLedgerToken as PublicationReadLedgerToken;
 use typaxis_host_admission::{HostAdmissionError, HostReadIdentityLedgerToken};
 use typaxis_layout_contract::{ResolvedTableColumnInput, ValidatedTableGridReceipt};
 use typaxis_machine_input::{
     MachineInputFingerprint, MachineInputProgress, MachineInputSessionIdentity, MachineInputStage,
 };
-use typaxis_machine_profile::{MachinePdfPreflightReceipt, MachineProfileDescriptor};
+use typaxis_machine_profile::{
+    MachinePdfPreflightReceipt, MachineProfileDescriptor, StagingTaggedPdfProfileReceiptV2,
+};
 use typaxis_pagination::{
     ConvergenceStatus, MultiFlowSelectedStateReceipt, MultiFlowTraceFacts, PaginationResult,
     RowspanContinuationReceipt, SelectedTableLayoutReceipt, StagingTableCellFragmentReceipt,
@@ -122,7 +126,10 @@ use typaxis_pdf::{
 };
 use typaxis_resources::{AdmittedResourceLedgerToken, ResourceAdmissionProgressToken};
 use typaxis_syntax::machine_profile_boundary::Block;
-use typaxis_syntax::{PackageEpochIdentity, ValidatedMachinePackage, ValidatedParsedPackage};
+use typaxis_syntax::{
+    PackageEpochIdentity, ValidatedMachinePackage, ValidatedParsedPackage,
+    ValidatedProductionMachinePackage,
+};
 use typaxis_text::SourceRecord;
 
 pub const CONTRACT: &str = typaxis_core::CONTRACT;
@@ -151,6 +158,7 @@ pub enum BuildInputProfile {
     MachinePdfFootnote1,
     MachinePdfHeaderFooter1,
     MachinePdfParagraph1,
+    MachinePdfProductionBook1,
     MachinePdfTable1,
 }
 
@@ -164,6 +172,7 @@ impl BuildInputProfile {
             Self::MachinePdfFootnote1 => MachinePdfProfileId::FOOTNOTE_1.as_str(),
             Self::MachinePdfHeaderFooter1 => MachinePdfProfileId::HEADER_FOOTER_1.as_str(),
             Self::MachinePdfParagraph1 => MachinePdfProfileId::PARAGRAPH_1.as_str(),
+            Self::MachinePdfProductionBook1 => MachinePdfProfileId::PRODUCTION_BOOK_1.as_str(),
             Self::MachinePdfTable1 => MachinePdfProfileId::TABLE_1.as_str(),
         }
     }
@@ -177,6 +186,7 @@ impl BuildInputProfile {
             Self::MachinePdfFootnote1 => Some(MachinePdfProfileId::FOOTNOTE_1),
             Self::MachinePdfHeaderFooter1 => Some(MachinePdfProfileId::HEADER_FOOTER_1),
             Self::MachinePdfParagraph1 => Some(MachinePdfProfileId::PARAGRAPH_1),
+            Self::MachinePdfProductionBook1 => Some(MachinePdfProfileId::PRODUCTION_BOOK_1),
             Self::MachinePdfTable1 => Some(MachinePdfProfileId::TABLE_1),
         }
     }
@@ -189,6 +199,7 @@ impl BuildInputProfile {
             MachinePdfProfileId::Footnote1 => Self::MachinePdfFootnote1,
             MachinePdfProfileId::HeaderFooter1 => Self::MachinePdfHeaderFooter1,
             MachinePdfProfileId::Paragraph1 => Self::MachinePdfParagraph1,
+            MachinePdfProfileId::ProductionBook1 => Self::MachinePdfProductionBook1,
             MachinePdfProfileId::Table1 => Self::MachinePdfTable1,
         }
     }
@@ -267,6 +278,7 @@ impl LayoutRecord {
             | MachinePdfProfileId::Footnote1
             | MachinePdfProfileId::HeaderFooter1
             | MachinePdfProfileId::Paragraph1
+            | MachinePdfProfileId::ProductionBook1
             | MachinePdfProfileId::Table1 => {}
         }
         self.profile_receipt_sha256 = Some(capability.profile_receipt_sha256());
@@ -2572,6 +2584,8 @@ pub struct FontRecord {
     sha256: [u8; 32],
     units_per_em: u16,
     glyph_count: u32,
+    attested_media_kind: Option<&'static str>,
+    media_declaration: Option<MediaDeclarationRecord>,
 }
 impl FontRecord {
     pub const fn font_face_id(&self) -> FontFaceId {
@@ -2595,7 +2609,22 @@ impl FontRecord {
     pub const fn glyph_count(&self) -> u32 {
         self.glyph_count
     }
+
+    pub const fn attested_media_kind(&self) -> Option<&'static str> {
+        self.attested_media_kind
+    }
+
+    pub const fn media_declaration(&self) -> Option<MediaDeclarationRecord> {
+        self.media_declaration
+    }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MediaDeclarationRecord {
+    Declared(&'static str),
+    LegacyUnspecified,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageRecord {
     image_id: ImageResourceId,
@@ -2606,6 +2635,7 @@ pub struct ImageRecord {
     pixel_width: u32,
     pixel_height: u32,
     decoded_bytes: u64,
+    media_declaration: Option<MediaDeclarationRecord>,
 }
 impl ImageRecord {
     pub const fn image_id(&self) -> ImageResourceId {
@@ -2631,6 +2661,10 @@ impl ImageRecord {
     }
     pub const fn decoded_bytes(&self) -> u64 {
         self.decoded_bytes
+    }
+
+    pub const fn media_declaration(&self) -> Option<MediaDeclarationRecord> {
+        self.media_declaration
     }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2672,12 +2706,15 @@ pub struct BuildManifest {
     inputs: Vec<FileRecord>,
     fonts: Vec<FontRecord>,
     images: Vec<ImageRecord>,
+    legacy_production_fonts: Vec<LegacyProductionFontDeclarationRecord>,
+    legacy_production_images: Vec<LegacyProductionImageDeclarationRecord>,
     pdf_profile: String,
     stream_compression: PdfStreamCompression,
     layout: Option<LayoutRecord>,
     output: Option<OutputRecord>,
     table_layouts: Vec<StagingTableLayoutFacts>,
     footnote_layout: Option<StagingFootnoteLayoutFacts>,
+    production_vector: Option<StagingProductionBuildManifestVectorFields>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2735,6 +2772,7 @@ pub enum BuildManifestError {
     ReadLedgerAlreadyBound,
     ReadLedgerUnavailable,
     AdvancedPaginationMismatch,
+    ProductionVectorMismatch,
 }
 
 /// Per-build owner of the configured PDF sink. This context exists whether
@@ -3391,6 +3429,7 @@ impl ManifestPublicationContext {
             package_epoch: None,
             resource_progress: None,
             resource_fingerprint: None,
+            legacy_production_rejection: false,
         }
     }
 
@@ -3608,6 +3647,104 @@ impl ManifestPublicationContext {
         })
     }
 
+    /// Contract-1.4 terminal preflight for the production-book version-2
+    /// navigation, vector and tagged-PDF closure.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_production_machine_built(
+        self,
+        ledger: ManifestAdmissionLedger,
+        package: &ValidatedProductionMachinePackage,
+        profile: &StagingTaggedPdfProfileReceiptV2,
+        limits: &M4EffectiveResourceLimits,
+        admitted: AdmittedResourceLedgerToken<'_>,
+        selected_layout_sha256: [u8; 32],
+        flow_registry_sha256: [u8; 32],
+        vector_fields: StagingProductionBuildManifestVectorFields,
+        pdf: VerifiedPdfBytesReceipt,
+    ) -> Result<PreparedBuiltPublication, BuildManifestError> {
+        if self.input_profile != BuildInputProfile::MachinePdfProductionBook1
+            || self.config_fingerprint != pdf.config_fingerprint()
+            || self.stream_compression != PdfStreamCompression::None
+            || limits.base() != &self.limits
+            || package.contract() != typaxis_core::DocumentPackageContractId::V1_4
+            || package.package().limits() != limits.base()
+            || vector_fields.status() != StagingVectorBuildStatus::Built
+            || selected_layout_sha256 == [0; 32]
+            || flow_registry_sha256 == [0; 32]
+        {
+            return Err(BuildManifestError::MachineCapabilityMismatch);
+        }
+        let selected = LayoutStateFingerprint::from_untrusted_bytes(selected_layout_sha256);
+        let output = validate_pdf_receipt_facts(
+            self.config_fingerprint,
+            self.stream_compression,
+            &self.limits,
+            self.output_sink(),
+            &pdf,
+        )?;
+        if output.selected_fingerprint != selected {
+            return Err(BuildManifestError::PdfGraphReceiptMismatch);
+        }
+        if ledger.binding != self.binding()
+            || ledger.machine_stage() != Some(ManifestAdmissionStage::ResourcesAdmitted)
+            || ledger.resource_fingerprint != Some(admitted.fingerprint())
+            || ledger
+                .package_input
+                .as_ref()
+                .and_then(|record| record.profile_receipt_sha256)
+                != Some(profile.fingerprint())
+        {
+            return Err(BuildManifestError::AdmissionLedgerBindingMismatch);
+        }
+        let mut layout = LayoutRecord::new(
+            LayoutStatus::Converged,
+            NonZeroU16::new(1).expect("one is nonzero"),
+            NonZeroU16::new(1).expect("one is nonzero"),
+            selected,
+        )
+        .ok_or(BuildManifestError::IncompleteLayoutAdmission)?;
+        layout.flow_registry_sha256 = Some(flow_registry_sha256);
+        layout.profile_receipt_sha256 = Some(profile.fingerprint());
+        let output_record = OutputRecord {
+            sink: output.sink,
+            bytes: output.bytes,
+            sha256: output.sha256,
+            page_count: output.page_count,
+            pdf_object_count: output.pdf_object_count,
+        };
+        let records = ledger.manifest_records();
+        let manifest = BuildManifest::terminal(
+            &self,
+            BuildStatus::Built,
+            records,
+            Some(layout),
+            Some(output_record),
+            ManifestProfileFacts {
+                production_vector: Some(vector_fields),
+                ..ManifestProfileFacts::default()
+            },
+        );
+        let manifest =
+            ValidatedBuildManifest::new(manifest, ManifestExpectations::from_publication(&self))?;
+        let manifest_bytes = manifest.manifest().to_canonical_json_bytes();
+        let failed_manifest = ValidatedBuildManifest::failed(&self, &ledger, None)?;
+        let failed_manifest_bytes = failed_manifest.manifest().to_canonical_json_bytes();
+        let read_ledger = package
+            .provenance()
+            .read_ledger_token()
+            .map_err(|_| BuildManifestError::ReadLedgerUnavailable)?;
+        Ok(PreparedBuiltPublication {
+            binding: self.binding(),
+            manifest,
+            manifest_bytes,
+            failed_manifest,
+            failed_manifest_bytes,
+            pdf,
+            output,
+            read_ledger: Some(read_ledger),
+        })
+    }
+
     fn validate_machine_table_layout_facts(
         package: &ValidatedMachinePackage,
         capability: &MachinePdfPreflightReceipt,
@@ -3773,6 +3910,7 @@ struct ExpectedFontResource {
     family: String,
     face_index: u32,
     expected_sha256: Option<[u8; 32]>,
+    media_type: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3780,6 +3918,7 @@ struct ExpectedImageResource {
     id: ImageResourceId,
     uri: PortablePath,
     expected_sha256: Option<[u8; 32]>,
+    media_type: Option<&'static str>,
 }
 
 type ManifestFontRecords = BTreeMap<FontFaceId, FontRecord>;
@@ -3790,6 +3929,23 @@ struct ManifestTerminalRecords {
     inputs: Vec<FileRecord>,
     fonts: Vec<FontRecord>,
     images: Vec<ImageRecord>,
+    legacy_production_fonts: Vec<LegacyProductionFontDeclarationRecord>,
+    legacy_production_images: Vec<LegacyProductionImageDeclarationRecord>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LegacyProductionFontDeclarationRecord {
+    font_face_id: FontFaceId,
+    uri: PortablePath,
+    face_index: u32,
+    expected_sha256: Option<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LegacyProductionImageDeclarationRecord {
+    image_id: ImageResourceId,
+    uri: PortablePath,
+    expected_sha256: Option<[u8; 32]>,
 }
 
 /// Canonical facts admitted so far for a terminal failed manifest. This token
@@ -3807,6 +3963,7 @@ pub struct ManifestAdmissionLedger {
     package_epoch: Option<PackageEpochIdentity>,
     resource_progress: Option<ResourceAdmissionProgressToken>,
     resource_fingerprint: Option<AdmittedResourceFingerprint>,
+    legacy_production_rejection: bool,
 }
 impl ManifestAdmissionLedger {
     pub fn admit_source(&mut self, source: &SourceRecord) -> Result<(), BuildManifestError> {
@@ -3870,6 +4027,7 @@ impl ManifestAdmissionLedger {
                 family: resource.family.clone(),
                 face_index: resource.face_index,
                 expected_sha256: resource.expected_sha256,
+                media_type: None,
             })
             .collect();
         candidate.expected_images = package
@@ -3881,6 +4039,7 @@ impl ManifestAdmissionLedger {
                 id: resource.image_id,
                 uri: resource.uri.clone(),
                 expected_sha256: resource.expected_sha256,
+                media_type: None,
             })
             .collect();
         *self = candidate;
@@ -4104,6 +4263,7 @@ impl ManifestAdmissionLedger {
                 family: resource.family.clone(),
                 face_index: resource.face_index,
                 expected_sha256: resource.expected_sha256,
+                media_type: None,
             })
             .collect();
         candidate.expected_images = package
@@ -4116,9 +4276,131 @@ impl ManifestAdmissionLedger {
                 id: resource.image_id,
                 uri: resource.uri.clone(),
                 expected_sha256: resource.expected_sha256,
+                media_type: None,
             })
             .collect();
         state.stage = ManifestAdmissionStage::PackageValidated;
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Record the sealed compatibility failure for an old raw contract
+    /// explicitly requested with `production-book-1`. Only declaration facts
+    /// already present in the validated old package are retained; no resource
+    /// byte or decoder-attestation fact is synthesized before admission.
+    pub fn admit_legacy_production_rejection(
+        &mut self,
+        package: &ValidatedMachinePackage,
+    ) -> Result<(), BuildManifestError> {
+        if self.binding.output.input_profile != BuildInputProfile::MachinePdfProductionBook1
+            || package.contract() == typaxis_core::DocumentPackageContractId::V1_4
+            || self.legacy_production_rejection
+        {
+            return Err(BuildManifestError::InputProfileMismatch);
+        }
+        let mut candidate = self.clone();
+        candidate.admit_validated_machine_package(package)?;
+        candidate.legacy_production_rejection = true;
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Admit a contract-1.4 package only through the host/syntax provenance
+    /// wrapper and the sealed production profile receipt. This path is kept
+    /// nominally separate from the frozen 1.0--1.3 package epoch.
+    pub fn admit_validated_production_machine_package(
+        &mut self,
+        package: &ValidatedProductionMachinePackage,
+        profile: &StagingTaggedPdfProfileReceiptV2,
+    ) -> Result<(), BuildManifestError> {
+        if self.binding.output.input_profile != BuildInputProfile::MachinePdfProductionBook1
+            || package.contract() != typaxis_core::DocumentPackageContractId::V1_4
+        {
+            return Err(BuildManifestError::InputProfileMismatch);
+        }
+        let mut candidate = self.clone();
+        candidate.admit_machine_input_progress_inner(package.provenance().progress())?;
+        let state = candidate
+            .machine
+            .as_mut()
+            .ok_or(BuildManifestError::InputProfileMismatch)?;
+        let semantic = package.package();
+        if state.stage != ManifestAdmissionStage::SourcesAdmitted
+            || state.session.as_ref() != Some(package.provenance().session_identity())
+            || state.fingerprint != Some(package.provenance().fingerprint())
+            || semantic.raw_sha256()
+                != candidate
+                    .package_input
+                    .as_ref()
+                    .ok_or(BuildManifestError::MachinePackageMismatch)?
+                    .sha256
+            || semantic.canonical_jcs_sha256()
+                != candidate
+                    .package_input
+                    .as_ref()
+                    .and_then(|record| record.canonical_sha256)
+                    .ok_or(BuildManifestError::MachinePackageMismatch)?
+            || profile
+                .base()
+                .base()
+                .authorization()
+                .profile_receipt_fingerprint()
+                != profile.base().base().fingerprint()
+        {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+        let wire = semantic
+            .checked_wire()
+            .map_err(|_| BuildManifestError::MachinePackageMismatch)?;
+        if wire.sources().len() != candidate.sources.len()
+            || wire.sources().iter().any(|source| {
+                candidate
+                    .sources
+                    .get(&SourceId::new(source.source_id))
+                    .map_or(true, |record| {
+                        record.uri.as_str() != source.uri
+                            || record.bytes != u64::from(source.utf8_byte_length)
+                    })
+            })
+        {
+            return Err(BuildManifestError::MachinePackageMismatch);
+        }
+        candidate.expected_fonts = semantic
+            .resources()
+            .font_faces
+            .iter()
+            .map(|resource| ExpectedFontResource {
+                id: resource.font_face_id,
+                uri: resource.uri.clone(),
+                family: resource.family.clone(),
+                face_index: resource.face_index,
+                expected_sha256: resource.expected_sha256,
+                media_type: match resource.media {
+                    FontMediaDeclaration::Declared(media) => Some(media.as_str()),
+                    FontMediaDeclaration::LegacyUnspecified => None,
+                },
+            })
+            .collect();
+        candidate.expected_images = semantic
+            .resources()
+            .images
+            .iter()
+            .map(|resource| ExpectedImageResource {
+                id: resource.image_id,
+                uri: resource.uri.clone(),
+                expected_sha256: resource.expected_sha256,
+                media_type: match resource.media {
+                    ImageMediaDeclaration::Declared(media) => Some(media.as_str()),
+                    ImageMediaDeclaration::LegacyUnspecified => None,
+                },
+            })
+            .collect();
+        candidate
+            .package_input
+            .as_mut()
+            .ok_or(BuildManifestError::MachinePackageMismatch)?
+            .profile_receipt_sha256 = Some(profile.fingerprint());
+        state.stage = ManifestAdmissionStage::CapabilityValidated;
         *self = candidate;
         Ok(())
     }
@@ -4203,6 +4485,13 @@ impl ManifestAdmissionLedger {
         }
         let mut fonts = BTreeMap::new();
         for font in admitted.fonts() {
+            let declared_media = self
+                .expected_fonts
+                .get(font.font_face_id().get() as usize)
+                .and_then(|resource| resource.media_type);
+            if declared_media.is_some_and(|media| media != font.media_kind().as_str()) {
+                return Err(BuildManifestError::PackageResourceMismatch);
+            }
             if fonts
                 .insert(
                     font.font_face_id(),
@@ -4214,6 +4503,8 @@ impl ManifestAdmissionLedger {
                         sha256: font.content_hash(),
                         units_per_em: font.metadata().units_per_em,
                         glyph_count: font.metadata().glyph_count,
+                        attested_media_kind: declared_media.map(|_| font.media_kind().as_str()),
+                        media_declaration: declared_media.map(MediaDeclarationRecord::Declared),
                     },
                 )
                 .is_some()
@@ -4223,6 +4514,13 @@ impl ManifestAdmissionLedger {
         }
         let mut images = BTreeMap::new();
         for image in admitted.images() {
+            let declared_media = self
+                .expected_images
+                .get(image.image_id().get() as usize)
+                .and_then(|resource| resource.media_type);
+            if declared_media.is_some_and(|media| media != image.media_kind().as_str()) {
+                return Err(BuildManifestError::PackageResourceMismatch);
+            }
             if images
                 .insert(
                     image.image_id(),
@@ -4235,6 +4533,7 @@ impl ManifestAdmissionLedger {
                         pixel_width: image.width().get(),
                         pixel_height: image.height().get(),
                         decoded_bytes: image.decoded_bytes(),
+                        media_declaration: declared_media.map(MediaDeclarationRecord::Declared),
                     },
                 )
                 .is_some()
@@ -4328,11 +4627,38 @@ impl ManifestAdmissionLedger {
     fn manifest_records(&self) -> ManifestTerminalRecords {
         let mut inputs: Vec<_> = self.sources.values().cloned().collect();
         inputs.sort_by(|left, right| left.uri.cmp(&right.uri));
+        let legacy_production_fonts = if self.legacy_production_rejection {
+            self.expected_fonts
+                .iter()
+                .map(|resource| LegacyProductionFontDeclarationRecord {
+                    font_face_id: resource.id,
+                    uri: resource.uri.clone(),
+                    face_index: resource.face_index,
+                    expected_sha256: resource.expected_sha256,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let legacy_production_images = if self.legacy_production_rejection {
+            self.expected_images
+                .iter()
+                .map(|resource| LegacyProductionImageDeclarationRecord {
+                    image_id: resource.id,
+                    uri: resource.uri.clone(),
+                    expected_sha256: resource.expected_sha256,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         ManifestTerminalRecords {
             package_input: self.package_input.clone(),
             inputs,
             fonts: self.fonts.values().cloned().collect(),
             images: self.images.values().cloned().collect(),
+            legacy_production_fonts,
+            legacy_production_images,
         }
     }
 }
@@ -4353,6 +4679,8 @@ fn resource_progress_records(
                     sha256: font.content_hash(),
                     units_per_em: font.metadata().units_per_em,
                     glyph_count: font.metadata().glyph_count,
+                    attested_media_kind: None,
+                    media_declaration: None,
                 },
             )
             .is_some()
@@ -4374,6 +4702,7 @@ fn resource_progress_records(
                     pixel_width: image.width().get(),
                     pixel_height: image.height().get(),
                     decoded_bytes: image.decoded_bytes(),
+                    media_declaration: None,
                 },
             )
             .is_some()
@@ -5227,6 +5556,7 @@ struct ManifestProfileFacts {
     table_layouts: Vec<StagingTableLayoutFacts>,
     footnote_layout: Option<StagingFootnoteLayoutFacts>,
     advanced_pagination: Option<String>,
+    production_vector: Option<StagingProductionBuildManifestVectorFields>,
 }
 
 impl BuildManifest {
@@ -5238,30 +5568,56 @@ impl BuildManifest {
         output: Option<OutputRecord>,
         profile_facts: ManifestProfileFacts,
     ) -> Self {
+        let ManifestTerminalRecords {
+            package_input,
+            inputs,
+            fonts,
+            images,
+            legacy_production_fonts,
+            legacy_production_images,
+        } = records;
         let ManifestProfileFacts {
             table_layouts,
             footnote_layout,
             advanced_pagination,
+            production_vector,
         } = profile_facts;
+        let contract = match publication.input_profile {
+            BuildInputProfile::MachinePdfBasicDocument1
+            | BuildInputProfile::MachinePdfColumns1
+            | BuildInputProfile::MachinePdfFloat1
+            | BuildInputProfile::MachinePdfFootnote1
+            | BuildInputProfile::MachinePdfHeaderFooter1
+            | BuildInputProfile::MachinePdfParagraph1
+            | BuildInputProfile::MachinePdfTable1 => {
+                typaxis_core::DocumentPackageContractId::V1_3.as_str()
+            }
+            BuildInputProfile::ReferenceSource1 | BuildInputProfile::MachinePdfProductionBook1 => {
+                typaxis_core::DocumentPackageContractId::V1_4.as_str()
+            }
+        };
         Self {
             advanced_pagination,
-            contract: CONTRACT.to_owned(),
+            contract: contract.to_owned(),
             status,
             deterministic: true,
             engine: publication.engine.clone(),
             data_versions: publication.data_versions.clone(),
             config_sha256: publication.config_fingerprint.bytes(),
             input_profile: publication.input_profile,
-            package_input: records.package_input,
-            inputs: records.inputs,
-            fonts: records.fonts,
-            images: records.images,
+            package_input,
+            inputs,
+            fonts,
+            images,
+            legacy_production_fonts,
+            legacy_production_images,
             pdf_profile: PDF_PROFILE.to_owned(),
             stream_compression: publication.stream_compression,
             layout,
             output,
             table_layouts,
             footnote_layout,
+            production_vector,
         }
     }
 
@@ -5325,7 +5681,21 @@ impl BuildManifest {
     }
 
     fn validate(&self, expectations: ManifestExpectations<'_>) -> Result<(), BuildManifestError> {
-        if self.contract != CONTRACT {
+        let expected_contract = match self.input_profile {
+            BuildInputProfile::MachinePdfBasicDocument1
+            | BuildInputProfile::MachinePdfColumns1
+            | BuildInputProfile::MachinePdfFloat1
+            | BuildInputProfile::MachinePdfFootnote1
+            | BuildInputProfile::MachinePdfHeaderFooter1
+            | BuildInputProfile::MachinePdfParagraph1
+            | BuildInputProfile::MachinePdfTable1 => {
+                typaxis_core::DocumentPackageContractId::V1_3.as_str()
+            }
+            BuildInputProfile::ReferenceSource1 | BuildInputProfile::MachinePdfProductionBook1 => {
+                typaxis_core::DocumentPackageContractId::V1_4.as_str()
+            }
+        };
+        if self.contract != expected_contract {
             return Err(BuildManifestError::WrongContract);
         }
         if !self.deterministic {
@@ -5366,6 +5736,73 @@ impl BuildManifest {
         {
             return Err(BuildManifestError::AdvancedPaginationMismatch);
         }
+        match (
+            self.input_profile,
+            self.status,
+            self.production_vector.as_ref(),
+        ) {
+            (BuildInputProfile::MachinePdfProductionBook1, BuildStatus::Built, Some(vector))
+                if vector.status() == StagingVectorBuildStatus::Built
+                    && vector.book_navigation_record().is_some()
+                    && vector.book_navigation_fingerprint().is_some()
+                    && vector.safe_vector_record().is_some()
+                    && vector.safe_vector_fingerprint().is_some()
+                    && vector.math_vector_record().is_some()
+                    && vector.math_vector_fingerprint().is_some()
+                    && vector.tagged_pdf_record().is_some()
+                    && vector.tagged_pdf_fingerprint().is_some() => {}
+            (BuildInputProfile::MachinePdfProductionBook1, BuildStatus::Failed, Some(vector))
+                if vector.status() == StagingVectorBuildStatus::Failed
+                    && vector.book_navigation_record().is_none()
+                    && vector.book_navigation_fingerprint().is_none()
+                    && vector.safe_vector_record().is_none()
+                    && vector.safe_vector_fingerprint().is_none()
+                    && vector.math_vector_record().is_none()
+                    && vector.math_vector_fingerprint().is_none()
+                    && vector.tagged_pdf_record().is_none()
+                    && vector.tagged_pdf_fingerprint().is_none() => {}
+            (BuildInputProfile::MachinePdfProductionBook1, _, _) => {
+                return Err(BuildManifestError::ProductionVectorMismatch)
+            }
+            (_, _, None) => {}
+            (_, _, Some(_)) => return Err(BuildManifestError::ProductionVectorMismatch),
+        }
+        let production_profile = self.input_profile == BuildInputProfile::MachinePdfProductionBook1;
+        let legacy_production_rejection =
+            !self.legacy_production_fonts.is_empty() || !self.legacy_production_images.is_empty();
+        if legacy_production_rejection
+            && (!production_profile
+                || self.status != BuildStatus::Failed
+                || !self.fonts.is_empty()
+                || !self.images.is_empty()
+                || self
+                    .package_input
+                    .as_ref()
+                    .and_then(|record| record.contract)
+                    == Some(typaxis_core::DocumentPackageContractId::V1_4))
+        {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        }
+        for font in &self.fonts {
+            match (
+                production_profile,
+                font.attested_media_kind,
+                font.media_declaration,
+            ) {
+                (true, Some(attested), Some(MediaDeclarationRecord::Declared(declared)))
+                    if attested == declared => {}
+                (false, None, None) => {}
+                _ => return Err(BuildManifestError::PackageResourceMismatch),
+            }
+        }
+        for image in &self.images {
+            match (production_profile, image.media_declaration) {
+                (true, Some(MediaDeclarationRecord::Declared(declared)))
+                    if image.attested_media_kind == declared => {}
+                (false, None) => {}
+                _ => return Err(BuildManifestError::PackageResourceMismatch),
+            }
+        }
         match (self.input_profile, self.status, self.package_input.as_ref()) {
             (BuildInputProfile::ReferenceSource1, _, None) => {}
             (BuildInputProfile::ReferenceSource1, _, Some(_)) => {
@@ -5378,6 +5815,7 @@ impl BuildManifest {
                 | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfProductionBook1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
                 Some(package),
@@ -5391,6 +5829,7 @@ impl BuildManifest {
                 | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfProductionBook1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Built,
                 _,
@@ -5402,6 +5841,7 @@ impl BuildManifest {
                 | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfProductionBook1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
                 Some(package),
@@ -5413,6 +5853,7 @@ impl BuildManifest {
                 | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfProductionBook1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
                 None,
@@ -5424,6 +5865,7 @@ impl BuildManifest {
                 | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfHeaderFooter1
                 | BuildInputProfile::MachinePdfParagraph1
+                | BuildInputProfile::MachinePdfProductionBook1
                 | BuildInputProfile::MachinePdfTable1,
                 BuildStatus::Failed,
                 Some(_),
@@ -5458,6 +5900,7 @@ impl BuildManifest {
                 | BuildInputProfile::MachinePdfFloat1
                 | BuildInputProfile::MachinePdfFootnote1
                 | BuildInputProfile::MachinePdfHeaderFooter1
+                | BuildInputProfile::MachinePdfProductionBook1
                 | BuildInputProfile::MachinePdfTable1 => {
                     let layout = self
                         .layout
@@ -5490,6 +5933,10 @@ impl BuildManifest {
             .fonts
             .windows(2)
             .any(|pair| pair[0].font_face_id >= pair[1].font_face_id)
+            || self
+                .legacy_production_fonts
+                .windows(2)
+                .any(|pair| pair[0].font_face_id >= pair[1].font_face_id)
         {
             return Err(BuildManifestError::NonCanonicalFonts);
         }
@@ -5497,6 +5944,10 @@ impl BuildManifest {
             .images
             .windows(2)
             .any(|pair| pair[0].image_id >= pair[1].image_id)
+            || self
+                .legacy_production_images
+                .windows(2)
+                .any(|pair| pair[0].image_id >= pair[1].image_id)
         {
             return Err(BuildManifestError::NonCanonicalImages);
         }
@@ -5685,6 +6136,13 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
         json.push_str(advanced);
         first = false;
     }
+    if let Some(vector) = manifest.production_vector.as_ref() {
+        push_json_member_name(&mut json, "book_navigation_manifest", first);
+        push_optional_embedded_record(&mut json, vector.book_navigation_record());
+        push_json_member_name(&mut json, "book_navigation_manifest_fingerprint", false);
+        push_optional_json_hash(&mut json, vector.book_navigation_fingerprint());
+        first = false;
+    }
     push_json_member_name(&mut json, "config_sha256", first);
     push_json_hex(&mut json, &manifest.config_sha256);
     push_json_member_name(&mut json, "contract", false);
@@ -5696,7 +6154,11 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     push_json_member_name(&mut json, "engine", false);
     push_engine_json(&mut json, &manifest.engine);
     push_json_member_name(&mut json, "fonts", false);
-    push_fonts_json(&mut json, &manifest.fonts);
+    if manifest.legacy_production_fonts.is_empty() {
+        push_fonts_json(&mut json, &manifest.fonts);
+    } else {
+        push_legacy_production_fonts_json(&mut json, &manifest.legacy_production_fonts);
+    }
     if manifest.input_profile == BuildInputProfile::MachinePdfFootnote1
         && manifest.status == BuildStatus::Built
     {
@@ -5710,7 +6172,11 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
         );
     }
     push_json_member_name(&mut json, "images", false);
-    push_images_json(&mut json, &manifest.images);
+    if manifest.legacy_production_images.is_empty() {
+        push_images_json(&mut json, &manifest.images);
+    } else {
+        push_legacy_production_images_json(&mut json, &manifest.legacy_production_images);
+    }
     push_json_member_name(&mut json, "input_profile", false);
     push_json_string(&mut json, manifest.input_profile.as_str());
     push_json_member_name(&mut json, "inputs", false);
@@ -5719,6 +6185,12 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     match manifest.layout {
         Some(layout) => push_layout_json(&mut json, layout),
         None => json.push_str("null"),
+    }
+    if let Some(vector) = manifest.production_vector.as_ref() {
+        push_json_member_name(&mut json, "math_vector_manifest", false);
+        push_optional_embedded_record(&mut json, vector.math_vector_record());
+        push_json_member_name(&mut json, "math_vector_manifest_fingerprint", false);
+        push_optional_json_hash(&mut json, vector.math_vector_fingerprint());
     }
     push_json_member_name(&mut json, "output", false);
     match &manifest.output {
@@ -5732,6 +6204,12 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
     }
     push_json_member_name(&mut json, "pdf_profile", false);
     push_json_string(&mut json, &manifest.pdf_profile);
+    if let Some(vector) = manifest.production_vector.as_ref() {
+        push_json_member_name(&mut json, "safe_vector_manifest", false);
+        push_optional_embedded_record(&mut json, vector.safe_vector_record());
+        push_json_member_name(&mut json, "safe_vector_manifest_fingerprint", false);
+        push_optional_json_hash(&mut json, vector.safe_vector_fingerprint());
+    }
     push_json_member_name(&mut json, "status", false);
     push_json_string(
         &mut json,
@@ -5761,8 +6239,28 @@ fn canonical_manifest_json(manifest: &BuildManifest) -> String {
         }
         json.push(']');
     }
+    if let Some(vector) = manifest.production_vector.as_ref() {
+        push_json_member_name(&mut json, "tagged_pdf_manifest", false);
+        push_optional_embedded_record(&mut json, vector.tagged_pdf_record());
+        push_json_member_name(&mut json, "tagged_pdf_manifest_fingerprint", false);
+        push_optional_json_hash(&mut json, vector.tagged_pdf_fingerprint());
+    }
     json.push('}');
     json
+}
+
+fn push_optional_embedded_record(json: &mut String, record: Option<&str>) {
+    match record {
+        Some(record) => json.push_str(record),
+        None => json.push_str("null"),
+    }
+}
+
+fn push_optional_json_hash(json: &mut String, hash: Option<[u8; 32]>) {
+    match hash {
+        Some(hash) => push_json_hex(json, &hash),
+        None => json.push_str("null"),
+    }
 }
 
 fn push_package_input_json(json: &mut String, record: &PackageInputRecord) {
@@ -5845,7 +6343,13 @@ fn push_fonts_json(json: &mut String, records: &[FontRecord]) {
             json.push(',');
         }
         json.push('{');
-        push_json_member_name(json, "bytes", true);
+        let mut first = true;
+        if let Some(attested) = record.attested_media_kind {
+            push_json_member_name(json, "attested_media_kind", first);
+            push_json_string(json, attested);
+            first = false;
+        }
+        push_json_member_name(json, "bytes", first);
         json.push_str(&record.bytes.to_string());
         push_json_member_name(json, "face_index", false);
         json.push_str(&record.face_index.to_string());
@@ -5853,11 +6357,40 @@ fn push_fonts_json(json: &mut String, records: &[FontRecord]) {
         json.push_str(&record.font_face_id.get().to_string());
         push_json_member_name(json, "glyph_count", false);
         json.push_str(&record.glyph_count.to_string());
+        if let Some(declaration) = record.media_declaration {
+            push_json_member_name(json, "media_declaration", false);
+            push_media_declaration_json(json, declaration);
+        }
         push_json_member_name(json, "sha256", false);
         push_json_hex(json, &record.sha256);
         push_json_member_name(json, "units_per_em", false);
         json.push_str(&record.units_per_em.to_string());
         push_json_member_name(json, "uri", false);
+        push_json_string(json, record.uri.as_str());
+        json.push('}');
+    }
+    json.push(']');
+}
+
+fn push_legacy_production_fonts_json(
+    json: &mut String,
+    records: &[LegacyProductionFontDeclarationRecord],
+) {
+    json.push('[');
+    for (index, record) in records.iter().enumerate() {
+        if index != 0 {
+            json.push(',');
+        }
+        json.push_str("{\"attested_media_kind\":null,\"face_index\":");
+        json.push_str(&record.face_index.to_string());
+        json.push_str(",\"font_face_id\":");
+        json.push_str(&record.font_face_id.get().to_string());
+        json.push_str(",\"media_declaration\":{\"kind\":\"legacy_unspecified\"},\"sha256\":");
+        match record.expected_sha256 {
+            Some(value) => push_json_hex(json, &value),
+            None => json.push_str("null"),
+        }
+        json.push_str(",\"uri\":");
         push_json_string(json, record.uri.as_str());
         json.push('}');
     }
@@ -5879,6 +6412,10 @@ fn push_images_json(json: &mut String, records: &[ImageRecord]) {
         json.push_str(&record.decoded_bytes.to_string());
         push_json_member_name(json, "image_id", false);
         json.push_str(&record.image_id.get().to_string());
+        if let Some(declaration) = record.media_declaration {
+            push_json_member_name(json, "media_declaration", false);
+            push_media_declaration_json(json, declaration);
+        }
         push_json_member_name(json, "pixel_height", false);
         json.push_str(&record.pixel_height.to_string());
         push_json_member_name(json, "pixel_width", false);
@@ -5890,6 +6427,45 @@ fn push_images_json(json: &mut String, records: &[ImageRecord]) {
         json.push('}');
     }
     json.push(']');
+}
+
+fn push_legacy_production_images_json(
+    json: &mut String,
+    records: &[LegacyProductionImageDeclarationRecord],
+) {
+    json.push('[');
+    for (index, record) in records.iter().enumerate() {
+        if index != 0 {
+            json.push(',');
+        }
+        json.push_str("{\"attested_media_kind\":null,\"image_id\":");
+        json.push_str(&record.image_id.get().to_string());
+        json.push_str(",\"media_declaration\":{\"kind\":\"legacy_unspecified\"},\"sha256\":");
+        match record.expected_sha256 {
+            Some(value) => push_json_hex(json, &value),
+            None => json.push_str("null"),
+        }
+        json.push_str(",\"uri\":");
+        push_json_string(json, record.uri.as_str());
+        json.push('}');
+    }
+    json.push(']');
+}
+
+fn push_media_declaration_json(json: &mut String, declaration: MediaDeclarationRecord) {
+    json.push('{');
+    push_json_member_name(json, "kind", true);
+    match declaration {
+        MediaDeclarationRecord::Declared(media_type) => {
+            push_json_string(json, "declared");
+            push_json_member_name(json, "media_type", false);
+            push_json_string(json, media_type);
+        }
+        MediaDeclarationRecord::LegacyUnspecified => {
+            push_json_string(json, "legacy_unspecified");
+        }
+    }
+    json.push('}');
 }
 
 fn push_layout_json(json: &mut String, layout: LayoutRecord) {
@@ -6348,6 +6924,7 @@ fn prepare_machine_built_manifest(
             table_layouts,
             footnote_layout,
             advanced_pagination: None,
+            production_vector: None,
         },
     );
     let validated = ValidatedBuildManifest::new(
@@ -6397,13 +6974,25 @@ impl ValidatedBuildManifest {
             })
             .transpose()?;
         let records = candidate.manifest_records();
+        let profile_facts =
+            if publication.input_profile == BuildInputProfile::MachinePdfProductionBook1 {
+                ManifestProfileFacts {
+                    production_vector: Some(
+                        StagingProductionBuildManifestVectorFields::failed(None, None, None, None)
+                            .map_err(|_| BuildManifestError::ProductionVectorMismatch)?,
+                    ),
+                    ..ManifestProfileFacts::default()
+                }
+            } else {
+                ManifestProfileFacts::default()
+            };
         let manifest = BuildManifest::terminal(
             publication,
             BuildStatus::Failed,
             records,
             layout,
             None,
-            ManifestProfileFacts::default(),
+            profile_facts,
         );
         Self::new(
             manifest,
@@ -6800,13 +7389,16 @@ mod tests {
                 sha256: [0; 32],
             }],
             fonts: vec![],
+            legacy_production_fonts: vec![],
             images: vec![],
+            legacy_production_images: vec![],
             pdf_profile: PDF_PROFILE.to_owned(),
             stream_compression: PdfStreamCompression::Flate,
             layout: None,
             output: None,
             table_layouts: Vec::new(),
             footnote_layout: None,
+            production_vector: None,
         }
     }
 
@@ -8152,6 +8744,9 @@ mod tests {
         let publication = machine_publication_for(&config);
         let mut manifest = failed_manifest_for(&config);
         manifest.input_profile = BuildInputProfile::MachinePdfParagraph1;
+        manifest.contract = typaxis_core::DocumentPackageContractId::V1_3
+            .as_str()
+            .to_owned();
         manifest.package_input = Some(PackageInputRecord {
             uri: PortablePath::new("document-package.json").unwrap(),
             bytes: config.limits().get().max_document_package_bytes,
@@ -8253,6 +8848,8 @@ mod tests {
                 sha256: [3; 32],
                 units_per_em: 1000,
                 glyph_count: 1,
+                attested_media_kind: None,
+                media_declaration: None,
             },
             FontRecord {
                 font_face_id: FontFaceId::new(1),
@@ -8262,6 +8859,8 @@ mod tests {
                 sha256: [4; 32],
                 units_per_em: 1000,
                 glyph_count: 1,
+                attested_media_kind: None,
+                media_declaration: None,
             },
         ];
         manifest.images = vec![
@@ -8274,6 +8873,7 @@ mod tests {
                 pixel_width: 1,
                 pixel_height: 1,
                 decoded_bytes: 4,
+                media_declaration: None,
             },
             ImageRecord {
                 image_id: ImageResourceId::new(1),
@@ -8284,6 +8884,7 @@ mod tests {
                 pixel_width: 1,
                 pixel_height: 1,
                 decoded_bytes: 4,
+                media_declaration: None,
             },
         ];
         manifest.layout = LayoutRecord::new(
@@ -8337,6 +8938,8 @@ mod tests {
             sha256: [10; 32],
             units_per_em: 1000,
             glyph_count: 1,
+            attested_media_kind: None,
+            media_declaration: None,
         });
         assert_eq!(
             validate_against(font_count, &publication),
@@ -8360,6 +8963,7 @@ mod tests {
             pixel_width: 1,
             pixel_height: 1,
             decoded_bytes: 1,
+            media_declaration: None,
         });
         assert_eq!(
             validate_against(image_count, &publication),

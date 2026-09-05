@@ -24,7 +24,7 @@ impl SemanticContainerKind {
     }
 }
 
-/// Closed image declarations initially supported by the private 1.4 registry.
+/// Closed image declarations published by the contract-1.4 production registry.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ImageMediaType {
     Png,
@@ -103,7 +103,7 @@ impl StagingM4InlineVectorKind {
     }
 }
 
-/// Lossless private contract-1.4 inline-vector record. Nested inline wrappers
+/// Lossless contract-1.4 inline-vector record. Nested inline wrappers
 /// are represented by the global dense preorder and the owning block ID.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingM4InlineVector {
@@ -175,7 +175,7 @@ impl StagingM4MathKind {
     }
 }
 
-/// Lossless private contract-1.4 math domain. Syntax proves the TextMap
+/// Lossless contract-1.4 math domain. Syntax proves the TextMap
 /// ownership and replaces none of these authored bytes with formatted text.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagingM4MathNode {
@@ -214,8 +214,8 @@ pub struct StagingM4TableRow {
     pub cells: Vec<StagingM4TableCell>,
 }
 
-/// Private contract-1.4 block domain. It deliberately does not add a variant
-/// to the frozen public `Block` enum before MI4-13.
+/// Contract-1.4 production block domain. It remains separate from the frozen
+/// legacy `Block` enum so old-profile behavior cannot acquire M4 variants.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StagingM4Block {
     Paragraph {

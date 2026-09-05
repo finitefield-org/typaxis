@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.typaxis.invalid/1.3/machine-capabilities.schema.json",
-  "title": "Typaxis Machine Capabilities 1.3",
+  "$id": "https://schemas.typaxis.invalid/1.4/machine-capabilities.schema.json",
+  "title": "Typaxis Machine Capabilities 1.4",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -62,7 +62,8 @@
             "typaxis.contract/1.0",
             "typaxis.contract/1.1",
             "typaxis.contract/1.2",
-            "typaxis.contract/1.3"
+            "typaxis.contract/1.3",
+            "typaxis.contract/1.4"
           ]
         },
         "host_features": {
@@ -122,8 +123,8 @@
         },
         "profiles": {
           "type": "array",
-          "minItems": 7,
-          "maxItems": 7,
+          "minItems": 8,
+          "maxItems": 8,
           "prefixItems": [
             {"$ref": "#/$defs/basic_profile"},
             {"$ref": "#/$defs/columns_profile"},
@@ -131,6 +132,7 @@
             {"$ref": "#/$defs/footnote_profile"},
             {"$ref": "#/$defs/header_footer_profile"},
             {"$ref": "#/$defs/paragraph_profile"},
+            {"$ref": "#/$defs/production_book_profile"},
             {"$ref": "#/$defs/table_profile"}
           ],
           "items": false
@@ -339,6 +341,89 @@
         {"$ref": "#/$defs/advanced_profile_base"},
         {"properties": {"advanced_pagination": {"$ref": "#/$defs/advanced_pagination_header_footer"}, "id": {"const": "typaxis.machine-pdf/header-footer-1"}}}
       ]
+    },
+    "production_book_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available", "blocks", "font_formats", "footnotes", "id",
+        "image_formats", "inlines", "page_master", "page_values",
+        "pdf_features", "resource_set", "source_closure", "source_count",
+        "style_block_types", "style_properties", "style_selectors",
+        "unsupported_pdf_features", "vector_features",
+        "vector_features_by_profile", "vector_formats",
+        "vector_media_by_kind", "vector_metrics", "vector_profiles"
+      ],
+      "properties": {
+        "available": {"const": true},
+        "blocks": {"const": ["display_math", "figure", "heading", "list", "math_vector_block", "page_break", "paragraph", "semantic_container", "table", "vector_figure"]},
+        "font_formats": {"const": ["sfnt-opentype-cff", "sfnt-truetype-glyf", "ttc-truetype-glyf"]},
+        "footnotes": {"const": true},
+        "id": {"const": "typaxis.machine-pdf/production-book-1"},
+        "image_formats": {"const": ["jpeg", "png", "svg"]},
+        "inlines": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kinds", "reference_formats"],
+          "properties": {
+            "kinds": {"const": ["anchor", "emphasis", "footnote_reference", "hard_break", "inline_math", "inline_vector", "link", "math_vector", "reference", "soft_break", "strong", "text"]},
+            "reference_formats": {"const": ["page"]}
+          }
+        },
+        "page_master": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "optional_frames", "selection_rules"],
+          "properties": {
+            "count": {"const": 1},
+            "optional_frames": {"const": ["footnote"]},
+            "selection_rules": {"const": false}
+          }
+        },
+        "page_values": {"const": ["auto"]},
+        "pdf_features": {"const": ["heading-semantics", "link-annotations", "named-destinations", "outlines", "png-xobjects", "tagged-pdf", "text-extraction"]},
+        "resource_set": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["components", "font_media", "id", "image_media"],
+          "properties": {
+            "components": {"const": ["typaxis.resource-profile/png/1", "typaxis.resource-profile/safe-vector/2", "typaxis.resource-profile/jpeg-baseline/1", "typaxis.resource-profile/truetype-glyf/1", "typaxis.resource-profile/sfnt-cff1/1"]},
+            "font_media": {"const": ["sfnt-truetype-glyf", "ttc-truetype-glyf", "sfnt-cff1"]},
+            "id": {"const": "typaxis.production-book-resource-set/2"},
+            "image_media": {"const": ["png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"]}
+          }
+        },
+        "source_closure": {"const": "entry_only"},
+        "source_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum", "minimum"],
+          "properties": {"maximum": {"const": 1}, "minimum": {"const": 1}}
+        },
+        "style_block_types": {"const": ["display_math", "figure", "heading", "list", "math_vector_block", "page_break", "paragraph", "semantic_container", "table", "vector_figure"]},
+        "style_properties": {"const": ["end_indent", "font_family", "font_size", "keep_caption", "keep_with_next", "line_height", "page", "space_after", "space_before", "start_indent", "text_align", "width"]},
+        "style_selectors": {"const": ["display_math", "figure", "heading", "list", "math_vector_block", "page_break", "paragraph", "semantic_container", "table", "vector_figure"]},
+        "unsupported_pdf_features": {"const": []},
+        "vector_features": {"const": ["clip-path", "current-color", "paint-opacity", "shared-form-xobject"]},
+        "vector_features_by_profile": {
+          "const": {
+            "svg-safe-1": ["clip-path", "shared-form-xobject"],
+            "svg-safe-2": ["clip-path", "current-color", "paint-opacity", "shared-form-xobject"]
+          }
+        },
+        "vector_formats": {"const": ["svg"]},
+        "vector_media_by_kind": {
+          "const": {
+            "figure": ["svg-safe-1"],
+            "inline_vector": ["svg-safe-1", "svg-safe-2"],
+            "math_vector": ["svg-safe-2"],
+            "math_vector_block": ["svg-safe-2"],
+            "vector_figure": ["svg-safe-1", "svg-safe-2"]
+          }
+        },
+        "vector_metrics": {"const": ["advance", "ascent", "baseline", "descent", "origin_x", "viewport"]},
+        "vector_profiles": {"const": ["svg-safe-1", "svg-safe-2"]}
+      }
     },
     "table_profile": {
       "type": "object",

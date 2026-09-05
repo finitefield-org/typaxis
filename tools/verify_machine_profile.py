@@ -21,6 +21,7 @@ from referencing import Registry, Resource
 
 import release
 import verify_pdf_differential as pdf_differential
+import verify_pdf_structure as pdf_structure
 import verify_reproducibility as reproducibility
 
 
@@ -55,6 +56,7 @@ REQUIRED_CHECKS = {
     "profile_receipt_closure",
     "trace_schema",
 }
+PRODUCTION_REQUIRED_CHECK = "independent_pdf_structure"
 REQUIRED_TOOLS = {"cargo", "mutool", "pdfinfo", "pdftotext", "python", "rustc"}
 PUBLIC_PROFILES = {
     "typaxis.machine-pdf/basic-document-1",
@@ -63,6 +65,7 @@ PUBLIC_PROFILES = {
     "typaxis.machine-pdf/footnote-1",
     "typaxis.machine-pdf/header-footer-1",
     "typaxis.machine-pdf/paragraph-1",
+    "typaxis.machine-pdf/production-book-1",
     "typaxis.machine-pdf/table-1",
 }
 ADVANCED_PROFILES = {
@@ -88,6 +91,7 @@ class FixtureResult:
     run_directories: tuple[Path, ...]
     artifacts: dict[str, bytes]
     differential: pdf_differential.PdfDifferentialResult
+    structure: dict[str, Any] | None
 
 
 def _sha256(payload: bytes) -> str:
@@ -316,9 +320,10 @@ def _assert_profile_closure(
         "typaxis.contract/1.1",
         "typaxis.contract/1.2",
         "typaxis.contract/1.3",
+        "typaxis.contract/1.4",
     ]:
         raise MachineProfileError("capabilities changed the accepted contract migration set")
-    if capabilities.get("contract") != "typaxis.contract/1.3":
+    if capabilities.get("contract") != "typaxis.contract/1.4":
         raise MachineProfileError("capabilities are not published under the current contract")
     if not requested_profiles or not requested_profiles <= profile_ids:
         raise MachineProfileError("fixture requests a profile absent from capabilities")
@@ -355,6 +360,7 @@ def _assert_profile_receipt_closure(
         "typaxis.machine-pdf/float-1",
         "typaxis.machine-pdf/footnote-1",
         "typaxis.machine-pdf/header-footer-1",
+        "typaxis.machine-pdf/production-book-1",
         "typaxis.machine-pdf/table-1",
     }:
         if not isinstance(manifest_flow, str) or len(manifest_flow) != 64:
@@ -457,6 +463,169 @@ def _assert_profile_receipt_closure(
                 raise MachineProfileError("header/footer profile carries forbidden column/float state")
     elif manifest_advanced is not None or trace_advanced is not None:
         raise MachineProfileError("an older profile unexpectedly carries advanced pagination facts")
+
+
+def _assert_production_vector_closure(
+    expected: dict[str, Any], manifest: dict[str, Any], trace: dict[str, Any]
+) -> None:
+    if expected.get("profile") != "typaxis.machine-pdf/production-book-1":
+        return
+    if (
+        manifest.get("contract") != "typaxis.contract/1.4"
+        or trace.get("contract") != "typaxis.contract/1.4"
+        or trace.get("coordinate_unit") != "pdf_point_1_65536"
+        or manifest.get("status") != "built"
+    ):
+        raise MachineProfileError("production artifacts do not use the public 1.4 contract")
+    pairs = (
+        (
+            "book_navigation_manifest",
+            "book_navigation_manifest_fingerprint",
+            "typaxis.book-navigation-manifest/2",
+        ),
+        (
+            "math_vector_manifest",
+            "math_vector_manifest_fingerprint",
+            "typaxis.math-vector-manifest/1",
+        ),
+        (
+            "safe_vector_manifest",
+            "safe_vector_manifest_fingerprint",
+            "typaxis.safe-vector-manifest/2",
+        ),
+        (
+            "tagged_pdf_manifest",
+            "tagged_pdf_manifest_fingerprint",
+            "typaxis.tagged-pdf-manifest/2",
+        ),
+    )
+    children: dict[str, dict[str, Any]] = {}
+    for member, fingerprint_member, algorithm in pairs:
+        child = manifest.get(member)
+        if (
+            not isinstance(child, dict)
+            or child.get("algorithm") != algorithm
+            or child.get("contract") != "typaxis.contract/1.4"
+            or manifest.get(fingerprint_member)
+            != _sha256(canonical_json_bytes(child))
+        ):
+            raise MachineProfileError(f"production child manifest is not closed: {member}")
+        children[member] = child
+    layout = manifest.get("layout")
+    if (
+        not isinstance(layout, dict)
+        or layout.get("final_fingerprint") != trace.get("selected_layout_sha256")
+        or layout.get("flow_registry_sha256") != trace.get("flow_registry_sha256")
+        or not isinstance(trace.get("block_layout_sha256"), str)
+        or not isinstance(trace.get("inline_layout_sha256"), str)
+        or not isinstance(trace.get("vector_display_sha256"), str)
+        or not isinstance(trace.get("fragment_count"), int)
+        or trace["fragment_count"] <= 0
+    ):
+        raise MachineProfileError("production selected-layout trace closure differs")
+    output = manifest.get("output")
+    output_sha256 = output.get("sha256") if isinstance(output, dict) else None
+    pdf_hashes = {
+        children["book_navigation_manifest"].get("fingerprints", {}).get("pdf_sha256"),
+        children["safe_vector_manifest"].get("fingerprints", {}).get("pdf_sha256"),
+        children["tagged_pdf_manifest"].get("fingerprints", {}).get("pdf_sha256"),
+        output_sha256,
+    }
+    if None in pdf_hashes or len(pdf_hashes) != 1:
+        raise MachineProfileError("production child manifests do not bind one final PDF")
+    images = manifest.get("images")
+    fonts = manifest.get("fonts")
+    if not isinstance(images, list) or not images or not isinstance(fonts, list) or not fonts:
+        raise MachineProfileError("production root manifest lacks admitted media facts")
+    for record in [*images, *fonts]:
+        declaration = record.get("media_declaration") if isinstance(record, dict) else None
+        if (
+            not isinstance(declaration, dict)
+            or declaration.get("kind") != "declared"
+            or declaration.get("media_type") != record.get("attested_media_kind")
+        ):
+            raise MachineProfileError("production declared and attested media differ")
+    images_by_id = {record.get("image_id"): record for record in images}
+    safe = children["safe_vector_manifest"]
+    resources = safe.get("resources")
+    if not isinstance(resources, list) or not resources:
+        raise MachineProfileError("production SafeVector manifest has no vector resource")
+    for resource in resources:
+        content_key = resource.get("content_key") if isinstance(resource, dict) else None
+        aliases = resource.get("aliases") if isinstance(resource, dict) else None
+        if not isinstance(content_key, dict) or not isinstance(aliases, list) or not aliases:
+            raise MachineProfileError("production SafeVector alias closure is incomplete")
+        for alias in aliases:
+            root_record = images_by_id.get(alias.get("image_id"))
+            if (
+                not isinstance(root_record, dict)
+                or root_record.get("uri") != alias.get("uri")
+                or root_record.get("sha256") != alias.get("admitted_sha256")
+                or root_record.get("attested_media_kind") != content_key.get("media_type")
+            ):
+                raise MachineProfileError("production vector alias differs from root media")
+    math_facts = children["math_vector_manifest"].get("facts")
+    if not isinstance(math_facts, list) or not math_facts:
+        raise MachineProfileError("production math-vector facts are empty")
+    for fact in math_facts:
+        if (
+            not isinstance(fact.get("source_tex"), dict)
+            or not isinstance(fact.get("producer"), dict)
+            or not isinstance(fact.get("owner_source_span"), dict)
+            or not isinstance(fact.get("resolved_actual_text_sha256"), str)
+        ):
+            raise MachineProfileError("production math source/accessibility receipt is incomplete")
+
+
+def _assert_fixture_resource_hashes(expected_path: Path, expected: dict[str, Any]) -> None:
+    root = expected_path.parent / "job"
+    records = expected.get("resource_hashes")
+    if not isinstance(records, list):
+        raise MachineProfileError("fixture resource ledger is not an array")
+    for record in records:
+        uri = record.get("uri") if isinstance(record, dict) else None
+        if not isinstance(uri, str):
+            raise MachineProfileError("fixture resource ledger contains an invalid URI")
+        path = (root / uri).resolve(strict=True)
+        try:
+            path.relative_to(root.resolve(strict=True))
+        except ValueError as error:
+            raise MachineProfileError("fixture resource ledger escapes its job root") from error
+        payload = path.read_bytes()
+        if len(payload) != record.get("bytes") or _sha256(payload) != record.get("sha256"):
+            raise MachineProfileError(f"fixture resource hash differs: {uri}")
+
+
+def _assert_production_handoff(
+    repository: Path, expected: dict[str, Any], expected_capabilities: bytes
+) -> None:
+    if expected.get("profile") != "typaxis.machine-pdf/production-book-1":
+        return
+    root = repository / "samples/machine-package/staging/production-book-1"
+    sealed_path = root / "publication-expectation.json"
+    sealed = _load_json(sealed_path)
+    if (
+        expected.get("advertised_item_coverage")
+        != sealed.get("advertised_item_coverage")
+        or (root / "publication-capabilities.json").read_bytes()
+        != expected_capabilities + b"\n"
+    ):
+        raise MachineProfileError("public production fixture differs from the sealed V19 handoff")
+    records = sealed.get("resource_hashes")
+    if not isinstance(records, list) or len(records) != 73:
+        raise MachineProfileError("sealed V19 resource ledger is incomplete")
+    for record in records:
+        uri = record.get("uri") if isinstance(record, dict) else None
+        if not isinstance(uri, str):
+            raise MachineProfileError("sealed V19 resource ledger contains an invalid URI")
+        path = (root / uri).resolve(strict=True)
+        try:
+            path.relative_to(root.resolve(strict=True))
+        except ValueError as error:
+            raise MachineProfileError("sealed V19 resource ledger escapes its root") from error
+        payload = path.read_bytes()
+        if len(payload) != record.get("bytes") or _sha256(payload) != record.get("sha256"):
+            raise MachineProfileError(f"sealed V19 resource hash differs: {uri}")
 
 
 def _assert_footnote_layout_facts(
@@ -900,6 +1069,19 @@ def _assert_advertised_pdf_features(expected: dict[str, Any], pdf: Path) -> None
     if not isinstance(coverage, list) or not all(isinstance(item, str) for item in coverage):
         raise MachineProfileError("positive fixture lacks advertised item coverage")
     payload = pdf.read_bytes()
+    if expected.get("profile") == "typaxis.machine-pdf/production-book-1":
+        for feature, marker in {
+            "pdf_feature:outlines": b"/Outlines",
+            "pdf_feature:png-xobjects": b"/Subtype /Image",
+            "pdf_feature:tagged-pdf": b"/StructTreeRoot",
+            "image_format:jpeg": b"/Filter /DCTDecode",
+            "vector_feature:shared-form-xobject": b"/Subtype /Form",
+        }.items():
+            if feature not in coverage or marker not in payload:
+                raise MachineProfileError(
+                    f"production PDF lacks required {feature!r} marker"
+                )
+        return
     for feature, marker in ADVERTISED_PDF_FEATURE_MARKERS.items():
         if feature in coverage and marker not in payload:
             raise MachineProfileError(
@@ -929,6 +1111,8 @@ def _verify_fixture(
         or expected["expected"].get("exit_code") != 0
     ):
         raise MachineProfileError(f"{expected_path}: release verification requires a positive fixture")
+    _assert_fixture_resource_hashes(expected_path, expected)
+    _assert_production_handoff(repository, expected, expected_capabilities)
     run_directories: list[Path] = []
     run_artifacts: list[dict[str, bytes]] = []
     for ordinal in range(runs):
@@ -967,6 +1151,7 @@ def _verify_fixture(
         if not isinstance(manifest, dict) or not isinstance(trace, dict):
             raise MachineProfileError("machine trace or manifest root is not an object")
         _assert_profile_receipt_closure(expected, manifest, trace)
+        _assert_production_vector_closure(expected, manifest, trace)
         _assert_table_layout_facts(expected, manifest)
         _assert_footnote_layout_facts(expected, manifest, trace)
         run_directories.append(output)
@@ -1011,8 +1196,28 @@ def _verify_fixture(
         )
     except (OSError, pdf_differential.PdfDifferentialError) as error:
         raise MachineProfileError(f"external PDF differential failed: {error}") from error
+    structure_observations: list[dict[str, Any]] = []
+    production_package: dict[str, Any] | None = None
+    production_ledger: dict[str, Any] | None = None
+    if expected.get("profile") == "typaxis.machine-pdf/production-book-1":
+        production_package = _load_json(expected_path.parent / expected["package"])
+        production_ledger = _load_json(expected_path.parent / "ledger.json")
     for directory in run_directories:
         _assert_advertised_pdf_features(expected, directory / "output.pdf")
+        if production_package is not None and production_ledger is not None:
+            try:
+                structure_observations.append(
+                    pdf_structure.verify_production_pdf_structure(
+                        (directory / "output.pdf").read_bytes(),
+                        production_package,
+                        production_ledger,
+                        expected_page_count=expected_pages,
+                    )
+                )
+            except (OSError, pdf_structure.PdfValidationError) as error:
+                raise MachineProfileError(
+                    f"independent production PDF structure validation failed: {error}"
+                ) from error
         _assert_table_zero_decoration(
             expected,
             directory / "output.pdf",
@@ -1034,6 +1239,7 @@ def _verify_fixture(
         run_directories=tuple(run_directories),
         artifacts=baseline,
         differential=differential,
+        structure=structure_observations[0] if structure_observations else None,
     )
 
 
@@ -1285,7 +1491,17 @@ def verify_machine_profile(
             {"name": "profile_receipt_closure", "result": "passed"},
             {"name": "trace_schema", "result": "passed"},
         ]
-        if {check["name"] for check in checks} != REQUIRED_CHECKS:
+        required_checks = set(REQUIRED_CHECKS)
+        if primary.structure is not None:
+            checks.append(
+                {
+                    "detail": _sha256(canonical_json_bytes(primary.structure)),
+                    "name": PRODUCTION_REQUIRED_CHECK,
+                    "result": "passed",
+                }
+            )
+            required_checks.add(PRODUCTION_REQUIRED_CHECK)
+        if {check["name"] for check in checks} != required_checks:
             raise MachineProfileError("internal evidence check set is incomplete")
         evidence = {
             "artifacts": artifacts,
@@ -1369,7 +1585,10 @@ def require_host_evidence(
             check["result"] != "passed" for check in evidence["checks"]
         ):
             raise MachineProfileError(f"host evidence reports a failed gate: {path}")
-        if {check["name"] for check in evidence["checks"]} != REQUIRED_CHECKS:
+        required_checks = set(REQUIRED_CHECKS)
+        if evidence["fixture"]["fixture_id"].startswith("production-book-1."):
+            required_checks.add(PRODUCTION_REQUIRED_CHECK)
+        if {check["name"] for check in evidence["checks"]} != required_checks:
             raise MachineProfileError(f"host evidence has an incomplete check set: {path}")
         if {tool["name"] for tool in evidence["tools"]} != REQUIRED_TOOLS:
             raise MachineProfileError(f"host evidence has an incomplete tool set: {path}")

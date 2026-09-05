@@ -4,10 +4,10 @@ use std::io::Write;
 use std::path::Path;
 
 use typaxis_core::{
-    sha256, ConfigResourceRoot, EffectiveConfig, EffectiveDataVersions, HostAdmissionContext,
-    HostPath, ImageResourceId, Length, M4EffectiveResourceLimits, M4ResourceLimits,
-    NonNegativeLength, PdfStreamCompression, PortablePath, PositiveLength, Rect, ResourceLimits,
-    ValidatedResourceLimits, DEFAULT_ALLOWED_URI_SCHEMES,
+    sha256, ConfigResourceRoot, DocumentPackageContractId, EffectiveConfig, EffectiveDataVersions,
+    HostAdmissionContext, HostPath, ImageResourceId, Length, M4EffectiveResourceLimits,
+    M4ResourceLimits, NonNegativeLength, PdfStreamCompression, PortablePath, PositiveLength, Rect,
+    ResourceLimits, ValidatedResourceLimits, DEFAULT_ALLOWED_URI_SCHEMES,
 };
 use typaxis_manifest::{
     build_figure_vector_v2_manifests, build_vector_v2_manifests, manifest_figure_vector_v2_fixture,
@@ -34,7 +34,7 @@ pub enum PrecomposedVectorBuildSchedule {
     ReverseCompletion,
 }
 
-/// Complete generated outputs of the private 1.4 production-vector closure.
+/// Complete generated outputs of the contract-1.4 production-vector closure.
 ///
 /// The map is keyed by portable artifact name and therefore has one canonical
 /// order regardless of the owner-private completion schedule used to collect
@@ -66,7 +66,7 @@ impl PrecomposedVectorArtifactSet {
     }
 }
 
-/// Run the private production fixture through the complete, receipt-gated
+/// Run the production fixture through the complete, receipt-gated
 /// chain and return only generated artifacts. The fixture constructors invoke
 /// the real Wire, syntax/profile, admission, layout, Display, Form planning,
 /// structure, final tagged-PDF, observation, and manifest implementations.
@@ -810,7 +810,8 @@ fn admit_vector_catalog(
     profile_fingerprint: [u8; 32],
 ) -> Result<AdmittedResourceLedger, Box<dyn std::error::Error>> {
     let base = staging_declared_base_catalog(declarations)?;
-    let config = EffectiveConfig::new(
+    let config = EffectiveConfig::new_for_contract(
+        DocumentPackageContractId::V1_3,
         false,
         PdfStreamCompression::None,
         vec![ConfigResourceRoot::ProjectRoot],
@@ -950,7 +951,8 @@ pub fn reject_precomposed_vector_svg(
         &StagingPrecomposedVectorProfileSessionIdentity::fresh(),
     )?;
     let catalog = staging_declared_base_catalog(package.resources())?;
-    let config = EffectiveConfig::new(
+    let config = EffectiveConfig::new_for_contract(
+        DocumentPackageContractId::V1_3,
         false,
         PdfStreamCompression::Flate,
         vec![ConfigResourceRoot::ProjectRoot],

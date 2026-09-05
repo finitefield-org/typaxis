@@ -2,8 +2,8 @@
 
 ## 1. 文書情報
 
-- 状態: Adopted by [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md)（product implementationはMI4-V03以降）
-- 対象: 非公開の`typaxis.contract/1.4` / `typaxis.machine-pdf/production-book-1`
+- 状態: Adopted by [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md)、MI4-V03〜MI4-V19で実装・検証、MI4-13で公開済み
+- 対象: 現行`typaxis.contract/1.4` / 公開`typaxis.machine-pdf/production-book-1`
 - 主利用者: `texToSvg`等で数式を組版済みのSVGへ変換できるVMB
 - 非目標: TypaxisによるTeX解釈、マクロ展開、数式組版、読み上げ文生成
 - 関連判断:
@@ -19,17 +19,18 @@
   - [W3C SVG 1.1: Painting](https://www.w3.org/TR/SVG11/painting.html)
   - [W3C SVG 1.1: Clipping, masking and compositing](https://www.w3.org/TR/SVG11/masking.html)
 
-本書はADR-0037が採用した実装設計であり、current contract 1.3、公開CLI、公開
-capability descriptorを変更しない。ADR-0037はADR-0033のnative mathと
-SafeVectorを変更せず、producer-composed math vectorを別経路として追加した。
+本書はADR-0037が採用した実装設計である。本文中の「非公開」「staging」および
+「current 1.3」はMI4-V01〜MI4-V19を実装した時点のpublication前提を記録する。
+MI4-13は2026-09-05にこの設計をcompleteなcontract 1.4 registry、公開CLI、
+8-profile capability descriptorへ原子的に接続した。ADR-0037はADR-0033の
+native mathとSafeVectorを変更せず、producer-composed math vectorを別経路として追加した。
 同時にADR-0034のclosed language-owner/navigation chain、ADR-0035のclosed
 structure/alternative mapping、ADR-0036のimmutable SafeVector component/
 resource-setをversioned `/2`経路へ拡張した。既存`/1` identityの意味は広げない。
 
-contract 1.4はまだ公開・凍結されていないため、MI4-13より前なら
-ADR-0032のprivate staging拡張規則に従って1.4へ追加できる。MI4-13の
-公開後に実装する場合は、同じwire shapeを1.4へ後付けせず、新しい
-contract/profileを採番する。
+contract 1.4はMI4-13で公開・凍結済みである。以後は同じwire shapeを1.4へ
+後付けせず、新しいcontract/profileを採番する。publication前に適用した
+ADR-0032のprivate staging拡張規則は、履歴としてのみ本文に残す。
 
 ## 2. 結論
 

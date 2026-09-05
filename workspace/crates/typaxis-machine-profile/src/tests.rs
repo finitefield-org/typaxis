@@ -498,12 +498,12 @@ fn capabilities_are_the_exact_canonical_descriptor_projection() {
         "\"unsupported_pdf_features\":[\"heading-semantics\",\"outlines\",\"tagged-pdf\"]}"
     );
     assert!(encoded.starts_with(concat!(
-        "{\"contract\":\"typaxis.contract/1.3\",",
+        "{\"contract\":\"typaxis.contract/1.4\",",
         "\"engine\":{\"name\":\"typaxis\",\"version\":\"0.1.0\"},",
         "\"machine_input\":{",
         "\"coordinate_units\":[\"pdf_point_1_65536\"],",
         "\"default_profile\":\"typaxis.machine-pdf/paragraph-1\",",
-        "\"document_package_contracts\":[\"typaxis.contract/1.0\",\"typaxis.contract/1.1\",\"typaxis.contract/1.2\",\"typaxis.contract/1.3\"],"
+        "\"document_package_contracts\":[\"typaxis.contract/1.0\",\"typaxis.contract/1.1\",\"typaxis.contract/1.2\",\"typaxis.contract/1.3\",\"typaxis.contract/1.4\"],"
     )));
     assert!(encoded.contains(&format!("{paragraph_1},")));
     assert!(encoded.ends_with(&format!("{table_1}]}}}}")));
@@ -521,20 +521,25 @@ fn capabilities_are_the_exact_canonical_descriptor_projection() {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn public_capability_isolation_keeps_private_vector_projection_out_of_seven_profile_bytes() {
+fn public_capability_includes_the_complete_vector_projection_once() {
     let public = encode_capabilities_canonical(HostCapabilityDescriptor::compiled());
     assert_eq!(
         public,
         include_str!("../../../../samples/machine-package/capabilities.json")
     );
-    assert!(!public.contains("production-book-1"));
-    assert!(!public.contains("vector_features"));
-    assert!(!public.contains("math_vector_block"));
+    assert_eq!(
+        public
+            .matches("\"id\":\"typaxis.machine-pdf/production-book-1\"")
+            .count(),
+        1
+    );
+    assert!(public.contains("vector_features"));
+    assert!(public.contains("math_vector_block"));
     assert!(public.contains("\"default_profile\":\"typaxis.machine-pdf/paragraph-1\""));
 
-    let private = crate::capabilities::encode_private_precomposed_vector_capability_projection();
+    let vector = crate::capabilities::encode_precomposed_vector_capability_projection();
     assert_eq!(
-        private,
+        vector,
         concat!(
             "{",
             "\"blocks\":[\"math_vector_block\",\"vector_figure\"],",
@@ -558,7 +563,7 @@ fn public_capability_isolation_keeps_private_vector_projection_out_of_seven_prof
         )
     );
 
-    let projection = crate::descriptor::PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
+    let projection = crate::descriptor::PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
     let profile = StagingPrecomposedVectorProfileDescriptor;
     let projected_kinds = projection
         .vector_media_by_kind()
@@ -617,16 +622,16 @@ fn public_capability_isolation_keeps_private_vector_projection_out_of_seven_prof
         }
     }
 
-    let private_schema = include_str!("../../../../schemas/1.4/machine-capabilities.schema.json");
-    assert!(private_schema.contains("\"minItems\": 8"));
-    assert!(private_schema.contains("\"maxItems\": 8"));
-    assert!(private_schema.contains("production_book_profile"));
-    assert!(private_schema.contains("vector_features"));
+    let current_schema = include_str!("../../../../schemas/machine-capabilities.schema.json");
+    assert!(current_schema.contains("\"minItems\": 8"));
+    assert!(current_schema.contains("\"maxItems\": 8"));
+    assert!(current_schema.contains("production_book_profile"));
+    assert!(current_schema.contains("vector_features"));
 }
 
 #[test]
 fn precomposed_vector_capability_projection_is_complete_ordered_and_preflight_symmetric() {
-    let descriptor = crate::descriptor::PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR;
+    let descriptor = crate::descriptor::PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR;
     assert_eq!(
         descriptor.blocks(),
         [
@@ -661,7 +666,7 @@ fn precomposed_vector_capability_projection_is_complete_ordered_and_preflight_sy
     );
     assert_eq!(descriptor.style_block_types(), descriptor.blocks());
     assert_eq!(descriptor.style_selectors(), descriptor.blocks());
-    let encoded = crate::capabilities::encode_private_production_book_capability_descriptor();
+    let encoded = crate::capabilities::encode_production_book_capability_descriptor();
     assert!(encoded.starts_with(concat!(
         "{\"blocks\":[\"display_math\",\"figure\",\"heading\",\"list\",",
         "\"math_vector_block\",\"page_break\",\"paragraph\",",
@@ -690,12 +695,12 @@ fn precomposed_vector_capability_projection_is_complete_ordered_and_preflight_sy
         "typaxis.machine-pdf/footnote-1",
         "typaxis.machine-pdf/header-footer-1",
         "typaxis.machine-pdf/paragraph-1",
-        crate::descriptor::PrivateProductionBookCapabilityDescriptor::PROFILE_ID,
+        crate::descriptor::ProductionBookCapabilityDescriptor::PROFILE_ID,
         "typaxis.machine-pdf/table-1",
     ];
     assert_eq!(
         future_profile_order[5],
-        crate::descriptor::PrivateProductionBookCapabilityDescriptor::DEFAULT_PROFILE_ID
+        crate::descriptor::ProductionBookCapabilityDescriptor::DEFAULT_PROFILE_ID
     );
     assert_eq!(
         future_profile_order[6],

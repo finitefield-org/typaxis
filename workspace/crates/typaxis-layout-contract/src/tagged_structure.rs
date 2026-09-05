@@ -948,7 +948,7 @@ impl RegistryBuilder<'_> {
                     id,
                     record.language(),
                     true,
-                    None,
+                    Some(marker.clone()),
                     Some(marker.clone()),
                     depth + 1,
                 )?;
@@ -1055,7 +1055,7 @@ impl RegistryBuilder<'_> {
                     id,
                     record.language(),
                     true,
-                    None,
+                    Some(marker.clone()),
                     Some(marker.clone()),
                     depth + 1,
                 )?;
@@ -1071,7 +1071,7 @@ impl RegistryBuilder<'_> {
                     id,
                     record.language(),
                     true,
-                    None,
+                    Some(marker.clone()),
                     Some(marker.clone()),
                     depth + 1,
                 )?;
@@ -1649,9 +1649,14 @@ fn source_projection(
         StagingStructureSemanticKind::FootnoteDefinition { .. } => {
             (StructureRole::Note, None, None, false, None, None)
         }
-        StagingStructureSemanticKind::Text { .. } => {
-            (StructureRole::Span, None, None, true, None, None)
-        }
+        StagingStructureSemanticKind::Text { text } => (
+            StructureRole::Span,
+            None,
+            None,
+            true,
+            Some(text.clone()),
+            None,
+        ),
         StagingStructureSemanticKind::Emphasis => {
             (StructureRole::Emphasis, None, None, false, None, None)
         }
@@ -1671,7 +1676,7 @@ fn source_projection(
             None,
             None,
             true,
-            None,
+            Some(label.clone()),
             Some(label.clone()),
         ),
         StagingStructureSemanticKind::FootnoteReference { .. } => {

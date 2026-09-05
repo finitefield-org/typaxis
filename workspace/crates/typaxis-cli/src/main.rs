@@ -25,30 +25,36 @@ use typaxis_core::{
     ShaperIdentity,
 };
 use typaxis_diagnostics::{
-    encode_diagnostics_canonical, DiagnosticBuilder, DiagnosticLocation, GlobalDiagnosticScope,
+    encode_diagnostics_canonical, encode_diagnostics_canonical_for_contract, DiagnosticBuilder,
+    DiagnosticCode, DiagnosticLocation, DiagnosticSubject, GlobalDiagnosticScope,
     MachineDiagnosticBudget, MachineDiagnosticBudgetError, MachineDiagnosticLender,
-    MachineDiagnosticPhase, PublicMachineError, Severity, L5101, R7100,
+    MachineDiagnosticPhase, PublicMachineError, ResourceErrorSubject, Severity, I9110, I9113,
+    I9190, L5100, L5101, R7100,
 };
 use typaxis_document_package::{
     DocumentPackageDecodeError, DocumentPackageDecodeErrorClass, DocumentPackageDecodePolicy,
-    JsonPreflightErrorClass, StrictDocumentPackageDecoder,
+    JsonPreflightErrorClass, StagingSemanticDecodeError, StrictDocumentPackageDecoder,
 };
 use typaxis_machine_input::{
-    HostMachineInputSession, MachineInputError, MachineInputErrorKind, MachineInputHostOptions,
+    AdmittedPackageBytes, HostMachineInputSession, MachineInputError, MachineInputErrorKind,
+    MachineInputHostOptions, SessionBoundDecodedPackage,
 };
 use typaxis_machine_profile::{
     encode_capabilities_canonical, HostCapabilityDescriptor, HostCapabilityPreflightError,
     MachineProfileDescriptor,
 };
 use typaxis_manifest::{
-    BuildOutputCommitContext, BuildOutputCommitContextError, BuiltPublicationCommitError,
-    BuiltPublicationStagingError, FailedManifestPublication, ManifestAdmissionLedger,
-    ManifestPublicationContext, ManifestPublicationError, ManifestSinkCommitError,
-    PdfSinkCommitError, PendingFailedManifestPublication, PreparedPdfCommitError,
-    PreparedStandalonePdfPublication, PublicationReadLedgerToken, StagedBuiltPublication,
-    StagingMachineLayoutFacts,
+    BuildInputProfile, BuildOutputCommitContext, BuildOutputCommitContextError,
+    BuiltPublicationCommitError, BuiltPublicationStagingError, FailedManifestPublication,
+    ManifestAdmissionLedger, ManifestPublicationContext, ManifestPublicationError,
+    ManifestSinkCommitError, PdfSinkCommitError, PendingFailedManifestPublication,
+    PreparedPdfCommitError, PreparedStandalonePdfPublication, PublicationReadLedgerToken,
+    StagedBuiltPublication, StagingMachineLayoutFacts,
 };
-use typaxis_resources::AdmittedResourceLedger;
+use typaxis_resources::{
+    AdmittedResourceLedger, HostResourceAdmissionSession, ResourceAdmissionError,
+    ResourceAdmissionFailure, ResourceAdmissionProgressToken,
+};
 use typaxis_syntax::{
     DocumentPackageParser, MachineParseOutcome, PackageValidationPolicy, ValidatedMachinePackage,
     ValidatedParsedPackage,
@@ -105,10 +111,12 @@ fn run(command: Command) -> Result<(), Failure> {
             let loaded = load_config(&options.common)?;
             let admission = admission_context(&options, &loaded.effective, loaded.path.as_deref())?;
             let package = pipeline::load_package(admission.entry().as_path(), &loaded.effective)?;
+            let admitted = pipeline::admit_resources(&package, &loaded.effective, &admission)?;
             let stdout = io::stdout();
             let mut stdout = stdout.lock();
             artifacts::write_document_package_json(
                 &package,
+                &admitted,
                 loaded.effective.limits(),
                 &mut stdout,
             )
@@ -156,7 +164,17 @@ fn run_build_package_with_host(
         options.package_root.as_deref(),
     )?;
     let loaded = load_config(&options.common)?;
-    let config = loaded.effective;
+    let config_contract = if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
+        typaxis_core::DocumentPackageContractId::V1_4
+    } else {
+        typaxis_core::DocumentPackageContractId::V1_3
+    };
+    let config = loaded
+        .effective
+        .with_contract(config_contract)
+        .map_err(|error| {
+            Failure::internal(format!("effective config rebinding failed: {error:?}"))
+        })?;
     let execution = BuildExecutionContext::from_cli_token(
         &options.output,
         optional_host_path(options.trace.clone(), "trace")?,
@@ -220,6 +238,19 @@ fn run_build_package_with_host(
             ));
         }
     };
+    if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
+        return run_production_build_after_setup(
+            &options,
+            host_preflight,
+            &config,
+            &admission,
+            execution,
+            output,
+            publication,
+            manifest,
+            diagnostics,
+        );
+    }
     let prepared = match prepare_machine_command(
         &options.package,
         options.package_root.as_deref(),
@@ -454,6 +485,111 @@ fn run_build_package_with_host(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+fn run_production_build_after_setup(
+    options: &BuildPackageOptions,
+    host_preflight: MachineHostPreflight,
+    config: &EffectiveConfig,
+    admission: &HostAdmissionContext,
+    execution: BuildExecutionContext,
+    output: BuildOutputCommitContext,
+    publication: Option<ManifestPublicationContext>,
+    mut manifest: Option<ManifestAdmissionLedger>,
+    mut diagnostics: MachineDiagnosticBudget,
+) -> Result<(), Failure> {
+    let prepared = match prepare_production_command(
+        &options.package,
+        options.package_root.as_deref(),
+        config,
+        admission,
+        &mut diagnostics,
+        manifest.as_mut(),
+        MachineWriteTargets::Build(&execution),
+        host_preflight,
+    ) {
+        Ok(prepared) => prepared,
+        Err(failed) => {
+            return Err(publish_machine_processing_failure(
+                &execution,
+                diagnostics,
+                output,
+                publication,
+                manifest,
+                None,
+                failed,
+            ));
+        }
+    };
+    let built = {
+        let (result, diagnostic_failure) = {
+            let mut phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Layout)?;
+            let result = pipeline::build_production_book_pdf(
+                prepared.package.package(),
+                &prepared.navigation,
+                &prepared.semantics,
+                &prepared.profile,
+                &prepared.admitted,
+                &prepared.limits,
+                config,
+            );
+            let diagnostic_failure = result.as_ref().err().and_then(|primary| {
+                emit_production_processing_diagnostic(
+                    &mut phase,
+                    &options.package,
+                    &prepared.package,
+                    primary,
+                )
+                .err()
+            });
+            (result, diagnostic_failure)
+        };
+        match result {
+            Ok(value) => value,
+            Err(mut primary) => {
+                if let Some(diagnostic_failure) = diagnostic_failure {
+                    primary
+                        .message
+                        .push_str("; diagnostic emission also failed: ");
+                    primary.message.push_str(&diagnostic_failure.message);
+                }
+                return Err(publish_machine_processing_failure(
+                    &execution,
+                    diagnostics,
+                    output,
+                    publication,
+                    manifest,
+                    None,
+                    FailedMachineCommand {
+                        primary,
+                        sidecar_read: Some(prepared.sidecar_read),
+                        terminal_read: Some(prepared.terminal_read),
+                    },
+                ));
+            }
+        }
+    };
+    {
+        let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Pdf)?;
+    }
+    {
+        let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Publication)?;
+    }
+    let (pdf, vector_fields, selected, flow, _fragments, trace) = built.into_parts();
+    publish_production_machine_success(
+        &execution,
+        diagnostics,
+        output,
+        publication,
+        manifest,
+        prepared,
+        pdf,
+        vector_fields,
+        selected,
+        flow,
+        options.trace.as_ref().map(|_| trace.as_str()),
+    )
+}
+
 /// Success ends at complete resource metadata and style/font-family preparation; it does not
 /// claim glyph coverage, pagination, or PDF serialization.
 fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
@@ -461,7 +597,18 @@ fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
         &options.package,
         options.package_root.as_deref(),
     )?;
-    let loaded = load_config(&options.common)?;
+    let mut loaded = load_config(&options.common)?;
+    let config_contract = if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
+        typaxis_core::DocumentPackageContractId::V1_4
+    } else {
+        typaxis_core::DocumentPackageContractId::V1_3
+    };
+    loaded.effective = loaded
+        .effective
+        .with_contract(config_contract)
+        .map_err(|error| {
+            Failure::internal(format!("effective config rebinding failed: {error:?}"))
+        })?;
     let diagnostics_execution = options
         .diagnostics
         .clone()
@@ -490,6 +637,22 @@ fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
         let _phase = lend_machine_phase(&mut diagnostics, MachineDiagnosticPhase::Config)?;
     }
     let writes = MachineWriteTargets::Diagnostics(diagnostics_execution.as_ref());
+    let diagnostics_contract =
+        if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
+            typaxis_core::DocumentPackageContractId::V1_4
+        } else {
+            typaxis_core::DocumentPackageContractId::V1_3
+        };
+    if options.profile == typaxis_core::MachinePdfProfileId::ProductionBook1 {
+        return run_check_production_package(
+            &options,
+            &loaded.effective,
+            &admission,
+            diagnostics_execution.as_ref(),
+            diagnostics,
+            writes,
+        );
+    }
     match prepare_machine_command(
         &options.package,
         options.package_root.as_deref(),
@@ -502,7 +665,10 @@ fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
         MachineHostPreflight::Compiled,
     ) {
         Ok(prepared) => {
-            let encoded = encode_diagnostics_canonical(diagnostics.finish().diagnostics());
+            let encoded = encode_machine_diagnostics(
+                diagnostics_contract,
+                diagnostics.finish().diagnostics(),
+            );
             if let Some(execution) = diagnostics_execution.as_ref() {
                 publish_check_diagnostics(execution, &encoded, Some(&prepared.sidecar_read))?;
             }
@@ -512,7 +678,10 @@ fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
             Ok(())
         }
         Err(failed) => {
-            let encoded = encode_diagnostics_canonical(diagnostics.finish().diagnostics());
+            let encoded = encode_machine_diagnostics(
+                diagnostics_contract,
+                diagnostics.finish().diagnostics(),
+            );
             if let Some(execution) = diagnostics_execution.as_ref() {
                 if let Err(publication) =
                     publish_check_diagnostics(execution, &encoded, failed.sidecar_read.as_ref())
@@ -525,6 +694,74 @@ fn run_check_package(options: CheckPackageOptions) -> Result<(), Failure> {
             }
             Err(failed.primary)
         }
+    }
+}
+
+fn run_check_production_package(
+    options: &CheckPackageOptions,
+    config: &EffectiveConfig,
+    admission: &HostAdmissionContext,
+    diagnostics_execution: Option<&DiagnosticsExecutionContext>,
+    mut diagnostics: MachineDiagnosticBudget,
+    writes: MachineWriteTargets<'_>,
+) -> Result<(), Failure> {
+    match prepare_production_command(
+        &options.package,
+        options.package_root.as_deref(),
+        config,
+        admission,
+        &mut diagnostics,
+        None,
+        writes,
+        MachineHostPreflight::Compiled,
+    ) {
+        Ok(prepared) => {
+            let encoded = encode_machine_diagnostics(
+                typaxis_core::DocumentPackageContractId::V1_4,
+                diagnostics.finish().diagnostics(),
+            );
+            if let Some(execution) = diagnostics_execution {
+                publish_check_diagnostics(execution, &encoded, Some(&prepared.sidecar_read))?;
+            }
+            let _ = (
+                prepared.package,
+                prepared.navigation,
+                prepared.semantics,
+                prepared.profile,
+                prepared.limits,
+                prepared.admitted,
+                prepared.terminal_read,
+            );
+            Ok(())
+        }
+        Err(failed) => {
+            let encoded = encode_machine_diagnostics(
+                typaxis_core::DocumentPackageContractId::V1_4,
+                diagnostics.finish().diagnostics(),
+            );
+            if let Some(execution) = diagnostics_execution {
+                if let Err(publication) =
+                    publish_check_diagnostics(execution, &encoded, failed.sidecar_read.as_ref())
+                {
+                    return Err(Failure::io(format!(
+                        "{}; diagnostics publication also failed: {}",
+                        failed.primary.message, publication.message
+                    )));
+                }
+            }
+            Err(failed.primary)
+        }
+    }
+}
+
+fn encode_machine_diagnostics(
+    contract: typaxis_core::DocumentPackageContractId,
+    diagnostics: &[typaxis_diagnostics::Diagnostic],
+) -> String {
+    if contract == typaxis_core::DocumentPackageContractId::CURRENT {
+        encode_diagnostics_canonical(diagnostics)
+    } else {
+        encode_diagnostics_canonical_for_contract(contract, diagnostics)
     }
 }
 
@@ -576,6 +813,17 @@ fn lexical_absolute_path(path: &Path, current: &Path) -> PathBuf {
 struct PreparedMachineCommand {
     package: Box<ValidatedMachinePackage>,
     checked: pipeline::CheckedMachinePackage,
+    sidecar_read: PublicationReadLedgerToken,
+    terminal_read: PublicationReadLedgerToken,
+}
+
+struct PreparedProductionCommand {
+    package: Box<typaxis_syntax::ValidatedProductionMachinePackage>,
+    navigation: typaxis_syntax::ValidatedStagingBookNavigationV2,
+    semantics: typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+    profile: typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+    limits: typaxis_core::M4EffectiveResourceLimits,
+    admitted: AdmittedResourceLedger,
     sidecar_read: PublicationReadLedgerToken,
     terminal_read: PublicationReadLedgerToken,
 }
@@ -950,6 +1198,552 @@ fn prepare_machine_command(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn reject_legacy_production_package(
+    session: HostMachineInputSession,
+    raw: AdmittedPackageBytes,
+    decoded: SessionBoundDecodedPackage,
+    package_path: &Path,
+    config: &EffectiveConfig,
+    diagnostics: &mut MachineDiagnosticBudget,
+    mut manifest: Option<&mut ManifestAdmissionLedger>,
+    writes: MachineWriteTargets<'_>,
+) -> Result<PreparedProductionCommand, FailedMachineCommand> {
+    project_machine_progress(&mut manifest, &session.progress())
+        .map_err(FailedMachineCommand::without_reads)?;
+    let sources = {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Source)
+            .map_err(FailedMachineCommand::without_reads)?;
+        match session.admit_sources(&decoded, config.limits()) {
+            Ok(sources) => sources,
+            Err(error) => {
+                project_machine_progress(&mut manifest, error.progress())
+                    .map_err(FailedMachineCommand::without_reads)?;
+                emit_machine_input_diagnostic(&mut phase, &error, package_path)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                let primary = map_machine_input_error(&error);
+                let reads = read_tokens_from_machine_error(&error)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                return Err(FailedMachineCommand::with_reads(primary, reads));
+            }
+        }
+    };
+    project_machine_progress(&mut manifest, &session.progress())
+        .map_err(FailedMachineCommand::without_reads)?;
+    validate_session_reads(&session, writes)
+        .map_err(|primary| session_failure_with_reads(&session, primary))?;
+
+    let admitted = match session.finish(raw, decoded, sources) {
+        Ok(admitted) => admitted,
+        Err(error) => {
+            project_machine_progress(&mut manifest, error.progress())
+                .map_err(FailedMachineCommand::without_reads)?;
+            let primary = map_machine_input_error(&error);
+            let reads = read_tokens_from_machine_error(&error)
+                .map_err(FailedMachineCommand::without_reads)?;
+            return Err(FailedMachineCommand::with_reads(primary, reads));
+        }
+    };
+    let syntax_failure_reads =
+        read_tokens_from_admitted(&admitted).map_err(FailedMachineCommand::without_reads)?;
+    let syntax_policy = PackageValidationPolicy::new(config.limits(), config.allowed_uri_schemes())
+        .map_err(|error| Failure::internal(format!("machine syntax policy failed: {error:?}")))
+        .map_err(FailedMachineCommand::without_reads)?;
+    let package = {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Syntax)
+            .map_err(FailedMachineCommand::without_reads)?;
+        match DocumentPackageParser::new().parse(admitted, &syntax_policy) {
+            MachineParseOutcome::Parsed { package } => package,
+            MachineParseOutcome::Failed { progress, failure } => {
+                project_machine_progress(&mut manifest, &progress)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                let uri = progress
+                    .package()
+                    .map(|facts| facts.uri().clone())
+                    .unwrap_or_else(|| fallback_package_uri(package_path));
+                let diagnostic = failure.to_diagnostic(&uri);
+                let code = *diagnostic.code();
+                let _ = phase
+                    .emit(diagnostic)
+                    .map_err(map_diagnostic_budget_error)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                let primary = Failure::input(format!("{}: {failure}", code.as_str()));
+                return Err(FailedMachineCommand::with_reads(
+                    primary,
+                    syntax_failure_reads,
+                ));
+            }
+        }
+    };
+    if let Some(ledger) = manifest {
+        ledger
+            .admit_legacy_production_rejection(&package)
+            .map_err(|error| {
+                Failure::internal(format!(
+                    "legacy production manifest projection failed: {error:?}"
+                ))
+            })
+            .map_err(FailedMachineCommand::without_reads)?;
+    }
+    let reads = read_tokens_from_package(&package).map_err(FailedMachineCommand::without_reads)?;
+    {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Capability)
+            .map_err(FailedMachineCommand::without_reads)?;
+        let diagnostic = DiagnosticBuilder::located(
+            L5100,
+            Severity::Error,
+            "content is not supported by the selected machine PDF profile",
+            DiagnosticLocation::package_json(
+                fallback_package_uri(package_path),
+                JsonPointer::root(),
+                None,
+            ),
+        )
+        .expect("the static legacy production diagnostic is canonical")
+        .build();
+        let _ = phase
+            .emit(diagnostic)
+            .map_err(map_diagnostic_budget_error)
+            .map_err(FailedMachineCommand::without_reads)?;
+    }
+    Err(FailedMachineCommand::with_reads(
+        Failure::input(
+            "L5100: an old DocumentPackage contract is not supported by production-book-1",
+        ),
+        reads,
+    ))
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn prepare_production_command(
+    package_path: &Path,
+    package_root: Option<&Path>,
+    config: &EffectiveConfig,
+    admission: &HostAdmissionContext,
+    diagnostics: &mut MachineDiagnosticBudget,
+    mut manifest: Option<&mut ManifestAdmissionLedger>,
+    writes: MachineWriteTargets<'_>,
+    host_preflight: MachineHostPreflight,
+) -> Result<PreparedProductionCommand, FailedMachineCommand> {
+    let profile_id = typaxis_core::MachinePdfProfileId::ProductionBook1;
+    {
+        let mut host = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Host)
+            .map_err(FailedMachineCommand::without_reads)?;
+        host_preflight
+            .run(profile_id, &mut host)
+            .map_err(map_host_capability_preflight)
+            .map_err(FailedMachineCommand::without_reads)?;
+    }
+    let package_host = HostPath::new(package_path.to_path_buf())
+        .map_err(|_| Failure::usage("PACKAGE path must not be empty"))
+        .map_err(FailedMachineCommand::without_reads)?;
+    let root_host = package_root
+        .map(Path::to_path_buf)
+        .map(HostPath::new)
+        .transpose()
+        .map_err(|_| Failure::usage("package-root path must not be empty"))
+        .map_err(FailedMachineCommand::without_reads)?;
+    let options = MachineInputHostOptions::new(package_host, root_host);
+    let (session, raw) = {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Package)
+            .map_err(FailedMachineCommand::without_reads)?;
+        match HostMachineInputSession::open(options, config.limits()) {
+            Ok(value) => value,
+            Err(error) => {
+                project_machine_progress(&mut manifest, error.progress())
+                    .map_err(FailedMachineCommand::without_reads)?;
+                emit_machine_input_diagnostic(&mut phase, &error, package_path)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                let primary = map_machine_input_error(&error);
+                let reads = read_tokens_from_machine_error(&error)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                return Err(FailedMachineCommand::with_reads(primary, reads));
+            }
+        }
+    };
+    project_machine_progress(&mut manifest, &session.progress())
+        .map_err(FailedMachineCommand::without_reads)?;
+    validate_session_reads(&session, writes)
+        .map_err(|primary| session_failure_with_reads(&session, primary))?;
+
+    let policy = DocumentPackageDecodePolicy::new(config.limits());
+    let legacy_decoder = StrictDocumentPackageDecoder::new();
+    let decoder = typaxis_document_package::StagingSemanticDocumentPackageDecoder::new();
+    let decoded = {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Decode)
+            .map_err(FailedMachineCommand::without_reads)?;
+        match session.decode_and_bind(&raw, &legacy_decoder, &policy) {
+            Ok(decoded) => Ok(decoded),
+            Err(_) => match session.decode_semantic_and_bind(&raw, &decoder, &policy) {
+                Ok(decoded) => Err(decoded),
+                Err(error) => {
+                    project_machine_progress(&mut manifest, error.progress())
+                        .map_err(FailedMachineCommand::without_reads)?;
+                    emit_machine_input_diagnostic(&mut phase, &error, package_path)
+                        .map_err(FailedMachineCommand::without_reads)?;
+                    let primary = map_machine_input_error(&error);
+                    let reads = read_tokens_from_machine_error(&error)
+                        .map_err(FailedMachineCommand::without_reads)?;
+                    return Err(FailedMachineCommand::with_reads(primary, reads));
+                }
+            },
+        }
+    };
+    let decoded = match decoded {
+        Ok(legacy) => {
+            return reject_legacy_production_package(
+                session,
+                raw,
+                legacy,
+                package_path,
+                config,
+                diagnostics,
+                manifest,
+                writes,
+            )
+        }
+        Err(current) => current,
+    };
+    project_machine_progress(&mut manifest, &session.progress())
+        .map_err(FailedMachineCommand::without_reads)?;
+    let sources = {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Source)
+            .map_err(FailedMachineCommand::without_reads)?;
+        match session.admit_semantic_sources(&decoded, config.limits()) {
+            Ok(sources) => sources,
+            Err(error) => {
+                project_machine_progress(&mut manifest, error.progress())
+                    .map_err(FailedMachineCommand::without_reads)?;
+                emit_machine_input_diagnostic(&mut phase, &error, package_path)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                let primary = map_machine_input_error(&error);
+                let reads = read_tokens_from_machine_error(&error)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                return Err(FailedMachineCommand::with_reads(primary, reads));
+            }
+        }
+    };
+    let admitted_input = match session.finish_semantic(raw, decoded, sources) {
+        Ok(value) => value,
+        Err(error) => {
+            project_machine_progress(&mut manifest, error.progress())
+                .map_err(FailedMachineCommand::without_reads)?;
+            let primary = map_machine_input_error(&error);
+            let reads = read_tokens_from_machine_error(&error)
+                .map_err(FailedMachineCommand::without_reads)?;
+            return Err(FailedMachineCommand::with_reads(primary, reads));
+        }
+    };
+    project_machine_progress(&mut manifest, admitted_input.progress())
+        .map_err(FailedMachineCommand::without_reads)?;
+    let syntax_reads = read_tokens_from_admitted_production(&admitted_input)
+        .map_err(FailedMachineCommand::without_reads)?;
+    let package = {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Syntax)
+            .map_err(FailedMachineCommand::without_reads)?;
+        match typaxis_syntax::StagingSemanticPackageParser::new()
+            .parse_admitted(admitted_input, config.limits())
+        {
+            typaxis_syntax::ProductionMachineParseOutcome::Parsed { package } => package,
+            typaxis_syntax::ProductionMachineParseOutcome::Failed { progress, failure } => {
+                project_machine_progress(&mut manifest, &progress)
+                    .map_err(FailedMachineCommand::without_reads)?;
+                emit_production_diagnostic(
+                    &mut phase,
+                    PublicMachineError::PackageMember,
+                    package_path,
+                )
+                .map_err(FailedMachineCommand::without_reads)?;
+                return Err(FailedMachineCommand::with_reads(
+                    Failure::input(failure.to_string()),
+                    syntax_reads,
+                ));
+            }
+        }
+    };
+    let limits = config
+        .m4_limits()
+        .cloned()
+        .ok_or_else(|| Failure::internal("production config lacks contract-1.4 limits"))
+        .map_err(FailedMachineCommand::without_reads)?;
+    let (navigation, semantics, profile) = {
+        let mut phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Capability)
+            .map_err(FailedMachineCommand::without_reads)?;
+        let navigation =
+            typaxis_syntax::validate_staging_book_navigation_v2(package.package(), &limits)
+                .map_err(|error| Failure::input(error.to_string()));
+        let navigation = match navigation {
+            Ok(value) => value,
+            Err(primary) => {
+                emit_production_diagnostic(
+                    &mut phase,
+                    PublicMachineError::PackageMember,
+                    package_path,
+                )
+                .map_err(FailedMachineCommand::without_reads)?;
+                return Err(production_package_failure_with_reads(&package, primary));
+            }
+        };
+        let semantics = typaxis_syntax::validate_staging_structure_semantics_v2(
+            package.package(),
+            &navigation,
+            &limits,
+        )
+        .map_err(|error| Failure::input(error.to_string()));
+        let semantics = match semantics {
+            Ok(value) => value,
+            Err(primary) => {
+                emit_production_diagnostic(
+                    &mut phase,
+                    PublicMachineError::PackageMember,
+                    package_path,
+                )
+                .map_err(FailedMachineCommand::without_reads)?;
+                return Err(production_package_failure_with_reads(&package, primary));
+            }
+        };
+        let profile_session =
+            typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            package.package(),
+            &navigation,
+            &semantics,
+            &limits,
+            &profile_session,
+        )
+        .map_err(|error| Failure::input(error.to_string()));
+        let profile = match profile {
+            Ok(value) => value,
+            Err(primary) => {
+                emit_production_diagnostic(
+                    &mut phase,
+                    PublicMachineError::PackageMember,
+                    package_path,
+                )
+                .map_err(FailedMachineCommand::without_reads)?;
+                return Err(production_package_failure_with_reads(&package, primary));
+            }
+        };
+        (navigation, semantics, profile)
+    };
+    if let Some(ledger) = manifest.as_deref_mut() {
+        ledger
+            .admit_validated_production_machine_package(&package, &profile)
+            .map_err(|error| {
+                production_package_failure_with_reads(
+                    &package,
+                    Failure::internal(format!(
+                        "production manifest capability projection failed: {error:?}"
+                    )),
+                )
+            })?;
+    }
+
+    let base = typaxis_resources::staging_declared_base_catalog(package.package().resources())
+        .map_err(|error| Failure::input(error.to_string()))
+        .map_err(|primary| production_package_failure_with_reads(&package, primary))?;
+    let mut resource_phase = lend_machine_phase(diagnostics, MachineDiagnosticPhase::Resource)
+        .map_err(FailedMachineCommand::without_reads)?;
+    let resource_session = match HostResourceAdmissionSession::new_with_read_ledger(
+        admission,
+        config,
+        base.resource_catalog(),
+        package.provenance().read_ledger(),
+    ) {
+        Ok(session) => session,
+        Err(error) => {
+            return Err(production_resource_command_failure(
+                &mut resource_phase,
+                package_path,
+                &package,
+                &mut manifest,
+                None,
+                None,
+                error,
+                None,
+            ));
+        }
+    };
+    let candidate_read = resource_session
+        .read_ledger_token()
+        .map_err(|_| Failure::internal("cannot seal production resource candidates"))
+        .map_err(FailedMachineCommand::without_reads)?;
+    writes.validate(&candidate_read).map_err(|primary| {
+        if let Ok(reads) = read_tokens_from_production_package(&package) {
+            return FailedMachineCommand::with_reads(primary, reads);
+        }
+        match resource_session.read_ledger_token() {
+            Ok(terminal) => FailedMachineCommand::with_reads(
+                primary,
+                MachineReadTokens {
+                    sidecar: candidate_read,
+                    terminal,
+                },
+            ),
+            Err(_) => FailedMachineCommand::without_reads(primary),
+        }
+    })?;
+    let admitted = {
+        let mut resolver =
+            match typaxis_resources::AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+                &base,
+                &limits,
+                profile
+                    .base()
+                    .base()
+                    .authorization()
+                    .profile_receipt_fingerprint(),
+                resource_session.roots(),
+            ) {
+                Ok(resolver) => resolver,
+                Err(error) => {
+                    return Err(production_resource_command_failure(
+                        &mut resource_phase,
+                        package_path,
+                        &package,
+                        &mut manifest,
+                        Some(&resource_session),
+                        None,
+                        error,
+                        None,
+                    ));
+                }
+            };
+        for declaration in &package.package().resources().font_faces {
+            let source = match resource_session.open_font_with_subject(declaration.font_face_id) {
+                Ok(source) => source,
+                Err(failure) => {
+                    let progress = resolver.progress_token();
+                    return Err(production_resource_failure_with_subject(
+                        &mut resource_phase,
+                        package_path,
+                        &package,
+                        &mut manifest,
+                        &resource_session,
+                        &progress,
+                        failure,
+                    ));
+                }
+            };
+            let pending = match resolver.read_font_with_subject(source) {
+                Ok(pending) => pending,
+                Err(outcome) => {
+                    let (failure, progress) = outcome.into_parts();
+                    return Err(production_resource_failure_with_subject(
+                        &mut resource_phase,
+                        package_path,
+                        &package,
+                        &mut manifest,
+                        &resource_session,
+                        &progress,
+                        failure,
+                    ));
+                }
+            };
+            if let Err(outcome) = resolver.parse_and_bind_declared_sfnt_with_subject(pending) {
+                let (failure, progress) = outcome.into_parts();
+                return Err(production_resource_failure_with_subject(
+                    &mut resource_phase,
+                    package_path,
+                    &package,
+                    &mut manifest,
+                    &resource_session,
+                    &progress,
+                    failure,
+                ));
+            }
+        }
+        for declaration in &package.package().resources().images {
+            let source = match resource_session.open_image_with_subject(declaration.image_id) {
+                Ok(source) => source,
+                Err(failure) => {
+                    let progress = resolver.progress_token();
+                    return Err(production_resource_failure_with_subject(
+                        &mut resource_phase,
+                        package_path,
+                        &package,
+                        &mut manifest,
+                        &resource_session,
+                        &progress,
+                        failure,
+                    ));
+                }
+            };
+            let pending = match resolver.read_image_with_subject(source) {
+                Ok(pending) => pending,
+                Err(outcome) => {
+                    let (failure, progress) = outcome.into_parts();
+                    return Err(production_resource_failure_with_subject(
+                        &mut resource_phase,
+                        package_path,
+                        &package,
+                        &mut manifest,
+                        &resource_session,
+                        &progress,
+                        failure,
+                    ));
+                }
+            };
+            if let Err(outcome) = resolver.parse_and_bind_declared_image_with_subject(pending) {
+                let (failure, progress) = outcome.into_parts();
+                return Err(production_resource_failure_with_subject(
+                    &mut resource_phase,
+                    package_path,
+                    &package,
+                    &mut manifest,
+                    &resource_session,
+                    &progress,
+                    failure,
+                ));
+            }
+        }
+        let progress = resolver.progress_token();
+        match resolver.finish() {
+            Ok(admitted) => admitted,
+            Err(error) => {
+                return Err(production_resource_command_failure(
+                    &mut resource_phase,
+                    package_path,
+                    &package,
+                    &mut manifest,
+                    Some(&resource_session),
+                    Some(&progress),
+                    error,
+                    None,
+                ));
+            }
+        }
+    };
+    if let Some(ledger) = manifest {
+        ledger.admit_resources(admitted.token()).map_err(|error| {
+            FailedMachineCommand::without_reads(Failure::internal(format!(
+                "production manifest resource projection failed: {error:?}"
+            )))
+        })?;
+    }
+    let terminal_read = resource_session
+        .read_ledger_token()
+        .map_err(|_| Failure::internal("cannot seal final production read ledger"))
+        .map_err(FailedMachineCommand::without_reads)?;
+    writes
+        .validate(&terminal_read)
+        .map_err(FailedMachineCommand::without_reads)?;
+    let sidecar_read = resource_session
+        .read_ledger_token()
+        .map_err(|_| Failure::internal("cannot seal production sidecar read ledger"))
+        .map_err(FailedMachineCommand::without_reads)?;
+    Ok(PreparedProductionCommand {
+        package,
+        navigation,
+        semantics,
+        profile,
+        limits,
+        admitted,
+        sidecar_read,
+        terminal_read,
+    })
+}
+
 fn lend_machine_phase(
     diagnostics: &mut MachineDiagnosticBudget,
     phase: MachineDiagnosticPhase,
@@ -1125,6 +1919,254 @@ fn read_tokens_from_package(
     Ok(MachineReadTokens { sidecar, terminal })
 }
 
+fn read_tokens_from_production_admission(
+    admission: &typaxis_machine_input::MachineInputAdmissionProvenance,
+) -> Result<MachineReadTokens, Failure> {
+    let sidecar = admission
+        .read_ledger_token()
+        .map_err(|_| Failure::internal("cannot seal admitted production read ledger"))?;
+    let terminal = admission
+        .read_ledger_token()
+        .map_err(|_| Failure::internal("cannot seal admitted production terminal ledger"))?;
+    Ok(MachineReadTokens { sidecar, terminal })
+}
+
+fn read_tokens_from_admitted_production(
+    admitted: &typaxis_machine_input::AdmittedSemanticMachinePackage,
+) -> Result<MachineReadTokens, Failure> {
+    let sidecar = admitted
+        .read_ledger_token()
+        .map_err(|_| Failure::internal("cannot seal admitted production read ledger"))?;
+    let terminal = admitted
+        .read_ledger_token()
+        .map_err(|_| Failure::internal("cannot seal admitted production terminal ledger"))?;
+    Ok(MachineReadTokens { sidecar, terminal })
+}
+
+fn read_tokens_from_production_package(
+    package: &typaxis_syntax::ValidatedProductionMachinePackage,
+) -> Result<MachineReadTokens, Failure> {
+    read_tokens_from_production_admission(package.provenance())
+}
+
+fn production_package_failure_with_reads(
+    package: &typaxis_syntax::ValidatedProductionMachinePackage,
+    primary: Failure,
+) -> FailedMachineCommand {
+    match read_tokens_from_production_package(package) {
+        Ok(reads) => FailedMachineCommand::with_reads(primary, reads),
+        Err(_) => FailedMachineCommand::without_reads(primary),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn production_resource_failure_with_subject(
+    phase: &mut MachineDiagnosticLender<'_>,
+    package_path: &Path,
+    package: &typaxis_syntax::ValidatedProductionMachinePackage,
+    manifest: &mut Option<&mut ManifestAdmissionLedger>,
+    resource_session: &HostResourceAdmissionSession,
+    progress: &ResourceAdmissionProgressToken,
+    failure: ResourceAdmissionFailure,
+) -> FailedMachineCommand {
+    let error = failure.error();
+    production_resource_command_failure(
+        phase,
+        package_path,
+        package,
+        manifest,
+        Some(resource_session),
+        Some(progress),
+        error,
+        Some(failure.diagnostic_subject()),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn production_resource_command_failure(
+    phase: &mut MachineDiagnosticLender<'_>,
+    package_path: &Path,
+    package: &typaxis_syntax::ValidatedProductionMachinePackage,
+    manifest: &mut Option<&mut ManifestAdmissionLedger>,
+    resource_session: Option<&HostResourceAdmissionSession>,
+    progress: Option<&ResourceAdmissionProgressToken>,
+    error: ResourceAdmissionError,
+    subject: Option<DiagnosticSubject>,
+) -> FailedMachineCommand {
+    if let (Some(ledger), Some(progress)) = (manifest.as_deref_mut(), progress) {
+        if let Err(projection) = ledger.admit_resource_progress(progress.clone()) {
+            return production_resource_failure_read_tokens(
+                package,
+                resource_session,
+                Failure::internal(format!(
+                    "production manifest partial-resource projection failed: {projection:?}"
+                )),
+            );
+        }
+    }
+    if let Err(primary) =
+        emit_production_resource_diagnostic(phase, package_path, package, error, subject.as_ref())
+    {
+        return production_resource_failure_read_tokens(package, resource_session, primary);
+    }
+    production_resource_failure_read_tokens(
+        package,
+        resource_session,
+        pipeline::map_public_resource_admission_error(error),
+    )
+}
+
+fn production_resource_failure_read_tokens(
+    package: &typaxis_syntax::ValidatedProductionMachinePackage,
+    resource_session: Option<&HostResourceAdmissionSession>,
+    primary: Failure,
+) -> FailedMachineCommand {
+    if let Some(resource_session) = resource_session {
+        if let (Ok(sidecar), Ok(terminal)) = (
+            resource_session.read_ledger_token(),
+            resource_session.read_ledger_token(),
+        ) {
+            return FailedMachineCommand::with_reads(
+                primary,
+                MachineReadTokens { sidecar, terminal },
+            );
+        }
+    }
+    production_package_failure_with_reads(package, primary)
+}
+
+fn emit_production_resource_diagnostic(
+    phase: &mut MachineDiagnosticLender<'_>,
+    package_path: &Path,
+    package: &typaxis_syntax::ValidatedProductionMachinePackage,
+    error: ResourceAdmissionError,
+    subject: Option<&DiagnosticSubject>,
+) -> Result<(), Failure> {
+    let pointer = match subject {
+        Some(DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(id))) => {
+            JsonPointer::from_segments([
+                "resources".to_owned(),
+                "font_faces".to_owned(),
+                id.get().to_string(),
+            ])
+        }
+        Some(DiagnosticSubject::Resource(ResourceErrorSubject::Image(id))) => {
+            JsonPointer::from_segments([
+                "resources".to_owned(),
+                "images".to_owned(),
+                id.get().to_string(),
+            ])
+        }
+        Some(DiagnosticSubject::Resource(ResourceErrorSubject::Uri(_))) | None => {
+            JsonPointer::root().child("resources")
+        }
+        Some(_) => JsonPointer::root(),
+    };
+    let uri = package
+        .provenance()
+        .progress()
+        .package()
+        .map(|facts| facts.uri().clone())
+        .unwrap_or_else(|| fallback_package_uri(package_path));
+    let mut builder = DiagnosticBuilder::located(
+        production_resource_diagnostic_code(error),
+        Severity::Error,
+        error.canonical_message(),
+        DiagnosticLocation::package_json(uri, pointer, None),
+    )
+    .map_err(|_| Failure::internal("production resource diagnostic text was not canonical"))?;
+    if let Some(subject) = subject {
+        builder = builder.subject(subject.clone());
+    }
+    let _ = phase
+        .emit(builder.build())
+        .map_err(map_diagnostic_budget_error)?;
+    Ok(())
+}
+
+fn production_resource_diagnostic_code(error: ResourceAdmissionError) -> DiagnosticCode {
+    let message = error.canonical_message();
+    if message.as_bytes().get(5) == Some(&b':') {
+        if let Some(code) = message.get(..5).and_then(DiagnosticCode::new) {
+            return code;
+        }
+    }
+    match error {
+        ResourceAdmissionError::UnsupportedContainedOpen => I9110,
+        ResourceAdmissionError::ResourceLengthMismatch => I9113,
+        ResourceAdmissionError::NonCanonicalResourceId
+        | ResourceAdmissionError::ReceiptKindMismatch
+        | ResourceAdmissionError::ReceiptIdentityMismatch
+        | ResourceAdmissionError::ReceiptSessionMismatch
+        | ResourceAdmissionError::MissingAdmittedRootSet
+        | ResourceAdmissionError::RootSetMismatch => I9190,
+        _ => R7100,
+    }
+}
+
+fn emit_production_processing_diagnostic(
+    phase: &mut MachineDiagnosticLender<'_>,
+    package_path: &Path,
+    package: &typaxis_syntax::ValidatedProductionMachinePackage,
+    failure: &Failure,
+) -> Result<(), Failure> {
+    let code = failure
+        .message
+        .get(..5)
+        .and_then(DiagnosticCode::new)
+        .unwrap_or(I9190);
+    let uri = package
+        .provenance()
+        .progress()
+        .package()
+        .map(|facts| facts.uri().clone())
+        .unwrap_or_else(|| fallback_package_uri(package_path));
+    let location = DiagnosticLocation::package_json(uri, JsonPointer::root(), None);
+    let builder = DiagnosticBuilder::located(
+        code,
+        Severity::Error,
+        failure.message.clone(),
+        location.clone(),
+    )
+    .or_else(|_| {
+        DiagnosticBuilder::located(
+            code,
+            Severity::Error,
+            "production document processing failed",
+            location,
+        )
+    })
+    .map_err(|_| Failure::internal("production failure diagnostic was not canonical"))?;
+    let _ = phase
+        .emit(builder.build())
+        .map_err(map_diagnostic_budget_error)?;
+    Ok(())
+}
+
+fn emit_production_diagnostic(
+    phase: &mut MachineDiagnosticLender<'_>,
+    public: PublicMachineError,
+    package_path: &Path,
+) -> Result<(), Failure> {
+    let message = canonical_machine_input_diagnostic_message(&public);
+    let diagnostic = DiagnosticBuilder::located(
+        public.code(),
+        Severity::Error,
+        message,
+        DiagnosticLocation::package_json(
+            fallback_package_uri(package_path),
+            JsonPointer::root(),
+            None,
+        ),
+    )
+    .map_err(|_| Failure::internal("production diagnostic text was not canonical"))?
+    .build();
+    let _ = phase
+        .emit(diagnostic)
+        .map_err(map_diagnostic_budget_error)?;
+    Ok(())
+}
+
 fn emit_machine_input_diagnostic(
     phase: &mut MachineDiagnosticLender<'_>,
     error: &MachineInputError,
@@ -1207,6 +2249,7 @@ fn public_machine_input_error(kind: &MachineInputErrorKind) -> PublicMachineErro
         | MachineInputErrorKind::SourceUriTooLong { .. } => PublicMachineError::SourcePath,
         MachineInputErrorKind::PackageTooLarge { .. } => PublicMachineError::PackageByteLimit,
         MachineInputErrorKind::Decode(error) => public_decode_error(error),
+        MachineInputErrorKind::SemanticDecode(error) => public_semantic_decode_error(error),
         MachineInputErrorKind::SourceCount { .. }
         | MachineInputErrorKind::NonzeroSourceId { .. } => PublicMachineError::SourceProfile,
         MachineInputErrorKind::SourceOpen { .. } => PublicMachineError::CompanionSourceOpen,
@@ -1215,6 +2258,7 @@ fn public_machine_input_error(kind: &MachineInputErrorKind) -> PublicMachineErro
         | MachineInputErrorKind::AggregateInputLimit { .. }
         | MachineInputErrorKind::SourceLengthMismatch { .. }
         | MachineInputErrorKind::SourceHashMismatch { .. }
+        | MachineInputErrorKind::InvalidSourceHashEncoding { .. }
         | MachineInputErrorKind::SourceNotUtf8 { .. } => PublicMachineError::SourceIdentity,
         MachineInputErrorKind::DecodePolicyMismatch
         | MachineInputErrorKind::PackageHashMismatch
@@ -1224,6 +2268,30 @@ fn public_machine_input_error(kind: &MachineInputErrorKind) -> PublicMachineErro
         | MachineInputErrorKind::ReceiptDeclarationMismatch => {
             PublicMachineError::CapabilityDomainMismatch
         }
+    }
+}
+
+fn public_semantic_decode_error(error: &StagingSemanticDecodeError) -> PublicMachineError {
+    match error {
+        StagingSemanticDecodeError::Preflight(preflight) => match preflight.class() {
+            JsonPreflightErrorClass::PackageByteLimit => PublicMachineError::PackageByteLimit,
+            JsonPreflightErrorClass::JsonNestingDepthLimit => {
+                PublicMachineError::JsonNestingDepthLimit
+            }
+            JsonPreflightErrorClass::PackageEnvelope => PublicMachineError::PackageEnvelope,
+            JsonPreflightErrorClass::JsonSyntax => PublicMachineError::PackageJsonGrammar,
+        },
+        StagingSemanticDecodeError::Json(_) if error.is_json_data_error() => {
+            PublicMachineError::PackageMember
+        }
+        StagingSemanticDecodeError::Json(_) => PublicMachineError::PackageJsonGrammar,
+        StagingSemanticDecodeError::Contract => PublicMachineError::PackageContract,
+        StagingSemanticDecodeError::Shape(_)
+        | StagingSemanticDecodeError::BookNavigationShape { .. }
+        | StagingSemanticDecodeError::PrecomposedVectorShape { .. } => {
+            PublicMachineError::PackageMember
+        }
+        StagingSemanticDecodeError::Limit => PublicMachineError::PackageByteLimit,
     }
 }
 
@@ -1279,6 +2347,22 @@ fn machine_input_diagnostic_location(
             );
         }
     }
+    if let MachineInputErrorKind::SemanticDecode(decode) = error.kind() {
+        if let StagingSemanticDecodeError::Preflight(preflight) = decode {
+            return DiagnosticLocation::package_json(
+                uri,
+                preflight.location().json_pointer().clone(),
+                Some(preflight.location().byte_offset()),
+            );
+        }
+        if let Some(pointer) = decode.pointer() {
+            return DiagnosticLocation::package_json(
+                uri,
+                json_pointer_from_canonical(pointer),
+                None,
+            );
+        }
+    }
     let pointer = match error.kind() {
         MachineInputErrorKind::SourceCount { .. }
         | MachineInputErrorKind::NonzeroSourceId { .. }
@@ -1289,12 +2373,26 @@ fn machine_input_diagnostic_location(
         | MachineInputErrorKind::AggregateInputLimit { .. }
         | MachineInputErrorKind::SourceLengthMismatch { .. }
         | MachineInputErrorKind::SourceHashMismatch { .. }
+        | MachineInputErrorKind::InvalidSourceHashEncoding { .. }
         | MachineInputErrorKind::SourceNotUtf8 { .. } => {
             JsonPointer::from_segments(["sources", "0"])
         }
         _ => JsonPointer::root(),
     };
     DiagnosticLocation::package_json(uri, pointer, None)
+}
+
+fn json_pointer_from_canonical(pointer: &str) -> JsonPointer {
+    if pointer.is_empty() {
+        return JsonPointer::root();
+    }
+    JsonPointer::from_segments(
+        pointer
+            .strip_prefix('/')
+            .unwrap_or_default()
+            .split('/')
+            .map(|segment| segment.replace("~1", "/").replace("~0", "~")),
+    )
 }
 
 fn fallback_package_uri(path: &Path) -> PortablePath {
@@ -1328,6 +2426,18 @@ fn map_machine_input_error(error: &MachineInputError) -> Failure {
             ) || matches!(
                 error.typed_error().map(|typed| typed.class()),
                 Some(DocumentPackageDecodeErrorClass::Limit)
+            ) =>
+        {
+            Failure::limit(message)
+        }
+        MachineInputErrorKind::SemanticDecode(StagingSemanticDecodeError::Limit) => {
+            Failure::limit(message)
+        }
+        MachineInputErrorKind::SemanticDecode(StagingSemanticDecodeError::Preflight(preflight))
+            if matches!(
+                preflight.class(),
+                JsonPreflightErrorClass::PackageByteLimit
+                    | JsonPreflightErrorClass::JsonNestingDepthLimit
             ) =>
         {
             Failure::limit(message)
@@ -1447,7 +2557,10 @@ fn publish_machine_success(
     sidecar_read: PublicationReadLedgerToken,
     terminal_read: PublicationReadLedgerToken,
 ) -> Result<(), Failure> {
-    let diagnostics_json = encode_diagnostics_canonical(diagnostics.finish().diagnostics());
+    let diagnostics_json = encode_machine_diagnostics(
+        typaxis_core::DocumentPackageContractId::V1_3,
+        diagnostics.finish().diagnostics(),
+    );
     let terminal = match publication {
         Some(publication) => {
             drop(terminal_read);
@@ -1542,7 +2655,10 @@ fn publish_advanced_machine_success(
     sidecar_read: PublicationReadLedgerToken,
     terminal_read: PublicationReadLedgerToken,
 ) -> Result<(), Failure> {
-    let diagnostics_json = encode_diagnostics_canonical(diagnostics.finish().diagnostics());
+    let diagnostics_json = encode_machine_diagnostics(
+        typaxis_core::DocumentPackageContractId::V1_3,
+        diagnostics.finish().diagnostics(),
+    );
     let terminal = match publication {
         Some(publication) => {
             drop(terminal_read);
@@ -1605,6 +2721,77 @@ fn publish_advanced_machine_success(
         },
     };
 
+    finish_machine_success_publication(
+        execution,
+        terminal,
+        diagnostics_json,
+        trace_json,
+        sidecar_read,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn publish_production_machine_success(
+    execution: &BuildExecutionContext,
+    diagnostics: MachineDiagnosticBudget,
+    output: BuildOutputCommitContext,
+    publication: Option<ManifestPublicationContext>,
+    manifest: Option<ManifestAdmissionLedger>,
+    prepared: PreparedProductionCommand,
+    pdf: typaxis_pdf::VerifiedPdfBytesReceipt,
+    vector_fields: typaxis_manifest::StagingProductionBuildManifestVectorFields,
+    selected_layout_sha256: [u8; 32],
+    flow_registry_sha256: [u8; 32],
+    trace_json: Option<&str>,
+) -> Result<(), Failure> {
+    let PreparedProductionCommand {
+        package,
+        profile,
+        limits,
+        admitted,
+        sidecar_read,
+        terminal_read,
+        ..
+    } = prepared;
+    let diagnostics_json = encode_machine_diagnostics(
+        typaxis_core::DocumentPackageContractId::V1_4,
+        diagnostics.finish().diagnostics(),
+    );
+    let terminal = match publication {
+        Some(publication) => {
+            drop(terminal_read);
+            let ledger = manifest.ok_or_else(|| {
+                Failure::internal("production built-manifest ledger was unavailable")
+            })?;
+            let prepared = publication
+                .prepare_production_machine_built(
+                    ledger,
+                    &package,
+                    &profile,
+                    &limits,
+                    admitted.token(),
+                    selected_layout_sha256,
+                    flow_registry_sha256,
+                    vector_fields,
+                    pdf,
+                )
+                .map_err(|error| {
+                    Failure::internal(format!(
+                        "production built-manifest preflight failed: {error:?}"
+                    ))
+                })?;
+            let staged = output
+                .stage_prepared_built(prepared)
+                .map_err(map_built_staging_error)?;
+            PreparedMachineTerminal::Manifest(Box::new(staged))
+        }
+        None => {
+            let prepared = output
+                .prepare_pdf_without_manifest_with_read_ledger(pdf, terminal_read)
+                .map_err(map_pdf_commit_error)?;
+            PreparedMachineTerminal::PdfOnly(Box::new(prepared))
+        }
+    };
     finish_machine_success_publication(
         execution,
         terminal,
@@ -1801,7 +2988,14 @@ fn publish_machine_processing_failure(
         sidecar_read,
         terminal_read,
     } = failed;
-    let diagnostics_json = encode_diagnostics_canonical(diagnostics.finish().diagnostics());
+    let diagnostics_contract =
+        if output.input_profile() == BuildInputProfile::MachinePdfProductionBook1 {
+            typaxis_core::DocumentPackageContractId::V1_4
+        } else {
+            typaxis_core::DocumentPackageContractId::V1_3
+        };
+    let diagnostics_json =
+        encode_machine_diagnostics(diagnostics_contract, diagnostics.finish().diagnostics());
     let pending = match publication {
         Some(publication) => {
             let Some(manifest) = manifest else {

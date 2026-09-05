@@ -1,9 +1,9 @@
-# Private JPEG media fixture
+# JPEG media component fixture
 
 The five `.hex` files are tiny deterministic JFIF baseline JPEG resources used
-by the contract-1.4 staging tests. Tests decode the hexadecimal representation
-into an isolated temporary resource root; the public/current CLI does not
-advertise or dispatch this private profile.
+by the contract-1.4 component tests. Tests decode the hexadecimal representation
+into an isolated temporary resource root; the public production profile also
+exercises the representative `color-2x1` resource through its combined fixture.
 
 - `color-2x1.jpg.hex`: 2 × 1, three-component YCbCr, 4:4:4 sampling.
 - `color-17x9-422.jpg.hex`: 17 × 9, three-component YCbCr, 4:2:2 sampling.

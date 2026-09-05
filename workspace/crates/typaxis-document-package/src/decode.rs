@@ -1535,7 +1535,20 @@ impl<'de> Decode<'de> for WireDocumentPackage {
                                 DocumentPackageTypedDecodeErrorKind::UnknownContract,
                                 |value| match dialect {
                                     DecodeDialect::Current => {
-                                        DocumentPackageContractId::from_str(value).ok()
+                                        // This wire carrier is the frozen 1.0-1.3
+                                        // dialect. Contract 1.4 has a separate
+                                        // semantic decoder and must fail here so
+                                        // callers can dispatch without partially
+                                        // decoding it as an older package shape.
+                                        match DocumentPackageContractId::from_str(value).ok() {
+                                            Some(
+                                                contract @ (DocumentPackageContractId::V1_0
+                                                | DocumentPackageContractId::V1_1
+                                                | DocumentPackageContractId::V1_2
+                                                | DocumentPackageContractId::V1_3),
+                                            ) => Some(contract),
+                                            Some(DocumentPackageContractId::V1_4) | None => None,
+                                        }
                                     }
                                     DecodeDialect::StagingStyle1_2
                                         if value
@@ -1543,7 +1556,7 @@ impl<'de> Decode<'de> for WireDocumentPackage {
                                     {
                                         // The sealed staging receipt, not this carrier field,
                                         // proves the 1.2 identity.
-                                        Some(DocumentPackageContractId::CURRENT)
+                                        Some(DocumentPackageContractId::V1_3)
                                     }
                                     DecodeDialect::StagingStyle1_2 => None,
                                 },

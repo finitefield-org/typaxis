@@ -2006,6 +2006,15 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         }
     }
 
+    pub fn parse_and_bind_declared_image_with_subject(
+        &mut self,
+        source: PendingResourceBytes,
+    ) -> Result<(), ResourceAdmissionFailureOutcome> {
+        let subject = source.error_subject();
+        self.parse_and_bind_declared_image(source)
+            .map_err(|error| self.failure_outcome(ResourceAdmissionFailure::new(error, subject)))
+    }
+
     pub fn parse_and_bind_sfnt_with_subject(
         &mut self,
         source: PendingResourceBytes,

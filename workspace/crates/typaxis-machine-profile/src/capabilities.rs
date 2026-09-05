@@ -1,6 +1,6 @@
 use crate::descriptor::MachineProfileDescriptor;
 use crate::descriptor::{
-    PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION, PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR,
+    PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION, PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR,
 };
 use typaxis_core::{
     push_jcs_string, DocumentPackageContractId, MachineInputLimitBounds, MachinePdfProfileId,
@@ -79,6 +79,7 @@ impl HostCapabilityDescriptor {
             | MachinePdfProfileId::Footnote1
             | MachinePdfProfileId::HeaderFooter1
             | MachinePdfProfileId::Paragraph1
+            | MachinePdfProfileId::ProductionBook1
             | MachinePdfProfileId::Table1 => {
                 self.atomic_file_publish
                     && self.contained_package_open
@@ -118,6 +119,7 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
         MachineProfileDescriptor::FOOTNOTE_1,
         MachineProfileDescriptor::HEADER_FOOTER_1,
         MachineProfileDescriptor::PARAGRAPH_1,
+        MachineProfileDescriptor::PRODUCTION_BOOK_1,
         MachineProfileDescriptor::TABLE_1,
     ];
     let mut output = String::with_capacity(3_200);
@@ -139,6 +141,8 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
     push_jcs_string(&mut output, DocumentPackageContractId::V1_2.as_str());
     output.push(',');
     push_jcs_string(&mut output, DocumentPackageContractId::V1_3.as_str());
+    output.push(',');
+    push_jcs_string(&mut output, DocumentPackageContractId::V1_4.as_str());
     output.push_str("],\"host_features\":{\"atomic_file_publish\":");
     push_bool(&mut output, host.atomic_file_publish());
     output.push_str(",\"contained_package_open\":");
@@ -170,10 +174,10 @@ pub fn encode_capabilities_canonical(host: HostCapabilityDescriptor) -> String {
     output
 }
 
-/// Canonical private projection used to close the future vector vocabulary
-/// without adding an eighth entry to the public profile tuple.
-pub(crate) fn encode_private_precomposed_vector_capability_projection() -> String {
-    let projection = PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
+/// Canonical vector projection shared by the public production descriptor and
+/// its exact projection tests.
+pub(crate) fn encode_precomposed_vector_capability_projection() -> String {
+    let projection = PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION;
     let mut output = String::from("{\"blocks\":");
     push_named_values(&mut output, projection.block_additions(), |value| {
         value.as_str()
@@ -242,12 +246,10 @@ pub(crate) fn encode_private_precomposed_vector_capability_projection() -> Strin
     output
 }
 
-/// Complete private `production-book-1` projection. It is intentionally not
-/// reachable from the public capability serializer until the profile switch
-/// milestone; keeping it executable here lets preflight and descriptor tests
-/// prove the staged vocabulary in both directions.
-pub(crate) fn encode_private_production_book_capability_descriptor() -> String {
-    let descriptor = PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR;
+/// Complete `production-book-1` projection used by the public descriptor and
+/// the independent publication-expectation comparison.
+pub(crate) fn encode_production_book_capability_descriptor() -> String {
+    let descriptor = PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR;
     let projection = descriptor.vector();
     let mut output = String::from("{\"blocks\":");
     push_named_values(&mut output, descriptor.blocks(), |value| value);
@@ -260,7 +262,7 @@ pub(crate) fn encode_private_production_book_capability_descriptor() -> String {
     output.push_str("},\"profile\":");
     push_jcs_string(
         &mut output,
-        crate::descriptor::PrivateProductionBookCapabilityDescriptor::PROFILE_ID,
+        crate::descriptor::ProductionBookCapabilityDescriptor::PROFILE_ID,
     );
     output.push_str(",\"resource_set\":{\"components\":");
     push_named_values(&mut output, descriptor.resource_components(), |value| value);
@@ -269,7 +271,7 @@ pub(crate) fn encode_private_production_book_capability_descriptor() -> String {
     output.push_str(",\"id\":");
     push_jcs_string(
         &mut output,
-        crate::descriptor::PrivateProductionBookCapabilityDescriptor::RESOURCE_SET_ID,
+        crate::descriptor::ProductionBookCapabilityDescriptor::RESOURCE_SET_ID,
     );
     output.push_str(",\"image_media\":");
     push_named_values(&mut output, descriptor.image_media(), |value| value);
@@ -325,12 +327,9 @@ pub(crate) fn encode_private_production_book_capability_descriptor() -> String {
     output
 }
 
-// Keep the private staging serializers type-checked in non-test builds without
-// exposing them through the public seven-profile capability surface. The
-// publication milestone can connect the same staged descriptor to its owner.
 const _: [fn() -> String; 2] = [
-    encode_private_precomposed_vector_capability_projection,
-    encode_private_production_book_capability_descriptor,
+    encode_precomposed_vector_capability_projection,
+    encode_production_book_capability_descriptor,
 ];
 
 fn push_profile(
@@ -388,6 +387,9 @@ fn push_profile(
     });
     output.push_str(",\"pdf_features\":");
     push_named_values(output, profile.pdf_features(), |value| value.as_str());
+    if profile.id() == MachinePdfProfileId::PRODUCTION_BOOK_1 {
+        push_production_resource_set(output);
+    }
     output.push_str(",\"source_closure\":");
     push_jcs_string(output, profile.source_closure().as_str());
     output.push_str(",\"source_count\":{\"maximum\":");
@@ -408,7 +410,66 @@ fn push_profile(
     push_named_values(output, profile.unsupported_pdf_features(), |value| {
         value.as_str()
     });
+    if profile.id() == MachinePdfProfileId::PRODUCTION_BOOK_1 {
+        push_production_vector_capabilities(output);
+    }
     output.push('}');
+}
+
+fn push_production_resource_set(output: &mut String) {
+    let descriptor = PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR;
+    output.push_str(",\"resource_set\":{\"components\":");
+    push_named_values(output, descriptor.resource_components(), |value| value);
+    output.push_str(",\"font_media\":");
+    push_named_values(output, descriptor.font_media(), |value| value);
+    output.push_str(",\"id\":");
+    push_jcs_string(
+        output,
+        crate::descriptor::ProductionBookCapabilityDescriptor::RESOURCE_SET_ID,
+    );
+    output.push_str(",\"image_media\":");
+    push_named_values(output, descriptor.image_media(), |value| value);
+    output.push('}');
+}
+
+fn push_production_vector_capabilities(output: &mut String) {
+    let projection = PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR.vector();
+    output.push_str(",\"vector_features\":");
+    push_named_values(output, projection.vector_features(), |value| value.as_str());
+    output.push_str(",\"vector_features_by_profile\":{");
+    for (index, entry) in projection
+        .vector_features_by_profile()
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if index > 0 {
+            output.push(',');
+        }
+        push_jcs_string(output, entry.profile().as_str());
+        output.push(':');
+        push_named_values(output, entry.features(), |value| value.as_str());
+    }
+    output.push_str("},\"vector_formats\":");
+    push_named_values(output, projection.vector_formats(), |value| value.as_str());
+    output.push_str(",\"vector_media_by_kind\":{");
+    for (index, entry) in projection
+        .vector_media_by_kind()
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if index > 0 {
+            output.push(',');
+        }
+        push_jcs_string(output, entry.kind().as_str());
+        output.push(':');
+        push_named_values(output, entry.media(), |value| value.as_str());
+    }
+    output.push_str("},\"vector_metrics\":");
+    push_named_values(output, projection.vector_metrics(), |value| value.as_str());
+    output.push_str(",\"vector_profiles\":");
+    push_named_values(output, projection.vector_profiles(), |value| value.as_str());
 }
 
 fn push_advanced_pagination(output: &mut String, profile: MachinePdfProfileId) {

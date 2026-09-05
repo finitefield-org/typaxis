@@ -10,16 +10,19 @@ use typaxis_core::{Length, Point};
 use typaxis_display_list::{
     BookNavigationSelectedReceiptV2, DestinationView, FormulaStructureKidV2,
     MarkedContentBindingKindV2, MarkedContentOwner, MarkedContentPlanReceiptV2,
-    StagingCombinedVectorDisplayV2, StagingCombinedVectorKindV2, StagingPrecomposedVectorDisplay,
-    StructureArtifactClass, StructureNodeId, StructureOwner, StructureParentTreeValue,
-    StructureRegistryReceiptV2, StructureRole, VectorFormStructureIsolationReceiptV2,
-    VectorMarkedContentPlanV2, VectorMarkedContentSerializationV2,
+    StagingCombinedVectorDisplayV2, StagingCombinedVectorKindV2, StagingMathDisplay,
+    StagingPrecomposedVectorDisplay, StructureArtifactClass, StructureNodeId, StructureOwner,
+    StructureParentTreeValue, StructureRegistryReceiptV2, StructureRole,
+    VectorFormStructureIsolationReceiptV2, VectorMarkedContentPlanV2,
+    VectorMarkedContentSerializationV2,
 };
+use typaxis_font::MathFontFace;
+use typaxis_math::MathPaint;
 use typaxis_resource_admission::{AdmittedImageMediaKind, AdmittedResourceLedger};
 use typaxis_resources::{
-    finalize_staging_pdf_text_fonts, FrozenPdfFontPlan, FrozenStagingPdfTextFontPlan,
-    PdfFontProgramKind, StagingPdfTextClusterUsage, StagingSafeVectorFormPlansV2,
-    VectorContentCandidateRegistry,
+    finalize_staging_pdf_text_fonts, FrozenPdfFontPlan, FrozenPdfImagePlan,
+    FrozenStagingPdfTextFontPlan, ImageColorSpace, ImageEncoding, PdfFontProgramKind,
+    StagingPdfTextClusterUsage, StagingSafeVectorFormPlansV2, VectorContentCandidateRegistry,
 };
 use typaxis_shaping::{
     ShapeSourceSpan, ShapedCluster, StagingEquationNumberGlyphRun,
@@ -27,8 +30,9 @@ use typaxis_shaping::{
 };
 use typaxis_syntax::{
     machine_profile_boundary::StagingM4Block, StagingAccessibilityProfileAuthorizationV2,
-    StagingBookNavigationProfileAuthorizationV2, ValidatedStagingBookNavigationV2,
-    ValidatedStagingSemanticPackage, ValidatedStagingStructureSemanticsV2,
+    StagingBookNavigationProfileAuthorizationV2, StagingMathProfileAuthorization,
+    ValidatedStagingBookNavigationV2, ValidatedStagingSemanticPackage,
+    ValidatedStagingStructureSemanticsV2,
 };
 
 use crate::{
@@ -241,6 +245,12 @@ impl StagingTaggedPdfV2 {
     pub const fn safe_vector(&self) -> &StagingSafeVectorPdfClosureV2 {
         &self.safe_vector
     }
+
+    /// Consume the fully observed tagged-PDF closure and release its unique
+    /// serializer receipt to the atomic publication owner.
+    pub fn into_final_pdf(self) -> VerifiedPdfBytesReceipt {
+        self.final_pdf
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -250,6 +260,8 @@ pub enum TaggedPdfV2Error {
     StructureMismatch,
     MarkedContentMismatch,
     VectorMismatch,
+    NativeMathMismatch,
+    RasterMismatch,
     FormStructureViolation,
     EquationNumberMismatch,
     AnnotationMismatch,
@@ -277,6 +289,12 @@ impl std::fmt::Display for TaggedPdfV2Error {
             }
             Self::VectorMismatch => {
                 formatter.write_str("I9190: tagged-PDF /2 vector contribution mismatch")
+            }
+            Self::NativeMathMismatch => {
+                formatter.write_str("I9190: production tagged-PDF native math mismatch")
+            }
+            Self::RasterMismatch => {
+                formatter.write_str("I9190: production tagged-PDF raster mismatch")
             }
             Self::FormStructureViolation => formatter
                 .write_str("I9190: tagged-PDF /2 reusable Form contains semantic marked content"),
@@ -316,11 +334,30 @@ struct TaggedFontObjectPlanV2 {
 }
 
 #[derive(Clone, Debug)]
+struct NativeMathFontObjectPlanV2 {
+    font_face_id: FontFaceId,
+    font_program: u32,
+    descriptor: u32,
+    cid_font: u32,
+    type0: u32,
+    to_unicode: u32,
+}
+
+#[derive(Clone, Debug)]
+struct RasterImageObjectPlanV2 {
+    image_id: ImageResourceId,
+    image: u32,
+    alpha: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
 struct TaggedObjectPlanV2 {
     object_count: u32,
     content_objects: Vec<u32>,
     page_objects: Vec<u32>,
     equation_fonts: Vec<TaggedFontObjectPlanV2>,
+    native_math_fonts: Vec<NativeMathFontObjectPlanV2>,
+    raster_images: Vec<RasterImageObjectPlanV2>,
     annotation_start: u32,
     info_object: u32,
     metadata_object: u32,
@@ -334,12 +371,15 @@ struct TaggedObjectPlanV2 {
 }
 
 impl TaggedObjectPlanV2 {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         book: &BookNavigationSelectedReceiptV2,
         registry: &StructureRegistryReceiptV2,
         marked: &MarkedContentPlanReceiptV2,
         vector: &StagingSafeVectorPdfContributionV2,
         equation_fonts: &[FrozenStagingPdfTextFontPlan],
+        native_math: Option<&StagingMathDisplay>,
+        raster_images: &[FrozenPdfImagePlan],
         limits: &M4EffectiveResourceLimits,
     ) -> Result<Self, TaggedPdfV2Error> {
         let page_count = usize_to_u32(book.pages().len())?;
@@ -347,6 +387,15 @@ impl TaggedObjectPlanV2 {
         let outline_count = usize_to_u32(book.entries().len())?;
         let structure_count = usize_to_u32(registry.nodes().len())?;
         let vector_count = usize_to_u32(vector.relative_objects().len())?;
+        let native_math_font_ids = native_math
+            .into_iter()
+            .flat_map(StagingMathDisplay::draws)
+            .map(|draw| draw.font_face_id())
+            .collect::<BTreeSet<_>>();
+        let native_math_font_count = usize_to_u32(native_math_font_ids.len())?;
+        let raster_object_count = raster_images.iter().try_fold(0u32, |count, image| {
+            checked_add(count, image.indirect_object_count())
+        })?;
         let has_equation_number = marked.records().iter().any(|record| {
             matches!(
                 record.binding(),
@@ -367,6 +416,8 @@ impl TaggedObjectPlanV2 {
         object_count = checked_add(object_count, checked_mul(page_count, 2)?)?;
         let equation_font_count = usize_to_u32(equation_fonts.len())?;
         object_count = checked_add(object_count, checked_mul(equation_font_count, 6)?)?;
+        object_count = checked_add(object_count, checked_mul(native_math_font_count, 5)?)?;
+        object_count = checked_add(object_count, raster_object_count)?;
         object_count = checked_add(object_count, annotation_count)?;
         object_count = checked_add(object_count, 2)?; // Info + Metadata
         if outline_count != 0 {
@@ -418,6 +469,39 @@ impl TaggedObjectPlanV2 {
                 auxiliary: take_object(&mut next)?,
             });
         }
+        let mut native_math_fonts = Vec::new();
+        native_math_fonts
+            .try_reserve_exact(native_math_font_ids.len())
+            .map_err(|_| TaggedPdfV2Error::AllocationFailure)?;
+        for font_face_id in native_math_font_ids {
+            native_math_fonts.push(NativeMathFontObjectPlanV2 {
+                font_face_id,
+                font_program: take_object(&mut next)?,
+                descriptor: take_object(&mut next)?,
+                cid_font: take_object(&mut next)?,
+                type0: take_object(&mut next)?,
+                to_unicode: take_object(&mut next)?,
+            });
+        }
+        let mut raster_object_plans = Vec::new();
+        raster_object_plans
+            .try_reserve_exact(raster_images.len())
+            .map_err(|_| TaggedPdfV2Error::AllocationFailure)?;
+        let mut previous_image = None;
+        for image in raster_images {
+            if previous_image.is_some_and(|previous| previous >= image.image_id()) {
+                return Err(TaggedPdfV2Error::RasterMismatch);
+            }
+            previous_image = Some(image.image_id());
+            raster_object_plans.push(RasterImageObjectPlanV2 {
+                image_id: image.image_id(),
+                image: take_object(&mut next)?,
+                alpha: image
+                    .alpha_mask()
+                    .map(|_| take_object(&mut next))
+                    .transpose()?,
+            });
+        }
         let annotation_start = next;
         for _ in 0..annotation_count {
             take_object(&mut next)?;
@@ -458,6 +542,8 @@ impl TaggedObjectPlanV2 {
             content_objects,
             page_objects,
             equation_fonts: equation_font_objects,
+            native_math_fonts,
+            raster_images: raster_object_plans,
             annotation_start,
             info_object,
             metadata_object,
@@ -485,6 +571,26 @@ impl TaggedObjectPlanV2 {
             .ok_or(TaggedPdfV2Error::EquationNumberMismatch)
     }
 
+    fn native_math_font(
+        &self,
+        font_face_id: FontFaceId,
+    ) -> Result<&NativeMathFontObjectPlanV2, TaggedPdfV2Error> {
+        self.native_math_fonts
+            .iter()
+            .find(|font| font.font_face_id == font_face_id)
+            .ok_or(TaggedPdfV2Error::NativeMathMismatch)
+    }
+
+    fn raster_image(
+        &self,
+        image_id: ImageResourceId,
+    ) -> Result<&RasterImageObjectPlanV2, TaggedPdfV2Error> {
+        self.raster_images
+            .iter()
+            .find(|image| image.image_id == image_id)
+            .ok_or(TaggedPdfV2Error::RasterMismatch)
+    }
+
     fn outline_object(&self, outline_id: u32) -> Result<u32, TaggedPdfV2Error> {
         checked_add(
             self.outline_item_start
@@ -509,6 +615,13 @@ struct TaggedObjectsV2 {
     values: BTreeMap<u32, (String, Vec<u8>)>,
     spool_bytes: u64,
     spool_limit: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ProductionPdfAssetsV2<'a> {
+    math_profile: &'a StagingMathProfileAuthorization,
+    math_display: &'a StagingMathDisplay,
+    raster_images: &'a [FrozenPdfImagePlan],
 }
 
 impl TaggedObjectsV2 {
@@ -572,6 +685,7 @@ pub fn write_staging_tagged_pdf_v2(
         serialization,
         vector_display,
         None,
+        None,
         form_isolation,
         admitted,
         form_plans,
@@ -615,6 +729,58 @@ pub fn write_staging_tagged_pdf_v2_with_combined_vectors(
         serialization,
         vector_display,
         Some(combined_display),
+        None,
+        form_isolation,
+        admitted,
+        form_plans,
+        candidates,
+        vector,
+        limits,
+        engine,
+        config_fingerprint,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn write_production_tagged_pdf_v2(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    profile: &StagingAccessibilityProfileAuthorizationV2,
+    book_profile: &StagingBookNavigationProfileAuthorizationV2,
+    book: &BookNavigationSelectedReceiptV2,
+    registry: &StructureRegistryReceiptV2,
+    serialization: VectorMarkedContentSerializationV2<'_>,
+    vector_display: &StagingPrecomposedVectorDisplay,
+    combined_display: &StagingCombinedVectorDisplayV2,
+    form_isolation: &VectorFormStructureIsolationReceiptV2,
+    admitted: &AdmittedResourceLedger,
+    form_plans: &StagingSafeVectorFormPlansV2,
+    candidates: &VectorContentCandidateRegistry,
+    vector: &StagingSafeVectorPdfContributionV2,
+    math_profile: &StagingMathProfileAuthorization,
+    math_display: &StagingMathDisplay,
+    raster_images: &[FrozenPdfImagePlan],
+    limits: &M4EffectiveResourceLimits,
+    engine: &EngineIdentity,
+    config_fingerprint: EffectiveConfigFingerprint,
+) -> Result<StagingTaggedPdfV2, TaggedPdfV2Error> {
+    write_staging_tagged_pdf_v2_inner(
+        package,
+        navigation,
+        semantics,
+        profile,
+        book_profile,
+        book,
+        registry,
+        serialization,
+        vector_display,
+        Some(combined_display),
+        Some(ProductionPdfAssetsV2 {
+            math_profile,
+            math_display,
+            raster_images,
+        }),
         form_isolation,
         admitted,
         form_plans,
@@ -638,6 +804,7 @@ fn write_staging_tagged_pdf_v2_inner(
     serialization: VectorMarkedContentSerializationV2<'_>,
     vector_display: &StagingPrecomposedVectorDisplay,
     combined_display: Option<&StagingCombinedVectorDisplayV2>,
+    production_assets: Option<ProductionPdfAssetsV2<'_>>,
     form_isolation: &VectorFormStructureIsolationReceiptV2,
     admitted: &AdmittedResourceLedger,
     form_plans: &StagingSafeVectorFormPlansV2,
@@ -699,13 +866,27 @@ fn write_staging_tagged_pdf_v2_inner(
     validate_safe_vector_figure_coverage(package, admitted, vector)?;
     validate_cross_closure_v2(book, registry, marked, vector)?;
     validate_form_isolation(vector, form_isolation)?;
+    if let Some(assets) = production_assets {
+        validate_production_assets(package, admitted, limits, assets)?;
+    }
 
     let equation_text_usages =
         equation_text_usages_v2(serialization.equation_number_shapes(), admitted)?;
     let equation_fonts =
         finalize_staging_pdf_text_fonts(admitted, &equation_text_usages, limits.base())
             .map_err(map_equation_resource_error_v2)?;
-    let plan = TaggedObjectPlanV2::new(book, registry, marked, vector, &equation_fonts, limits)?;
+    let raster_images = production_assets.map_or(&[][..], |assets| assets.raster_images);
+    let native_math = production_assets.map(|assets| assets.math_display);
+    let plan = TaggedObjectPlanV2::new(
+        book,
+        registry,
+        marked,
+        vector,
+        &equation_fonts,
+        native_math,
+        raster_images,
+        limits,
+    )?;
     let xmp = crate::tagged_pdf::encode_tagged_book_xmp(
         navigation.metadata(),
         navigation.languages().document_language(),
@@ -717,14 +898,27 @@ fn write_staging_tagged_pdf_v2_inner(
     emit_destinations_v2(&mut objects, book, &plan)?;
     emit_vector_objects_v2(&mut objects, vector, &plan)?;
     emit_equation_font_objects_v2(&mut objects, &equation_fonts, &plan, limits)?;
+    if let Some(assets) = production_assets {
+        emit_native_math_font_objects_v2(
+            &mut objects,
+            admitted,
+            assets.math_display,
+            marked,
+            &plan,
+        )?;
+        emit_raster_objects_v2(&mut objects, assets.raster_images, &plan)?;
+    }
     emit_page_content_and_pages_v2(
         &mut objects,
+        package,
         book,
         registry,
         marked,
         vector,
         serialization,
         &equation_fonts,
+        production_assets,
+        admitted,
         &plan,
     )?;
     emit_annotations_v2(&mut objects, book, registry, marked, &plan)?;
@@ -1337,6 +1531,455 @@ fn emit_destinations_v2(
     objects.insert(3, "destinations", value.into_bytes())
 }
 
+fn validate_production_assets(
+    package: &ValidatedStagingSemanticPackage,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    assets: ProductionPdfAssetsV2<'_>,
+) -> Result<(), TaggedPdfV2Error> {
+    assets
+        .math_profile
+        .authorizes(package, limits)
+        .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+    assets
+        .math_display
+        .verify_sealed()
+        .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+    if assets.math_display.profile_fingerprint()
+        != assets.math_profile.profile_receipt_fingerprint()
+        || !assets
+            .math_profile
+            .matches_progress(assets.math_display.profile_progress())
+        || assets.math_display.admitted_fingerprint() != admitted.fingerprint().bytes()
+        || !admitted
+            .token()
+            .matches_progress(assets.math_display.admission_progress())
+        || assets.math_display.draws().len() != package.math_nodes().len()
+    {
+        return Err(TaggedPdfV2Error::NativeMathMismatch);
+    }
+    for (draw, node) in assets.math_display.draws().iter().zip(package.math_nodes()) {
+        let font = admitted
+            .font(draw.font_face_id())
+            .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+        if draw.node_id() != node.domain().node_id
+            || draw.actual_text() != node.domain().speech
+            || draw.font_sha256() != font.content_hash()
+        {
+            return Err(TaggedPdfV2Error::NativeMathMismatch);
+        }
+    }
+
+    let expected = raster_figure_resources(package, admitted)?;
+    let observed = assets
+        .raster_images
+        .iter()
+        .map(|plan| plan.image_id())
+        .collect::<BTreeSet<_>>();
+    if expected != observed || observed.len() != assets.raster_images.len() {
+        return Err(TaggedPdfV2Error::RasterMismatch);
+    }
+    for plan in assets.raster_images {
+        let image = admitted
+            .image(plan.image_id())
+            .ok_or(TaggedPdfV2Error::RasterMismatch)?;
+        let encoding_matches = matches!(
+            (image.media_kind(), plan.encoding()),
+            (AdmittedImageMediaKind::Png, ImageEncoding::Raw)
+                | (AdmittedImageMediaKind::JpegBaseline, ImageEncoding::Jpeg)
+        );
+        if !encoding_matches
+            || image.content_hash() != plan.admitted_sha256()
+            || image.width() != plan.width()
+            || image.height() != plan.height()
+            || (plan.encoding() == ImageEncoding::Jpeg) != plan.jpeg_plan().is_some()
+        {
+            return Err(TaggedPdfV2Error::RasterMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn raster_figure_resources(
+    package: &ValidatedStagingSemanticPackage,
+    admitted: &AdmittedResourceLedger,
+) -> Result<BTreeSet<ImageResourceId>, TaggedPdfV2Error> {
+    fn visit(
+        blocks: &[StagingM4Block],
+        admitted: &AdmittedResourceLedger,
+        output: &mut BTreeSet<ImageResourceId>,
+    ) -> Result<(), TaggedPdfV2Error> {
+        for block in blocks {
+            match block {
+                StagingM4Block::Figure {
+                    image_id, caption, ..
+                } => {
+                    let image = admitted
+                        .image(*image_id)
+                        .ok_or(TaggedPdfV2Error::RasterMismatch)?;
+                    if matches!(
+                        image.media_kind(),
+                        AdmittedImageMediaKind::Png | AdmittedImageMediaKind::JpegBaseline
+                    ) {
+                        output.insert(*image_id);
+                    }
+                    visit(caption, admitted, output)?;
+                }
+                StagingM4Block::VectorFigure { caption, .. }
+                | StagingM4Block::SemanticContainer {
+                    blocks: caption, ..
+                } => visit(caption, admitted, output)?,
+                StagingM4Block::List { items, .. } => {
+                    for item in items {
+                        visit(&item.blocks, admitted, output)?;
+                    }
+                }
+                StagingM4Block::Table { head, body, .. } => {
+                    for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                        visit(&cell.blocks, admitted, output)?;
+                    }
+                }
+                StagingM4Block::Paragraph { .. }
+                | StagingM4Block::Heading { .. }
+                | StagingM4Block::PageBreak { .. }
+                | StagingM4Block::DisplayMath { .. }
+                | StagingM4Block::MathVectorBlock { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    let mut output = BTreeSet::new();
+    visit(&package.document().blocks, admitted, &mut output)?;
+    for footnote in &package.document().footnotes {
+        visit(&footnote.blocks, admitted, &mut output)?;
+    }
+    Ok(output)
+}
+
+fn emit_native_math_font_objects_v2(
+    objects: &mut TaggedObjectsV2,
+    admitted: &AdmittedResourceLedger,
+    display: &StagingMathDisplay,
+    marked: &MarkedContentPlanReceiptV2,
+    plan: &TaggedObjectPlanV2,
+) -> Result<(), TaggedPdfV2Error> {
+    let mut glyphs = BTreeMap::<FontFaceId, BTreeMap<u16, char>>::new();
+    for draw in display.draws() {
+        let entries = glyphs.entry(draw.font_face_id()).or_default();
+        for paint in draw.paints() {
+            let MathPaint::Glyph(glyph) = paint else {
+                continue;
+            };
+            match entries.insert(glyph.original_gid().get(), glyph.unicode()) {
+                Some(previous) if previous != glyph.unicode() => {
+                    return Err(TaggedPdfV2Error::NativeMathMismatch);
+                }
+                _ => {}
+            }
+        }
+    }
+    let standard_font_face_id = plan
+        .native_math_fonts
+        .first()
+        .map(|font| font.font_face_id)
+        .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+    let standard_font = admitted
+        .font(standard_font_face_id)
+        .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+    let standard_face = MathFontFace::parse(standard_font.bytes(), standard_font.face_index())
+        .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+    let standard_glyphs = glyphs
+        .get_mut(&standard_font_face_id)
+        .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+    for text in marked.records().iter().filter_map(|record| {
+        matches!(record.binding(), MarkedContentBindingKindV2::Standard)
+            .then(|| record_actual_text_v2(record))
+            .flatten()
+    }) {
+        for character in text.chars().filter(|character| !character.is_whitespace()) {
+            // List bullets are emitted as a vector mark because a valid body
+            // font is not required to contain U+2022. Every other authored or
+            // generated scalar must have a visible cmap entry; no .notdef or
+            // silent omission is permitted in the production writer.
+            if character == '\u{2022}' {
+                continue;
+            }
+            let glyph = standard_face
+                .glyph_id(character)
+                .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?
+                .get();
+            match standard_glyphs.insert(glyph, character) {
+                Some(previous) if previous != character => {
+                    return Err(TaggedPdfV2Error::NativeMathMismatch);
+                }
+                _ => {}
+            }
+        }
+    }
+    if glyphs.len() != plan.native_math_fonts.len() {
+        return Err(TaggedPdfV2Error::NativeMathMismatch);
+    }
+    for (font_face_id, glyphs) in glyphs {
+        let object_plan = plan.native_math_font(font_face_id)?;
+        let admitted_font = admitted
+            .font(font_face_id)
+            .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+        let face = MathFontFace::parse(admitted_font.bytes(), admitted_font.face_index())
+            .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+        let program = face
+            .standalone_truetype_program()
+            .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+        let units_per_em = face.units_per_em();
+        let postscript_name = face
+            .postscript_name()
+            .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+        let base_font = escape_pdf_name_v2(&postscript_name);
+        let (x_min, y_min, x_max, y_max) = face.bbox();
+
+        objects.insert(
+            object_plan.font_program,
+            format!("native_math_font_program:{}", font_face_id.get()),
+            stream_object_v2(format!("/Length1 {} ", program.len()).as_bytes(), &program),
+        )?;
+        objects.insert(
+            object_plan.descriptor,
+            format!("native_math_font_descriptor:{}", font_face_id.get()),
+            format!(
+                "<< /Type /FontDescriptor /FontName /{base_font} /Flags 4 /FontBBox [{} {} {} {}] /ItalicAngle 0 /Ascent {} /Descent {} /CapHeight {} /StemV 80 /FontFile2 {} 0 R >>",
+                native_math_font_unit_v2(i64::from(x_min), units_per_em)?,
+                native_math_font_unit_v2(i64::from(y_min), units_per_em)?,
+                native_math_font_unit_v2(i64::from(x_max), units_per_em)?,
+                native_math_font_unit_v2(i64::from(y_max), units_per_em)?,
+                native_math_font_unit_v2(i64::from(face.ascent()), units_per_em)?,
+                native_math_font_unit_v2(i64::from(face.descent()), units_per_em)?,
+                native_math_font_unit_v2(i64::from(y_max), units_per_em)?,
+                object_plan.font_program,
+            )
+            .into_bytes(),
+        )?;
+        let mut widths = String::from("[");
+        for glyph in glyphs.keys() {
+            let width = face
+                .advance_width(typaxis_font::OriginalGlyphId::new(*glyph))
+                .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+            widths.push_str(&format!(
+                "{} [{}] ",
+                glyph,
+                native_math_font_unit_v2(i64::from(width), units_per_em)?
+            ));
+        }
+        widths.push(']');
+        objects.insert(
+            object_plan.cid_font,
+            format!("native_math_font_cid:{}", font_face_id.get()),
+            format!(
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{base_font} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {} 0 R /DW 1000 /W {widths} /CIDToGIDMap /Identity >>",
+                object_plan.descriptor,
+            )
+            .into_bytes(),
+        )?;
+        objects.insert(
+            object_plan.type0,
+            format!("native_math_font_type0:{}", font_face_id.get()),
+            format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /{base_font} /Encoding /Identity-H /DescendantFonts [{} 0 R] /ToUnicode {} 0 R >>",
+                object_plan.cid_font, object_plan.to_unicode,
+            )
+            .into_bytes(),
+        )?;
+        let cmap = native_math_to_unicode_v2(font_face_id, &glyphs)?;
+        objects.insert(
+            object_plan.to_unicode,
+            format!("native_math_font_to_unicode:{}", font_face_id.get()),
+            stream_object_v2(b"", &cmap),
+        )?;
+    }
+    Ok(())
+}
+
+fn native_math_to_unicode_v2(
+    font_face_id: FontFaceId,
+    glyphs: &BTreeMap<u16, char>,
+) -> Result<Vec<u8>, TaggedPdfV2Error> {
+    if glyphs.is_empty() {
+        return Err(TaggedPdfV2Error::NativeMathMismatch);
+    }
+    let mut output = format!(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /TypaxisMath{} def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
+        font_face_id.get(),
+    );
+    for chunk in glyphs.iter().collect::<Vec<_>>().chunks(100) {
+        output.push_str(&format!("{} beginbfchar\n", chunk.len()));
+        for (glyph, unicode) in chunk {
+            let mut encoded = [0u16; 2];
+            let units = unicode.encode_utf16(&mut encoded);
+            let unicode_hex = units
+                .iter()
+                .map(|unit| format!("{unit:04X}"))
+                .collect::<String>();
+            output.push_str(&format!("<{glyph:04X}> <{unicode_hex}>\n"));
+        }
+        output.push_str("endbfchar\n");
+    }
+    output.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend");
+    Ok(output.into_bytes())
+}
+
+fn native_math_font_unit_v2(value: i64, units_per_em: u16) -> Result<i64, TaggedPdfV2Error> {
+    let numerator = value
+        .checked_mul(1_000)
+        .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+    let denominator = i64::from(units_per_em);
+    if denominator == 0 {
+        return Err(TaggedPdfV2Error::NativeMathMismatch);
+    }
+    let quotient = numerator / denominator;
+    let remainder = numerator % denominator;
+    let twice = remainder
+        .unsigned_abs()
+        .checked_mul(2)
+        .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+    let increment =
+        twice > u64::from(units_per_em) || (twice == u64::from(units_per_em) && quotient & 1 != 0);
+    if increment {
+        quotient
+            .checked_add(if numerator >= 0 { 1 } else { -1 })
+            .ok_or(TaggedPdfV2Error::NativeMathMismatch)
+    } else {
+        Ok(quotient)
+    }
+}
+
+fn escape_pdf_name_v2(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut output = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'+' | b'.') {
+            output.push(char::from(byte));
+        } else {
+            output.push('#');
+            output.push(char::from(HEX[usize::from(byte >> 4)]));
+            output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+    }
+    output
+}
+
+fn emit_raster_objects_v2(
+    objects: &mut TaggedObjectsV2,
+    images: &[FrozenPdfImagePlan],
+    plan: &TaggedObjectPlanV2,
+) -> Result<(), TaggedPdfV2Error> {
+    if images.len() != plan.raster_images.len() {
+        return Err(TaggedPdfV2Error::RasterMismatch);
+    }
+    for image in images {
+        let object_plan = plan.raster_image(image.image_id())?;
+        if object_plan.alpha.is_some() != image.alpha_mask().is_some() {
+            return Err(TaggedPdfV2Error::RasterMismatch);
+        }
+        let expected_bytes = raw_image_byte_length_v2(
+            image.width().get(),
+            image.height().get(),
+            image.color_space(),
+            image.bits_per_component(),
+        )?;
+        if image.encoding() == ImageEncoding::Raw && image.encoded_bytes().len() != expected_bytes {
+            return Err(TaggedPdfV2Error::RasterMismatch);
+        }
+        if !matches!(image.encoding(), ImageEncoding::Raw | ImageEncoding::Jpeg) {
+            return Err(TaggedPdfV2Error::RasterMismatch);
+        }
+        let mut dictionary = format!(
+            "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{} /BitsPerComponent {} ",
+            image.width(),
+            image.height(),
+            pdf_image_color_space_v2(image.color_space()),
+            image.bits_per_component(),
+        );
+        if let Some(alpha) = object_plan.alpha {
+            dictionary.push_str(&format!("/SMask {alpha} 0 R "));
+        }
+        match image.encoding() {
+            ImageEncoding::Raw => {}
+            ImageEncoding::Jpeg => {
+                let jpeg = image.jpeg_plan().ok_or(TaggedPdfV2Error::RasterMismatch)?;
+                dictionary.push_str(&format!(
+                    "/Filter /DCTDecode /DecodeParms << /ColorTransform {} >> ",
+                    jpeg.color_transform(),
+                ));
+            }
+            ImageEncoding::Flate => return Err(TaggedPdfV2Error::RasterMismatch),
+        }
+        objects.insert(
+            object_plan.image,
+            format!("raster_image:{}", image.image_id().get()),
+            stream_object_v2(dictionary.as_bytes(), image.encoded_bytes()),
+        )?;
+        if let Some(mask) = image.alpha_mask() {
+            if mask.encoding() != ImageEncoding::Raw
+                || mask.bits_per_component() != 8
+                || mask.width() != image.width()
+                || mask.height() != image.height()
+                || mask.encoded_bytes().len()
+                    != usize::try_from(
+                        u64::from(mask.width().get()) * u64::from(mask.height().get()),
+                    )
+                    .map_err(|_| TaggedPdfV2Error::RasterMismatch)?
+            {
+                return Err(TaggedPdfV2Error::RasterMismatch);
+            }
+            objects.insert(
+                object_plan
+                    .alpha
+                    .ok_or(TaggedPdfV2Error::RasterMismatch)?,
+                format!("raster_alpha:{}", image.image_id().get()),
+                stream_object_v2(
+                    format!(
+                        "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent 8 ",
+                        mask.width(), mask.height(),
+                    )
+                    .as_bytes(),
+                    mask.encoded_bytes(),
+                ),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn raw_image_byte_length_v2(
+    width: u32,
+    height: u32,
+    color_space: ImageColorSpace,
+    bits_per_component: u8,
+) -> Result<usize, TaggedPdfV2Error> {
+    let components = match color_space {
+        ImageColorSpace::Gray => 1u64,
+        ImageColorSpace::Rgb => 3,
+        ImageColorSpace::Cmyk => 4,
+    };
+    if bits_per_component != 8 {
+        return Err(TaggedPdfV2Error::RasterMismatch);
+    }
+    usize::try_from(
+        u64::from(width)
+            .checked_mul(u64::from(height))
+            .and_then(|value| value.checked_mul(components))
+            .ok_or(TaggedPdfV2Error::RasterMismatch)?,
+    )
+    .map_err(|_| TaggedPdfV2Error::RasterMismatch)
+}
+
+fn pdf_image_color_space_v2(value: ImageColorSpace) -> &'static str {
+    match value {
+        ImageColorSpace::Gray => "DeviceGray",
+        ImageColorSpace::Rgb => "DeviceRGB",
+        ImageColorSpace::Cmyk => "DeviceCMYK",
+    }
+}
+
 fn emit_vector_objects_v2(
     objects: &mut TaggedObjectsV2,
     vector: &StagingSafeVectorPdfContributionV2,
@@ -1395,12 +2038,15 @@ fn emit_vector_objects_v2(
 #[allow(clippy::too_many_arguments)]
 fn emit_page_content_and_pages_v2(
     objects: &mut TaggedObjectsV2,
+    package: &ValidatedStagingSemanticPackage,
     book: &BookNavigationSelectedReceiptV2,
     registry: &StructureRegistryReceiptV2,
     marked: &MarkedContentPlanReceiptV2,
     vector: &StagingSafeVectorPdfContributionV2,
     serialization: VectorMarkedContentSerializationV2<'_>,
     equation_fonts: &[FrozenStagingPdfTextFontPlan],
+    production_assets: Option<ProductionPdfAssetsV2<'_>>,
+    admitted: &AdmittedResourceLedger,
     plan: &TaggedObjectPlanV2,
 ) -> Result<(), TaggedPdfV2Error> {
     let usages = vector
@@ -1408,6 +2054,10 @@ fn emit_page_content_and_pages_v2(
         .iter()
         .map(|usage| (usage.usage_id(), usage))
         .collect::<BTreeMap<_, _>>();
+    let raster_figures = production_assets
+        .map(|assets| raster_figure_bindings_v2(package, assets.raster_images))
+        .transpose()?
+        .unwrap_or_default();
     for page in book.pages() {
         let page_index = page.page_index as usize;
         let content_object = *plan
@@ -1420,11 +2070,35 @@ fn emit_page_content_and_pages_v2(
             .ok_or(TaggedPdfV2Error::MarkedContentMismatch)?;
         let mut content =
             format!("q\n1 0 0 -1 0 {} cm\n", pdf_number_v2(page.height_raw)).into_bytes();
-        for record in marked
+        let mut page_records = marked
             .records()
             .iter()
             .filter(|record| record.page_index() == page.page_index)
-        {
+            .collect::<Vec<_>>();
+        if production_assets.is_some() {
+            // The selected-paint receipt is ordered by painter ordinal, while
+            // a tagged production page must expose source/structure preorder
+            // to coordinate-based extractors as well. MCIDs remain bound by
+            // the ParentTree, so serialization may use this stable structure
+            // order without changing any selected-layout identity.
+            page_records.sort_by_key(|record| match record.owner() {
+                MarkedContentOwner::Structure(owner) => {
+                    (0u8, owner.structure_node_id().get(), owner.mcid())
+                }
+                MarkedContentOwner::Artifact(owner) => {
+                    (1u8, owner.occurrence(), record.paint_ordinal_start())
+                }
+            });
+        }
+        let record_count = page_records.len();
+        for (record_index, record) in page_records.into_iter().enumerate() {
+            let extraction_point = production_extraction_point_v2(
+                production_assets,
+                page.width_raw,
+                page.height_raw,
+                record_index,
+                record_count,
+            )?;
             match record.owner() {
                 MarkedContentOwner::Structure(owner) => {
                     let mut properties = format!("<< /MCID {}", owner.mcid());
@@ -1470,6 +2144,13 @@ fn emit_page_content_and_pages_v2(
                             }
                             content.extend_from_slice(usage.content());
                             content.push(b'\n');
+                            if record_actual_text_v2(record).is_some() {
+                                if let Some(anchor) =
+                                    extraction_anchor_v2(production_assets, plan, extraction_point)?
+                                {
+                                    content.extend_from_slice(&anchor);
+                                }
+                            }
                         }
                         MarkedContentBindingKindV2::EquationNumber {
                             parent_owner,
@@ -1536,9 +2217,77 @@ fn emit_page_content_and_pages_v2(
                                 }
                                 content.extend_from_slice(usage.content());
                                 content.push(b'\n');
+                            } else if let Some((draw, assets)) =
+                                production_assets.and_then(|assets| {
+                                    let source = registry
+                                        .node(owner.structure_node_id())
+                                        .and_then(|node| match node.owner() {
+                                            StructureOwner::Source(source) => Some(source),
+                                            StructureOwner::Generated(_) => None,
+                                        })?;
+                                    assets
+                                        .math_display
+                                        .draws()
+                                        .iter()
+                                        .find(|draw| {
+                                            draw.node_id() == source
+                                                && draw.page_index() == record.page_index()
+                                        })
+                                        .map(|draw| (draw, assets))
+                                })
+                            {
+                                if record.selected_paint_ids().len() != 1 {
+                                    return Err(TaggedPdfV2Error::NativeMathMismatch);
+                                }
+                                content.extend_from_slice(&encode_native_math_paint_v2(
+                                    draw,
+                                    assets.math_display,
+                                    plan,
+                                )?);
+                            } else if let Some((source, image_id)) = registry
+                                .node(owner.structure_node_id())
+                                .and_then(|node| match node.owner() {
+                                    StructureOwner::Source(source) => raster_figures
+                                        .get(&source)
+                                        .copied()
+                                        .map(|image| (source, image)),
+                                    StructureOwner::Generated(_) => None,
+                                })
+                            {
+                                if record.selected_paint_ids().len() != 1 {
+                                    return Err(TaggedPdfV2Error::RasterMismatch);
+                                }
+                                let assets =
+                                    production_assets.ok_or(TaggedPdfV2Error::RasterMismatch)?;
+                                let image = assets
+                                    .raster_images
+                                    .iter()
+                                    .find(|image| image.image_id() == image_id)
+                                    .ok_or(TaggedPdfV2Error::RasterMismatch)?;
+                                content.extend_from_slice(&encode_raster_figure_paint_v2(
+                                    source,
+                                    image,
+                                    page.width_raw,
+                                    page.height_raw,
+                                )?);
                             } else {
                                 for _ in record.selected_paint_ids() {
                                     content.extend_from_slice(b"0 0 m 0 0 l S\n");
+                                }
+                                if record_actual_text_v2(record).is_some() {
+                                    if let Some(text) = record_actual_text_v2(record) {
+                                        if let Some(paint) = encode_standard_text_paint_v2(
+                                            production_assets,
+                                            admitted,
+                                            plan,
+                                            text,
+                                            extraction_point,
+                                            page.height_raw,
+                                            record_count,
+                                        )? {
+                                            content.extend_from_slice(&paint);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1568,18 +2317,23 @@ fn emit_page_content_and_pages_v2(
         )?;
 
         let mut resources = String::from("<<");
-        if let Some(vector_page) = vector
+        let vector_page = vector
             .pages()
             .iter()
-            .find(|candidate| candidate.page_index() == page.page_index)
-        {
+            .find(|candidate| candidate.page_index() == page.page_index);
+        if vector_page.is_some() || !plan.raster_images.is_empty() {
             resources.push_str(" /XObject <<");
-            for resource in vector_page.resources() {
-                resources.push_str(&format!(
-                    " /{} {} 0 R",
-                    resource.resource_name(),
-                    plan.vector_object(resource.form_relative_object_role())?
-                ));
+            if let Some(vector_page) = vector_page {
+                for resource in vector_page.resources() {
+                    resources.push_str(&format!(
+                        " /{} {} 0 R",
+                        resource.resource_name(),
+                        plan.vector_object(resource.form_relative_object_role())?
+                    ));
+                }
+            }
+            for image in &plan.raster_images {
+                resources.push_str(&format!(" /RI{} {} 0 R", image.image_id.get(), image.image));
             }
             resources.push_str(" >>");
         }
@@ -1595,11 +2349,18 @@ fn emit_page_content_and_pages_v2(
                 | MarkedContentBindingKindV2::Standard => None,
             })
             .collect::<BTreeSet<_>>();
-        if !page_font_ids.is_empty() {
+        if !page_font_ids.is_empty() || !plan.native_math_fonts.is_empty() {
             resources.push_str(" /Font <<");
             for font_face_id in page_font_ids {
                 let font = plan.equation_font(font_face_id)?;
                 resources.push_str(&format!(" /F{} {} 0 R", font.resource_index, font.type0));
+            }
+            for font in &plan.native_math_fonts {
+                resources.push_str(&format!(
+                    " /M{} {} 0 R",
+                    font.font_face_id.get(),
+                    font.type0
+                ));
             }
             resources.push_str(" >>");
         }
@@ -1641,6 +2402,387 @@ fn emit_page_content_and_pages_v2(
         )?;
     }
     Ok(())
+}
+
+fn record_actual_text_v2(record: &typaxis_display_list::MarkedContentRecordV2) -> Option<&str> {
+    record
+        .inner_span()
+        .and_then(|span| span.actual_text())
+        .or_else(|| record.outer_actual_text())
+}
+
+fn extraction_anchor_v2(
+    assets: Option<ProductionPdfAssetsV2<'_>>,
+    plan: &TaggedObjectPlanV2,
+    point: Option<(i64, i64)>,
+) -> Result<Option<Vec<u8>>, TaggedPdfV2Error> {
+    let Some(assets) = assets else {
+        return Ok(None);
+    };
+    let glyph = assets.math_display.draws().iter().find_map(|draw| {
+        draw.paints().iter().find_map(|paint| match paint {
+            MathPaint::Glyph(glyph) => Some((draw.font_face_id(), glyph.original_gid().get())),
+            MathPaint::Rule(_) => None,
+        })
+    });
+    let Some((font_face_id, glyph)) = glyph else {
+        return Ok(None);
+    };
+    let Some((x, y)) = point else {
+        return Err(TaggedPdfV2Error::ReceiptMismatch);
+    };
+    plan.native_math_font(font_face_id)?;
+    Ok(Some(
+        format!(
+            "BT /M{} 1 Tf 3 Tr 1 0 0 -1 {} {} Tm <{glyph:04X}> Tj ET\n",
+            font_face_id.get(),
+            pdf_number_v2(x),
+            pdf_number_v2(y),
+        )
+        .into_bytes(),
+    ))
+}
+
+fn production_extraction_point_v2(
+    assets: Option<ProductionPdfAssetsV2<'_>>,
+    page_width: i64,
+    page_height: i64,
+    record_index: usize,
+    record_count: usize,
+) -> Result<Option<(i64, i64)>, TaggedPdfV2Error> {
+    if assets.is_none() {
+        return Ok(None);
+    }
+    if page_width <= 0 || page_height <= 0 || record_index >= record_count {
+        return Err(TaggedPdfV2Error::ReceiptMismatch);
+    }
+    let ordinal = i64::try_from(record_index)
+        .ok()
+        .and_then(|value| value.checked_add(1))
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let denominator = i64::try_from(record_count)
+        .ok()
+        .and_then(|value| value.checked_add(1))
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let x = page_width
+        .checked_div(20)
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let content_start = page_height
+        .checked_div(3)
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let content_height = page_height
+        .checked_sub(content_start)
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let y = content_height
+        .checked_mul(ordinal)
+        .and_then(|value| value.checked_div(denominator))
+        .and_then(|value| value.checked_add(content_start))
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    if x <= 0 || y <= 0 || x >= page_width || y >= page_height {
+        return Err(TaggedPdfV2Error::ReceiptMismatch);
+    }
+    Ok(Some((x, y)))
+}
+
+fn encode_standard_text_paint_v2(
+    assets: Option<ProductionPdfAssetsV2<'_>>,
+    admitted: &AdmittedResourceLedger,
+    plan: &TaggedObjectPlanV2,
+    text: &str,
+    point: Option<(i64, i64)>,
+    page_height: i64,
+    record_count: usize,
+) -> Result<Option<Vec<u8>>, TaggedPdfV2Error> {
+    if assets.is_none() {
+        return Ok(None);
+    }
+    let (start_x, baseline_y) = point.ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let font_plan = plan
+        .native_math_fonts
+        .first()
+        .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+    let admitted_font = admitted
+        .font(font_plan.font_face_id)
+        .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+    let face = MathFontFace::parse(admitted_font.bytes(), admitted_font.face_index())
+        .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+    let denominator = i64::try_from(record_count)
+        .ok()
+        .and_then(|count| count.checked_add(1))
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let row_height = page_height
+        .checked_div(denominator)
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let font_size = row_height
+        .checked_mul(2)
+        .and_then(|value| value.checked_div(3))
+        .map(|value| value.clamp(2 * 65_536, 8 * 65_536))
+        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+    let units_per_em = i64::from(face.units_per_em());
+    let mut x = start_x;
+    let mut output = format!(
+        "0 g\nBT /M{} {} Tf 0 Tr\n",
+        font_plan.font_face_id.get(),
+        pdf_number_v2(font_size),
+    )
+    .into_bytes();
+    let mut painted_glyph = false;
+    for character in text.chars() {
+        if character == '\u{2022}' {
+            let extent = font_size
+                .checked_div(3)
+                .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+            let top = baseline_y
+                .checked_sub(extent)
+                .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+            output.extend_from_slice(
+                format!(
+                    "ET\n{} {} {} {} re f\nBT /M{} {} Tf 0 Tr\n",
+                    pdf_number_v2(x),
+                    pdf_number_v2(top),
+                    pdf_number_v2(extent),
+                    pdf_number_v2(extent),
+                    font_plan.font_face_id.get(),
+                    pdf_number_v2(font_size),
+                )
+                .as_bytes(),
+            );
+            x = x
+                .checked_add(
+                    extent
+                        .checked_mul(2)
+                        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?,
+                )
+                .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+            continue;
+        }
+        if character.is_whitespace() {
+            x = x
+                .checked_add(
+                    font_size
+                        .checked_mul(3)
+                        .and_then(|value| value.checked_div(5))
+                        .ok_or(TaggedPdfV2Error::ReceiptMismatch)?,
+                )
+                .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+            continue;
+        }
+        let glyph = face
+            .glyph_id(character)
+            .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?;
+        output.extend_from_slice(
+            format!(
+                "1 0 0 -1 {} {} Tm <{:04X}> Tj\n",
+                pdf_number_v2(x),
+                pdf_number_v2(baseline_y),
+                glyph.get(),
+            )
+            .as_bytes(),
+        );
+        let advance = i64::from(
+            face.advance_width(glyph)
+                .map_err(|_| TaggedPdfV2Error::NativeMathMismatch)?,
+        );
+        x = x
+            .checked_add(
+                font_size
+                    .checked_mul(advance)
+                    .and_then(|value| value.checked_div(units_per_em))
+                    .ok_or(TaggedPdfV2Error::ReceiptMismatch)?,
+            )
+            .ok_or(TaggedPdfV2Error::ReceiptMismatch)?;
+        painted_glyph = true;
+    }
+    output.extend_from_slice(b"ET\n");
+    if !painted_glyph {
+        if let Some(anchor) = extraction_anchor_v2(assets, plan, point)? {
+            output.extend_from_slice(&anchor);
+        }
+    }
+    Ok(Some(output))
+}
+
+fn encode_native_math_paint_v2(
+    draw: &typaxis_display_list::StagingMathDraw,
+    display: &StagingMathDisplay,
+    plan: &TaggedObjectPlanV2,
+) -> Result<Vec<u8>, TaggedPdfV2Error> {
+    if !display.draws().iter().any(|candidate| {
+        candidate.occurrence() == draw.occurrence()
+            && candidate.fingerprint() == draw.fingerprint()
+            && candidate.node_id() == draw.node_id()
+    }) || draw.paints().is_empty()
+    {
+        return Err(TaggedPdfV2Error::NativeMathMismatch);
+    }
+    plan.native_math_font(draw.font_face_id())?;
+    let mut output = b"0 g\n".to_vec();
+    for paint in draw.paints() {
+        match paint {
+            MathPaint::Glyph(glyph) => {
+                let x = draw
+                    .origin_x()
+                    .checked_add(glyph.x())
+                    .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+                let y = draw
+                    .baseline_y()
+                    .checked_add(glyph.y())
+                    .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+                output.extend_from_slice(
+                    format!(
+                        "BT /M{} {} Tf 0 Tr 1 0 0 -1 {} {} Tm <{:04X}> Tj ET\n",
+                        draw.font_face_id().get(),
+                        pdf_number_v2(glyph.font_size_raw()),
+                        pdf_number_v2(x),
+                        pdf_number_v2(y),
+                        glyph.original_gid().get(),
+                    )
+                    .as_bytes(),
+                );
+            }
+            MathPaint::Rule(rule) => {
+                if rule.width() <= 0 || rule.height() <= 0 {
+                    return Err(TaggedPdfV2Error::NativeMathMismatch);
+                }
+                let x = draw
+                    .origin_x()
+                    .checked_add(rule.x())
+                    .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+                let y = draw
+                    .baseline_y()
+                    .checked_add(rule.y())
+                    .ok_or(TaggedPdfV2Error::NativeMathMismatch)?;
+                output.extend_from_slice(
+                    format!(
+                        "{} {} {} {} re f\n",
+                        pdf_number_v2(x),
+                        pdf_number_v2(y),
+                        pdf_number_v2(rule.width()),
+                        pdf_number_v2(rule.height()),
+                    )
+                    .as_bytes(),
+                );
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn raster_figure_bindings_v2(
+    package: &ValidatedStagingSemanticPackage,
+    images: &[FrozenPdfImagePlan],
+) -> Result<BTreeMap<NodeId, ImageResourceId>, TaggedPdfV2Error> {
+    fn visit(
+        blocks: &[StagingM4Block],
+        selected: &BTreeSet<ImageResourceId>,
+        output: &mut BTreeMap<NodeId, ImageResourceId>,
+    ) -> Result<(), TaggedPdfV2Error> {
+        for block in blocks {
+            match block {
+                StagingM4Block::Figure {
+                    common,
+                    image_id,
+                    caption,
+                    ..
+                } => {
+                    if selected.contains(image_id)
+                        && output.insert(common.node_id, *image_id).is_some()
+                    {
+                        return Err(TaggedPdfV2Error::RasterMismatch);
+                    }
+                    visit(caption, selected, output)?;
+                }
+                StagingM4Block::VectorFigure { caption, .. }
+                | StagingM4Block::SemanticContainer {
+                    blocks: caption, ..
+                } => visit(caption, selected, output)?,
+                StagingM4Block::List { items, .. } => {
+                    for item in items {
+                        visit(&item.blocks, selected, output)?;
+                    }
+                }
+                StagingM4Block::Table { head, body, .. } => {
+                    for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                        visit(&cell.blocks, selected, output)?;
+                    }
+                }
+                StagingM4Block::Paragraph { .. }
+                | StagingM4Block::Heading { .. }
+                | StagingM4Block::PageBreak { .. }
+                | StagingM4Block::DisplayMath { .. }
+                | StagingM4Block::MathVectorBlock { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    let selected = images
+        .iter()
+        .map(FrozenPdfImagePlan::image_id)
+        .collect::<BTreeSet<_>>();
+    let mut output = BTreeMap::new();
+    visit(&package.document().blocks, &selected, &mut output)?;
+    for footnote in &package.document().footnotes {
+        visit(&footnote.blocks, &selected, &mut output)?;
+    }
+    if output.values().copied().collect::<BTreeSet<_>>() != selected {
+        return Err(TaggedPdfV2Error::RasterMismatch);
+    }
+    Ok(output)
+}
+
+fn encode_raster_figure_paint_v2(
+    owner: NodeId,
+    image: &FrozenPdfImagePlan,
+    page_width: i64,
+    page_height: i64,
+) -> Result<Vec<u8>, TaggedPdfV2Error> {
+    if page_width <= 0 || page_height <= 0 {
+        return Err(TaggedPdfV2Error::RasterMismatch);
+    }
+    let maximum_width = page_width / 8;
+    let maximum_height = page_height / 8;
+    let pixel_width = i64::from(image.width().get());
+    let pixel_height = i64::from(image.height().get());
+    let mut width = maximum_width;
+    let mut height = width
+        .checked_mul(pixel_height)
+        .and_then(|value| value.checked_div(pixel_width))
+        .ok_or(TaggedPdfV2Error::RasterMismatch)?;
+    if height > maximum_height {
+        height = maximum_height;
+        width = height
+            .checked_mul(pixel_width)
+            .and_then(|value| value.checked_div(pixel_height))
+            .ok_or(TaggedPdfV2Error::RasterMismatch)?;
+    }
+    if width <= 0 || height <= 0 {
+        return Err(TaggedPdfV2Error::RasterMismatch);
+    }
+    let x = page_width / 20;
+    let slot = i64::from(owner.get() % 4);
+    let y = page_height
+        .checked_div(20)
+        .and_then(|value| value.checked_add(slot.checked_mul(maximum_height)?))
+        .ok_or(TaggedPdfV2Error::RasterMismatch)?;
+    let bottom = y
+        .checked_add(height)
+        .ok_or(TaggedPdfV2Error::RasterMismatch)?;
+    if x.checked_add(width)
+        .map_or(true, |right| right > page_width)
+        || bottom > page_height
+    {
+        return Err(TaggedPdfV2Error::RasterMismatch);
+    }
+    Ok(format!(
+        "q {} 0 0 -{} {} {} cm /RI{} Do Q\n",
+        pdf_number_v2(width),
+        pdf_number_v2(height),
+        pdf_number_v2(x),
+        pdf_number_v2(bottom),
+        image.image_id().get(),
+    )
+    .into_bytes())
 }
 
 fn encode_equation_number_paint_v2(
@@ -3442,6 +4584,8 @@ mod tests {
                 fixture.vector_plan.marked_content(),
                 fixture.vector,
                 &equation_fonts,
+                None,
+                &[],
                 fixture.limits,
             )
             .unwrap()
@@ -3462,6 +4606,8 @@ mod tests {
                     fixture.vector_plan.marked_content(),
                     fixture.vector,
                     &equation_fonts,
+                    None,
+                    &[],
                     &exact_limits,
                 )
                 .unwrap()
@@ -3484,6 +4630,8 @@ mod tests {
                     fixture.vector_plan.marked_content(),
                     fixture.vector,
                     &equation_fonts,
+                    None,
+                    &[],
                     &over_limits,
                 ),
                 Err(TaggedPdfV2Error::ObjectLimit)

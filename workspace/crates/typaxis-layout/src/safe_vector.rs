@@ -1167,6 +1167,86 @@ impl StagingSafeVectorSelectedLayout {
         }
         Ok(())
     }
+
+    /// Verify the Figure/SafeVector-1 compatibility slice when it is owned by
+    /// the production precomposed-vector profile. The placement algorithm is
+    /// unchanged, while the admitted resource is bound to the production
+    /// receipt and the package may contain every other M4 media kind.
+    pub fn verify_production(
+        &self,
+        package: &ValidatedStagingSemanticPackage,
+        profile: &StagingPrecomposedVectorProfileAuthorization,
+        limits: &M4EffectiveResourceLimits,
+        admitted: &AdmittedResourceLedger,
+    ) -> Result<(), StagingSafeVectorLayoutError> {
+        profile
+            .authorizes(package, limits)
+            .map_err(|_| StagingSafeVectorLayoutError::ReceiptMismatch)?;
+        let profile_fingerprint = profile.profile_receipt_fingerprint();
+        let canonical = encode_layout(
+            package.semantic_fingerprint(),
+            profile_fingerprint,
+            limits.fingerprint(),
+            self.receipt.admitted_fingerprint,
+            &self.placements,
+            &self.page_geometry,
+        );
+        if self.page_geometry != *profile.page_geometry()
+            || self.receipt.package_fingerprint != package.semantic_fingerprint()
+            || self.receipt.profile_fingerprint != profile_fingerprint
+            || self.receipt.limits_fingerprint != limits.fingerprint()
+            || self.receipt.admitted_fingerprint != admitted.fingerprint().bytes()
+            || self.receipt.page_geometry_fingerprint != self.page_geometry.fingerprint()
+            || usize::try_from(self.receipt.placement_count) != Ok(self.placements.len())
+            || self.receipt.canonical_jcs != canonical
+            || self.receipt.fingerprint != sha256(canonical.as_bytes())
+            || self.placements.len() as u64 > limits.base().get().max_fragments
+            || !placements_are_closed(&self.placements, &self.page_geometry, limits)
+        {
+            return Err(StagingSafeVectorLayoutError::ReceiptMismatch);
+        }
+        let vector_ids = package
+            .resources()
+            .images
+            .iter()
+            .filter_map(|image| {
+                (image.media == ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1))
+                    .then_some(image.image_id)
+            })
+            .collect::<BTreeSet<_>>();
+        let mut figures = Vec::new();
+        collect_figures(&package.document().blocks, &vector_ids, &mut figures, false)?;
+        for footnote in &package.document().footnotes {
+            collect_figures(&footnote.blocks, &vector_ids, &mut figures, false)?;
+        }
+        if figures.len() != self.placements.len() {
+            return Err(StagingSafeVectorLayoutError::ReceiptMismatch);
+        }
+        for (index, (placement, figure)) in self.placements.iter().zip(figures).enumerate() {
+            let image = admitted.image(placement.image_id).ok_or(
+                StagingSafeVectorLayoutError::MissingAdmittedVector(placement.image_id),
+            )?;
+            let vector = image
+                .safe_vector()
+                .ok_or(StagingSafeVectorLayoutError::WrongMedia(placement.image_id))?;
+            if usize::try_from(placement.occurrence) != Ok(index)
+                || placement.owner != figure.owner
+                || placement.image_id != figure.image_id
+                || placement.placement != figure.placement
+                || placement.alternative != figure.alternative
+                || placement.source_span != figure.span
+                || image.media_kind() != AdmittedImageMediaKind::SafeVector
+                || image.content_hash() != placement.admitted_sha256
+                || vector.fingerprint() != placement.ir_fingerprint
+                || image.m4_limits_fingerprint() != Some(limits.fingerprint())
+                || image.m4_profile_fingerprint() != Some(profile_fingerprint)
+                || sha256(encode_placement(placement).as_bytes()) != placement.fingerprint
+            {
+                return Err(StagingSafeVectorLayoutError::ReceiptMismatch);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1248,9 +1328,9 @@ pub fn layout_staging_safe_vectors(
     }
     let mut figures = Vec::new();
     let vector_ids: BTreeSet<_> = profile.vector_resource_ids().iter().copied().collect();
-    collect_figures(&package.document().blocks, &vector_ids, &mut figures)?;
+    collect_figures(&package.document().blocks, &vector_ids, &mut figures, true)?;
     for footnote in &package.document().footnotes {
-        collect_figures(&footnote.blocks, &vector_ids, &mut figures)?;
+        collect_figures(&footnote.blocks, &vector_ids, &mut figures, true)?;
     }
     if figures.len() as u64 > limits.base().get().max_fragments {
         return Err(StagingSafeVectorLayoutError::PlacementLimit);
@@ -1379,6 +1459,164 @@ pub fn layout_staging_safe_vectors(
     Ok(selected)
 }
 
+pub fn layout_production_safe_vector_figures(
+    package: &ValidatedStagingSemanticPackage,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+    admitted: &AdmittedResourceLedger,
+) -> Result<StagingSafeVectorSelectedLayout, StagingSafeVectorLayoutError> {
+    profile
+        .authorizes(package, limits)
+        .map_err(|_| StagingSafeVectorLayoutError::ProfileMismatch)?;
+    if !admitted.matches_declarations(
+        typaxis_resource_admission::staging_declared_base_catalog(package.resources())
+            .map_err(|_| StagingSafeVectorLayoutError::ProfileMismatch)?
+            .resource_catalog(),
+    ) {
+        return Err(StagingSafeVectorLayoutError::ProfileMismatch);
+    }
+    let vector_ids = package
+        .resources()
+        .images
+        .iter()
+        .filter_map(|image| {
+            (image.media == ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe1))
+                .then_some(image.image_id)
+        })
+        .collect::<BTreeSet<_>>();
+    let mut figures = Vec::new();
+    collect_figures(&package.document().blocks, &vector_ids, &mut figures, false)?;
+    for footnote in &package.document().footnotes {
+        collect_figures(&footnote.blocks, &vector_ids, &mut figures, false)?;
+    }
+    if figures.len() as u64 > limits.base().get().max_fragments {
+        return Err(StagingSafeVectorLayoutError::PlacementLimit);
+    }
+    let mut placements = Vec::new();
+    placements
+        .try_reserve_exact(figures.len())
+        .map_err(|_| StagingSafeVectorLayoutError::AllocationFailure)?;
+    let mut page_index = 0u32;
+    let mut cursor = 0i64;
+    let page_geometry = profile.page_geometry().clone();
+    let body = page_geometry.body();
+    for (index, figure) in figures.into_iter().enumerate() {
+        let image = admitted.image(figure.image_id).ok_or(
+            StagingSafeVectorLayoutError::MissingAdmittedVector(figure.image_id),
+        )?;
+        let ir = image
+            .safe_vector()
+            .ok_or(StagingSafeVectorLayoutError::WrongMedia(figure.image_id))?;
+        if image.m4_limits_fingerprint() != Some(limits.fingerprint())
+            || image.m4_profile_fingerprint() != Some(profile.profile_receipt_fingerprint())
+        {
+            return Err(StagingSafeVectorLayoutError::ProfileMismatch);
+        }
+        let scale = scale_to_fit(ir.intrinsic_width().get().raw(), body.width().get().raw())?
+            .ok_or(StagingSafeVectorLayoutError::Oversize(figure.owner))?;
+        let width_raw = scaled_dimension(ir.intrinsic_width().get().raw(), scale)?;
+        let height_raw = scaled_dimension(ir.intrinsic_height().get().raw(), scale)?;
+        let width = PositiveLength::new(
+            Length::from_raw(width_raw).ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?,
+        )
+        .ok_or(StagingSafeVectorLayoutError::IntrinsicGeometry(
+            figure.image_id,
+        ))?;
+        let height = PositiveLength::new(
+            Length::from_raw(height_raw).ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?,
+        )
+        .ok_or(StagingSafeVectorLayoutError::IntrinsicGeometry(
+            figure.image_id,
+        ))?;
+        if height.get().raw() > body.height().get().raw() {
+            return Err(StagingSafeVectorLayoutError::Oversize(figure.owner));
+        }
+        if cursor
+            .checked_add(height.get().raw())
+            .map_or(true, |end| end > body.height().get().raw())
+        {
+            page_index = page_index
+                .checked_add(1)
+                .ok_or(StagingSafeVectorLayoutError::PageLimit)?;
+            cursor = 0;
+        }
+        if page_index >= limits.base().get().max_pages {
+            return Err(StagingSafeVectorLayoutError::PageLimit);
+        }
+        let x_raw = match figure.placement {
+            StagingM4FigurePlacement::Block => body.x().raw(),
+            StagingM4FigurePlacement::Float => body
+                .x()
+                .raw()
+                .checked_add(
+                    body.width()
+                        .get()
+                        .raw()
+                        .checked_sub(width.get().raw())
+                        .ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?,
+                )
+                .ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?,
+        };
+        let y_raw = body
+            .y()
+            .raw()
+            .checked_add(cursor)
+            .ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?;
+        let mut placement = StagingSafeVectorPlacement {
+            occurrence: u32::try_from(index)
+                .map_err(|_| StagingSafeVectorLayoutError::PlacementLimit)?,
+            owner: figure.owner,
+            image_id: figure.image_id,
+            placement: figure.placement,
+            alternative: figure.alternative.to_owned(),
+            source_span: figure.span,
+            page_index,
+            frame_index: 0,
+            bounds: Rect::new(
+                Length::from_raw(x_raw).ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?,
+                Length::from_raw(y_raw).ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?,
+                width,
+                height,
+            ),
+            scale,
+            admitted_sha256: image.content_hash(),
+            ir_fingerprint: ir.fingerprint(),
+            fingerprint: [0; 32],
+        };
+        placement.fingerprint = sha256(encode_placement(&placement).as_bytes());
+        cursor = cursor
+            .checked_add(height.get().raw())
+            .ok_or(StagingSafeVectorLayoutError::ArithmeticOverflow)?;
+        placements.push(placement);
+    }
+    let profile_fingerprint = profile.profile_receipt_fingerprint();
+    let canonical_jcs = encode_layout(
+        package.semantic_fingerprint(),
+        profile_fingerprint,
+        limits.fingerprint(),
+        admitted.fingerprint().bytes(),
+        &placements,
+        &page_geometry,
+    );
+    let selected = StagingSafeVectorSelectedLayout {
+        receipt: StagingSafeVectorSelectedLayoutReceipt {
+            package_fingerprint: package.semantic_fingerprint(),
+            profile_fingerprint,
+            limits_fingerprint: limits.fingerprint(),
+            admitted_fingerprint: admitted.fingerprint().bytes(),
+            page_geometry_fingerprint: page_geometry.fingerprint(),
+            placement_count: u32::try_from(placements.len())
+                .map_err(|_| StagingSafeVectorLayoutError::PlacementLimit)?,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        },
+        placements,
+        page_geometry,
+    };
+    selected.verify_production(package, profile, limits, admitted)?;
+    Ok(selected)
+}
+
 struct FigureRef<'a> {
     owner: NodeId,
     image_id: ImageResourceId,
@@ -1391,6 +1629,7 @@ fn collect_figures<'a>(
     blocks: &'a [StagingM4Block],
     vector_ids: &BTreeSet<ImageResourceId>,
     output: &mut Vec<FigureRef<'a>>,
+    reject_precomposed: bool,
 ) -> Result<(), StagingSafeVectorLayoutError> {
     for block in blocks {
         match block {
@@ -1411,36 +1650,45 @@ fn collect_figures<'a>(
                         span: common.span,
                     });
                 }
-                collect_figures(caption, vector_ids, output)?;
+                collect_figures(caption, vector_ids, output, reject_precomposed)?;
             }
             StagingM4Block::List { items, .. } => {
                 for item in items {
-                    collect_figures(&item.blocks, vector_ids, output)?;
+                    collect_figures(&item.blocks, vector_ids, output, reject_precomposed)?;
                 }
             }
             StagingM4Block::Table { head, body, .. } => {
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
-                    collect_figures(&cell.blocks, vector_ids, output)?;
+                    collect_figures(&cell.blocks, vector_ids, output, reject_precomposed)?;
                 }
             }
             StagingM4Block::SemanticContainer { blocks, .. } => {
-                collect_figures(blocks, vector_ids, output)?;
+                collect_figures(blocks, vector_ids, output, reject_precomposed)?;
             }
             StagingM4Block::VectorFigure { common, .. }
-            | StagingM4Block::MathVectorBlock { common, .. } => {
+            | StagingM4Block::MathVectorBlock { common, .. }
+                if reject_precomposed =>
+            {
                 return Err(StagingSafeVectorLayoutError::PrecomposedVectorStaging(
                     common.node_id,
                 ));
             }
             StagingM4Block::Paragraph { inline_vectors, .. }
-            | StagingM4Block::Heading { inline_vectors, .. } => {
+            | StagingM4Block::Heading { inline_vectors, .. }
+                if reject_precomposed =>
+            {
                 if let Some(vector) = inline_vectors.first() {
                     return Err(StagingSafeVectorLayoutError::PrecomposedVectorStaging(
                         vector.node_id,
                     ));
                 }
             }
-            StagingM4Block::PageBreak { .. } | StagingM4Block::DisplayMath { .. } => {}
+            StagingM4Block::VectorFigure { .. }
+            | StagingM4Block::MathVectorBlock { .. }
+            | StagingM4Block::Paragraph { .. }
+            | StagingM4Block::Heading { .. }
+            | StagingM4Block::PageBreak { .. }
+            | StagingM4Block::DisplayMath { .. } => {}
         }
     }
     Ok(())

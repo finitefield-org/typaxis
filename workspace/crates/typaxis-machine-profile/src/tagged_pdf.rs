@@ -125,7 +125,7 @@ impl std::fmt::Display for StagingTaggedPdfProfileError {
                 formatter.write_str("L5100: production-book navigation preflight failed")
             }
             Self::UnsupportedSemantic => formatter.write_str(
-                "L5100: document semantics are outside the closed PDF/UA-1 staging profile",
+                "L5100: document semantics are outside the closed production-book-1 PDF/UA-1 profile",
             ),
             Self::ReceiptMismatch => {
                 formatter.write_str("I9190: tagged-PDF profile receipt mismatch")
@@ -800,9 +800,10 @@ mod tests {
         assert!(receipt
             .descriptor_jcs()
             .contains("verapdf-greenfield/1.30.2:ua1"));
-        assert!(!typaxis_core::DocumentPackageContractId::CURRENT
-            .as_str()
-            .contains("1.4"));
+        assert_eq!(
+            typaxis_core::DocumentPackageContractId::CURRENT,
+            typaxis_core::DocumentPackageContractId::V1_4
+        );
     }
 
     #[test]

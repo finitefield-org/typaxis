@@ -2591,7 +2591,7 @@ def verify_artifacts(
     )
     if (
         expectation["contract"] != "typaxis.contract/1.4"
-        or expectation["command"] != "private-production-book"
+        or expectation["command"] != "precomposed-vector-evidence"
         or expectation["profile"] != "typaxis.machine-pdf/production-book-1"
         or expectation["fixture_id"] != FIXTURE_ID
         or expectation["fixture_class"] != "positive"
@@ -3112,27 +3112,26 @@ def verify_artifacts(
         repository,
     )
     public_capabilities = (repository / "samples/machine-package/capabilities.json").read_bytes()
+    publication_capabilities = (
+        repository
+        / "samples/machine-package/staging/production-book-1/publication-capabilities.json"
+    ).read_bytes()
     public_schema = (repository / "schemas/document-package.schema.json").read_bytes()
-    versioned_public_schema = (repository / "schemas/1.3/document-package.schema.json").read_bytes()
+    versioned_public_schema = (repository / "schemas/1.4/document-package.schema.json").read_bytes()
+    frozen_schema = (repository / "schemas/1.3/document-package.schema.json").read_bytes()
     public_cli = (repository / "workspace/crates/typaxis-cli/src/cli.rs").read_bytes()
-    for forbidden in (
-        b"production-book-1",
-        b"inline_vector",
-        b"math_vector",
-        b"vector_figure",
-        b"math_vector_block",
-        b"svg-safe-2",
-    ):
-        if forbidden in public_capabilities:
-            raise PrecomposedVectorError(
-                f"private vocabulary leaked into capabilities: {forbidden!r}"
-            )
     if (
-        public_schema != versioned_public_schema
-        or b"typaxis.contract/1.4" in public_schema
+        publication_capabilities != public_capabilities + b"\n"
+        or public_schema != versioned_public_schema
+        or public_schema == frozen_schema
+        or b'"https://schemas.typaxis.invalid/1.4/document-package.schema.json"'
+        not in public_schema
         or b"private-production-book" in public_cli
+        or b"private-precomposed-vector" in public_cli
     ):
-        raise PrecomposedVectorError("private contract or command leaked into public surfaces")
+        raise PrecomposedVectorError(
+            "MI4-13 public capabilities, current Schema, or command isolation differs"
+        )
 
     result = {
         "artifact_records": records,

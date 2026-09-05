@@ -54,10 +54,11 @@ pub use block_vector::{
     StagingPrecomposedVectorBlockFixtureCase, StagingPrecomposedVectorBlockLayoutFixture,
 };
 pub use inline_vector::{
-    layout_staging_precomposed_vector_inlines, StagingInlineVectorLayoutError,
-    StagingInlineVectorLine, StagingInlineVectorLogicalUnit, StagingInlineVectorParagraphInput,
-    StagingInlineVectorPlacement, StagingInlineVectorSelectedLayout,
-    StagingInlineVectorSelectedLayoutReceipt, PRECOMPOSED_VECTOR_SELECTED_LAYOUT_ALGORITHM,
+    layout_staging_precomposed_vector_inlines, prepare_staging_precomposed_vector_inline_inputs,
+    StagingInlineVectorLayoutError, StagingInlineVectorLine, StagingInlineVectorLogicalUnit,
+    StagingInlineVectorParagraphInput, StagingInlineVectorPlacement,
+    StagingInlineVectorSelectedLayout, StagingInlineVectorSelectedLayoutReceipt,
+    PRECOMPOSED_VECTOR_SELECTED_LAYOUT_ALGORITHM,
 };
 pub use jpeg::{
     layout_staging_jpeg_figures, StagingJpegLayoutError, StagingJpegPlacement,
@@ -81,9 +82,10 @@ pub use math_vector::{
     MATH_VECTOR_FLOW_ALGORITHM, MATH_VECTOR_TERMINAL_ALGORITHM,
 };
 pub use safe_vector::{
-    bind_staging_precomposed_vectors, layout_staging_safe_vectors, BoundPrecomposedVectorMedia,
-    BoundPrecomposedVectorResource, PrecomposedVectorBindingError, PrecomposedVectorLayoutEpoch,
-    StagingSafeVectorLayoutError, StagingSafeVectorPlacement, StagingSafeVectorSelectedLayout,
+    bind_staging_precomposed_vectors, layout_production_safe_vector_figures,
+    layout_staging_safe_vectors, BoundPrecomposedVectorMedia, BoundPrecomposedVectorResource,
+    PrecomposedVectorBindingError, PrecomposedVectorLayoutEpoch, StagingSafeVectorLayoutError,
+    StagingSafeVectorPlacement, StagingSafeVectorSelectedLayout,
     StagingSafeVectorSelectedLayoutReceipt, ValidatedPrecomposedVectorBindings,
     ValidatedPrecomposedVectorReceipt, PRECOMPOSED_VECTOR_BINDING_ALGORITHM,
     PRECOMPOSED_VECTOR_BINDING_SET_ALGORITHM, STAGING_SAFE_VECTOR_SELECTED_LAYOUT_ALGORITHM,

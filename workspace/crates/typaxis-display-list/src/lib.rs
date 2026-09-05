@@ -85,10 +85,10 @@ pub use precomposed_vector::{
     StagingPrecomposedVectorDisplayFixture,
 };
 pub use safe_vector::{
-    build_staging_safe_vector_display, prove_vector_form_structure_isolation_v2, StagingDrawVector,
-    StagingSafeVectorDisplay, StagingSafeVectorDisplayError, StagingSafeVectorDisplayPage,
-    StagingSafeVectorDisplayReceipt, VectorFormStructureIsolationReceiptV2,
-    STAGING_DRAW_VECTOR_ALGORITHM,
+    build_production_safe_vector_display, build_staging_safe_vector_display,
+    prove_vector_form_structure_isolation_v2, StagingDrawVector, StagingSafeVectorDisplay,
+    StagingSafeVectorDisplayError, StagingSafeVectorDisplayPage, StagingSafeVectorDisplayReceipt,
+    VectorFormStructureIsolationReceiptV2, STAGING_DRAW_VECTOR_ALGORITHM,
 };
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use safe_vector::{staging_safe_vector_display_fixture, StagingSafeVectorDisplayFixture};

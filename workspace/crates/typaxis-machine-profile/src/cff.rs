@@ -66,7 +66,7 @@ impl From<StagingSemanticSyntaxError> for StagingCffProfileError {
     }
 }
 
-/// Machine-profile proof that the private production profile admitted every
+/// Machine-profile proof that the production profile admitted every
 /// CFF declaration before the host resource capability is exercised.
 #[derive(Debug)]
 pub struct StagingCffProfileReceipt {

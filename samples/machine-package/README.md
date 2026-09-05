@@ -64,7 +64,8 @@ workspace/target/debug/typaxis capabilities --format json
 
 Its bytes MUST equal `samples/machine-package/capabilities.json`, advertise
 exactly `basic-document-1`, `columns-1`, `float-1`, `footnote-1`,
-`header-footer-1`, `paragraph-1`, and `table-1` in canonical order, retain
+`header-footer-1`, `paragraph-1`, `production-book-1`, and `table-1` in
+canonical order, retain
 `paragraph-1` as the default, and validate against
 `schemas/machine-capabilities.schema.json`.
 
@@ -150,20 +151,19 @@ manifest `advanced_pagination` members are byte-identical. The focused
 matrices and aggregate `matrices/m3-all.json` drive the normal public CLI;
 there is no private advanced runner or hidden selector.
 
-The private MI4-02 slice is under
+The retained MI4-02 component slice is under
 `staging/production-book-1/semantic-container/`. Its contract-1.4 package
 contains result, proof, and exercise owners with nested page splitting, and
 declares PNG, standalone TrueType sfnt, and TrueType collection bytes through
 opaque `.bin` paths. `staging-semantic-container.json` is canonical JCS and
 binds the selected fragments, typed style, Display paint, PDF/raster
 observations, and separate declared/decoder-attested media facts. Crate tests
-and `schemas/validate.py` consume this slice; no public CLI selector accepts
-contract 1.4 or `production-book-1` before MI4-13.
+and `schemas/validate.py` consume this focused evidence; the public combined
+fixture below, rather than this component-only package, owns release coverage.
 
-The private MI4-V19 publication-readiness inputs are directly under
+The retained MI4-V19 publication-readiness inputs are directly under
 `staging/production-book-1/`. `publication-capabilities.json` freezes the exact
-future eight-profile descriptor while leaving the public seven-profile bytes
-unchanged; `publication-expectation.json` binds all 73 source/resource files
+current eight-profile descriptor; `publication-expectation.json` binds all 73 source/resource files
 and every advertised production field; `external-tool-policy.json` pins
 MuPDF 1.28.2, Poppler 26.08.0, and signed veraPDF 1.30.2 inputs; and
 `matterhorn-assessment.json` records every Matterhorn Protocol 1.02 item with
@@ -171,7 +171,9 @@ its published detection method and an explicit passed or justified-N/A result.
 The veraPDF policy pins the signed installer and the canonical installed-tree
 payload, so matching version text alone cannot satisfy the host gate.
 Generated component proofs, receipts, PDFs, and per-host records stay below
-`target/machine-e2e/` and are not public fixtures.
+`target/machine-e2e/`; the runnable public fixtures are
+`profiles/production-book-1/{combined,legacy-contract}` and their aggregate
+gate is `matrices/m4-production.json`.
 
 ## Regenerate hashes and expectations
 

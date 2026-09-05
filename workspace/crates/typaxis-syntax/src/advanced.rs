@@ -83,7 +83,7 @@ impl From<StagingAdvancedSyntaxFailure> for StagingAdvancedPackageParseError {
     }
 }
 
-/// Syntax-issued current 1.3 extension receipt. `ValidatedMachinePackage`
+/// Syntax-issued frozen contract-1.3 extension receipt. `ValidatedMachinePackage`
 /// retains it behind the ordinary public pipeline boundary, so callers cannot
 /// forge or silently upgrade an older-contract package into this state.
 #[derive(Clone, Debug, Eq, PartialEq)]

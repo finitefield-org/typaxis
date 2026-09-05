@@ -7,11 +7,13 @@ import hashlib
 import json
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+import xml.etree.ElementTree as ElementTree
 
 
 class PdfValidationError(ValueError):
@@ -1300,10 +1302,14 @@ def _tagged_manifest_shape(manifest: dict[str, Any]) -> None:
                 raise PdfValidationError("Figure/Formula alternative is missing")
         elif alternative is not None:
             raise PdfValidationError("unexpected structure alternative")
+        actual_text = node["actual_text"]
         if node["role"] == "Formula":
-            if node["actual_text"] != alternative:
+            if actual_text != alternative:
                 raise PdfValidationError("Formula structure ActualText differs")
-        elif node["actual_text"] is not None:
+        elif node["role"] in {"Lbl", "Reference", "Span"} and node["paint_required"]:
+            if not isinstance(actual_text, str) or not actual_text.strip():
+                raise PdfValidationError("text structure ActualText is missing")
+        elif actual_text is not None:
             raise PdfValidationError("unexpected structure ActualText")
         if node["role"] == "Link" and (
             not isinstance(node["accessible_name"], str)
@@ -1700,9 +1706,8 @@ def _tagged_manifest_shape(manifest: dict[str, Any]) -> None:
             )
             if record["language"] != expected_language:
                 raise PdfValidationError("marked-content computed language differs")
-            if record["actual_text"] is not None:
-                if owner["role"] != "Formula" or record["actual_text"] != structure[node_id]["alternative"]:
-                    raise PdfValidationError("Formula ActualText differs from alternative")
+            if record["actual_text"] != structure[node_id]["actual_text"]:
+                raise PdfValidationError("marked-content ActualText differs from structure")
             group_key = (
                 "structure", node_id, fragment, record["actual_text"], record["language"]
             )
@@ -3642,6 +3647,880 @@ def verify_tagged_pdf_structure_v2(pdf: bytes, expectation: dict[str, Any]) -> d
         "page_count": expectation["page_count"],
         "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
         "vector_count": len(expectation["vectors"]),
+    }
+
+
+def _production_source_nodes(package: dict[str, Any]) -> list[dict[str, Any]]:
+    document = package.get("document")
+    if not isinstance(document, dict):
+        raise PdfValidationError("production package document is not an object")
+    output: list[dict[str, Any]] = [
+        {"kind": "document", "node_id": document.get("node_id")}
+    ]
+
+    def visit_inline(value: Any) -> None:
+        if not isinstance(value, dict) or not isinstance(value.get("kind"), str):
+            raise PdfValidationError("production package inline node is malformed")
+        output.append(value)
+        for child in value.get("children", []):
+            visit_inline(child)
+
+    def visit_block(value: Any) -> None:
+        if not isinstance(value, dict) or not isinstance(value.get("kind"), str):
+            raise PdfValidationError("production package block node is malformed")
+        output.append(value)
+        kind = value["kind"]
+        if kind in {"paragraph", "heading"}:
+            for child in value.get("children", []):
+                visit_inline(child)
+        elif kind == "list":
+            for item in value.get("items", []):
+                if not isinstance(item, dict):
+                    raise PdfValidationError("production package list item is malformed")
+                output.append({**item, "kind": "list_item"})
+                for child in item.get("blocks", []):
+                    visit_block(child)
+        elif kind == "table":
+            for section in ("head", "body"):
+                for row in value.get(section, []):
+                    if not isinstance(row, dict):
+                        raise PdfValidationError("production package table row is malformed")
+                    output.append({**row, "kind": f"table_{section}_row"})
+                    for cell in row.get("cells", []):
+                        if not isinstance(cell, dict):
+                            raise PdfValidationError("production package table cell is malformed")
+                        output.append({**cell, "kind": f"table_{section}_cell"})
+                        for child in cell.get("blocks", []):
+                            visit_block(child)
+        elif kind in {"figure", "vector_figure"}:
+            for child in value.get("caption", []):
+                visit_block(child)
+        elif kind == "semantic_container":
+            for child in value.get("blocks", []):
+                visit_block(child)
+        elif kind == "math_vector_block" and value.get("equation_number") is not None:
+            equation = value["equation_number"]
+            if not isinstance(equation, dict):
+                raise PdfValidationError("production equation number is malformed")
+            output.append({**equation, "kind": "equation_number"})
+
+    for block in document.get("blocks", []):
+        visit_block(block)
+    for footnote in document.get("footnotes", []):
+        if not isinstance(footnote, dict):
+            raise PdfValidationError("production footnote is malformed")
+        output.append({**footnote, "kind": "footnote_definition"})
+        for block in footnote.get("blocks", []):
+            visit_block(block)
+    return output
+
+
+def _production_source_ledger(package: dict[str, Any]) -> dict[str, Any]:
+    nodes = _production_source_nodes(package)
+    sources = package.get("sources")
+    resources = package.get("resources")
+    outline = package.get("outline")
+    if (
+        not isinstance(sources, list)
+        or len(sources) != 1
+        or not isinstance(sources[0], dict)
+        or not isinstance(sources[0].get("sha256"), str)
+        or not isinstance(resources, dict)
+        or not isinstance(resources.get("font_faces"), list)
+        or not isinstance(resources.get("images"), list)
+        or not isinstance(outline, dict)
+        or not isinstance(outline.get("entries"), list)
+    ):
+        raise PdfValidationError("production package ledger inputs are malformed")
+    math_sources: list[dict[str, Any]] = []
+    for node in nodes:
+        source = node.get("math_source") or node.get("source_tex")
+        if source is not None:
+            if not isinstance(source, dict) or not isinstance(source.get("text_span"), dict):
+                raise PdfValidationError("production math source ledger input is malformed")
+            math_sources.append(
+                {
+                    "kind": node["kind"],
+                    "node_id": node.get("node_id"),
+                    "source_span": source["text_span"],
+                    "syntax_span": node.get("span"),
+                }
+            )
+    kinds = Counter(node["kind"] for node in nodes)
+    return {
+        "contract": "typaxis.production-book-source-ledger/1",
+        "math_sources": math_sources,
+        "node_count": len(nodes),
+        "node_kind_counts": dict(sorted(kinds.items())),
+        "outline": outline["entries"],
+        "reading_order": [node.get("node_id") for node in nodes],
+        "resources": {
+            "font_face_ids": [record.get("font_face_id") for record in resources["font_faces"]],
+            "image_ids": [record.get("image_id") for record in resources["images"]],
+        },
+        "source_sha256": sources[0]["sha256"],
+    }
+
+
+def _production_structure_roles(package: dict[str, Any]) -> list[str]:
+    document = package["document"]
+    footnotes = {
+        item["footnote_id"]: item
+        for item in document.get("footnotes", [])
+        if isinstance(item, dict) and isinstance(item.get("footnote_id"), str)
+    }
+    roles = ["Document"]
+
+    def inline(value: dict[str, Any]) -> None:
+        kind = value["kind"]
+        if kind == "text":
+            roles.append("Span")
+        elif kind in {"soft_break", "hard_break", "anchor"}:
+            return
+        elif kind == "reference":
+            roles.append("Reference")
+        elif kind == "link":
+            roles.append("Link")
+            for child in value["children"]:
+                inline(child)
+        elif kind == "footnote_reference":
+            definition = footnotes.get(value["footnote_id"])
+            if definition is None:
+                raise PdfValidationError("production footnote reference is unresolved")
+            roles.extend(("Reference", "Lbl", "Note", "Lbl"))
+            for child in definition["blocks"]:
+                block(child)
+        elif kind == "inline_math":
+            roles.append("Formula")
+        elif kind == "inline_vector":
+            roles.append("Figure")
+        elif kind == "math_vector":
+            roles.append("Formula")
+        elif kind in {"emphasis", "strong"}:
+            roles.append("Em" if kind == "emphasis" else "Strong")
+            for child in value["children"]:
+                inline(child)
+        else:
+            raise PdfValidationError(f"unsupported production inline kind {kind!r}")
+
+    def block(value: dict[str, Any]) -> None:
+        kind = value["kind"]
+        if kind in {"paragraph", "heading"}:
+            roles.append("P" if kind == "paragraph" else f"H{value['level']}")
+            for child in value["children"]:
+                inline(child)
+        elif kind == "list":
+            roles.append("L")
+            for item in value["items"]:
+                roles.extend(("LI", "Lbl", "LBody"))
+                for child in item["blocks"]:
+                    block(child)
+        elif kind == "page_break":
+            return
+        elif kind in {"figure", "vector_figure"}:
+            roles.append("Figure")
+            if value["caption"]:
+                roles.append("Caption")
+                for child in value["caption"]:
+                    block(child)
+        elif kind == "table":
+            roles.append("Table")
+            for section, container_role, cell_role in (
+                ("head", "THead", "TH"),
+                ("body", "TBody", "TD"),
+            ):
+                if value[section]:
+                    roles.append(container_role)
+                    for row in value[section]:
+                        roles.append("TR")
+                        for cell in row["cells"]:
+                            roles.append(cell_role)
+                            for child in cell["blocks"]:
+                                block(child)
+        elif kind == "display_math":
+            roles.append("Formula")
+        elif kind == "semantic_container":
+            semantic_role = {
+                "exercise": "Exercise",
+                "proof": "Proof",
+                "result": "Result",
+            }.get(value["semantic_kind"])
+            if semantic_role is None:
+                raise PdfValidationError("production semantic role is unsupported")
+            roles.append(semantic_role)
+            for child in value["blocks"]:
+                block(child)
+        elif kind == "math_vector_block":
+            roles.append("Formula")
+            if value["equation_number"] is not None:
+                roles.append("Span")
+        else:
+            raise PdfValidationError(f"unsupported production block kind {kind!r}")
+
+    for value in document["blocks"]:
+        block(value)
+    return roles
+
+
+def _production_text_span(
+    value: dict[str, Any], buffers: dict[int, bytes], label: str
+) -> str:
+    span = value.get("text_span")
+    if not isinstance(span, dict):
+        raise PdfValidationError(f"{label} lacks a text span")
+    text_id = span.get("text_id")
+    start = span.get("start_byte")
+    end = span.get("end_byte")
+    if (
+        not isinstance(text_id, int)
+        or isinstance(text_id, bool)
+        or not isinstance(start, int)
+        or isinstance(start, bool)
+        or not isinstance(end, int)
+        or isinstance(end, bool)
+        or text_id not in buffers
+        or not 0 <= start <= end <= len(buffers[text_id])
+    ):
+        raise PdfValidationError(f"{label} text span is outside its buffer")
+    try:
+        return buffers[text_id][start:end].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise PdfValidationError(f"{label} text span is not UTF-8 aligned") from error
+
+
+def _production_actual_text(package: dict[str, Any]) -> list[str]:
+    buffers: dict[int, bytes] = {}
+    for record in package.get("text_buffers", []):
+        if not isinstance(record, dict) or not isinstance(record.get("text_id"), int):
+            raise PdfValidationError("production text buffer is malformed")
+        buffers[record["text_id"]] = record["utf8"].encode("utf-8")
+    document = package["document"]
+    note_numbers = {
+        note["footnote_id"]: index + 1
+        for index, note in enumerate(document.get("footnotes", []))
+    }
+    values: list[str] = []
+
+    def inline(value: dict[str, Any]) -> None:
+        kind = value["kind"]
+        if kind == "text":
+            values.append(_production_text_span(value, buffers, "text node"))
+        elif kind == "reference":
+            values.append(f"{value['format']} {value['target']}")
+        elif kind == "link":
+            for child in value["children"]:
+                inline(child)
+        elif kind == "footnote_reference":
+            label = str(note_numbers[value["footnote_id"]])
+            values.extend((label, label))
+        elif kind == "inline_math":
+            values.append(value["speech"])
+        elif kind in {"inline_vector", "math_vector"}:
+            values.append(value.get("actual_text") or value["alt"])
+        elif kind in {"emphasis", "strong"}:
+            for child in value["children"]:
+                inline(child)
+        elif kind not in {"soft_break", "hard_break", "anchor"}:
+            raise PdfValidationError(f"unsupported production inline kind {kind!r}")
+
+    def block(value: dict[str, Any]) -> None:
+        kind = value["kind"]
+        if kind in {"paragraph", "heading"}:
+            for child in value["children"]:
+                inline(child)
+        elif kind == "list":
+            start = value.get("start") or 1
+            for index, item in enumerate(value["items"]):
+                values.append(f"{start + index}." if value["ordered"] else "•")
+                for child in item["blocks"]:
+                    block(child)
+        elif kind in {"figure", "vector_figure"}:
+            for child in value["caption"]:
+                block(child)
+        elif kind == "table":
+            for row in [*value["head"], *value["body"]]:
+                for cell in row["cells"]:
+                    for child in cell["blocks"]:
+                        block(child)
+        elif kind == "display_math":
+            values.append(value["speech"])
+        elif kind == "semantic_container":
+            for child in value["blocks"]:
+                block(child)
+        elif kind == "math_vector_block":
+            values.append(value.get("actual_text") or value["alt"])
+            equation = value.get("equation_number")
+            if equation is not None:
+                values.append(_production_text_span(equation, buffers, "equation number"))
+        elif kind != "page_break":
+            raise PdfValidationError(f"unsupported production block kind {kind!r}")
+
+    for value in document["blocks"]:
+        block(value)
+    for note in document.get("footnotes", []):
+        for value in note["blocks"]:
+            block(value)
+    return values
+
+
+def _production_alternatives(package: dict[str, Any]) -> list[str]:
+    alternatives: list[str] = []
+    for node in _production_source_nodes(package):
+        value = node.get("speech") if node["kind"] in {"inline_math", "display_math"} else node.get("alt")
+        if value is not None:
+            if not isinstance(value, str) or not value:
+                raise PdfValidationError("production alternative is empty or malformed")
+            alternatives.append(value)
+    return alternatives
+
+
+def _production_structure_graph(
+    objects: dict[int, ParsedObject], root_number: int, page_objects: set[int]
+) -> tuple[list[int], dict[int, list[tuple[int, int]]], dict[int, int]]:
+    structure_numbers = {
+        number
+        for number, item in objects.items()
+        if isinstance(item.value, dict)
+        and item.value.get("Type") == PdfName("StructElem")
+    }
+    ordered: list[int] = []
+    marked: dict[int, list[tuple[int, int]]] = {page: [] for page in page_objects}
+    object_references: dict[int, int] = {}
+    visiting: set[int] = set()
+
+    def visit(number: int, parent: int) -> None:
+        if number not in structure_numbers or number in visiting or number in ordered:
+            raise PdfValidationError("production structure tree is cyclic or duplicates a child")
+        dictionary = objects[number].value
+        if not isinstance(dictionary, dict) or _ref(dictionary.get("P"), "StructElem /P") != parent:
+            raise PdfValidationError("production StructElem parent differs")
+        visiting.add(number)
+        ordered.append(number)
+        kids = dictionary.get("K", [])
+        if not isinstance(kids, list):
+            kids = [kids]
+        for kid in kids:
+            if isinstance(kid, PdfRef):
+                visit(kid.number, number)
+                continue
+            if not isinstance(kid, dict):
+                raise PdfValidationError("production StructElem kid is not a structure reference")
+            kind = kid.get("Type")
+            if kind == PdfName("MCR"):
+                if set(kid) != {"MCID", "Pg", "Type"}:
+                    raise PdfValidationError("production MCR keys differ")
+                page = _ref(kid["Pg"], "production MCR /Pg")
+                mcid = _integer(kid["MCID"], "production MCR /MCID")
+                if page not in page_objects or mcid < 0:
+                    raise PdfValidationError("production MCR page or MCID is invalid")
+                marked[page].append((mcid, number))
+            elif kind == PdfName("OBJR"):
+                if set(kid) != {"Obj", "Pg", "Type"}:
+                    raise PdfValidationError("production OBJR keys differ")
+                page = _ref(kid["Pg"], "production OBJR /Pg")
+                annotation = _ref(kid["Obj"], "production OBJR /Obj")
+                if page not in page_objects or annotation in object_references:
+                    raise PdfValidationError("production OBJR page/object closure differs")
+                object_references[annotation] = number
+            else:
+                raise PdfValidationError("production StructElem has an unsupported kid")
+        visiting.remove(number)
+
+    visit(root_number, _ref(objects[root_number].value["P"], "document StructElem /P"))
+    if set(ordered) != structure_numbers:
+        raise PdfValidationError("production structure tree has unreachable elements")
+    return ordered, marked, object_references
+
+
+def verify_production_pdf_structure(
+    pdf: bytes,
+    package: dict[str, Any],
+    source_ledger: dict[str, Any],
+    *,
+    expected_page_count: int,
+) -> dict[str, Any]:
+    """Independently verify the complete public production-book PDF closure."""
+
+    if (
+        package.get("contract") != "typaxis.contract/1.4"
+        or source_ledger != _production_source_ledger(package)
+        or expected_page_count <= 0
+    ):
+        raise PdfValidationError("production package/source ledger closure differs")
+    objects, trailer = _parse_xref(pdf)
+    catalog_number = _ref(trailer["Root"], "production trailer /Root")
+    catalog = objects[catalog_number].value
+    _exact_keys(
+        catalog,
+        {
+            "Lang", "MarkInfo", "Metadata", "Names", "Outlines", "Pages",
+            "StructTreeRoot", "Type", "ViewerPreferences",
+        },
+        "production catalog",
+    )
+    _name(catalog["Type"], "Catalog", "production catalog /Type")
+    language = _utf16_text(catalog["Lang"], "production catalog /Lang")
+    if (
+        language != package["document"]["language"]
+        or catalog["MarkInfo"] != {"Marked": True}
+        or catalog["ViewerPreferences"] != {"DisplayDocTitle": True}
+    ):
+        raise PdfValidationError("production catalog accessibility state differs")
+
+    pages_number = _ref(catalog["Pages"], "production catalog /Pages")
+    pages_root = objects[pages_number].value
+    _exact_keys(pages_root, {"Count", "Kids", "Type"}, "production page tree")
+    _name(pages_root["Type"], "Pages", "production page tree /Type")
+    page_refs = pages_root["Kids"]
+    if (
+        pages_root["Count"] != expected_page_count
+        or not isinstance(page_refs, list)
+        or len(page_refs) != expected_page_count
+    ):
+        raise PdfValidationError("production page count differs")
+    page_numbers = [_ref(value, "production page tree kid") for value in page_refs]
+    if len(set(page_numbers)) != len(page_numbers):
+        raise PdfValidationError("production page tree duplicates a page")
+
+    page_streams: dict[int, bytes] = {}
+    page_xobjects: dict[int, dict[str, int]] = {}
+    annotation_numbers: list[int] = []
+    for page_index, number in enumerate(page_numbers):
+        page = objects[number].value
+        if not isinstance(page, dict) or page.get("Type") != PdfName("Page"):
+            raise PdfValidationError("production page object differs")
+        if (
+            _ref(page.get("Parent"), "production page /Parent") != pages_number
+            or page.get("StructParents") != page_index
+            or (page_index == 0 and page.get("Tabs") != PdfName("S"))
+        ):
+            raise PdfValidationError("production page structure state differs")
+        content_number = _ref(page.get("Contents"), "production page /Contents")
+        content = objects[content_number].stream
+        if content is None:
+            raise PdfValidationError("production page content is not a stream")
+        page_streams[number] = content
+        resources = page.get("Resources")
+        xobjects = resources.get("XObject") if isinstance(resources, dict) else None
+        fonts = resources.get("Font") if isinstance(resources, dict) else None
+        if not isinstance(xobjects, dict) or not isinstance(fonts, dict):
+            raise PdfValidationError("production page resources are incomplete")
+        page_xobjects[number] = {
+            name: _ref(reference, "production page XObject")
+            for name, reference in xobjects.items()
+        }
+        annotations = page.get("Annots", [])
+        if not isinstance(annotations, list):
+            raise PdfValidationError("production page /Annots is not an array")
+        annotation_numbers.extend(
+            _ref(reference, "production page annotation") for reference in annotations
+        )
+
+    forbidden_keys = {"AA", "EmbeddedFiles", "JS", "OpenAction"}
+    forbidden_names = {"EmbeddedFile", "Filespec", "JavaScript", "Launch", "RichMedia"}
+    for item in objects.values():
+        stack = [item.value]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, dict):
+                if forbidden_keys & set(value):
+                    raise PdfValidationError("production PDF contains an active-content key")
+                stack.extend(value.values())
+            elif isinstance(value, list):
+                stack.extend(value)
+            elif isinstance(value, PdfName) and value.value in forbidden_names:
+                raise PdfValidationError("production PDF contains an active-content name")
+
+    forms = {
+        number: item
+        for number, item in objects.items()
+        if isinstance(item.value, dict) and item.value.get("Subtype") == PdfName("Form")
+    }
+    declared_vectors = [
+        resource
+        for resource in package["resources"]["images"]
+        if resource["media_type"] in {"svg-safe-1", "svg-safe-2"}
+    ]
+    if len(forms) != len(declared_vectors):
+        raise PdfValidationError("production vector Form/resource count differs")
+    for item in forms.values():
+        dictionary = item.value
+        if (
+            dictionary.get("Type") != PdfName("XObject")
+            or dictionary.get("FormType") != 1
+            or not isinstance(dictionary.get("BBox"), list)
+            or len(dictionary["BBox"]) != 4
+            or item.stream is None
+        ):
+            raise PdfValidationError("production vector Form is malformed")
+        if any(
+            token in item.stream
+            for token in (
+                b"/ActualText", b"/Alt", b"/Image", b"/MCID", b" BDC", b" BMC",
+                b" BI\n", b" ID\n", b" EI\n",
+            )
+        ):
+            raise PdfValidationError("production vector Form contains raster or semantic state")
+        if not any(token in item.stream for token in (b" m\n", b" re ", b" c\n")):
+            raise PdfValidationError("production vector Form has no vector path")
+
+    image_objects = {
+        number: item
+        for number, item in objects.items()
+        if isinstance(item.value, dict) and item.value.get("Subtype") == PdfName("Image")
+    }
+    mask_numbers = {
+        _ref(item.value["SMask"], "production image /SMask")
+        for item in image_objects.values()
+        if "SMask" in item.value
+    }
+    if not mask_numbers <= set(image_objects):
+        raise PdfValidationError("production image soft mask is unresolved")
+    top_images = set(image_objects) - mask_numbers
+    declared_png = sum(
+        resource["media_type"] == "png" for resource in package["resources"]["images"]
+    )
+    declared_jpeg = sum(
+        resource["media_type"] == "jpeg-baseline"
+        for resource in package["resources"]["images"]
+    )
+    jpeg_objects = {
+        number
+        for number in top_images
+        if image_objects[number].value.get("Filter") == PdfName("DCTDecode")
+    }
+    png_objects = top_images - jpeg_objects
+    if len(jpeg_objects) != declared_jpeg or len(png_objects) != declared_png:
+        raise PdfValidationError("production raster Image/resource count differs")
+    for number, item in image_objects.items():
+        if (
+            item.value.get("Type") != PdfName("XObject")
+            or _integer(item.value.get("Width"), "production image width") <= 0
+            or _integer(item.value.get("Height"), "production image height") <= 0
+            or item.stream is None
+        ):
+            raise PdfValidationError(f"production Image XObject {number} is malformed")
+
+    source_nodes = _production_source_nodes(package)
+    media_by_id = {
+        resource["image_id"]: resource["media_type"]
+        for resource in package["resources"]["images"]
+    }
+    expected_form_uses = sum(
+        media_by_id.get(node.get("image_id")) in {"svg-safe-1", "svg-safe-2"}
+        for node in source_nodes
+    )
+    expected_image_uses = sum(
+        media_by_id.get(node.get("image_id")) in {"png", "jpeg-baseline"}
+        for node in source_nodes
+    )
+    observed_form_uses = 0
+    observed_image_uses = 0
+    used_forms: set[int] = set()
+    used_images: set[int] = set()
+    for page_number, content in page_streams.items():
+        for raw_name in re.findall(rb"/([A-Za-z][A-Za-z0-9]*) Do(?:\r?\n|\s)", content):
+            name = raw_name.decode("ascii")
+            target = page_xobjects[page_number].get(name)
+            if target is None:
+                raise PdfValidationError("production page invokes an undeclared XObject")
+            if target in forms:
+                observed_form_uses += 1
+                used_forms.add(target)
+            elif target in top_images:
+                observed_image_uses += 1
+                used_images.add(target)
+            else:
+                raise PdfValidationError("production page invokes an unsupported XObject")
+    if (
+        observed_form_uses != expected_form_uses
+        or observed_image_uses != expected_image_uses
+        or used_forms != set(forms)
+        or used_images != top_images
+    ):
+        raise PdfValidationError("production XObject placement/deduplication closure differs")
+
+    type0_fonts = {
+        number: item.value
+        for number, item in objects.items()
+        if isinstance(item.value, dict)
+        and item.value.get("Type") == PdfName("Font")
+        and item.value.get("Subtype") == PdfName("Type0")
+    }
+    declared_fonts = package["resources"]["font_faces"]
+    if len(type0_fonts) != len(declared_fonts):
+        raise PdfValidationError("production Type0 font/resource count differs")
+    font_file_2 = 0
+    font_file_3 = 0
+    for dictionary in type0_fonts.values():
+        descendants = dictionary.get("DescendantFonts")
+        if (
+            dictionary.get("Encoding") != PdfName("Identity-H")
+            or not isinstance(descendants, list)
+            or len(descendants) != 1
+            or not isinstance(dictionary.get("ToUnicode"), PdfRef)
+        ):
+            raise PdfValidationError("production Type0 font is incomplete")
+        descendant = objects[_ref(descendants[0], "production descendant font")].value
+        descriptor = objects[_ref(descendant.get("FontDescriptor"), "production FontDescriptor")].value
+        if descendant.get("Subtype") == PdfName("CIDFontType2") and "FontFile2" in descriptor:
+            font_file_2 += 1
+            program = objects[_ref(descriptor["FontFile2"], "production /FontFile2")]
+        elif descendant.get("Subtype") == PdfName("CIDFontType0") and "FontFile3" in descriptor:
+            font_file_3 += 1
+            program = objects[_ref(descriptor["FontFile3"], "production /FontFile3")]
+            if program.value.get("Subtype") != PdfName("OpenType"):
+                raise PdfValidationError("production CFF program is not OpenType")
+        else:
+            raise PdfValidationError("production descendant font/program pairing differs")
+        if program.stream is None or not program.stream:
+            raise PdfValidationError("production embedded font program is empty")
+    expected_file_2 = sum(
+        font["media_type"] in {"sfnt-truetype-glyf", "ttc-truetype-glyf"}
+        for font in declared_fonts
+    )
+    expected_file_3 = sum(font["media_type"] == "sfnt-cff1" for font in declared_fonts)
+    if (font_file_2, font_file_3) != (expected_file_2, expected_file_3):
+        raise PdfValidationError("production embedded font format closure differs")
+
+    structure_root_number = _ref(catalog["StructTreeRoot"], "production catalog /StructTreeRoot")
+    structure_root = objects[structure_root_number].value
+    if (
+        not isinstance(structure_root, dict)
+        or structure_root.get("Type") != PdfName("StructTreeRoot")
+        or structure_root.get("RoleMap")
+        != {
+            "Em": PdfName("Span"),
+            "Exercise": PdfName("Div"),
+            "Proof": PdfName("Div"),
+            "Result": PdfName("Div"),
+            "Strong": PdfName("Span"),
+        }
+    ):
+        raise PdfValidationError("production StructTreeRoot/RoleMap differs")
+    root_kids = structure_root.get("K")
+    if not isinstance(root_kids, list) or len(root_kids) != 1:
+        raise PdfValidationError("production StructTreeRoot must have one Document child")
+    document_structure = _ref(root_kids[0], "production Document structure")
+    ordered_structure, marked, object_references = _production_structure_graph(
+        objects, document_structure, set(page_numbers)
+    )
+    observed_roles = [objects[number].value["S"].value for number in ordered_structure]
+    expected_roles = _production_structure_roles(package)
+    if observed_roles != expected_roles:
+        raise PdfValidationError("production structure role/reading order differs")
+
+    alternatives = [
+        _utf16_text(objects[number].value["Alt"], "production StructElem /Alt")
+        for number in ordered_structure
+        if "Alt" in objects[number].value
+    ]
+    if alternatives != _production_alternatives(package):
+        raise PdfValidationError("production structure alternatives differ")
+
+    parent_tree = objects[_ref(structure_root["ParentTree"], "production ParentTree")].value
+    nums = parent_tree.get("Nums") if isinstance(parent_tree, dict) else None
+    if not isinstance(nums, list) or len(nums) % 2:
+        raise PdfValidationError("production ParentTree number tree differs")
+    parent_values = {nums[index]: nums[index + 1] for index in range(0, len(nums), 2)}
+    if len(parent_values) != len(nums) // 2:
+        raise PdfValidationError("production ParentTree has duplicate keys")
+    for page_index, page_number in enumerate(page_numbers):
+        records = sorted(marked[page_number])
+        if [mcid for mcid, _owner in records] != list(range(len(records))):
+            raise PdfValidationError("production structure MCIDs are not dense")
+        content_mcids = [
+            int(value) for value in re.findall(rb"/MCID (0|[1-9][0-9]*)", page_streams[page_number])
+        ]
+        if sorted(content_mcids) != list(range(len(records))) or len(content_mcids) != len(records):
+            raise PdfValidationError("production content and structure MCIDs differ")
+        parent_array = parent_values.get(page_index)
+        if (
+            not isinstance(parent_array, list)
+            or [_ref(value, "production ParentTree page value") for value in parent_array]
+            != [owner for _mcid, owner in records]
+        ):
+            raise PdfValidationError("production ParentTree page mapping differs")
+
+    link_nodes = [node for node in source_nodes if node["kind"] == "link"]
+    if len(annotation_numbers) != len(link_nodes) or len(set(annotation_numbers)) != len(annotation_numbers):
+        raise PdfValidationError("production link annotation count differs")
+    for annotation_number, link in zip(annotation_numbers, link_nodes, strict=True):
+        annotation = objects[annotation_number].value
+        target = link["target"]
+        if (
+            annotation.get("Type") != PdfName("Annot")
+            or annotation.get("Subtype") != PdfName("Link")
+            or _literal_ascii_text(annotation.get("Dest"), "production link /Dest")
+            != target.get("anchor_id")
+            or not _utf16_text(annotation.get("Contents"), "production link /Contents")
+            or object_references.get(annotation_number) is None
+            or parent_values.get(annotation.get("StructParent"))
+            != PdfRef(object_references[annotation_number])
+        ):
+            raise PdfValidationError("production link annotation/structure closure differs")
+
+    id_tree = objects[_ref(structure_root["IDTree"], "production IDTree")].value
+    names = id_tree.get("Names") if isinstance(id_tree, dict) else None
+    structure_ids = {
+        _literal_ascii_text(objects[number].value["ID"], "production StructElem /ID"): number
+        for number in ordered_structure
+        if "ID" in objects[number].value
+    }
+    if not isinstance(names, list) or len(names) != 2 * len(structure_ids):
+        raise PdfValidationError("production IDTree pair count differs")
+    observed_ids = [
+        (
+            _literal_ascii_text(names[index], "production IDTree name"),
+            _ref(names[index + 1], "production IDTree target"),
+        )
+        for index in range(0, len(names), 2)
+    ]
+    if observed_ids != sorted(structure_ids.items()):
+        raise PdfValidationError("production IDTree/structure IDs differ")
+
+    actual_text: list[str] = []
+    for page_number in page_numbers:
+        for raw in re.findall(rb"/ActualText <([0-9A-Fa-f]+)>", page_streams[page_number]):
+            payload = bytes.fromhex(raw.decode("ascii"))
+            if not payload.startswith(b"\xfe\xff"):
+                raise PdfValidationError("production ActualText is not UTF-16BE")
+            try:
+                actual_text.append(payload[2:].decode("utf-16-be"))
+            except UnicodeDecodeError as error:
+                raise PdfValidationError("production ActualText is malformed") from error
+    expected_actual_text = _production_actual_text(package)
+    if Counter(actual_text) != Counter(expected_actual_text):
+        raise PdfValidationError("production ActualText/source text closure differs")
+
+    destinations = catalog["Names"]
+    if not isinstance(destinations, dict) or set(destinations) != {"Dests"}:
+        raise PdfValidationError("production catalog destination dictionary differs")
+    name_tree = objects[_ref(destinations["Dests"], "production destination name tree")].value
+    destination_names = name_tree.get("Names") if isinstance(name_tree, dict) else None
+    if not isinstance(destination_names, list) or len(destination_names) % 2:
+        raise PdfValidationError("production destination name tree differs")
+    observed_destinations: list[str] = []
+    for index in range(0, len(destination_names), 2):
+        observed_destinations.append(
+            _literal_ascii_text(destination_names[index], "production destination name")
+        )
+        destination = destination_names[index + 1]
+        if (
+            not isinstance(destination, list)
+            or len(destination) != 5
+            or _ref(destination[0], "production destination page") not in page_numbers
+            or destination[1] != PdfName("XYZ")
+            or destination[4] is not None
+        ):
+            raise PdfValidationError("production destination view differs")
+    expected_destinations = sorted(
+        node["anchor_id"]
+        for node in source_nodes
+        if isinstance(node.get("anchor_id"), str)
+    )
+    if observed_destinations != expected_destinations:
+        raise PdfValidationError("production named destinations differ")
+
+    outline_entries = package["outline"]["entries"]
+    outline_root_number = _ref(catalog["Outlines"], "production catalog /Outlines")
+    outline_root = objects[outline_root_number].value
+    if (
+        outline_root.get("Type") != PdfName("Outlines")
+        or outline_root.get("Count") != len(outline_entries)
+    ):
+        raise PdfValidationError("production outline root differs")
+    expected_children: dict[int | None, list[dict[str, Any]]] = {}
+    for entry in outline_entries:
+        expected_children.setdefault(entry["parent_outline_id"], []).append(entry)
+    observed_outline_objects: dict[int, int] = {}
+
+    def verify_outline_children(parent_id: int | None, parent_object: int) -> None:
+        expected = expected_children.get(parent_id, [])
+        parent = objects[parent_object].value
+        if not expected:
+            if any(key in parent for key in ("First", "Last", "Count")):
+                raise PdfValidationError("production outline leaf has child state")
+            return
+        current = _ref(parent.get("First"), "production outline /First")
+        last = _ref(parent.get("Last"), "production outline /Last")
+        previous: int | None = None
+        for entry in expected:
+            item = objects[current].value
+            if (
+                _ref(item.get("Parent"), "production outline /Parent") != parent_object
+                or (_ref(item["Prev"], "production outline /Prev") if "Prev" in item else None)
+                != previous
+                or _utf16_text(item.get("Title"), "production outline /Title")
+                != entry["label"]
+                or _literal_ascii_text(item.get("Dest"), "production outline /Dest")
+                != entry["destination"]
+            ):
+                raise PdfValidationError("production outline entry differs")
+            structure = objects[_ref(item.get("SE"), "production outline /SE")].value
+            source_node = next(
+                node for node in source_nodes if node.get("node_id") == entry["source_node_id"]
+            )
+            expected_role = (
+                f"H{source_node['level']}"
+                if source_node["kind"] == "heading"
+                else source_node["semantic_kind"].title()
+            )
+            if structure.get("S") != PdfName(expected_role):
+                raise PdfValidationError("production outline structure target differs")
+            observed_outline_objects[entry["outline_id"]] = current
+            verify_outline_children(entry["outline_id"], current)
+            previous = current
+            next_object = _ref(item["Next"], "production outline /Next") if "Next" in item else None
+            current = next_object if next_object is not None else -1
+        if previous != last or current != -1:
+            raise PdfValidationError("production outline sibling closure differs")
+
+    verify_outline_children(None, outline_root_number)
+    if len(observed_outline_objects) != len(outline_entries):
+        raise PdfValidationError("production outline coverage differs")
+
+    metadata = objects[_ref(catalog["Metadata"], "production catalog /Metadata")]
+    if (
+        not isinstance(metadata.value, dict)
+        or metadata.value.get("Type") != PdfName("Metadata")
+        or metadata.value.get("Subtype") != PdfName("XML")
+        or metadata.stream is None
+    ):
+        raise PdfValidationError("production XMP metadata object differs")
+    try:
+        xmp = ElementTree.fromstring(metadata.stream)
+    except ElementTree.ParseError as error:
+        raise PdfValidationError("production XMP metadata is not well-formed XML") from error
+    xmp_text = list(xmp.itertext())
+    required_metadata = [
+        package["document"]["language"],
+        package["metadata"]["title"],
+        package["metadata"]["identifier"],
+        package["metadata"]["author"],
+        "1",
+    ]
+    if not all(value in xmp_text for value in required_metadata):
+        raise PdfValidationError("production XMP metadata/source fields differ")
+
+    return {
+        "actual_text_count": len(actual_text),
+        "algorithm": "typaxis.production-book-pdf-validator/1",
+        "alternative_count": len(alternatives),
+        "document_language": language,
+        "form_count": len(forms),
+        "form_use_count": observed_form_uses,
+        "image_count": len(image_objects),
+        "link_count": len(annotation_numbers),
+        "object_count": len(objects),
+        "outline_count": len(outline_entries),
+        "page_count": len(page_numbers),
+        "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
+        "structure_count": len(ordered_structure),
+        "structure_roles_sha256": hashlib.sha256(
+            "\0".join(observed_roles).encode("utf-8")
+        ).hexdigest(),
+        "type0_font_count": len(type0_fonts),
     }
 
 

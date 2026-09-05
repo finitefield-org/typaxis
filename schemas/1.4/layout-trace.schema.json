@@ -7,6 +7,7 @@
   "required": ["contract", "coordinate_unit"],
   "properties": {
     "advanced_pagination": {"$ref": "machine-advanced-pagination-manifest.schema.json"},
+    "block_layout_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
     "contract": {"$ref": "common.schema.json#/$defs/contract"},
     "coordinate_unit": {"$ref": "common.schema.json#/$defs/coordinate_unit"},
     "flow_registry_sha256": {
@@ -15,16 +16,20 @@
         {"type": "null"}
       ]
     },
+    "fragment_count": {"$ref": "common.schema.json#/$defs/nonnegative_safe_integer"},
     "footnote_layout": {"$ref": "machine-footnote-manifest.schema.json"},
     "max_layout_passes": {"type": "integer", "minimum": 1, "maximum": 65535},
     "initial_state": {"$ref": "#/$defs/initial_pagination_state_record"},
     "initial_fingerprint": {"$ref": "common.schema.json#/$defs/sha256"},
+    "inline_layout_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
     "passes": {"type": "array", "items": {"$ref": "#/$defs/pass"}},
     "precomposed_vector_block_layout": {"$ref": "#/$defs/precomposed_vector_block_layout"},
     "precomposed_vector_layout": {"$ref": "#/$defs/precomposed_vector_layout"},
     "profile_receipt_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
     "result": {"$ref": "#/$defs/result"},
-    "table_layouts": {"type": "array", "items": {"$ref": "machine-table-manifest.schema.json"}}
+    "selected_layout_sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+    "table_layouts": {"type": "array", "items": {"$ref": "machine-table-manifest.schema.json"}},
+    "vector_display_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
   },
   "oneOf": [
     {
@@ -87,6 +92,26 @@
           {"required": ["passes"]},
           {"required": ["precomposed_vector_layout"]},
           {"required": ["profile_receipt_sha256"]},
+          {"required": ["result"]},
+          {"required": ["table_layouts"]}
+        ]
+      }
+    },
+    {
+      "required": ["block_layout_sha256", "flow_registry_sha256", "fragment_count", "inline_layout_sha256", "profile_receipt_sha256", "selected_layout_sha256", "vector_display_sha256"],
+      "properties": {
+        "flow_registry_sha256": {"$ref": "common.schema.json#/$defs/sha256"}
+      },
+      "not": {
+        "anyOf": [
+          {"required": ["advanced_pagination"]},
+          {"required": ["footnote_layout"]},
+          {"required": ["initial_fingerprint"]},
+          {"required": ["initial_state"]},
+          {"required": ["max_layout_passes"]},
+          {"required": ["passes"]},
+          {"required": ["precomposed_vector_block_layout"]},
+          {"required": ["precomposed_vector_layout"]},
           {"required": ["result"]},
           {"required": ["table_layouts"]}
         ]

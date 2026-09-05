@@ -17,9 +17,9 @@ pub const STYLEABLE_BLOCK_TYPES: &[&str] = &[
     "page_break",
 ];
 
-/// Private contract-1.4 selector domain. These names deliberately do not
-/// appear in [`STYLEABLE_BLOCK_TYPES`], so the public basic registry remains
-/// closed at version 1.
+/// Contract-1.4 production selector extension. These names deliberately do
+/// not appear in [`STYLEABLE_BLOCK_TYPES`], so frozen profile registries remain
+/// closed while `production-book-1` opts into this extension explicitly.
 pub const PRECOMPOSED_VECTOR_STYLEABLE_BLOCK_TYPES: &[&str] =
     &["math_vector_block", "vector_figure"];
 
@@ -1181,7 +1181,7 @@ impl SemanticContainerComputedStyle {
     }
 }
 
-/// Closes the private 1.4 semantic selector cascade into the same typed block
+/// Closes the contract-1.4 semantic selector cascade into the same typed block
 /// domain used by existing layout. Syntax supplies an isolated, validated
 /// sheet whose semantic selectors are represented by the paragraph-shaped
 /// applicability domain, so the ordinary important/specificity/source-order,

@@ -731,6 +731,9 @@ fn profile_receipt_fingerprint(
         MachinePdfProfileId::Float1 => crate::FLOAT_PROFILE_RECEIPT_ALGORITHM,
         MachinePdfProfileId::Footnote1 => FOOTNOTE_PROFILE_RECEIPT_ALGORITHM,
         MachinePdfProfileId::HeaderFooter1 => crate::HEADER_FOOTER_PROFILE_RECEIPT_ALGORITHM,
+        MachinePdfProfileId::ProductionBook1 => {
+            crate::STAGING_PRODUCTION_BOOK_PROFILE_RECEIPT_ALGORITHM
+        }
         MachinePdfProfileId::Table1 => TABLE_PROFILE_RECEIPT_ALGORITHM,
         MachinePdfProfileId::BasicDocument1 | MachinePdfProfileId::Paragraph1 => {
             BASIC_PROFILE_RECEIPT_ALGORITHM

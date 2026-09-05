@@ -4,6 +4,29 @@
   "title": "Typaxis Machine Profile Host Evidence 1",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "fixture": {
+            "properties": {
+              "fixture_id": {"pattern": "^production-book-1\\."}
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "contains": {
+              "properties": {"name": {"const": "independent_pdf_structure"}},
+              "required": ["name"]
+            }
+          }
+        }
+      }
+    }
+  ],
   "required": [
     "artifacts",
     "binary",
@@ -28,7 +51,7 @@
     "checks": {
       "type": "array",
       "minItems": 15,
-      "maxItems": 15,
+      "maxItems": 16,
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/check"}
     },
@@ -87,6 +110,7 @@
             "external_page_count",
             "external_poppler_text",
             "external_mupdf_raster",
+            "independent_pdf_structure",
             "manifest_schema",
             "machine_reproducibility",
             "profile_receipt_closure",

@@ -3,23 +3,31 @@ use typaxis_core::MachinePdfProfileId;
 /// Block kinds understood by the current document domain.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachineBlockKind {
+    DisplayMath,
     Figure,
     Heading,
     List,
+    MathVectorBlock,
     PageBreak,
     Paragraph,
+    SemanticContainer,
     Table,
+    VectorFigure,
 }
 
 impl MachineBlockKind {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::DisplayMath => "display_math",
             Self::Figure => "figure",
             Self::Heading => "heading",
             Self::List => "list",
+            Self::MathVectorBlock => "math_vector_block",
             Self::PageBreak => "page_break",
             Self::Paragraph => "paragraph",
+            Self::SemanticContainer => "semantic_container",
             Self::Table => "table",
+            Self::VectorFigure => "vector_figure",
         }
     }
 }
@@ -31,7 +39,10 @@ pub enum MachineInlineKind {
     Emphasis,
     FootnoteReference,
     HardBreak,
+    InlineMath,
+    InlineVector,
     Link,
+    MathVector,
     Reference,
     SoftBreak,
     Strong,
@@ -45,7 +56,10 @@ impl MachineInlineKind {
             Self::Emphasis => "emphasis",
             Self::FootnoteReference => "footnote_reference",
             Self::HardBreak => "hard_break",
+            Self::InlineMath => "inline_math",
+            Self::InlineVector => "inline_vector",
             Self::Link => "link",
+            Self::MathVector => "math_vector",
             Self::Reference => "reference",
             Self::SoftBreak => "soft_break",
             Self::Strong => "strong",
@@ -196,7 +210,7 @@ impl MachineImageFormat {
     }
 }
 
-/// Coarse image-family vocabulary for the future private production profile.
+/// Coarse image-family vocabulary for the public production profile.
 /// Exact Safe-SVG media/profile names have a separate nominal type and cannot
 /// accidentally leak into `image_formats`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -500,21 +514,21 @@ const PRIVATE_VECTOR_PROFILES: &[MachineVectorProfile] = &[
     MachineVectorProfile::SvgSafe2,
 ];
 
-pub(crate) const PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION:
-    PrecomposedVectorCapabilityProjection = PrecomposedVectorCapabilityProjection {
-    block_additions: PRIVATE_VECTOR_BLOCK_ADDITIONS,
-    coarse_image_formats: PRIVATE_VECTOR_IMAGE_FORMATS,
-    inline_additions: PRIVATE_VECTOR_INLINE_ADDITIONS,
-    style_block_additions: PRIVATE_VECTOR_BLOCK_ADDITIONS,
-    vector_features: PRIVATE_VECTOR_FEATURES,
-    vector_features_by_profile: PRIVATE_VECTOR_FEATURES_BY_PROFILE,
-    vector_formats: PRIVATE_VECTOR_FORMATS,
-    vector_media_by_kind: PRIVATE_VECTOR_MEDIA_BY_KIND,
-    vector_metrics: PRIVATE_VECTOR_METRICS,
-    vector_profiles: PRIVATE_VECTOR_PROFILES,
-};
+pub(crate) const PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION: PrecomposedVectorCapabilityProjection =
+    PrecomposedVectorCapabilityProjection {
+        block_additions: PRIVATE_VECTOR_BLOCK_ADDITIONS,
+        coarse_image_formats: PRIVATE_VECTOR_IMAGE_FORMATS,
+        inline_additions: PRIVATE_VECTOR_INLINE_ADDITIONS,
+        style_block_additions: PRIVATE_VECTOR_BLOCK_ADDITIONS,
+        vector_features: PRIVATE_VECTOR_FEATURES,
+        vector_features_by_profile: PRIVATE_VECTOR_FEATURES_BY_PROFILE,
+        vector_formats: PRIVATE_VECTOR_FORMATS,
+        vector_media_by_kind: PRIVATE_VECTOR_MEDIA_BY_KIND,
+        vector_metrics: PRIVATE_VECTOR_METRICS,
+        vector_profiles: PRIVATE_VECTOR_PROFILES,
+    };
 
-pub(crate) const PRIVATE_PRODUCTION_BLOCKS: &[&str] = &[
+pub(crate) const PRODUCTION_BLOCKS: &[&str] = &[
     "display_math",
     "figure",
     "heading",
@@ -526,7 +540,7 @@ pub(crate) const PRIVATE_PRODUCTION_BLOCKS: &[&str] = &[
     "table",
     "vector_figure",
 ];
-pub(crate) const PRIVATE_PRODUCTION_INLINES: &[&str] = &[
+pub(crate) const PRODUCTION_INLINES: &[&str] = &[
     "anchor",
     "emphasis",
     "footnote_reference",
@@ -540,62 +554,60 @@ pub(crate) const PRIVATE_PRODUCTION_INLINES: &[&str] = &[
     "strong",
     "text",
 ];
-pub(crate) const PRIVATE_PRODUCTION_STYLE_BLOCK_TYPES: &[&str] = PRIVATE_PRODUCTION_BLOCKS;
-pub(crate) const PRIVATE_PRODUCTION_STYLE_SELECTORS: &[&str] = PRIVATE_PRODUCTION_BLOCKS;
+pub(crate) const PRODUCTION_STYLE_BLOCK_TYPES: &[&str] = PRODUCTION_BLOCKS;
+pub(crate) const PRODUCTION_STYLE_SELECTORS: &[&str] = PRODUCTION_BLOCKS;
 
 /// ADR-fixed order. These arrays are semantic tuples and are deliberately not
 /// passed through the set sorter used by capability vocabularies.
-pub(crate) const PRIVATE_PRODUCTION_RESOURCE_COMPONENTS: &[&str] = &[
+pub(crate) const PRODUCTION_RESOURCE_COMPONENTS: &[&str] = &[
     "typaxis.resource-profile/png/1",
     "typaxis.resource-profile/safe-vector/2",
     "typaxis.resource-profile/jpeg-baseline/1",
     "typaxis.resource-profile/truetype-glyf/1",
     "typaxis.resource-profile/sfnt-cff1/1",
 ];
-pub(crate) const PRIVATE_PRODUCTION_IMAGE_MEDIA: &[&str] =
+pub(crate) const PRODUCTION_IMAGE_MEDIA: &[&str] =
     &["png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"];
-pub(crate) const PRIVATE_PRODUCTION_FONT_MEDIA: &[&str] =
+pub(crate) const PRODUCTION_FONT_MEDIA: &[&str] =
     &["sfnt-truetype-glyf", "ttc-truetype-glyf", "sfnt-cff1"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct PrivateProductionBookCapabilityDescriptor;
+pub(crate) struct ProductionBookCapabilityDescriptor;
 
-impl PrivateProductionBookCapabilityDescriptor {
+impl ProductionBookCapabilityDescriptor {
     pub(crate) const PROFILE_ID: &'static str = "typaxis.machine-pdf/production-book-1";
     pub(crate) const RESOURCE_SET_ID: &'static str = "typaxis.production-book-resource-set/2";
     pub(crate) const DEFAULT_PROFILE_ID: &'static str = "typaxis.machine-pdf/paragraph-1";
     pub(crate) const fn vector(self) -> PrecomposedVectorCapabilityProjection {
-        PRIVATE_PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION
+        PRECOMPOSED_VECTOR_CAPABILITY_PROJECTION
     }
     pub(crate) const fn blocks(self) -> &'static [&'static str] {
-        PRIVATE_PRODUCTION_BLOCKS
+        PRODUCTION_BLOCKS
     }
     pub(crate) const fn inlines(self) -> &'static [&'static str] {
-        PRIVATE_PRODUCTION_INLINES
+        PRODUCTION_INLINES
     }
     pub(crate) const fn style_block_types(self) -> &'static [&'static str] {
-        PRIVATE_PRODUCTION_STYLE_BLOCK_TYPES
+        PRODUCTION_STYLE_BLOCK_TYPES
     }
     pub(crate) const fn style_selectors(self) -> &'static [&'static str] {
-        PRIVATE_PRODUCTION_STYLE_SELECTORS
+        PRODUCTION_STYLE_SELECTORS
     }
     pub(crate) const fn resource_components(self) -> &'static [&'static str] {
-        PRIVATE_PRODUCTION_RESOURCE_COMPONENTS
+        PRODUCTION_RESOURCE_COMPONENTS
     }
     pub(crate) const fn image_media(self) -> &'static [&'static str] {
-        PRIVATE_PRODUCTION_IMAGE_MEDIA
+        PRODUCTION_IMAGE_MEDIA
     }
     pub(crate) const fn font_media(self) -> &'static [&'static str] {
-        PRIVATE_PRODUCTION_FONT_MEDIA
+        PRODUCTION_FONT_MEDIA
     }
 }
 
-pub(crate) const PRIVATE_PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR:
-    PrivateProductionBookCapabilityDescriptor = PrivateProductionBookCapabilityDescriptor;
+pub(crate) const PRODUCTION_BOOK_CAPABILITY_DESCRIPTOR: ProductionBookCapabilityDescriptor =
+    ProductionBookCapabilityDescriptor;
 
-// The public tuple remains seven profiles in MI4-V17; retain the staged
-// publication insertion anchor while keeping paragraph-1 the default.
-const _: &str = PrivateProductionBookCapabilityDescriptor::DEFAULT_PROFILE_ID;
+const _: &str = ProductionBookCapabilityDescriptor::DEFAULT_PROFILE_ID;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MachinePdfFeature {
@@ -856,6 +868,52 @@ const FOOTNOTE_OPTIONAL_FRAMES: &[MachinePageFrame] = &[MachinePageFrame::Footno
 const FOOTNOTE_REJECTED_OPTIONAL_FRAMES: &[MachinePageFrame] =
     &[MachinePageFrame::Footer, MachinePageFrame::Header];
 
+const PRODUCTION_ACCEPTED_BLOCKS: &[MachineBlockKind] = &[
+    MachineBlockKind::DisplayMath,
+    MachineBlockKind::Figure,
+    MachineBlockKind::Heading,
+    MachineBlockKind::List,
+    MachineBlockKind::MathVectorBlock,
+    MachineBlockKind::PageBreak,
+    MachineBlockKind::Paragraph,
+    MachineBlockKind::SemanticContainer,
+    MachineBlockKind::Table,
+    MachineBlockKind::VectorFigure,
+];
+const PRODUCTION_ACCEPTED_INLINES: &[MachineInlineKind] = &[
+    MachineInlineKind::Anchor,
+    MachineInlineKind::Emphasis,
+    MachineInlineKind::FootnoteReference,
+    MachineInlineKind::HardBreak,
+    MachineInlineKind::InlineMath,
+    MachineInlineKind::InlineVector,
+    MachineInlineKind::Link,
+    MachineInlineKind::MathVector,
+    MachineInlineKind::Reference,
+    MachineInlineKind::SoftBreak,
+    MachineInlineKind::Strong,
+    MachineInlineKind::Text,
+];
+const PRODUCTION_ACCEPTED_FONT_FORMATS: &[MachineFontFormat] = &[
+    MachineFontFormat::OpenTypeCff,
+    MachineFontFormat::SfntTrueTypeGlyf,
+    MachineFontFormat::TtcTrueTypeGlyf,
+];
+const PRODUCTION_ACCEPTED_IMAGE_FORMATS: &[MachineImageFormat] = &[
+    MachineImageFormat::Jpeg,
+    MachineImageFormat::Png,
+    MachineImageFormat::Svg,
+];
+const PRODUCTION_PDF_FEATURES: &[MachinePdfFeature] = &[
+    MachinePdfFeature::HeadingSemantics,
+    MachinePdfFeature::LinkAnnotations,
+    MachinePdfFeature::NamedDestinations,
+    MachinePdfFeature::Outlines,
+    MachinePdfFeature::PngXObjects,
+    MachinePdfFeature::TaggedPdf,
+    MachinePdfFeature::TextExtraction,
+];
+
 /// Immutable, closed contract for one machine-PDF profile.
 ///
 /// All fields are private and every slice points at static, canonically ordered
@@ -1071,6 +1129,48 @@ impl MachineProfileDescriptor {
         unsupported_pdf_features: BASIC_UNSUPPORTED_PDF_FEATURES,
     };
 
+    /// Complete contract-1.4 production profile. The versioned resource-set
+    /// and SafeVector details are emitted from the companion nominal
+    /// descriptor; all common profile fields remain owned by this value.
+    pub const PRODUCTION_BOOK_1: Self = Self {
+        id: MachinePdfProfileId::PRODUCTION_BOOK_1,
+        source_closure: MachineSourceClosure::EntryOnly,
+        source_count: SourceCountBounds {
+            minimum: 1,
+            maximum: 1,
+        },
+        accepted_blocks: PRODUCTION_ACCEPTED_BLOCKS,
+        rejected_blocks: &[],
+        accepted_inlines: PRODUCTION_ACCEPTED_INLINES,
+        rejected_inlines: &[],
+        accepted_reference_formats: ACCEPTED_REFERENCE_FORMATS,
+        rejected_reference_formats: REJECTED_REFERENCE_FORMATS,
+        footnotes: FootnoteCapability {
+            definitions: true,
+            references: true,
+        },
+        style_block_types: PRODUCTION_ACCEPTED_BLOCKS,
+        accepted_style_selectors: PRODUCTION_ACCEPTED_BLOCKS,
+        rejected_style_selectors: &[],
+        accepted_style_properties: BASIC_ACCEPTED_STYLE_PROPERTIES,
+        rejected_style_properties: &[],
+        accepted_page_values: ACCEPTED_PAGE_VALUES,
+        rejected_page_values: REJECTED_PAGE_VALUES,
+        page_master: MachinePageMasterCapability {
+            count: 1,
+            optional_frames: FOOTNOTE_OPTIONAL_FRAMES,
+            rejected_optional_frames: FOOTNOTE_REJECTED_OPTIONAL_FRAMES,
+            selection_rules: false,
+        },
+        accepted_font_formats: PRODUCTION_ACCEPTED_FONT_FORMATS,
+        rejected_font_formats: &[],
+        minimum_fonts_for_text: 1,
+        accepted_image_formats: PRODUCTION_ACCEPTED_IMAGE_FORMATS,
+        rejected_image_formats: &[],
+        pdf_features: PRODUCTION_PDF_FEATURES,
+        unsupported_pdf_features: &[],
+    };
+
     pub const fn for_id(id: MachinePdfProfileId) -> Self {
         match id {
             MachinePdfProfileId::BasicDocument1 => Self::BASIC_DOCUMENT_1,
@@ -1079,6 +1179,7 @@ impl MachineProfileDescriptor {
             MachinePdfProfileId::Footnote1 => Self::FOOTNOTE_1,
             MachinePdfProfileId::HeaderFooter1 => Self::HEADER_FOOTER_1,
             MachinePdfProfileId::Paragraph1 => Self::PARAGRAPH_1,
+            MachinePdfProfileId::ProductionBook1 => Self::PRODUCTION_BOOK_1,
             MachinePdfProfileId::Table1 => Self::TABLE_1,
         }
     }
@@ -1205,6 +1306,7 @@ impl MachineProfileDescriptor {
                 | MachinePdfProfileId::Float1
                 | MachinePdfProfileId::Footnote1
                 | MachinePdfProfileId::HeaderFooter1
+                | MachinePdfProfileId::ProductionBook1
                 | MachinePdfProfileId::Table1
         );
         let block = if extended {

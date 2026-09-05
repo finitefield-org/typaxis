@@ -3,7 +3,11 @@ use typaxis_core::{
     push_jcs_string, LayoutStateFingerprint, Rect, ValidatedResourceLimits, CONTRACT,
     COORDINATE_UNIT,
 };
-use typaxis_document_package::{CanonicalJcsStats, DocumentPackageEncoder, JcsEncodeError};
+use typaxis_document_package::{
+    encode_reference_document_package_v1_4, CanonicalJcsStats, DocumentPackageEncoder,
+    JcsCountHashSink, JcsEncodeError, StagingSemanticDecodeError, WireFontMediaType,
+    WireImageMediaType,
+};
 use typaxis_layout::{FlowPosition, FlowTree, LayoutEpoch};
 use typaxis_manifest::{StagingFootnoteLayoutFacts, StagingTableLayoutFacts};
 use typaxis_pagination::{
@@ -127,15 +131,19 @@ pub const GENERATED_TRACE_TEXT_REQUIRES_OPT_IN: &str =
 
 #[derive(Debug)]
 pub enum DocumentPackageArtifactError {
+    Attestation(&'static str),
     Conversion(DocumentPackageConversionError),
     Encoding(JcsEncodeError),
+    Upgrade(StagingSemanticDecodeError),
 }
 
 impl std::fmt::Display for DocumentPackageArtifactError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Attestation(message) => formatter.write_str(message),
             Self::Conversion(error) => error.fmt(formatter),
             Self::Encoding(error) => error.fmt(formatter),
+            Self::Upgrade(error) => error.fmt(formatter),
         }
     }
 }
@@ -143,24 +151,65 @@ impl std::fmt::Display for DocumentPackageArtifactError {
 impl std::error::Error for DocumentPackageArtifactError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Attestation(_) => None,
             Self::Conversion(error) => Some(error),
             Self::Encoding(error) => Some(error),
+            Self::Upgrade(error) => Some(error),
         }
     }
 }
 
 pub fn write_document_package_json<W: Write>(
     package: &ValidatedParsedPackage,
+    admitted: &typaxis_resources::AdmittedResourceLedger,
     limits: &ValidatedResourceLimits,
     output: &mut W,
 ) -> Result<CanonicalJcsStats, DocumentPackageArtifactError> {
+    use typaxis_resources::{AdmittedFontMediaKind, AdmittedImageMediaKind};
+
+    if !admitted.matches_declarations(&package.package().resources) {
+        return Err(DocumentPackageArtifactError::Attestation(
+            "reference resource attestations do not match the package",
+        ));
+    }
     let wire_package = package
         .to_wire_document_package()
         .map_err(DocumentPackageArtifactError::Conversion)?;
+    let mut current_jcs = Vec::new();
     DocumentPackageEncoder::new(limits.get().max_document_package_bytes)
         .map_err(DocumentPackageArtifactError::Encoding)?
-        .write_preflighted(&wire_package, output)
-        .map_err(DocumentPackageArtifactError::Encoding)
+        .write_preflighted(&wire_package, &mut current_jcs)
+        .map_err(DocumentPackageArtifactError::Encoding)?;
+    let font_media = admitted
+        .fonts()
+        .iter()
+        .map(|font| match font.media_kind() {
+            AdmittedFontMediaKind::SfntTrueTypeGlyf => WireFontMediaType::SfntTrueTypeGlyf,
+            AdmittedFontMediaKind::TtcTrueTypeGlyf => WireFontMediaType::TtcTrueTypeGlyf,
+            AdmittedFontMediaKind::SfntCff1 => WireFontMediaType::SfntCff1,
+        })
+        .collect::<Vec<_>>();
+    let image_media = admitted
+        .images()
+        .iter()
+        .map(|image| match image.media_kind() {
+            AdmittedImageMediaKind::Png => WireImageMediaType::Png,
+            AdmittedImageMediaKind::JpegBaseline => WireImageMediaType::JpegBaseline,
+            AdmittedImageMediaKind::SafeVector => WireImageMediaType::SvgSafe1,
+            AdmittedImageMediaKind::SafeVector2 => WireImageMediaType::SvgSafe2,
+        })
+        .collect::<Vec<_>>();
+    let canonical =
+        encode_reference_document_package_v1_4(&current_jcs, &font_media, &image_media, limits)
+            .map_err(DocumentPackageArtifactError::Upgrade)?;
+    let mut stats = JcsCountHashSink::new();
+    stats
+        .write_all(canonical.as_bytes())
+        .map_err(|error| DocumentPackageArtifactError::Encoding(JcsEncodeError::Write(error)))?;
+    output
+        .write_all(canonical.as_bytes())
+        .map_err(|error| DocumentPackageArtifactError::Encoding(JcsEncodeError::Write(error)))?;
+    Ok(stats.finish())
 }
 
 #[cfg(test)]
@@ -168,8 +217,28 @@ fn document_package_json(
     package: &ValidatedParsedPackage,
     limits: &ValidatedResourceLimits,
 ) -> Result<String, String> {
+    let admitted =
+        typaxis_resources::AdmittedResourceResolver::new(&package.package().resources, limits)
+            .and_then(typaxis_resources::AdmittedResourceResolver::finish)
+            .map_err(|error| format!("resource admission failed: {error:?}"))?;
     let mut bytes = Vec::new();
-    write_document_package_json(package, limits, &mut bytes).map_err(|error| error.to_string())?;
+    write_document_package_json(package, &admitted, limits, &mut bytes)
+        .map_err(|error| error.to_string())?;
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+fn reference_carrier_json(
+    package: &ValidatedParsedPackage,
+    limits: &ValidatedResourceLimits,
+) -> Result<String, String> {
+    let wire = package
+        .to_wire_document_package()
+        .map_err(|error| error.to_string())?;
+    let bytes = DocumentPackageEncoder::new(limits.get().max_document_package_bytes)
+        .map_err(|error| error.to_string())?
+        .to_jcs_vec(&wire)
+        .map_err(|error| error.to_string())?;
     String::from_utf8(bytes).map_err(|error| error.to_string())
 }
 
@@ -207,6 +276,7 @@ pub fn reference_layout_trace_json(
     include_trace_text: bool,
 ) -> Result<String, &'static str> {
     layout_trace_json(
+        CONTRACT,
         flow,
         initial,
         pagination,
@@ -263,6 +333,7 @@ pub fn machine_layout_trace_json(
         (_, None) => None,
     };
     layout_trace_json(
+        typaxis_core::DocumentPackageContractId::V1_3.as_str(),
         flow,
         initial,
         pagination,
@@ -285,7 +356,10 @@ pub fn advanced_machine_layout_trace_json(
     let mut json = String::from("{\"advanced_pagination\":");
     json.push_str(manifest.canonical_jcs());
     json.push_str(",\"contract\":");
-    push_jcs_string(&mut json, CONTRACT);
+    push_jcs_string(
+        &mut json,
+        typaxis_core::DocumentPackageContractId::V1_3.as_str(),
+    );
     json.push_str(",\"coordinate_unit\":");
     push_jcs_string(&mut json, COORDINATE_UNIT);
     json.push_str(",\"flow_registry_sha256\":");
@@ -303,6 +377,7 @@ struct LayoutTraceProfileProjection<'a> {
 }
 
 fn layout_trace_json(
+    contract: &str,
     flow: &FlowTree,
     initial: &InitialPaginationState,
     pagination: &PaginationResult,
@@ -337,7 +412,7 @@ fn layout_trace_json(
         return Err("footnote trace facts do not match selected pagination");
     }
     let mut json = String::from("{\"contract\":");
-    push_jcs_string(&mut json, CONTRACT);
+    push_jcs_string(&mut json, contract);
     json.push_str(",\"coordinate_unit\":");
     push_jcs_string(&mut json, COORDINATE_UNIT);
     if let Some((_, flow_registry_sha256)) = machine_binding {
@@ -839,7 +914,10 @@ mod tests {
             config.limits(),
         )
         .unwrap();
-        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.3\""));
+        assert!(json.starts_with("{\"contract\":\"typaxis.contract/1.4\""));
+        assert!(json.contains("\"language\":\"und\""));
+        assert!(json.contains("\"metadata\":{\"author\":null"));
+        assert!(json.contains("\"outline\":{\"entries\":[]}"));
         assert!(json.contains("\"kind\":\"text\""));
         assert!(json.contains("\"anchor_id\":\"target\""));
         assert!(!json.contains("text:hello"));
@@ -848,7 +926,7 @@ mod tests {
     #[test]
     fn package_json_uses_the_full_converter_for_styles_and_resources() {
         let config = config();
-        let json = document_package_json(
+        let json = reference_carrier_json(
             &package_with_config("font:Body:body.ttf\ntext:hello\n", &config),
             config.limits(),
         )

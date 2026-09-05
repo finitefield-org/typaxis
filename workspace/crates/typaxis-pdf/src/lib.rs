@@ -86,8 +86,9 @@ pub use tagged_pdf::{
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use tagged_pdf_v2::staging_tagged_vector_pdf_v2_fixture;
 pub use tagged_pdf_v2::{
-    write_staging_tagged_pdf_v2, write_staging_tagged_pdf_v2_with_combined_vectors,
-    StagingTaggedPdfV2, TaggedPdfObjectObservationV2, TaggedPdfObservationV2, TaggedPdfV2Error,
+    write_production_tagged_pdf_v2, write_staging_tagged_pdf_v2,
+    write_staging_tagged_pdf_v2_with_combined_vectors, StagingTaggedPdfV2,
+    TaggedPdfObjectObservationV2, TaggedPdfObservationV2, TaggedPdfV2Error,
     TAGGED_PDF_OBSERVATION_ALGORITHM_V2, TAGGED_PDF_VALIDATOR_ALGORITHM_V2,
 };
 

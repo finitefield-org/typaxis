@@ -2,7 +2,7 @@
 
 ## Implemented public machine-input ownership
 
-The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md) and extended by [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). Public package commands and local host evidence cover all seven immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
+The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), extended through [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md), and completed for M4 by [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md) through [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md). Public package commands and local host evidence cover all eight immutable profiles. The lower table remains the shared base ownership inventory rather than an alternative machine-input path.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -13,7 +13,7 @@ The following rows are the ownership adopted by [ADR-0027](../adr/ADR-0027-machi
 | strict JSON lexical preflight, caller-constructible `WireDocumentPackage`, decoder-issued `DecodedDocumentPackage`, JSON location index, and package JCS hash | `typaxis-document-package` | portable decode/export only; never issue host or trusted syntax authority |
 | raw PACKAGE receipt, decoded binding, exact single companion-source set, read budgets, and monotonic machine-input progress | `typaxis-machine-input` | issue `AdmittedMachinePackage`; reject cross-session raw/decoded/source receipt substitution |
 | DTO lowering, actual source/TextMap/AST/style/master/resource validation, entry-only closure, and trusted package issuance | sealed `typaxis-syntax::DocumentPackageParser` | issue `ValidatedMachinePackage { ValidatedParsedPackage, provenance }`; no public DTO promotion path |
-| seven immutable public descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
+| eight immutable public descriptors, host availability, deterministic preflight order, and capability receipt | `typaxis-machine-profile` | generate canonical capability JSON and require the same profile/package/style/session binding at machine layout entry |
 | all safe declared resource candidates before capability preflight | `typaxis-host-admission::HostReadIdentityLedger`, populated by machine orchestration | prevent requested diagnostics/manifest/PDF targets from aliasing existing or missing input candidates without opening resource bytes |
 | logical font/image binding, bytes-derived metadata, partial progress, and complete resource ledger | `typaxis-resource-admission` using generic host receipts | capability-success path only; layout/finalization receives complete ledger, failed manifest may receive sealed progress |
 | typed phase diagnostic code/category/subject and command-wide 256-record budget | originating phase plus `typaxis-diagnostics` materializer | map subjects through package JSON/source indexes; stderr and canonical sidecar read the same typed diagnostic, never parse `Debug` strings |
@@ -52,7 +52,7 @@ These rows are the public contract 1.2 ownership adopted by [ADR-0028](../adr/AD
 | figure width/aspect geometry, caption FlowId, keep and oversize outcome | typed style/layout figure owner | issue one selected figure placement consumed by Display, finalization, PDF, and manifest |
 | link logical cluster range and selected page/line rectangle union | itemizer then selected-layout link owner | issue canonical nonempty rectangles; Display/PDF cannot infer links from coordinates or raw URI text |
 | selected body/subflow state and full basic-document artifact closure | selected-state owner | bind preflight, registry, flow cursors, breaks, markers, figures, links, and resource ledger into trace/Display/PDF/manifest |
-| frozen 1.2 registry and current 1.3 registry | Schema/contract integration owner | keep every version independent; current aliases, decoder, help, capabilities, fixtures, and generated artifacts switch only at an atomic publication milestone |
+| frozen 1.2/1.3 registries and current 1.4 registry | Schema/contract integration owner | keep every version independent; current aliases, decoder, help, capabilities, fixtures, and generated artifacts switch only at an atomic publication milestone |
 
 The M2 progress suffix is `ResourcesAdmitted -> FlowRegistryValidated -> LayoutSelected`. A downstream phase cannot reconstruct a flow registry from trace JSON, infer PNG from a path, normalize a URI again, relax keep/oversize policy, or fabricate profile/registry hashes for manifest output.
 
@@ -111,7 +111,7 @@ private slices by MI3-09 through MI3-11, and published together by MI3-12.
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
 | closed `header-footer-1`, `columns-1`, and `float-1` domains and their immutable profile-receipt fingerprints | `typaxis-machine-profile` advanced descriptor/preflight owner | derive the target capability entries, typed contract-1.3 preflight, rejection matrix, and one combined fixture per profile |
-| independent 1.3 DTO/decoder/encoder and complete versioned Schema registry | `typaxis-document-package` version-dispatch owner plus Schema integration owner | keep frozen 1.0/1.1/1.2 registries isolated; populate every required neutral field by typed conversion and expose the current 1.3 aliases |
+| independent frozen 1.3 DTO/decoder/encoder and complete versioned Schema registry | `typaxis-document-package` version-dispatch owner plus Schema integration owner | keep frozen 1.0/1.1/1.2 registries isolated; populate every required neutral field by typed conversion and retain the versioned 1.3 aliases beside current 1.4 |
 | horizontal/LTR master shape, checked trim/body/margin relation, first/left/right selection, and PDF page boxes | page-master geometry/selection owner | issue selected MasterId and MediaBox/CropBox/TrimBox receipts; Display/PDF cannot infer boxes from paint bounds |
 | page-region NodeIds/content closure and dense header/footer repetition | syntax index then canonical flow-registry and pagination owners | allocate one MasterId-bound source FlowId per present region, re-evaluate it independently on selected pages, and reject split/carry or body-cursor substitution |
 | checked column count/gap partition, last-column residual, and Column FlowIds | column-frame registry owner | issue exact left-to-right frame geometry and source-body before/after cursors without caller or worker ordering |
@@ -134,12 +134,12 @@ continuation.
 These target rows are adopted by
 [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md). They had
 no implemented Rust type, Schema file, or CLI surface at MI4-01; MI4-02 and
-later slices implement them only behind the non-current 1.4 staging
-boundary; MI4-13 alone may move them into public ownership.
+later slices implemented them behind the non-current 1.4 staging boundary,
+and MI4-13 moved the complete set into public ownership.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
-| reserved contract 1.4, independent staging Schema registry, and atomic publication/version dispatch | document-package and Schema integration owners under the MI4-13 gate | keep current/frozen 1.0 through 1.3 isolated; no partial decoder, alias, artifact, or profile exposure |
+| current contract 1.4, frozen independent 1.0-1.3 Schema registries, and atomic publication/version dispatch | document-package and Schema integration owners under the completed MI4-13 gate | keep frozen 1.0 through 1.3 isolated; no partial decoder, alias, artifact, or profile exposure |
 | untrusted semantic-container Wire DTO and closed `SemanticContainerKind` | `typaxis-document-package` | require the exact block-only record and reject unknown/missing/extra members before domain lowering |
 | untrusted `ImageMediaType` / `FontMediaType` wire enums and version-exact omission/encoding | `typaxis-document-package` | decode required 1.4 declarations; old encoders omit only provenance-bound legacy absence and never drop declared values |
 | trusted `LegacyUnspecified` / `Declared(typed media)` declarations and semantic-container node | `typaxis-document`, issued only by sealed `typaxis-syntax` lowering | bind raw contract provenance, NodeId/SourceSpan/child ownership, and prevent callers from attaching legacy absence to 1.4 |
@@ -151,7 +151,7 @@ boundary; MI4-13 alone may move them into public ownership.
 | `/Result`, `/Proof`, `/Exercise` to `/Div` role mapping and one structure owner across all selected fragments | ADR-0035 structure-registry owner; MI4-09 implements it | retain canonical child reading order and prevent outline/tag reconstruction from paint or PDF object order |
 | declaration/attestation resource projection in the M4 manifest branch | manifest owned-facts owner | built M4 records require declared/non-null exact match; pre-resource legacy failure alone may carry legacy/null; frozen old images retain their existing PNG attestation and old fonts gain no new field |
 
-Target progress extends the public chain only after publication:
+Target progress extends the public chain after the completed publication:
 
 ```text
 PackageValidated
@@ -172,14 +172,13 @@ from legacy input, or flatten the container continuation into its parent.
 
 These target rows are adopted by
 [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md).
-MI4-04 and MI4-05 implement them only in the independent non-current 1.4
-staging registry; MI4-13 alone may publish them with the complete production
-profile.
+MI4-04 and MI4-05 implemented them in the independent non-current 1.4
+staging registry; MI4-13 published them with the complete production profile.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
 | closed `inline_math` / `display_math` Wire DTO, required `typaxis-math` version `1` source binding, and producer `speech` member | contract-1.4 `typaxis-document-package` decoder/encoder | reject missing/extra/wrong-typed members and another source version as versioned input; never infer kind from delimiters or text |
-| private `M4ResourceLimits`, hard maxima, and base-plus-extension effective-limit fingerprint | contract-1.4 config decoder plus the sealed core limit validator | issue session/package-bound vector and math permits; omit the extension from current aliases/default JCS and prevent resource/retry resets or foreign-limit substitution |
+| contract-1.4 `M4ResourceLimits`, hard maxima, and base-plus-extension effective-limit fingerprint | contract-1.4 config decoder plus the sealed core limit validator | issue session/package-bound vector and math permits; omit the extension from frozen old aliases/default JCS and prevent resource/retry resets or foreign-limit substitution |
 | NodeId/SourceSpan/TextSpan identity, exact source bytes, and producer alternative | sealed `typaxis-syntax` lowering | issue a package-bound math-source input to the math parser during syntax validation; never generate speech or visual fallback |
 | `typaxis.math-parser/1`, `typaxis.math-formatter/1`, typed AST/fingerprint, fixed grammar, and math-computation receipt | in-tree `typaxis-math` | parse exact bytes before capability/resource work, prove canonical formatter round-trip, and later produce bounded font-metric-driven dimensions/glyph/rule/path output without package/PDF authority |
 | closed math node/version/placement support and old-profile rejection | machine-profile preflight consuming the validated package | reject page-region or unsupported profile use before resource open and bind the accepted math set into the target profile receipt |
@@ -239,11 +238,11 @@ hashes.
 ## Adopted producer-composed math-vector ownership
 
 These target rows are adopted by
-[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md). MI4-V01 fixes only
-the producer-interface corpus, MI4-V03 through MI4-V18 may implement private
-1.4 slices, MI4-V19 closes feature-local external evidence, and MI4-13 alone
-may publish the complete profile. Existing ADR-0033 through ADR-0036 `/1`
-owners remain frozen.
+[ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md). MI4-V01 fixed the
+producer-interface corpus, MI4-V03 through MI4-V18 implemented private 1.4
+slices, MI4-V19 closed feature-local external evidence, and MI4-13 published
+the complete profile. Existing ADR-0033 through ADR-0036 `/1` owners remain
+frozen.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -251,7 +250,7 @@ owners remain frozen.
 | trusted typed kinds, metric/source/alternative records, and content-owning semantic nodes | sealed `typaxis-syntax` lowering into `typaxis-document` | issue package/session/source-bound records only after dense NodeId/TextMap/meaningful-text/metric validation; caller raw parts cannot issue receipts |
 | `typaxis.precomposed-vector-metrics/1` relation, one uniform intrinsic-to-viewport scale, and source/vector/alternative binding | syntax/resource-aware layout binding owner consuming stable SafeVector attestation | bind advance/ascent/descent/origin/baseline/viewport, exact TeX/Alt/ActualText, resource/provenance/parser/IR, limits, and LayoutEpoch without parsing TeX |
 | precomposed-vector selector/cascade and exact property applicability | `typaxis-style` under `typaxis.precomposed-vector-style/1` | issue computed block receipts for `math_vector_block`/`vector_figure`; frozen basic style `/1` cannot authorize either kind |
-| accepted kind-to-media matrix, language-owner set, resource set `/2`, and private capability projection | `typaxis-machine-profile` descriptor/preflight owner | reject disallowed kinds/media/style before resource open and bind package/session/declaration/limits; public seven-profile descriptor stays unchanged until MI4-13 |
+| accepted kind-to-media matrix, language-owner set, resource set `/2`, and public capability projection | `typaxis-machine-profile` descriptor/preflight owner | reject disallowed kinds/media/style before resource open and bind package/session/declaration/limits; publish the exact eight-profile descriptor fixed by MI4-13 |
 | `svg-safe-2`, parser/IR/allocation `/2`, exact currentColor/paint-alpha extension, and stable-byte hash/provenance attestation | `typaxis-resource-admission` | accept only ADR-0033 Safe-SVG 1 plus the closed delta, issue deterministic intrinsic geometry/IR/alpha facts, and perform no TeX/XML-browser/network/font work |
 | atomic inline AL/isolate item, vector-boundary spacing, dynamic line ascent/descent, and visual-frame fit | itemizer/line-break/layout owners under `typaxis.atomic-vector-inline/1` | use advance for line width, producer baseline for paint, existing Unicode/Japanese break permission, and terminal `L5100` rather than internal split/fallback |
 | dense nominal `MathVectorFlowId`, equation-number source leaf/shape, atomic block alignment and pagination | `typaxis.math-vector-flow/1` and block-layout owners | keep native MathFlowId `/1` separate, place number independently, preserve one terminal, and reject overlap/empty-frame oversize without shrink/crop/split |
@@ -262,7 +261,7 @@ owners remain frozen.
 | SafeVector `/2`, math-vector `/1`, book-navigation `/2`, and tagged-PDF `/2` manifest facts | versioned production manifest owned-facts owners | close resource aliases/counts, metric/source/alternative, flow/placement, PDF, language, and structure bidirectionally in acyclic dependency order |
 | milestone status/dependency and final publication | docs/25 master plan and MI4-13 atomic publication owner | require `MI4-V18 + MI4-11 + MI4-12 -> MI4-V19 -> MI4-13`; docs/27 alone owns detailed V tasks/acceptance |
 
-The producer-composed progress chain extends the private combined M4 chain:
+The producer-composed progress chain extends the combined M4 chain:
 
 ```text
 PackageValidated
@@ -281,17 +280,18 @@ PackageValidated
 
 The full profile additionally requires the existing semantic-container,
 native-math, PNG/JPEG/TrueType/CFF, metadata/navigation, and tagged-PDF chains.
-No producer-vector receipt substitutes for those dependencies, and a V19
-success cannot publish aliases or capabilities.
+No producer-vector receipt substitutes for those dependencies. V19 success
+was necessary but not sufficient; MI4-13 performed the atomic alias and
+capability publication.
 
 ## Adopted M4 JPEG and OpenType/CFF resource ownership
 
 These target rows are adopted by
 [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md).
-MI4-11 and MI4-12 implement the two components separately in independent
+MI4-11 and MI4-12 implemented the two components separately in independent
 non-current 1.4 staging. ADR-0036's `/1` set stays frozen; after MI4-V19,
-MI4-13 alone may advertise the components inside ADR-0037's complete `/2`
-resource set or move it into public ownership.
+MI4-13 advertised the components inside ADR-0037's complete `/2` resource set
+and moved it into public ownership.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -303,7 +303,7 @@ resource set or move it into public ownership.
 | exact JFIF APP0 removal, otherwise byte-preserved normalized stream length/hash | in-tree `typaxis.jpeg-segment-sanitizer/1` under `typaxis-resource-admission` | issue one deterministic sanitized-stream receipt after full decode and before any DCTDecode plan; never re-encode pixels |
 | standalone `OTTO` directory/table/CFF1 cross-check and `AdmittedFontMediaKind::SfntCff1` | `typaxis-font` bounded sfnt/CFF admission owner, invoked only by `typaxis-resource-admission` over stable bytes | attest only face-index-zero name-keyed CFF1 with the closed table/operator domain; `read-fonts` supplies typed views but no policy receipt |
 | exact `OS/2.fsType` CFF1 embedding decision | `typaxis.cff1-embedding-permission/1` under the same font admission owner | accept only 0/0x0004/0x0008 and seal the raw value; reject restricted/no-subset/bitmap/reserved state before shaping, subset, or PDF without revising the existing TrueType component |
-| private font-table/glyph/subroutine/operation/outline/subset limits and base-plus-extension fingerprint | contract-1.4 config decoder plus sealed core M4-limit validator/budget owners | apply inclusive max/max+1 rules exactly once in dense FontFaceId/source-GID order; keep current config and old descriptors unchanged |
+| contract-1.4 font-table/glyph/subroutine/operation/outline/subset limits and base-plus-extension fingerprint | contract-1.4 config decoder plus sealed core M4-limit validator/budget owners | apply inclusive max/max+1 rules exactly once in dense FontFaceId/source-GID order; keep frozen old config/descriptors unchanged |
 | per-FontInstanceId selected source-GID union, `.notdef`, ascending dense CID/GID map, and same-face/epoch closure | `typaxis.cff1-glyph-closure/1` in `typaxis-font`, consuming sealed shaping/generated/math/Display usage | issue one immutable CFF1 instance glyph-closure receipt; no PDF/manifest/cmap scan may invent or remove a selected glyph |
 | one bounded Type 2 outline observation per distinct selected face/source-GID and one canonical hint/subroutine-stripped CID-keyed CFF1 subset bytes/hash/name per instance | `typaxis.cff1-charstring-evaluator/1` and `typaxis.cff1-subset/1` in `typaxis-font` | consume permission, instance glyph closure, limits, and stable face; share only sealed same-face outlines and write fixed table/CID order with no platform writer, full-font, or raster fallback |
 | JPEG DCTDecode and CFF FontFile3/OpenType/CIDFontType0 frozen resource plans | `typaxis-resources` late finalizer consuming selected Display usage and the sealed admission/subset receipts | issue backend-name/object-free plans; unused admitted resources get no plan, and TrueType/JPEG/PNG/CFF plan substitution is impossible |
@@ -330,8 +330,8 @@ the combined M4 progress chain above.
 
 These target rows are adopted by
 [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md).
-MI4-07 implements them only in the independent non-current 1.4 staging
-registry; MI4-13 alone may publish them with the complete production profile.
+MI4-07 implemented them in the independent non-current 1.4 staging registry;
+MI4-13 published them with the complete production profile.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
@@ -347,7 +347,7 @@ registry; MI4-13 alone may publish them with the complete production profile.
 | structure-element language and optional outline-item `/SE` source relation | ADR-0035 tagged-structure owner, implemented by MI4-09 while consuming the computed-language/outline receipts | add exact structure bindings without changing canonical tags, source owners, labels, hierarchy, or destinations |
 | metadata/language/navigation manifest facts and independent decoded PDF observations | manifest owned-facts owner and external validator, respectively | require bidirectional closure over the prior receipts; neither JSON nor the validator can manufacture upstream authority |
 
-The metadata, language, and outline owners feed the combined private M4
+The metadata, language, and outline owners feed the combined M4
 progress chain above. An interned language value does not erase its logical
 per-NodeId aggregate charge; a selected destination does not authorize a new
 outline entry; and Info/XMP/catalog/outline bytes cannot repair invalid Wire or
@@ -357,24 +357,24 @@ substitute for an owner-issued receipt.
 
 These target rows are adopted by
 [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md). MI4-09
-implements them only in independent non-current 1.4 staging; MI4-13 alone may
-publish them or make a PDF/UA-1 conformance statement.
+implemented them in independent non-current 1.4 staging; MI4-13 published the
+complete profile and its pinned PDF/UA-1 evidence contract.
 
 | Data or decision | Sole owner | Downstream use |
 |---|---|---|
 | exhaustive source role vocabulary, generated wrapper slots, dense StructureNodeId allocation, source parentage, and logical reading order | `typaxis-layout-contract` structure-registry builder consuming sealed syntax receipts plus the profile-bound dependency-inversion authorization | issue a PDF-independent `StructureRole` registry before layout; coordinates, typography, paint order, and PDF objects have no role or order authority |
 | closed PDF/UA-1 production subset, including title, heading sequence, non-whitespace semantic Figure/TH/P/heading content, catalog-language Link/outline strings, headed Table, name-contributing Link content, footnote placement, and a classification rule for every painting variant | machine-profile accessibility preflight | issue the sealed preflight receipt and syntax-owned lower authorization; reject unsupported semantics as `L5100` before layout/PDF without broadening an old profile, while actual selected paint/annotation closure remains downstream |
 | selected fragments, repetitions, generated labels, and decoration classified as one structure owner or one artifact occurrence | selected-layout owner consuming structure, flow, resource, math, language, and navigation receipts | issue `SelectedStructureBindingReceipt`; require every selected occurrence exactly once and retain both semantic and physical ordinals |
-| DisplayPaintId binding, maximal marked-content groups, and dense page-local MCIDs in final paint order | Display binding owner, then the private `typaxis-display-list` PDF-profile finalizer separate from the Display value and serializer | consume the layout-contract receipt through the existing `typaxis-layout` re-export, keep Display free of MCID/PDF names/objects, issue `MarkedContentPlanReceipt`, and let `typaxis-pdf` consume it only through its existing display-list edge |
+| DisplayPaintId binding, maximal marked-content groups, and dense page-local MCIDs in final paint order | Display binding owner, then the `typaxis-display-list` PDF-profile finalizer separate from the Display value and serializer | consume the layout-contract receipt through the existing `typaxis-layout` re-export, keep Display free of MCID/PDF names/objects, issue `MarkedContentPlanReceipt`, and let `typaxis-pdf` consume it only through its existing display-list edge |
 | StructTreeRoot, RoleMap, StructElem/MCR/OBJR objects, ParentTree, IDTree, page `/StructParents`, annotation `/StructParent`, and `typaxis.book-xmp/2` | PDF graph and serializer consuming the closed plans | allocate deterministic later object roles, serialize only receipt-authorized dictionaries, and issue `TaggedPdfObservation` over the exact PDF hash |
 | Figure `/Alt`, Formula `/Alt` and `/ActualText`, structure/marked-content `/Lang`, Link `/Contents`, TH IDs/TD Headers, Note/reference relation, and outline `/SE` | structure registry plus the earlier alternative/language/grid/footnote/link/outline owners | reuse the exact upstream facts; missing, extra, duplicate, reordered, or wrong-owner closure is `I9190`, never a repair opportunity |
 | generated structure-node, depth, MCR/artifact, text, MCID, PDF-object, output, and spool charges | existing syntax, selected-layout, text, PDF, and output budget owners | apply one-time inclusive maxima before allocation/serialization; add no synonymous accessibility limit or retry reset |
 | writer-independent PDF observation, exact veraPDF Greenfield 1.30.2 `ua1` report, empty warning allowlist, and complete version-2 (`/2`) Matterhorn Protocol 1.02 assessment ledger | in-tree validator and release-evidence aggregator, never the writer | require all evidence for the same PDF hash while leaving the frozen version-1 (`/1`) evidence contract unchanged; machine success alone cannot issue a full conformance, accessibility, or legal claim |
 
-The tagged owners extend the combined private progress chain above. MI4-09
-supplies the private structure and validation receipts and may issue local
-`TaggedPdfObserved` and `AccessibilityValidated` observations; until MI4-13
-neither receipt is public or release-supported.
+The tagged owners extend the combined M4 progress chain above. MI4-09 supplied
+the structure and validation receipts and local `TaggedPdfObserved` and
+`AccessibilityValidated` observations; MI4-V19 and MI4-13 closed external
+evidence and public release support respectively.
 
 ## Shared base ownership (originating in contract 1.0)
 

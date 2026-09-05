@@ -1,5 +1,4 @@
-//! Private contract-1.4 carrier for MI4 staging. The public strict decoder and
-//! current aliases remain on contract 1.3 until MI4-13.
+//! Contract-1.4 carrier and canonical encoder/decoder.
 
 use crate::{
     DocumentPackageDecodePolicy, JsonPreflightError, StrictJsonPreflight,
@@ -872,6 +871,15 @@ impl StagingSemanticDecodeError {
             }
         }
     }
+
+    /// Distinguish valid JSON whose typed 1.4 shape is invalid from malformed
+    /// JSON without exposing the serde implementation type to CLI consumers.
+    pub fn is_json_data_error(&self) -> bool {
+        matches!(
+            self,
+            Self::Json(error) if error.classify() == serde_json::error::Category::Data
+        )
+    }
 }
 
 impl fmt::Display for StagingSemanticDecodeError {
@@ -879,7 +887,7 @@ impl fmt::Display for StagingSemanticDecodeError {
         match self {
             Self::Preflight(error) => error.fmt(formatter),
             Self::Json(error) => write!(formatter, "invalid contract-1.4 JSON: {error}"),
-            Self::Contract => formatter.write_str("expected private typaxis.contract/1.4"),
+            Self::Contract => formatter.write_str("expected typaxis.contract/1.4"),
             Self::Shape(message) => write!(formatter, "invalid contract-1.4 shape: {message}"),
             Self::BookNavigationShape { pointer, message } => {
                 write!(
@@ -1117,6 +1125,123 @@ impl StagingSemanticDocumentPackageDecoder {
             canonical_jcs,
         })
     }
+}
+
+/// Promotes the frozen contract-1.3 reference-source carrier to public contract 1.4
+/// shape after its resources have been independently admitted and attested.
+///
+/// `current_jcs` must be the canonical frozen contract-1.3 encoding produced from the
+/// validated reference domain. Media values are positional only because both
+/// the reference catalog and the admitted ledger are already required to use
+/// canonical logical-ID order; a cardinality mismatch fails closed.
+pub fn encode_reference_document_package_v1_4(
+    current_jcs: &[u8],
+    font_media: &[WireFontMediaType],
+    image_media: &[WireImageMediaType],
+    limits: &ValidatedResourceLimits,
+) -> Result<String, StagingSemanticDecodeError> {
+    let mut root: Value =
+        serde_json::from_slice(current_jcs).map_err(StagingSemanticDecodeError::Json)?;
+    let object = root
+        .as_object_mut()
+        .ok_or(StagingSemanticDecodeError::Shape("root must be an object"))?;
+    if object.get("contract").and_then(Value::as_str) != Some("typaxis.contract/1.3") {
+        return Err(StagingSemanticDecodeError::Shape(
+            "reference export requires a contract-1.3 carrier",
+        ));
+    }
+    object.insert(
+        "contract".to_owned(),
+        Value::String(STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT.to_owned()),
+    );
+
+    let document = object
+        .get_mut("document")
+        .and_then(Value::as_object_mut)
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "reference document must be an object",
+        ))?;
+    if document
+        .insert("language".to_owned(), Value::String("und".to_owned()))
+        .is_some()
+    {
+        return Err(StagingSemanticDecodeError::Shape(
+            "reference carrier already contains a document language",
+        ));
+    }
+
+    object.insert(
+        "metadata".to_owned(),
+        serde_json::json!({
+            "author": null,
+            "created": null,
+            "identifier": null,
+            "keywords": [],
+            "modified": null,
+            "subject": null,
+            "title": null
+        }),
+    );
+    object.insert("outline".to_owned(), serde_json::json!({"entries": []}));
+
+    let resources = object
+        .get_mut("resources")
+        .and_then(Value::as_object_mut)
+        .ok_or(StagingSemanticDecodeError::Shape(
+            "reference resources must be an object",
+        ))?;
+    attach_reference_media(
+        resources.get_mut("font_faces"),
+        font_media.iter().map(|value| value.as_str()),
+        "reference font media attestation count differs",
+    )?;
+    attach_reference_media(
+        resources.get_mut("images"),
+        image_media.iter().map(|value| value.as_str()),
+        "reference image media attestation count differs",
+    )?;
+
+    let canonical = canonicalize_value(&root, current_jcs.len())?;
+    let decoded = StagingSemanticDocumentPackageDecoder::new().decode(
+        canonical.as_bytes(),
+        &DocumentPackageDecodePolicy::new(limits),
+    )?;
+    StagingSemanticDocumentPackageEncoder::new().encode(decoded.wire())
+}
+
+fn attach_reference_media<'a>(
+    declarations: Option<&mut Value>,
+    media: impl ExactSizeIterator<Item = &'a str>,
+    mismatch: &'static str,
+) -> Result<(), StagingSemanticDecodeError> {
+    let declarations =
+        declarations
+            .and_then(Value::as_array_mut)
+            .ok_or(StagingSemanticDecodeError::Shape(
+                "reference resource declarations must be arrays",
+            ))?;
+    if declarations.len() != media.len() {
+        return Err(StagingSemanticDecodeError::Shape(mismatch));
+    }
+    for (declaration, media_type) in declarations.iter_mut().zip(media) {
+        let declaration = declaration
+            .as_object_mut()
+            .ok_or(StagingSemanticDecodeError::Shape(
+                "reference resource declaration must be an object",
+            ))?;
+        if declaration
+            .insert(
+                "media_type".to_owned(),
+                Value::String(media_type.to_owned()),
+            )
+            .is_some()
+        {
+            return Err(StagingSemanticDecodeError::Shape(
+                "reference carrier already contains a media declaration",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Validate every unchanged 1.3 carrier field with its existing exact-pinned
@@ -3040,6 +3165,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../../samples/machine-package/staging/production-book-1/cff-media/job/document-package.json"
     ));
+    const REFERENCE_CARRIER_FIXTURE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/columns-1/combined/job/document-package.json"
+    ));
 
     fn policy() -> DocumentPackageDecodePolicy<'static> {
         let limits = Box::leak(Box::new(
@@ -3066,7 +3195,43 @@ mod tests {
     }
 
     #[test]
-    fn precomposed_vector_wire_round_trip_is_lossless_canonical_and_private() {
+    fn reference_export_promotes_attested_media_and_neutral_navigation_to_1_4() {
+        let limits = policy().resource_limits().clone();
+        let encoded = encode_reference_document_package_v1_4(
+            REFERENCE_CARRIER_FIXTURE,
+            &[WireFontMediaType::SfntTrueTypeGlyf],
+            &[WireImageMediaType::Png],
+            &limits,
+        )
+        .unwrap();
+        assert!(encoded.starts_with("{\"contract\":\"typaxis.contract/1.4\""));
+        assert!(encoded.contains("\"language\":\"und\""));
+        assert!(encoded.contains("\"metadata\":{\"author\":null"));
+        assert!(encoded.contains("\"outline\":{\"entries\":[]}"));
+        assert!(encoded.contains("\"media_type\":\"png\""));
+        assert!(encoded.contains("\"media_type\":\"sfnt-truetype-glyf\""));
+        StagingSemanticDocumentPackageDecoder::new()
+            .decode(
+                encoded.as_bytes(),
+                &DocumentPackageDecodePolicy::new(&limits),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            encode_reference_document_package_v1_4(
+                REFERENCE_CARRIER_FIXTURE,
+                &[],
+                &[WireImageMediaType::Png],
+                &limits,
+            ),
+            Err(StagingSemanticDecodeError::Shape(
+                "reference font media attestation count differs"
+            ))
+        ));
+    }
+
+    #[test]
+    fn precomposed_vector_wire_round_trip_is_lossless_and_canonical() {
         let decoded = StagingSemanticDocumentPackageDecoder::new()
             .decode(PRECOMPOSED_VECTOR_FIXTURE, &policy())
             .unwrap();
@@ -3398,7 +3563,7 @@ mod tests {
     }
 
     #[test]
-    fn vector_media_wire_round_trip_is_private_closed_and_typed() {
+    fn vector_media_wire_round_trip_is_closed_and_typed() {
         let decoded = StagingSemanticDocumentPackageDecoder::new()
             .decode(VECTOR_FIXTURE, &policy())
             .unwrap();
@@ -3430,12 +3595,12 @@ mod tests {
             .is_err());
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
-            "typaxis.contract/1.3"
+            "typaxis.contract/1.4"
         );
     }
 
     #[test]
-    fn jpeg_media_wire_round_trip_is_private_closed_and_typed() {
+    fn jpeg_media_wire_round_trip_is_closed_and_typed() {
         let decoded = StagingSemanticDocumentPackageDecoder::new()
             .decode(JPEG_FIXTURE, &policy())
             .unwrap();
@@ -3464,12 +3629,12 @@ mod tests {
             .is_err());
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
-            "typaxis.contract/1.3"
+            "typaxis.contract/1.4"
         );
     }
 
     #[test]
-    fn font_media_cff_wire_round_trip_is_private_closed_and_typed() {
+    fn font_media_cff_wire_round_trip_is_closed_and_typed() {
         let decoded = StagingSemanticDocumentPackageDecoder::new()
             .decode(CFF_FIXTURE, &policy())
             .unwrap();
@@ -3507,12 +3672,12 @@ mod tests {
         );
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
-            "typaxis.contract/1.3"
+            "typaxis.contract/1.4"
         );
     }
 
     #[test]
-    fn math_wire_round_trip_is_typed_versioned_and_private() {
+    fn math_wire_round_trip_is_typed_and_versioned() {
         let decoded = StagingSemanticDocumentPackageDecoder::new()
             .decode(MATH_FIXTURE, &policy())
             .unwrap();
@@ -3626,13 +3791,13 @@ mod tests {
     }
 
     #[test]
-    fn semantic_container_contract_is_not_accepted_by_the_public_decoder() {
+    fn semantic_container_contract_is_not_accepted_by_the_frozen_decoder() {
         assert!(crate::StrictDocumentPackageDecoder::new()
             .decode(FIXTURE, &policy())
             .is_err());
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
-            "typaxis.contract/1.3"
+            "typaxis.contract/1.4"
         );
     }
 

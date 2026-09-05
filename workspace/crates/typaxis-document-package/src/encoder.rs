@@ -163,7 +163,8 @@ impl Default for DocumentPackageEncoder {
 }
 
 /// Canonical compatibility encoder retained for focused frozen-contract 1.2
-/// slice tests. The ordinary public encoder owns current-contract 1.3 output.
+/// slice tests. `DocumentPackageEncoder` owns frozen 1.0-1.3 output; the
+/// contract-1.4 encoder is version-specific.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StagingStyleDocumentPackageEncoder {
     max_bytes: u64,
@@ -1701,7 +1702,7 @@ mod tests {
 
     fn empty_package() -> WireDocumentPackage {
         WireDocumentPackage {
-            contract: DocumentPackageContractId::CURRENT,
+            contract: DocumentPackageContractId::V1_3,
             coordinate_unit: WireCoordinateUnit::PdfPoint1_65536,
             advanced: Some(WireAdvancedDocumentPackageExtension {
                 page_masters: WireAdvancedPageMasterSet {

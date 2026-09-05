@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import base64
+from collections import Counter
 import datetime
 import hashlib
 import json
@@ -28,8 +29,8 @@ SCHEMA_DIR = Path(__file__).resolve().parent
 FROZEN_SCHEMA_DIR = SCHEMA_DIR / "1.0"
 PREVIOUS_SCHEMA_DIR = SCHEMA_DIR / "1.1"
 FROZEN_1_2_SCHEMA_DIR = SCHEMA_DIR / "1.2"
-VERSIONED_CURRENT_SCHEMA_DIR = SCHEMA_DIR / "1.3"
-PRIVATE_M4_SCHEMA_DIR = SCHEMA_DIR / "1.4"
+FROZEN_1_3_SCHEMA_DIR = SCHEMA_DIR / "1.3"
+CURRENT_SCHEMA_DIR = SCHEMA_DIR / "1.4"
 REPOSITORY_ROOT = SCHEMA_DIR.parent
 MINIMAL_DIR = REPOSITORY_ROOT / "samples" / "minimal"
 CONFORMANCE_DIR = REPOSITORY_ROOT / "samples" / "conformance"
@@ -191,6 +192,28 @@ FROZEN_1_2_SCHEMA_SHA256 = {
     "machine-profile-evidence.schema.json": "36937f83bdac31de3e66604f50e1f1eca3abe39e7d8f8c7ca3121bcb40f5b829",
     "machine-table-manifest.schema.json": "0b4ca658ae7cd0d5c044ff13d0fe0e6b5c2f70089353b5b385754204efb8ba0e",
     "package-config.schema.json": "7ea50014c09cfdd73873089514d59990497ba106aab969b00781c790bbcc1f9c",
+}
+FROZEN_1_3_SCHEMA_SHA256 = {
+    "build-manifest.schema.json": "2f0dc4acf5043cf20b866411c8b00c5e8702dfc0dffddc7fe1227fa0176339d0",
+    "common.schema.json": "80242069f52ab711875f713d06d1d4a2a0d28e0a8dfe8c6df2767b18a72dabc2",
+    "diagnostics.schema.json": "0d3e2a22d8b2df57bffc724d39c299f17faef0889b8ebe38a5c3a26c6606c3f4",
+    "display-list.schema.json": "f382c69bcb40974e21b4b69c2fe134362ca03ce7552e30133e86a56612637aa3",
+    "document-package.schema.json": "cd6dc1d69e407317687d1b192e6f2f4da086fa4f920a05cc4b1b0c611e7d3796",
+    "layout-trace.schema.json": "2e4f257ea473e290a52f9274d48cdfcc5a464ae6106390e6274ebbe79ff3ea59",
+    "machine-advanced-pagination-manifest.schema.json": "03706b3c33f6de905f88c0f58f2efeef212a0039c2378dc10ba2b8d494d568cc",
+    "machine-block-style-manifest.schema.json": "28090cc43a2caf147bd94dc6ec7c24c4251afe9d501c473895cc2d1d50cc25dd",
+    "machine-capabilities.schema.json": "f88022cb14ee249d8eca358bd0cd9eb49339530f740daa08113cc90263e48318",
+    "machine-figure-manifest.schema.json": "3ae01730d35508ad131e4ed86c20d54434652bf034f7de664d9194eceeac2009",
+    "machine-fixture-expectation.schema.json": "69ca4aac9178f35bef22cf169c603c6e0429a1cc9198d2c0a5052e91635a2931",
+    "machine-fixture-matrix.schema.json": "1bf897d5f8a5c04b13f2e42c309a8b7b75bfd3d5580d6330002715767310b16d",
+    "machine-footnote-manifest.schema.json": "99b8f0121408c1c22f54983719fe189fe7aa2a936f749acb4e00c5e26dd491d6",
+    "machine-forced-page-break-manifest.schema.json": "95de170fa30fb2261eb6eedd305b3748e0b9b740106cec651b3f11af7273e14f",
+    "machine-forced-page-break-trace.schema.json": "a5220e6aa0e606573c71e904418acd84170cfa63b21d0934343bd9ed12ea0736",
+    "machine-link-manifest.schema.json": "e605e23675583e766c2ce15171018d6324fac7d48638ee995d5dfe06282978cd",
+    "machine-list-manifest.schema.json": "4bb49248f577dd5c43df6b871a2ddbafc84310df4348ca2739304315d32a363e",
+    "machine-profile-evidence.schema.json": "c27c4038a6bd802de2861647926d69b9fc2db4bad805bca3a895d690458ba624",
+    "machine-table-manifest.schema.json": "618380abd5a517ef1f2cae4c3bc82223dc8718723685525b8a64fca6708d1f6d",
+    "package-config.schema.json": "9dae0d7a00eb3243469000e67ea864eb747e301fc29e851095ef2cd9dcc3c90a",
 }
 
 POSITIVE_FIXTURES = {
@@ -862,11 +885,17 @@ def typed_document_nodes_with_depth(document: Any):
                     stack.extend(
                         ("table_row", row, child_depth) for row in reversed(head)
                     )
-            elif kind == "figure":
+            elif kind in {"figure", "vector_figure"}:
                 caption = node.get("caption", [])
                 if isinstance(caption, list):
                     stack.extend(
                         ("block", block, child_depth) for block in reversed(caption)
+                    )
+            elif kind == "semantic_container":
+                blocks = node.get("blocks", [])
+                if isinstance(blocks, list):
+                    stack.extend(
+                        ("block", block, child_depth) for block in reversed(blocks)
                     )
         elif node_type == "inline":
             if node.get("kind") in {"emphasis", "strong", "link"}:
@@ -894,6 +923,90 @@ def typed_document_preorder(document: Any) -> list[dict[str, Any]]:
     """Return the Profile 1.0 typed preorder, independent of JSON member order."""
 
     return [node for node, _depth in typed_document_nodes_with_depth(document)]
+
+
+def production_book_source_ledger(
+    package: dict[str, Any], source_payload: bytes
+) -> dict[str, Any]:
+    """Derive the MI4-13 lossless producer ledger from typed package facts."""
+
+    document = package["document"]
+    nodes: list[dict[str, Any]] = [
+        {"kind": "document", "node_id": document["node_id"]}
+    ]
+
+    def visit_inline(value: dict[str, Any]) -> None:
+        nodes.append(value)
+        for child in value.get("children", []):
+            visit_inline(child)
+
+    def visit_block(value: dict[str, Any]) -> None:
+        nodes.append(value)
+        kind = value["kind"]
+        if kind in {"paragraph", "heading"}:
+            for child in value["children"]:
+                visit_inline(child)
+        elif kind == "list":
+            for item in value["items"]:
+                nodes.append({**item, "kind": "list_item"})
+                for child in item["blocks"]:
+                    visit_block(child)
+        elif kind == "table":
+            for section, rows in (("head", value["head"]), ("body", value["body"])):
+                for row in rows:
+                    nodes.append({**row, "kind": f"table_{section}_row"})
+                    for cell in row["cells"]:
+                        nodes.append({**cell, "kind": f"table_{section}_cell"})
+                        for child in cell["blocks"]:
+                            visit_block(child)
+        elif kind in {"figure", "vector_figure"}:
+            for child in value["caption"]:
+                visit_block(child)
+        elif kind == "semantic_container":
+            for child in value["blocks"]:
+                visit_block(child)
+        elif kind == "math_vector_block" and value["equation_number"] is not None:
+            nodes.append({**value["equation_number"], "kind": "equation_number"})
+
+    for block in document["blocks"]:
+        visit_block(block)
+    for footnote in document["footnotes"]:
+        nodes.append({**footnote, "kind": "footnote_definition"})
+        for block in footnote["blocks"]:
+            visit_block(block)
+
+    math_sources = []
+    for node in nodes:
+        source_value = node.get("math_source") or node.get("source_tex")
+        if source_value is not None:
+            math_sources.append(
+                {
+                    "kind": node["kind"],
+                    "node_id": node["node_id"],
+                    "source_span": source_value["text_span"],
+                    "syntax_span": node["span"],
+                }
+            )
+    return {
+        "contract": "typaxis.production-book-source-ledger/1",
+        "math_sources": math_sources,
+        "node_count": len(nodes),
+        "node_kind_counts": dict(
+            sorted(Counter(node["kind"] for node in nodes).items())
+        ),
+        "outline": package["outline"]["entries"],
+        "reading_order": [node["node_id"] for node in nodes],
+        "resources": {
+            "font_face_ids": [
+                value["font_face_id"]
+                for value in package["resources"]["font_faces"]
+            ],
+            "image_ids": [
+                value["image_id"] for value in package["resources"]["images"]
+            ],
+        },
+        "source_sha256": hashlib.sha256(source_payload).hexdigest(),
+    }
 
 
 def canonical_style_inheritance_depth(package: Any) -> tuple[int, bool]:
@@ -4727,7 +4840,7 @@ def production_book_advertised_items(capabilities: dict[str, Any]) -> list[str]:
 
 def validate_publication_readiness_fixtures(
     public_capabilities: dict[str, Any],
-    private_validators: dict[str, Draft202012Validator],
+    current_validators: dict[str, Draft202012Validator],
 ) -> int:
     root = STAGING_PRODUCTION_BOOK_FIXTURE_DIR
     capabilities_path = root / "publication-capabilities.json"
@@ -4743,11 +4856,11 @@ def validate_publication_readiness_fixtures(
         (expectation_path, expectation, "machine-fixture-expectation.schema.json"),
         (assessment_path, assessment, "machine-matterhorn-assessment.schema.json"),
     ):
-        errors = schema_errors(private_validators[schema_name], value)
+        errors = schema_errors(current_validators[schema_name], value)
         if errors:
-            raise ValidationFailure(f"{path}: private publication fixture rejected: " + " | ".join(errors))
+            raise ValidationFailure(f"{path}: publication fixture rejected: " + " | ".join(errors))
         if path.read_bytes() != jcs_bytes(value) + b"\n":
-            raise ValidationFailure(f"{path}: private publication fixture is not JCS plus LF")
+            raise ValidationFailure(f"{path}: publication fixture is not JCS plus LF")
 
     if expectation["advertised_item_coverage"] != production_book_advertised_items(
         capabilities
@@ -4778,7 +4891,11 @@ def validate_publication_readiness_fixtures(
         verify_file_record(root, record, f"publication resource {index}")
 
     public_machine = public_capabilities["machine_input"]
-    private_machine = capabilities["machine_input"]
+    published_machine = capabilities["machine_input"]
+    if capabilities != public_capabilities:
+        raise ValidationFailure(
+            "published capabilities differ from the sealed publication expectation"
+        )
     if capabilities["engine"] != public_capabilities["engine"]:
         raise ValidationFailure("publication changed the existing engine descriptor")
     for member in (
@@ -4788,20 +4905,24 @@ def validate_publication_readiness_fixtures(
         "limits",
         "max_diagnostics",
     ):
-        if private_machine[member] != public_machine[member]:
+        if published_machine[member] != public_machine[member]:
             raise ValidationFailure(f"publication changed existing capability member {member}")
-    if capabilities["contract"] != "typaxis.contract/1.4" or private_machine[
+    if capabilities["contract"] != "typaxis.contract/1.4" or published_machine[
         "document_package_contracts"
-    ] != [*public_machine["document_package_contracts"], "typaxis.contract/1.4"]:
-        raise ValidationFailure("publication contract tuple is not the exact future extension")
-    if private_machine["default_profile"] != public_machine["default_profile"]:
+    ] != [
+        "typaxis.contract/1.0",
+        "typaxis.contract/1.1",
+        "typaxis.contract/1.2",
+        "typaxis.contract/1.3",
+        "typaxis.contract/1.4",
+    ]:
+        raise ValidationFailure("publication contract tuple is not the exact 1.4 migration set")
+    if published_machine["default_profile"] != public_machine["default_profile"]:
         raise ValidationFailure("publication changed the paragraph default profile")
-    private_profiles = private_machine["profiles"]
-    if private_profiles[:6] != public_machine["profiles"][:6] or private_profiles[7:] != (
-        public_machine["profiles"][6:]
+    published_profiles = published_machine["profiles"]
+    if len(published_profiles) != 8 or published_profiles[6]["id"] != (
+        "typaxis.machine-pdf/production-book-1"
     ):
-        raise ValidationFailure("publication changed an existing public profile object")
-    if private_profiles[6]["id"] != "typaxis.machine-pdf/production-book-1":
         raise ValidationFailure("production profile tuple position differs")
 
     try:
@@ -4990,10 +5111,10 @@ def combined_fixture_items(
 
 def validate_machine_fixture_bundle(
     validators: dict[str, Draft202012Validator],
-    private_m4_validators: dict[str, Draft202012Validator],
+    current_m4_validators: dict[str, Draft202012Validator],
 ) -> tuple[int, int]:
     expectation_validator = validators["machine-fixture-expectation.schema.json"]
-    private_expectation_validator = private_m4_validators[
+    private_expectation_validator = current_m4_validators[
         "machine-fixture-expectation.schema.json"
     ]
     matrix_validator = validators["machine-fixture-matrix.schema.json"]
@@ -5130,6 +5251,86 @@ def validate_machine_fixture_bundle(
             )
         if combined["expected"]["normalized_extracted_text"] != expected_text:
             raise ValidationFailure(f"{fixture_id} normalized extracted text is not fixed")
+
+    production_path, production = expectations["production-book-1.combined"]
+    sealed_publication = load_json(
+        STAGING_PRODUCTION_BOOK_FIXTURE_DIR / "publication-expectation.json"
+    )
+    if (
+        production["advertised_item_coverage"]
+        != sealed_publication["advertised_item_coverage"]
+        or production["advertised_item_coverage"]
+        != production_book_advertised_items(capabilities)
+    ):
+        raise ValidationFailure(
+            "production-book-1.combined does not inherit the exact V19 capability ledger"
+        )
+    production_package_path = production_path.parent / production["package"]
+    production_package = load_json(production_package_path)
+    production_kinds = {
+        node.get("kind")
+        for node in typed_document_preorder(production_package["document"])
+    }
+    if not {
+        "inline_vector",
+        "math_vector",
+        "math_vector_block",
+        "paragraph",
+        "semantic_container",
+        "vector_figure",
+    } <= production_kinds:
+        raise ValidationFailure(
+            "production-book-1.combined omits a public producer-vector node kind"
+        )
+    production_text = (
+        "x squared x plus one Basic document page top internal 1 1 Accessible footnote "
+        "1. First item 2. Second entry PNG caption Header A Header B alpha beta gamma "
+        "delta Heading level 2 Heading level 3 Heading level 4 Heading level 5 Heading "
+        "level 6 emphasized strong • Unordered item Accessible result Accessible proof "
+        "Accessible exercise safe vector one safe vector two x plus y SafeVector 1 caption "
+        "JPEG caption AB x plus y, equation AB"
+    )
+    production_fonts = production_package["resources"]["font_faces"]
+    production_images = production_package["resources"]["images"]
+    resource_records = [*production_fonts, *production_images]
+    expected_resource_records = [
+        {
+            "bytes": (production_path.parent / "job" / record["uri"]).stat().st_size,
+            "sha256": record["expected_sha256"],
+            "uri": record["uri"],
+        }
+        for record in resource_records
+    ]
+    if (
+        production_package_path.read_bytes() != jcs_bytes(production_package)
+        or production_package["contract"] != "typaxis.contract/1.4"
+        or production_package["document"].get("language") != "en-US"
+        or not production_package["metadata"].get("title")
+        or not production_package["outline"].get("entries")
+        or [record.get("media_type") for record in production_fonts]
+        != ["sfnt-truetype-glyf", "ttc-truetype-glyf", "sfnt-cff1"]
+        or [record.get("media_type") for record in production_images]
+        != ["png", "svg-safe-1", "svg-safe-2", "jpeg-baseline"]
+        or production["resource_hashes"] != expected_resource_records
+        or production["expected"]["normalized_extracted_text"] != production_text
+        or production["expected"]["page_count"] != 2
+    ):
+        raise ValidationFailure(
+            "production-book-1.combined public package or external expectation drifted"
+        )
+    ledger_path = production_path.parent / "ledger.json"
+    ledger = load_json(ledger_path)
+    source_record = production_package["sources"][0]
+    source_payload = (production_path.parent / "job" / source_record["uri"]).read_bytes()
+    if (
+        ledger_path.read_bytes() != jcs_bytes(ledger)
+        or ledger != production_book_source_ledger(production_package, source_payload)
+        or len(source_payload) != source_record["utf8_byte_length"]
+        or hashlib.sha256(source_payload).hexdigest() != source_record["sha256"]
+    ):
+        raise ValidationFailure(
+            "production-book-1.combined source/resource losslessness ledger drifted"
+        )
 
     table_combined_path, table_combined = expectations["table-1.combined"]
     table_package = load_json(table_combined_path.parent / table_combined["package"])
@@ -6466,6 +6667,7 @@ def validate_vector_build_manifest_semantics(manifest: dict[str, Any]) -> None:
         if record is not None and hashlib.sha256(jcs_bytes(record)).hexdigest() != fingerprint:
             raise ValidationFailure(f"production {record_name} fingerprint differs")
     safe = manifest["safe_vector_manifest"]
+    images_by_id = {image["image_id"]: image for image in manifest["images"]}
     image_ids = [image["image_id"] for image in manifest["images"]]
     vector_alias_ids = (
         {
@@ -6479,12 +6681,30 @@ def validate_vector_build_manifest_semantics(manifest: dict[str, Any]) -> None:
     if (
         image_ids != sorted(image_ids)
         or len(set(image_ids)) != len(image_ids)
-        or any(image["attested_media_kind"] != "png" for image in manifest["images"])
-        or not set(image_ids).isdisjoint(vector_alias_ids)
     ):
-        raise ValidationFailure(
-            "production raster image records conflict with the SafeVector alias registry"
-        )
+        raise ValidationFailure("production image records are not uniquely ordered")
+    for image in manifest["images"]:
+        declaration = image.get("media_declaration")
+        if (
+            not isinstance(declaration, dict)
+            or declaration.get("kind") != "declared"
+            or declaration.get("media_type") != image.get("attested_media_kind")
+        ):
+            raise ValidationFailure("production image declaration/attestation differs")
+    if safe is not None:
+        for resource in safe["resources"]:
+            media = resource["content_key"]["media_type"]
+            for alias in resource["aliases"]:
+                image = images_by_id.get(alias["image_id"])
+                if (
+                    image is None
+                    or image["attested_media_kind"] != media
+                    or image["sha256"] != alias["admitted_sha256"]
+                    or image["uri"] != alias["uri"]
+                ):
+                    raise ValidationFailure(
+                        "production SafeVector alias differs from its root resource fact"
+                    )
     book = manifest["book_navigation_manifest"]
     math = manifest["math_vector_manifest"]
     tagged = manifest["tagged_pdf_manifest"]
@@ -6595,15 +6815,15 @@ def main() -> int:
         previous_schemas, previous_validators, previous_reference_count = load_schema_registry(
             PREVIOUS_SCHEMA_DIR, "1.1"
         )
-        schemas, validators, reference_count = load_schema_registry(SCHEMA_DIR, "1.3")
+        schemas, validators, reference_count = load_schema_registry(SCHEMA_DIR, "1.4")
         staging_schemas, staging_validators, staging_reference_count = load_schema_registry(
             FROZEN_1_2_SCHEMA_DIR, "1.2"
         )
-        versioned_current_schemas, versioned_current_validators, versioned_current_reference_count = (
-            load_schema_registry(VERSIONED_CURRENT_SCHEMA_DIR, "1.3")
+        frozen_1_3_schemas, frozen_1_3_validators, frozen_1_3_reference_count = (
+            load_schema_registry(FROZEN_1_3_SCHEMA_DIR, "1.3")
         )
-        private_m4_schemas, private_m4_validators, private_m4_reference_count = (
-            load_schema_registry(PRIVATE_M4_SCHEMA_DIR, "1.4")
+        current_m4_schemas, current_m4_validators, current_m4_reference_count = (
+            load_schema_registry(CURRENT_SCHEMA_DIR, "1.4")
         )
         if set(staging_schemas) != {
             "build-manifest.schema.json",
@@ -6643,16 +6863,12 @@ def main() -> int:
             "machine-table-manifest.schema.json",
             "package-config.schema.json",
         }
-        expected_versioned_current = {
+        expected_frozen_1_3 = {
             *set(staging_schemas),
             "machine-advanced-pagination-manifest.schema.json",
         }
-        if set(schemas) != expected_current_aliases:
-            raise ValidationFailure("the current 1.3 alias registry has a missing or extra schema")
-        if set(versioned_current_schemas) != expected_versioned_current:
-            raise ValidationFailure("the versioned 1.3 registry has a missing or extra schema")
-        expected_private_m4 = {
-            *expected_versioned_current,
+        expected_current_m4 = {
+            *expected_frozen_1_3,
             "machine-accessibility-manifest.schema.json",
             "machine-book-navigation-manifest.schema.json",
             "machine-jpeg-manifest.schema.json",
@@ -6663,14 +6879,19 @@ def main() -> int:
             "machine-safe-vector-manifest.schema.json",
             "machine-semantic-container-manifest.schema.json",
         }
-        if set(private_m4_schemas) != expected_private_m4:
-            raise ValidationFailure("the private 1.4 registry has a missing or extra schema")
-        for filename in schemas:
+        expected_current_aliases = expected_current_m4
+        if set(schemas) != expected_current_aliases:
+            raise ValidationFailure("the current 1.4 alias registry has a missing or extra schema")
+        if set(frozen_1_3_schemas) != expected_frozen_1_3:
+            raise ValidationFailure("the frozen 1.3 registry has a missing or extra schema")
+        if set(current_m4_schemas) != expected_current_m4:
+            raise ValidationFailure("the versioned 1.4 registry has a missing or extra schema")
+        for filename in expected_current_aliases:
             if (SCHEMA_DIR / filename).read_bytes() != (
-                VERSIONED_CURRENT_SCHEMA_DIR / filename
+                CURRENT_SCHEMA_DIR / filename
             ).read_bytes():
                 raise ValidationFailure(
-                    f"the current 1.3 alias differs from its versioned schema: {filename}"
+                    f"the current 1.4 alias differs from its versioned schema: {filename}"
                 )
         if set(frozen_schemas) != set(FROZEN_SCHEMA_SHA256):
             raise ValidationFailure("the frozen 1.0 registry has a missing or extra schema")
@@ -6702,6 +6923,16 @@ def main() -> int:
                 raise ValidationFailure(
                     f"the frozen 1.2 schema bytes changed: {filename}"
                 )
+        if set(frozen_1_3_schemas) != set(FROZEN_1_3_SCHEMA_SHA256):
+            raise ValidationFailure("the frozen 1.3 registry has a missing or extra schema")
+        for filename, expected_digest in FROZEN_1_3_SCHEMA_SHA256.items():
+            observed_digest = hashlib.sha256(
+                (FROZEN_1_3_SCHEMA_DIR / filename).read_bytes()
+            ).hexdigest()
+            if observed_digest != expected_digest:
+                raise ValidationFailure(
+                    f"the frozen 1.3 schema bytes changed: {filename}"
+                )
 
         semantic_document_path = (
             STAGING_SEMANTIC_CONTAINER_FIXTURE_DIR / "job" / "document-package.json"
@@ -6713,29 +6944,29 @@ def main() -> int:
         semantic_document = load_json(semantic_document_path)
         semantic_manifest = load_json(semantic_manifest_path)
         semantic_document_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], semantic_document
+            current_m4_validators["document-package.schema.json"], semantic_document
         )
         if semantic_document_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the semantic-container fixture: "
+                "current 1.4 DocumentPackage rejected the semantic-container fixture: "
                 + " | ".join(semantic_document_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             semantic_document,
         ):
             raise ValidationFailure(
-                "versioned 1.3 DocumentPackage accepted the private 1.4 fixture"
+                "versioned 1.3 DocumentPackage accepted the current 1.4 fixture"
             )
         semantic_manifest_errors = schema_errors(
-            private_m4_validators[
+            current_m4_validators[
                 "machine-semantic-container-manifest.schema.json"
             ],
             semantic_manifest,
         )
         if semantic_manifest_errors:
             raise ValidationFailure(
-                "private 1.4 semantic-container manifest was rejected: "
+                "current 1.4 semantic-container manifest was rejected: "
                 + " | ".join(semantic_manifest_errors)
             )
         for path, value, label in (
@@ -6744,7 +6975,7 @@ def main() -> int:
         ):
             if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
                 raise ValidationFailure(
-                    f"private 1.4 {label} fixture is not canonical JCS"
+                    f"current 1.4 {label} fixture is not canonical JCS"
                 )
 
         semantic_job = STAGING_SEMANTIC_CONTAINER_FIXTURE_DIR / "job"
@@ -6754,13 +6985,13 @@ def main() -> int:
                 len(source_bytes) != source["utf8_byte_length"]
                 or hashlib.sha256(source_bytes).hexdigest() != source["sha256"]
             ):
-                raise ValidationFailure("private 1.4 source attestation drifted")
+                raise ValidationFailure("current 1.4 source attestation drifted")
         declarations = [
             *(('font', item) for item in semantic_document["resources"]["font_faces"]),
             *(('image', item) for item in semantic_document["resources"]["images"]),
         ]
         if len(declarations) != len(semantic_manifest["resources"]):
-            raise ValidationFailure("private 1.4 declared-media coverage is incomplete")
+            raise ValidationFailure("current 1.4 declared-media coverage is incomplete")
         for (resource_kind, declaration), record in zip(
             declarations, semantic_manifest["resources"], strict=True
         ):
@@ -6776,7 +7007,7 @@ def main() -> int:
                 or record["sha256"] != declaration["expected_sha256"]
             ):
                 raise ValidationFailure(
-                    "private 1.4 declaration/attestation closure drifted"
+                    "current 1.4 declaration/attestation closure drifted"
                 )
 
         semantic_containers: dict[int, tuple[str, dict[str, Any], list[int]]] = {}
@@ -6815,22 +7046,22 @@ def main() -> int:
                 or fact["page_index"] != expected_page
             ):
                 raise ValidationFailure(
-                    "private 1.4 selected semantic owner/kind/span/page drifted"
+                    "current 1.4 selected semantic owner/kind/span/page drifted"
                 )
         if set(observed_fragments) != set(semantic_containers):
             raise ValidationFailure(
-                "private 1.4 selected facts do not cover every container"
+                "current 1.4 selected facts do not cover every container"
             )
         for owner, facts in observed_fragments.items():
             if [fact["fragment_index"] for fact in facts] != list(range(len(facts))):
                 raise ValidationFailure(
-                    "private 1.4 semantic fragment indices are not dense"
+                    "current 1.4 semantic fragment indices are not dense"
                 )
             if [child for fact in facts for child in fact["child_owners"]] != (
                 semantic_containers[owner][2]
             ):
                 raise ValidationFailure(
-                    "private 1.4 semantic fragment child closure drifted"
+                    "current 1.4 semantic fragment child closure drifted"
                 )
 
         unknown_semantic_kind = copy.deepcopy(semantic_document)
@@ -6850,23 +7081,23 @@ def main() -> int:
             ("inline container", inline_semantic),
         ):
             if not schema_errors(
-                private_m4_validators["document-package.schema.json"], invalid
+                current_m4_validators["document-package.schema.json"], invalid
             ):
                 raise ValidationFailure(
-                    f"private 1.4 DocumentPackage accepted {label}"
+                    f"current 1.4 DocumentPackage accepted {label}"
                 )
         mismatched_media = copy.deepcopy(semantic_manifest)
         mismatched_media["resources"][0]["attested_media_kind"] = (
             "ttc-truetype-glyf"
         )
         if not schema_errors(
-            private_m4_validators[
+            current_m4_validators[
                 "machine-semantic-container-manifest.schema.json"
             ],
             mismatched_media,
         ):
             raise ValidationFailure(
-                "private 1.4 manifest accepted declared/attested media mismatch"
+                "current 1.4 manifest accepted declared/attested media mismatch"
             )
 
         jpeg_document_path = STAGING_JPEG_FIXTURE_DIR / "job" / "document-package.json"
@@ -6874,27 +7105,27 @@ def main() -> int:
         jpeg_document = load_json(jpeg_document_path)
         jpeg_manifest = load_json(jpeg_manifest_path)
         jpeg_document_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], jpeg_document
+            current_m4_validators["document-package.schema.json"], jpeg_document
         )
         if jpeg_document_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the JPEG fixture: "
+                "current 1.4 DocumentPackage rejected the JPEG fixture: "
                 + " | ".join(jpeg_document_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             jpeg_document,
         ):
             raise ValidationFailure(
                 "versioned 1.3 DocumentPackage accepted the private JPEG fixture"
             )
         jpeg_manifest_errors = schema_errors(
-            private_m4_validators["machine-jpeg-manifest.schema.json"],
+            current_m4_validators["machine-jpeg-manifest.schema.json"],
             jpeg_manifest,
         )
         if jpeg_manifest_errors:
             raise ValidationFailure(
-                "private 1.4 JPEG manifest was rejected: "
+                "current 1.4 JPEG manifest was rejected: "
                 + " | ".join(jpeg_manifest_errors)
             )
         for path, value, label in (
@@ -6902,7 +7133,7 @@ def main() -> int:
             (jpeg_manifest_path, jpeg_manifest, "JPEG manifest"),
         ):
             if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
-                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+                raise ValidationFailure(f"current 1.4 {label} is not canonical JCS")
 
         jpeg_source = (STAGING_JPEG_FIXTURE_DIR / "job" / "input.tsf").read_bytes()
         source_declaration = jpeg_document["sources"][0]
@@ -6910,7 +7141,7 @@ def main() -> int:
             len(jpeg_source) != source_declaration["utf8_byte_length"]
             or hashlib.sha256(jpeg_source).hexdigest() != source_declaration["sha256"]
         ):
-            raise ValidationFailure("private 1.4 JPEG source closure drifted")
+            raise ValidationFailure("current 1.4 JPEG source closure drifted")
         jpeg_hex_by_uri = {
             "color-2x1.jpg": "color-2x1.jpg.hex",
             "gray-2x1.jpg": "gray-2x1.jpg.hex",
@@ -6919,7 +7150,7 @@ def main() -> int:
         jpeg_declarations = jpeg_document["resources"]["images"]
         jpeg_records = jpeg_manifest["resources"]
         if len(jpeg_declarations) != len(jpeg_records):
-            raise ValidationFailure("private 1.4 JPEG resource coverage is incomplete")
+            raise ValidationFailure("current 1.4 JPEG resource coverage is incomplete")
         occurrences: list[int] = []
         object_numbers: list[int] = []
         resource_names: list[str] = []
@@ -6942,23 +7173,23 @@ def main() -> int:
                 or used != (record["pdf_resource_name"] is not None)
                 or used != (record["pdf_color_transform"] is not None)
             ):
-                raise ValidationFailure("private 1.4 JPEG declaration/PDF closure drifted")
+                raise ValidationFailure("current 1.4 JPEG declaration/PDF closure drifted")
             occurrences.extend(usage["occurrence"] for usage in record["usages"])
             if used:
                 object_numbers.append(record["pdf_object_number"])
                 resource_names.append(record["pdf_resource_name"])
         if sorted(occurrences) != list(range(len(occurrences))):
-            raise ValidationFailure("private 1.4 JPEG occurrences are not dense")
+            raise ValidationFailure("current 1.4 JPEG occurrences are not dense")
         if len(object_numbers) != len(set(object_numbers)) or len(resource_names) != len(
             set(resource_names)
         ):
-            raise ValidationFailure("private 1.4 JPEG PDF objects are not one-to-one")
+            raise ValidationFailure("current 1.4 JPEG PDF objects are not one-to-one")
         if jpeg_manifest["page_count"] != 3 or [
             usage["page_index"]
             for record in jpeg_records
             for usage in record["usages"]
         ] != [0, 1, 2]:
-            raise ValidationFailure("private 1.4 JPEG page placement drifted")
+            raise ValidationFailure("current 1.4 JPEG page placement drifted")
         if jpeg_records[2]["usages"] or any(
             jpeg_records[2][field] is not None
             for field in (
@@ -6968,7 +7199,7 @@ def main() -> int:
                 "pdf_resource_name",
             )
         ):
-            raise ValidationFailure("private 1.4 unused JPEG acquired a PDF plan or object")
+            raise ValidationFailure("current 1.4 unused JPEG acquired a PDF plan or object")
 
         jpeg_tampers = []
         wrong_component = copy.deepcopy(jpeg_manifest)
@@ -6988,10 +7219,10 @@ def main() -> int:
         jpeg_tampers.append(("extra member", extra_member))
         for label, mutant in jpeg_tampers:
             if not schema_errors(
-                private_m4_validators["machine-jpeg-manifest.schema.json"], mutant
+                current_m4_validators["machine-jpeg-manifest.schema.json"], mutant
             ):
                 raise ValidationFailure(
-                    f"private 1.4 JPEG manifest accepted {label} tamper"
+                    f"current 1.4 JPEG manifest accepted {label} tamper"
                 )
 
         vector_document_path = STAGING_SAFE_VECTOR_FIXTURE_DIR / "job" / "document-package.json"
@@ -6999,27 +7230,27 @@ def main() -> int:
         vector_document = load_json(vector_document_path)
         vector_manifest = load_json(vector_manifest_path)
         vector_document_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], vector_document
+            current_m4_validators["document-package.schema.json"], vector_document
         )
         if vector_document_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the SafeVector fixture: "
+                "current 1.4 DocumentPackage rejected the SafeVector fixture: "
                 + " | ".join(vector_document_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             vector_document,
         ):
             raise ValidationFailure(
                 "versioned 1.3 DocumentPackage accepted the private SafeVector fixture"
             )
         vector_manifest_errors = schema_errors(
-            private_m4_validators["machine-safe-vector-manifest.schema.json"],
+            current_m4_validators["machine-safe-vector-manifest.schema.json"],
             vector_manifest,
         )
         if vector_manifest_errors:
             raise ValidationFailure(
-                "private 1.4 SafeVector manifest was rejected: "
+                "current 1.4 SafeVector manifest was rejected: "
                 + " | ".join(vector_manifest_errors)
             )
         for path, value, label in (
@@ -7027,11 +7258,11 @@ def main() -> int:
             (vector_manifest_path, vector_manifest, "SafeVector manifest"),
         ):
             if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
-                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+                raise ValidationFailure(f"current 1.4 {label} is not canonical JCS")
         vector_declarations = vector_document["resources"]["images"]
         vector_resources = vector_manifest["resources"]
         if len(vector_declarations) != len(vector_resources):
-            raise ValidationFailure("private 1.4 SafeVector resource coverage is incomplete")
+            raise ValidationFailure("current 1.4 SafeVector resource coverage is incomplete")
         vector_job = STAGING_SAFE_VECTOR_FIXTURE_DIR / "job"
         for declaration, record in zip(vector_declarations, vector_resources, strict=True):
             resource_bytes = (vector_job / declaration["uri"]).read_bytes()
@@ -7047,36 +7278,36 @@ def main() -> int:
                 or bool(record["usages"]) != (record["pdf_form_object_number"] is not None)
                 or bool(record["usages"]) != (record["pdf_resource_name"] is not None)
             ):
-                raise ValidationFailure("private 1.4 SafeVector closure drifted")
+                raise ValidationFailure("current 1.4 SafeVector closure drifted")
         wrong_vector_media = copy.deepcopy(vector_document)
         wrong_vector_media["resources"]["images"][0]["media_type"] = "image/svg+xml"
         if not schema_errors(
-            private_m4_validators["document-package.schema.json"], wrong_vector_media
+            current_m4_validators["document-package.schema.json"], wrong_vector_media
         ):
-            raise ValidationFailure("private 1.4 accepted unknown SafeVector media")
+            raise ValidationFailure("current 1.4 accepted unknown SafeVector media")
         mismatched_vector_manifest = copy.deepcopy(vector_manifest)
         mismatched_vector_manifest["resources"][0]["attested_media_kind"] = "png"
         if not schema_errors(
-            private_m4_validators["machine-safe-vector-manifest.schema.json"],
+            current_m4_validators["machine-safe-vector-manifest.schema.json"],
             mismatched_vector_manifest,
         ):
-            raise ValidationFailure("private 1.4 SafeVector manifest accepted media mismatch")
+            raise ValidationFailure("current 1.4 SafeVector manifest accepted media mismatch")
 
         precomposed_vector_document_path = (
             STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "document-package.json"
         )
         precomposed_vector_document = load_json(precomposed_vector_document_path)
         precomposed_vector_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"],
+            current_m4_validators["document-package.schema.json"],
             precomposed_vector_document,
         )
         if precomposed_vector_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the precomposed-vector fixture: "
+                "current 1.4 DocumentPackage rejected the precomposed-vector fixture: "
                 + " | ".join(precomposed_vector_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             precomposed_vector_document,
         ):
             raise ValidationFailure(
@@ -7087,7 +7318,7 @@ def main() -> int:
             != jcs_bytes(precomposed_vector_document)
         ):
             raise ValidationFailure(
-                "private 1.4 precomposed-vector DocumentPackage is not canonical JCS"
+                "current 1.4 precomposed-vector DocumentPackage is not canonical JCS"
             )
 
         precomposed_vector_source = (
@@ -7117,7 +7348,7 @@ def main() -> int:
             != {"engine_id", "engine_version", "rules_version"}
         ):
             raise ValidationFailure(
-                "private 1.4 precomposed-vector source/resource closure drifted"
+                "current 1.4 precomposed-vector source/resource closure drifted"
             )
 
         precomposed_vector_blocks = precomposed_vector_document["document"]["blocks"][
@@ -7134,14 +7365,14 @@ def main() -> int:
             "math_vector_block",
         }:
             raise ValidationFailure(
-                "private 1.4 precomposed-vector fixture does not cover all four kinds"
+                "current 1.4 precomposed-vector fixture does not cover all four kinds"
             )
 
         vector_display_path = (
             STAGING_PRECOMPOSED_VECTOR_FIXTURE_DIR / "display-v2.json"
         )
         vector_display = load_json(vector_display_path)
-        vector_display_validator = private_m4_validators[
+        vector_display_validator = current_m4_validators[
             "display-list.schema.json"
         ]
         vector_display_errors = schema_errors(
@@ -7149,11 +7380,11 @@ def main() -> int:
         )
         if vector_display_errors:
             raise ValidationFailure(
-                "private 1.4 precomposed-vector Display was rejected: "
+                "current 1.4 precomposed-vector Display was rejected: "
                 + " | ".join(vector_display_errors)
             )
         if not schema_errors(
-            versioned_current_validators["display-list.schema.json"],
+            frozen_1_3_validators["display-list.schema.json"],
             vector_display,
         ):
             raise ValidationFailure(
@@ -7163,7 +7394,7 @@ def main() -> int:
             vector_display
         ):
             raise ValidationFailure(
-                "private 1.4 precomposed-vector Display is not canonical JCS"
+                "current 1.4 precomposed-vector Display is not canonical JCS"
             )
 
         def precomposed_vector_display_semantic_errors(
@@ -7290,7 +7521,7 @@ def main() -> int:
         )
         if vector_display_semantic_errors:
             raise ValidationFailure(
-                "private 1.4 precomposed-vector Display closure drifted: "
+                "current 1.4 precomposed-vector Display closure drifted: "
                 + ", ".join(sorted(vector_display_semantic_errors))
             )
 
@@ -7320,7 +7551,7 @@ def main() -> int:
         ):
             if not schema_errors(vector_display_validator, invalid_display):
                 raise ValidationFailure(
-                    f"private 1.4 precomposed-vector Display accepted {label}"
+                    f"current 1.4 precomposed-vector Display accepted {label}"
                 )
 
         for label, path, field in (
@@ -7343,7 +7574,7 @@ def main() -> int:
                 command["page_index"] += 1
             if not precomposed_vector_display_semantic_errors(tampered):
                 raise ValidationFailure(
-                    f"private 1.4 precomposed-vector Display accepted {label} tamper"
+                    f"current 1.4 precomposed-vector Display accepted {label} tamper"
                 )
         reordered_display = copy.deepcopy(vector_display)
         reordered_display["precomposed_vector_display"]["pages"][0]["record"][
@@ -7351,7 +7582,7 @@ def main() -> int:
         ].reverse()
         if not precomposed_vector_display_semantic_errors(reordered_display):
             raise ValidationFailure(
-                "private 1.4 precomposed-vector Display accepted paint-order tamper"
+                "current 1.4 precomposed-vector Display accepted paint-order tamper"
             )
 
         inline_vector_trace_path = (
@@ -7359,11 +7590,11 @@ def main() -> int:
         )
         inline_vector_trace = load_json(inline_vector_trace_path)
         inline_vector_trace_errors = schema_errors(
-            private_m4_validators["layout-trace.schema.json"], inline_vector_trace
+            current_m4_validators["layout-trace.schema.json"], inline_vector_trace
         )
         if inline_vector_trace_errors:
             raise ValidationFailure(
-                "private 1.4 inline-vector layout trace was rejected: "
+                "current 1.4 inline-vector layout trace was rejected: "
                 + " | ".join(inline_vector_trace_errors)
             )
         if (
@@ -7371,7 +7602,7 @@ def main() -> int:
             != jcs_bytes(inline_vector_trace)
         ):
             raise ValidationFailure(
-                "private 1.4 inline-vector layout trace is not canonical JCS"
+                "current 1.4 inline-vector layout trace is not canonical JCS"
             )
         inline_layout = inline_vector_trace["precomposed_vector_layout"]
         inline_lines = inline_layout["lines"]
@@ -7389,7 +7620,7 @@ def main() -> int:
             != list(range(len(inline_placements)))
         ):
             raise ValidationFailure(
-                "private 1.4 inline-vector layout counts or dense ordinals drifted"
+                "current 1.4 inline-vector layout counts or dense ordinals drifted"
             )
         for placement_wrapper in inline_placements:
             placement = placement_wrapper["record"]
@@ -7407,7 +7638,7 @@ def main() -> int:
                 > line["line_top"] + line["line_height"]
             ):
                 raise ValidationFailure(
-                    "private 1.4 inline-vector baseline or line containment drifted"
+                    "current 1.4 inline-vector baseline or line containment drifted"
                 )
 
         block_vector_trace_path = (
@@ -7415,11 +7646,11 @@ def main() -> int:
         )
         block_vector_trace = load_json(block_vector_trace_path)
         block_vector_trace_errors = schema_errors(
-            private_m4_validators["layout-trace.schema.json"], block_vector_trace
+            current_m4_validators["layout-trace.schema.json"], block_vector_trace
         )
         if block_vector_trace_errors:
             raise ValidationFailure(
-                "private 1.4 block-vector layout trace was rejected: "
+                "current 1.4 block-vector layout trace was rejected: "
                 + " | ".join(block_vector_trace_errors)
             )
         if (
@@ -7427,7 +7658,7 @@ def main() -> int:
             != jcs_bytes(block_vector_trace)
         ):
             raise ValidationFailure(
-                "private 1.4 block-vector layout trace is not canonical JCS"
+                "current 1.4 block-vector layout trace is not canonical JCS"
             )
 
         block_layout = block_vector_trace["precomposed_vector_block_layout"]
@@ -7473,7 +7704,7 @@ def main() -> int:
             )
         ):
             raise ValidationFailure(
-                "private 1.4 block-vector layout counts or dense ordinals drifted"
+                "current 1.4 block-vector layout counts or dense ordinals drifted"
             )
 
         block_body = block_layout["page_geometry"]["body"]
@@ -7495,7 +7726,7 @@ def main() -> int:
                 jcs_bytes(placement)
             ).hexdigest():
                 raise ValidationFailure(
-                    "private 1.4 block-vector placement fingerprint drifted"
+                    "current 1.4 block-vector placement fingerprint drifted"
                 )
 
             pagination_bounds = placement["pagination_bounds"]
@@ -7518,7 +7749,7 @@ def main() -> int:
                 or not block_rect_contains(pagination_bounds, viewport_rect)
             ):
                 raise ValidationFailure(
-                    "private 1.4 block-vector geometry or viewport matrix drifted"
+                    "current 1.4 block-vector geometry or viewport matrix drifted"
                 )
 
             if (
@@ -7528,7 +7759,7 @@ def main() -> int:
                 or children[0]["paint_ordinal"] != viewport["paint_ordinal"]
             ):
                 raise ValidationFailure(
-                    "private 1.4 block-vector primary structure child drifted"
+                    "current 1.4 block-vector primary structure child drifted"
                 )
             paint_ordinals.extend(child["paint_ordinal"] for child in children)
 
@@ -7547,12 +7778,12 @@ def main() -> int:
                     or placement["keep_caption"]
                 ):
                     raise ValidationFailure(
-                        "private 1.4 block-vector math baseline or structure drifted"
+                        "current 1.4 block-vector math baseline or structure drifted"
                     )
                 if equation_number is None:
                     if len(children) != 1:
                         raise ValidationFailure(
-                            "private 1.4 unnumbered math-vector children drifted"
+                            "current 1.4 unnumbered math-vector children drifted"
                         )
                 elif (
                     len(children) != 2
@@ -7570,7 +7801,7 @@ def main() -> int:
                     + equation_number["minimum_gap"]
                 ):
                     raise ValidationFailure(
-                        "private 1.4 block-vector equation-number placement drifted"
+                        "current 1.4 block-vector equation-number placement drifted"
                     )
             elif (
                 placement["kind"] != "vector_figure"
@@ -7581,7 +7812,7 @@ def main() -> int:
                 or children[0]["owner"] != placement["node_id"]
             ):
                 raise ValidationFailure(
-                    "private 1.4 block-vector Figure structure drifted"
+                    "current 1.4 block-vector Figure structure drifted"
                 )
 
             caption_children = [
@@ -7596,12 +7827,12 @@ def main() -> int:
                 for child, caption in zip(caption_children, placement["captions"])
             ):
                 raise ValidationFailure(
-                    "private 1.4 block-vector caption structure drifted"
+                    "current 1.4 block-vector caption structure drifted"
                 )
 
         if paint_ordinals != list(range(len(paint_ordinals))):
             raise ValidationFailure(
-                "private 1.4 block-vector paint ordinals are not dense"
+                "current 1.4 block-vector paint ordinals are not dense"
             )
 
         for page in block_pages:
@@ -7623,16 +7854,16 @@ def main() -> int:
                 != list(range(len(page_placements)))
             ):
                 raise ValidationFailure(
-                    "private 1.4 block-vector page accounting drifted"
+                    "current 1.4 block-vector page accounting drifted"
                 )
 
         mixed_layout_trace = copy.deepcopy(block_vector_trace)
         mixed_layout_trace["precomposed_vector_layout"] = inline_layout
         if not schema_errors(
-            private_m4_validators["layout-trace.schema.json"], mixed_layout_trace
+            current_m4_validators["layout-trace.schema.json"], mixed_layout_trace
         ):
             raise ValidationFailure(
-                "private 1.4 layout trace accepted mixed inline/block evidence"
+                "current 1.4 layout trace accepted mixed inline/block evidence"
             )
         wrong_block_child_role = copy.deepcopy(block_vector_trace)
         wrong_block_child_role["precomposed_vector_block_layout"]["block_placements"][
@@ -7648,20 +7879,20 @@ def main() -> int:
             ("number child on unnumbered math", unnumbered_with_number_child),
         ):
             if not schema_errors(
-                private_m4_validators["layout-trace.schema.json"], invalid_trace
+                current_m4_validators["layout-trace.schema.json"], invalid_trace
             ):
                 raise ValidationFailure(
-                    f"private 1.4 layout trace accepted {label}"
+                    f"current 1.4 layout trace accepted {label}"
                 )
 
         def require_invalid_precomposed_vector(
             label: str, invalid: dict[str, Any]
         ) -> None:
             if not schema_errors(
-                private_m4_validators["document-package.schema.json"], invalid
+                current_m4_validators["document-package.schema.json"], invalid
             ):
                 raise ValidationFailure(
-                    f"private 1.4 DocumentPackage accepted invalid precomposed-vector {label}"
+                    f"current 1.4 DocumentPackage accepted invalid precomposed-vector {label}"
                 )
 
         missing_safe2_hash = copy.deepcopy(precomposed_vector_document)
@@ -7740,57 +7971,57 @@ def main() -> int:
         math_keep_document = load_json(math_keep_document_path)
         math_manifest = load_json(math_manifest_path)
         math_document_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], math_document
+            current_m4_validators["document-package.schema.json"], math_document
         )
         if math_document_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the math fixture: "
+                "current 1.4 DocumentPackage rejected the math fixture: "
                 + " | ".join(math_document_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             math_document,
         ):
             raise ValidationFailure(
                 "versioned 1.3 DocumentPackage accepted the private math fixture"
             )
         math_page_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], math_page_document
+            current_m4_validators["document-package.schema.json"], math_page_document
         )
         if math_page_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the math page fixture: "
+                "current 1.4 DocumentPackage rejected the math page fixture: "
                 + " | ".join(math_page_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             math_page_document,
         ):
             raise ValidationFailure(
                 "versioned 1.3 DocumentPackage accepted the private math page fixture"
             )
         math_keep_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], math_keep_document
+            current_m4_validators["document-package.schema.json"], math_keep_document
         )
         if math_keep_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the math keep fixture: "
+                "current 1.4 DocumentPackage rejected the math keep fixture: "
                 + " | ".join(math_keep_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             math_keep_document,
         ):
             raise ValidationFailure(
                 "versioned 1.3 DocumentPackage accepted the private math keep fixture"
             )
         math_manifest_errors = schema_errors(
-            private_m4_validators["machine-math-manifest.schema.json"],
+            current_m4_validators["machine-math-manifest.schema.json"],
             math_manifest,
         )
         if math_manifest_errors:
             raise ValidationFailure(
-                "private 1.4 math manifest was rejected: "
+                "current 1.4 math manifest was rejected: "
                 + " | ".join(math_manifest_errors)
             )
         for path, value, label in (
@@ -7800,7 +8031,7 @@ def main() -> int:
             (math_manifest_path, math_manifest, "math manifest"),
         ):
             if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
-                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+                raise ValidationFailure(f"current 1.4 {label} is not canonical JCS")
         math_font = (STAGING_MATH_FIXTURE_DIR / "job" / "math.ttf").read_bytes()
         for fixture, source_name, label in (
             (math_document, "input.tsf", "math"),
@@ -7816,7 +8047,7 @@ def main() -> int:
                 or len(fixture["resources"]["font_faces"]) != 1
             ):
                 raise ValidationFailure(
-                    f"private 1.4 {label} fixture catalog closure drifted"
+                    f"current 1.4 {label} fixture catalog closure drifted"
                 )
             source_declaration = fixture["sources"][0]
             font_declaration = fixture["resources"]["font_faces"][0]
@@ -7836,7 +8067,7 @@ def main() -> int:
                 != hashlib.sha256(math_font).hexdigest()
             ):
                 raise ValidationFailure(
-                    f"private 1.4 {label} source/font declaration drifted"
+                    f"current 1.4 {label} source/font declaration drifted"
                 )
         math_source = (STAGING_MATH_FIXTURE_DIR / "job" / "input.tsf").read_bytes()
         math_nodes = [
@@ -7844,7 +8075,7 @@ def main() -> int:
             math_document["document"]["blocks"][0]["blocks"][1],
         ]
         if len(math_nodes) != len(math_manifest["facts"]):
-            raise ValidationFailure("private 1.4 math occurrence coverage is incomplete")
+            raise ValidationFailure("current 1.4 math occurrence coverage is incomplete")
         for occurrence, (node, fact) in enumerate(
             zip(math_nodes, math_manifest["facts"], strict=True)
         ):
@@ -7866,24 +8097,24 @@ def main() -> int:
                 or fact["selected"]["page_index"] < 0
                 or fact["pdf"]["page_object"] <= 0
             ):
-                raise ValidationFailure("private 1.4 math receipt closure drifted")
+                raise ValidationFailure("current 1.4 math receipt closure drifted")
         wrong_math_version = copy.deepcopy(math_document)
         wrong_math_version["document"]["blocks"][0]["blocks"][1]["math_source"][
             "version"
         ] = "2"
         if not schema_errors(
-            private_m4_validators["document-package.schema.json"], wrong_math_version
+            current_m4_validators["document-package.schema.json"], wrong_math_version
         ):
-            raise ValidationFailure("private 1.4 accepted an unknown math source version")
+            raise ValidationFailure("current 1.4 accepted an unknown math source version")
         whitespace_math_speech = copy.deepcopy(math_document)
         whitespace_math_speech["document"]["blocks"][0]["blocks"][0][
             "children"
         ][0]["speech"] = "\u2007"
         if not schema_errors(
-            private_m4_validators["document-package.schema.json"],
+            current_m4_validators["document-package.schema.json"],
             whitespace_math_speech,
         ):
-            raise ValidationFailure("private 1.4 accepted whitespace-only math speech")
+            raise ValidationFailure("current 1.4 accepted whitespace-only math speech")
         page_region_math = copy.deepcopy(math_document)
         page_region_master = page_region_math["page_masters"]["masters"][0]
         page_region_master["header"] = copy.deepcopy(page_region_master["body"])
@@ -7904,11 +8135,11 @@ def main() -> int:
             "span": {"end_byte": 5, "source_id": 0, "start_byte": 0},
         }
         page_region_text_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], page_region_math
+            current_m4_validators["document-package.schema.json"], page_region_math
         )
         if page_region_text_errors:
             raise ValidationFailure(
-                "private 1.4 rejected the valid restricted page-region control: "
+                "current 1.4 rejected the valid restricted page-region control: "
                 + " | ".join(page_region_text_errors)
             )
         page_region_paragraph["children"] = [
@@ -7917,16 +8148,16 @@ def main() -> int:
             )
         ]
         if not schema_errors(
-            private_m4_validators["document-package.schema.json"], page_region_math
+            current_m4_validators["document-package.schema.json"], page_region_math
         ):
-            raise ValidationFailure("private 1.4 accepted math in a page region")
+            raise ValidationFailure("current 1.4 accepted math in a page region")
         wrong_math_parser = copy.deepcopy(math_manifest)
         wrong_math_parser["facts"][0]["parser"] = "host.math-parser/1"
         if not schema_errors(
-            private_m4_validators["machine-math-manifest.schema.json"],
+            current_m4_validators["machine-math-manifest.schema.json"],
             wrong_math_parser,
         ):
-            raise ValidationFailure("private 1.4 math manifest accepted a foreign parser")
+            raise ValidationFailure("current 1.4 math manifest accepted a foreign parser")
 
         book_document_path = (
             STAGING_BOOK_NAVIGATION_FIXTURE_DIR / "job" / "document-package.json"
@@ -7939,29 +8170,29 @@ def main() -> int:
         book_manifest = load_json(book_manifest_path)
         book_expectation = load_json(book_expectation_path)
         book_document_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"], book_document
+            current_m4_validators["document-package.schema.json"], book_document
         )
         if book_document_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the book-navigation fixture: "
+                "current 1.4 DocumentPackage rejected the book-navigation fixture: "
                 + " | ".join(book_document_errors)
             )
         if not schema_errors(
-            versioned_current_validators["document-package.schema.json"],
+            frozen_1_3_validators["document-package.schema.json"],
             book_document,
         ):
             raise ValidationFailure(
                 "versioned 1.3 DocumentPackage accepted the private book-navigation fixture"
             )
         book_manifest_errors = schema_errors(
-            private_m4_validators[
+            current_m4_validators[
                 "machine-book-navigation-manifest.schema.json"
             ],
             book_manifest,
         )
         if book_manifest_errors:
             raise ValidationFailure(
-                "private 1.4 book-navigation manifest was rejected: "
+                "current 1.4 book-navigation manifest was rejected: "
                 + " | ".join(book_manifest_errors)
             )
         for path, value, label in (
@@ -7970,7 +8201,7 @@ def main() -> int:
             (book_expectation_path, book_expectation, "book-navigation PDF expectation"),
         ):
             if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
-                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+                raise ValidationFailure(f"current 1.4 {label} is not canonical JCS")
         validate_book_navigation_semantics(book_document, book_manifest)
         if canonical_book_language("SGN-be-fr") != "sgn-BE-FR":
             raise ValidationFailure(
@@ -7989,7 +8220,7 @@ def main() -> int:
             or book_document["text_buffers"][0]["utf8"].encode("utf-8")
             != source_bytes
         ):
-            raise ValidationFailure("private 1.4 book-navigation source closure drifted")
+            raise ValidationFailure("current 1.4 book-navigation source closure drifted")
         if (
             book_expectation["metadata"] != book_document["metadata"]
             or book_expectation["document_language"]
@@ -7997,7 +8228,7 @@ def main() -> int:
             or len(book_expectation["outline"])
             != len(book_document["outline"]["entries"])
         ):
-            raise ValidationFailure("private 1.4 PDF expectation differs from source facts")
+            raise ValidationFailure("current 1.4 PDF expectation differs from source facts")
 
         missing_book_metadata = copy.deepcopy(book_document)
         del missing_book_metadata["metadata"]
@@ -8010,10 +8241,10 @@ def main() -> int:
             ("null node language", null_book_language),
         ):
             if not schema_errors(
-                private_m4_validators["document-package.schema.json"], invalid
+                current_m4_validators["document-package.schema.json"], invalid
             ):
                 raise ValidationFailure(
-                    f"private 1.4 DocumentPackage accepted book-navigation {label}"
+                    f"current 1.4 DocumentPackage accepted book-navigation {label}"
                 )
 
         bad_book_date = copy.deepcopy(book_document)
@@ -8051,7 +8282,7 @@ def main() -> int:
                 pass
             else:
                 raise ValidationFailure(
-                    f"private 1.4 semantic validation accepted {label}"
+                    f"current 1.4 semantic validation accepted {label}"
                 )
         mismatched_book_manifest = copy.deepcopy(book_manifest)
         mismatched_book_manifest["metadata"]["title"] = "Foreign title"
@@ -8063,18 +8294,18 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 manifest accepted mismatched source metadata"
+                "current 1.4 manifest accepted mismatched source metadata"
             )
         zero_outline_root = copy.deepcopy(book_manifest)
         zero_outline_root["pdf"]["outline_root_object"] = 0
         if not schema_errors(
-            private_m4_validators[
+            current_m4_validators[
                 "machine-book-navigation-manifest.schema.json"
             ],
             zero_outline_root,
         ):
             raise ValidationFailure(
-                "private 1.4 book-navigation manifest accepted object zero"
+                "current 1.4 book-navigation manifest accepted object zero"
             )
 
         accessibility_document_path = (
@@ -8085,23 +8316,23 @@ def main() -> int:
         accessibility_document = load_json(accessibility_document_path)
         accessibility_manifest = load_json(accessibility_manifest_path)
         accessibility_document_errors = schema_errors(
-            private_m4_validators["document-package.schema.json"],
+            current_m4_validators["document-package.schema.json"],
             accessibility_document,
         )
         if accessibility_document_errors:
             raise ValidationFailure(
-                "private 1.4 DocumentPackage rejected the accessibility fixture: "
+                "current 1.4 DocumentPackage rejected the accessibility fixture: "
                 + " | ".join(accessibility_document_errors)
             )
         accessibility_manifest_errors = schema_errors(
-            private_m4_validators[
+            current_m4_validators[
                 "machine-accessibility-manifest.schema.json"
             ],
             accessibility_manifest,
         )
         if accessibility_manifest_errors:
             raise ValidationFailure(
-                "private 1.4 accessibility manifest was rejected: "
+                "current 1.4 accessibility manifest was rejected: "
                 + " | ".join(accessibility_manifest_errors)
             )
         for path, value, label in (
@@ -8109,24 +8340,24 @@ def main() -> int:
             (accessibility_manifest_path, accessibility_manifest, "accessibility manifest"),
         ):
             if path.read_bytes().rstrip(b"\n") != jcs_bytes(value):
-                raise ValidationFailure(f"private 1.4 {label} is not canonical JCS")
+                raise ValidationFailure(f"current 1.4 {label} is not canonical JCS")
         accessibility_pdf = accessibility_pdf_path.read_bytes()
         if (
             accessibility_manifest["fingerprints"]["pdf_sha256"]
             != hashlib.sha256(accessibility_pdf).hexdigest()
             or accessibility_manifest["pdf"]["byte_length"] != len(accessibility_pdf)
         ):
-            raise ValidationFailure("private 1.4 accessibility PDF hash/length drifted")
+            raise ValidationFailure("current 1.4 accessibility PDF hash/length drifted")
         structure = accessibility_manifest["structure"]
         if [node["structure_node_id"] for node in structure] != list(range(len(structure))):
-            raise ValidationFailure("private 1.4 StructureNodeIds are not dense")
+            raise ValidationFailure("current 1.4 StructureNodeIds are not dense")
         for node in structure:
             parent = node["parent"]
             if parent is None:
                 if node["structure_node_id"] != 0 or node["role"] != "Document":
-                    raise ValidationFailure("private 1.4 structure root drifted")
+                    raise ValidationFailure("current 1.4 structure root drifted")
             elif node["structure_node_id"] not in structure[parent]["children"]:
-                raise ValidationFailure("private 1.4 structure parent/child closure drifted")
+                raise ValidationFailure("current 1.4 structure parent/child closure drifted")
         marked = accessibility_manifest["marked_content"]
         selected_paint_ids = [
             paint_id
@@ -8134,7 +8365,7 @@ def main() -> int:
             for paint_id in record["selected_paint_ids"]
         ]
         if selected_paint_ids != list(range(len(selected_paint_ids))):
-            raise ValidationFailure("private 1.4 selected paint IDs are not dense")
+            raise ValidationFailure("current 1.4 selected paint IDs are not dense")
         for page in marked["pages"]:
             mcids = [
                 record["owner"]["mcid"]
@@ -8143,7 +8374,7 @@ def main() -> int:
                 and record["owner"]["kind"] == "structure"
             ]
             if mcids != list(range(len(mcids))) or len(mcids) != page["marked_content_count"]:
-                raise ValidationFailure("private 1.4 page-local MCIDs are not dense")
+                raise ValidationFailure("current 1.4 page-local MCIDs are not dense")
         required_roles = {
             "Caption", "Document", "Em", "Exercise", "Figure", "Formula",
             "H1", "H2", "H3", "H4", "H5", "H6", "L", "LBody", "LI",
@@ -8151,31 +8382,31 @@ def main() -> int:
             "Span", "Strong", "TBody", "TD", "TH", "THead", "TR", "Table",
         }
         if not required_roles.issubset({node["role"] for node in structure}):
-            raise ValidationFailure("private 1.4 accessibility role coverage is incomplete")
+            raise ValidationFailure("current 1.4 accessibility role coverage is incomplete")
         if {
             node["list_numbering"] for node in structure if node["role"] == "L"
         } != {"decimal", "disc"}:
-            raise ValidationFailure("private 1.4 accessibility List coverage is incomplete")
+            raise ValidationFailure("current 1.4 accessibility List coverage is incomplete")
         if accessibility_manifest["validators"] != [
             "typaxis.tagged-pdf-validator/1",
             "verapdf-greenfield/1.30.2:ua1",
             "typaxis.matterhorn-assessment/1",
         ]:
-            raise ValidationFailure("private 1.4 accessibility validators drifted")
+            raise ValidationFailure("current 1.4 accessibility validators drifted")
         unknown_accessibility_role = copy.deepcopy(accessibility_manifest)
         unknown_accessibility_role["structure"][0]["role"] = "Unknown"
         if not schema_errors(
-            private_m4_validators["machine-accessibility-manifest.schema.json"],
+            current_m4_validators["machine-accessibility-manifest.schema.json"],
             unknown_accessibility_role,
         ):
-            raise ValidationFailure("private 1.4 accessibility manifest accepted an unknown role")
+            raise ValidationFailure("current 1.4 accessibility manifest accepted an unknown role")
         extra_accessibility_member = copy.deepcopy(accessibility_manifest)
         extra_accessibility_member["tagged"] = True
         if not schema_errors(
-            private_m4_validators["machine-accessibility-manifest.schema.json"],
+            current_m4_validators["machine-accessibility-manifest.schema.json"],
             extra_accessibility_member,
         ):
-            raise ValidationFailure("private 1.4 accessibility manifest accepted an extra member")
+            raise ValidationFailure("current 1.4 accessibility manifest accepted an extra member")
 
         safe_v2, math_vector, book_v2, tagged_v2 = private_vector_v2_examples()
         vector_v2_instances = (
@@ -8201,10 +8432,10 @@ def main() -> int:
             ),
         )
         for label, schema_name, instance in vector_v2_instances:
-            errors = schema_errors(private_m4_validators[schema_name], instance)
+            errors = schema_errors(current_m4_validators[schema_name], instance)
             if errors:
                 raise ValidationFailure(
-                    f"private 1.4 {label} example was rejected: "
+                    f"current 1.4 {label} example was rejected: "
                     + " | ".join(errors)
                 )
         safe_v2_fingerprint = hashlib.sha256(jcs_bytes(safe_v2)).hexdigest()
@@ -8241,10 +8472,30 @@ def main() -> int:
                 )
             if value["output"] is not None and safe_record is not None:
                 value["output"]["sha256"] = safe_record["fingerprints"]["pdf_sha256"]
-            # Root `images` retains its existing raster/pixel contract. Vector
-            # aliases and intrinsic fixed-point dimensions are owned once by
-            # the nested SafeVector /2 record.
+            # The production root records every admitted resource, while the
+            # nested SafeVector /2 record owns selected vector-use geometry.
             value["images"] = []
+            if safe_record is not None:
+                for resource in safe_record["resources"]:
+                    media_type = resource["content_key"]["media_type"]
+                    for alias in resource["aliases"]:
+                        value["images"].append(
+                            {
+                                "attested_media_kind": media_type,
+                                "bytes": resource["svg_byte_length"],
+                                "decoded_bytes": alias["admission_allocation_charge"],
+                                "image_id": alias["image_id"],
+                                "media_declaration": {
+                                    "kind": "declared",
+                                    "media_type": media_type,
+                                },
+                                "pixel_height": 1,
+                                "pixel_width": 1,
+                                "sha256": alias["admitted_sha256"],
+                                "uri": alias["uri"],
+                            }
+                        )
+                value["images"].sort(key=lambda image: image["image_id"])
             for record_name, fingerprint_name, record in (
                 (
                     "book_navigation_manifest",
@@ -8282,7 +8533,7 @@ def main() -> int:
             tagged_v2,
             status="built",
         )
-        production_build_validator = private_m4_validators[
+        production_build_validator = current_m4_validators[
             "build-manifest.schema.json"
         ]
         production_errors = schema_errors(
@@ -8290,7 +8541,7 @@ def main() -> int:
         )
         if production_errors:
             raise ValidationFailure(
-                "private 1.4 production vector build was rejected: "
+                "current 1.4 production vector build was rejected: "
                 + " | ".join(production_errors)
             )
         validate_vector_build_manifest_semantics(production_built)
@@ -8302,6 +8553,7 @@ def main() -> int:
                 "bytes": 1,
                 "decoded_bytes": 4,
                 "image_id": 2_147_483_647,
+                "media_declaration": {"kind": "declared", "media_type": "png"},
                 "pixel_height": 1,
                 "pixel_width": 1,
                 "sha256": _vector_v2_hash("independent-raster-image"),
@@ -8311,28 +8563,27 @@ def main() -> int:
         production_with_raster["images"].sort(key=lambda image: image["image_id"])
         if schema_errors(production_build_validator, production_with_raster):
             raise ValidationFailure(
-                "private 1.4 production vector build rejected an independent raster image"
+                "current 1.4 production vector build rejected an independent raster image"
             )
         validate_vector_build_manifest_semantics(production_with_raster)
 
-        vector_in_raster_images = copy.deepcopy(production_built)
+        production_with_vector = copy.deepcopy(production_built)
         first_resource = safe_v2["resources"][0]
         first_alias = first_resource["aliases"][0]
-        vector_in_raster_images["images"].append(
-            {
-                "attested_media_kind": first_resource["content_key"]["media_type"],
-                "bytes": first_resource["svg_byte_length"],
-                "decoded_bytes": first_alias["admission_allocation_charge"],
-                "image_id": first_alias["image_id"],
-                "pixel_height": first_resource["intrinsic_height"],
-                "pixel_width": first_resource["intrinsic_width"],
-                "sha256": first_alias["admitted_sha256"],
-                "uri": first_alias["uri"],
-            }
-        )
-        if not schema_errors(production_build_validator, vector_in_raster_images):
+        if schema_errors(production_build_validator, production_with_vector):
             raise ValidationFailure(
-                "private 1.4 build overloaded the raster image record with vector facts"
+                "current 1.4 production build rejected a declared vector image record"
+            )
+        validate_vector_build_manifest_semantics(production_with_vector)
+        mismatched_vector = copy.deepcopy(production_with_vector)
+        mismatched_vector["images"][0]["sha256"] = _vector_v2_hash("wrong-vector")
+        try:
+            validate_vector_build_manifest_semantics(mismatched_vector)
+        except ValidationFailure:
+            pass
+        else:
+            raise ValidationFailure(
+                "current 1.4 production closure accepted a mismatched vector resource fact"
             )
 
         production_failed = production_vector_build(
@@ -8340,7 +8591,47 @@ def main() -> int:
         )
         if schema_errors(production_build_validator, production_failed):
             raise ValidationFailure(
-                "private 1.4 production failed build rejected all-null vector pairs"
+                "current 1.4 production failed build rejected all-null vector pairs"
+            )
+        legacy_failed = copy.deepcopy(production_failed)
+        legacy_failed["package_input"]["contract"] = "typaxis.contract/1.2"
+        legacy_failed["package_input"]["profile_receipt_sha256"] = None
+        legacy_failed["fonts"] = [
+            {
+                "attested_media_kind": None,
+                "face_index": 0,
+                "font_face_id": 0,
+                "media_declaration": {"kind": "legacy_unspecified"},
+                "sha256": _vector_v2_hash("legacy-font-declaration"),
+                "uri": "legacy.ttf",
+            }
+        ]
+        legacy_failed["images"] = [
+            {
+                "attested_media_kind": None,
+                "image_id": 0,
+                "media_declaration": {"kind": "legacy_unspecified"},
+                "sha256": _vector_v2_hash("legacy-image-declaration"),
+                "uri": "legacy.png",
+            }
+        ]
+        if schema_errors(production_build_validator, legacy_failed):
+            raise ValidationFailure(
+                "current 1.4 failed manifest rejected sealed old-contract declarations"
+            )
+        legacy_built = copy.deepcopy(legacy_failed)
+        legacy_built["status"] = "built"
+        legacy_built["layout"] = copy.deepcopy(production_built["layout"])
+        legacy_built["output"] = copy.deepcopy(production_built["output"])
+        if not schema_errors(production_build_validator, legacy_built):
+            raise ValidationFailure(
+                "current 1.4 built manifest accepted legacy media declarations"
+            )
+        current_with_legacy = copy.deepcopy(legacy_failed)
+        current_with_legacy["package_input"]["contract"] = "typaxis.contract/1.4"
+        if not schema_errors(production_build_validator, current_with_legacy):
+            raise ValidationFailure(
+                "current 1.4 failed manifest accepted legacy declarations from contract 1.4"
             )
         validate_vector_build_manifest_semantics(production_failed)
         failed_after_book = production_vector_build(
@@ -8348,7 +8639,7 @@ def main() -> int:
         )
         if schema_errors(production_build_validator, failed_after_book):
             raise ValidationFailure(
-                "private 1.4 failed build rejected a completed navigation owner"
+                "current 1.4 failed build rejected a completed navigation owner"
             )
         validate_vector_build_manifest_semantics(failed_after_book)
         failed_after_tagged = production_vector_build(
@@ -8356,7 +8647,7 @@ def main() -> int:
         )
         if schema_errors(production_build_validator, failed_after_tagged):
             raise ValidationFailure(
-                "private 1.4 failed build rejected a completed vector chain"
+                "current 1.4 failed build rejected a completed vector chain"
             )
         validate_vector_build_manifest_semantics(failed_after_tagged)
 
@@ -8383,7 +8674,7 @@ def main() -> int:
         )
         if schema_errors(production_build_validator, zero_build):
             raise ValidationFailure(
-                "private 1.4 built production rejected nonnull zero-use manifests"
+                "current 1.4 built production rejected nonnull zero-use manifests"
             )
         validate_vector_build_manifest_semantics(zero_build)
 
@@ -8420,12 +8711,12 @@ def main() -> int:
         unused_resource["total_placement_count"] = 0
         unused_alias_safe["resources"].append(unused_resource)
         unused_errors = schema_errors(
-            private_m4_validators["machine-safe-vector-manifest.schema.json"],
+            current_m4_validators["machine-safe-vector-manifest.schema.json"],
             unused_alias_safe,
         )
         if unused_errors:
             raise ValidationFailure(
-                "private 1.4 SafeVector /2 rejected an unused alias: "
+                "current 1.4 SafeVector /2 rejected an unused alias: "
                 + " | ".join(unused_errors)
             )
         validate_safe_vector_v2_semantics(unused_alias_safe)
@@ -8481,11 +8772,11 @@ def main() -> int:
             ("kind/media profile mismatch", wrong_profile_kind),
         ):
             if not schema_errors(
-                private_m4_validators["machine-safe-vector-manifest.schema.json"],
+                current_m4_validators["machine-safe-vector-manifest.schema.json"],
                 invalid,
             ):
                 raise ValidationFailure(
-                    f"private 1.4 SafeVector /2 accepted {label}"
+                    f"current 1.4 SafeVector /2 accepted {label}"
                 )
 
         unordered_resources = copy.deepcopy(safe_v2)
@@ -8586,7 +8877,7 @@ def main() -> int:
                 pass
             else:
                 raise ValidationFailure(
-                    f"private 1.4 SafeVector semantic validation accepted {label} tamper"
+                    f"current 1.4 SafeVector semantic validation accepted {label} tamper"
                 )
 
         inline_equation_number = copy.deepcopy(math_vector)
@@ -8603,11 +8894,11 @@ def main() -> int:
             )
         )
         if not schema_errors(
-            private_m4_validators["machine-math-vector-manifest.schema.json"],
+            current_m4_validators["machine-math-vector-manifest.schema.json"],
             inline_equation_number,
         ):
             raise ValidationFailure(
-                "private 1.4 math-vector accepted an inline equation number"
+                "current 1.4 math-vector accepted an inline equation number"
             )
         wrong_math_package = copy.deepcopy(math_vector)
         wrong_math_package["fingerprints"]["package_sha256"] = _vector_v2_hash(
@@ -8621,7 +8912,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 math-vector closure accepted a foreign package"
+                "current 1.4 math-vector closure accepted a foreign package"
             )
         wrong_math_placement = copy.deepcopy(math_vector)
         next(
@@ -8670,7 +8961,7 @@ def main() -> int:
                 pass
             else:
                 raise ValidationFailure(
-                    f"private 1.4 math-vector semantic validation accepted {label} tamper"
+                    f"current 1.4 math-vector semantic validation accepted {label} tamper"
                 )
         generic_math_binding = copy.deepcopy(tagged_v2)
         next(
@@ -8679,11 +8970,11 @@ def main() -> int:
             if fact["kind"] == "inline_vector"
         )["math_binding_fingerprint"] = _vector_v2_hash("foreign-math-binding")
         if not schema_errors(
-            private_m4_validators["machine-accessibility-manifest.schema.json"],
+            current_m4_validators["machine-accessibility-manifest.schema.json"],
             generic_math_binding,
         ):
             raise ValidationFailure(
-                "private 1.4 tagged-PDF /2 accepted a generic-vector math binding"
+                "current 1.4 tagged-PDF /2 accepted a generic-vector math binding"
             )
         wrong_tagged_pdf = copy.deepcopy(tagged_v2)
         wrong_tagged_pdf["fingerprints"]["pdf_sha256"] = _vector_v2_hash(
@@ -8697,7 +8988,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 tagged-PDF semantic validation accepted a foreign PDF"
+                "current 1.4 tagged-PDF semantic validation accepted a foreign PDF"
             )
         duplicate_tagged_owner = copy.deepcopy(tagged_v2)
         duplicate_tagged_owner["vector_structures"][1]["node_id"] = (
@@ -8711,7 +9002,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 tagged-PDF semantic validation accepted duplicate coverage"
+                "current 1.4 tagged-PDF semantic validation accepted duplicate coverage"
             )
         overlapping_book_objects = copy.deepcopy(book_v2)
         overlapping_book_objects["object_numbers"]["info"] = (
@@ -8723,7 +9014,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 book-navigation semantic validation accepted object overlap"
+                "current 1.4 book-navigation semantic validation accepted object overlap"
             )
 
         built_null_record = copy.deepcopy(production_built)
@@ -8746,6 +9037,9 @@ def main() -> int:
         wrong_failed_production_contract["package_input"]["contract"] = (
             "typaxis.contract/1.3"
         )
+        wrong_failed_production_contract["images"] = copy.deepcopy(
+            production_with_raster["images"]
+        )
         wrong_production_root_contract = copy.deepcopy(production_built)
         wrong_production_root_contract["contract"] = "typaxis.contract/1.3"
         for label, invalid in (
@@ -8761,7 +9055,7 @@ def main() -> int:
         ):
             if not schema_errors(production_build_validator, invalid):
                 raise ValidationFailure(
-                    f"private 1.4 production build accepted {label}"
+                    f"current 1.4 production build accepted {label}"
                 )
         wrong_root_fingerprint = copy.deepcopy(production_built)
         wrong_root_fingerprint["safe_vector_manifest_fingerprint"] = _vector_v2_hash(
@@ -8773,19 +9067,22 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 production vector closure accepted a wrong fingerprint"
+                "current 1.4 production vector closure accepted a wrong fingerprint"
             )
         wrong_root_images = copy.deepcopy(production_with_raster)
-        wrong_root_images["images"][0]["image_id"] = safe_v2["resources"][0][
-            "aliases"
-        ][0]["image_id"]
+        next(
+            image
+            for image in wrong_root_images["images"]
+            if image["attested_media_kind"] == "png"
+        )["image_id"] = safe_v2["resources"][0]["aliases"][0]["image_id"]
+        wrong_root_images["images"].sort(key=lambda image: image["image_id"])
         try:
             validate_vector_build_manifest_semantics(wrong_root_images)
         except ValidationFailure:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 production vector closure accepted foreign image facts"
+                "current 1.4 production vector closure accepted foreign image facts"
             )
         wrong_root_package = copy.deepcopy(production_built)
         wrong_root_package["package_input"]["canonical_sha256"] = _vector_v2_hash(
@@ -8797,7 +9094,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 production vector closure accepted a foreign package"
+                "current 1.4 production vector closure accepted a foreign package"
             )
         wrong_root_engine = copy.deepcopy(production_built)
         wrong_root_engine["tagged_pdf_manifest"]["engine"]["version"] = "9.9.9"
@@ -8810,7 +9107,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 production vector closure accepted a foreign engine"
+                "current 1.4 production vector closure accepted a foreign engine"
             )
         wrong_all_child_engines = copy.deepcopy(production_built)
         for record_name in ("book_navigation_manifest", "tagged_pdf_manifest"):
@@ -8824,7 +9121,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 production vector closure accepted foreign child engines"
+                "current 1.4 production vector closure accepted foreign child engines"
             )
         wrong_root_object_allocation = copy.deepcopy(production_built)
         first_form_object = next(
@@ -8846,7 +9143,7 @@ def main() -> int:
             pass
         else:
             raise ValidationFailure(
-                "private 1.4 production vector closure accepted object overlap"
+                "current 1.4 production vector closure accepted object overlap"
             )
 
         m4_config = load_instance(MINIMAL_DIR / "typaxis.toml")
@@ -8865,17 +9162,17 @@ def main() -> int:
         }
         m4_config["limits"].update(m4_limit_defaults)
         m4_config_errors = schema_errors(
-            private_m4_validators["package-config.schema.json"], m4_config
+            current_m4_validators["package-config.schema.json"], m4_config
         )
         if m4_config_errors:
             raise ValidationFailure(
-                "private 1.4 package config rejected M4 limit defaults: "
+                "current 1.4 package config rejected M4 limit defaults: "
                 + " | ".join(m4_config_errors)
             )
         if not schema_errors(
-            versioned_current_validators["package-config.schema.json"], m4_config
+            frozen_1_3_validators["package-config.schema.json"], m4_config
         ):
-            raise ValidationFailure("versioned 1.3 package config accepted private M4 limits")
+            raise ValidationFailure("versioned 1.3 package config accepted current M4 limits")
         for limit_name, maximum in (
             ("max_cff_charstring_operations", 100_000_000),
             ("max_cff_outline_segments", 50_000_000),
@@ -8892,10 +9189,10 @@ def main() -> int:
                 invalid_config = copy.deepcopy(m4_config)
                 invalid_config["limits"][limit_name] = invalid
                 if not schema_errors(
-                    private_m4_validators["package-config.schema.json"], invalid_config
+                    current_m4_validators["package-config.schema.json"], invalid_config
                 ):
                     raise ValidationFailure(
-                        f"private 1.4 accepted {limit_name}={invalid}"
+                        f"current 1.4 accepted {limit_name}={invalid}"
                     )
 
         effective_config = load_instance(MINIMAL_DIR / "typaxis.toml")
@@ -8911,7 +9208,7 @@ def main() -> int:
                 )
                 advanced_document = load_json(advanced_document_path)
                 advanced_document_errors = schema_errors(
-                    versioned_current_validators["document-package.schema.json"],
+                    frozen_1_3_validators["document-package.schema.json"],
                     advanced_document,
                 )
                 if advanced_document_errors:
@@ -8924,7 +9221,7 @@ def main() -> int:
             )
             advanced_manifest = load_json(advanced_manifest_path)
             advanced_manifest_errors = schema_errors(
-                versioned_current_validators[
+                frozen_1_3_validators[
                     "machine-advanced-pagination-manifest.schema.json"
                 ],
                 advanced_manifest,
@@ -9593,11 +9890,11 @@ def main() -> int:
             raise ValidationFailure("MI2-07 DocumentPackage fixture is not canonical JCS")
         jcs_golden_count = validate_jcs_golden(effective_config)
         machine_expectation_count, machine_matrix_count = validate_machine_fixture_bundle(
-            validators, private_m4_validators
+            validators, current_m4_validators
         )
         publication_resource_count = validate_publication_readiness_fixtures(
             load_json(MACHINE_FIXTURE_DIR / "capabilities.json"),
-            private_m4_validators,
+            current_m4_validators,
         )
 
         compatibility_metadata = load_json(
@@ -9647,7 +9944,13 @@ def main() -> int:
 
         for path, schema_name in POSITIVE_FIXTURES.items():
             instance = materialize_patch_fixture(load_instance(path), schema_name, str(path))
-            errors = schema_errors(validators[schema_name], instance)
+            contract = instance.get("contract") if isinstance(instance, dict) else None
+            contract_validators = (
+                frozen_1_3_validators
+                if contract == "typaxis.contract/1.3"
+                else validators
+            )
+            errors = schema_errors(contract_validators[schema_name], instance)
             if errors:
                 raise ValidationFailure(
                     f"{path}: positive fixture rejected by {schema_name}: " + " | ".join(errors)
@@ -9681,7 +9984,13 @@ def main() -> int:
                 ),
                 positive_bundle,
             ):
-                errors = schema_errors(validators[schema_name], instance)
+                contract = instance.get("contract") if isinstance(instance, dict) else None
+                contract_validators = (
+                    frozen_1_3_validators
+                    if contract == "typaxis.contract/1.3"
+                    else validators
+                )
+                errors = schema_errors(contract_validators[schema_name], instance)
                 semantic_rules = conformance_rule_ids(
                     schema_name, instance, positive_bundle[0]
                 )
@@ -9749,7 +10058,19 @@ def main() -> int:
                     ("build-manifest.schema.json", cross_manifest),
                 )
                 for cross_schema, cross_instance in cross_instances:
-                    errors = schema_errors(validators[cross_schema], cross_instance)
+                    contract = (
+                        cross_instance.get("contract")
+                        if isinstance(cross_instance, dict)
+                        else None
+                    )
+                    contract_validators = (
+                        frozen_1_3_validators
+                        if contract == "typaxis.contract/1.3"
+                        else validators
+                    )
+                    errors = schema_errors(
+                        contract_validators[cross_schema], cross_instance
+                    )
                     if errors:
                         raise ValidationFailure(
                             f"{name}: cross fixture is not independently valid under "
@@ -9788,7 +10109,13 @@ def main() -> int:
             instance = materialize_patch_fixture(
                 load_instance(path), schema_name, str(path)
             )
-            errors = schema_errors(validators[schema_name], instance)
+            contract = instance.get("contract") if isinstance(instance, dict) else None
+            contract_validators = (
+                frozen_1_3_validators
+                if contract == "typaxis.contract/1.3"
+                else validators
+            )
+            errors = schema_errors(contract_validators[schema_name], instance)
             if bool(errors) != schema_rejects:
                 details = " | ".join(errors) if errors else "schema accepted fixture"
                 raise ValidationFailure(
@@ -9823,7 +10150,7 @@ def main() -> int:
         for index, record in enumerate(minimal_manifest["images"]):
             verify_file_record(MINIMAL_DIR, record, f"minimal manifest image {index}")
 
-        manifest_validator = validators["build-manifest.schema.json"]
+        manifest_validator = frozen_1_3_validators["build-manifest.schema.json"]
         layout_summary = copy.deepcopy(minimal_manifest["layout"])
         output_record = copy.deepcopy(minimal_manifest["output"])
         manifest_state_cases = (
@@ -10009,10 +10336,10 @@ def main() -> int:
         print(
             "validated "
             f"{len(frozen_schemas)} frozen 1.0, {len(previous_schemas)} frozen 1.1, "
-            f"{len(staging_schemas)} frozen 1.2, {len(schemas)} current 1.3 aliases, and "
-            f"{len(versioned_current_schemas)} versioned 1.3 and "
-            f"{len(private_m4_schemas)} private 1.4 schemas, "
-            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count + versioned_current_reference_count + private_m4_reference_count} refs, "
+            f"{len(staging_schemas)} frozen 1.2, {len(schemas)} current 1.4 aliases, and "
+            f"{len(frozen_1_3_schemas)} frozen 1.3 and "
+            f"{len(current_m4_schemas)} versioned 1.4 schemas, "
+            f"{frozen_reference_count + previous_reference_count + reference_count + staging_reference_count + frozen_1_3_reference_count + current_m4_reference_count} refs, "
             f"{len(POSITIVE_FIXTURES)} artifact and "
             f"{len(POSITIVE_CROSS_FIXTURES)} cross-bundle positive fixtures, "
             f"{len(expected)} exact-rule invalid fixtures, {jcs_golden_count} JCS byte goldens, "

@@ -89,6 +89,7 @@ pub enum DocumentPackageContractId {
     V1_1,
     V1_2,
     V1_3,
+    V1_4,
 }
 
 impl DocumentPackageContractId {
@@ -96,8 +97,10 @@ impl DocumentPackageContractId {
     pub const CONTRACT_1_1: Self = Self::V1_1;
     pub const CONTRACT_1_2: Self = Self::V1_2;
     pub const CONTRACT_1_3: Self = Self::V1_3;
-    /// Contract emitted by every current generated artifact.
-    pub const CURRENT: Self = Self::V1_3;
+    pub const CONTRACT_1_4: Self = Self::V1_4;
+    /// Contract used by current source/config/capability output. Package-build
+    /// artifacts dispatch by profile so frozen profiles retain contract 1.3.
+    pub const CURRENT: Self = Self::V1_4;
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -105,6 +108,7 @@ impl DocumentPackageContractId {
             Self::V1_1 => "typaxis.contract/1.1",
             Self::V1_2 => "typaxis.contract/1.2",
             Self::V1_3 => "typaxis.contract/1.3",
+            Self::V1_4 => "typaxis.contract/1.4",
         }
     }
 }
@@ -141,6 +145,7 @@ impl std::str::FromStr for DocumentPackageContractId {
             "typaxis.contract/1.1" => Ok(Self::V1_1),
             "typaxis.contract/1.2" => Ok(Self::V1_2),
             "typaxis.contract/1.3" => Ok(Self::V1_3),
+            "typaxis.contract/1.4" => Ok(Self::V1_4),
             _ => Err(UnknownDocumentPackageContractId),
         }
     }
@@ -155,6 +160,7 @@ pub enum MachinePdfProfileId {
     Footnote1,
     HeaderFooter1,
     Paragraph1,
+    ProductionBook1,
     Table1,
 }
 
@@ -165,9 +171,10 @@ impl MachinePdfProfileId {
     pub const FLOAT_1: Self = Self::Float1;
     pub const FOOTNOTE_1: Self = Self::Footnote1;
     pub const HEADER_FOOTER_1: Self = Self::HeaderFooter1;
+    pub const PRODUCTION_BOOK_1: Self = Self::ProductionBook1;
     pub const TABLE_1: Self = Self::Table1;
-    /// The CLI default remains the frozen paragraph profile after the 1.2
-    /// contract migration. A wider profile is always an explicit request.
+    /// The CLI default remains the frozen paragraph profile after the 1.4
+    /// publication. A wider profile is always an explicit request.
     pub const CURRENT: Self = Self::Paragraph1;
 
     pub const fn as_str(self) -> &'static str {
@@ -178,6 +185,7 @@ impl MachinePdfProfileId {
             Self::Footnote1 => "typaxis.machine-pdf/footnote-1",
             Self::HeaderFooter1 => "typaxis.machine-pdf/header-footer-1",
             Self::Paragraph1 => "typaxis.machine-pdf/paragraph-1",
+            Self::ProductionBook1 => "typaxis.machine-pdf/production-book-1",
             Self::Table1 => "typaxis.machine-pdf/table-1",
         }
     }
@@ -217,6 +225,7 @@ impl std::str::FromStr for MachinePdfProfileId {
             "typaxis.machine-pdf/footnote-1" => Ok(Self::Footnote1),
             "typaxis.machine-pdf/header-footer-1" => Ok(Self::HeaderFooter1),
             "typaxis.machine-pdf/paragraph-1" => Ok(Self::Paragraph1),
+            "typaxis.machine-pdf/production-book-1" => Ok(Self::ProductionBook1),
             "typaxis.machine-pdf/table-1" => Ok(Self::Table1),
             _ => Err(UnknownMachinePdfProfileId),
         }
@@ -1720,9 +1729,9 @@ impl ValidatedResourceLimits {
     }
 }
 
-/// Private contract-1.4 work limits adopted by ADR-0033. This extension is
-/// intentionally separate from `ResourceLimits`: public/current config bytes
-/// and fingerprints must remain frozen until the 1.4 publication gate.
+/// Contract-1.4 production limits adopted by ADR-0033. This extension remains
+/// separate from `ResourceLimits` so frozen 1.0-1.3 configurations retain
+/// their exact limit projection and fingerprint.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct M4ResourceLimits {
     pub max_cff_charstring_operations: u64,
@@ -1939,6 +1948,7 @@ impl M4EffectiveResourceLimits {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EffectiveConfigError {
     ResourceLimits(ResourceLimitsError),
+    M4ResourceLimits(M4ResourceLimitsError),
     NonCanonicalResourceRoots,
     InvalidAllowedUriSchemes,
 }
@@ -1955,12 +1965,14 @@ impl std::error::Error for EffectiveConfigError {}
 /// computed from this value's contract-defined JCS representation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectiveConfig {
+    contract: DocumentPackageContractId,
     strict: bool,
     stream_compression: PdfStreamCompression,
     resource_roots: Vec<ConfigResourceRoot>,
     allowed_uri_schemes: Vec<String>,
     data_versions: EffectiveDataVersions,
     limits: ValidatedResourceLimits,
+    m4_limits: Option<M4EffectiveResourceLimits>,
     canonical_jcs: String,
     fingerprint: EffectiveConfigFingerprint,
 }
@@ -1972,6 +1984,49 @@ impl EffectiveConfig {
         allowed_uri_schemes: Vec<String>,
         data_versions: EffectiveDataVersions,
         limits: ResourceLimits,
+    ) -> Result<Self, EffectiveConfigError> {
+        Self::new_for_contract(
+            DocumentPackageContractId::CURRENT,
+            strict,
+            stream_compression,
+            resource_roots,
+            allowed_uri_schemes,
+            data_versions,
+            limits,
+        )
+    }
+
+    pub fn new_for_contract(
+        contract: DocumentPackageContractId,
+        strict: bool,
+        stream_compression: PdfStreamCompression,
+        resource_roots: Vec<ConfigResourceRoot>,
+        allowed_uri_schemes: Vec<String>,
+        data_versions: EffectiveDataVersions,
+        limits: ResourceLimits,
+    ) -> Result<Self, EffectiveConfigError> {
+        Self::new_for_contract_with_m4_limits(
+            contract,
+            strict,
+            stream_compression,
+            resource_roots,
+            allowed_uri_schemes,
+            data_versions,
+            limits,
+            M4ResourceLimits::default(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_for_contract_with_m4_limits(
+        contract: DocumentPackageContractId,
+        strict: bool,
+        stream_compression: PdfStreamCompression,
+        resource_roots: Vec<ConfigResourceRoot>,
+        allowed_uri_schemes: Vec<String>,
+        data_versions: EffectiveDataVersions,
+        limits: ResourceLimits,
+        m4_limits: M4ResourceLimits,
     ) -> Result<Self, EffectiveConfigError> {
         if resource_roots
             .windows(2)
@@ -1989,13 +2044,23 @@ impl EffectiveConfig {
         }
         let limits =
             ValidatedResourceLimits::new(limits).map_err(EffectiveConfigError::ResourceLimits)?;
+        let m4_limits = if contract == DocumentPackageContractId::V1_4 {
+            Some(
+                M4EffectiveResourceLimits::new(limits.clone(), m4_limits)
+                    .map_err(EffectiveConfigError::M4ResourceLimits)?,
+            )
+        } else {
+            None
+        };
         let mut config = Self {
+            contract,
             strict,
             stream_compression,
             resource_roots,
             allowed_uri_schemes,
             data_versions,
             limits,
+            m4_limits,
             canonical_jcs: String::new(),
             fingerprint: EffectiveConfigFingerprint::new([0; 32]),
         };
@@ -2003,6 +2068,27 @@ impl EffectiveConfig {
         config.fingerprint =
             EffectiveConfigFingerprint::new(sha256(config.canonical_jcs.as_bytes()));
         Ok(config)
+    }
+    pub fn with_contract(
+        &self,
+        contract: DocumentPackageContractId,
+    ) -> Result<Self, EffectiveConfigError> {
+        Self::new_for_contract_with_m4_limits(
+            contract,
+            self.strict,
+            self.stream_compression,
+            self.resource_roots.clone(),
+            self.allowed_uri_schemes.clone(),
+            self.data_versions.clone(),
+            self.limits.get().clone(),
+            self.m4_limits
+                .as_ref()
+                .map(|limits| *limits.extension().get())
+                .unwrap_or_default(),
+        )
+    }
+    pub const fn contract(&self) -> DocumentPackageContractId {
+        self.contract
     }
     pub const fn deterministic(&self) -> bool {
         true
@@ -2025,6 +2111,9 @@ impl EffectiveConfig {
     pub const fn limits(&self) -> &ValidatedResourceLimits {
         &self.limits
     }
+    pub const fn m4_limits(&self) -> Option<&M4EffectiveResourceLimits> {
+        self.m4_limits.as_ref()
+    }
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs
     }
@@ -2036,13 +2125,17 @@ impl EffectiveConfig {
         let mut output = String::from("{\"allowed_uri_schemes\":[");
         push_jcs_string_array(&mut output, &self.allowed_uri_schemes);
         output.push_str("],\"contract\":");
-        push_jcs_string(&mut output, CONTRACT);
+        push_jcs_string(&mut output, self.contract.as_str());
         output.push_str(",\"data_versions\":{\"japanese_line_break\":");
         push_jcs_string(&mut output, self.data_versions.japanese_line_break());
         output.push_str(",\"unicode\":");
         push_jcs_string(&mut output, self.data_versions.unicode());
         output.push_str("},\"deterministic\":true,\"limits\":{");
-        push_limits_jcs(&mut output, self.limits.get());
+        if let Some(limits) = &self.m4_limits {
+            push_m4_config_limits_jcs(&mut output, self.limits.get(), limits.extension().get());
+        } else {
+            push_limits_jcs(&mut output, self.limits.get());
+        }
         output.push_str("},\"pdf_stream_compression\":");
         push_jcs_string(
             &mut output,
@@ -2200,6 +2293,94 @@ fn push_limits_jcs(output: &mut String, limits: &ResourceLimits) {
     );
 }
 
+fn push_m4_config_limits_jcs(
+    output: &mut String,
+    limits: &ResourceLimits,
+    extension: &M4ResourceLimits,
+) {
+    macro_rules! fields {
+        ($(($name:literal, $value:expr)),+ $(,)?) => {{
+            let mut first = true;
+            $(
+                if !first { output.push(','); }
+                first = false;
+                output.push_str(concat!("\"", $name, "\":"));
+                output.push_str(&$value.to_string());
+            )+
+            let _ = first;
+        }};
+    }
+    fields!(
+        ("max_ast_nesting_depth", limits.max_ast_nesting_depth),
+        ("max_ast_nodes", limits.max_ast_nodes),
+        (
+            "max_cff_charstring_operations",
+            extension.max_cff_charstring_operations
+        ),
+        (
+            "max_cff_outline_segments",
+            extension.max_cff_outline_segments
+        ),
+        ("max_cff_subroutines", extension.max_cff_subroutines),
+        ("max_cids_per_font", limits.max_cids_per_font),
+        (
+            "max_column_balance_candidates",
+            limits.max_column_balance_candidates
+        ),
+        ("max_decoded_image_bytes", limits.max_decoded_image_bytes),
+        (
+            "max_document_package_bytes",
+            limits.max_document_package_bytes
+        ),
+        ("max_float_carry_pages", limits.max_float_carry_pages),
+        ("max_float_queue", limits.max_float_queue),
+        ("max_font_bytes", limits.max_font_bytes),
+        ("max_font_glyphs", extension.max_font_glyphs),
+        ("max_font_subset_bytes", extension.max_font_subset_bytes),
+        ("max_font_tables", extension.max_font_tables),
+        ("max_fonts", limits.max_fonts),
+        (
+            "max_footnote_reflows_per_page",
+            limits.max_footnote_reflows_per_page
+        ),
+        ("max_fragments", limits.max_fragments),
+        ("max_image_bytes", limits.max_image_bytes),
+        ("max_image_pixels", limits.max_image_pixels),
+        ("max_images", limits.max_images),
+        ("max_include_depth", limits.max_include_depth),
+        ("max_include_files", limits.max_include_files),
+        ("max_input_bytes", limits.max_input_bytes),
+        ("max_json_nesting_depth", limits.max_json_nesting_depth),
+        ("max_layout_passes", limits.max_layout_passes),
+        ("max_line_reshape_passes", limits.max_line_reshape_passes),
+        ("max_math_layout_units", extension.max_math_layout_units),
+        ("max_output_bytes", limits.max_output_bytes),
+        ("max_page_break_lookback", limits.max_page_break_lookback),
+        ("max_pages", limits.max_pages),
+        ("max_pdf_objects", limits.max_pdf_objects),
+        ("max_resource_bytes", limits.max_resource_bytes),
+        (
+            "max_shaping_context_bytes",
+            limits.max_shaping_context_bytes
+        ),
+        ("max_source_bytes", limits.max_source_bytes),
+        ("max_spool_bytes", limits.max_spool_bytes),
+        ("max_style_rules", limits.max_style_rules),
+        ("max_text_buffer_bytes", limits.max_text_buffer_bytes),
+        ("max_text_bytes", limits.max_text_bytes),
+        ("max_uri_bytes", limits.max_uri_bytes),
+        (
+            "max_vector_nesting_depth",
+            extension.max_vector_nesting_depth
+        ),
+        ("max_vector_nodes", extension.max_vector_nodes),
+        (
+            "max_vector_path_segments",
+            extension.max_vector_path_segments
+        ),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2234,9 +2415,13 @@ mod tests {
             DocumentPackageContractId::from_str("typaxis.contract/1.3"),
             Ok(DocumentPackageContractId::CONTRACT_1_3)
         );
+        assert_eq!(
+            DocumentPackageContractId::from_str("typaxis.contract/1.4"),
+            Ok(DocumentPackageContractId::CONTRACT_1_4)
+        );
         assert!(DocumentPackageContractId::from_str("typaxis.contract/2.0").is_err());
         assert_eq!(DocumentPackageContractId::CURRENT.as_str(), CONTRACT);
-        assert_eq!(CONTRACT, "typaxis.contract/1.3");
+        assert_eq!(CONTRACT, "typaxis.contract/1.4");
 
         assert_eq!(
             MachinePdfProfileId::from_str("typaxis.machine-pdf/paragraph-1"),
@@ -2724,7 +2909,7 @@ mod tests {
             .collect();
         assert_eq!(
             sample_hash,
-            "cb9e13152f2b46cabdb2ccaa881ca906f50e8b2f726c7f6bacaa7e262764e85b"
+            "097edb28446c57c5648104b7c4b4aa795d01fb404eceaa8f26ea7ea5f7311497"
         );
         assert_eq!(
             EffectiveConfig::new(
@@ -2882,7 +3067,7 @@ mod tests {
     }
 
     #[test]
-    fn m4_limits_bind_base_and_extension_without_mutating_public_config_bytes() {
+    fn m4_limits_bind_base_and_public_current_config_fields() {
         let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
         let receipt = M4EffectiveResourceLimits::defaults_for(&base);
         assert_eq!(
@@ -2916,9 +3101,12 @@ mod tests {
             .collect();
         assert_eq!(
             public_hash,
-            "cb9e13152f2b46cabdb2ccaa881ca906f50e8b2f726c7f6bacaa7e262764e85b"
+            "097edb28446c57c5648104b7c4b4aa795d01fb404eceaa8f26ea7ea5f7311497"
         );
-        assert!(!public.canonical_jcs().contains("max_vector_nodes"));
+        assert!(public
+            .canonical_jcs()
+            .contains("\"max_vector_nodes\":100000"));
+        assert!(public.canonical_jcs().contains("\"max_font_tables\":64"));
 
         let altered = M4EffectiveResourceLimits::new(
             base,

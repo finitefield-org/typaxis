@@ -219,7 +219,7 @@ mod tests {
     ));
 
     #[test]
-    fn math_profile_is_closed_and_old_public_profiles_remain_unaware() {
+    fn math_profile_is_closed_legacy_paths_reject_it_and_public_profile_advertises_it() {
         let base = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
         let decoded = StagingSemanticDocumentPackageDecoder::new()
             .decode(FIXTURE, &DocumentPackageDecodePolicy::new(&base))
@@ -253,7 +253,7 @@ mod tests {
 
         let public =
             crate::encode_capabilities_canonical(crate::HostCapabilityDescriptor::compiled());
-        assert!(!public.contains("inline_math"));
-        assert!(!public.contains("display_math"));
+        assert!(public.contains("inline_math"));
+        assert!(public.contains("display_math"));
     }
 }

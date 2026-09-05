@@ -4,7 +4,8 @@ use typaxis_core::{
 use typaxis_document::StagingM4FigurePlacement;
 use typaxis_layout::StagingSafeVectorSelectedLayout;
 use typaxis_syntax::{
-    StagingM4PageGeometry, StagingSafeVectorProfileView, ValidatedStagingSemanticPackage,
+    StagingM4PageGeometry, StagingPrecomposedVectorProfileAuthorization,
+    StagingSafeVectorProfileView, ValidatedStagingSemanticPackage,
 };
 
 pub const STAGING_DRAW_VECTOR_ALGORITHM: &str = "typaxis.draw-vector-display/1";
@@ -462,6 +463,86 @@ pub fn build_staging_safe_vector_display(
         page_geometry,
     };
     display.verify(package, profile, limits, selected)?;
+    Ok(display)
+}
+
+/// Build the Figure/SafeVector-1 compatibility Display inside the complete
+/// production profile. Empty trailing pages are retained so the Figure and
+/// producer-composed Display receipts share the same selected page tuple.
+pub fn build_production_safe_vector_display(
+    package: &ValidatedStagingSemanticPackage,
+    profile: &StagingPrecomposedVectorProfileAuthorization,
+    limits: &M4EffectiveResourceLimits,
+    admitted: &typaxis_resource_admission::AdmittedResourceLedger,
+    selected: &StagingSafeVectorSelectedLayout,
+    page_count: u32,
+) -> Result<StagingSafeVectorDisplay, StagingSafeVectorDisplayError> {
+    selected
+        .verify_production(package, profile, limits, admitted)
+        .map_err(|_| StagingSafeVectorDisplayError::SelectedMismatch)?;
+    if page_count == 0
+        || page_count > limits.base().get().max_pages
+        || selected
+            .placements()
+            .iter()
+            .any(|placement| placement.page_index() >= page_count)
+    {
+        return Err(StagingSafeVectorDisplayError::PageLimit);
+    }
+    let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(page_count as usize)
+        .map_err(|_| StagingSafeVectorDisplayError::AllocationFailure)?;
+    for page_index in 0..page_count {
+        pages.push(StagingSafeVectorDisplayPage {
+            page_index,
+            commands: Vec::new(),
+            fingerprint: [0; 32],
+        });
+    }
+    for placement in selected.placements() {
+        let mut command = StagingDrawVector {
+            occurrence: placement.occurrence(),
+            owner: placement.owner(),
+            image_id: placement.image_id(),
+            ir_fingerprint: placement.ir_fingerprint(),
+            admitted_sha256: placement.admitted_sha256(),
+            page_index: placement.page_index(),
+            frame_index: placement.frame_index(),
+            bounds: placement.bounds(),
+            scale: placement.scale_raw(),
+            placement: placement.placement(),
+            selected_placement_fingerprint: placement.fingerprint(),
+            fingerprint: [0; 32],
+        };
+        command.fingerprint = sha256(encode_command(&command).as_bytes());
+        pages
+            .get_mut(command.page_index as usize)
+            .ok_or(StagingSafeVectorDisplayError::ReceiptMismatch)?
+            .commands
+            .push(command);
+    }
+    for page in &mut pages {
+        page.fingerprint = sha256(encode_page(page).as_bytes());
+    }
+    let page_geometry = selected.page_geometry().clone();
+    let canonical_jcs = encode_display(selected.receipt().fingerprint(), &pages, &page_geometry);
+    let display = StagingSafeVectorDisplay {
+        receipt: StagingSafeVectorDisplayReceipt {
+            package_fingerprint: package.semantic_fingerprint(),
+            profile_fingerprint: profile.profile_receipt_fingerprint(),
+            limits_fingerprint: limits.fingerprint(),
+            selected_layout_fingerprint: selected.receipt().fingerprint(),
+            page_geometry_fingerprint: page_geometry.fingerprint(),
+            command_count: u32::try_from(selected.placements().len())
+                .map_err(|_| StagingSafeVectorDisplayError::CommandLimit)?,
+            fingerprint: sha256(canonical_jcs.as_bytes()),
+            canonical_jcs,
+        },
+        pages,
+        page_geometry,
+    };
+    display.verify_resource_closure()?;
     Ok(display)
 }
 

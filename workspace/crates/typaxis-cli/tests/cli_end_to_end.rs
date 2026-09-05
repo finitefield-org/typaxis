@@ -755,7 +755,7 @@ fn empty_build_publishes_pdf_trace_and_manifest_atomically() {
     let first_manifest = fs::read(&manifest).unwrap();
     assert!(first_pdf.starts_with(b"%PDF-1.7\n"));
     assert!(first_pdf.ends_with(b"%%EOF\n"));
-    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.3\""));
+    assert!(first_trace.starts_with(b"{\"contract\":\"typaxis.contract/1.4\""));
     assert!(first_manifest
         .windows(16)
         .any(|window| window == b"\"status\":\"built\""));
@@ -983,8 +983,11 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(ast.status.success());
     let ast = String::from_utf8(ast.stdout).unwrap();
-    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.3\""));
+    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.4\""));
     assert!(ast.contains("\"anchor_id\":\"target\""));
+    assert!(ast.contains("\"language\":\"und\""));
+    assert!(ast.contains("\"metadata\":{\"author\":null"));
+    assert!(ast.contains("\"outline\":{\"entries\":[]}"));
     assert!(!ast.ends_with('\n'));
 
     let limited_ast = run(
@@ -1007,7 +1010,7 @@ fn dump_commands_emit_canonical_reference_artifacts() {
     );
     assert!(layout.status.success());
     let layout = String::from_utf8(layout.stdout).unwrap();
-    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.3\""));
+    assert!(layout.starts_with("{\"contract\":\"typaxis.contract/1.4\""));
     assert!(layout.contains("\"fragments\":[{"));
     assert!(!layout.ends_with('\n'));
 
@@ -1020,6 +1023,40 @@ fn dump_commands_emit_canonical_reference_artifacts() {
         .code(),
         Some(1)
     );
+}
+
+#[test]
+fn dump_ast_uses_admitted_bytes_for_current_media_declarations() {
+    let directory = TestDirectory::new();
+    let fixture = repository_root()
+        .join("samples/machine-package/profiles/production-book-1/combined/job/body.ttf");
+    fs::copy(fixture, directory.path().join("body.ttf")).unwrap();
+    fs::write(
+        directory.path().join("reference.tsf"),
+        b"font:Body:body.ttf\ntext:hello\n",
+    )
+    .unwrap();
+
+    let ast = run(
+        directory.path(),
+        &strings(&["dump-ast", "reference.tsf", "--format", "json"]),
+    );
+    assert!(
+        ast.status.success(),
+        "dump stderr: {}",
+        String::from_utf8_lossy(&ast.stderr)
+    );
+    let ast = String::from_utf8(ast.stdout).unwrap();
+    assert!(ast.starts_with("{\"contract\":\"typaxis.contract/1.4\""));
+    assert!(ast.contains("\"media_type\":\"sfnt-truetype-glyf\""));
+
+    fs::write(directory.path().join("body.ttf"), b"not a font").unwrap();
+    let rejected = run(
+        directory.path(),
+        &strings(&["dump-ast", "reference.tsf", "--format", "json"]),
+    );
+    assert!(!rejected.status.success());
+    assert!(rejected.stdout.is_empty());
 }
 
 #[test]
@@ -1396,7 +1433,7 @@ fn machine_link_staging_slice_uses_the_normal_public_pipeline() {
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
-fn semantic_container_staging_contract_and_profile_remain_private() {
+fn semantic_container_public_contract_rejects_an_incomplete_staging_slice() {
     let repository = repository_root();
     let fixture =
         repository.join("samples/machine-package/staging/production-book-1/semantic-container");
@@ -1410,9 +1447,7 @@ fn semantic_container_staging_contract_and_profile_remain_private() {
         let help = run(&repository, &arguments);
         assert!(help.status.success());
         let help = String::from_utf8(help.stdout).unwrap();
-        assert!(!help.contains("production-book-1"));
-        assert!(!help.contains("typaxis.contract/1.4"));
-        assert!(!help.contains("semantic_container"));
+        assert!(!help.contains("private-production-book"));
     }
 
     let capabilities = run(&repository, &strings(&["capabilities", "--format", "json"]));
@@ -1423,21 +1458,22 @@ fn semantic_container_staging_contract_and_profile_remain_private() {
         fs::read(repository.join("samples/machine-package/capabilities.json")).unwrap()
     );
     let capabilities = String::from_utf8(capabilities.stdout).unwrap();
-    assert!(!capabilities.contains("production-book-1"));
-    assert!(!capabilities.contains("typaxis.contract/1.4"));
+    assert!(capabilities.contains("production-book-1"));
+    assert!(capabilities.contains("typaxis.contract/1.4"));
+    assert!(capabilities.contains("semantic_container"));
 
     let current_schema = fs::read(repository.join("schemas/document-package.schema.json")).unwrap();
     assert_eq!(
         current_schema,
-        fs::read(repository.join("schemas/1.3/document-package.schema.json")).unwrap()
+        fs::read(repository.join("schemas/1.4/document-package.schema.json")).unwrap()
     );
     assert_ne!(
         current_schema,
-        fs::read(repository.join("schemas/1.4/document-package.schema.json")).unwrap()
+        fs::read(repository.join("schemas/1.3/document-package.schema.json")).unwrap()
     );
     assert_eq!(
         typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
-        "typaxis.contract/1.3"
+        "typaxis.contract/1.4"
     );
 
     let rejected_contract = run(
@@ -1454,7 +1490,7 @@ fn semantic_container_staging_contract_and_profile_remain_private() {
     assert_eq!(rejected_contract.status.code(), Some(1));
     assert!(String::from_utf8(rejected_contract.stderr)
         .unwrap()
-        .contains("P1103: unknown DocumentPackage contract at /contract"));
+        .contains("P1103: unknown DocumentPackage contract"));
 
     let rejected_profile = run(
         &fixture,
@@ -1467,25 +1503,26 @@ fn semantic_container_staging_contract_and_profile_remain_private() {
             "typaxis.machine-pdf/production-book-1",
         ]),
     );
-    assert_eq!(rejected_profile.status.code(), Some(2));
+    assert_eq!(rejected_profile.status.code(), Some(1));
     assert!(String::from_utf8(rejected_profile.stderr)
         .unwrap()
-        .contains("unknown machine PDF profile `typaxis.machine-pdf/production-book-1`"));
+        .contains(
+            "L5100: document semantics are outside the closed production-book-1 PDF/UA-1 profile"
+        ));
 }
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
-fn machine_vector_staging_slice_is_not_advertised_by_the_public_cli() {
+fn machine_vector_public_contract_rejects_an_incomplete_staging_slice() {
     let repository = repository_root();
     let fixture = repository.join("samples/machine-package/staging/production-book-1/vector-media");
     let help = run(&repository, &strings(&["build-package", "--help"]));
     assert!(help.status.success());
     let help = String::from_utf8(help.stdout).unwrap();
-    assert!(!help.contains("svg-safe-1"));
-    assert!(!help.contains("production-book-1"));
+    assert!(!help.contains("private-production-book"));
 
     let current_schema = fs::read(repository.join("schemas/document-package.schema.json")).unwrap();
-    assert!(!String::from_utf8(current_schema)
+    assert!(String::from_utf8(current_schema)
         .unwrap()
         .contains("svg-safe-1"));
     let rejected = run(
@@ -1496,21 +1533,21 @@ fn machine_vector_staging_slice_is_not_advertised_by_the_public_cli() {
             "--package-root",
             "job",
             "--profile",
-            "typaxis.machine-pdf/paragraph-1",
+            "typaxis.machine-pdf/production-book-1",
             "-o",
             "vector.pdf",
         ]),
     );
     assert_eq!(rejected.status.code(), Some(1));
-    assert!(String::from_utf8(rejected.stderr)
-        .unwrap()
-        .contains("P1103: unknown DocumentPackage contract at /contract"));
+    assert!(String::from_utf8(rejected.stderr).unwrap().contains(
+        "L5100: document semantics are outside the closed production-book-1 PDF/UA-1 profile"
+    ));
     assert!(!fixture.join("vector.pdf").exists());
 }
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
-fn public_m4_vector_isolation_cli_end_to_end() {
+fn public_m4_vector_contract_and_profile_are_published_atomically() {
     let repository = repository_root();
     let fixture =
         repository.join("samples/machine-package/staging/production-book-1/precomposed-vector");
@@ -1523,16 +1560,7 @@ fn public_m4_vector_isolation_cli_end_to_end() {
         let help = run(&repository, &arguments);
         assert!(help.status.success());
         let help = String::from_utf8(help.stdout).unwrap();
-        for private_name in [
-            "private-production-book",
-            "production-book-1",
-            "typaxis.contract/1.4",
-            "inline_vector",
-            "math_vector",
-            "vector_figure",
-            "math_vector_block",
-            "svg-safe-2",
-        ] {
+        for private_name in ["private-production-book", "private-precomposed-vector"] {
             assert!(
                 !help.contains(private_name),
                 "public help leaked {private_name}"
@@ -1548,8 +1576,9 @@ fn public_m4_vector_isolation_cli_end_to_end() {
         fs::read(repository.join("samples/machine-package/capabilities.json")).unwrap()
     );
     let capabilities = String::from_utf8(capabilities.stdout).unwrap();
-    for private_name in [
+    for public_name in [
         "production-book-1",
+        "typaxis.contract/1.4",
         "inline_vector",
         "math_vector",
         "vector_figure",
@@ -1557,17 +1586,17 @@ fn public_m4_vector_isolation_cli_end_to_end() {
         "svg-safe-2",
     ] {
         assert!(
-            !capabilities.contains(private_name),
-            "public capabilities leaked {private_name}"
+            capabilities.contains(public_name),
+            "public capabilities omitted {public_name}"
         );
     }
 
     let current_schema = fs::read(repository.join("schemas/document-package.schema.json")).unwrap();
     assert_eq!(
         current_schema,
-        fs::read(repository.join("schemas/1.3/document-package.schema.json")).unwrap()
+        fs::read(repository.join("schemas/1.4/document-package.schema.json")).unwrap()
     );
-    assert!(!String::from_utf8(current_schema)
+    assert!(String::from_utf8(current_schema)
         .unwrap()
         .contains("inline_vector"));
 
@@ -1585,7 +1614,7 @@ fn public_m4_vector_isolation_cli_end_to_end() {
     assert_eq!(rejected_contract.status.code(), Some(1));
     assert!(String::from_utf8(rejected_contract.stderr)
         .unwrap()
-        .contains("P1103: unknown DocumentPackage contract at /contract"));
+        .contains("P1103: unknown DocumentPackage contract"));
 
     let rejected_profile = run(
         &fixture,
@@ -1598,8 +1627,10 @@ fn public_m4_vector_isolation_cli_end_to_end() {
             "typaxis.machine-pdf/production-book-1",
         ]),
     );
-    assert_eq!(rejected_profile.status.code(), Some(2));
+    assert_eq!(rejected_profile.status.code(), Some(1));
     assert!(String::from_utf8(rejected_profile.stderr)
         .unwrap()
-        .contains("unknown machine PDF profile `typaxis.machine-pdf/production-book-1`"));
+        .contains(
+            "L5100: document semantics are outside the closed production-book-1 PDF/UA-1 profile"
+        ));
 }

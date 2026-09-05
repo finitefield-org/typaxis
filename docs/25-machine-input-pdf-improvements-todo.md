@@ -1890,7 +1890,7 @@ M3も既存profileを変更せず、table、footnote、advanced paginationをそ
 
 ## 8. M4: math/vector/book publication
 
-M4のsemantic container、math、vector、tagged PDFは既存node、PNG、ActualTextへlossy loweringして追加しない。wire shapeまたは公開diagnostic/locationの意味が変わる場合は新contract IDを発行し、旧contract/profileを凍結したままatomic migrationする。MI4-02〜MI4-12とMI4-V03〜MI4-V19の実装/evidenceは採択済みnew contractを非公開stagingとして扱い、current contract/Schema/profileの切替はMI4-13だけが行う。各positive `machine_*`/staging exporter testは同じcrate-private runnerを直接使い、integration testsはpublic command grammar、help、current constants、Schema alias、capability bytesがstaging selectorを露出しないことを確認する。
+M4のsemantic container、math、vector、tagged PDFは既存node、PNG、ActualTextへlossy loweringして追加しない。wire shapeまたは公開diagnostic/locationの意味が変わる場合は新contract IDを発行し、旧contract/profileを凍結したままatomic migrationする。MI4-02〜MI4-12とMI4-V03〜MI4-V19は採択済みnew contractを非公開stagingとして実装・検証し、MI4-13がcurrent contract/Schema/profileを一括切替した。各positive `machine_*`/staging exporter testは同じreceipt ownerを直接検証し、integration testsはpublic command grammar、help、current constants、Schema alias、capability bytesにhidden staging selectorがないことを確認する。
 
 ### MI4-01 M4 contract versioningとsemantic container ADRを採択する
 
@@ -2522,13 +2522,13 @@ acceptance、verificationは
 | MI4-V18 | Completed | MI4-V17 |
 | MI4-V19 | Completed | MI4-V18, MI4-11, MI4-12 |
 
-`MI4-V19 -> MI4-13`はpublication dependencyである。MI4-V01/V02のCompletedは
-それぞれcorpus interfaceとdecision gate、MI4-V03〜V18はprivate product実装を
-意味し、いずれもpublic supportを意味しない。
+`MI4-V19 -> MI4-13`はpublication dependencyであり、MI4-13で消化済みである。
+MI4-V01/V02のCompletedはそれぞれcorpus interfaceとdecision gate、MI4-V03〜V18は
+private product実装だけを意味する。public supportはMI4-13の完了記録を根拠にする。
 
 ### MI4-13 M4 contract migrationとproduction-book profileを原子的に公開する
 
-- Status: Pending
+- Status: Completed
 - Depends on: MI4-02, MI4-05, MI4-09, MI4-11, MI4-12, MI4-V19
 - Design inputs: docs/25 §7、§8 M4、§13.4、§13.5、ADR-0037、docs/27 §12、§16
 - Primary files:
@@ -2590,6 +2590,11 @@ acceptance、verificationは
   - `python3 -m unittest tools/test_precomposed_vector.py tools/test_pdf_differential.py tools/test_pdf_structure.py -v`
   - `python3 tools/verify_precomposed_vector.py --repository . --require-host-evidence target/machine-e2e/precomposed-vector-host-evidence --required-host macos --required-host linux`
   - `python3 tools/verify_machine_profile.py --repository . --matrix samples/machine-package/matrices/m4-production.json --runs 2 --require-external-tools`
+- Implementation notes (2026-09-05 local macOS and managed Linux verification):
+  - current contract、top-level 29 Schema alias、canonical `dump-ast` outputを1.4へ同時に切り替え、`production-book-1`をexact eight-profile tupleの`paragraph-1`直後・`table-1`直前へ公開した。defaultは`paragraph-1`のまま、旧profileのartifact/diagnostics/manifest dispatchはfrozen 1.3、frozen 1.0〜1.3 Schema bytesも不変に保った。旧contractをproduction profileへ渡すとsource admission後かつresource open前にexact `L5100`で失敗し、1.4 failed manifestだけがprovenance-bound `legacy_unspecified`を記録する。
+  - public build/check pathへsemantic container、native math、producer-composed four-vector kind、list/table/footnote/Figure、PNG/SafeVector `/2`/JPEG、TrueType/TTC/CFF、metadata/language/outline、tagged-PDF `/2`をstrict receipt順で接続した。resource failureはcanonical `R71xx`/`I91xx`、logical resource JSON Pointer、typed diagnostic subject、partial admission progress、failure read ledgerを保持し、PDF/traceを公開しない。successful manifestはsource/package/profile/resource/layout/Display/PDF、math/vector/navigation/tagged observationsを同じfinal PDF hashへ閉じる。
+  - `profiles/production-book-1/combined`へ全advertised item、95-node source ledger、math source/span、resource ID、reading order、outlineを含む2-page public fixtureを、`legacy-contract`へpre-resource rejectionを追加した。root fixture generatorはproduction generator sourceだけを保持して生成物を置換し、二fixtureと`m4-production.json`を再生成するため、連続二回実行がbyte-identicalになる。M4 descriptor/fixture coverage、feature-local tamper、resource/media/hash mismatch、missing metrics、layout/PDF/manifest closure、旧profile isolationをRustと独立Python validatorで検査した。
+  - format、locked workspace all-target test、strict Clippy、29-current/20-frozen-1.3を含むSchema validator、独立Python test、M4 public two-build/external-tool matrixをlocal exit 0で確認した。さらにpinned MuPDF 1.28.2、Poppler 26.08.0、veraPDF 1.30.2で同一committed sourceのmacOS/Linux host evidenceを再生成し、`verify_precomposed_vector.py`のrequired-host aggregate、異名checkout、hostile locale/timezone/filesystem order、全73 publication resourceとartifact index `/2`の同一性を確認した。GitHub Actionsは使用していない。
 - Non-goals:
   - M5 release/hardening gateの代替
 

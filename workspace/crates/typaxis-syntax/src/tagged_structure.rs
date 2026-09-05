@@ -1152,8 +1152,24 @@ impl SemanticCollector<'_> {
             .languages()
             .record(NodeId::new(raw_node_id))
             .ok_or(StagingStructureSemanticError::NavigationMismatch)?;
+        // A footnote definition remains a document child in the syntax and
+        // language registry, while the tagged structure tree deliberately
+        // reparents it beside the last valid reference.  Do not confuse that
+        // accessibility placement parent with the language-inheritance parent.
+        let language_parent =
+            if expected_kind == StagingComputedLanguageOwnerKindV2::FootnoteDefinition {
+                Some(NodeId::new(
+                    self.package
+                        .checked_wire()
+                        .map_err(|_| StagingStructureSemanticError::ReceiptMismatch)?
+                        .document()
+                        .node_id,
+                ))
+            } else {
+                parent_node_id
+            };
         if record.node_kind != expected_kind
-            || record.logical_parent_node_id != parent_node_id
+            || record.logical_parent_node_id != language_parent
             || record.source_span != source_span
             || record.effective_language.as_ref() != language
         {

@@ -1,12 +1,12 @@
 # VMB precomposed-vector corpus
 
 This directory is the checked-in producer-interface corpus for `MI4-V01`, the
-canonical private contract-1.4 Wire fixture added by `MI4-V03`, and the
-generated/external evidence expectations closed by `MI4-V18` and `MI4-V19`. The
-`document-package.json` fixture is accepted only by the private 1.4 decoder and
-Schema; it must not be exposed by the public CLI or current 1.3 aliases.
+canonical contract-1.4 component Wire fixture added by `MI4-V03`, and the
+generated/external evidence expectations closed by `MI4-V18` and `MI4-V19`.
+The public 1.4 decoder and Schema accept `document-package.json`; the complete
+public CLI release fixture remains `profiles/production-book-1/combined`.
 
-The corpus has four canonical ledgers, two private Wire fixtures, two canonical
+The corpus has four canonical ledgers, two focused Wire fixtures, two canonical
 selected-layout traces, and one canonical Display trace. `MI4-V13` also uses
 these admitted resources through a test-only PDF contribution fixture; it does
 not add a standalone production PDF receipt:
@@ -33,11 +33,11 @@ not add a standalone production PDF receipt:
 - `assertion-traceability.tsv` maps every assertion group in design §15.1–15.5
   to its checked-in fixture or generated artifact and its executable Rust or
   independent-verifier owner.
-- `expected.json` is the strict private runner expectation. It fixes the
-  private command/profile identity, successful phase side effects, page and
+- `expected.json` is the strict production evidence-runner expectation. It
+  fixes the evidence command/profile identity, successful phase side effects, page and
   normalized-extraction expectations, advertised four-kind coverage, and the
   byte length and SHA-256 of every distinct corpus SVG. It is canonical JCS
-  plus one LF and conforms to the private 1.4 fixture-expectation Schema.
+  plus one LF and conforms to the current 1.4 fixture-expectation Schema.
 - `document-package.json` and `input.tsf` form the canonical strict-Wire/JCS
   fixture covering all four vector kinds, nullable actual text, source TeX,
   spacing, equation-number child shape, and one `svg-safe-2` provenance record.
@@ -79,7 +79,7 @@ not add a standalone production PDF receipt:
   synthetic cases check IDTree closure, Unicode equation numbers, and
   ActualText-only font extraction. All three final writer observations
   (tagged PDF, book navigation, and SafeVector) close over the same PDF hash.
-- The `MI4-V18` crate-private integration runner composes those production
+- The `MI4-V18` integration evidence runner composes those production
   owners in strict receipt order, publishes the complete generated artifact
   set only below `workspace/target/machine-e2e/precomposed-vector/`, reruns the
   legacy SafeVector/native-math/navigation/tagged `/1` owners, and separately
@@ -107,7 +107,7 @@ not add a standalone production PDF receipt:
   artifacts plus `artifact-index.json` (22 files total). It also adds the
   pinned external renderer/extractor/veraPDF gate, exact Matterhorn 1.02 `/2`
   assessment, and complete production resource-set `/2` proof without
-  publishing the private profile.
+  publishing the profile itself; MI4-13 later performed that atomic publication.
 
 `resources.tsv` is joined to `cases.tsv` by `image_id`; the repeated
 `expected_sha256` must match on both sides. An image ID is a dense logical ID,
@@ -177,12 +177,12 @@ contain no `use`, text/font nodes, CSS, script, animation, image, or external
 reference. Typaxis must validate and place these bytes; it must not add a VMB
 preprocessor or fall back to native math, PNG, or omitted content.
 
-Run the private integration and independent verification from the repository
+Run the integration evidence and independent verification from the repository
 root with:
 
 ```sh
 cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli \
-  machine_precomposed_vector_closes_private --locked
+  machine_precomposed_vector_closes_production_pipeline_and_legacy_paths --locked
 python3 tools/verify_precomposed_vector.py \
   workspace/target/machine-e2e/precomposed-vector --repository .
 ```
@@ -221,12 +221,12 @@ exact `q`, nonstroking/stroking RGB, top-left matrix, `Do`, `Q` order under one
 existing page-root Y flip.
 
 Both selected-layout trace files are canonical JCS and are validated against
-the private 1.4 layout-trace schema. The block trace deliberately starts with a
+the current 1.4 layout-trace schema. The block trace deliberately starts with a
 partly consumed page: the Figure and its kept caption fit there, while the
 numbered math block moves intact to the next page. Its `pagination_bounds`,
 `paint_bounds`, and `structure_bounds` are identical; the producer viewport
 remains unchanged; and the `formula` child precedes the independent
 `equation_number` child. The Display trace is canonical JCS and is validated
-against the private 1.4 display-list schema. It contains no resource URI, raw
+against the current 1.4 display-list schema. It contains no resource URI, raw
 SVG, source TeX, PDF object/name, or MCID; those facts remain reachable only
 through sealed binding and selected-placement fingerprints.

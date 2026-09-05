@@ -36,7 +36,7 @@
       "enum": [
         "build-package",
         "check-package",
-        "private-production-book"
+        "precomposed-vector-evidence"
       ]
     },
     "contract": {
@@ -93,7 +93,6 @@
         "manifest_progress",
         "normalized_extracted_text",
         "page_count",
-        "precomposed_vector_corpus",
         "primary_code",
         "side_effects",
         "visible_artifacts"
@@ -279,5 +278,18 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"command": {"const": "precomposed-vector-evidence"}},
+        "required": ["command"]
+      },
+      "then": {
+        "properties": {
+          "expected": {"required": ["precomposed_vector_corpus"]}
+        }
+      }
+    }
+  ]
 }

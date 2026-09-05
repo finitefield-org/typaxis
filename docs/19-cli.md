@@ -1,6 +1,6 @@
 # CLI
 
-> **現行input status:** `build`、`check`、`dump-ast`、`dump-layout`の`INPUT`は、下記のbounded reference TSFである。DocumentPackage JSONは別の公開`build-package`/`check-package` commandへ入力し、`build`はJSONをsniffしない。supported reference TSFでは`dump-ast --format json -> build-package` round tripが成立する。normativeなproducer contractは[docs/26](26-machine-input-cli.md)を参照する。
+> **現行input status:** `build`、`check`、`dump-ast`、`dump-layout`の`INPUT`は、下記のbounded reference TSFである。DocumentPackage JSONは別の公開`build-package`/`check-package` commandへ入力し、`build`はJSONをsniffしない。`dump-ast`はcurrent 1.4を出力し、再入力時は`production-book-1`の明示と通常のclosed-domain preflightが必要である。normativeなproducer contractは[docs/26](26-machine-input-cli.md)を参照する。
 
 ```text
 typaxis help [COMMAND]
@@ -23,12 +23,13 @@ typaxis list-fonts --font-dir DIR
 
 | Capability | Contract-defined | Implemented | Public CLI E2E | Release-supported |
 | --- | --- | --- | --- | --- |
-| current `build` reference TSF | Yes, current 1.3 | Yes, bounded reference subset | Yes | No |
-| DocumentPackage Schema / `dump-ast` export | Yes, current 1.3 plus frozen 1.0/1.1/1.2 input | Yes | Yes, package round trip | Yes |
+| current `build` reference TSF | Yes, current 1.4 | Yes, bounded reference subset | Yes | No |
+| DocumentPackage Schema / `dump-ast` export | Yes, current 1.4 plus frozen 1.0/1.1/1.2/1.3 input | Yes | Yes | Yes, MI4-13 gate |
 | sealed machine package commands | Yes, ADR-0027 | Yes | Yes, macOS/Linux fixture gate | Yes, M1 host gate |
 | `typaxis.machine-pdf/paragraph-1` | Yes, closed profile | Yes | Yes, macOS/Linux combined PDF/sidecars | Yes |
 | `basic-document-1` / `table-1` / `footnote-1` | Yes, closed profiles | Yes | Yes, combined PDF/sidecars | Yes, profile gates |
 | `header-footer-1` / `columns-1` / `float-1` | Yes, ADR-0031 | Yes: public selected-state and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
+| `production-book-1` | Yes, ADR-0032〜0037 | Yes: complete M4 receipt/artifact closure | Yes, combined PDF/sidecars | Yes, MI4-13 gate |
 
 `Contract-defined`やoffline Schema validationはcommand registrationを意味しない。上表のpublic E2Eはclean-built binaryのpositive/negative fixtureで確認済みであり、M1 release statusは同一source/artifactに対するLinux/macOS actual-host evidenceの集約で閉じた。
 
@@ -64,7 +65,7 @@ typaxis capabilities --format json
 - unknown profileはusage exit 2、contained PACKAGE/resource open unavailableはPACKAGE read前`I9110`/exit 3とする。atomic publisher unavailableはpublication context構築時にtargetを変更せずexit 3とする。unsupported inputをreference TSF、別backend、rasterへfallbackしない。
 - `build-package`は現行のexact `-` stdout、strict、compression、limit、alias、個別atomic publication規則を共有し、`--trace-text`は`--trace`を要求する。
 - `capabilities`は`--format json`を必須とし、missing/unknown formatはusage exit 2にする。config/filesystem/ambient localeを読まず、compiled descriptorからcanonical JSONを出す。
-- supported reference TSF -> `dump-ast --format json` -> `build-package`のround tripはtyped canonical JCS/DocumentFingerprintが一致することを保証し、raw JSON bytes一致を要求しない。
+- `dump-ast --format json`はstable resource admissionからcurrent 1.4 declarationを発行する。出力を`build-package`へ渡す場合は`--profile typaxis.machine-pdf/production-book-1`を明示し、profileのclosed-domain preflightを省略しない。
 
 CLI tokenが正確に`OUTPUT=-`ならPDF bytesをstdoutへ出す。build manifestはhost pathを持たず、stdoutなら`output.sink = "stdout"`、その他のHostPathなら`output.sink = "file"`を記録する。したがって`./-`は通常fileとして扱える。traceとbuild manifestは常に明示されたsidecar HostPathへ出し、stdout/stderrへ混在させない。`--trace PATH`と`--emit-build-manifest PATH`はpath argument必須で、PDF stdout時にもhost file pathを指定すれば併用できる。
 

@@ -36,6 +36,14 @@ TAGGED_MANIFEST_PATH = (
     / "manifest.json"
 )
 TAGGED_PDF_PATH = TAGGED_MANIFEST_PATH.with_name("output.pdf")
+PRODUCTION_FIXTURE_PATH = (
+    ROOT
+    / "samples"
+    / "machine-package"
+    / "profiles"
+    / "production-book-1"
+    / "combined"
+)
 
 
 def utf16_hex(value: str) -> str:
@@ -610,7 +618,18 @@ class TaggedPdfStructureTests(unittest.TestCase):
             },
         )
         self.assertIn({"role": "Figure", "text": "PNG image"}, observation["alternatives"])
-        self.assertEqual(observation["actual_text"], ["x squared", "x plus one"])
+        self.assertEqual(
+            observation["actual_text"],
+            [
+                "Basic document", "Basic document", "page top", "internal ", "1", "1",
+                "Accessible footnote", "1.", "First item", "2.", "Second entry",
+                "PNG caption", "Header A", "Header B", "alpha", "beta", "gamma", "delta",
+                "x squared", "x plus one", "Heading level 2", "Heading level 3",
+                "Heading level 4", "Heading level 5", "Heading level 6", "emphasized",
+                "strong", "•", "Unordered item", "Accessible result", "Accessible proof",
+                "Accessible exercise",
+            ],
+        )
         self.assertEqual(
             [
                 record["actual_text"]
@@ -618,7 +637,15 @@ class TaggedPdfStructureTests(unittest.TestCase):
                 for record in page
                 if record.get("actual_text") is not None
             ],
-            ["x plus one", "x squared"],
+            [
+                "Basic document", "page top", "1.", "Second entry", "PNG caption",
+                "Header A", "alpha", "x plus one", "Heading level 2", "Heading level 3",
+                "Heading level 4", "Heading level 5", "Heading level 6", "•",
+                "Accessible result", "Accessible exercise", "Basic document", "internal ",
+                "1", "1", "Accessible footnote", "First item", "2.", "Header B", "beta",
+                "gamma", "delta", "x squared", "emphasized", "strong", "Unordered item",
+                "Accessible proof",
+            ],
         )
         self.assertEqual(observation["artifact_count"], 4)
         self.assertEqual(observation["outline_structure"], [1, 84])
@@ -1121,6 +1148,91 @@ class TaggedPdfStructureV2Tests(unittest.TestCase):
                 status = verifier.main([str(pdf_path), str(expectation_path)])
         self.assertEqual(status, 0)
         self.assertEqual(json.loads(output.getvalue())["algorithm"], "typaxis.tagged-pdf-validator/2")
+
+
+class ProductionBookStructureDerivationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.package = json.loads(
+            (PRODUCTION_FIXTURE_PATH / "job/document-package.json").read_text("utf-8")
+        )
+        self.ledger = json.loads(
+            (PRODUCTION_FIXTURE_PATH / "ledger.json").read_text("utf-8")
+        )
+
+    def test_complete_source_ledger_roles_text_and_alternatives_are_independent(self) -> None:
+        nodes = verifier._production_source_nodes(self.package)
+        self.assertEqual(len(nodes), 95)
+        self.assertEqual(
+            [node.get("node_id") for node in nodes], self.ledger["reading_order"]
+        )
+        self.assertEqual(verifier._production_source_ledger(self.package), self.ledger)
+        roles = verifier._production_structure_roles(self.package)
+        self.assertEqual(len(roles), 104)
+        self.assertEqual(
+            hashlib.sha256("\0".join(roles).encode("utf-8")).hexdigest(),
+            "013b0a074d681d226a0c55a516221bb6a734504229a25d450b457fa4aae9ba3c",
+        )
+        actual_text = verifier._production_actual_text(self.package)
+        self.assertEqual(len(actual_text), 38)
+        self.assertEqual(actual_text[-3:], ["x plus y, equation AB", "AB", "Accessible footnote"])
+        self.assertEqual(
+            verifier._production_alternatives(self.package),
+            [
+                "PNG image",
+                "x squared",
+                "x plus one",
+                "SafeVector 1 inline",
+                "SafeVector 2 inline",
+                "x plus y",
+                "SafeVector 1 figure",
+                "JPEG figure",
+                "SafeVector 1 vector figure",
+                "SafeVector 2 vector figure",
+                "x plus y, equation AB",
+            ],
+        )
+
+    def test_source_ledger_and_typed_source_mutations_fail_closed(self) -> None:
+        wrong_ledger = copy.deepcopy(self.ledger)
+        wrong_ledger["reading_order"][1:3] = reversed(
+            wrong_ledger["reading_order"][1:3]
+        )
+        with self.assertRaisesRegex(verifier.PdfValidationError, "source ledger closure"):
+            verifier.verify_production_pdf_structure(
+                b"not a PDF", self.package, wrong_ledger, expected_page_count=2
+            )
+
+        wrong_span = copy.deepcopy(self.package)
+        inline_math = next(
+            node
+            for node in verifier._production_source_nodes(wrong_span)
+            if node["kind"] == "inline_math"
+        )
+        inline_math["math_source"]["text_span"]["end_byte"] = 10_000
+        # Native-math extraction is speech-bound, so exercise the shared text
+        # span validator through the producer equation number as well.
+        equation = next(
+            node
+            for node in verifier._production_source_nodes(wrong_span)
+            if node["kind"] == "equation_number"
+        )
+        equation["text_span"]["end_byte"] = 10_000
+        with self.assertRaisesRegex(verifier.PdfValidationError, "source ledger closure"):
+            verifier.verify_production_pdf_structure(
+                b"not a PDF", wrong_span, self.ledger, expected_page_count=2
+            )
+        with self.assertRaisesRegex(verifier.PdfValidationError, "outside its buffer"):
+            verifier._production_actual_text(wrong_span)
+
+        wrong_kind = copy.deepcopy(self.package)
+        paragraph = next(
+            node
+            for node in verifier._production_source_nodes(wrong_kind)
+            if node["kind"] == "paragraph" and node.get("children")
+        )
+        paragraph["children"][0]["kind"] = "flattened_math"
+        with self.assertRaisesRegex(verifier.PdfValidationError, "unsupported production inline"):
+            verifier._production_structure_roles(wrong_kind)
 
 
 if __name__ == "__main__":

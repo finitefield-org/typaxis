@@ -2,7 +2,7 @@
 
 ## 1. 文書情報
 
-- 状態: M0/M1実装・actual-host gate完了、M2〜M5実装設計
+- 状態: M0〜M4実装・公開完了、M5実装設計（本文の調査記述はhistorical baseline）
 - 調査基準: Typaxis commit `6d9be4e20fb02901b5ff4f1bf4ef36643f4fd9e8`
 - 設計基準: Typaxis commit `d11e90b03cac20435278fecef2fa8774b758ffad`
 - 調査日: 2026-08-25
@@ -11,7 +11,7 @@
 - 対象: CLI、canonical `DocumentPackage`、source/include trust、layout、Display、PDF、manifest、diagnostic、関連文書
 - 主な利用者: Typaxisへ文書を機械生成して渡すproducer。特に、VMBのように自前のASTを持つ上流システム
 
-本書は、調査基準commitの到達範囲を調査した結果と、machine-readableな文書入力からPDFを生成できるようにするための改善要求をまとめる。M0/M1の実装・完了記録は[task plan](25-machine-input-pdf-improvements-todo.md)を正とし、本書の調査結果は当時のgapを示すhistorical baselineとして保持する。M2以降は未実装箇所を明示するstatus/gap文書である。
+本書は、調査基準commitの到達範囲を調査した結果と、machine-readableな文書入力からPDFを生成できるようにするための改善要求をまとめる。M0〜M4の実装・完了記録は[task plan](25-machine-input-pdf-improvements-todo.md)を正とし、本書の調査結果と「現行実装」は当時のgapを示すhistorical baselineとして保持する。M5だけが未完了の実装設計であり、現在の公開contract/profile一覧は[capability contract](../contracts/machine-pdf-capabilities.md)を正とする。
 
 ## 2. 結論
 

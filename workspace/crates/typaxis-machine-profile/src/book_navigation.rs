@@ -138,7 +138,7 @@ impl std::fmt::Display for StagingBookNavigationProfileError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnsupportedFeature => formatter.write_str(
-                "L5100: metadata, language, or outline is outside the closed staging profile",
+                "L5100: metadata, language, or outline is outside the closed production-book-1 profile",
             ),
             Self::BaseProfile => {
                 formatter.write_str("L5100: production-book base profile preflight failed")
@@ -559,9 +559,10 @@ mod tests {
         assert!(receipt.descriptor_jcs().contains(
             "\"language_owner_kinds\":[\"display_math\",\"document\",\"emphasis\",\"figure\",\"footnote_definition\",\"footnote_reference\",\"heading\",\"inline_math\",\"link\",\"list\",\"list_item\",\"paragraph\",\"reference\",\"semantic_container\",\"strong\",\"table\",\"table_cell\",\"table_row\",\"text\"]"
         ));
-        assert!(!typaxis_core::DocumentPackageContractId::CURRENT
-            .as_str()
-            .contains("1.4"));
+        assert_eq!(
+            typaxis_core::DocumentPackageContractId::CURRENT,
+            typaxis_core::DocumentPackageContractId::V1_4
+        );
     }
 
     #[test]

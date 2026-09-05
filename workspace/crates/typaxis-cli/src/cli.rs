@@ -50,6 +50,16 @@ pub const LIMIT_OPTIONS: &[&str] = &[
     "max-spool-bytes",
     "max-pdf-objects",
     "max-output-bytes",
+    "max-font-tables",
+    "max-font-glyphs",
+    "max-cff-subroutines",
+    "max-cff-charstring-operations",
+    "max-cff-outline-segments",
+    "max-font-subset-bytes",
+    "max-vector-nodes",
+    "max-vector-path-segments",
+    "max-vector-nesting-depth",
+    "max-math-layout-units",
 ];
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

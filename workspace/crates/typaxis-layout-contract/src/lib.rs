@@ -652,9 +652,9 @@ impl LayoutEpoch {
         })
     }
 
-    /// Private contract-1.4 bridge for the JPEG vertical slice.  Every
-    /// nominal fingerprint is recomputed from a typed receipt; callers cannot
-    /// stamp arbitrary hash bytes into a publication-trusted Display epoch.
+    /// Contract-1.4 production bridge retained under its pre-publication API
+    /// name. Every nominal fingerprint is recomputed from a typed receipt;
+    /// callers cannot stamp arbitrary hash bytes into a trusted Display epoch.
     #[doc(hidden)]
     pub fn from_staging_jpeg_inputs(
         package: &ValidatedStagingSemanticPackage,

@@ -1912,6 +1912,56 @@ pub fn freeze_admitted_png_images_for_pdf(
     Ok(plans)
 }
 
+/// Freeze the exact admitted PNG/JPEG union selected by the production-book
+/// writer. Vector media remains on the SafeVector Form-XObject path and is
+/// therefore rejected here instead of being accidentally rasterized.
+pub fn freeze_admitted_raster_images_for_pdf(
+    admitted: &AdmittedResourceLedger,
+    selected_image_ids: &[ImageResourceId],
+    limits: &ValidatedResourceLimits,
+) -> Result<Vec<FrozenPdfImagePlan>, ResourceError> {
+    let selected: BTreeSet<_> = selected_image_ids.iter().copied().collect();
+    let owner = VerifiedEncoderReceiptOwner { _private: () };
+    let mut plans = Vec::new();
+    plans
+        .try_reserve_exact(selected.len())
+        .map_err(|_| ResourceError::ResourceLimit)?;
+    let mut aggregate_plan_bytes = 0u64;
+    for image_id in selected {
+        let image = admitted
+            .image(image_id)
+            .ok_or(ResourceError::MissingLogicalResource)?;
+        let receipt = match image.media_kind() {
+            AdmittedImageMediaKind::Png => owner.issue_image(decode_png_for_pdf(image)?),
+            AdmittedImageMediaKind::JpegBaseline => owner.issue_jpeg(image)?,
+            AdmittedImageMediaKind::SafeVector | AdmittedImageMediaKind::SafeVector2 => {
+                return Err(ResourceError::InvalidImagePlan);
+            }
+        };
+        let VerifiedEncoderOutput::Image(plan) = receipt.0 else {
+            return Err(ResourceError::InvalidImagePlan);
+        };
+        let mut plan_bytes =
+            u64::try_from(plan.encoded_bytes().len()).map_err(|_| ResourceError::ResourceLimit)?;
+        if let Some(mask) = plan.alpha_mask() {
+            plan_bytes = plan_bytes
+                .checked_add(
+                    u64::try_from(mask.encoded_bytes().len())
+                        .map_err(|_| ResourceError::ResourceLimit)?,
+                )
+                .ok_or(ResourceError::ResourceLimit)?;
+        }
+        aggregate_plan_bytes = aggregate_plan_bytes
+            .checked_add(plan_bytes)
+            .ok_or(ResourceError::ResourceLimit)?;
+        if aggregate_plan_bytes > limits.get().max_spool_bytes {
+            return Err(ResourceError::ResourceLimit);
+        }
+        plans.push(*plan);
+    }
+    Ok(plans)
+}
+
 fn decode_png_for_pdf(admitted: &AdmittedImage) -> Result<ImageEncoderOutput, ResourceError> {
     if admitted.media_kind() != AdmittedImageMediaKind::Png {
         return Err(ResourceError::InvalidImagePlan);

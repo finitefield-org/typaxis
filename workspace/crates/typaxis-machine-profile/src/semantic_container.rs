@@ -39,14 +39,20 @@ impl StagingSemanticContainerProfileDescriptor {
         ]
     }
 
-    pub const fn image_media(self) -> [ImageMediaType; 2] {
-        [ImageMediaType::Png, ImageMediaType::SvgSafe1]
+    pub const fn image_media(self) -> [ImageMediaType; 4] {
+        [
+            ImageMediaType::Png,
+            ImageMediaType::SvgSafe1,
+            ImageMediaType::SvgSafe2,
+            ImageMediaType::JpegBaseline,
+        ]
     }
 
-    pub const fn font_media(self) -> [FontMediaType; 2] {
+    pub const fn font_media(self) -> [FontMediaType; 3] {
         [
             FontMediaType::SfntTrueTypeGlyf,
             FontMediaType::TtcTrueTypeGlyf,
+            FontMediaType::SfntCff1,
         ]
     }
 
@@ -538,8 +544,7 @@ fn validate_media_declarations(
             ImageMediaDeclaration::Declared(media)
                 if StagingSemanticContainerProfileDescriptor
                     .image_media()
-                    .contains(&media)
-                    || (precomposed_vector && media == ImageMediaType::SvgSafe2) => {}
+                    .contains(&media) => {}
             ImageMediaDeclaration::Declared(_) => {
                 return Err(StagingSemanticContainerPreflightError::DisallowedMedia)
             }
@@ -797,7 +802,7 @@ mod tests {
         );
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
-            "typaxis.contract/1.3"
+            "typaxis.contract/1.4"
         );
     }
 

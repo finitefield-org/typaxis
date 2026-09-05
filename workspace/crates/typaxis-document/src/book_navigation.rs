@@ -72,7 +72,7 @@ impl StagingLanguageNodeKind {
     }
 }
 
-/// Closed logical-owner vocabulary for the private contract-1.4 computed
+/// Closed logical-owner vocabulary for the contract-1.4 computed
 /// language registry `/2`.
 ///
 /// This is nominally distinct from [`StagingLanguageNodeKind`] so the frozen

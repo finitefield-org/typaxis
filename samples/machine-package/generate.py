@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+import runpy
 import shutil
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ FLOAT_PROFILE = "typaxis.machine-pdf/float-1"
 FOOTNOTE_PROFILE = "typaxis.machine-pdf/footnote-1"
 HEADER_FOOTER_PROFILE = "typaxis.machine-pdf/header-footer-1"
 TABLE_PROFILE = "typaxis.machine-pdf/table-1"
+PRODUCTION_PROFILE = "typaxis.machine-pdf/production-book-1"
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 PHRASE = "Typaxis machine input"
 MATRIX_TEST = "machine_tests::matrix_{row:02d}_{name}"
@@ -116,7 +118,7 @@ def synthetic_ascii_ttf(*, include_math: bool = False) -> bytes:
     }
     if include_math:
         # Preserve the frozen ASCII-only cmap for existing fixtures. The
-        # private math face adds a format-12 subtable for the non-ASCII
+        # production math face adds a format-12 subtable for the non-ASCII
         # symbols exercised by the closed math grammar; the synthetic outline
         # is intentionally shared because these bytes test binding, not art.
         math_scalars = sorted(
@@ -1883,12 +1885,45 @@ def rejected_image_package() -> dict[str, Any]:
 
 
 def reset_generated_tree() -> None:
-    for name in ["capabilities.json", "profiles", "invalid", "scenarios", "matrices"]:
-        target = ROOT / name
+    def remove(target: Path) -> None:
         if target.is_dir() and not target.is_symlink():
             shutil.rmtree(target)
         elif target.exists() or target.is_symlink():
             target.unlink()
+
+    for name in ["capabilities.json", "invalid", "scenarios", "matrices"]:
+        target = ROOT / name
+        remove(target)
+
+    # The production generators are checked-in source files below the fixture
+    # tree. Preserve only those two source files while replacing every
+    # generated profile artifact, just as the older profiles are replaced.
+    profiles = ROOT / "profiles"
+    production = profiles / "production-book-1"
+    if profiles.is_symlink() or not profiles.is_dir():
+        raise RuntimeError("fixture profiles source root must be a plain directory")
+    if production.is_symlink() or not production.is_dir():
+        raise RuntimeError("production fixture source root must be a plain directory")
+    for target in profiles.iterdir():
+        if target != production:
+            remove(target)
+    fixture_names = {"combined", "legacy-contract"}
+    for target in production.iterdir():
+        if target.name not in fixture_names:
+            remove(target)
+            continue
+        if target.is_symlink() or not target.is_dir():
+            raise RuntimeError(
+                f"production fixture source must be a plain directory: {target.name}"
+            )
+        source = target / "generate.py"
+        if source.is_symlink() or not source.is_file():
+            raise RuntimeError(
+                f"production fixture generator must be a plain file: {target.name}"
+            )
+        for fixture_target in target.iterdir():
+            if fixture_target.name != "generate.py":
+                remove(fixture_target)
 
 
 def main() -> None:
@@ -2839,6 +2874,52 @@ def main() -> None:
         "verification_commands": m2_matrix["verification_commands"],
     }
     (ROOT / "matrices/m3-all.json").write_bytes(jcs(all_m3_matrix))
+
+    # Production fixtures are generated last because the legacy rejection
+    # fixture consumes the freshly generated basic-document package. Keeping
+    # these calls in the root generator makes its documented replace-and-
+    # regenerate contract true after the MI4-13 atomic publication.
+    runpy.run_path(
+        str(ROOT / "profiles/production-book-1/combined/generate.py")
+    )
+    runpy.run_path(
+        str(ROOT / "profiles/production-book-1/legacy-contract/generate.py")
+    )
+    production_fixture_ids = [
+        "production-book-1.combined",
+        "production-book-1.legacy-contract",
+    ]
+    production_matrix = {
+        "contract": "typaxis.machine-fixture-matrix/1",
+        "fixtures": [
+            {
+                "expected": f"profiles/production-book-1/{name}/expected.json",
+                "fixture_id": fixture_id,
+            }
+            for name, fixture_id in zip(
+                ("combined", "legacy-contract"), production_fixture_ids
+            )
+        ],
+        "profile": PRODUCTION_PROFILE,
+        "rows": [
+            {
+                "fixture_ids": ["production-book-1.combined"],
+                "id": "m4-production-combined",
+                "test": "machine_tests::machine_production_book_1_combined_public_profile",
+            },
+            {
+                "fixture_ids": ["production-book-1.legacy-contract"],
+                "id": "m4-production-feature-tamper",
+                "test": "machine_tests::machine_production_book_1_feature_local_tamper_matrix",
+            },
+        ],
+        "verification_commands": [
+            "cargo test --manifest-path workspace/Cargo.toml --package typaxis-cli machine --locked",
+            "cargo test --manifest-path workspace/Cargo.toml --package typaxis-document-package --locked",
+            "python3 schemas/validate.py",
+        ],
+    }
+    (ROOT / "matrices/m4-production.json").write_bytes(jcs(production_matrix))
 
 
 if __name__ == "__main__":

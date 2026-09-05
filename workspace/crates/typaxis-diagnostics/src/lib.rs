@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 use typaxis_core::{
-    push_jcs_string, FontFaceId, ImageResourceId, JsonPointer, MasterId, NodeId, PortablePath,
-    SourceSpan, StyleId, TextSpan, CONTRACT,
+    push_jcs_string, DocumentPackageContractId, FontFaceId, ImageResourceId, JsonPointer, MasterId,
+    NodeId, PortablePath, SourceSpan, StyleId, TextSpan,
 };
 
 pub const DIAGNOSTIC_PREFIXES: &[&str] = &["P1", "T2", "S3", "F4", "L5", "G6", "R7", "D8", "I9"];
@@ -1047,8 +1047,17 @@ impl MachineDiagnostics {
 
 /// Encode the contract-1.1 diagnostics artifact as canonical JSON.
 pub fn encode_diagnostics_canonical(diagnostics: &[Diagnostic]) -> String {
+    encode_diagnostics_canonical_for_contract(DocumentPackageContractId::CURRENT, diagnostics)
+}
+
+/// Encode diagnostics under the package contract selected by the command.
+/// Frozen machine profiles pass 1.3; the production-book path passes 1.4.
+pub fn encode_diagnostics_canonical_for_contract(
+    contract: DocumentPackageContractId,
+    diagnostics: &[Diagnostic],
+) -> String {
     let mut output = String::from("{\"contract\":");
-    push_jcs_string(&mut output, CONTRACT);
+    push_jcs_string(&mut output, contract.as_str());
     output.push_str(",\"diagnostics\":[");
     for (index, diagnostic) in diagnostics.iter().enumerate() {
         if index != 0 {
@@ -1312,7 +1321,7 @@ mod tests {
         assert_eq!(
             encode_diagnostics_canonical(&[package, global]),
             concat!(
-                "{\"contract\":\"typaxis.contract/1.3\",\"diagnostics\":[",
+                "{\"contract\":\"typaxis.contract/1.4\",\"diagnostics\":[",
                 "{\"code\":\"P1102\",\"location\":{\"byte_offset\":1942,",
                 "\"json_pointer\":\"/document/blocks/3\",\"kind\":\"package_json\",",
                 "\"uri\":\"document-package.json\"},\"message\":\"package member is invalid\",",

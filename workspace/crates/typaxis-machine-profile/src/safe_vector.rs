@@ -1149,7 +1149,7 @@ mod tests {
         );
         assert_eq!(
             typaxis_core::DocumentPackageContractId::CURRENT.as_str(),
-            "typaxis.contract/1.3"
+            "typaxis.contract/1.4"
         );
     }
 

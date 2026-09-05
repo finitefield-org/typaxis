@@ -1,6 +1,11 @@
 # Machine PDF capability contract
 
-This document records the seven normative closed public machine-PDF profiles adopted by [ADR-0027](../adr/ADR-0027-machine-document-package-ingestion.md), [ADR-0028](../adr/ADR-0028-basic-document-profile.md), [ADR-0029](../adr/ADR-0029-table-profile.md), [ADR-0030](../adr/ADR-0030-footnote-profile.md), and [ADR-0031](../adr/ADR-0031-advanced-pagination-profiles.md). All seven are implemented, public through the ordinary package commands, and covered by their release matrices. [ADR-0032](../adr/ADR-0032-semantic-container-and-declared-media.md), [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md), [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md), [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md), [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md), and [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) separately define a non-current M4 target; they do not create a public eighth descriptor.
+This document records the eight normative closed public machine-PDF profiles
+adopted by ADR-0027 through ADR-0037. MI4-13 published
+`production-book-1` together with current contract 1.4 after MI4-V19 closed its
+external evidence. All eight profiles are implemented through the ordinary
+package commands and covered by their release matrices; the seven earlier
+profiles retain their frozen accepted contracts and artifact encoders.
 
 ## Status axes
 
@@ -13,14 +18,14 @@ This document records the seven normative closed public machine-PDF profiles ado
 | `header-footer-1` | Yes, ADR-0031 on contract 1.3 | Yes: region-flow, selection, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `columns-1` | Yes, ADR-0031 on contract 1.3 | Yes: column/balance, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
 | `float-1` | Yes, ADR-0031 on contract 1.3 | Yes: queue/placement/carry, Display/PDF, and artifact closure | Yes, combined PDF/sidecars | Yes, MI3-12 gate |
-| `production-book-1` | Yes through ADR-0037: base/declared media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on non-current contract 1.4 | Private implementation and MI4-V19 external/readiness evidence are complete | No; public profile ID is rejected | No; MI4-13 atomic publication remains |
+| `production-book-1` | Yes through ADR-0037: base/declared media, native math/safe-vector, producer-composed math vector, metadata/language/outline, tagged PDF/PDF/UA-1 validation, and distinct JPEG/CFF resource components on contract 1.4 | Yes, complete receipt/artifact closure | Yes, combined public fixture | Yes, MI4-13 gate |
 
 Portable DocumentPackage validation, `dump-ast` export, or a staging descriptor does not imply public CLI E2E or release support. A profile becomes release-available only when the same implementation descriptor drives capability output, preflight, combined-fixture evidence, and the documented-host gate.
 
 ## Identity and default
 
 - Profile ID: `typaxis.machine-pdf/paragraph-1`
-- Current contract 1.3 default profile: `typaxis.machine-pdf/paragraph-1`
+- Current contract 1.4 default profile: `typaxis.machine-pdf/paragraph-1`
 - Source closure: exactly one source, `source_id = 0`, entry-only
 - Unknown profile handling: usage exit 2; never fall back to the default or newest profile
 - Manifest rule: record the resolved profile ID and require exact agreement with the preflight receipt
@@ -62,7 +67,11 @@ An implementation accepting one of these items does not make it part of `paragra
 
 ## Descriptor and preflight ownership
 
-`typaxis-machine-profile` owns all seven closed public descriptors. ADR-0032 reserves and ADR-0037 extends `production-book-1`, but the constant, parser branch, public descriptor, and normal dispatch are forbidden until MI4-V19 has completed and MI4-13 publishes the whole target. The implementation derives all of the following from registered public descriptors rather than maintaining duplicate lists:
+`typaxis-machine-profile` owns all eight closed public descriptors. The
+`production-book-1` constant, parser branch, descriptor, and normal dispatch
+were published together after MI4-V19; the implementation derives all of the
+following from registered public descriptors rather than maintaining duplicate
+lists:
 
 - canonical `capabilities --format json` profile fields;
 - typed package preflight;
@@ -96,12 +105,12 @@ When any required token is unavailable, `profiles[].available` is `false`. Missi
 
 The capability artifact is generated from compiled descriptors only. It does not read config, filesystem contents, ambient locale, or per-job overrides. Built-in package byte/depth defaults and hard maxima come from the same core limit descriptor used by decode; effective per-job config remains bound separately by its config fingerprint.
 
-The current 1.3 artifact publishes these descriptor facts from their sole constant/type owners:
+The current 1.4 artifact publishes these descriptor facts from their sole constant/type owners:
 
 | Fact | Value |
 | --- | --- |
 | coordinate unit | `pdf_point_1_65536` |
-| accepted DocumentPackage contracts | `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2`, `typaxis.contract/1.3` |
+| accepted DocumentPackage contracts | `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2`, `typaxis.contract/1.3`, `typaxis.contract/1.4` |
 | `max_resource_roots` | 64 |
 | `max_read_candidates` | 131,072 |
 | `max_document_package_bytes` default / hard maximum | 134,217,728 / 9,007,199,254,740,991 |
@@ -137,7 +146,7 @@ The closed policy summary is:
 - each forced page break finalizes the open page and opens the next, so leading, consecutive, and trailing breaks intentionally preserve blank pages and `N` breaks without paint produce `N + 1` pages;
 - figures use ties-to-even checked aspect rounding, reject zero/overflow or dimensions larger than an empty body frame, and apply the typed `keep_caption` policy without implicit relaxation;
 - links lowercase only the URI scheme, preserve the scheme-specific bytes, require at least one positive-area selected cluster, and union exactly one rectangle per page/line;
-- `paragraph-1` remains the `default_profile` throughout contract 1.1 and after the 1.2 migration. `basic-document-1` always requires explicit selection.
+- `paragraph-1` remains the `default_profile` through current contract 1.4. `basic-document-1` and `production-book-1` always require explicit selection.
 
 The descriptor maps flow/list nodes to `max_ast_nodes`, flow nesting to `max_ast_nesting_depth`, per-marker and selected-overlay bytes to `max_text_buffer_bytes`/`max_text_bytes`, PNG pixels and expanded bytes to `max_image_pixels`/`max_decoded_image_bytes`, link rectangles to `max_fragments`, and annotations/XObjects to `max_pdf_objects`. Exact maxima are accepted and max+1 is refused by the owning phase before work. Stable limit codes are `P1120`, `P1121`, `T2100`, `T2101`, `R7110`, `R7111`, `L5110`, and `G6100` in that order of subjects; no synonymous limit fields are added.
 
@@ -439,15 +448,15 @@ conditional trace/manifest member, removed the private runners, and published
 `m3-all.json`. The default remains `paragraph-1`; full migration details are
 normative in ADR-0031 and docs/22.
 
-## Contract-defined M4 semantic-container and declared-media target
+## Public M4 profile: `production-book-1`
 
-ADR-0032 reserves `typaxis.contract/1.4`, Schema namespace
+ADR-0032 reserved `typaxis.contract/1.4`, Schema namespace
 `https://schemas.typaxis.invalid/1.4/`, and
-`typaxis.machine-pdf/production-book-1`. MI4-01 changes only the
-contract-defined axis. Public capabilities continue to report contract 1.3 and
-the same seven descriptors until MI4-13.
+`typaxis.machine-pdf/production-book-1`. MI4-13 published the complete target
+as current contract 1.4 and the eighth descriptor; `paragraph-1` remains the
+default and all seven earlier descriptors retain their frozen meanings.
 
-The target DocumentPackage adds the block-only `semantic_container` with
+The production DocumentPackage adds the block-only `semantic_container` with
 closed `semantic_kind = result|proof|exercise`, a NodeId/SourceSpan, classes,
 and one or more child blocks. It is allowed only in general block positions,
 never inline or in the restricted page-region grammar. It owns an independent
@@ -489,12 +498,12 @@ and exact-matches the declaration before expensive decode/outline work. URI
 suffix, caller JSON, PDF subtype, and manifest text have no attestation
 authority.
 
-Source-mode 1.4 `dump-ast` must populate declarations only from the same stable
-decoder attestation and fail before stdout if one is unavailable. It cannot
+Source-mode 1.4 `dump-ast` populates declarations only from the same stable
+decoder attestation and fails before stdout if one is unavailable. It cannot
 infer from `.png`, `.jpg`, `.jpeg`, `.ttf`, `.ttc`, `.otf`, emit legacy
 absence, or fall back to 1.3.
 [ADR-0033](../adr/ADR-0033-math-safe-vector-and-alternative-binding.md) adopts
-the private `svg-safe-1` image value for MI4-04.
+the `svg-safe-1` image value implemented by MI4-04.
 [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md)
 independently adopts image `jpeg-baseline` mapped to
 `AdmittedImageMediaKind::JpegBaseline` and font `sfnt-cff1` mapped to
@@ -510,19 +519,20 @@ that exact meaning while old font branches remain unchanged.
 M4 request rejected before resource admission. Frozen old-profile branches
 gain no declaration or changed attestation field and retain their bytes.
 
-The target default remains `paragraph-1`, and every old profile's exact
+The current default remains `paragraph-1`, and every old profile's exact
 accepted raw-contract set remains frozen. Raw 1.4 must explicitly select
 `production-book-1`; omission or any old profile is `P1103` at `/contract`
-before resource open. A source `dump-ast -> build-package` round trip therefore
-passes that profile explicitly after MI4-13. Old raw-contract/profile artifacts
+before resource open. Re-input of source `dump-ast` output therefore passes
+that profile explicitly and remains subject to its closed-domain preflight.
+Old raw-contract/profile artifacts
 retain frozen 1.3 encoders. Raw 1.4 or an M4-profile request uses the 1.4
 artifact registry.
 Complete migration rows and the atomic switch order are normative in ADR-0032
 and docs/22.
 
-### Adopted M4 math and safe-vector extension
+### Published M4 math and safe-vector extension
 
-ADR-0033 adds two private contract-1.4 target nodes: `inline_math` in ordinary
+ADR-0033 adds two contract-1.4 nodes: `inline_math` in ordinary
 inline positions and styleable `display_math` in general block positions.
 Both require a closed `math_source` with language `typaxis-math`, version `1`,
 an exact admitted TextSpan mapped to the node SourceSpan, and a nonempty
@@ -568,9 +578,9 @@ Y conversion are fixed. SVG text/font primitives, float geometry, alpha, dash,
 rotate/skew, and browser paint are outside the profile. The decoder performs no
 implicit filesystem, network, or font lookup.
 
-The additional inclusive target limits are held in a sealed workspace-internal
-`M4ResourceLimits` extension until atomic publication; current config aliases,
-default JCS, and old descriptors do not encode them:
+The additional inclusive limits are represented by the sealed
+`M4ResourceLimits` extension and are encoded in current 1.4 effective config;
+frozen old-profile artifact/config branches do not gain them:
 
 | Limit | Default / hard maximum | Code |
 | --- | --- | --- |
@@ -601,14 +611,14 @@ parser and `typaxis.safe-vector-ir/1` issuer remain in
 `typaxis-resource-admission`; resource finalization alone creates a frozen Form
 plan, and PDF alone assigns/serializes the Form XObject. No external math,
 XML, SVG, CSS, browser, speech, or network dependency/tool is part of the `/1`
-identities. MI4-04 implements the SafeVector branch privately and MI4-05
-implements the math branch. Public capabilities, current Schema aliases, old
-profiles, and default remain unchanged until MI4-13.
+identities. MI4-04 implemented the SafeVector branch and MI4-05 implemented
+the math branch in isolation; MI4-13 published both without changing old
+profiles or the default.
 
-### Adopted producer-composed math-vector extension
+### Published producer-composed math-vector extension
 
 [ADR-0037](../adr/ADR-0037-producer-composed-math-vector.md) adds a separate
-precomposed-vector path to the unpublished target. It does not broaden native
+precomposed-vector path to the production profile. It does not broaden native
 `inline_math`/`display_math` or `svg-safe-1`. The four new kinds and their
 closed media mapping are:
 
@@ -650,9 +660,9 @@ cross-version parse or fallback.
 The new path also requires computed-language/book-navigation and tagged-PDF
 version-2 receipt chains. No `/1` record may stand in for a `/2` receipt.
 
-At MI4-V17 the crate-private production staging descriptor may merge these
-exact additions into its existing fields and add the complete `vector_*`
-members. MI4-13 alone may register and publish that same complete projection:
+MI4-V17 merged these exact additions into the isolated production descriptor
+and added the complete `vector_*` members. MI4-13 published that same complete
+projection:
 
 ```json
 {
@@ -741,24 +751,22 @@ set-valued arrays, including map values, use UTF-8-byte order; JSON object keys
 use the existing JCS order. The resource component/media arrays retain their
 explicit semantic order and are not globally sorted.
 
-MI4-V03 through MI4-V18 populate only crate-private descriptors/tests.
-MI4-V19 has closed combined feature evidence over the existing MI4-11 JPEG and
-MI4-12 CFF work. Its complete future descriptor and resource-set receipt remain
-private and do not advertise availability.
-MI4-13 alone may add the eighth descriptor, placing `production-book-1` after
+MI4-V03 through MI4-V18 populated only isolated descriptors/tests. MI4-V19
+closed combined feature evidence over the MI4-11 JPEG and MI4-12 CFF work.
+MI4-13 then added the eighth descriptor, placing `production-book-1` after
 `paragraph-1` and before `table-1`; `default_profile` remains `paragraph-1`.
-Until that transaction, the current accepted-contract array, seven profile
-bytes, public help/parser, and capability Schema remain unchanged.
+The accepted-contract array, public help/parser, and capability Schema were
+switched to the complete 1.4 surface in that same transaction.
 
-### Adopted M4 JPEG and OpenType/CFF resource components
+### Published M4 JPEG and OpenType/CFF resource components
 
 [ADR-0036](../adr/ADR-0036-jpeg-and-opentype-cff-resource-profiles.md) fixes
 five distinct immutable component descriptors under the frozen
 `typaxis.production-book-resource-set/1`: PNG, SafeVector, baseline JPEG,
 TrueType `glyf`, and standalone sfnt/CFF1. ADR-0037 preserves those meanings
 while the complete target uses resource set `/2`, SafeVector `/2`, and the
-additional `svg-safe-2` image media. The combined `/2` set becomes public only
-with the complete profile at MI4-13; neither version creates independently
+additional `svg-safe-2` image media. MI4-13 published the combined `/2` set
+only with the complete profile; neither version creates independently
 selectable profiles or broadens an old one.
 
 `jpeg-baseline` is a strict JFIF subset: SOI, one immediate valid JFIF APP0,
@@ -807,11 +815,11 @@ CIDSet, ToUnicode, names, subset hash, and object observations consume the
 same glyph closure. A FontFile2/CIDFontType2 plan is a mismatch.
 
 JPEG reuses inclusive image bytes/pixels/decoded/spool/PDF/output limits.
-The private M4 extension gains `max_font_tables`, `max_font_glyphs`,
+The M4 extension adds `max_font_tables`, `max_font_glyphs`,
 `max_cff_subroutines`, `max_cff_charstring_operations`,
-`max_cff_outline_segments`, and `max_font_subset_bytes`, with private codes
-`R7130` through `R7135`. Defaults/hard maxima and exact one-time charges are
-normative in ADR-0036; current config and diagnostic aliases do not gain them.
+`max_cff_outline_segments`, and `max_font_subset_bytes`, with codes `R7130`
+through `R7135`. Defaults/hard maxima and exact one-time charges are normative
+in ADR-0036 and are part of the current 1.4 config/diagnostic domain.
 Malformed, unsupported, mismatch, or embedding-policy failure is `R7100` at
 the typed resource; limit failures use their owning code; cross-ID/hash/face/
 glyph/subset/plan/object contradiction is `I9190`.
@@ -821,15 +829,15 @@ and sanitized hashes, decoded facts, selected uses, DCT plan, and image object
 to one ImageResourceId. Every CFF record binds declaration/attestation,
 source/face/table/license facts, selected glyph set, subset hash/name, PDF font
 plan, and objects to one FontFaceId/FontInstanceId chain. Unused resources have
-admission evidence but no plan/object. MI4-11 implements only JPEG and MI4-12
-implements only CFF in private staging; exact dependency feature/checksum/MSRV
-audits and old-public-surface isolation are required for both.
+admission evidence but no plan/object. MI4-11 implemented only JPEG and MI4-12
+implemented only CFF in isolated staging; MI4-13 composed them without changing
+their exact dependency feature/checksum/MSRV audits or old-profile isolation.
 
-### Adopted M4 document metadata, language, and outline extension
+### Published M4 document metadata, language, and outline extension
 
 [ADR-0034](../adr/ADR-0034-document-metadata-language-and-outline.md) adds
 required top-level `metadata` and `outline` objects plus required
-`document.language` to the private contract-1.4 target. The metadata object has
+`document.language` to contract 1.4. The metadata object has
 exactly required nullable `author`, `created`, `identifier`, `modified`,
 `subject`, and `title` members plus required `keywords`. The keyword array is
 an exact UTF-8-byte-sorted unique set; null metadata and an empty array mean
@@ -903,15 +911,14 @@ and outline receipts, then production preflight, selected destination and
 book-navigation receipt, PDF graph/serialization observation, versioned
 manifest, and independent validator observation. Every entry is closed in both
 directions over its source and destination; no downstream JSON/PDF consumer can
-issue an upstream receipt. MI4-07 owns this private implementation. Public
-capabilities, current Schema aliases, old profiles, default, and CLI remain
-unchanged until MI4-13.
+issue an upstream receipt. MI4-07 owns the isolated implementation and MI4-13
+published it while leaving old profiles and the default unchanged.
 
-### Adopted M4 tagged-PDF and accessibility-validation target
+### Published M4 tagged-PDF and accessibility-validation profile
 
 [ADR-0035](../adr/ADR-0035-tagged-pdf-structure-and-validation.md) makes
-`typaxis.pdfua1-profile/1` a required component of the private production-book
-target. It is an unencrypted PDF 1.7/PDF/UA-1 target, not PDF/UA-2, PDF/A,
+`typaxis.pdfua1-profile/1` a required component of the public production-book
+profile. It is an unencrypted PDF 1.7/PDF/UA-1 target, not PDF/UA-2, PDF/A,
 WCAG, Section 508, or a general legal-accessibility claim. Accessibility
 preflight additionally requires a non-null title, a first `/H1` with no
 skipped heading-level increases, non-whitespace Paragraph/Heading/TH content,
@@ -991,7 +998,7 @@ allocation or serialization. No synonymous structure/accessibility limits,
 retry reset, untagged output, artifact substitution, or warning fallback is
 permitted. Closure contradictions are `I9190`.
 
-MI4-09 implements the private slice and adds a writer-independent
+MI4-09 implemented the isolated slice and added a writer-independent
 `typaxis.tagged-pdf-validator/1`. Release evidence additionally fixes veraPDF
 Greenfield 1.30.2 with explicit `ua1` flavour and an empty warning allowlist,
 plus one reviewed row in `typaxis.matterhorn-assessment/2` for every Matterhorn
@@ -1003,7 +1010,8 @@ alone may not be promoted to a full accessibility or PDF/UA conformance claim.
 MI4-V19 records all 136 items as 87 machine, 47 human, and 2 no-specific-test
 rows, with 99 fixture-scoped passes and 37 explicit not-applicable reasons,
 and binds them to the same PDF as MuPDF/Poppler and the independent structure
-validator. MI4-13 alone may publish the profile from that completed evidence.
+validator. MI4-13 published the profile only after consuming that completed
+evidence.
 
 ## Compatible changes
 
@@ -1044,23 +1052,26 @@ begins.
 
 ## Contract and release gating
 
-The public capability artifact and current Schema use `typaxis.contract/1.3`.
+The public capability artifact and current Schema use `typaxis.contract/1.4`.
 Its profile array is exactly `basic-document-1`, `columns-1`, `float-1`,
-`footnote-1`, `header-footer-1`, `paragraph-1`, then `table-1`, while
-`default_profile` remains `paragraph-1`. MI2-08 froze the
+`footnote-1`, `header-footer-1`, `paragraph-1`, `production-book-1`, then
+`table-1`, while `default_profile` remains `paragraph-1`. MI2-08 froze the
 complete former 1.1 registry and published
 `samples/machine-package/matrices/m2-basic.json`; MI3-04 published the table
 descriptor and `samples/machine-package/matrices/m3-table.json` without
 changing DocumentPackage Schema bytes. MI3-07 subsequently published the
 footnote descriptor and `samples/machine-package/matrices/m3-footnote.json`
 on the same 1.2 wire. MI3-12 published ADR-0031's three profiles and
-`samples/machine-package/matrices/m3-all.json` with the current 1.3 switch.
-Future features may not broaden any public profile in place.
+`samples/machine-package/matrices/m3-all.json` with the 1.3 switch. MI4-13
+froze that twenty-schema registry, switched all current aliases to the
+twenty-nine-schema 1.4 registry, and published
+`samples/machine-package/matrices/m4-production.json`. Future features may not
+broaden any public profile in place.
 
 `paragraph-1` accepts the
 neutral 1.3 semantic subset; the other old profiles accept raw 1.2 plus only
-the exact neutral 1.3 encoding of their frozen behavior; and the new profiles
-are raw-1.3-only. Neutral means full-media trim, null page-region content and
+the exact neutral 1.3 encoding of their frozen behavior; and the three advanced
+profiles are raw-1.3-only. Neutral means full-media trim, null page-region content and
 columns, block Figure placement, and the profile's unchanged auxiliary-frame
 rules.
 
@@ -1068,9 +1079,9 @@ ADR-0032's contract 1.4 and `production-book-1`, including ADR-0033's
 math/safe-vector, ADR-0034's metadata/language/outline, and ADR-0035's tagged
 PDF/accessibility-validation extensions, ADR-0036's JPEG/CFF components, and
 ADR-0037's producer-composed vector/resource-set `/2` projection,
-are target facts only. They are
-absent from the public capability artifact,
-accepted-contract array, profile parser/help, and current Schema aliases until
-MI4-13 atomically publishes the complete M4 registry and combined evidence
-after MI4-V19. MI4-02 through MI4-12 and MI4-V03 through MI4-V19 use no hidden
-public selector or partially exposed decoder.
+were published only as one complete set after MI4-V19. Raw 1.4 requires
+explicit `production-book-1`; every old profile rejects it before resource
+open. Old raw-contract/profile artifacts continue to use frozen 1.3 encoders,
+while production success and failure use the 1.4 artifact registry. MI4-02
+through MI4-12 and MI4-V03 through MI4-V19 introduced no hidden public selector
+or partially exposed decoder before that transaction.

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 use typaxis_core::{
     ConfigResourceRoot, DocumentPackageContractId, EffectiveConfig, EffectiveConfigError,
-    EffectiveDataVersions, PdfStreamCompression, ResourceLimits, CONTRACT,
+    EffectiveDataVersions, M4ResourceLimits, PdfStreamCompression, ResourceLimits, CONTRACT,
     DEFAULT_ALLOWED_URI_SCHEMES, REGISTERED_JAPANESE_LINE_BREAK_VERSION,
     REGISTERED_UNICODE_VERSION,
 };
@@ -127,7 +127,9 @@ impl ConfigError {
     pub(crate) fn is_limit(&self) -> bool {
         matches!(
             self,
-            Self::FileTooLarge { .. } | Self::Effective(EffectiveConfigError::ResourceLimits(_))
+            Self::FileTooLarge { .. }
+                | Self::Effective(EffectiveConfigError::ResourceLimits(_))
+                | Self::Effective(EffectiveConfigError::M4ResourceLimits(_))
         )
     }
 
@@ -196,12 +198,12 @@ impl fmt::Display for ConfigError {
             }
             Self::MissingContract { path } => write!(
                 formatter,
-                "raw config `{}` must contain a known 1.0, 1.1, 1.2, or 1.3 `contract`",
+                "raw config `{}` must contain a known 1.0, 1.1, 1.2, 1.3, or 1.4 `contract`",
                 path.display()
             ),
             Self::ContractMismatch { origin, found } => write!(
                 formatter,
-                "configuration contract in {origin} is `{found}`, expected `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2`, or `{CONTRACT}`"
+                "configuration contract in {origin} is `{found}`, expected `typaxis.contract/1.0`, `typaxis.contract/1.1`, `typaxis.contract/1.2`, `typaxis.contract/1.3`, or `{CONTRACT}`"
             ),
             Self::InvalidValue {
                 origin,
@@ -213,6 +215,9 @@ impl fmt::Display for ConfigError {
             ),
             Self::Effective(EffectiveConfigError::ResourceLimits(reason)) => {
                 write!(formatter, "invalid effective resource limits: {reason:?}")
+            }
+            Self::Effective(EffectiveConfigError::M4ResourceLimits(reason)) => {
+                write!(formatter, "invalid effective M4 resource limits: {reason:?}")
             }
             Self::Effective(EffectiveConfigError::NonCanonicalResourceRoots) => {
                 formatter.write_str("resource_roots must be unique portable paths")
@@ -242,6 +247,7 @@ struct MergedConfig {
     unicode_version: String,
     japanese_line_break_version: String,
     limits: ResourceLimits,
+    m4_limits: M4ResourceLimits,
 }
 
 impl Default for MergedConfig {
@@ -257,6 +263,7 @@ impl Default for MergedConfig {
             unicode_version: REGISTERED_UNICODE_VERSION.to_owned(),
             japanese_line_break_version: REGISTERED_JAPANESE_LINE_BREAK_VERSION.to_owned(),
             limits: ResourceLimits::default(),
+            m4_limits: M4ResourceLimits::default(),
         }
     }
 }
@@ -359,7 +366,7 @@ impl MergedConfig {
                 }
                 let value = expect_unsigned_integer(value, key, origin)?;
                 ensure_limit_storage_range(name, value, origin)?;
-                set_limit(&mut self.limits, name, value);
+                set_limit(&mut self.limits, &mut self.m4_limits, name, value);
                 Ok(())
             }
             _ => Err(ConfigError::UnknownKey {
@@ -378,7 +385,7 @@ impl MergedConfig {
         }
         for (name, value) in &overrides.limits {
             ensure_limit_storage_range(name, *value, "command line")?;
-            set_limit(&mut self.limits, name, *value);
+            set_limit(&mut self.limits, &mut self.m4_limits, name, *value);
         }
         Ok(())
     }
@@ -396,13 +403,15 @@ impl MergedConfig {
                 self.unicode_version, self.japanese_line_break_version
             ),
         })?;
-        EffectiveConfig::new(
+        EffectiveConfig::new_for_contract_with_m4_limits(
+            DocumentPackageContractId::CURRENT,
             self.strict,
             self.compression,
             self.resource_roots,
             self.allowed_uri_schemes,
             data_versions,
             self.limits,
+            self.m4_limits,
         )
         .map_err(ConfigError::Effective)
     }
@@ -1082,6 +1091,16 @@ const LIMIT_NAMES: &[&str] = &[
     "max_spool_bytes",
     "max_pdf_objects",
     "max_output_bytes",
+    "max_font_tables",
+    "max_font_glyphs",
+    "max_cff_subroutines",
+    "max_cff_charstring_operations",
+    "max_cff_outline_segments",
+    "max_font_subset_bytes",
+    "max_vector_nodes",
+    "max_vector_path_segments",
+    "max_vector_nesting_depth",
+    "max_math_layout_units",
 ];
 
 fn normalize_limit_name(name: &str) -> String {
@@ -1114,7 +1133,11 @@ fn ensure_limit_storage_range(name: &str, value: u64, origin: &str) -> Result<()
         | "max_pages"
         | "max_uri_bytes"
         | "max_float_queue"
-        | "max_pdf_objects" => u64::from(u32::MAX),
+        | "max_pdf_objects"
+        | "max_font_tables"
+        | "max_font_glyphs"
+        | "max_cff_subroutines"
+        | "max_vector_nesting_depth" => u64::from(u32::MAX),
         _ => u64::MAX,
     };
     if value > maximum {
@@ -1128,7 +1151,12 @@ fn ensure_limit_storage_range(name: &str, value: u64, origin: &str) -> Result<()
     }
 }
 
-fn set_limit(limits: &mut ResourceLimits, name: &str, value: u64) {
+fn set_limit(
+    limits: &mut ResourceLimits,
+    m4_limits: &mut M4ResourceLimits,
+    name: &str,
+    value: u64,
+) {
     match name {
         "max_input_bytes" => limits.max_input_bytes = value,
         "max_source_bytes" => limits.max_source_bytes = value as u32,
@@ -1165,6 +1193,16 @@ fn set_limit(limits: &mut ResourceLimits, name: &str, value: u64) {
         "max_spool_bytes" => limits.max_spool_bytes = value,
         "max_pdf_objects" => limits.max_pdf_objects = value as u32,
         "max_output_bytes" => limits.max_output_bytes = value,
+        "max_font_tables" => m4_limits.max_font_tables = value as u32,
+        "max_font_glyphs" => m4_limits.max_font_glyphs = value as u32,
+        "max_cff_subroutines" => m4_limits.max_cff_subroutines = value as u32,
+        "max_cff_charstring_operations" => m4_limits.max_cff_charstring_operations = value,
+        "max_cff_outline_segments" => m4_limits.max_cff_outline_segments = value,
+        "max_font_subset_bytes" => m4_limits.max_font_subset_bytes = value,
+        "max_vector_nodes" => m4_limits.max_vector_nodes = value,
+        "max_vector_path_segments" => m4_limits.max_vector_path_segments = value,
+        "max_vector_nesting_depth" => m4_limits.max_vector_nesting_depth = value as u32,
+        "max_math_layout_units" => m4_limits.max_math_layout_units = value,
         _ => unreachable!("limit name was checked before assignment"),
     }
 }
@@ -1424,6 +1462,7 @@ max_pages = 20
     #[test]
     fn every_resource_limit_has_an_environment_and_cli_route() {
         let defaults = ResourceLimits::default();
+        let m4_defaults = M4ResourceLimits::default();
         let values = [
             ("max_input_bytes", defaults.max_input_bytes),
             ("max_source_bytes", u64::from(defaults.max_source_bytes)),
@@ -1488,6 +1527,31 @@ max_pages = 20
             ("max_spool_bytes", defaults.max_spool_bytes),
             ("max_pdf_objects", u64::from(defaults.max_pdf_objects)),
             ("max_output_bytes", defaults.max_output_bytes),
+            ("max_font_tables", u64::from(m4_defaults.max_font_tables)),
+            ("max_font_glyphs", u64::from(m4_defaults.max_font_glyphs)),
+            (
+                "max_cff_subroutines",
+                u64::from(m4_defaults.max_cff_subroutines),
+            ),
+            (
+                "max_cff_charstring_operations",
+                m4_defaults.max_cff_charstring_operations,
+            ),
+            (
+                "max_cff_outline_segments",
+                m4_defaults.max_cff_outline_segments,
+            ),
+            ("max_font_subset_bytes", m4_defaults.max_font_subset_bytes),
+            ("max_vector_nodes", m4_defaults.max_vector_nodes),
+            (
+                "max_vector_path_segments",
+                m4_defaults.max_vector_path_segments,
+            ),
+            (
+                "max_vector_nesting_depth",
+                u64::from(m4_defaults.max_vector_nesting_depth),
+            ),
+            ("max_math_layout_units", m4_defaults.max_math_layout_units),
         ];
         assert_eq!(values.len(), LIMIT_NAMES.len());
         assert_eq!(
@@ -1508,6 +1572,7 @@ max_pages = 20
             .collect();
         let config = load(None, environment, &overrides).unwrap();
         assert_eq!(config.limits().get(), &defaults);
+        assert_eq!(config.m4_limits().unwrap().extension().get(), &m4_defaults);
     }
 
     #[test]
@@ -1585,7 +1650,7 @@ max_pages = 20
     }
 
     #[test]
-    fn raw_1_0_through_1_3_configs_normalize_to_the_same_current_jcs() {
+    fn raw_1_0_through_1_3_configs_normalize_to_the_same_current_1_4_jcs() {
         let legacy =
             TempConfig::new(b"contract = \"typaxis.contract/1.0\"\n[limits]\nmax_pages = 321\n");
         let contract_1_1 = TempConfig::new(
@@ -1637,7 +1702,10 @@ max_pages = 20
         assert_eq!(contract_1_2, contract_1_3);
         assert!(legacy
             .canonical_jcs()
-            .contains("\"contract\":\"typaxis.contract/1.3\""));
+            .contains("\"contract\":\"typaxis.contract/1.4\""));
+        assert!(legacy
+            .canonical_jcs()
+            .contains("\"max_vector_path_segments\":1000000"));
     }
 
     #[test]

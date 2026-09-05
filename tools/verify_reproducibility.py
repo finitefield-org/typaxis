@@ -648,7 +648,7 @@ def _run_private_precomposed_vector_test(
             "--locked",
             "--package",
             "typaxis-cli",
-            "machine_precomposed_vector_closes_private",
+            "machine_precomposed_vector_closes_production_pipeline",
             "--",
             "--test-threads=1",
         ],

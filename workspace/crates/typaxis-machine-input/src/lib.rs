@@ -16,8 +16,10 @@ use typaxis_core::{
     HostPath, PortablePath, PortablePathError, SourceId, ValidatedResourceLimits,
 };
 use typaxis_document_package::{
-    DecodedDocumentPackage, DocumentPackageDecodeError, DocumentPackageDecodePolicy,
-    DocumentPackagePreflightLimits, StrictDocumentPackageDecoder, WireSource,
+    DecodedDocumentPackage, DecodedStagingSemanticDocumentPackage, DocumentPackageDecodeError,
+    DocumentPackageDecodePolicy, DocumentPackagePreflightLimits, StagingSemanticDecodeError,
+    StagingSemanticDocumentPackageDecoder, StrictDocumentPackageDecoder, WireSource,
+    WireStagingM4Source,
 };
 use typaxis_host_admission::{
     HostAdmissionError, HostAdmissionSession, HostCapabilityToken, HostReadIdentityLedger,
@@ -275,6 +277,7 @@ pub enum MachineInputErrorKind {
     },
     DecodePolicyMismatch,
     Decode(DocumentPackageDecodeError),
+    SemanticDecode(StagingSemanticDecodeError),
     PackageHashMismatch,
     InvalidProgress {
         expected: MachineInputStage,
@@ -325,6 +328,9 @@ pub enum MachineInputErrorKind {
         source_id: u32,
         declared: [u8; 32],
         actual: [u8; 32],
+    },
+    InvalidSourceHashEncoding {
+        source_id: u32,
     },
     SourceNotUtf8 {
         source_id: u32,
@@ -412,6 +418,7 @@ impl fmt::Display for MachineInputError {
                 formatter.write_str("decode policy does not match the admission session")
             }
             MachineInputErrorKind::Decode(error) => error.fmt(formatter),
+            MachineInputErrorKind::SemanticDecode(error) => error.fmt(formatter),
             MachineInputErrorKind::PackageHashMismatch => {
                 formatter.write_str("decoded PACKAGE hash differs from the admitted bytes")
             }
@@ -485,6 +492,10 @@ impl fmt::Display for MachineInputError {
                     "source {source_id} declared hash differs from actual bytes"
                 )
             }
+            MachineInputErrorKind::InvalidSourceHashEncoding { source_id } => write!(
+                formatter,
+                "source {source_id} declared hash is not canonical SHA-256 hex"
+            ),
             MachineInputErrorKind::SourceNotUtf8 {
                 source_id,
                 valid_up_to,
@@ -500,6 +511,7 @@ impl std::error::Error for MachineInputError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind.as_ref() {
             MachineInputErrorKind::Decode(error) => Some(error),
+            MachineInputErrorKind::SemanticDecode(error) => Some(error),
             _ => None,
         }
     }
@@ -608,6 +620,39 @@ impl SessionBoundDecodedPackage {
     }
 }
 
+/// Contract-1.4 decoder receipt bound to the raw PACKAGE receipt's session.
+///
+/// This is deliberately distinct from [`SessionBoundDecodedPackage`]: the
+/// frozen decoder cannot accidentally acquire the 1.4 shape and the 1.4
+/// decoder cannot be replayed through an old-profile syntax path.
+pub struct SessionBoundDecodedSemanticPackage {
+    session: MachineInputSessionIdentity,
+    package: PackageBinding,
+    declaration: SourceDeclarationFingerprint,
+    decoded: DecodedStagingSemanticDocumentPackage,
+}
+
+impl fmt::Debug for SessionBoundDecodedSemanticPackage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SessionBoundDecodedSemanticPackage")
+            .field("session", &self.session)
+            .field("package", &self.package)
+            .field("decoded", &self.decoded)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SessionBoundDecodedSemanticPackage {
+    pub const fn session_identity(&self) -> &MachineInputSessionIdentity {
+        &self.session
+    }
+
+    pub const fn decoded(&self) -> &DecodedStagingSemanticDocumentPackage {
+        &self.decoded
+    }
+}
+
 /// One actual companion source and its owned UTF-8 bytes.
 pub struct AdmittedMachineSource {
     facts: AdmittedMachineSourceFacts,
@@ -694,6 +739,18 @@ impl AdmittedMachineSourceSet {
 pub struct AdmittedMachinePackage {
     session: MachineInputSessionIdentity,
     decoded: DecodedDocumentPackage,
+    sources: Vec<AdmittedMachineSource>,
+    progress: MachineInputProgress,
+    fingerprint: MachineInputFingerprint,
+    read_ledger: HostReadIdentityLedger,
+}
+
+/// Complete host-admitted contract-1.4 package. Only the matching session can
+/// issue this value, and syntax receives the exact decoder-owned carrier plus
+/// the same admitted source/provenance closure used by old contracts.
+pub struct AdmittedSemanticMachinePackage {
+    session: MachineInputSessionIdentity,
+    decoded: DecodedStagingSemanticDocumentPackage,
     sources: Vec<AdmittedMachineSource>,
     progress: MachineInputProgress,
     fingerprint: MachineInputFingerprint,
@@ -809,6 +866,67 @@ impl AdmittedMachinePackage {
         self,
     ) -> (
         DecodedDocumentPackage,
+        Vec<AdmittedMachineSource>,
+        MachineInputAdmissionProvenance,
+    ) {
+        (
+            self.decoded,
+            self.sources,
+            MachineInputAdmissionProvenance {
+                session: self.session,
+                progress: self.progress,
+                fingerprint: self.fingerprint,
+                read_ledger: self.read_ledger,
+            },
+        )
+    }
+}
+
+impl fmt::Debug for AdmittedSemanticMachinePackage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdmittedSemanticMachinePackage")
+            .field("session", &self.session)
+            .field("decoded", &self.decoded)
+            .field("sources", &self.sources)
+            .field("fingerprint", &self.fingerprint)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AdmittedSemanticMachinePackage {
+    pub const fn session_identity(&self) -> &MachineInputSessionIdentity {
+        &self.session
+    }
+
+    pub const fn decoded(&self) -> &DecodedStagingSemanticDocumentPackage {
+        &self.decoded
+    }
+
+    pub fn sources(&self) -> &[AdmittedMachineSource] {
+        &self.sources
+    }
+
+    pub const fn progress(&self) -> &MachineInputProgress {
+        &self.progress
+    }
+
+    pub const fn fingerprint(&self) -> MachineInputFingerprint {
+        self.fingerprint
+    }
+
+    pub const fn read_ledger(&self) -> &HostReadIdentityLedger {
+        &self.read_ledger
+    }
+
+    pub fn read_ledger_token(&self) -> Result<HostReadIdentityLedgerToken, HostAdmissionError> {
+        self.read_ledger.token()
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        DecodedStagingSemanticDocumentPackage,
         Vec<AdmittedMachineSource>,
         MachineInputAdmissionProvenance,
     ) {
@@ -1015,6 +1133,47 @@ impl HostMachineInputSession {
         })
     }
 
+    /// Decode contract 1.4 from the exact stable bytes owned by this session.
+    /// The frozen decoder above remains unchanged and cannot accept this shape.
+    pub fn decode_semantic_and_bind(
+        &self,
+        raw: &AdmittedPackageBytes,
+        decoder: &StagingSemanticDocumentPackageDecoder,
+        policy: &DocumentPackageDecodePolicy<'_>,
+    ) -> Result<SessionBoundDecodedSemanticPackage, MachineInputError> {
+        self.require_stage(MachineInputStage::RawPackageAdmitted)?;
+        self.validate_session(&raw.session, MachineInputReceiptKind::RawPackage)?;
+        self.validate_package(&raw.package, MachineInputReceiptKind::RawPackage)?;
+        if policy.preflight_limits() != self.package_limits
+            || policy.resource_limits() != &self.resource_limits
+        {
+            return Err(self.failure(MachineInputErrorKind::DecodePolicyMismatch));
+        }
+        let decoded = decoder
+            .decode(raw.bytes(), policy)
+            .map_err(|error| self.failure(MachineInputErrorKind::SemanticDecode(error)))?;
+        if decoded.raw_sha256() != raw.package.0.sha256 {
+            return Err(self.failure(MachineInputErrorKind::PackageHashMismatch));
+        }
+        let declaration = source_declaration_fingerprint_m4(decoded.wire().sources())
+            .map_err(|kind| self.failure(kind))?;
+        let facts = DecodedPackageFacts {
+            contract: DocumentPackageContractId::V1_4,
+            canonical_sha256: decoded.canonical_jcs_sha256(),
+        };
+        {
+            let mut progress = self.progress.borrow_mut();
+            progress.stage = MachineInputStage::PackageDecoded;
+            progress.decoded = Some(facts);
+        }
+        Ok(SessionBoundDecodedSemanticPackage {
+            session: self.identity.clone(),
+            package: raw.package.clone(),
+            declaration,
+            decoded,
+        })
+    }
+
     /// Preflight and stably read the exactly-one companion source from the
     /// package root. No resource root participates in this lookup.
     pub fn admit_sources(
@@ -1170,6 +1329,161 @@ impl HostMachineInputSession {
         })
     }
 
+    /// Stable-read the source declaration carried by a session-bound 1.4
+    /// package. Hash text is decoded only after the strict 1.4 wire decoder has
+    /// accepted its canonical shape.
+    pub fn admit_semantic_sources(
+        &self,
+        decoded: &SessionBoundDecodedSemanticPackage,
+        limits: &ValidatedResourceLimits,
+    ) -> Result<AdmittedMachineSourceSet, MachineInputError> {
+        self.require_stage(MachineInputStage::PackageDecoded)?;
+        self.validate_session(&decoded.session, MachineInputReceiptKind::DecodedPackage)?;
+        self.validate_package(&decoded.package, MachineInputReceiptKind::DecodedPackage)?;
+        if limits != &self.resource_limits {
+            return Err(self.failure(MachineInputErrorKind::DecodePolicyMismatch));
+        }
+        let declarations = decoded.decoded.wire().sources();
+        if declarations.len() != 1 {
+            return Err(self.failure(MachineInputErrorKind::SourceCount {
+                observed: declarations.len(),
+            }));
+        }
+        let declaration = &declarations[0];
+        if declaration.source_id != 0 {
+            return Err(self.failure(MachineInputErrorKind::NonzeroSourceId {
+                observed: declaration.source_id,
+            }));
+        }
+        let declared_hash = decode_sha256_hex(&declaration.sha256).ok_or_else(|| {
+            self.failure(MachineInputErrorKind::InvalidSourceHashEncoding {
+                source_id: declaration.source_id,
+            })
+        })?;
+        let uri_bytes = u64::try_from(declaration.uri.len()).unwrap_or(u64::MAX);
+        let maximum_uri = limits.get().max_uri_bytes;
+        if uri_bytes > u64::from(maximum_uri) {
+            return Err(self.failure(MachineInputErrorKind::SourceUriTooLong {
+                source_id: declaration.source_id,
+                maximum: maximum_uri,
+                observed: uri_bytes,
+            }));
+        }
+        let uri = PortablePath::new(declaration.uri.clone()).map_err(|cause| {
+            self.failure(MachineInputErrorKind::UnsafeSourceUri {
+                source_id: declaration.source_id,
+                cause,
+            })
+        })?;
+        let declared = u64::from(declaration.utf8_byte_length);
+        let maximum_source = u64::from(limits.get().max_source_bytes);
+        if declared > maximum_source {
+            return Err(self.failure(MachineInputErrorKind::SourceDeclaredLimit {
+                source_id: declaration.source_id,
+                maximum: maximum_source,
+                declared,
+            }));
+        }
+        if declared > limits.get().max_input_bytes {
+            return Err(self.failure(MachineInputErrorKind::AggregateInputLimit {
+                maximum: limits.get().max_input_bytes,
+                attempted: declared,
+            }));
+        }
+
+        let roots = self.host.roots();
+        let opened = roots.open(&uri).map_err(|cause| {
+            self.failure(MachineInputErrorKind::SourceOpen {
+                source_id: declaration.source_id,
+                cause,
+            })
+        })?;
+        let observed = opened.observed_exact_length();
+        if observed > maximum_source {
+            return Err(self.failure(MachineInputErrorKind::SourceLimit {
+                source_id: declaration.source_id,
+                maximum: maximum_source,
+                observed,
+            }));
+        }
+        if observed > limits.get().max_input_bytes {
+            return Err(self.failure(MachineInputErrorKind::AggregateInputLimit {
+                maximum: limits.get().max_input_bytes,
+                attempted: observed,
+            }));
+        }
+        if observed != declared {
+            return Err(self.failure(MachineInputErrorKind::SourceLengthMismatch {
+                source_id: declaration.source_id,
+                declared,
+                actual: observed,
+            }));
+        }
+        let expected_read = opened.read_identity().clone();
+        let permit = roots.issue_bounded_read_permit(opened).map_err(|cause| {
+            self.failure(MachineInputErrorKind::SourceOpen {
+                source_id: declaration.source_id,
+                cause,
+            })
+        })?;
+        let receipt = roots.read_bounded(permit).map_err(|cause| {
+            self.failure(MachineInputErrorKind::SourceOpen {
+                source_id: declaration.source_id,
+                cause,
+            })
+        })?;
+        let stable = roots
+            .accept_receipt(&expected_read, receipt)
+            .map_err(|cause| {
+                self.failure(MachineInputErrorKind::SourceOpen {
+                    source_id: declaration.source_id,
+                    cause,
+                })
+            })?;
+        let (bytes, actual_hash) = stable.into_bytes_and_sha256();
+        if actual_hash != declared_hash {
+            return Err(self.failure(MachineInputErrorKind::SourceHashMismatch {
+                source_id: declaration.source_id,
+                declared: declared_hash,
+                actual: actual_hash,
+            }));
+        }
+        let text = String::from_utf8(bytes).map_err(|error| {
+            self.failure(MachineInputErrorKind::SourceNotUtf8 {
+                source_id: declaration.source_id,
+                valid_up_to: u64::try_from(error.utf8_error().valid_up_to()).unwrap_or(u64::MAX),
+            })
+        })?;
+        let facts = AdmittedMachineSourceFacts {
+            source_id: SourceId::new(declaration.source_id),
+            uri,
+            bytes: observed,
+            sha256: actual_hash,
+        };
+        let decoded_facts = DecodedPackageFacts {
+            contract: DocumentPackageContractId::V1_4,
+            canonical_sha256: decoded.decoded.canonical_jcs_sha256(),
+        };
+        let fingerprint = portable_fingerprint(&decoded.package.0, decoded_facts, &facts);
+        let source = AdmittedMachineSource {
+            facts: facts.clone(),
+            text,
+        };
+        {
+            let mut progress = self.progress.borrow_mut();
+            progress.stage = MachineInputStage::SourcesAdmitted;
+            progress.sources = vec![facts];
+            progress.fingerprint = Some(fingerprint);
+        }
+        Ok(AdmittedMachineSourceSet {
+            session: self.identity.clone(),
+            package: decoded.package.clone(),
+            declaration: decoded.declaration,
+            sources: vec![source],
+            fingerprint,
+        })
+    }
+
     /// Consume and exactly cross-check every session/package/declaration
     /// binding before issuing the package accepted by the syntax owner.
     pub fn finish(
@@ -1211,6 +1525,54 @@ impl HostMachineInputSession {
         } = sources;
         let _ = raw;
         Ok(AdmittedMachinePackage {
+            session: self.identity.clone(),
+            decoded,
+            sources,
+            progress,
+            fingerprint,
+            read_ledger,
+        })
+    }
+
+    /// Consume and close a contract-1.4 PACKAGE/decoded/source receipt set.
+    pub fn finish_semantic(
+        self,
+        raw: AdmittedPackageBytes,
+        decoded: SessionBoundDecodedSemanticPackage,
+        sources: AdmittedMachineSourceSet,
+    ) -> Result<AdmittedSemanticMachinePackage, MachineInputError> {
+        self.require_stage(MachineInputStage::SourcesAdmitted)?;
+        self.validate_session(&raw.session, MachineInputReceiptKind::RawPackage)?;
+        self.validate_session(&decoded.session, MachineInputReceiptKind::DecodedPackage)?;
+        self.validate_session(&sources.session, MachineInputReceiptKind::SourceSet)?;
+        self.validate_package(&raw.package, MachineInputReceiptKind::RawPackage)?;
+        self.validate_package(&decoded.package, MachineInputReceiptKind::DecodedPackage)?;
+        self.validate_package(&sources.package, MachineInputReceiptKind::SourceSet)?;
+        if raw.package != decoded.package || raw.package != sources.package {
+            return Err(self.failure(MachineInputErrorKind::ReceiptPackageMismatch(
+                MachineInputReceiptKind::SourceSet,
+            )));
+        }
+        if decoded.declaration != sources.declaration {
+            return Err(self.failure(MachineInputErrorKind::ReceiptDeclarationMismatch));
+        }
+        if decoded.decoded.raw_sha256() != raw.package.0.sha256 {
+            return Err(self.failure(MachineInputErrorKind::PackageHashMismatch));
+        }
+        if self.progress.borrow().fingerprint != Some(sources.fingerprint) {
+            return Err(self.failure(MachineInputErrorKind::ReceiptDeclarationMismatch));
+        }
+
+        let progress = self.progress_snapshot();
+        let read_ledger = self.host.read_ledger().clone();
+        let SessionBoundDecodedSemanticPackage { decoded, .. } = decoded;
+        let AdmittedMachineSourceSet {
+            sources,
+            fingerprint,
+            ..
+        } = sources;
+        let _ = raw;
+        Ok(AdmittedSemanticMachinePackage {
             session: self.identity.clone(),
             decoded,
             sources,
@@ -1290,6 +1652,57 @@ fn source_declaration_fingerprint(sources: &[WireSource]) -> SourceDeclarationFi
     }
     jcs.push(']');
     SourceDeclarationFingerprint(sha256(jcs.as_bytes()))
+}
+
+fn source_declaration_fingerprint_m4(
+    sources: &[WireStagingM4Source],
+) -> Result<SourceDeclarationFingerprint, MachineInputErrorKind> {
+    let mut jcs = String::from("[");
+    for (index, source) in sources.iter().enumerate() {
+        let hash = decode_sha256_hex(&source.sha256).ok_or(
+            MachineInputErrorKind::InvalidSourceHashEncoding {
+                source_id: source.source_id,
+            },
+        )?;
+        if index != 0 {
+            jcs.push(',');
+        }
+        jcs.push_str("{\"sha256\":");
+        push_sha256(&mut jcs, hash);
+        jcs.push_str(",\"source_id\":");
+        jcs.push_str(&source.source_id.to_string());
+        jcs.push_str(",\"uri\":");
+        push_jcs_string(&mut jcs, &source.uri);
+        jcs.push_str(",\"utf8_byte_length\":");
+        jcs.push_str(&source.utf8_byte_length.to_string());
+        jcs.push('}');
+    }
+    jcs.push(']');
+    Ok(SourceDeclarationFingerprint(sha256(jcs.as_bytes())))
+}
+
+fn decode_sha256_hex(value: &str) -> Option<[u8; 32]> {
+    if value.len() != 64 || !value.as_bytes().iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    let mut output = [0u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        output[index] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
+    }
+    // Canonical hashes use lowercase hexadecimal; accepting uppercase here
+    // would let wire identity and the typed receipt disagree.
+    if value.as_bytes().iter().any(u8::is_ascii_uppercase) {
+        return None;
+    }
+    Some(output)
+}
+
+fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        _ => None,
+    }
 }
 
 fn portable_fingerprint(

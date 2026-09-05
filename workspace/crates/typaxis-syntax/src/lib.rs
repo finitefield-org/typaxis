@@ -23,9 +23,9 @@ pub use book_navigation::{
 };
 pub use semantic_container::{
     PrecomposedVectorActualTextResolution, PrecomposedVectorField, PrecomposedVectorKind,
-    PrecomposedVectorMetricPayload, StagingCffProfileView, StagingJpegFigureProfileUse,
-    StagingJpegProfileView, StagingM4PageGeometry, StagingMathLayoutBudgetGuard,
-    StagingMathProfileAuthorization, StagingMathProfileProgressToken,
+    PrecomposedVectorMetricPayload, ProductionMachineParseOutcome, StagingCffProfileView,
+    StagingJpegFigureProfileUse, StagingJpegProfileView, StagingM4PageGeometry,
+    StagingMathLayoutBudgetGuard, StagingMathProfileAuthorization, StagingMathProfileProgressToken,
     StagingMathProfileSessionIdentity, StagingMathProfileView,
     StagingPrecomposedVectorProfileAuthorization, StagingPrecomposedVectorProfileProgressToken,
     StagingPrecomposedVectorProfileSessionIdentity, StagingSafeVectorProfileView,
@@ -33,9 +33,9 @@ pub use semantic_container::{
     UnresolvedPrecomposedVectorResourceBinding, ValidatedPrecomposedVectorAlternative,
     ValidatedPrecomposedVectorEffectiveLanguage, ValidatedPrecomposedVectorEquationNumber,
     ValidatedPrecomposedVectorLanguageOverride, ValidatedPrecomposedVectorMetrics,
-    ValidatedPrecomposedVectorTextBinding, ValidatedStagingMathNode,
-    ValidatedStagingSemanticPackage, PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM,
-    PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
+    ValidatedPrecomposedVectorTextBinding, ValidatedProductionMachinePackage,
+    ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
+    PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM, PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
 };
 pub use tagged_structure::{
     validate_staging_structure_semantics, validate_staging_structure_semantics_v2,
@@ -76,8 +76,9 @@ use typaxis_document_package::{
     RawDocumentPackageSha256, WireDocumentPackage,
 };
 use typaxis_machine_input::{
-    AdmittedMachinePackage, AdmittedMachineSource, MachineInputAdmissionProvenance,
-    MachineInputFingerprint, MachineInputProgress, MachineInputSessionIdentity, MachineInputStage,
+    AdmittedMachinePackage, AdmittedMachineSource, AdmittedSemanticMachinePackage,
+    MachineInputAdmissionProvenance, MachineInputFingerprint, MachineInputProgress,
+    MachineInputSessionIdentity, MachineInputStage,
 };
 use typaxis_style::{
     is_style_identifier, BasicStyleBlockKind, BasicStyleProperty, ComputedMachineBlockStyle,
@@ -182,7 +183,7 @@ fn parsed_package_to_wire(
     let page_masters = wire_page_masters(&package.page_masters);
     let advanced = neutral_wire_advanced_extension(&document, &page_masters);
     Ok(WireDocumentPackage {
-        contract: typaxis_core::DocumentPackageContractId::CURRENT,
+        contract: typaxis_core::DocumentPackageContractId::V1_3,
         coordinate_unit: wire::WireCoordinateUnit::PdfPoint1_65536,
         advanced: Some(advanced),
         sources: package

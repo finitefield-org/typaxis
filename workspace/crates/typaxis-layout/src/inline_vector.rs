@@ -12,6 +12,9 @@ use typaxis_linebreak::{
 };
 use typaxis_resource_admission::AdmittedResourceLedger;
 use typaxis_syntax::{
+    machine_profile_boundary::wire::{
+        WireStagingM4Block, WireStagingM4Inline, WireStagingM4TextBuffer, WireStagingTextSpan,
+    },
     PrecomposedVectorKind, StagingM4PageGeometry, StagingPrecomposedVectorProfileAuthorization,
     ValidatedStagingSemanticPackage,
 };
@@ -479,6 +482,246 @@ pub fn layout_staging_precomposed_vector_inlines(
         return Err(StagingInlineVectorLayoutError::ReceiptMismatch);
     }
     Ok(selected)
+}
+
+/// Derive the atomic inline-vector input directly from the checked 1.4 wire
+/// carrier. This is the public producer-to-layout bridge: vector nodes remain
+/// indivisible, while surrounding authored text participates in Unicode and
+/// Japanese line breaking with deterministic fallback metrics.
+pub fn prepare_staging_precomposed_vector_inline_inputs(
+    package: &ValidatedStagingSemanticPackage,
+) -> Result<Vec<StagingInlineVectorParagraphInput>, StagingInlineVectorLayoutError> {
+    const TEXT_ADVANCE: i64 = 10 * 65_536;
+    const TEXT_ASCENT: i64 = 8 * 65_536;
+    const TEXT_DESCENT: i64 = 2 * 65_536;
+    const LINE_HEIGHT: i64 = 20 * 65_536;
+
+    let wire = package
+        .checked_wire()
+        .map_err(|_| StagingInlineVectorLayoutError::ReceiptMismatch)?;
+    let text_buffers = wire.text_buffers();
+    let mut output = Vec::new();
+    collect_wire_inline_inputs(
+        &wire.document().blocks,
+        text_buffers,
+        &mut output,
+        TEXT_ADVANCE,
+        TEXT_ASCENT,
+        TEXT_DESCENT,
+        LINE_HEIGHT,
+    )?;
+    for footnote in &wire.document().footnotes {
+        collect_wire_inline_inputs(
+            &footnote.blocks,
+            text_buffers,
+            &mut output,
+            TEXT_ADVANCE,
+            TEXT_ASCENT,
+            TEXT_DESCENT,
+            LINE_HEIGHT,
+        )?;
+    }
+    Ok(output)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_wire_inline_inputs(
+    blocks: &[WireStagingM4Block],
+    text_buffers: &[WireStagingM4TextBuffer],
+    output: &mut Vec<StagingInlineVectorParagraphInput>,
+    text_advance: i64,
+    text_ascent: i64,
+    text_descent: i64,
+    line_height: i64,
+) -> Result<(), StagingInlineVectorLayoutError> {
+    for block in blocks {
+        match block {
+            WireStagingM4Block::Paragraph {
+                node_id, children, ..
+            }
+            | WireStagingM4Block::Heading {
+                node_id, children, ..
+            } => {
+                let mut units = Vec::new();
+                collect_wire_inline_units(
+                    children,
+                    text_buffers,
+                    &mut units,
+                    text_advance,
+                    text_ascent,
+                    text_descent,
+                )?;
+                if units
+                    .iter()
+                    .any(|unit| matches!(unit, StagingInlineVectorLogicalUnit::Vector(_)))
+                {
+                    output.push(StagingInlineVectorParagraphInput::new(
+                        NodeId::new(*node_id),
+                        units,
+                        positive_raw(line_height)?,
+                        JapaneseLineBreakMode::Normal,
+                    ));
+                }
+            }
+            WireStagingM4Block::List { items, .. } => {
+                for item in items {
+                    collect_wire_inline_inputs(
+                        &item.blocks,
+                        text_buffers,
+                        output,
+                        text_advance,
+                        text_ascent,
+                        text_descent,
+                        line_height,
+                    )?;
+                }
+            }
+            WireStagingM4Block::Table { head, body, .. } => {
+                for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
+                    collect_wire_inline_inputs(
+                        &cell.blocks,
+                        text_buffers,
+                        output,
+                        text_advance,
+                        text_ascent,
+                        text_descent,
+                        line_height,
+                    )?;
+                }
+            }
+            WireStagingM4Block::Figure { caption, .. }
+            | WireStagingM4Block::VectorFigure { caption, .. } => {
+                collect_wire_inline_inputs(
+                    caption,
+                    text_buffers,
+                    output,
+                    text_advance,
+                    text_ascent,
+                    text_descent,
+                    line_height,
+                )?;
+            }
+            WireStagingM4Block::SemanticContainer { blocks, .. } => {
+                collect_wire_inline_inputs(
+                    blocks,
+                    text_buffers,
+                    output,
+                    text_advance,
+                    text_ascent,
+                    text_descent,
+                    line_height,
+                )?;
+            }
+            WireStagingM4Block::PageBreak { .. }
+            | WireStagingM4Block::DisplayMath { .. }
+            | WireStagingM4Block::MathVectorBlock { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn collect_wire_inline_units(
+    inlines: &[WireStagingM4Inline],
+    text_buffers: &[WireStagingM4TextBuffer],
+    output: &mut Vec<StagingInlineVectorLogicalUnit>,
+    advance: i64,
+    ascent: i64,
+    descent: i64,
+) -> Result<(), StagingInlineVectorLayoutError> {
+    for inline in inlines {
+        match inline {
+            WireStagingM4Inline::InlineVector { node_id, .. }
+            | WireStagingM4Inline::MathVector { node_id, .. } => {
+                output.push(StagingInlineVectorLogicalUnit::Vector(NodeId::new(
+                    *node_id,
+                )));
+            }
+            WireStagingM4Inline::Text { text_span, .. } => {
+                push_text_span_units(*text_span, text_buffers, output, advance, ascent, descent)?
+            }
+            WireStagingM4Inline::InlineMath { math_source, .. } => push_text_span_units(
+                math_source.text_span,
+                text_buffers,
+                output,
+                advance,
+                ascent,
+                descent,
+            )?,
+            WireStagingM4Inline::Emphasis { children, .. }
+            | WireStagingM4Inline::Strong { children, .. }
+            | WireStagingM4Inline::Link { children, .. } => {
+                collect_wire_inline_units(children, text_buffers, output, advance, ascent, descent)?
+            }
+            WireStagingM4Inline::Reference { .. } => {
+                push_scalar_unit('A', output, advance, ascent, descent)?;
+            }
+            WireStagingM4Inline::FootnoteReference { .. } => {
+                push_scalar_unit('*', output, advance, ascent, descent)?;
+            }
+            WireStagingM4Inline::SoftBreak { .. } => {
+                push_scalar_unit(' ', output, advance, ascent, descent)?;
+            }
+            WireStagingM4Inline::HardBreak { .. } => {
+                push_scalar_unit('\n', output, advance, ascent, descent)?;
+            }
+            WireStagingM4Inline::Anchor { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn push_text_span_units(
+    span: WireStagingTextSpan,
+    buffers: &[WireStagingM4TextBuffer],
+    output: &mut Vec<StagingInlineVectorLogicalUnit>,
+    advance: i64,
+    ascent: i64,
+    descent: i64,
+) -> Result<(), StagingInlineVectorLayoutError> {
+    let buffer = buffers
+        .get(span.text_id as usize)
+        .filter(|buffer| buffer.text_id == span.text_id)
+        .ok_or(StagingInlineVectorLayoutError::ReceiptMismatch)?;
+    let start = usize::try_from(span.start_byte)
+        .map_err(|_| StagingInlineVectorLayoutError::ArithmeticOverflow)?;
+    let end = usize::try_from(span.end_byte)
+        .map_err(|_| StagingInlineVectorLayoutError::ArithmeticOverflow)?;
+    let text = buffer
+        .utf8
+        .get(start..end)
+        .ok_or(StagingInlineVectorLayoutError::ReceiptMismatch)?;
+    for scalar in text.chars() {
+        push_scalar_unit(scalar, output, advance, ascent, descent)?;
+    }
+    Ok(())
+}
+
+fn push_scalar_unit(
+    scalar: char,
+    output: &mut Vec<StagingInlineVectorLogicalUnit>,
+    advance: i64,
+    ascent: i64,
+    descent: i64,
+) -> Result<(), StagingInlineVectorLayoutError> {
+    output.push(StagingInlineVectorLogicalUnit::Text(
+        AtomicVectorTextUnit::new(
+            scalar,
+            nonnegative_raw(advance)?,
+            nonnegative_raw(ascent)?,
+            nonnegative_raw(descent)?,
+        ),
+    ));
+    Ok(())
+}
+
+fn nonnegative_raw(value: i64) -> Result<NonNegativeLength, StagingInlineVectorLayoutError> {
+    NonNegativeLength::new(raw_length(value)?)
+        .ok_or(StagingInlineVectorLayoutError::ArithmeticOverflow)
+}
+
+fn positive_raw(value: i64) -> Result<PositiveLength, StagingInlineVectorLayoutError> {
+    PositiveLength::new(raw_length(value)?)
+        .ok_or(StagingInlineVectorLayoutError::ArithmeticOverflow)
 }
 
 impl StagingInlineVectorSelectedLayout {
