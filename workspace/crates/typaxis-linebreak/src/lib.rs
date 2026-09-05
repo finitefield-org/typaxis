@@ -11,9 +11,10 @@ pub use vector::{
     AtomicVectorInlineError, AtomicVectorInlineItem, AtomicVectorInlineKind, AtomicVectorInlineLogicalUnit,
     AtomicVectorInlineParagraph, AtomicVectorLineMetrics, AtomicVectorLineOccurrence,
     AtomicVectorSelectedLine, AtomicVectorSyntheticAlUnit, AtomicVectorTextUnit,
-    ProductionInlineBreak, ProductionInlineParagraph, ProductionInlineSelectedLine,
-    ProductionLineBreakBudget, ProductionTextClusterRange,
-    VectorBoundaryBranch, VectorBoundaryItem, ATOMIC_VECTOR_INLINE_ALGORITHM,
+    ProductionExplicitBreak, ProductionInlineBreak, ProductionInlineLogicalUnit,
+    ProductionInlineParagraph, ProductionInlineSelectedLine, ProductionLineBreakBudget,
+    ProductionTextClusterRange, VectorBoundaryBranch, VectorBoundaryItem,
+    ATOMIC_VECTOR_INLINE_ALGORITHM,
     PRODUCTION_INLINE_BREAK_ALGORITHM,
 };
 

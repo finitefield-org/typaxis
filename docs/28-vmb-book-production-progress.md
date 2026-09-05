@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin and mixed body/formula candidates verified; generated labels, common pagination and selected PDF text still pending |
+| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates and zero-width explicit breaks verified; generated labels, common pagination and selected PDF text still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -411,11 +411,13 @@ glyph ink bounds or a clipping rectangle. The original flow continues to own
 line-height, block styles, emphasis/link boundaries and atomic objects.
 
 Paragraph itemization sees authored text plus U+FFFC for atomic math and
-unresolved reference sites, a space for soft break and U+2028 for hard break.
+unresolved reference sites and U+2028 for hard break. The original /1 context
+inserted a space for soft break; the explicit-break follow-up below corrects
+that to empty context bytes in /2, matching docs/05 and docs/07.
 These placeholders are context only and never returned as painted glyph runs.
 Resolved reference labels can change paragraph context and require reshaping;
-pending reference owner IDs are exposed explicitly. Generated markers, soft-break
-spacing, math geometry, bidi line reordering and line/page selection remain the
+pending reference owner IDs are exposed explicitly. Generated markers,
+math geometry, bidi line reordering and line/page selection remain the
 next stages' work. A paragraph without authored text has no fabricated body font.
 
 Context allocation is bounded by `max_shaping_context_bytes`, and each backend
@@ -528,8 +530,9 @@ less. Its original origin remains -45,056 and advance 1,465,981; line origin shi
 is +45,056. The mixed `A <formula>B` case has three body clusters, one atomic
 formula, formula pen 707,789, logical advance 2,645,629 and line height 958,936,
 all from admitted metrics. A MATH-free CFF body-only paragraph enters the same
-kernel. A paragraph with authored text followed by an unresolved soft break
-returns the break's owner rather than silently omitting it.
+kernel. At this /1 milestone, a paragraph with authored text followed by an unresolved
+soft break returned the break's owner. The /2 follow-up below connects it as a
+zero-width opportunity and replaces that pending-error test.
 
 The CLI admission test helper was corrected to pass the precomposed profile
 receipt fingerprint to resource admission, matching the public runner. Its old
@@ -545,11 +548,11 @@ of Japanese font shaping. The suite covers candidate geometry, not rasterized
 ink or PDF placement.
 
 Remaining work is explicit. This bridge currently returns owner-specific pending
-errors for references, footnote markers, soft/hard breaks, native math and
-nonzero bidi levels. It does not erase those sites or treat this subset as the
-final production domain. Empty/anchor-only paragraph records are retained for
-the containing flow. The whole-book selector still needs generated text and
-break semantics, line-boundary reshaping, bidi line ordering, text ink extents,
+errors for references, footnote markers, native math and nonzero bidi levels.
+Soft/hard breaks were pending in /1 and are connected by the /2 follow-up below.
+It does not erase those sites or treat this subset as the final production domain. Empty/anchor-only paragraph records are retained for
+the containing flow. The whole-book selector still needs generated text, break-only paragraph
+profile/structure integration, line-boundary reshaping, bidi line ordering, text ink extents,
 line-edge whitespace/justification, block math/figures, table/caption/footnote
 placement and common page selection. PDF glyph/CID/ToUnicode, structure and
 navigation must then consume those same selected positions. The public
@@ -571,3 +574,68 @@ The process exited successfully; 279 tests passed. The local log is
 `/private/tmp/typaxis-production-inline-verification.log`. The two new actual-VMB
 candidate tests do not invoke the public PDF writer or independent renderer,
 and are not substituted for the required check/build/render/extract book gates.
+
+
+## Follow-up: zero-width explicit paragraph breaks (2026-09-06)
+
+The production layout bridge now emits typed `ProductionExplicitBreak` units
+with the syntax node's owner and source span. SoftBreak is an Allowed boundary;
+HardBreak is Mandatory. Neither creates a space, glyph, TextSpan or SVG.
+`shape_production_authored_text` no longer inserts a soft-break space into its
+context. HardBreak retains U+2028 solely in shaping context and uses a typed BK
+unit in the Unicode line-break classifier. The shape, inline preparation and
+production break algorithms are bumped to /2; the frozen atomic-vector kernel
+keeps its existing algorithm and behavior.
+
+Each explicit break owns the boundary after its zero-width item. The boundary
+before the first break is prohibited, avoiding duplicate Unicode opportunities.
+A terminal soft break is promoted to Mandatory; a terminal hard break does not
+create a further blank line. Consecutive hard breaks preserve empty lines with
+the paragraph's computed line-height. Cluster ranges cannot cross a break and
+continue to address the expanded unit sequence, including controls. Duplicate
+break owners, paragraph-owner reuse and vector/break node collisions are rejected.
+Preparation charges each control to the existing document fragment ceiling, and
+the shared candidate/selection budget also charges break-only lines.
+
+Producer spacing crosses an unselected soft break only when the adjacent painted
+content remains on the same selected line. At a selected boundary, the previous
+SVG's after-spacing and next SVG's before-spacing are removed. Candidate fitting
+and selected measurement use the same previous-content lookup; vector occurrences
+retain original metrics and report the applied edge spacing. Selected measurement
+has its own metrics record; it does not fabricate a successful fit flag. The
+existing compensated visual-extent check still validates each selected line.
+
+CLI regressions exercise actual admitted body shaping, retained break owners,
+wide/narrow optional wrapping, leading/consecutive/terminal hard breaks, terminal
+soft breaks. Kernel regressions cover break-only lines and additionally cover
+SVG-before/after spacing across soft/hard breaks, owner collisions, cluster
+crossing and typed Unicode BK boundaries. This is stage-level evidence; generated
+labels, bidi final-line ordering, boundary reshaping, text ink, whitespace and
+justification, common pagination and selected PDF painting remain pending.
+
+Completed local verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-linebreak -p typaxis-layout -p typaxis-shaping -p typaxis-cli \
+  --lib --bin typaxis --locked
+# CLI: 175 passed, 0 failed, 3 existing external-tool tests ignored.
+# Layout: 65 passed, 0 failed.
+# Shaping: 24 passed, 0 failed.
+# Linebreak: 44 passed, 0 failed.
+```
+
+308 tests passed. Log: `/private/tmp/typaxis-production-break-verification.log`.
+The public PDF runner is still not connected to these new stages. No full-book
+check/build/render/extract, Harano support or completed exporter claim follows
+from these tests; the remaining scope in §10 is unchanged.
+
+The break-only CLI probe remains outside the current tagged profile: a document
+whose semantic container contains only breaks fails BaseProfile; adding a real
+body paragraph passes that stage but the break-only paragraph is rejected as
+UnsupportedSemantic. The committed positive break-only tests therefore target
+the line kernel, not CLI admission. The production profile/structure extension
+must explicitly handle these unpainted paragraph owners when connecting common
+pagination and PDF semantics. No dummy text or fabricated semantic content is
+introduced to bypass those guards.

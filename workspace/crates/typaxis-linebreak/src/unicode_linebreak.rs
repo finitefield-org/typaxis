@@ -144,6 +144,8 @@ pub struct UnicodeBreak {
 pub enum UnicodeLineBreakUnit {
     Scalar(char),
     SyntheticAl,
+    /// Syntax-owned mandatory boundary. It has class BK but no source scalar.
+    MandatoryBreak,
 }
 
 /// A legal boundary in a typed logical-unit sequence. `unit_offset` is the
@@ -295,6 +297,12 @@ pub fn unicode_line_breaks_for_units(
                 class: Class::Al,
                 ignored: false,
                 ignored_tail_has_zwj: false,
+            },
+            UnicodeLineBreakUnit::MandatoryBreak => Unit {
+                codepoint: 0, byte_offset: unit_offset,
+                source_property: Class::Bk as u16, property: Class::Bk as u16,
+                original: Class::Bk, class: Class::Bk,
+                ignored: false, ignored_tail_has_zwj: false,
             },
         });
     }
@@ -805,6 +813,18 @@ mod tests {
                 kind: UnicodeBreakKind::Mandatory,
             }]
         );
+    }
+
+    #[test]
+    fn syntax_owned_mandatory_break_resets_context_without_a_source_scalar() {
+        let typed = [
+            UnicodeLineBreakUnit::Scalar('A'),
+            UnicodeLineBreakUnit::MandatoryBreak,
+            UnicodeLineBreakUnit::Scalar('B'),
+        ];
+        let breaks = unicode_line_breaks_for_units(&typed).unwrap();
+        assert_eq!(breaks.iter().map(|b| (b.unit_offset(), b.kind())).collect::<Vec<_>>(),
+            vec![(2, UnicodeBreakKind::Mandatory), (3, UnicodeBreakKind::Mandatory)]);
     }
 
     #[test]

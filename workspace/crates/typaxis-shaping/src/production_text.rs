@@ -9,7 +9,7 @@ use typaxis_syntax::{
 };
 
 pub const PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM: &str =
-    "typaxis.production-authored-text-shape/1";
+    "typaxis.production-authored-text-shape/2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionTextShapeErrorKind {
@@ -462,7 +462,9 @@ fn paragraph_context(
         C::NativeMath | C::InlineVector | C::MathVector | C::Reference | C::FootnoteReference => {
             "\u{fffc}"
         }
-        C::SoftBreak => " ",
+        // An explicit soft break is a zero-width opportunity (docs/07), not
+        // an authored/generated space. It contributes no shaping scalar.
+        C::SoftBreak => "",
         C::HardBreak => "\u{2028}",
         _ => "",
     };

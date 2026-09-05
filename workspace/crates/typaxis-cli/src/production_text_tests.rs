@@ -277,68 +277,112 @@ fn production_inline_body_only_cff_uses_the_same_candidate_kernel() {
     );
 }
 
-#[test]
-fn production_inline_pending_break_cannot_be_silently_omitted() {
+fn production_explicit_break_fixture(kinds: &[&str]) -> Vec<u8> {
     let mut value: serde_json::Value =
-        serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
-    value["document"]["blocks"][0]["blocks"][0]["children"]
-        .as_array_mut()
+        serde_json::from_slice(&production_text_single_paragraph(&["A", "B"], "Body")).unwrap();
+    let templates = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array()
         .unwrap()
-        .push(serde_json::json!({
-            "kind":"soft_break", "node_id":4, "span":{"source_id":0,"start_byte":0,"end_byte":0}
-        }));
-    let (package, navigation, limits, admitted) =
-        production_text_fixture(&serde_json::to_vec(&value).unwrap(), &config());
-    let semantics =
-        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+        .clone();
+    let mut children = Vec::new();
+    for (index, kind) in kinds.iter().enumerate() {
+        let mut item = match *kind {
+            "A" => templates[0].clone(),
+            "B" => templates[1].clone(),
+            "soft_break" | "hard_break" => serde_json::json!({
+                "kind":kind, "span":{"source_id":0,"start_byte":0,"end_byte":0}
+            }),
+            _ => panic!("unknown test kind"),
+        };
+        item["node_id"] = (index + 3).into();
+        children.push(item);
+    }
+    value["document"]["blocks"][0]["blocks"][0]["children"] = children.into();
+    serde_json::to_vec(&value).unwrap()
+}
+
+#[test]
+fn production_inline_soft_break_is_zero_width_and_owns_the_optional_boundary() {
+    with_prepared_production_inlines(
+        &production_explicit_break_fixture(&["A", "soft_break", "B"]),
+        |prepared| {
+            let paragraph = &prepared.paragraphs()[0];
+            let items = paragraph.items().unwrap();
+            assert_eq!(paragraph.glyph_clusters().len(), 2);
+            let typaxis_linebreak::ProductionInlineLogicalUnit::Break(control) = items.units()[1]
+            else {
+                panic!("typed break")
+            };
+            assert_eq!(control.owner().get(), 4);
+            assert_eq!(control.kind(), typaxis_linebreak::BreakKind::Allowed);
+            for (width, expected_lines) in [(943_718, 1), (471_859, 2)] {
+                let selected = typaxis_linebreak::break_production_inline(
+                    items,
+                    PositiveLength::new(Length::from_raw(width).unwrap()).unwrap(),
+                    paragraph.line_height().unwrap(),
+                    &mut typaxis_linebreak::ProductionLineBreakBudget::new(100, 10),
+                )
+                .unwrap();
+                assert_eq!(selected.lines().len(), expected_lines);
+                assert_eq!(
+                    selected
+                        .lines()
+                        .iter()
+                        .map(|l| l.line().logical_advance().get().raw())
+                        .sum::<i64>(),
+                    943_718
+                );
+                if expected_lines == 2 {
+                    assert_eq!(selected.lines()[0].line().end_unit(), 2);
+                    assert_eq!(
+                        selected.lines()[0].line().break_kind(),
+                        typaxis_linebreak::BreakKind::Allowed
+                    );
+                }
+            }
+        },
+    );
+}
+
+#[test]
+fn production_inline_hard_breaks_preserve_empty_lines_and_terminal_ownership() {
+    for (kinds, ranges) in [
+        (vec!["A", "hard_break", "B"], vec![(0, 2), (2, 3)]),
+        (
+            vec!["A", "hard_break", "hard_break", "B"],
+            vec![(0, 2), (2, 3), (3, 4)],
+        ),
+        (vec!["hard_break", "A"], vec![(0, 1), (1, 2)]),
+        (vec!["A", "hard_break"], vec![(0, 2)]),
+        (vec!["A", "soft_break"], vec![(0, 2)]),
+    ] {
+        with_prepared_production_inlines(&production_explicit_break_fixture(&kinds), |prepared| {
+            let paragraph = &prepared.paragraphs()[0];
+            let selected = typaxis_linebreak::break_production_inline(
+                paragraph.items().unwrap(),
+                PositiveLength::new(Length::from_raw(4_000_000).unwrap()).unwrap(),
+                paragraph.line_height().unwrap(),
+                &mut typaxis_linebreak::ProductionLineBreakBudget::new(100, 10),
+            )
             .unwrap();
-    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
-    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
-        &package,
-        &navigation,
-        &semantics,
-        &limits,
-        &identity,
-    )
-    .unwrap();
-    let bindings = typaxis_layout::bind_staging_precomposed_vectors(
-        &package,
-        profile.base().base().authorization(),
-        &limits,
-        &admitted,
-    )
-    .unwrap();
-    let flow =
-        typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
-    let shaped = typaxis_shaping::shape_production_authored_text(
-        &package,
-        &navigation,
-        &flow,
-        &admitted,
-        &limits,
-        bindings.epoch().fingerprint(),
-    )
-    .unwrap();
-    let result = typaxis_layout::prepare_production_inline_items(
-        &package,
-        &navigation,
-        profile.base().base().authorization(),
-        &limits,
-        &admitted,
-        &flow,
-        &shaped,
-        &bindings,
-        typaxis_linebreak::JapaneseLineBreakMode::Normal,
-    );
-    let error = match result {
-        Ok(_) => panic!("unresolved soft break must not disappear"),
-        Err(e) => e,
-    };
-    assert_eq!(error.owner.get(), 4);
-    assert_eq!(
-        error.kind,
-        typaxis_layout::ProductionInlinePreparationErrorKind::PendingInline("soft_break")
-    );
+            assert_eq!(
+                selected
+                    .lines()
+                    .iter()
+                    .map(|l| (l.line().start_unit(), l.line().end_unit()))
+                    .collect::<Vec<_>>(),
+                ranges
+            );
+            for line in selected.lines() {
+                assert_eq!(line.line().metrics().line_height().get().raw(), 917_504);
+                assert_eq!(
+                    line.line().break_kind(),
+                    typaxis_linebreak::BreakKind::Mandatory
+                );
+                assert!(line.line().occurrences().is_empty());
+            }
+        });
+    }
 }
 const PRODUCTION_TEXT_COMBINED: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),
     "/../../../samples/machine-package/profiles/production-book-1/combined/job/document-package.json"));

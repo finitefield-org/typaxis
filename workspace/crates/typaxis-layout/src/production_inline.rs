@@ -6,9 +6,10 @@ use typaxis_core::{
 };
 use typaxis_layout_contract::PrecomposedVectorPlacementInput;
 use typaxis_linebreak::{
-    AtomicVectorInlineError, AtomicVectorInlineItem, AtomicVectorInlineKind,
-    AtomicVectorInlineLogicalUnit, AtomicVectorTextUnit, JapaneseLineBreakMode,
-    ProductionInlineParagraph, ProductionTextClusterRange,
+    AtomicVectorInlineError, AtomicVectorInlineItem, AtomicVectorInlineKind, AtomicVectorTextUnit,
+    BreakKind, JapaneseLineBreakMode, ProductionExplicitBreak,
+    ProductionInlineLogicalUnit as AtomicVectorInlineLogicalUnit, ProductionInlineParagraph,
+    ProductionTextClusterRange,
 };
 use typaxis_resource_admission::AdmittedResourceLedger;
 use typaxis_shaping::{ProductionAuthoredTextShape, ShapeSourceSpan};
@@ -18,7 +19,7 @@ use typaxis_syntax::{
     ValidatedStagingSemanticPackage,
 };
 
-pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/1";
+pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/2";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProductionInlinePreparationErrorKind {
     ReceiptMismatch,
@@ -322,6 +323,23 @@ pub fn prepare_production_inline_items<'a>(
                         .map_err(|_| error(owner, E::AllocationFailure))?;
                     units.push(AtomicVectorInlineLogicalUnit::Vector(item));
                 }
+                ProductionInlineContent::SoftBreak | ProductionInlineContent::HardBreak => {
+                    let kind = if matches!(site.content(), ProductionInlineContent::SoftBreak) {
+                        BreakKind::Allowed
+                    } else {
+                        BreakKind::Mandatory
+                    };
+                    let control = ProductionExplicitBreak::new(owner, site.source_span(), kind)
+                        .map_err(|e| error(owner, E::Atomic(e)))?;
+                    charge = charge
+                        .checked_add(1)
+                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .ok_or_else(|| error(owner, E::UnitLimit))?;
+                    units
+                        .try_reserve(1)
+                        .map_err(|_| error(owner, E::AllocationFailure))?;
+                    units.push(AtomicVectorInlineLogicalUnit::Break(control));
+                }
                 ProductionInlineContent::Anchor
                 | ProductionInlineContent::BeginEmphasis
                 | ProductionInlineContent::BeginStrong
@@ -340,8 +358,13 @@ pub fn prepare_production_inline_items<'a>(
                 return Err(error(p.owner(), E::MissingTextStyle));
             }
             Some(
-                ProductionInlineParagraph::itemize(p.owner(), units, cluster_ranges, japanese_mode)
-                    .map_err(|e| error(p.owner(), E::Atomic(e)))?,
+                ProductionInlineParagraph::itemize_with_breaks(
+                    p.owner(),
+                    units,
+                    cluster_ranges,
+                    japanese_mode,
+                )
+                .map_err(|e| error(p.owner(), E::Atomic(e)))?,
             )
         };
         paragraphs.push(ProductionPreparedInlineParagraph {

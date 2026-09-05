@@ -13,8 +13,9 @@ use typaxis_layout_contract::{
 #[path = "production_inline.rs"]
 mod production_inline;
 pub use production_inline::{
-    break_production_inline, ProductionInlineBreak, ProductionInlineParagraph,
-    ProductionInlineSelectedLine, ProductionLineBreakBudget, ProductionTextClusterRange,
+    break_production_inline, ProductionExplicitBreak, ProductionInlineBreak,
+    ProductionInlineLogicalUnit, ProductionInlineParagraph, ProductionInlineSelectedLine,
+    ProductionLineBreakBudget, ProductionTextClusterRange,
     PRODUCTION_INLINE_BREAK_ALGORITHM,
 };
 
@@ -1021,6 +1022,25 @@ fn measure_line(
     }
     let logical_advance =
         NonNegativeLength::new(cursor).ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+    let metrics = compute_inline_line_metrics(content_ascent, content_descent, computed_line_height)?;
+    let fits = logical_advance.get().raw() <= inline_size.get().raw()
+        && visual_left.map_or(true, |left| left.raw() >= 0)
+        && visual_right.map_or(true, |right| right.raw() <= inline_size.get().raw());
+    Ok(MeasuredLine {
+        fits,
+        logical_advance,
+        visual_left,
+        visual_right,
+        metrics,
+        occurrences,
+    })
+}
+
+fn compute_inline_line_metrics(
+    content_ascent: Length,
+    content_descent: Length,
+    computed_line_height: PositiveLength,
+) -> Result<AtomicVectorLineMetrics, AtomicVectorInlineError> {
     let content_height = content_ascent
         .checked_add(content_descent)
         .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
@@ -1038,7 +1058,7 @@ fn measure_line(
         .checked_add(content_height.raw())
         .and_then(|value| value.checked_add(leading_after_raw))
         .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
-    let metrics = AtomicVectorLineMetrics {
+    Ok(AtomicVectorLineMetrics {
         content_ascent: NonNegativeLength::new(content_ascent)
             .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
         content_descent: NonNegativeLength::new(content_descent)
@@ -1046,17 +1066,6 @@ fn measure_line(
         leading_before: nonnegative_from_raw(leading_before_raw)?,
         leading_after: nonnegative_from_raw(leading_after_raw)?,
         line_height: positive_from_raw(line_height_raw)?,
-    };
-    let fits = logical_advance.get().raw() <= inline_size.get().raw()
-        && visual_left.map_or(true, |left| left.raw() >= 0)
-        && visual_right.map_or(true, |right| right.raw() <= inline_size.get().raw());
-    Ok(MeasuredLine {
-        fits,
-        logical_advance,
-        visual_left,
-        visual_right,
-        metrics,
-        occurrences,
     })
 }
 
@@ -1348,6 +1357,229 @@ mod tests {
             nonnegative(700),
             nonnegative(300),
         ))
+    }
+
+    #[test]
+    fn production_explicit_breaks_remove_vector_spacing_only_at_selected_edges() {
+        use ProductionInlineLogicalUnit as U;
+        let control = |kind| {
+            U::Break(
+                ProductionExplicitBreak::new(
+                    NodeId::new(4),
+                    SourceSpan::new(
+                        SourceId::new(0),
+                        Utf8ByteOffset::new(0),
+                        Utf8ByteOffset::new(0),
+                    )
+                    .unwrap(),
+                    kind,
+                )
+                .unwrap(),
+            )
+        };
+        let v = U::Vector(vector(2, 10, 8, 2, 0, 8, 10, 10, 3, 4));
+        for reverse in [false, true] {
+            let (units, text_index, wide_advance) = if reverse {
+                (
+                    vec![text('A', 5).into(), control(BreakKind::Allowed), v],
+                    0,
+                    18,
+                )
+            } else {
+                (
+                    vec![v, control(BreakKind::Allowed), text('A', 5).into()],
+                    2,
+                    19,
+                )
+            };
+            let p = ProductionInlineParagraph::itemize_with_breaks(
+                NodeId::new(1),
+                units,
+                vec![ProductionTextClusterRange {
+                    start_unit: text_index,
+                    end_unit: text_index + 1,
+                }],
+                JapaneseLineBreakMode::Normal,
+            )
+            .unwrap();
+            for (width, expected_lines) in [(wide_advance, 1), (10, 2)] {
+                let selected = break_production_inline(
+                    &p,
+                    positive(width),
+                    positive(10),
+                    &mut ProductionLineBreakBudget::new(20, 2),
+                )
+                .unwrap();
+                assert_eq!(selected.lines().len(), expected_lines);
+                assert_eq!(
+                    selected
+                        .lines()
+                        .iter()
+                        .map(|l| l.line().logical_advance().get().raw())
+                        .sum::<i64>(),
+                    if expected_lines == 1 {
+                        wide_advance
+                    } else {
+                        15
+                    }
+                );
+                let occurrence = selected
+                    .lines()
+                    .iter()
+                    .flat_map(|l| l.line().occurrences())
+                    .next()
+                    .unwrap();
+                assert_eq!(
+                    occurrence.spacing_before.get().raw(),
+                    if expected_lines == 1 && reverse { 3 } else { 0 }
+                );
+                assert_eq!(
+                    occurrence.spacing_after.get().raw(),
+                    if expected_lines == 1 && !reverse {
+                        4
+                    } else {
+                        0
+                    }
+                );
+                assert_eq!(
+                    occurrence.pen_x.raw(),
+                    if expected_lines == 1 && reverse { 8 } else { 0 }
+                );
+                if expected_lines == 2 {
+                    assert_eq!(selected.lines()[0].line().end_unit(), 2);
+                    assert_eq!(selected.lines()[0].line().break_kind(), BreakKind::Allowed);
+                }
+            }
+        }
+        let p = ProductionInlineParagraph::itemize_with_breaks(
+            NodeId::new(1),
+            vec![
+                v,
+                control(BreakKind::Mandatory),
+                U::Vector(vector(3, 10, 8, 2, 0, 8, 10, 10, 3, 4)),
+            ],
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let selected = break_production_inline(
+            &p,
+            positive(100),
+            positive(10),
+            &mut ProductionLineBreakBudget::new(20, 2),
+        )
+        .unwrap();
+        assert_eq!(selected.lines().len(), 2);
+        for line in selected.lines() {
+            assert_eq!(line.line().logical_advance().get().raw(), 10);
+            let occurrence = &line.line().occurrences()[0];
+            assert_eq!(occurrence.spacing_before, NonNegativeLength::ZERO);
+            assert_eq!(occurrence.spacing_after, NonNegativeLength::ZERO);
+            assert_eq!(occurrence.pen_x, Length::ZERO);
+        }
+    }
+
+    #[test]
+    fn production_break_only_lines_keep_height_and_charge_selection_budget() {
+        for kinds in [
+            vec![BreakKind::Allowed],
+            vec![BreakKind::Mandatory],
+            vec![BreakKind::Mandatory; 2],
+        ] {
+            let units = kinds
+                .iter()
+                .enumerate()
+                .map(|(index, kind)| {
+                    ProductionInlineLogicalUnit::Break(
+                        ProductionExplicitBreak::new(
+                            NodeId::new(index as u32 + 2),
+                            SourceSpan::new(
+                                SourceId::new(0),
+                                Utf8ByteOffset::new(0),
+                                Utf8ByteOffset::new(0),
+                            )
+                            .unwrap(),
+                            *kind,
+                        )
+                        .unwrap(),
+                    )
+                })
+                .collect();
+            let p = ProductionInlineParagraph::itemize_with_breaks(
+                NodeId::new(1),
+                units,
+                vec![],
+                JapaneseLineBreakMode::Normal,
+            )
+            .unwrap();
+            let mut budget = ProductionLineBreakBudget::new(kinds.len() as u64, kinds.len() as u64);
+            let selected =
+                break_production_inline(&p, positive(10), positive(11), &mut budget).unwrap();
+            assert_eq!(selected.lines().len(), kinds.len());
+            assert_eq!(budget.remaining_steps(), 0);
+            assert_eq!(budget.remaining_lines(), 0);
+            for line in selected.lines() {
+                assert_eq!(line.line().logical_advance(), NonNegativeLength::ZERO);
+                assert_eq!(line.line().metrics().line_height(), positive(11));
+                assert_eq!(line.line().break_kind(), BreakKind::Mandatory);
+                assert!(line.line().occurrences().is_empty());
+            }
+            assert!(matches!(
+                break_production_inline(
+                    &p,
+                    positive(10),
+                    positive(11),
+                    &mut ProductionLineBreakBudget::new(10, kinds.len() as u64 - 1)
+                ),
+                Err(AtomicVectorInlineError::SelectionLimit)
+            ));
+        }
+    }
+
+    #[test]
+    fn production_explicit_breaks_reject_owner_collision_and_crossing_clusters() {
+        use ProductionInlineLogicalUnit as U;
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            Utf8ByteOffset::new(0),
+            Utf8ByteOffset::new(0),
+        )
+        .unwrap();
+        assert!(ProductionExplicitBreak::new(NodeId::new(2), span, BreakKind::Prohibited).is_err());
+        let control = |id| {
+            U::Break(
+                ProductionExplicitBreak::new(NodeId::new(id), span, BreakKind::Allowed).unwrap(),
+            )
+        };
+        let cases = [
+            (vec![control(1)], vec![]),
+            (vec![control(2), control(2)], vec![]),
+            (
+                vec![
+                    control(2),
+                    U::Vector(vector(2, 10, 8, 2, 0, 8, 10, 10, 0, 0)),
+                ],
+                vec![],
+            ),
+            (
+                vec![text('A', 5).into(), control(2), text('B', 5).into()],
+                vec![ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 3,
+                }],
+            ),
+        ];
+        for (units, clusters) in cases {
+            assert!(matches!(
+                ProductionInlineParagraph::itemize_with_breaks(
+                    NodeId::new(1),
+                    units,
+                    clusters,
+                    JapaneseLineBreakMode::Normal
+                ),
+                Err(AtomicVectorInlineError::InvalidBinding)
+            ));
+        }
     }
 
     #[test]
