@@ -188,6 +188,14 @@ pub struct ProductionTextFlow<'a> {
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionTextFlow<'a> {
+    /// The exact validated source owners retained by this flow. Downstream
+    /// structure builders must use these, rather than a same-hash reparse.
+    pub const fn package(&self) -> &'a ValidatedStagingSemanticPackage {
+        self.package
+    }
+    pub const fn navigation(&self) -> &'a ValidatedStagingBookNavigationV2 {
+        self.navigation
+    }
     pub fn resource_declarations(&self) -> &typaxis_document::StagingM4ResourceCatalog {
         self.package.resources()
     }

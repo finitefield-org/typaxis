@@ -24,6 +24,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
 | Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
+| Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -996,3 +997,97 @@ semantics, marked content and extraction anchors, destinations/links and public
 writer closure must all consume these selected pages. Equation numbers and the
 remaining subflows still need the common display bridge. Harano CID CFF, the
 formal VMB exporter, distinct-image and whole-book gates remain incomplete.
+
+## Selected production structure and marked page content (2026-09-06)
+
+`typaxis-display-list/src/production_structure.rs` now derives structure ownership
+from the actual `ProductionBodyDisplay`. It uses the package/navigation borrowed
+by that display's source flow, verifies the navigation → vector profile and
+accessibility → navigation profile chain, and builds the existing V2 source
+structure registry. A source-node index joins selected text/vector draws to
+registry nodes without a linear lookup for each paint. Required registry paints
+must all be present. Vector kind, metrics, alternative, resolved math ActualText
+and an explicit binding language must agree.
+
+Contiguous text clusters from one source owner and selected line share a group.
+A subsequent line/page gets another source-fragment ordinal; its page gets a
+fresh dense MCID sequence. Each vector occurrence gets its own group and dense
+usage ID. The plan retains node → group and page → group indexes for the final
+MCR and ParentTree owner. Empty pages have empty indexes, without dummy paint.
+The groups are private-field records borrowed from the exact display, and the
+final merged contribution rejects a foreign display/content/ledger even when
+its deterministic fingerprints match. Semantic/profile authorizations remain
+deterministic values: reproducing the same inputs is allowed by their existing
+contract; different semantic content is rejected.
+
+`typaxis-pdf/src/production_body_marked.rs` encloses the retained per-draw bytes
+with role/MCID/Lang marked content, keeping the common page root transform only
+once. Vector ActualText comes from its occurrence's registry node. It does not
+repeat a standard text node's full string on every cluster, line or page: body
+text retains the frozen cluster ToUnicode/ActualText encoder. Shared SVG Forms
+remain free of MCID/Alt/ActualText. Registry strings and marked-stream copies
+participate in the cumulative spool budget; the font/vector and structure
+branches combine record charges without restarting their shared display budget.
+
+Verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax -p typaxis-layout-contract -p typaxis-display-list \
+  -p typaxis-pdf -p typaxis-cli --lib --bin typaxis --locked -- \
+  --skip production_body_page_content_places_5000_real_svg_aliases_with_one_shared_form
+```
+
+Result: **405 passed**, no failures (CLI 200, display-list 56,
+layout-contract 7, PDF 76, syntax 66). Three existing external-tool CLI tests
+remain ignored; the 5,000-alias case was selected for a separate run. Log:
+`/private/tmp/typaxis-production-structure-verification.log`.
+The new tests cover actual VMB inline/block paint order, page-local MCIDs,
+source text split over multiple pages, separate semantics for shared Forms,
+explicit empty pages, same-input determinism, foreign borrowed owners,
+changed semantics, and exact/one-less record/output/spool budgets.
+
+The first focused run caught a test fixture's wrong page-master JSON path and a
+wrong expectation that identical deterministic authorization values must be
+rejected solely because they came from a separate preflight. The fixture path
+was corrected; tests now distinguish equal authorization values from foreign
+borrowed display/ledger owners and from changed semantic content. The corrected
+focused cases and the regression command above passed.
+
+This is marked **page contribution** evidence. It is not a final PDF, a
+serialized StructTreeRoot/ParentTree, an independent extraction/render test, or
+a full-book success. Final font/Form/object dictionaries, structure objects,
+links/outline/anchors, terminal authorization and the public production writer
+still require connection to this selected path. Formula-only extraction must
+also be checked with the independent extractors, rather than inferred from
+ActualText bytes around graphical paint. General subflows, authored speech,
+formal VMB export, CID CFF/Harano, distinct 5,000-image/full-book gates and next
+contract publication remain within the unchanged objective.
+
+The separately selected 5,000-alias test now also builds the production structure
+plan and marked page contributions. Result: **1 passed**, 230.81 seconds in this
+debug test run (includes fixture setup and all upstream phases, not an isolated
+structure benchmark). The assertions cover 5,000 admitted declarations, 5,000
+selected paints, one shared Form, 5,000 distinct Formula owners with one group
+each, page-local dense MCIDs, 5,000 occurrence ActualTexts and 5,000 Do commands.
+No native-math/body font is inserted for this formula-only fixture. Explicit
+`max_images=8192` is used. These are aliases of an actual VMB fraction SVG;
+this does not establish 5,000 distinct images, default-config public check/build,
+independent extraction or a final PDF. Log:
+`/private/tmp/typaxis-production-structure-5000.log`.
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis \
+  production_body_page_content_places_5000_real_svg_aliases_with_one_shared_form --locked
+```
+
+A final focused run also verifies a real vector Figure followed by its generated
+Caption → P → text subtree. The Figure's MCR precedes the caption text's MCR on
+the selected page, and the caption container has no invented paint/MCID.
+`cargo test --manifest-path workspace/Cargo.toml --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis production_body_structure --locked`:
+**4 passed**, including the three earlier focused cases and this added caption
+case. Log: `/private/tmp/typaxis-production-structure-focused.log`.
+All test processes for this checkpoint reached exit status 0; no wait remains.

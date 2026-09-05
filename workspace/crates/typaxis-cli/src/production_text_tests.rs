@@ -122,6 +122,26 @@ fn with_production_inline_context(
         &typaxis_layout::ValidatedPrecomposedVectorBindings,
     ),
 ) {
+    with_production_inline_tagged_context(bytes, config,
+        |prepared, package, profile, limits, admitted, bindings, _, _| {
+            check(prepared, package, profile, limits, admitted, bindings)
+        });
+}
+
+fn with_production_inline_tagged_context(
+    bytes: &[u8],
+    config: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_layout::ProductionPreparedInlines<'_>,
+        &typaxis_syntax::ValidatedStagingSemanticPackage,
+        &typaxis_syntax::StagingPrecomposedVectorProfileAuthorization,
+        &typaxis_core::M4EffectiveResourceLimits,
+        &AdmittedResourceLedger,
+        &typaxis_layout::ValidatedPrecomposedVectorBindings,
+        &typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+        &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+    ),
+) {
     let (package, navigation, limits, admitted) = production_text_fixture(bytes, config);
     let semantics =
         typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
@@ -173,6 +193,8 @@ fn with_production_inline_context(
         &limits,
         &admitted,
         &bindings,
+        &semantics,
+        &profile,
     );
 }
 
