@@ -1972,7 +1972,7 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .max_vector_nodes
             .checked_sub(self.vector_nodes_used)
             .ok_or(ResourceAdmissionError::VectorNodeLimit)?;
-        if remaining_nodes == 0 {
+        if remaining_nodes == 0 && parser_profile == SafeVectorParserProfile::SafeSvg1 {
             return Err(ResourceAdmissionError::VectorNodeLimit);
         }
         let remaining_path_work = limits
@@ -5376,6 +5376,87 @@ mod tests {
         );
         assert!(closed.canonical_jcs().contains(SAFE_SVG_PARSER_ID_V2));
         assert!(closed.canonical_jcs().contains(SAFE_VECTOR_IR_ID_V2));
+    }
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn safe_svg_2_document_budget_keeps_context_after_an_exactly_charged_alias() {
+        let bytes = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n<path d=\"M 0 0 L 1 0 L 1 1 Z\"/></svg>";
+        let tree = TempTree::new("safe-svg-2-budget-context");
+        fs::write(tree.path().join("same.svg"), bytes).unwrap();
+        let declarations = StagingM4ResourceCatalog {
+            font_faces: vec![],
+            images: (0..2)
+                .map(|id| typaxis_document::StagingM4ImageDeclaration {
+                    image_id: ImageResourceId::new(id),
+                    uri: PortablePath::new("same.svg").unwrap(),
+                    expected_sha256: Some(sha256(bytes)),
+                    media: ImageMediaDeclaration::Declared(ImageMediaType::SvgSafe2),
+                    vector_provenance: None,
+                })
+                .collect(),
+        };
+        let catalog = staging_declared_base_catalog(&declarations).unwrap();
+        let config = effective_config(vec![ConfigResourceRoot::ProjectRoot]);
+        for (max_nodes, max_segments, kind, limit, used, observed, path, line) in [
+            (2, 18, VectorBudgetKind::Nodes, 2, 2, 3, None, 1),
+            (4, 9, VectorBudgetKind::StoredSegments, 9, 9, 14, None, 1),
+            (
+                4,
+                16,
+                VectorBudgetKind::StoredSegments,
+                16,
+                9,
+                17,
+                Some(0),
+                2,
+            ),
+        ] {
+            let limits = M4EffectiveResourceLimits::new(
+                config.limits().clone(),
+                M4ResourceLimits {
+                    max_vector_nodes: max_nodes,
+                    max_vector_path_segments: max_segments,
+                    ..M4ResourceLimits::default()
+                },
+            )
+            .unwrap();
+            let host =
+                HostResourceAdmissionSession::new(&host_context(tree.path(), &[]), &config, &catalog)
+                    .unwrap();
+            let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
+                &catalog,
+                &limits,
+                sha256(b"typaxis.test-safe-svg-2-profile/1"),
+                host.roots(),
+            )
+            .unwrap();
+            let pending = resolver
+                .read_image(host.open_image(ImageResourceId::new(0)).unwrap())
+                .unwrap();
+            resolver.parse_and_bind_declared_image(pending).unwrap();
+            let pending = resolver
+                .read_image(host.open_image(ImageResourceId::new(1)).unwrap())
+                .unwrap();
+            let error = resolver.parse_and_bind_declared_image(pending).unwrap_err();
+            let ResourceAdmissionError::SafeSvg2Detailed(failure) = error else {
+                panic!("{error:?}");
+            };
+            assert_eq!(
+                failure.budget,
+                Some(VectorBudgetFailure {
+                    kind,
+                    scope: BudgetScope::DocumentTotal,
+                    limit,
+                    observed,
+                    used_before_resource: used,
+                })
+            );
+            assert_eq!(failure.line, Some(line));
+            assert_eq!(failure.path_index, path);
+            assert!(failure.span.is_some());
+            assert_eq!(resolver.progress_token().images().len(), 1);
+        }
     }
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]

@@ -8,7 +8,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | --- | --- |
 | ADR-0038 lexical exception | Implemented and covered by the 259-test run below |
 | Safe-SVG 2 whitespace, multiple paths, curves, subpaths | Implemented; detailed-error / unchanged real-SVG tests passed in the 259-test run |
-| SVG detailed reasons/spans/path/attribute/budget, JSON notes | In progress: fixed context, tag/attribute/path spans, typed CLI code, bounded percent tokens; full reason/budget coverage pending |
+| SVG detailed reasons/spans/path/attribute/budget, JSON notes | In progress: command-level budget positions, clip replay, exhausted document budgets and paint/scalar/transform attributes now verified; remaining geometry/lexical detail cases below |
 | Count/analyze/build internal mismatch diagnostic | Changed to receipt invariant / I9190; verification pending |
 | Profile defaults and override precedence | Implemented; config tests and CLI negative boundaries passed |
 | Original image/font count diagnostic pointer | Unit and both CLI runner boundary tests passed |
@@ -255,3 +255,67 @@ All processes started for this follow-up are terminal. No full-book PDF, Harano
 support, 5,000-resource placement, new profile/capability publication or branch
 push has been completed. The next product work remains the formal exporter and
 the shared selected body/math flow, including negative-origin line starts.
+
+
+## Follow-up: budget positions and attribute diagnostics
+
+The previous goal turn updated the two requirement maps in the design documents.
+This follow-up changes the SVG admission implementation, with the full design
+scope unchanged.
+
+`record_segment` now preserves the failing command or repeated operand group,
+subpath/segment ordinal and resource byte range when the Count visitor rejects
+an emitted segment. Shape-local limits and observed counts are translated first
+to the current resource and then, at the existing resolver boundary, to the
+whole document. This prevents both lost context and double-counted prior work.
+The implicit viewport clip is charged at the root and does not invent a source
+path index. Zero remaining V2 node budget reaches that root diagnostic; the
+frozen V1 early rejection is preserved.
+
+Analyze retains bounded source information for each clip reference. A replay
+budget failure now identifies the actual `clip-path` attribute, group/path,
+source preorder and byte range of the reference that exceeds the budget. Stored
+segments and replay charges keep the same accepted-input counters and IR.
+
+The shared scalar-coordinate readers preserve V1 failures and give V2 failures
+the offending attribute/value. V2 paint, opacity, stroke, fill-rule, transform,
+clip-reference syntax and clip ID helpers retain their feature category and
+attribute position. Invalid numeric syntax, coordinate range and non-positive
+geometry are distinguished where the scalar parser can prove the reason.
+Allocation/session failures are not converted into malformed input errors.
+
+New regression coverage includes:
+
+- A second path exhausting the budget, repeated M operands, C and Z, exact
+  full-charge success, and source span/token agreement.
+- Zero remaining node/segment budget, synthetic root clip and the second clip
+  replay after a group reference; clip path numbering includes definitions.
+- A stable-read resolver admitting one alias before the next declaration fails,
+  retaining document-total limit, observed, used-before-resource and progress.
+- Sixteen paint/transform/scalar attribute failures, checking bounded canonical
+  notes, byte range and line/element identity.
+- Both public check/build runners on the same V1-then-V2 input, with identical
+  resource pointer, context and budget notes for three limit cases. A package
+  byte offset is not substituted for an SVG offset; no failed build emits PDF.
+
+Completed local commands:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resource-admission --lib --locked
+# 57 passed, 0 failed.
+
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis --locked
+# 165 passed, 0 failed, 3 ignored (existing external-tool gates).
+```
+
+The 222 passing tests include frozen V1 IR/charge, existing negative corpora,
+unchanged VMB SVG and production artifact regressions. They do not close the
+full SVG diagnostic requirement: point-list token errors, relative-coordinate
+addition failures, some transformed/derived extent failures, and pre-tag lexical
+failures still need precise context/reasons. Full-book layout, formal exporter,
+Harano, placed 5,000-resource and independent-host gates remain open. No full-book
+PDF success is inferred from this diagnostic work.

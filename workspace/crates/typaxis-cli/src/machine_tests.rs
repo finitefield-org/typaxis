@@ -899,6 +899,62 @@ fn machine_book_svg_failure_publishes_attribute_token_and_svg_position() {
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
+fn machine_book_svg_document_budget_diagnostics_match_check_and_build() {
+    for (limit_name, limit, code, context_markers, budget_note) in [
+        ("max-vector-nodes", 2, "R7120", vec!["element=svg", "line=1"], "scope=document-total; charge=nodes; limit=2; observed=3; used_before_resource=2"),
+        ("max-vector-path-segments", 9, "R7121", vec!["element=svg", "attribute=viewBox", "line=1"], "scope=document-total; charge=stored_segment; limit=9; observed=14; used_before_resource=9"),
+        ("max-vector-path-segments", 16, "R7121", vec!["element=path", "attribute=d", "path=1", "segment=3", "line=2"], "scope=document-total; charge=stored_segment; limit=16; observed=17; used_before_resource=9"),
+    ] {
+        let (_tree, job, artifacts, expected) = copy_fixture("profiles/production-book-1/combined", "book-svg-budget-detail");
+        let path = job.join("document-package.json");
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let raw = fs::read(&path).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new().decode(&raw, &DocumentPackageDecodePolicy::new(&limits)).unwrap();
+        let mut wire = decoded.wire().clone();
+        let mut resources = wire.resources().clone();
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n<path d=\"M 0 0 L 1 0 L 1 1 Z\"/></svg>";
+        // The first SVG is frozen V1, the second V2. Both cost 2 nodes and 9
+        // segments; the second failure must include prior-resource charges.
+        for image in resources.images.iter_mut().filter(|image| matches!(image.media_type,
+            typaxis_document_package::WireImageMediaType::SvgSafe1 | typaxis_document_package::WireImageMediaType::SvgSafe2)) {
+            fs::write(job.join(&image.uri), svg).unwrap();
+            image.expected_sha256 = Some(typaxis_core::sha256(svg).iter().map(|byte| format!("{byte:02x}")).collect());
+        }
+        wire.replace_typed_regions(wire.document().clone(), resources);
+        fs::write(&path, typaxis_document_package::StagingSemanticDocumentPackageEncoder::new().encode(&wire).unwrap()).unwrap();
+        let mut common = build_options(&job, &artifacts, &expected).common;
+        common.limits.push((limit_name.to_owned(), limit));
+        let check = run_check_package(CheckPackageOptions {
+            package: path, package_root: Some(job.clone()), profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(artifacts.join("check-diagnostics.json")), common,
+        });
+        let mut build = build_options(&job, &artifacts, &expected);
+        build.common.limits.push((limit_name.to_owned(), limit));
+        let built = run_build_package(build);
+        assert!(check.is_err());
+        assert!(built.is_err());
+        assert!(!artifacts.join("output.pdf").exists());
+        let check_diagnostics = read_json(&artifacts.join("check-diagnostics.json"));
+        let build_diagnostics = read_json(&artifacts.join("diagnostics.json"));
+        let check_failure = &check_diagnostics["diagnostics"][0];
+        let build_failure = &build_diagnostics["diagnostics"][0];
+        for failure in [check_failure, build_failure] {
+            assert_eq!(failure["code"], code);
+            assert_eq!(failure["location"]["json_pointer"], "/resources/images/2");
+            assert!(failure["location"]["byte_offset"].is_null());
+            let notes = failure["notes"].as_array().unwrap();
+            assert_eq!(notes.len(), 3);
+            let context = notes[1]["message"].as_str().unwrap();
+            for marker in &context_markers { assert!(context.contains(marker), "{context}"); }
+            assert!(context.contains("svg_byte="));
+            assert_eq!(notes[2]["message"], budget_note);
+        }
+        assert_eq!(check_failure["notes"], build_failure["notes"]);
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
 fn machine_book_actual_vmb_engine_svg_corpus_is_admitted() {
     let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../samples/machine-package/staging/production-book-1/vmb-book/engine-v2");

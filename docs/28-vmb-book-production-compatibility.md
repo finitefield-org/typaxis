@@ -7,6 +7,17 @@ Typaxis baseline: `718ab6c9e1309b7dc750c62554c954cae4333131`
 
 詳細化: 2026-09-05。本書はTypaxis側の正本。VMB側の変更はユーザー指定の[VMB docs/typaxis-book-export-design.md](../../../v/vmb-container/docs/typaxis-book-export-design.md)を正本とし、処理境界・共通受け入れ条件のみ本書にも記載する。以下の「新設」「提案API」「次期」は未実装の設計を示す。
 
+依頼された4項目への対応は次のとおり。§2の「現行」は冒頭のbaselineでの調査結果を指し、現在の実装状況とは区別する。先行実装・実行結果・残件は[実装・検証台帳](28-vmb-book-production-progress.md)を参照する。
+
+| 要望 | 具体的な修正と担当 | 合格条件・詳細 |
+| --- | --- | --- |
+| 1. 複数パスの数式SVG | TypaxisのSafe-SVG 2 scannerでタグ終端前の空白を受理し、独立pathの描画順と同一pathのsubpathを保持する。失敗原因をresource-localな型で保持してCLIへ伝える。VMBは内部単位を物理ptへ変換し、root寸法と配置metricsを同時に確定する。 | group/root直下の複数path、M/L/C/Q/Z、小数、同じ縦横比のpt寸法、実分布のpath/segment数を検査し、独立描画比較で欠落・切断・穴の変化がないことを確認する。§4〜5、§8。 |
+| 2. 画像数上限 | production-book-1の未指定値を8,192画像、262,144 vector nodes、4,000,000処理segments、depth 32へ変更する。既存config・環境・CLIの明示値を優先し、hash共有を維持する。capabilitiesの詳細上限は次期schemaで公開する。 | 5,000 distinct画像を実配置してcheck/buildが成功する。8,192/8,193と明示1,024/1,025の境界、共有Form数と配置数、時間・RSSを別々に検証する。§6、§8。 |
+| 3. 和文フォント | 先行修正はtable・phase・offset・埋め込み権限・TTC face情報の診断。原ノ味正式対応はVORG等のtable、cmap 14、CID/FD別CFF解析・評価・subset・PDF埋め込みを新profileとして実装する。 | 現物のfsTypeは0で、最初の未対応tableはVORG。TrueType全巻ゲートとは別に、同じ原ノ味ファイルのhashで全巻・日本語抽出・IVS・subset後描画を検証する。§7、§9.1。 |
+| 4. VMB結合テスト | 実engine出力と元書籍fixtureを由来付きで保存し、小規模→300〜500数式の章→5,000画像→実全巻のrunnerを作る。Typaxisの本文と数式は共通の行・ページ配置へ接続し、VMBはsource projectionと意味情報を正しく生成する。 | 同一package/configでcheck/buildし、一巻一PDF、描画・baseline/spacing・抽出順・Formula/Alt/ActualText・タグ・リンクを独立検証する。§8、§10、§14。 |
+
+設計の受け入れ条件は全巻PDFの生成・内容検証までである。parserや予算の単体試験、未配置画像のcheck成功、小規模PDFの生成だけでは完了としない。本文・数式の共通組版（§14）とVMB exporterの正式接続も、当初の全巻要件を満たすための必須修正に含める。
+
 ## 1. 結論と修正範囲
 
 今回の章入力の直接原因は、複数パスではなく、`<path ... />` の **`/>` 直前の空白**である。実際の最初のSVGは、その空白だけを取り除くと複数パスのまま受理された。複数パスを一つへ結合したり、数式を画像リソースへ分割したりする修正は不要であり、描画順・穴・fill-ruleを変えるので採用しない。
