@@ -1,9 +1,14 @@
 #![forbid(unsafe_code)]
 
+mod production_body;
 mod safe_vector;
 mod safe_vector_v2;
 mod staging_text;
 mod vector_content;
+
+pub use production_body::{
+    finalize_production_body_fonts, ProductionBodyFontPlans, PRODUCTION_BODY_FONTS_ALGORITHM,
+};
 
 pub use safe_vector::{
     finalize_staging_safe_vector_forms, FrozenSafeVectorFormPlan, StagingSafeVectorFormPlans,

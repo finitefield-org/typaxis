@@ -53,6 +53,21 @@ fn with_production_body_inputs(
         &typaxis_core::M4EffectiveResourceLimits,
     ),
 ) {
+    with_production_body_resources(value, config, |lines, blocks, limits, _| {
+        check(lines, blocks, limits)
+    });
+}
+
+fn with_production_body_resources(
+    value: &serde_json::Value,
+    config: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_layout::ProductionInlineLineLayout<'_, '_>,
+        &typaxis_layout::StagingPrecomposedVectorBlockLayout,
+        &typaxis_core::M4EffectiveResourceLimits,
+        &typaxis_resources::AdmittedResourceLedger,
+    ),
+) {
     with_production_inline_context(
         &serde_json::to_vec(value).unwrap(),
         config,
@@ -86,8 +101,8 @@ fn with_production_body_inputs(
                 })
                 .collect::<Vec<_>>();
             let lines =
-                typaxis_layout::layout_production_inline_lines(prepared, &widths, 1000).unwrap();
-            check(&lines, &blocks, limits);
+                typaxis_layout::layout_production_inline_lines(prepared, &widths, 100_000).unwrap();
+            check(&lines, &blocks, limits, admitted);
         },
     );
 }
@@ -421,5 +436,312 @@ fn production_body_does_not_flatten_unconnected_list_flow() {
             err.kind,
             typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion("list")
         );
+    });
+}
+
+#[test]
+fn production_body_display_and_pdf_text_use_selected_page_coordinates_and_fonts() {
+    use typaxis_display_list::ProductionBodyDraw as D;
+    let value = production_body_fixture(3_000_000);
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        display.verify(&selected, admitted, limits).unwrap();
+        let text = display
+            .draws()
+            .iter()
+            .filter_map(|d| match d {
+                D::Text(t) => Some(t),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            text.iter().map(|t| t.exact_text()).collect::<String>(),
+            "A BB"
+        );
+        assert_eq!(
+            text.iter().map(|t| t.page_index()).collect::<Vec<_>>(),
+            [0, 0, 0, 1]
+        );
+        assert_eq!(text[0].glyphs()[0].x().raw(), 720_896);
+        assert_eq!(text[0].glyphs()[0].y().raw(), 1_320_530);
+        assert_eq!(text[1].glyphs()[0].x().raw(), 1_192_755);
+        assert_eq!(text[2].glyphs()[0].x().raw(), 2_894_666);
+        assert_eq!(
+            text[3].glyphs()[0].y(),
+            selected.fragments()[2].baseline().unwrap()
+        );
+        assert!(text.iter().all(|t| t.font_size().get().raw() == 786_432));
+        let vectors = display
+            .draws()
+            .iter()
+            .filter_map(|d| match d {
+                D::Vector(v) => Some(v),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(vectors.len(), 2);
+        assert_eq!(vectors[0].viewport().y().raw(), 655_360);
+        assert_eq!(
+            vectors[1].viewport(),
+            selected.fragments()[1].viewport().unwrap()
+        );
+        assert!(vectors.iter().all(|v| v.math_binding().is_some()));
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        fonts.verify(&display, admitted, limits).unwrap();
+        assert_eq!(fonts.fonts().len(), 1);
+        assert_eq!(fonts.fonts()[0].pdf_font().subset_plan().cids.len(), 3);
+        let contribution =
+            typaxis_pdf::encode_production_body_text(&fonts, admitted, limits).unwrap();
+        contribution.verify(&fonts, admitted, limits).unwrap();
+        assert_eq!(contribution.paints().len(), 4);
+        for (index, paint) in contribution.paints().iter().enumerate() {
+            let D::Text(draw) = &display.draws()[paint.draw_index()] else {
+                panic!("text paint owner")
+            };
+            let (font, cluster) = fonts.text_plan(paint.draw_index()).unwrap();
+            assert_eq!(paint.page_index(), draw.page_index());
+            assert_eq!(paint.font_instance_id(), font.pdf_font().font_instance_id());
+            let bytes = std::str::from_utf8(contribution.paint_bytes(index).unwrap()).unwrap();
+            assert!(bytes.contains(" 12 Tf 0 Tr\n"));
+            assert_eq!(bytes.matches(" Tj\n").count(), draw.glyphs().len());
+            assert!(bytes.contains(&format!("<{:04X}> Tj", cluster.cids()[0].get())));
+            assert!(!bytes.contains("/MCID")); // Assigned later by actual structure ownership.
+        }
+        let bytes = std::str::from_utf8(contribution.paint_bytes(0).unwrap()).unwrap();
+        assert!(
+            bytes.contains("1 0 0 -1 11 20.149688720703125 Tm"),
+            "{bytes}"
+        );
+        let other =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        assert_eq!(other.fingerprint(), display.fingerprint());
+        assert_eq!(
+            fonts.verify(&other, admitted, limits),
+            Err(typaxis_resources::ResourceError::AdmittedLedgerEpochMismatch)
+        );
+        let other_fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        assert_eq!(
+            contribution.verify(&other_fonts, admitted, limits),
+            Err(typaxis_pdf::ProductionBodyTextError::ReceiptMismatch)
+        );
+        assert_eq!(fonts.fonts(), other_fonts.fonts());
+    });
+}
+
+#[test]
+fn production_body_fonts_share_repeated_glyphs_across_distinct_source_spans() {
+    for family in ["Body", "Collection", "Typaxis CFF Fixture"] {
+        let value =
+            serde_json::from_slice(&production_text_single_paragraph(&["A", "A", "A"], family))
+                .unwrap();
+        let config = config_with_limits(typaxis_core::ResourceLimits {
+            max_cids_per_font: 1,
+            ..typaxis_core::ResourceLimits::default()
+        });
+        with_production_body_resources(&value, &config, |lines, blocks, limits, admitted| {
+            let selected =
+                typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            let display =
+                typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                    .unwrap();
+            let fonts =
+                typaxis_resources::finalize_production_body_fonts(&display, admitted, limits)
+                    .unwrap();
+            assert_eq!(fonts.fonts().len(), 1);
+            let font = &fonts.fonts()[0];
+            assert_eq!(font.pdf_font().subset_plan().cids.len(), 1);
+            assert_eq!(font.clusters().len(), 3);
+            assert!(font
+                .clusters()
+                .windows(2)
+                .all(|w| w[0].text_span() != w[1].text_span()));
+            assert!(font.clusters().iter().all(|c| c.cids()[0].get() == 1
+                && c.exact_text() == "A"
+                && !c.requires_actual_text()));
+            for cluster in font.clusters() {
+                assert_eq!(
+                    font.cluster(cluster.text_span(), "A", cluster.glyphs()),
+                    Some(cluster)
+                );
+                assert!(font
+                    .cluster(cluster.text_span(), "B", cluster.glyphs())
+                    .is_none());
+            }
+            let output =
+                typaxis_pdf::encode_production_body_text(&fonts, admitted, limits).unwrap();
+            assert_eq!(output.paints().len(), 3);
+        });
+    }
+}
+
+#[test]
+fn production_body_formula_only_has_no_text_font_or_dummy_glyph() {
+    let value = serde_json::from_slice(&production_inline_vmb_fixture(false)).unwrap();
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        assert_eq!(display.draws().len(), 1);
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        assert!(fonts.fonts().is_empty());
+        assert!(fonts.text_plan(0).is_none());
+        let output = typaxis_pdf::encode_production_body_text(&fonts, admitted, limits).unwrap();
+        assert!(output.paints().is_empty());
+        assert!(output.paint_bytes(0).is_none());
+    });
+}
+
+#[test]
+fn production_body_more_than_65535_selected_glyphs_use_one_cid_without_losing_occurrences() {
+    use serde_json::json;
+    let text = "A".repeat(32);
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&[&text], "Body")).unwrap();
+    let paragraph = value["document"]["blocks"][0]["blocks"][0].clone();
+    let buffer = value["text_buffers"][0].clone();
+    let mut paragraphs = Vec::new();
+    let mut buffers = Vec::new();
+    for index in 0..2048 {
+        let mut p = paragraph.clone();
+        p["children"][0]["text_span"]["text_id"] = json!(index);
+        paragraphs.push(p);
+        let mut b = buffer.clone();
+        b["text_id"] = json!(index);
+        buffers.push(b);
+    }
+    value["document"]["blocks"][0]["blocks"] = json!(paragraphs);
+    value["text_buffers"] = json!(buffers);
+    production_body_renumber(&mut value["document"], &mut 0);
+    let config = config_with_limits(typaxis_core::ResourceLimits {
+        max_cids_per_font: 1,
+        ..typaxis_core::ResourceLimits::default()
+    });
+    with_production_body_resources(&value, &config, |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        assert!(selected.pages().len() > 1);
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        assert_eq!(display.draws().len(), 65_536);
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        assert_eq!(fonts.fonts().len(), 1);
+        assert_eq!(fonts.fonts()[0].clusters().len(), 65_536);
+        assert_eq!(fonts.fonts()[0].pdf_font().subset_plan().cids.len(), 1);
+        let output = typaxis_pdf::encode_production_body_text(&fonts, admitted, limits).unwrap();
+        assert_eq!(output.paints().len(), 65_536);
+        assert!(output
+            .paints()
+            .windows(2)
+            .all(|w| w[0].draw_index() + 1 == w[1].draw_index()
+                && w[0].page_index() <= w[1].page_index()));
+        assert_eq!(
+            output
+                .paints()
+                .iter()
+                .enumerate()
+                .map(|(i, _)| std::str::from_utf8(output.paint_bytes(i).unwrap())
+                    .unwrap()
+                    .matches("<0001> Tj")
+                    .count())
+                .sum::<usize>(),
+            65_536
+        );
+    });
+}
+
+#[test]
+fn production_body_font_and_text_contributions_preserve_cumulative_budget_and_owner_checks() {
+    let value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
+    let mut font_charge = 0;
+    let mut paint_charge = 0;
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        font_charge = fonts.record_charge();
+        let paint = typaxis_pdf::encode_production_body_text(&fonts, admitted, limits).unwrap();
+        paint_charge = paint.record_charge();
+        let mut changed_base = limits.base().get().clone();
+        changed_base.max_images += 1;
+        let changed = typaxis_core::M4EffectiveResourceLimits::new(
+            typaxis_core::ValidatedResourceLimits::new(changed_base).unwrap(),
+            limits.extension().get().clone(),
+        )
+        .unwrap();
+        assert!(display.verify_resources(admitted, &changed).is_err());
+        assert!(fonts.verify(&display, admitted, &changed).is_err());
+        assert!(
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, &changed)
+                .is_err()
+        );
+        assert!(typaxis_pdf::encode_production_body_text(&fonts, admitted, &changed).is_err());
+        with_production_body_resources(&value, &config(), |_, _, other_limits, other_admitted| {
+            assert_eq!(other_admitted.fingerprint(), admitted.fingerprint());
+            assert!(fonts
+                .verify(&display, other_admitted, other_limits)
+                .is_err());
+        });
+    });
+    for limit in [font_charge - 1, font_charge, paint_charge] {
+        let config = config_with_limits(typaxis_core::ResourceLimits {
+            max_fragments: limit,
+            ..typaxis_core::ResourceLimits::default()
+        });
+        with_production_body_resources(&value, &config, |lines, blocks, limits, admitted| {
+            let selected =
+                typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            let display =
+                typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                    .unwrap();
+            let result =
+                typaxis_resources::finalize_production_body_fonts(&display, admitted, limits);
+            if limit < font_charge {
+                assert!(matches!(
+                    result,
+                    Err(typaxis_resources::ResourceError::ResourceLimit)
+                ));
+                return;
+            }
+            let fonts = result.unwrap();
+            assert_eq!(fonts.record_charge(), font_charge);
+            let result = typaxis_pdf::encode_production_body_text(&fonts, admitted, limits);
+            if limit < paint_charge {
+                assert!(matches!(
+                    result,
+                    Err(typaxis_pdf::ProductionBodyTextError::RecordLimit)
+                ));
+            } else {
+                assert_eq!(result.unwrap().record_charge(), paint_charge);
+            }
+        });
+    }
+    let config = config_with_limits(typaxis_core::ResourceLimits {
+        max_output_bytes: 1,
+        ..typaxis_core::ResourceLimits::default()
+    });
+    with_production_body_resources(&value, &config, |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display =
+            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                .unwrap();
+        let fonts =
+            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
+        assert!(matches!(
+            typaxis_pdf::encode_production_body_text(&fonts, admitted, limits),
+            Err(typaxis_pdf::ProductionBodyTextError::OutputLimit)
+        ));
     });
 }

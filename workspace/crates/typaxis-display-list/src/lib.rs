@@ -1,5 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod production_body;
+pub use production_body::{build_production_body_display, ProductionBodyDisplay,
+    ProductionBodyDisplayError, ProductionBodyDisplayErrorKind, ProductionBodyDraw,
+    ProductionBodyGlyph, ProductionBodyTextDraw, ProductionBodyVectorDraw,
+    PRODUCTION_BODY_DISPLAY_ALGORITHM};
+
 mod advanced_columns;
 mod advanced_content;
 mod advanced_float;

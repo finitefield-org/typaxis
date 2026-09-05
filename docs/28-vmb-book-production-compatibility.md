@@ -662,9 +662,17 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 本文の全selected cluster usageを`StagingPdfTextClusterUsage`相当へまとめ、既存`finalize_staging_pdf_text_fonts`のTrueType/CFF subset経路へ接続する。現APIの公開constructorだけで任意glyphを信頼せず、production bridgeがshape receiptとadmitted fingerprintを照合したusageだけを渡す。本文・caption・式番号で同一faceを使う場合は一つのdocument font usage集合で課金・subsetし、呼出し単位で予算をリセットしない。native mathのglyph usageとの共有もfont instanceと元glyph/clusterのidentityで判断する。
 
+全巻用のCID割当ては既存の式番号用recipeをそのまま流用しない。`typaxis-resources/src/staging_text.rs`のTrueType経路は、異なるsource clusterの各glyphへ新しいCIDを割り当てるため、同じ文字を反復する本文でも配置数に比例してCIDを消費する。production専用finalizerでは、同一font instanceの要求されたoriginal GIDを昇順に並べてCIDを一つずつ割り当て、各配置から共有CIDを参照する。TrueType compositeの依存glyphはsubsetへ収録するが、直接描画しない依存glyphに配置用CIDを追加しない。既存の凍結式番号recipe・出力hashは維持する。
+
+CID共有と抽出テキストは別に管理する。まず単一glyph・単一Unicode scalarの用例から矛盾しないToUnicodeを作り、同じglyphが異なる文字へ対応する場合は一意に決めない。各clusterについてCID列のUnicode連結と元のexact textを比較し、一致しない場合はそのcluster全体へActualTextを一回付ける。glyph数と文字数が同じという理由だけで位置対応を推測しない。clusterのsource span・配置ordinal・選択済みglyph位置は共有せず保持し、本文の反復、ligature、結合文字で抽出内容が失われないようにする。
+
+production font planは選択済みdisplay・admitted ledger・effective limitsに結びつける。別package/別配置のusageを混ぜる入力は拒否し、subset bytesとglyph/CID/cluster record予算を文書全体で課金する。face/GID/cluster照合にはindexまたは二分探索を用い、全配置について毎回cluster全件を線形探索しない。回帰試験には、異なるsource spanに同一文字を多数配置しCID上限を1にした正例、65,535回を超える反復配置、曖昧なUnicode対応のActualText、TT/TTC/CFF混在、owner/limits差し替え拒否を含める。これらは全巻の本文フォントを扱うための設計であり、現時点のPDF接続完了を示さない。
+
 PDF writerはselected glyph位置とfrozen CID planから描画し、本文を再shapeしたり、Unicode scalarごとのcmap lookupで再配置したりしない。ToUnicodeは元clusterを保持し、必要なclusterにはActualTextを一回付ける。複数font・日本語・結合文字・ligature・IVSの処理を同じ原則で行う（IVS admissionの新規対応は§7の新profile）。空白advanceを一律0.6emに置換せず、選択済み行の空白・禁則・justify結果を使う。
 
 数式SVGのForm共有、配置ごとのFormula/Alt/ActualTextは維持する。抽出補助が必要なextractorでは、見えないanchorを専用の管理されたglyph usageとして登録し、任意native数式の最初のglyphに依存させない。anchorはviewport/読み順/タグへ結び、可視ink・余分な抽出文字・二重ActualTextがないことを独立extractorで検査する。
+
+実装追補（2026-09-06）: `typaxis-display-list/src/production_body.rs`で共通ページ配置を本文glyph/SVGのpage-space displayへ投影し、`typaxis-resources/src/production_body.rs`でadmitted fontとexact displayに結びつく共有CID計画を追加した。`typaxis-pdf/src/production_body_text.rs`はその計画から実font size・位置・CIDを描画命令へ変換する。実VMBの2ページ入力と65,536本文glyphのCID共有を検証した。これは本文描画contributionまでであり、式番号、最終object/structure/navigation plan、public writerへの接続と独立render/extractは未完了である。詳しい証拠と未接続範囲は[実装台帳](28-vmb-book-production-progress.md)の同日追補を参照する。
 
 ### 14.4 追加の必須回帰・完了条件
 

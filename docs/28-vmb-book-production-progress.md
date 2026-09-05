@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; generated labels, remaining subflows/general page policy and selected PDF text still pending |
+| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and public PDF/structure connection still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -815,3 +815,79 @@ rejects unconnected regions instead of flattening or omitting them. Math termina
 receipts, common PDF font/paint usage, tags/navigation and the public build runner
 are not yet wired to these page positions. The full-book PDF and all §10 gates
 remain open; this evidence is not an independent PDF render/extract result.
+
+
+## Follow-up: selected page-space display, shared body CIDs and PDF text contributions (2026-09-06)
+
+Added `typaxis-display-list/src/production_body.rs`,
+`typaxis-resources/src/production_body.rs` and
+`typaxis-pdf/src/production_body_text.rs`. The display borrows the exact common
+selected pagination and admitted ledger; it projects retained original glyphs
+and bound SVGs in source order. Each glyph receives the selected fragment's
+page origin plus its selected line-local position. Text keeps its actual face,
+font size, source cluster and UTF-8. Inline and block vectors retain common/math
+bindings, page indices and actual viewports. Equation numbers are explicitly
+pending at this new projection boundary and are never silently dropped.
+
+The production font bridge checks display/ledger/limits ownership before
+creating any usages. Its TrueType/TTC finalizer shares one CID per requested
+original glyph in deterministic GID order, while the old equation-number recipe
+continues assigning its frozen source-cluster CID sequence. CFF already shares
+glyph CIDs. Composite closure remains in the actual TrueType subset. Ambiguous
+single-glyph Unicode mappings, ligatures and complex clusters preserve exact
+text using cluster ActualText when CID Unicode concatenation does not match.
+The mapping-level negative/ambiguous tests intentionally supply artificial
+usage lists; they are not evidence of authored shaping for those sequences.
+Font/cluster lookup is indexed or binary searched, not an occurrence-by-cluster
+linear scan. Record budgets continue from selected layout/display and include
+conservative temporary usage/glyph/CID copies; copied text, subset and output
+bytes retain finite limits. Each font also checks the effective subset ceiling.
+
+`encode_production_body_text` consumes only the sealed production font plan.
+It writes the actual selected font size and glyph coordinates with shared CIDs,
+resets text spacing/scaling/rise, restores graphics state and emits cluster
+ActualText once when required. `/PB{id}` identifies the frozen font that the
+future final page dictionary must bind. Text contributions carry their draw and
+page index; vector draws do not create text or dummy glyphs. These contributions
+are not a complete PDF and do not invent MCIDs or authorize untagged export.
+
+Verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-display-list -p typaxis-resources -p typaxis-pdf \
+  -p typaxis-layout -p typaxis-pagination -p typaxis-cli \
+  --lib --bin typaxis --locked
+```
+
+Observed **504 passed**, no failures: CLI 194 passed / 3 existing external-tool
+ignored; display-list 56; resources 28; PDF 76; layout 65; pagination 85.
+Log: `/private/tmp/typaxis-production-font-verification.log` (local execution
+evidence, not a permanent release artifact).
+
+New integration assertions cover:
+
+- Actual VMB inline/block fractions and surrounding 12pt MATH-free body text
+  over two pages. The first body glyph is at x=720,896 / y=1,320,530 raw;
+  encoded text matrix is `1 0 0 -1 11 20.149688720703125 Tm`.
+- TT, TTC and name-keyed CFF repeat the same glyph at distinct source spans
+  under a one-CID limit; each source occurrence remains present.
+- 2,048 actual prepared/shaped/paginated paragraphs of 32 `A` glyphs produce
+  65,536 selected text draws and 65,536 PDF `Tj` contributions with one font CID,
+  maintaining page/source order. This is a body text scaling test, not the
+  distinct 5,000-image or real-book gate.
+- Formula-only input creates no body font/paint. Another display or font plan,
+  even with matching content, cannot replace the exact owner. Another admitted
+  ledger or changed effective limits is rejected.
+- Exact and one-less cumulative font/paint record ceilings; bounded output
+  failure. Existing vector, font subset, resource, layout and frozen PDF tests
+  continue passing.
+
+Public `write_production_tagged_pdf_v2` still uses the previous final writer.
+Required next work includes integrating these contributions into one final
+object/structure/navigation plan, vector forms at the same selected positions,
+equation numbers and other body subflows, and eliminating the fake old standard
+text paint path. Independent rendered/extracted PDFs, semantic tags/links,
+Harano CID CFF, the formal VMB exporter, 5,000 placed distinct images and the
+whole-book gates remain incomplete. This step does not change those conditions.

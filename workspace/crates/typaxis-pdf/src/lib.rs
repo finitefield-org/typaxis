@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod production_body_text;
 mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
@@ -13,6 +14,11 @@ mod safe_vector_v2;
 mod semantic_container;
 mod tagged_pdf;
 mod tagged_pdf_v2;
+
+pub use production_body_text::{
+    encode_production_body_text, ProductionBodyTextContribution, ProductionBodyTextError,
+    ProductionBodyTextPaint,
+};
 
 pub use advanced_columns::{
     serialize_columns_pdf, serialize_staging_columns_pdf, StagingColumnsPdf,

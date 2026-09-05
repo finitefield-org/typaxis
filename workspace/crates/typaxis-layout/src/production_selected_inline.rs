@@ -140,6 +140,16 @@ pub struct ProductionInlineLineLayout<'p, 'a> {
     fingerprint: [u8; 32],
 }
 impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
+    pub fn vector_binding(
+        &self,
+        owner: NodeId,
+    ) -> Option<&crate::ValidatedPrecomposedVectorReceipt> {
+        self.prepared.bindings.receipt(owner)
+    }
+    pub fn math_vector_binding(&self, owner: NodeId) -> Option<&crate::ValidatedMathVectorReceipt> {
+        self.prepared.bindings.math_receipt(owner)
+    }
+
     pub const fn source_flow(&self) -> &'a ProductionTextFlow<'a> {
         self.prepared.flow
     }

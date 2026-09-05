@@ -3688,7 +3688,7 @@ fn pdf_literal_v2(value: &str) -> String {
     output
 }
 
-fn pdf_number_v2(raw: i64) -> String {
+pub(crate) fn pdf_number_v2(raw: i64) -> String {
     const SCALE: u64 = 65_536;
     const BINARY_TO_DECIMAL: u64 = 152_587_890_625;
     let negative = raw < 0;
