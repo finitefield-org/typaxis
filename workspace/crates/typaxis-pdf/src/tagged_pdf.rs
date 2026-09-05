@@ -1148,6 +1148,17 @@ pub(crate) fn encode_tagged_book_xmp(
     language: &str,
     engine: &EngineIdentity,
 ) -> String {
+    encode_book_xmp_with_conformance(metadata, language, engine, true)
+}
+
+/// Assembly probes retain metadata without declaring PDF/UA conformance before
+/// publication authorization and independent validation have been connected.
+pub(crate) fn encode_book_xmp_with_conformance(
+    metadata: &typaxis_syntax::DocumentMetadataReceipt,
+    language: &str,
+    engine: &EngineIdentity,
+    pdfua: bool,
+) -> String {
     let metadata = metadata.metadata();
     let producer = format!("{} {}", engine.name(), engine.version());
     let mut properties = String::new();
@@ -1192,7 +1203,10 @@ pub(crate) fn encode_tagged_book_xmp(
     properties.push_str(&xml_text(language));
     properties.push_str("</rdf:li></rdf:Bag></dc:language><pdf:Producer>");
     properties.push_str(&xml_text(&producer));
-    properties.push_str("</pdf:Producer><pdfuaid:part>1</pdfuaid:part>");
+    properties.push_str("</pdf:Producer>");
+    if pdfua {
+        properties.push_str("<pdfuaid:part>1</pdfuaid:part>");
+    }
     format!(
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\">{properties}</rdf:Description></rdf:RDF></x:xmpmeta>"
     )

@@ -5,7 +5,7 @@
 Typaxis baseline: `718ab6c9e1309b7dc750c62554c954cae4333131`
 対象: `typaxis.contract/1.4` / `typaxis.machine-pdf/production-book-1`
 
-詳細化: 2026-09-05。本書はTypaxis側の正本。VMB側の変更はユーザー指定の[VMB docs/typaxis-book-export-design.md](../../../v/vmb-container/docs/typaxis-book-export-design.md)を正本とし、処理境界・共通受け入れ条件のみ本書にも記載する。以下の「新設」「提案API」「次期」は未実装の設計を示す。
+詳細化: 2026-09-05。設計照合: 2026-09-06。本書はTypaxis側の正本。VMB側の変更はユーザー指定の[VMB docs/typaxis-book-export-design.md](../../../v/vmb-container/docs/typaxis-book-export-design.md)を正本とし、処理境界・共通受け入れ条件のみ本書にも記載する。「新設」「提案API」は設計時点の変更案であり、その後の実装有無は実装・検証台帳で確認する。「次期」の公開識別子は、公開ゲートを通すまで使用可能とは扱わない。
 
 依頼された4項目への対応は次のとおり。§2の「現行」は冒頭のbaselineでの調査結果を指し、現在の実装状況とは区別する。先行実装・実行結果・残件は[実装・検証台帳](28-vmb-book-production-progress.md)を参照する。
 
@@ -268,12 +268,14 @@ stable readが失敗してbytesがない場合はSVG位置なし。UTF-8不正�
 
 ### 6.1 未指定時の値と解決順序
 
-| limit | 現在 | production-book-1の提案値 | 課金単位 |
+| limit | 調査baseline | production-book-1の採用値 | 課金単位 |
 | --- | ---: | ---: | --- |
 | `max_images` | 1,024 | 8,192 | logical画像宣言数。未使用・aliasも含む |
 | `max_vector_nodes` | 100,000 | 262,144 | 文書内の各vector宣言に対する解析node合計 |
 | `max_vector_path_segments` | 1,000,000 | 4,000,000 | stored segments + 外周clip + clip replayの合計 |
 | `max_vector_nesting_depth` | 32 | 32 | resource内深さ |
+
+2026-09-06のコード照合では、`MachineResourceDefaults::for_profile`とCLIのprofile別config resolverに上記の採用値が存在する。表の左列は調査当初の値であり、現checkoutの既定値ではない。この実装確認だけで、5,000 distinct画像のbuildや全巻PDFが成功したとは判定しない。
 
 画像8,192だけで任意に複雑な8,192数式を保証するわけではない。今回の全巻実測約103万セグメントに対し約3.8倍の余裕を設け、5,000件の実分布入力で検証する。現行hard maximum（nodes 1,000,000、segments 10,000,000、depth 64）は維持する。base bytes・decoded allocation・PDF objects・spool・outputの予算も引き続き独立に有効である。
 
@@ -523,6 +525,16 @@ PDFレンダリングは既存external-tool-policyのMuPDF/Poppler、72/144/288 
 1 pixel以下の細線等はmask単独では証明できないので、原path/control pointとpaint operationの完全なjoinを併用する。small corpusには分数線・否定斜線を意図的に削除/二重描画/clipしたtampered PDFを用意し、verifierが必ず拒否することをtestする。ツール差異で閾値を変更する場合は新しいtool-policy/expectation identityと再レビューが必要。
 
 全文抽出はNFC化や空白collapseで都合よく一致させず、既存規則が許す改行差だけをnormalizeする。数式occurrenceごとのActualText順序/回数を構造からも照合し、同じ「数式」という文字列が多数抽出されたことを内容一致の証拠にしない。PDF/UA gateはveraPDF 1.30.2と既存独立structure検査の両方を要求する。
+
+### 8.7 本文と数式を混在させたPDFの合格条件
+
+抽出期待値はVMBの本文bytes・配置順・semantic speechから、PDF生成前に作る。最小fixtureを「本文A＋空白＋inline式＋本文B」とし、式の後に空白を持つ別caseも作る。和文隣接、連続数式、block式、改ページも別caseにする。式の前後へ空白を追加・削除した出力は、数式のspeechが合っていても不合格とする。PopplerとMuPDFの抽出結果をそれぞれ照合し、一方だけの成功を双方の成功として記録しない。
+
+本文の視覚検査には、実際に非空の輪郭を持つ配布可能な固定フォントを使う。空輪郭の合成fontはCID・ToUnicode等の構造単体試験には使えるが、本文が表示されることや本文と数式の視覚的な間隔を証明するfixtureには使わない。本文glyphと数式の双方について、独立renderで非空のinkと選択済みbaselineを照合する。
+
+FormulaタグとAlt/ActualTextの存在だけでは抽出成功とは判定しない。SVG Form自体に文字描画がない場合も、各配置の意味テキストが一回だけ、正しい順序・位置で抽出されるPDF出力方法をTypaxisのPDF層で検証する。抽出互換性のために補助要素が必要な場合は、選択済みbaselineとviewportに束縛し、描画比較で追加inkがないこと、余分な抽出文字・MCID・source occurrenceを作らないこと、object/spool予算へ課金することを要求する。VMB側に不可視文字やPDF用glyphを出力させない。
+
+途中段階のPDF組立てAPIから得た検査用bytesと、公開`build-package`が発行する検証済み成果物を区別する。ページ・構造・navigation・font・描画の整合検査と既存の成果物検証を経て、PDFとmanifestを同時に公開するまで、§10の全巻成功やPDF/UA適合を宣言しない。
 
 ## 9. 実装順序と変更owner
 

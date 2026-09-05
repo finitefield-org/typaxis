@@ -113,6 +113,7 @@ pub struct ProductionBodyVectorDraw<'d> {
     binding: &'d ValidatedPrecomposedVectorReceipt,
     math_binding: Option<&'d ValidatedMathVectorReceipt>,
     viewport: Rect,
+    baseline: Option<Length>,
     content_key: VectorContentKey,
     scale_raw: i32,
     matrix: AffineTransform,
@@ -120,6 +121,9 @@ pub struct ProductionBodyVectorDraw<'d> {
     fingerprint: [u8; 32],
 }
 impl<'d> ProductionBodyVectorDraw<'d> {
+    pub const fn baseline(&self) -> Option<Length> {
+        self.baseline
+    }
     pub const fn content_key(&self) -> VectorContentKey {
         self.content_key
     }
@@ -382,6 +386,11 @@ fn vector_draw<'d>(
     fingerprint_input[64..68].copy_from_slice(&fragment_index.to_be_bytes());
     fingerprint_input[68..].copy_from_slice(&page_index.to_be_bytes());
     Ok(ProductionBodyVectorDraw {
+        baseline: selected
+            .fragments()
+            .get(fragment_index as usize)
+            .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+            .baseline(),
         content_key,
         scale_raw,
         matrix: placement_matrix(viewport, scale_raw),

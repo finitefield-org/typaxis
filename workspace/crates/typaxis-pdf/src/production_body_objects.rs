@@ -19,6 +19,9 @@ pub enum ProductionBodyFontObjectPart {
 }
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ProductionBodyObjectRole {
+    SemanticAnchorFont,
+    SemanticAnchorGlyph,
+    SemanticAnchorToUnicode,
     Font {
         instance: FontInstanceId,
         part: ProductionBodyFontObjectPart,
@@ -249,6 +252,20 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     for font in marked.content().plans().fonts().fonts() {
         font_objects(&mut b, font.pdf_font())?;
     }
+    if !marked.anchors().is_empty() {
+        b.start(R::SemanticAnchorFont)?;
+        b.bytes("<< /Type /Font /Subtype /Type3 /Name /PBA /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /anchor ")?;
+        b.reference(R::SemanticAnchorGlyph)?;
+        b.bytes(" >> /Encoding << /Type /Encoding /Differences [0 /anchor] >> /FirstChar 0 /LastChar 0 /Widths [1000] /Resources << >> /ToUnicode ")?;
+        b.reference(R::SemanticAnchorToUnicode)?;
+        b.bytes(" >>")?;
+        b.start(R::SemanticAnchorGlyph)?;
+        // A declared bounding box/advance with no paint operator. Tr=3 gives a
+        // second, independent guarantee that this usage cannot add visible ink.
+        b.stream("", b"1000 0 0 0 1000 1000 d1\n")?;
+        b.start(R::SemanticAnchorToUnicode)?;
+        b.stream("", b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Typaxis) /Ordering (SemanticAnchor) /Supplement 0 >> def\n/CMapName /TypaxisSemanticAnchor def\n/CMapType 2 def\n1 begincodespacerange\n<00> <00>\nendcodespacerange\n1 beginbfchar\n<00> <FFFC>\nendbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")?;
+    }
     for ext in marked.content().vectors().ext_g_states() {
         b.start(R::Vector(ext.relative_object_role()))?;
         b.bytes(ext.dictionary())?;
@@ -269,11 +286,25 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         b.bytes(form.content_stream())?;
         b.bytes("\nendstream")?;
     }
+    let mut anchor_cursor = marked.anchors().iter().peekable();
     for page in marked.pages() {
         b.start(R::PageContent(page.page_index()))?;
         b.stream("", page.content())?;
         b.start(R::PageResources(page.page_index()))?;
         b.bytes("<< /Font <<")?;
+        if anchor_cursor
+            .peek()
+            .is_some_and(|a| a.page_index() == page.page_index())
+        {
+            b.bytes(" /PBA ")?;
+            b.reference(R::SemanticAnchorFont)?;
+            while anchor_cursor
+                .peek()
+                .is_some_and(|a| a.page_index() == page.page_index())
+            {
+                anchor_cursor.next();
+            }
+        }
         let mut fonts = BTreeSet::new();
         for draw in marked.content().pages()[page.page_index() as usize].draws() {
             if let ProductionBodyPageDrawSource::Text { paint_index } = draw.source() {

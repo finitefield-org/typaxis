@@ -25,10 +25,10 @@ Harano support is claimed until the corresponding gates have evidence.
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
 | Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
 | Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
-| Selected production PDF object contributions | Frozen body fonts, shared Forms, per-page resources and symbolic structure/MCR/ParentTree objects verified below, including 5,000 aliases; final page/catalog/navigation merge and serialization pending |
+| Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly implemented; navigation and public terminal/manifest closure pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
-| Independent visual / baseline / spacing / extraction / tag verification | Pending |
+| Independent visual / baseline / spacing / extraction / tag verification | Seven diagnostic PDF probes below: structure/nonpainting pass, six exact extraction cases pass; explicit post-formula space fails in Poppler; full SVG/reference and full-book gates pending |
 | Performance, determinism, negative/tamper tests, old-profile regression | Pending |
 | macOS / explicitly managed Linux host evidence | Pending |
 
@@ -1171,3 +1171,113 @@ then rejected with `PendingNavigation` because its annotation OBJR is not yet
 supplied. The focused command above passed **4 tests** (three earlier cases plus
 the added case), log `/private/tmp/typaxis-production-body-objects-focused.log`.
 All processes started for this checkpoint completed with exit status 0.
+
+## Selected body PDF assembly and independent extraction probes (2026-09-06)
+
+Previous goal turn classification: progress. It corrected the design's historical
+versus implemented defaults and added explicit body-ink/whitespace acceptance
+criteria in both repositories. This checkpoint advances the selected PDF graph;
+it does not complete the public production pipeline or reduce the full-book goal.
+
+`typaxis-pdf/src/production_body_assembly.rs` now resolves typed body object
+references and generates catalog, pages, Info, XMP, dense object numbers, byte
+observations and classic xref. It checks the complete object count before
+numbering, preserves stream bytes, verifies the exact contributing owner, and
+charges cumulative records/spool/final output. Exact/one-less budget tests,
+object offsets/hashes/references, foreign-owner rejection and repeated-byte
+assembly are covered. Navigation with anchors/links/outlines remains explicitly
+pending. The result is an inspectable diagnostic assembly, not a
+`VerifiedPdfBytesReceipt`, publication authorization or final build manifest.
+Its XMP omits the PDF/UA declaration; the existing completed writer's XMP
+encoding retains that declaration and its regression tests pass unchanged.
+
+A managed blank Type3 glyph supplies a position for each Formula ActualText.
+It has no painting operators and uses text rendering mode 3. Its usage is inside
+the Formula's MCID scope, in an inner Span carrying the occurrence ActualText;
+it introduces no source node or extra MCID. Three managed PDF objects are
+charged once, and only pages using anchors reference the managed font. The
+existing selected body-font plans and shared SVG Form contents are unchanged.
+Selected vector baseline is carried through the display projection. The anchor
+matrix uses the selected viewport width/height and selected baseline, avoiding
+an independently guessed baseline and an inexact width/height division.
+
+Independent probing revealed why a parser/structure-only success was inadequate:
+
+- Without positioned text, MuPDF warned that Formula ActualText had no position,
+  and Poppler extracted no formula speech.
+- A fixed 1 pt extraction height added an unwanted space between the equation
+  and the following `B` in Poppler. The selected-height matrix fixes that case.
+- Closing the ActualText scope while its font state is still active matters;
+  the managed scope closes with `EMC`, then restores `Q`.
+- **The explicitly authored post-formula space remains unresolved in Poppler.**
+  The package contains `" B"`, the PDF contains its space glyph and correct
+  advance, and MuPDF preserves it. Poppler 26.08.0 extracts `quartersB` instead
+  of `quarters B`. The new verifier rejects this; no whitespace collapse is used.
+  Experiments with arbitrary anchor heights and nested line-level ActualText
+  were not adopted as a solution. The latter lost/duplicated content in the
+  independent extractors. The PDF semantic/extraction boundary needs a proper
+  solution before any public-build/full-book acceptance claim.
+
+The existing normal TT/TTC body fixtures have empty glyph outlines. They remain
+valid structural/subset/extraction tests, but cannot prove visible body text.
+Two added mixed cases select the existing outlined Typaxis CFF Fixture (its A
+is a synthetic triangle, not a Japanese-font specimen). A separate source-fixed
+region for A and the second-page B confirm body ink independently of formula
+ink. This does not replace the real Japanese-font/full-book gates.
+
+Verification:
+
+```sh
+TYPAXIS_BODY_PDF_PROBE_DIR=/private/tmp/typaxis-body-assembly-20260906-final \
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_assembly --locked
+
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis -p typaxis-pdf -p typaxis-display-list --lib --locked
+```
+
+Focused result: **2 passed**, including seven generated PDF cases and anchor
+ownership/page/font-use assertions. Full Rust regression: **340 passed**
+(CLI 208, display-list 56, PDF 76), zero failures and three existing ignored
+external-tool tests. CLI duration 236.84 seconds includes the 5,000-alias
+upstream fixture; it is not a distinct-5,000/public-build performance result.
+Log: `/private/tmp/typaxis-production-body-assembly-regression.log`.
+
+New `tools/verify_production_body_probe.py` uses pypdf, Pillow, Poppler and MuPDF
+on the opt-in generated PDFs. Run it with the bundled dependency Python:
+
+```sh
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_body_probe.py \
+  --probe-root /private/tmp/typaxis-body-assembly-20260906-final \
+  --output-root /private/tmp/typaxis-body-assembly-20260906-verification \
+  --pdftotext /opt/homebrew/bin/pdftotext --mutool /opt/homebrew/bin/mutool
+```
+
+It records input hashes and exact tool versions (Poppler 26.08.0, MuPDF 1.28.2),
+per-case/per-phase observations and failures. Source-fixed text expectations
+preserve authored spaces; only the extractors' exact line/page framing differs.
+This is a local diagnostic probe, not the versioned full-book/tool-policy runner.
+It tests seven cases: TT, TTC, CFF text; formula-only; mixed body/formulas; outlined
+CFF body/formulas; and an explicit post-formula-space case. It checks page
+MCIDs/ParentTree/MCR/Alt, placement count and per-page managed font usage, plus
+zero raster difference with the anchor glyph removed at 72/144/288 DPI.
+Removing the anchor is a counterfactual for nonpainting, not an independent
+reference for original SVG geometry. Full SVG-versus-PDF mask verification is
+still required by the design.
+
+Expected current result is **exit 1**, with exactly one failed check:
+`vmb-body-spaced-cff` / extraction / Poppler. The other six extraction cases and
+all seven structure/nonpainting checks pass. `observed.json` explicitly states
+`public_build_verified=false` and `full_book_verified=false`. Negative probes
+remove a Form placement, change an MCID, replace ActualText, make the managed
+anchor painting, and remove body A; these must be rejected. Wrong ActualText is
+also independently rejected by the text-extraction oracle.
+
+Remaining work includes the authored-space failure above, selected navigation
+and terminal/paint/manifest closure, public check/build integration, the formal
+VMB exporter, all real-book/distinct-image/Harano/profile-publication gates and
+the other pending rows at the top of this ledger. No full-book PDF was produced
+or accepted by this checkpoint.

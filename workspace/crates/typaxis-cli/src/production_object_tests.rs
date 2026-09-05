@@ -284,3 +284,214 @@ fn production_body_objects_keep_blank_page_entries_and_refuse_missing_link_annot
         );
     });
 }
+
+#[test]
+fn production_body_assembly_graph_and_opt_in_pdf_probes() {
+    use typaxis_pdf::{ProductionBodyAssemblyRole as A, ProductionBodyObjectRole as R};
+    let mut cases = vec![
+        ("vmb-body", production_body_fixture(3_000_000)),
+        (
+            "vmb-formula-only",
+            serde_json::from_slice(&production_inline_vmb_fixture(false)).unwrap(),
+        ),
+    ];
+    let mut visible = production_body_fixture(3_000_000);
+    for rule in visible["style_sheet"]["rules"].as_array_mut().unwrap() {
+        if rule["selector"] == "paragraph" {
+            rule["declarations"][0]["value"]["families"] =
+                serde_json::json!(["Typaxis CFF Fixture"]);
+        }
+    }
+    let mut spaced = visible.clone();
+    let id = spaced["text_buffers"].as_array().unwrap().len();
+    spaced["text_buffers"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "text_id":id, "utf8":" B", "mappings":[{"kind":"inserted",
+            "source_span":null,"text_range":{"start_byte":0,"end_byte":2}}]
+        }));
+    spaced["document"]["blocks"][0]["blocks"][0]["children"][2]["text_span"] =
+        serde_json::json!({"text_id":id,"start_byte":0,"end_byte":2});
+    cases.push(("vmb-body-visible-cff", visible));
+    cases.push(("vmb-body-spaced-cff", spaced));
+    for (name, family) in [
+        ("body-tt", "Body"),
+        ("body-ttc", "Collection"),
+        ("body-cff", "Typaxis CFF Fixture"),
+    ] {
+        cases.push((
+            name,
+            serde_json::from_slice(&production_text_single_paragraph(&["A B"], family)).unwrap(),
+        ));
+    }
+    for (name, value) in cases {
+        with_production_marked_body(&value, &config(), |marked, admitted, limits| {
+            let objects =
+                typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+            let pdf =
+                typaxis_pdf::assemble_production_body_pdf(&objects, admitted, limits).unwrap();
+            pdf.verify(&objects, admitted, limits).unwrap();
+            let anchor_count = marked
+                .structure()
+                .groups()
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| marked.structure().group_actual_text(*i).is_some())
+                .count();
+            assert_eq!(marked.anchors().len(), anchor_count);
+            for anchor in marked.anchors() {
+                let group = &marked.structure().groups()[anchor.group_index()];
+                assert_eq!(anchor.page_index(), group.page_index());
+                let typaxis_display_list::ProductionBodyDraw::Vector(vector) =
+                    &marked.structure().display().draws()[group.draws().start]
+                else {
+                    panic!()
+                };
+                assert_eq!(anchor.viewport(), vector.viewport());
+                assert_eq!(Some(anchor.baseline()), vector.baseline());
+            }
+            for page in marked.pages() {
+                let content = std::str::from_utf8(page.content()).unwrap();
+                let page_anchor_count = marked
+                    .anchors()
+                    .iter()
+                    .filter(|a| a.page_index() == page.page_index())
+                    .count();
+                assert_eq!(content.matches("/PBA 1 Tf 3 Tr").count(), page_anchor_count);
+                assert_eq!(content.matches("EMC\nQ\nEMC").count(), page_anchor_count);
+                let resources = objects
+                    .objects()
+                    .iter()
+                    .find(|o| o.role() == R::PageResources(page.page_index()))
+                    .unwrap();
+                assert_eq!(
+                    production_object_references(resources).contains(&R::SemanticAnchorFont),
+                    page_anchor_count > 0
+                );
+            }
+            for role in [
+                R::SemanticAnchorFont,
+                R::SemanticAnchorGlyph,
+                R::SemanticAnchorToUnicode,
+            ] {
+                assert_eq!(
+                    objects
+                        .objects()
+                        .iter()
+                        .filter(|o| o.role() == role)
+                        .count(),
+                    usize::from(anchor_count > 0)
+                );
+            }
+            assert_eq!(pdf.content_hash(), sha256(pdf.bytes()));
+            assert_eq!(pdf.page_count() as usize, marked.pages().len());
+            assert_eq!(
+                pdf.objects().len(),
+                objects.objects().len() + marked.pages().len() + 4
+            );
+            assert!(pdf.bytes().starts_with(b"%PDF-1.7\n"));
+            assert!(pdf.bytes().ends_with(b"%%EOF\n"));
+            let mut expected_xref = b"0000000000 65535 f \n".to_vec();
+            for (index, object) in pdf.objects().iter().enumerate() {
+                assert_eq!(object.number(), index as u32 + 1);
+                let header = format!("{} 0 obj\n", object.number());
+                let at = object.offset() as usize;
+                assert_eq!(&pdf.bytes()[at..at + header.len()], header.as_bytes());
+                let begin = at + header.len();
+                let end = begin + object.byte_length() as usize;
+                assert_eq!(sha256(&pdf.bytes()[begin..end]), object.sha256());
+                assert_eq!(&pdf.bytes()[end..end + 8], b"\nendobj\n");
+                expected_xref
+                    .extend_from_slice(format!("{:010} 00000 n \n", object.offset()).as_bytes());
+                if let A::Body(role) = object.role() {
+                    assert_eq!(pdf.object_number(role), Some(object.number()));
+                }
+                if let A::Body(R::Page(page)) = object.role() {
+                    let bytes = std::str::from_utf8(&pdf.bytes()[begin..end]).unwrap();
+                    assert!(bytes.contains(&format!("/StructParents {page} /Tabs /S")));
+                    assert!(bytes.contains(&format!(
+                        "/Contents {} 0 R",
+                        pdf.object_number(R::PageContent(page)).unwrap()
+                    )));
+                    assert!(bytes.contains(&format!(
+                        "/Resources {} 0 R",
+                        pdf.object_number(R::PageResources(page)).unwrap()
+                    )));
+                }
+            }
+            assert!(pdf
+                .bytes()
+                .windows(expected_xref.len())
+                .any(|w| w == expected_xref));
+            assert!(!pdf
+                .bytes()
+                .windows(b"<pdfuaid:part>".len())
+                .any(|w| w == b"<pdfuaid:part>"));
+            let again =
+                typaxis_pdf::assemble_production_body_pdf(&objects, admitted, limits).unwrap();
+            assert_eq!(pdf.bytes(), again.bytes());
+            let other_objects =
+                typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+            assert_eq!(
+                pdf.verify(&other_objects, admitted, limits),
+                Err(typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch)
+            );
+            if let Some(root) = std::env::var_os("TYPAXIS_BODY_PDF_PROBE_DIR") {
+                let root = PathBuf::from(root);
+                fs::create_dir_all(&root).unwrap();
+                fs::write(root.join(format!("{name}.pdf")), pdf.bytes()).unwrap();
+                fs::write(
+                    root.join(format!("{name}.package.json")),
+                    serde_json::to_vec_pretty(&value).unwrap(),
+                )
+                .unwrap();
+            }
+        });
+    }
+}
+
+#[test]
+fn production_body_assembly_checks_complete_object_output_and_spool_budgets() {
+    use typaxis_pdf::ProductionBodyAssemblyError as E;
+    let value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
+    let (mut records, mut spool, mut count, mut output) = (0, 0, 0, 0);
+    with_production_marked_body(&value, &config(), |marked, admitted, limits| {
+        let objects = typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+        let pdf = typaxis_pdf::assemble_production_body_pdf(&objects, admitted, limits).unwrap();
+        records = pdf.record_charge();
+        spool = pdf.spool_charge();
+        count = pdf.objects().len() as u32;
+        output = pdf.bytes().len() as u64;
+    });
+    for (max_fragments, max_spool_bytes, max_pdf_objects, max_output_bytes, error) in [
+        (records, spool, count, output, None),
+        (records - 1, spool, count, output, Some(E::RecordLimit)),
+        (records, spool - 1, count, output, Some(E::SpoolLimit)),
+        (records, spool, count - 1, output, Some(E::ObjectLimit)),
+        (records, spool, count, output - 1, Some(E::OutputLimit)),
+    ] {
+        let config = config_with_limits(ResourceLimits {
+            max_fragments,
+            max_spool_bytes,
+            max_pdf_objects,
+            max_output_bytes,
+            ..ResourceLimits::default()
+        });
+        with_production_marked_body(&value, &config, |marked, admitted, limits| {
+            let objects =
+                typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+            let result = typaxis_pdf::assemble_production_body_pdf(&objects, admitted, limits);
+            match error {
+                None => {
+                    let pdf = result.unwrap();
+                    assert_eq!(pdf.record_charge(), records);
+                    assert_eq!(pdf.spool_charge(), spool);
+                    assert_eq!(pdf.bytes().len() as u64, output);
+                }
+                Some(e) => assert_eq!(result.err(), Some(e)),
+            }
+        });
+    }
+}

@@ -2,8 +2,8 @@
 //! Object allocation, navigation and the final PDF authorization remain later
 //! owners; these bytes alone are not a complete tagged document.
 use crate::{ProductionBodyPageContent, ProductionBodyPageDrawSource};
-use typaxis_core::M4EffectiveResourceLimits;
-use typaxis_display_list::ProductionBodyStructure;
+use typaxis_core::{Length, M4EffectiveResourceLimits, Rect};
+use typaxis_display_list::{ProductionBodyDraw, ProductionBodyStructure};
 use typaxis_resource_admission::AdmittedResourceLedger;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +17,31 @@ pub struct ProductionBodyMarkedPage {
     page_index: u32,
     content: Vec<u8>,
 }
+
+/// A managed, nonpainting glyph usage which supplies the Formula ActualText
+/// with the selected viewport dimensions and baseline. It is not a document
+/// text/source node; its synthetic font box is not the formula's painted bbox.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProductionBodySemanticAnchor {
+    page_index: u32,
+    group_index: usize,
+    viewport: Rect,
+    baseline: Length,
+}
+impl ProductionBodySemanticAnchor {
+    pub const fn page_index(self) -> u32 {
+        self.page_index
+    }
+    pub const fn group_index(self) -> usize {
+        self.group_index
+    }
+    pub const fn viewport(self) -> Rect {
+        self.viewport
+    }
+    pub const fn baseline(self) -> Length {
+        self.baseline
+    }
+}
 impl ProductionBodyMarkedPage {
     pub const fn page_index(&self) -> u32 {
         self.page_index
@@ -29,6 +54,7 @@ pub struct ProductionBodyMarkedContent<'c, 'f, 'v, 'd, 's, 'p, 'a> {
     content: &'c ProductionBodyPageContent<'f, 'v, 'd, 's, 'p, 'a>,
     structure: &'c ProductionBodyStructure<'v, 'd, 's, 'p, 'a>,
     pages: Vec<ProductionBodyMarkedPage>,
+    anchors: Vec<ProductionBodySemanticAnchor>,
     record_charge: u64,
     spool_charge: u64,
 }
@@ -41,6 +67,9 @@ impl<'c, 'f, 'v, 'd, 's, 'p, 'a> ProductionBodyMarkedContent<'c, 'f, 'v, 'd, 's,
     }
     pub fn pages(&self) -> &[ProductionBodyMarkedPage] {
         &self.pages
+    }
+    pub fn anchors(&self) -> &[ProductionBodySemanticAnchor] {
+        &self.anchors
     }
     pub const fn record_charge(&self) -> u64 {
         self.record_charge
@@ -83,7 +112,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
         .map_err(|_| E::ReceiptMismatch)?;
     // Combine branches without charging their common display twice. Neither
     // branch receives a fresh resource budget at this merge.
-    let record_charge = content
+    let mut record_charge = content
         .plans()
         .record_charge()
         .checked_add(
@@ -129,6 +158,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
         )
     );
     let mut pages = Vec::new();
+    let mut anchors = Vec::new();
     pages
         .try_reserve_exact(content.pages().len())
         .map_err(|_| E::AllocationFailure)?;
@@ -161,14 +191,53 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 append(&mut page.content, format!("{unit:04X}").as_bytes())?;
             }
             append(&mut page.content, b">")?;
+            append(&mut page.content, b" >> BDC\n")?;
             if let Some(text) = structure.group_actual_text(group_index) {
-                append(&mut page.content, b" /ActualText <FEFF")?;
+                append(&mut page.content, b"q\n/Span << /ActualText <FEFF")?;
                 for unit in text.encode_utf16() {
                     append(&mut page.content, format!("{unit:04X}").as_bytes())?;
                 }
-                append(&mut page.content, b">")?;
+                append(&mut page.content, b"> >> BDC\n")?;
             }
-            append(&mut page.content, b" >> BDC\n")?;
+            if structure.group_actual_text(group_index).is_some() {
+                // Give the extraction glyph the selected formula's physical
+                // width and height, at its selected baseline. A fixed 1 pt
+                // vertical scale changes extractor word-gap heuristics even
+                // though the anchor paints no ink. Keep both matrix scales
+                // exact; a width/height quotient would introduce rounding.
+                if group.draws().len() != 1 {
+                    return Err(E::ReceiptMismatch);
+                }
+                let Some(ProductionBodyDraw::Vector(vector)) =
+                    display.draws().get(group.draws().start)
+                else {
+                    return Err(E::ReceiptMismatch);
+                };
+                record_charge = record_charge.checked_add(1).ok_or(E::RecordLimit)?;
+                if record_charge > limits.base().get().max_fragments {
+                    return Err(E::RecordLimit);
+                }
+                anchors.try_reserve(1).map_err(|_| E::AllocationFailure)?;
+                let viewport = vector.viewport();
+                let baseline = vector.baseline().ok_or(E::ReceiptMismatch)?;
+                append(
+                    &mut page.content,
+                    format!(
+                    "BT /PBA 1 Tf 3 Tr 0 Tc 0 Tw 100 Tz 0 TL 0 Ts {} 0 0 -{} {} {} Tm <00> Tj ET\n",
+                    crate::tagged_pdf_v2::pdf_number_v2(viewport.width().get().raw()),
+                    crate::tagged_pdf_v2::pdf_number_v2(viewport.height().get().raw()),
+                    crate::tagged_pdf_v2::pdf_number_v2(viewport.x().raw()),
+                    crate::tagged_pdf_v2::pdf_number_v2(baseline.raw()),
+                )
+                    .as_bytes(),
+                )?;
+                anchors.push(ProductionBodySemanticAnchor {
+                    page_index: page.page_index,
+                    group_index,
+                    viewport,
+                    baseline,
+                });
+            }
             for draw_index in group.draws() {
                 let draw = source.draws().get(ordinal).ok_or(E::ReceiptMismatch)?;
                 if draw.draw_index() != draw_index {
@@ -187,6 +256,9 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 append(&mut page.content, b"\n")?;
                 ordinal += 1;
             }
+            if structure.group_actual_text(group_index).is_some() {
+                append(&mut page.content, b"EMC\nQ\n")?;
+            }
             append(&mut page.content, b"EMC\n")?;
             group_index += 1;
         }
@@ -203,6 +275,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
         content,
         structure,
         pages,
+        anchors,
         record_charge,
         spool_charge,
     })

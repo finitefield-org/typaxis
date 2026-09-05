@@ -3559,7 +3559,7 @@ fn build_tagged_observation_v2(
     Ok(value)
 }
 
-fn encode_info_v2(
+pub(crate) fn encode_info_v2(
     navigation: &ValidatedStagingBookNavigationV2,
     engine: &EngineIdentity,
 ) -> Result<String, TaggedPdfV2Error> {
