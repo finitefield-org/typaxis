@@ -1719,7 +1719,12 @@ impl StagingMathProfileView {
         } else {
             StagingSafeVectorProfileView::new(package, limits)?
         };
-        if package.math_nodes().is_empty() || package.resources().font_faces.is_empty() {
+        // The closed math slice requires native math, but production books may
+        // contain only precomposed math vectors (or no formulas). An empty native
+        // math receipt chain is valid and still bound to the complete package.
+        if (!production && package.math_nodes().is_empty())
+            || package.resources().font_faces.is_empty()
+        {
             return Err(StagingSemanticSyntaxError::InvalidNesting);
         }
         let mut math_node_ids = Vec::new();

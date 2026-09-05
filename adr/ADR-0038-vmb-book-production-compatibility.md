@@ -41,6 +41,14 @@ constructed. Carry typed resource-local reasons, byte spans, element/path/attrib
 context and budget counters through the production diagnostic path. Use existing
 diagnostic codes and notes; do not add fields to the frozen 1.4 JSON schemas.
 
+Production authorization permits an empty native-math node set: a book can use
+precomposed SVG formulas without any typaxis-math source. Retain the nonempty
+requirement of the closed native-math slice. Empty production receipts still
+bind and recheck the complete package, limits, profile and session. This does
+not bypass native-math input validation or font admission. Authorization alone
+does not repair the body-font and selected-layout integration described in
+section 14 of the design, and is not a successful PDF build claim.
+
 This correction does not extend sfnt-cff1/1 or the 1.4 capability schema. CID-keyed
 CFF1 and expanded capabilities require the separate versioned publication in
 sections 7 and 9 of the design, with full-book and host verification before release.
@@ -54,6 +62,9 @@ isolation, override precedence, inclusive resource limits, precise first-failure
 positions, alias charging and out-of-order admission. Run check-package and
 build-package on real VMB fixtures, 5,000 placed resources and the single full
 book, including independent PDF visual, extraction and structure checks.
+Include a production authorization with no native math and preserve rejection
+by the closed math slice. The PDF gate additionally requires ordinary text
+fonts without MATH, real shaped advances and shared text/vector pagination.
 
 No single parser or config test establishes full-book readiness. See the design
 for exporter input requirements and the separate unchanged-Harano font gate.

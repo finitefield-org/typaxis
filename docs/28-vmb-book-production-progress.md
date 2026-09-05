@@ -6,8 +6,8 @@ Harano support is claimed until the corresponding gates have evidence.
 
 | Requirement | Current evidence / remaining work |
 | --- | --- |
-| ADR-0038 lexical exception | Decision recorded; parser changes under test |
-| Safe-SVG 2 whitespace, multiple paths, curves, subpaths | Implemented; initial 13 focused tests passed; added detailed-error / real-SVG tests still running |
+| ADR-0038 lexical exception | Implemented and covered by the 259-test run below |
+| Safe-SVG 2 whitespace, multiple paths, curves, subpaths | Implemented; detailed-error / unchanged real-SVG tests passed in the 259-test run |
 | SVG detailed reasons/spans/path/attribute/budget, JSON notes | In progress: fixed context, tag/attribute/path spans, typed CLI code, bounded percent tokens; full reason/budget coverage pending |
 | Count/analyze/build internal mismatch diagnostic | Changed to receipt invariant / I9190; verification pending |
 | Profile defaults and override precedence | Implemented; config tests and CLI negative boundaries passed |
@@ -22,6 +22,8 @@ Harano support is claimed until the corresponding gates have evidence.
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Pending; companion design lives in VMB docs |
 | VMB runner, explicit font/layout, environment isolation | Pending |
+| Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
+| Shared body/math flow and selected text placement | Additional design §14; fixed text metrics and placeholder page/paint geometry must be replaced before full-book verification |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -30,9 +32,8 @@ Harano support is claimed until the corresponding gates have evidence.
 
 ## Execution record
 
-Implementation branch: `codex/vmb-book-production`. The preceding goal turn only
-restated the design and was no progress. The current turn modifies authoritative
-product code and adds regression tests; test results will be recorded when complete.
+Implementation branch: `codex/vmb-book-production`. Product changes and completed
+verification are recorded below. Focused checks do not imply full-book success.
 
 
 Focused results observed in this implementation turn:
@@ -78,7 +79,7 @@ No existing target files or other task's process were removed.
 Real-input probes:
 
 - `implementation-chapter-02`: unchanged chapter `check-package` succeeded. The initial build invocation omitted the required uncompressed policy and was rejected before layout. This is not a PDF success. A subsequent attempt confirmed check rejects the build-only `--no-compress` flag.
-- `implementation-chapter-04`: with one shared TOML (contract 1.4, `pdf_stream_compression = "none"`), unchanged chapter check succeeded; build failed with `L5100: semantic_container is not allowed in this owner`. No PDF was published. `observed.json` and check/build diagnostics in that directory retain the command/results. Investigate the concrete semantic-container owner before changing either layout rules or exporter structure.
+- `implementation-chapter-04`: with one shared TOML (contract 1.4, `pdf_stream_compression = "none"`), unchanged chapter check succeeded; build failed with `L5100: semantic_container is not allowed in this owner`. No PDF was published. `observed.json` and check/build diagnostics in that directory retain the command/results. Follow-up code investigation below identifies the actual native-math gate; this input has no semantic-container nodes.
 - `implementation-book-font-probe-01/observed-02.json`: diagnostic-only full-book copy with the font replaced by the chapter TrueType passes the image count budget but fails at `P1102: semantic source span ownership mismatch`. This adds an exporter/source-mapping investigation; no source-span validation was relaxed. The original snapshot was preserved. An initial invocation had duplicated a configured root and was corrected by using a separate working directory.
 
 Known remaining SVG-detail work includes precise context for every transform/paint/non-path geometry failure, exact segment context on budget failures, context for a zero remaining document budget and clip-reference replay positions. The first detailed-error tests do not close those requirements. Complete positive resource-count boundaries, 5,000 placed distinct resources and performance observations also remain pending.
@@ -89,3 +90,55 @@ No branch push or publication has been performed. All verification processes
 started in this turn have reached terminal states; there is no outstanding wait.
 The companion VMB document was updated with the common compression config,
 actual CLI option names and full-book source-mapping investigation.
+
+## Follow-up: empty native math and actual source ownership
+
+Neither supplied package contains a semantic_container. The chapter has 158
+inline and 10 block precomposed formulas, and no native math. The build called
+`StagingMathProfileView::new_for_production` unconditionally, whose shared
+constructor rejected empty native math with the misleading InvalidNesting error.
+The production constructor now accepts the empty set, while the closed math
+slice still rejects it. The same sealed package/limits/session checks remain.
+
+A first regression attempted both check and PDF build after removing the two
+native math nodes from the combined fixture (retaining its inline/block SVG
+formulas). Check passed; build failed with `I9190: production tagged-PDF native
+math mismatch`. Inspection identified body text emission using the first native
+math font and requiring MATH. It also found fixed 10pt text advances and PDF text
+positions/font size calculated from record count, instead of selected text lines.
+The complete correction is now required by design §14; none of these failures is
+treated as a successful PDF gate. No dummy native formula or font was added.
+
+The committed regression tests production authorization, its sealed recheck and
+check-package, with zero native formulas; it explicitly tests that the closed
+math slice still rejects the same input. It does not claim to test a successful
+build. Focused command:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis machine_production_book_1 --locked
+```
+
+Result: **5 passed**, 0 failed, 0 ignored. The broader command also completed:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax -p typaxis-cli --lib --bins --locked
+```
+
+Result: CLI **163 passed, 3 ignored**; syntax **62 passed** (225 passed, no
+failures). The ignored independent-PDF tests remain unverified. All processes
+started for this follow-up reached terminal states. No branch push, full-book
+publication or Harano success is claimed.
+
+Read-only inspection of the original full package identifies its first source
+ownership violation: paragraph node 5 has span source 0, `0..0`, while child math
+node 7 at `/document/blocks/2/children/1` has `0..1`. Later child node 9 has `1..2`
+and text node 10 returns to `0..0`, violating sibling start ordering as well.
+All source_tex mappings were separately scanned for exact identity length and
+ownership in their math node; that scan found no mismatch. The error must not
+be misreported as a missing TeX identity mapping. VMB companion design §14 now
+specifies a complete generated source projection, original-source provenance,
+parent/child ranges and negative tests, without relaxing Typaxis validation.

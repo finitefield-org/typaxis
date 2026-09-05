@@ -522,11 +522,12 @@ PDFレンダリングは既存external-tool-policyのMuPDF/Poppler、72/144/288 
 | 3 | V2タグ終端空白 | safe_vector scanner policy。raw実章SVG成功、旧V1/V2受理入力のgolden不変 |
 | 4 | profile defaultsと大規模予算 | coreのprofile default owner、CLI config resolver、decode/admission。override優先・5,000件試験 |
 | 5 | VMB exporterの寸法/単位/意味情報 | VMB Typaxis backend。全巻SVG・metrics・altを同じ入力から再生成 |
+| 5a | 本文・数式の共通組版と本文fontの独立化 | §14。空native-math chain、実glyph advance、本文と式の同一flow、実placement由来のPDF/タグ/リンク |
 | 6 | 実章・5,000件・TrueType全巻ゲート | CLI E2E、Python verifier、管理ホスト。単一packageの検証・PDFと独立検査が成功 |
 | 7 | 原ノ味正式対応 | 新CFF profile/次期contract ADR→font/admission/shaping/resources/PDF/manifest→原ノ味全巻ゲート |
 | 8 | capabilities拡張 | 次期registry公開時にSchema/encoder/golden/guideを一括更新 |
 
-2・3・4はそれぞれfocused regressionを通し、6の前に結合する。5が未完了なら全巻成功を主張しない。7・8を先行する小修正へ混ぜない。
+2・3・4はそれぞれfocused regressionを通し、6の前に結合する。5・5aが未完了なら全巻成功を主張しない。7・8を先行する小修正へ混ぜない。
 
 本設計は製品実装の完了記録ではない。既存docs/25・27のCompletedは旧corpus/旧受け入れ条件に対する実装完了記録として保持し、本件の全巻対応が完了した意味に書き換えない。
 
@@ -592,9 +593,9 @@ cargo test --manifest-path workspace/Cargo.toml \
 | 2 | 性能修正、5,000 distinct生成、描画許容差が未確定 | cursor/index、固定数式template、oracle/tamper試験・mask閾値を定義 |
 | 3 | VMB側とのActualText/face index入力仕様の曖昧さ | semantic speechからの明示ActualText、TTCの選択flagと未指定規則をVMB docsで固定 |
 
-最終レビューでは両文書の責務、profile/contract識別子、budget、単位、origin/baseline、provenance、fixture/runner、公開順を再照合した。相対リンク、JSON/TOML例、Markdown fenceの検査、および6桁小数→16.16の131,073個のresidue往復検証が成功した。11ptのorigin/Padding例も確認した。未解決の設計findingはない。
+初回レビューでは両文書の責務、profile/contract識別子、budget、単位、origin/baseline、provenance、fixture/runner、公開順を再照合した。相対リンク、JSON/TOML例、Markdown fenceの検査、および6桁小数→16.16の131,073個のresidue往復検証が成功した。11ptのorigin/Padding例も確認した。この時点では設計findingなしとしたが、その後の実build調査で§14の不足が判明した。
 
-製品実装・新規runnerの実行・原ノ味版/TrueType版の全巻PDF生成は未実施。§10とVMB側設計の入力・実装ゲートを、文書レビュー完了と取り違えない。
+初回レビュー完了時点では製品実装・新規runnerの実行・原ノ味版/TrueType版の全巻PDF生成は未実施だった。その後の先行修正と試験結果は[実装記録](28-vmb-book-production-progress.md)を参照する。§10とVMB側設計の入力・実装ゲートを、文書レビュー完了と取り違えない。
 
 
 ## 13. 実装中の診断表現補足
@@ -605,4 +606,43 @@ cargo test --manifest-path workspace/Cargo.toml \
 実CLI照合による補足: production-book-1のbuildは非圧縮設定を要求する。check/buildの共通TOMLに`pdf_stream_compression = "none"`を明示し、両方に`--config PATH`を渡す。checkには`--no-compress`がない。診断出力は`--emit-diagnostics PATH`、build manifestは`--emit-build-manifest PATH`を使う。画像予算以外のこの既存profile条件は本修正で変更しない。
 
 
-実章probeでは、元SVGのまま`check-package`が成功し、共通非圧縮設定での`build-package`は`L5100: semantic_container is not allowed in this owner`で停止した。設計時に見えていなかった組版ownerの制約であり、全巻ゲート前に実ノードとproduction layoutのowner規則を照合して修正する。検査成功をPDF成功と扱わず、章ラッパーの削除や分割を既定の回避策にしない。全巻font-only probeの`semantic source span ownership mismatch`も別途調査する。
+実章probeでは、元SVGのまま`check-package`が成功し、共通非圧縮設定での`build-package`は`L5100: semantic_container is not allowed in this owner`で停止した。後続調査で、章にはsemantic_containerが存在せず、native math必須条件のエラー表示であると判明した。本文PDF経路にも同じ依存があり、§14で一体として修正する。全巻font-only probeの`semantic source span ownership mismatch`は、最初の数式node 7（`/document/blocks/2/children/1`）のspan `0..1`を親paragraph node 5のspan `0..0`が包含しないことが原因。VMB側のsource projection設計で直す。
+
+## 14. 実buildで判明した本文・数式の統合不足
+
+### 14.1 確認した事実と修正範囲
+
+`typaxis-cli/src/pipeline.rs::build_production_book_pdf`はnative math authorizationを無条件に作る。一方、`StagingMathProfileView::new_with_mode`はnative `math_nodes`が空ならInvalidNestingを返す。SVG数式はこの集合に入らない。production用だけ空集合のsealed chainを認め、旧math-only sliceの非空条件は維持する。空集合でもpackage/limits/profile/admission/sessionの照合を省略しない。実装時の小規模試験ではこの変更でcheckとauthorizationは成功したが、buildは次の本文font依存で`I9190: production tagged-PDF native math mismatch`へ進んだ。これを完成した修正と扱わない。
+
+`typaxis-pdf/src/tagged_pdf_v2.rs`は本文を最初のnative math fontで描く。`emit_native_math_font_objects_v2`と`encode_standard_text_paint_v2`がその集合の先頭を要求し、`MathFontFace::parse`はMATH・glyf・locaを必須にする。本文TrueTypeにMATHを要求してはならず、CFF本文にもこの経路を使ってはならない。ダミーnative数式の挿入やMATHテーブルの追加では直さない。
+
+さらに現行production bridgeは、インライン前後の文字を10pt固定advance、8pt/2pt ascent/descent、20pt行高として扱い、本文描画位置と2〜8ptのfont sizeをページ内record数から再計算する。通常本文のpageは多くの場合0、リンク位置も仮の等間隔座標である。これでは式のbaseline/前後空白、全巻の読み順・改ページ・本文スタイルを保証できない。旧combined fixtureのPDF成功は、この書籍の受け入れ証拠にはならない。
+
+### 14.2 共通flowと選択済み配置の設計
+
+新しいproduction専用bridgeを`typaxis-syntax`、`typaxis-shaping`、`typaxis-layout`、`typaxis-pagination`、`typaxis-display-list`に設ける。既存のfrozen staging fixture helperは回帰比較用に残し、production runnerから固定metrics helperと仮座標を使わなくする。
+
+1. syntaxが検証済みwire、computed style、text mappingから、本文・見出し・リスト・caption・表cell・脚注の順序付きtext siteと数式placeholderを発行する。siteはsource owner、style owner、TextSpan、exact UTF-8、effective language、package fingerprintを持つ。raw JSONからPDFへ直接文字列を渡さない。
+2. shapingは既存のadmitted font family解決とharfrust経路を共有する。本文は通常OpenTypeのglyph/cluster/advance/offsetを使い、MATHはnative数式を組む場合だけ参照する。Unicode・言語・direction・font size・feature設定をreceiptへ結び、未知glyphやfont selection failureは入力node付き診断にする。本文fontを画像宣言順や最初のnative数式から選ばない。
+3. paragraph item列へshaped text cluster、atomic SVG数式、native数式、break/spacingを元順序で入れる。本文だけの段落も列へ入れる。SVGのadvance/ink bounds/origin/baselineと前後spacingは§5のmetricsを使い、spacingを文字のadvanceへ重複加算しない。native数式も同じ行・block cursorを消費する。
+4. 一つのflow cursorで本文、見出し、display math、図・caption、リスト、table、forced break、脚注を順にpaginateする。既存のlinebreak・table・footnote・keep・overflow規則を用い、別々にページ0から配置した結果を後で重ねない。固定20ptのcaption/keep successor見積りと、inlineがあるとbody高をほぼ消費済みにする現在の仮入力を廃止する。
+5. private fieldの選択済みreceiptを発行する。paragraph/line/fragment、source owner、style、font/glyph cluster、page/frame、baseline/rect、paint ordinal、exact text/ActualText、admitted/profile/limits/session identityを結ぶ。同じ本文fragmentとSVG配置をdisplay・structure・navigationへ投影する。
+6. structureのMCRは実際にpaintしたfragmentから生成する。改行/改ページで複数fragmentになる本文には異なるsemantic fragment ordinalを付ける。outline destinationは該当headingの最初の配置、link annotationは実際のlink glyph範囲から作り、複数行リンクは行ごとの矩形にする。page 0や固定矩形をfallbackにしない。
+
+新receiptのcanonical identityはlayout/displayの実装変更と一緒に更新し、旧recipeのfingerprintを新結果へ転用しない。1.4公開schemaに許容されない識別子やfieldの追加が必要なら§9.1の1.5公開へ束ねる。安全性診断の修正と新layoutの公開時期を混同せず、書籍ゲートが未達の間にcapabilitiesで完了を宣言しない。
+
+### 14.3 本文fontとPDF出力の設計
+
+本文の全selected cluster usageを`StagingPdfTextClusterUsage`相当へまとめ、既存`finalize_staging_pdf_text_fonts`のTrueType/CFF subset経路へ接続する。現APIの公開constructorだけで任意glyphを信頼せず、production bridgeがshape receiptとadmitted fingerprintを照合したusageだけを渡す。本文・caption・式番号で同一faceを使う場合は一つのdocument font usage集合で課金・subsetし、呼出し単位で予算をリセットしない。native mathのglyph usageとの共有もfont instanceと元glyph/clusterのidentityで判断する。
+
+PDF writerはselected glyph位置とfrozen CID planから描画し、本文を再shapeしたり、Unicode scalarごとのcmap lookupで再配置したりしない。ToUnicodeは元clusterを保持し、必要なclusterにはActualTextを一回付ける。複数font・日本語・結合文字・ligature・IVSの処理を同じ原則で行う（IVS admissionの新規対応は§7の新profile）。空白advanceを一律0.6emに置換せず、選択済み行の空白・禁則・justify結果を使う。
+
+数式SVGのForm共有、配置ごとのFormula/Alt/ActualTextは維持する。抽出補助が必要なextractorでは、見えないanchorを専用の管理されたglyph usageとして登録し、任意native数式の最初のglyphに依存させない。anchorはviewport/読み順/タグへ結び、可視ink・余分な抽出文字・二重ActualTextがないことを独立extractorで検査する。
+
+### 14.4 追加の必須回帰・完了条件
+
+- native数式0の本文＋inline/block SVG、通常TrueType（MATHなし）でcheck/buildと独立render/extractが成功する。本文だけの入力も対応profileの範囲で同様に確認する。
+- 異なるadvanceのLatin文字と和文を含む2種類のfont、複数font sizeで、本文とSVGのbaseline/前後spaceが共通line receiptに一致する。font宣言順の変更で未選択fontが採用されない。
+- 「本文A→inline式→本文B→block式→caption→次段落」が狭いページを跨ぐ入力で、可視内容・抽出・structure読み順が一致する。本文だけの段落の欠落、page 0集中、式や本文の二重配置を拒否する。
+- 見出しdestinationと複数行linkのpage/矩形が選択済み配置に一致する。タグがあるだけ、PDF bytesが生成された、画像数が一致しただけでは合格にしない。
+- 旧native math-only authorizationの拒否境界、同一package以外のreceipt/selected-layout tamper、old-profile corpusを維持する。§8の5,000件・全巻・独立PDF検査を省略しない。

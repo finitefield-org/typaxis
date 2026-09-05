@@ -1000,6 +1000,111 @@ fn machine_production_book_1_combined_public_profile() {
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
+fn machine_production_book_1_authorizes_precomposed_math_without_native_math() {
+    use typaxis_document_package::{WireStagingM4Block as Block, WireStagingM4Inline as Inline};
+
+    let (_tree, job, artifacts, _expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "precomposed-without-native-math",
+    );
+    let path = job.join("document-package.json");
+    let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+    let raw = fs::read(&path).unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new()
+        .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+        .unwrap();
+    let mut wire = decoded.wire().clone();
+    let mut document = wire.document().clone();
+    let mut removed = 0;
+    for block in &mut document.blocks {
+        match block {
+            Block::Paragraph { children, .. } => {
+                for inline in children {
+                    if let Inline::InlineMath {
+                        node_id,
+                        span,
+                        math_source,
+                        language,
+                        ..
+                    } = inline
+                    {
+                        *inline = Inline::Text {
+                            node_id: *node_id,
+                            span: *span,
+                            text_span: math_source.text_span,
+                            language: language.clone(),
+                        };
+                        removed += 1;
+                    }
+                }
+            }
+            Block::DisplayMath { node_id, span, .. } => {
+                *block = Block::PageBreak {
+                    node_id: *node_id,
+                    span: *span,
+                    classes: vec![],
+                };
+                removed += 1;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        removed, 2,
+        "fixture must exercise an empty native math chain"
+    );
+    wire.replace_typed_regions(document, wire.resources().clone());
+    let encoded = typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+        .encode(&wire)
+        .unwrap();
+    let decoded = StagingSemanticDocumentPackageDecoder::new()
+        .decode(
+            encoded.as_bytes(),
+            &DocumentPackageDecodePolicy::new(&limits),
+        )
+        .unwrap();
+    let package = typaxis_syntax::StagingSemanticPackageParser::new()
+        .parse(decoded, &limits)
+        .unwrap();
+    assert!(package.math_nodes().is_empty());
+    let m4_limits = typaxis_core::M4EffectiveResourceLimits::new(
+        limits,
+        typaxis_core::M4ResourceLimits::default(),
+    )
+    .unwrap();
+    // The old, closed native-math slice retains its nonempty requirement.
+    assert!(typaxis_syntax::StagingMathProfileView::new(&package, &m4_limits).is_err());
+    let view =
+        typaxis_syntax::StagingMathProfileView::new_for_production(&package, &m4_limits).unwrap();
+    assert!(view.math_node_ids().is_empty());
+    let session = typaxis_syntax::StagingMathProfileSessionIdentity::fresh();
+    let authorization =
+        typaxis_syntax::StagingMathProfileAuthorization::bind_production_profile_receipt(
+            view, [42; 32], &package, &m4_limits, &session,
+        )
+        .unwrap();
+    authorization.authorizes(&package, &m4_limits).unwrap();
+    fs::write(&path, encoded).unwrap();
+    fs::create_dir_all(&artifacts).unwrap();
+    let check = run_check_package(CheckPackageOptions {
+        package: path,
+        package_root: Some(job.clone()),
+        profile: MachinePdfProfileId::ProductionBook1,
+        diagnostics: Some(artifacts.join("check-diagnostics.json")),
+        common: CommonOptions {
+            resource_roots: vec![job.clone()],
+            ..CommonOptions::default()
+        },
+    });
+    assert!(
+        check.is_ok(),
+        "check failed: {:?}",
+        check.err().map(|error| error.message)
+    );
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
 fn machine_production_book_1_feature_local_tamper_matrix() {
     let legacy = run_build_fixture("profiles/production-book-1/legacy-contract");
     let legacy_manifest = read_json(&legacy.artifacts.join("manifest.json"));
