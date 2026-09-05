@@ -2,7 +2,7 @@
 //! layout bridge; this kernel never turns scalar metrics into PDF text.
 use super::*;
 
-pub const PRODUCTION_INLINE_BREAK_ALGORITHM: &str = "typaxis.production-inline-break/2";
+pub const PRODUCTION_INLINE_BREAK_ALGORITHM: &str = "typaxis.production-inline-break/3";
 
 /// Explicit zero-width opportunity, with syntax-owned provenance. It is not a
 /// space, object-replacement character, or fabricated TextSpan.
@@ -328,6 +328,11 @@ impl ProductionLineBreakBudget {
     pub const fn remaining_lines(&self) -> u64 {
         self.remaining_lines
     }
+    /// Tighten the remaining line allowance to fit a downstream document
+    /// allocation budget. This never restores visits or previously used lines.
+    pub fn constrain_remaining_lines(&mut self, maximum: u64) {
+        self.remaining_lines = self.remaining_lines.min(maximum);
+    }
     fn step(&mut self) -> Result<(), AtomicVectorInlineError> {
         self.remaining_steps = self
             .remaining_steps
@@ -339,11 +344,19 @@ impl ProductionLineBreakBudget {
 
 #[derive(Debug)]
 pub struct ProductionInlineSelectedLine {
+    unit_pens: Vec<Length>,
     line: AtomicVectorSelectedLine,
     origin_shift: NonNegativeLength,
     required_inline_size: NonNegativeLength,
 }
 impl ProductionInlineSelectedLine {
+    /// Pen after same-line spacing and before this logical unit. Coordinates
+    /// exclude origin_shift; controls and zero-advance scalars keep their slots.
+    pub fn unit_pen_x(&self, unit_index: u32) -> Option<Length> {
+        let offset = unit_index.checked_sub(self.line.start_unit())?;
+        self.unit_pens.get(offset as usize).copied()
+    }
+
     /// Pens in `line` are relative to this shifted line origin. Apply the same
     /// shift to body glyphs and vector viewports; do not alter producer metrics.
     pub const fn line(&self) -> &AtomicVectorSelectedLine {
@@ -513,6 +526,7 @@ pub fn break_production_inline(
             return Err(AtomicVectorInlineError::InvalidBinding);
         }
         lines.push(ProductionInlineSelectedLine {
+            unit_pens: measured.unit_pens,
             origin_shift: Length::ZERO
                 .checked_sub(left)
                 .and_then(NonNegativeLength::new)
@@ -556,12 +570,19 @@ pub fn break_production_inline(
             canonical.push(',');
         }
         canonical.push_str(&format!(
-            "{{\"end\":{},\"origin_shift\":{},\"required\":{},\"start\":{}}}",
+            "{{\"end\":{},\"origin_shift\":{},\"required\":{},\"start\":{},\"unit_pens\":[",
             value.line.end_unit,
             value.origin_shift.get().raw(),
             value.required_inline_size.get().raw(),
             value.line.start_unit
         ));
+        for (unit, pen) in value.unit_pens.iter().enumerate() {
+            if unit != 0 {
+                canonical.push(',');
+            }
+            canonical.push_str(&pen.raw().to_string());
+        }
+        canonical.push_str("]}");
     }
     canonical.push_str("],\"paragraph_fingerprint\":");
     push_hash(&mut canonical, paragraph.fingerprint);
@@ -575,6 +596,7 @@ pub fn break_production_inline(
 }
 
 struct ProductionMeasuredLine {
+    unit_pens: Vec<Length>,
     logical_advance: NonNegativeLength,
     visual_left: Option<Length>,
     visual_right: Option<Length>,
@@ -594,6 +616,10 @@ fn measure_production_line(
     let mut descent = Length::ZERO;
     let mut visual_left: Option<Length> = None;
     let mut visual_right: Option<Length> = None;
+    let mut unit_pens = Vec::new();
+    unit_pens
+        .try_reserve_exact(end - start)
+        .map_err(|_| AtomicVectorInlineError::AllocationFailure)?;
     let mut occurrences = Vec::new();
     occurrences
         .try_reserve_exact(
@@ -612,6 +638,7 @@ fn measure_production_line(
         cursor = cursor
             .checked_add(p.gap_before(index, start)?)
             .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?;
+        unit_pens.push(cursor);
         match p.units[index] {
             U::Text(t) => {
                 ascent = ascent.max(t.ascent().get());
@@ -655,6 +682,7 @@ fn measure_production_line(
         }
     }
     Ok(ProductionMeasuredLine {
+        unit_pens,
         logical_advance: NonNegativeLength::new(cursor)
             .ok_or(AtomicVectorInlineError::ArithmeticOverflow)?,
         visual_left,

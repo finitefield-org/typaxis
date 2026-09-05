@@ -652,6 +652,8 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 改行だけの段落は、新linebreak kernelで行高と改行位置を保持できる。ただし既存tagged profileは`Paragraph { has_real_content: false }`を`UnsupportedSemantic`で拒否する。新production profileの接続時には、改行による空行のlayout ownerとpaintを持つsemantic fragmentを区別し、空行のためのdummy glyph/MCRを生成しない。空semantic containerの拒否を一律解除せず、改行だけの段落を含む実本文文書について独立したadmission・pagination・structure試験を追加する。
 
+行内配置の追補（2026-09-06）: `typaxis-layout/src/production_selected_inline.rs`の`layout_production_inline_lines`は、prepared本文/SVG全段落と同数の幅を要求し、元の段落順で行を選択する。kernelが選択時に保持したunit penを本文にも使い、glyph originを`pen + offset_x`、`line baseline - offset_y`としてY-down座標へ投影する。SVGは同じline baselineとorigin補正を使う。source cluster・元run/glyph・font・改行ownerを保持し、内容を文字列から再構築しない。行組みの候補訪問数と配置record数は文書全体の一つの予算で制限する。これは行内の相対配置であり、page/frameの確定、行境界再shape、bidi、実ink bounds、justify、PDF描画を完了したreceiptではない。共通page selectorが確定したline topを同じ本文/SVG/semantic fragmentへ加える後段を引き続き実装する。
+
 ### 14.3 本文fontとPDF出力の設計
 
 本文の全selected cluster usageを`StagingPdfTextClusterUsage`相当へまとめ、既存`finalize_staging_pdf_text_fonts`のTrueType/CFF subset経路へ接続する。現APIの公開constructorだけで任意glyphを信頼せず、production bridgeがshape receiptとadmitted fingerprintを照合したusageだけを渡す。本文・caption・式番号で同一faceを使う場合は一つのdocument font usage集合で課金・subsetし、呼出し単位で予算をリセットしない。native mathのglyph usageとの共有もfont instanceと元glyph/clusterのidentityで判断する。

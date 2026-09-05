@@ -94,7 +94,15 @@ fn with_prepared_production_inlines(
     bytes: &[u8],
     check: impl FnOnce(&typaxis_layout::ProductionPreparedInlines<'_>),
 ) {
-    let (package, navigation, limits, admitted) = production_text_fixture(bytes, &config());
+    with_prepared_production_inlines_config(bytes, &config(), check);
+}
+
+fn with_prepared_production_inlines_config(
+    bytes: &[u8],
+    config: &EffectiveConfig,
+    check: impl FnOnce(&typaxis_layout::ProductionPreparedInlines<'_>),
+) {
+    let (package, navigation, limits, admitted) = production_text_fixture(bytes, config);
     let semantics =
         typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
             .unwrap();
@@ -187,6 +195,304 @@ fn production_inline_vmb_fixture(surrounding_text: bool) -> Vec<u8> {
     value["document"]["blocks"][0]["span"] = source_span.clone();
     value["document"]["blocks"][0]["blocks"][0]["span"] = source_span;
     serde_json::to_vec(&value).unwrap()
+}
+
+#[test]
+fn production_line_projection_keeps_real_vmb_body_glyphs_and_formula_on_one_baseline() {
+    use typaxis_layout::ProductionPlacedInline as P;
+    let width = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
+    with_prepared_production_inlines(&production_inline_vmb_fixture(true), |prepared| {
+        let layout =
+            typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).unwrap();
+        layout.verify(prepared).unwrap();
+        assert_eq!(layout.output_records(), 15);
+        let p = &layout.paragraphs()[0];
+        assert_eq!(p.font().unwrap().face_id().get(), 0);
+        assert_eq!(p.lines().len(), 1);
+        let line = &p.lines()[0];
+        assert_eq!(line.baseline().raw(), 665_170);
+        assert_eq!(line.items().len(), 4);
+        let mut text = String::new();
+        for (index, (item, expected_pen)) in line
+            .items()
+            .iter()
+            .zip([0, 471_859, 707_789, 2_173_770])
+            .enumerate()
+        {
+            match item {
+                P::Text(cluster) => {
+                    text.push_str(cluster.utf8());
+                    assert_eq!(cluster.pen_x().raw(), expected_pen);
+                    assert_eq!(cluster.glyphs().len(), 1);
+                    let glyph = &cluster.glyphs()[0];
+                    assert_eq!(glyph.x().raw(), expected_pen);
+                    assert_eq!(glyph.y(), line.baseline());
+                    assert!(std::ptr::eq(
+                        glyph.glyph(),
+                        &cluster.run().glyph_run().glyphs[glyph.glyph_index() as usize]
+                    ));
+                    assert_eq!(
+                        cluster.source_span().text_id().get(),
+                        if index == 3 { 1 } else { 0 }
+                    );
+                }
+                P::Vector(vector) => {
+                    assert_eq!(index, 2);
+                    let g = vector.geometry();
+                    assert_eq!(g.pen_origin_x().raw(), expected_pen);
+                    assert_eq!(g.line_baseline_y(), line.baseline());
+                    assert_eq!(g.viewport().x().raw(), 662_733);
+                    assert_eq!(g.viewport().y().raw(), 0);
+                    assert_eq!(g.viewport().width().get().raw(), 1_556_093);
+                    assert_eq!(vector.occurrence().item().node_id().get(), 4);
+                }
+                P::Break(_) => panic!("no break node in fixture"),
+            }
+        }
+        assert_eq!(text, "A B");
+        let again =
+            typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).unwrap();
+        assert_eq!(layout.fingerprint(), again.fingerprint());
+        let wider = PositiveLength::new(Length::from_raw(3_000_001).unwrap()).unwrap();
+        assert_ne!(
+            layout.fingerprint(),
+            typaxis_layout::layout_production_inline_lines(prepared, &[wider], 100)
+                .unwrap()
+                .fingerprint()
+        );
+        with_prepared_production_inlines(&production_inline_vmb_fixture(true), |other| {
+            assert!(layout.verify(other).is_err());
+        });
+    });
+}
+
+#[test]
+fn production_line_projection_shifts_formula_and_following_glyph_together() {
+    use typaxis_layout::ProductionPlacedInline as P;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_inline_vmb_fixture(true)).unwrap();
+    let children = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    children.remove(0);
+    children[0]["node_id"] = 3.into();
+    children[1]["node_id"] = 4.into();
+    with_prepared_production_inlines(&serde_json::to_vec(&value).unwrap(), |prepared| {
+        let width = PositiveLength::new(Length::from_raw(1_982_896).unwrap()).unwrap();
+        let layout =
+            typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).unwrap();
+        let p = &layout.paragraphs()[0];
+        assert_eq!(
+            p.selected().unwrap().lines()[0].origin_shift().get().raw(),
+            45_056
+        );
+        let line = &p.lines()[0];
+        let P::Vector(vector) = line.items()[0] else {
+            panic!("vector first")
+        };
+        let P::Text(ref cluster) = line.items()[1] else {
+            panic!("body second")
+        };
+        assert_eq!(vector.geometry().viewport().x().raw(), 0);
+        assert_eq!(vector.geometry().pen_origin_x().raw(), 45_056);
+        assert_eq!(cluster.pen_x().raw(), 1_511_037);
+        assert_eq!(cluster.glyphs()[0].x().raw(), 1_511_037);
+        assert_eq!(cluster.glyphs()[0].y(), vector.geometry().line_baseline_y());
+        assert_eq!(cluster.utf8(), "B");
+    });
+}
+
+#[test]
+fn production_line_projection_applies_svg_spacing_only_before_same_line_body() {
+    use typaxis_layout::ProductionPlacedInline as P;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_inline_vmb_fixture(true)).unwrap();
+    let children = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    children.remove(0);
+    children[0]["node_id"] = 3.into();
+    children[0]["spacing"]["after"] = 200.into();
+    children[1]["node_id"] = 5.into();
+    let span = children[1]["span"].clone();
+    children.insert(
+        1,
+        serde_json::json!({"kind":"soft_break","node_id":4,"span":span}),
+    );
+    with_prepared_production_inlines(&serde_json::to_vec(&value).unwrap(), |prepared| {
+        for (raw_width, count) in [(2_000_000, 1), (1_556_093, 2)] {
+            let width = PositiveLength::new(Length::from_raw(raw_width).unwrap()).unwrap();
+            let layout =
+                typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).unwrap();
+            let p = &layout.paragraphs()[0];
+            assert_eq!(p.lines().len(), count);
+            let P::Vector(vector) = p.lines()[0].items()[0] else {
+                panic!("first formula")
+            };
+            assert_eq!(
+                vector.occurrence().spacing_after().get().raw(),
+                if count == 1 { 200 } else { 0 }
+            );
+            let cluster = p
+                .lines()
+                .iter()
+                .flat_map(|line| line.items())
+                .find_map(|item| match item {
+                    P::Text(c) => Some(c),
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(
+                cluster.glyphs()[0].x().raw(),
+                if count == 1 { 1_511_237 } else { 0 }
+            );
+            assert_eq!(cluster.utf8(), "B");
+        }
+    });
+}
+
+#[test]
+fn production_line_projection_keeps_cff_body_font_and_needs_no_font_for_formula_only() {
+    use typaxis_layout::ProductionPlacedInline as P;
+    with_prepared_production_inlines(
+        &production_text_single_paragraph(&["A B"], "Typaxis CFF Fixture"),
+        |prepared| {
+            let width = PositiveLength::new(Length::from_raw(1_179_648).unwrap()).unwrap();
+            let layout =
+                typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).unwrap();
+            let p = &layout.paragraphs()[0];
+            assert_eq!(p.font().unwrap().face_id().get(), 2);
+            let mut projected = Vec::new();
+            for item in p.lines()[0].items() {
+                let P::Text(cluster) = item else {
+                    panic!("body text")
+                };
+                projected.push((
+                    cluster.utf8(),
+                    cluster.glyphs()[0].glyph().original_gid.get(),
+                    cluster.pen_x().raw(),
+                ));
+            }
+            assert_eq!(
+                projected,
+                [("A", 1, 0), (" ", 3, 471_859), ("B", 2, 707_789)]
+            );
+        },
+    );
+    with_prepared_production_inlines(&production_inline_vmb_fixture(false), |prepared| {
+        let width = PositiveLength::new(Length::from_raw(1_556_093).unwrap()).unwrap();
+        let layout =
+            typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).unwrap();
+        let p = &layout.paragraphs()[0];
+        assert!(p.font().is_none());
+        assert_eq!(p.lines()[0].items().len(), 1);
+        let P::Vector(vector) = p.lines()[0].items()[0] else {
+            panic!("formula only")
+        };
+        assert_eq!(vector.geometry().viewport().x(), Length::ZERO);
+        assert_eq!(vector.geometry().viewport().y(), Length::ZERO);
+    });
+}
+
+#[test]
+fn production_line_projection_preserves_source_clusters_across_explicit_breaks() {
+    use typaxis_layout::ProductionPlacedInline as P;
+    for kind in ["soft_break", "hard_break"] {
+        with_prepared_production_inlines(
+            &production_explicit_break_fixture(&["A", kind, "B"]),
+            |prepared| {
+                let width = PositiveLength::new(Length::from_raw(471_859).unwrap()).unwrap();
+                let layout =
+                    typaxis_layout::layout_production_inline_lines(prepared, &[width], 100)
+                        .unwrap();
+                let p = &layout.paragraphs()[0];
+                assert_eq!(p.lines().len(), 2);
+                let mut text = String::new();
+                let mut controls = 0;
+                for line in p.lines() {
+                    for item in line.items() {
+                        match item {
+                            P::Text(cluster) => {
+                                text.push_str(cluster.utf8());
+                                assert_eq!(cluster.pen_x(), Length::ZERO);
+                                assert_eq!(cluster.glyphs()[0].x(), Length::ZERO);
+                                assert_eq!(cluster.glyphs()[0].y(), line.baseline());
+                            }
+                            P::Break(control) => {
+                                controls += 1;
+                                assert_eq!(control.owner().get(), 4);
+                            }
+                            _ => panic!("unexpected image"),
+                        }
+                    }
+                }
+                assert_eq!(text, "AB");
+                assert_eq!(controls, 1);
+            },
+        );
+    }
+}
+
+#[test]
+fn production_line_projection_requires_complete_paragraph_widths_and_document_budgets() {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["AB"], "Body")).unwrap();
+    let mut second = value["document"]["blocks"][0]["blocks"][0].clone();
+    second["node_id"] = 4.into();
+    second["children"][0]["node_id"] = 5.into();
+    value["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .push(second);
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let width = PositiveLength::new(Length::from_raw(943_718).unwrap()).unwrap();
+    with_prepared_production_inlines(&bytes, |prepared| {
+        assert!(typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).is_err());
+        let layout =
+            typaxis_layout::layout_production_inline_lines(prepared, &[width; 2], 4).unwrap();
+        assert_eq!(layout.output_records(), 18);
+        assert_eq!(
+            layout
+                .paragraphs()
+                .iter()
+                .map(|p| p.owner().get())
+                .collect::<Vec<_>>(),
+            [2, 4]
+        );
+        let err = match typaxis_layout::layout_production_inline_lines(prepared, &[width; 2], 3) {
+            Err(e) => e,
+            Ok(_) => panic!("candidate budget reset"),
+        };
+        assert_eq!(err.owner.get(), 4);
+        assert_eq!(
+            err.kind,
+            typaxis_layout::ProductionInlinePreparationErrorKind::Atomic(
+                typaxis_linebreak::AtomicVectorInlineError::CandidateLimit
+            )
+        );
+    });
+    for maximum in [18, 17] {
+        let configured = config_with_limits(ResourceLimits {
+            max_fragments: maximum,
+            ..ResourceLimits::default()
+        });
+        with_prepared_production_inlines_config(&bytes, &configured, |prepared| {
+            let result = typaxis_layout::layout_production_inline_lines(prepared, &[width; 2], 100);
+            if maximum == 18 {
+                assert_eq!(result.unwrap().output_records(), 18);
+            } else {
+                let err = match result {
+                    Err(e) => e,
+                    Ok(_) => panic!("retained record budget reset"),
+                };
+                assert_eq!(err.owner.get(), 5);
+                assert_eq!(
+                    err.kind,
+                    typaxis_layout::ProductionInlinePreparationErrorKind::UnitLimit
+                );
+            }
+        });
+    }
 }
 
 #[test]

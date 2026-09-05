@@ -19,6 +19,10 @@ use typaxis_syntax::{
     ValidatedStagingSemanticPackage,
 };
 
+#[path = "production_selected_inline.rs"]
+mod selected;
+pub use selected::*;
+
 pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/2";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProductionInlinePreparationErrorKind {
@@ -101,6 +105,7 @@ impl ProductionPreparedInlineParagraph {
     }
 }
 pub struct ProductionPreparedInlines<'a> {
+    max_fragments: u64,
     flow: &'a ProductionTextFlow<'a>,
     shaped: &'a ProductionAuthoredTextShape<'a>,
     bindings: &'a ValidatedPrecomposedVectorBindings,
@@ -395,6 +400,7 @@ pub fn prepare_production_inline_items<'a>(
         );
     }
     Ok(ProductionPreparedInlines {
+        max_fragments: limits.base().get().max_fragments,
         flow,
         shaped,
         bindings,

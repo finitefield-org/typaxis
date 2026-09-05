@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates and zero-width explicit breaks verified; generated labels, common pagination and selected PDF text still pending |
+| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection verified; generated labels, common pagination and selected PDF text still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -639,3 +639,84 @@ the line kernel, not CLI admission. The production profile/structure extension
 must explicitly handle these unpainted paragraph owners when connecting common
 pagination and PDF semantics. No dummy text or fabricated semantic content is
 introduced to bypass those guards.
+
+
+## Follow-up: shared line-local body glyph and SVG positions (2026-09-06)
+
+Added `typaxis-layout/src/production_selected_inline.rs` and
+`layout_production_inline_lines`. This selects every prepared paragraph once in
+source order, requires an equally sized list of available paragraph widths and
+retains empty/structural records. It returns a sealed result borrowing the exact
+prepared owner. Its `verify` rejects another preparation, including an independently
+admitted copy of identical input. Selected widths, preparation identity, paragraph
+owners and kernel selection fingerprints are bound to the new
+`typaxis.production-inline-line-layout/1` digest.
+
+The production kernel is now `typaxis.production-inline-break/3`. Selected-line
+measurement retains every logical unit's pen after applicable same-line spacing,
+including zero-width controls and intra-cluster scalars. These pens are encoded
+in the selected line's canonical identity. The layout projection reads the start
+pen of the original shaped cluster, then uses the original glyph advances and
+X/Y offsets. It verifies the cluster's final pen against selected unit metrics.
+A cluster retains its original run, source TextSpan and exact UTF-8 slice; each
+glyph refers to the admitted shape's original record. There is no per-scalar
+cmap lookup, reconstructed glyph advance or guessed text string.
+
+Line-local coordinates use a top-left, Y-down system. The baseline is selected
+leading-before plus maximum content ascent. Glyph X is shifted pen plus the
+shaper's X offset; glyph Y is baseline minus the shaper's Y offset. SVG geometry
+uses the existing bound `select_inline_geometry` with the same shifted pen and
+baseline. A negative SVG origin shifts the following body glyphs too. Output
+items preserve text-cluster/vector/break source order; breaks carry no glyph or
+extraction string. Markup and anchors remain owned by the borrowed syntax flow.
+The paragraph retains its actual body font, and formula-only paragraphs retain
+None instead of borrowing a native math font.
+
+One candidate budget spans all paragraph calls. Retained paragraph, kernel line,
+unit-pen, kernel occurrence, projected line, cluster, glyph, vector and control
+records share the preparation's document `max_fragments` ceiling. Each is charged
+before its allocation. The shared kernel line allowance is tightened to the
+remaining downstream record budget before selection; it never restores consumed
+visits/lines. The candidate ceiling remains an explicit internal argument for
+the future common flow owner, not an already published CLI/capability setting.
+
+Six CLI regressions traverse real resource admission, syntax, body shaping,
+inline preparation, selection and line-local projection:
+
+- Actual VMB fraction plus `A B`: glyph pens 0, 471,859 and 2,173,770; formula
+  pen 707,789; common baseline 665,170; formula viewport left 662,733 and top 0.
+  The cluster text reconstructs only the authored `A B`, with original source
+  buffer IDs and actual glyph references.
+- The negative-origin formula followed by `B` shifts both by 45,056 raw. Formula
+  viewport left is 0, its pen is 45,056, and B's glyph X is 1,511,037.
+- A producer after-spacing of 200 across an unselected soft break moves B's X to
+  1,511,237. Selecting that break removes spacing and starts B at X=0 on line 2.
+- Name-keyed CFF body uses its declared face and actual glyph IDs [1,3,2], while
+  a formula-only paragraph needs no body font.
+- Soft/hard breaks split exact source clusters without duplicate glyph/text and
+  retain the control's source owner.
+- Missing paragraph widths fail; two body paragraphs share the exact four-visit
+  candidate budget and the 18-record placement budget. A three-visit budget
+  fails on paragraph 2; a 17-record ceiling fails on its second glyph's owner.
+  Repeated selection is deterministic, width changes change identity and another
+  prepared owner cannot be substituted.
+
+Completed verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-linebreak -p typaxis-layout -p typaxis-cli --lib --bin typaxis --locked
+# CLI: 181 passed, 0 failed, 3 existing external-tool tests ignored.
+# Layout: 65 passed, 0 failed.
+# Linebreak: 44 passed, 0 failed.
+```
+
+290 tests passed; log `/private/tmp/typaxis-production-line-projection-verification.log`.
+These are line-local placements, not PDF paint authorization or paginated output.
+Page/frame selection, native math/generated-label joining, final-line reshape and
+bidi, text ink extents, justification, block/table/footnote layout, PDF font usage,
+structure/navigation projection and the whole-book gates remain open. Nonzero
+GPOS offsets, ligatures, Japanese fonts and independent rendered baselines still
+need their own positive evidence. Public PDF writer behavior is unchanged, and
+no successful full-book PDF is inferred from this stage.
