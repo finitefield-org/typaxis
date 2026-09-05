@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax flow and admitted authored-text shaping implemented; real TT/TTC/CFF metrics, clusters and output limits verified; generated labels, unified pagination and selected PDF text still pending |
+| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin and mixed body/formula candidates verified; generated labels, common pagination and selected PDF text still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -484,3 +484,90 @@ The CLI test-only JSON fixture editor uses the already locked serde_json 1.0.151
 the lock change only adds it to typaxis-cli's dependency list. No production JSON
 decoder or dependency version was replaced. Both verification processes reached
 terminal states; no full-book render/extract success is inferred from 194 tests.
+
+## Follow-up: shaped body/SVG inline candidates (2026-09-06)
+
+Added `typaxis-layout/src/production_inline.rs` and
+`typaxis-linebreak/src/production_inline.rs`. The first joins exact shaped
+clusters and resource-bound inline SVGs in the syntax flow's source order.
+`prepare_production_inline_items` verifies the package/navigation, vector
+bindings and shape's admission/limit/epoch owners once at the stage boundary.
+The immutable result borrows all three owners. Source cluster indices remain
+paired with their glyph runs; the Unicode scalar projection is exclusively for
+line-break classification and is not a replacement text painter. A cluster's
+actual glyph advances are summed and placed on its final scalar unit; all
+internal boundaries are prohibited. Scalars do not get guessed advances.
+
+The new `typaxis.production-inline-break/1` kernel retains the old UAX #14 and
+Japanese boundary rules and producer spacing, while supporting body-only
+paragraphs and complete shaped cluster ranges. Cluster gaps, overlap, vector
+crossing and crossing a mandatory break are rejected. The old atomic-vector
+API still requires a vector and still rejects negative-origin empty-line
+overhang; its frozen outputs are unchanged. The new itemization and selection
+have distinct fingerprints, including Japanese mode and cluster partition.
+
+Candidate fitting uses `left=min(0, visual_left)` and
+`right=max(logical_advance, visual_right)`, then tests `right-left`. Each selected
+candidate records `origin_shift=-left` separately. Glyph and SVG placement must
+both apply it; no resource metric, origin, spacing, advance or viewport is
+overwritten. The kernel extends each candidate in constant time with monotonic
+advance/extents and stops after irreversible overflow, avoiding the old repeated
+prefix measurement. Only selected lines collect vector occurrences and vertical
+metrics. A shared `ProductionLineBreakBudget` charges candidate-unit visits and
+selected lines across calls, with distinct `CandidateLimit` and `SelectionLimit`
+errors. The future document selector must retain that budget, choose its finite
+effective ceilings, and charge all paragraph calls; no public configuration
+field or capability is claimed for this internal owner yet.
+
+Four new CLI tests traverse contained resource admission, syntax, profile,
+vector binding, body shaping and the new preparation/kernel. They use the actual
+checked-in VMB engine 2.0.0 `fraction-inline-720896.svg`, with its fixture-index
+hash, provenance, TeX identity mapping, speech and unchanged metrics. The
+formula-only case accepts exactly 1,556,093 raw units and rejects one raw unit
+less. Its original origin remains -45,056 and advance 1,465,981; line origin shift
+is +45,056. The mixed `A <formula>B` case has three body clusters, one atomic
+formula, formula pen 707,789, logical advance 2,645,629 and line height 958,936,
+all from admitted metrics. A MATH-free CFF body-only paragraph enters the same
+kernel. A paragraph with authored text followed by an unresolved soft break
+returns the break's owner rather than silently omitting it.
+
+The CLI admission test helper was corrected to pass the precomposed profile
+receipt fingerprint to resource admission, matching the public runner. Its old
+authorization fingerprint happened to be sufficient for standalone shaping but
+correctly failed when the SVG binding stage rechecked the attestation. No
+production authorization check was weakened to make this test pass.
+
+Three additional kernel regressions cover negative-origin compensation while
+the old API continues to reject it; body-only Japanese scalar candidates with
+one versus two shaped clusters; exact candidate/line budgets; and invalid
+cluster partitions/mandatory breaks. The Japanese kernel case is not evidence
+of Japanese font shaping. The suite covers candidate geometry, not rasterized
+ink or PDF placement.
+
+Remaining work is explicit. This bridge currently returns owner-specific pending
+errors for references, footnote markers, soft/hard breaks, native math and
+nonzero bidi levels. It does not erase those sites or treat this subset as the
+final production domain. Empty/anchor-only paragraph records are retained for
+the containing flow. The whole-book selector still needs generated text and
+break semantics, line-boundary reshaping, bidi line ordering, text ink extents,
+line-edge whitespace/justification, block math/figures, table/caption/footnote
+placement and common page selection. PDF glyph/CID/ToUnicode, structure and
+navigation must then consume those same selected positions. The public
+`build-package` runner is not yet wired to this bridge. The earlier failing
+full PDF probes therefore remain failures, and §10's complete scope stays open.
+
+Completed local verification after the final changes:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-linebreak -p typaxis-layout -p typaxis-cli --lib --bin typaxis --locked
+# CLI: 174 passed, 0 failed, 3 existing external-tool tests ignored.
+# Layout: 65 passed, 0 failed.
+# Linebreak: 40 passed, 0 failed (3 new kernel tests).
+```
+
+The process exited successfully; 279 tests passed. The local log is
+`/private/tmp/typaxis-production-inline-verification.log`. The two new actual-VMB
+candidate tests do not invoke the public PDF writer or independent renderer,
+and are not substituted for the required check/build/render/extract book gates.

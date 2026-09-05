@@ -646,6 +646,8 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 実装追補: `typaxis-syntax/src/production_flow.rs`に`prepare_production_text_flow`を追加した。これは順序・構造境界・継承style・exact text・言語を保持するsyntax側の入力ownerであり、選択済み配置receiptではない。続いて`typaxis-shaping/src/production_text.rs`に`shape_production_authored_text`を追加し、admitted TT/TTC/CFFの実glyph・cluster・advance・hhea metricsを得る経路を検証した。参照labelは未確定ownerとして残し、解決後のcontext再shapeを要求する。共通行組み・改ページ・PDFへの接続は未完了で、現行production runnerの仮座標をこの入力の正しい配置と扱わない。検証結果は[実装台帳](28-vmb-book-production-progress.md)を参照する。
 
+追加追補（2026-09-06）: `typaxis-layout/src/production_inline.rs`と`typaxis-linebreak/src/production_inline.rs`で、shaped clusterとbound SVGを同じLTR行候補に結ぶ経路を実装した。実VMB 11pt分数SVGの負originを保持した行頭補正、前後本文の実advance、cluster内部の改行禁止を検証した。参照・break・native数式・bidiの未接続部分はowner付き保留エラーとして残す。共通改ページとPDF writerへの接続は引き続き未完了であり、この行候補の成功を全巻PDFの受け入れ証拠にはしない。
+
 ### 14.3 本文fontとPDF出力の設計
 
 本文の全selected cluster usageを`StagingPdfTextClusterUsage`相当へまとめ、既存`finalize_staging_pdf_text_fonts`のTrueType/CFF subset経路へ接続する。現APIの公開constructorだけで任意glyphを信頼せず、production bridgeがshape receiptとadmitted fingerprintを照合したusageだけを渡す。本文・caption・式番号で同一faceを使う場合は一つのdocument font usage集合で課金・subsetし、呼出し単位で予算をリセットしない。native mathのglyph usageとの共有もfont instanceと元glyph/clusterのidentityで判断する。

@@ -10,6 +10,14 @@ use typaxis_layout_contract::{
     PrecomposedVectorInlinePlacementInput,
 };
 
+#[path = "production_inline.rs"]
+mod production_inline;
+pub use production_inline::{
+    break_production_inline, ProductionInlineBreak, ProductionInlineParagraph,
+    ProductionInlineSelectedLine, ProductionLineBreakBudget, ProductionTextClusterRange,
+    PRODUCTION_INLINE_BREAK_ALGORITHM,
+};
+
 pub const ATOMIC_VECTOR_INLINE_ALGORITHM: &str = "typaxis.atomic-vector-inline/1";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -333,12 +341,22 @@ impl AtomicVectorInlineParagraph {
         units: Vec<AtomicVectorInlineLogicalUnit>,
         japanese_mode: JapaneseLineBreakMode,
     ) -> Result<Self, AtomicVectorInlineError> {
+        Self::itemize_for_owner(units, japanese_mode, None)
+    }
+
+    fn itemize_for_owner(
+        units: Vec<AtomicVectorInlineLogicalUnit>,
+        japanese_mode: JapaneseLineBreakMode,
+        owner: Option<NodeId>,
+    ) -> Result<Self, AtomicVectorInlineError> {
         if units.is_empty() {
             return Err(AtomicVectorInlineError::EmptyParagraph);
         }
-        let Some(paragraph_node) = units.iter().find_map(|unit| match unit {
-            AtomicVectorInlineLogicalUnit::Text(_) => None,
-            AtomicVectorInlineLogicalUnit::Vector(value) => Some(value.paragraph_node()),
+        let Some(paragraph_node) = owner.or_else(|| {
+            units.iter().find_map(|unit| match unit {
+                AtomicVectorInlineLogicalUnit::Text(_) => None,
+                AtomicVectorInlineLogicalUnit::Vector(value) => Some(value.paragraph_node()),
+            })
         }) else {
             return Err(AtomicVectorInlineError::MissingVector);
         };
@@ -660,6 +678,7 @@ pub enum AtomicVectorInlineError {
     NoFeasibleLine,
     Oversize(NodeId),
     SelectionLimit,
+    CandidateLimit,
     ArithmeticOverflow,
     AllocationFailure,
 }
@@ -684,6 +703,9 @@ impl std::fmt::Display for AtomicVectorInlineError {
             ),
             Self::SelectionLimit => {
                 formatter.write_str("L5110: atomic vector selected line limit exceeded")
+            }
+            Self::CandidateLimit => {
+                formatter.write_str("L5110: production inline candidate work limit exceeded")
             }
             Self::ArithmeticOverflow => {
                 formatter.write_str("L5100: atomic vector line arithmetic overflow")
@@ -1326,6 +1348,156 @@ mod tests {
             nonnegative(700),
             nonnegative(300),
         ))
+    }
+
+    #[test]
+    fn production_inline_compensates_negative_origin_without_changing_vector_metrics() {
+        let item = vector(2, 10, 8, 2, -2, 8, 12, 10, 0, 0);
+        let units = vec![AtomicVectorInlineLogicalUnit::Vector(item)];
+        let old =
+            AtomicVectorInlineParagraph::itemize(units.clone(), JapaneseLineBreakMode::Normal)
+                .unwrap();
+        assert!(matches!(
+            break_atomic_vector_inline(&old, positive(12), positive(10), 2),
+            Err(AtomicVectorInlineError::Oversize(_))
+        ));
+        let p = ProductionInlineParagraph::itemize(
+            NodeId::new(1),
+            units,
+            vec![],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let mut budget = ProductionLineBreakBudget::new(2, 2);
+        let selected =
+            break_production_inline(&p, positive(12), positive(10), &mut budget).unwrap();
+        let line = &selected.lines()[0];
+        assert_eq!(line.origin_shift().get().raw(), 2);
+        assert_eq!(line.required_inline_size().get().raw(), 12);
+        assert_eq!(line.line().logical_advance().get().raw(), 10);
+        assert_eq!(line.line().occurrences()[0].item, item);
+        assert_eq!(line.line().occurrences()[0].pen_x.raw(), 0);
+        assert!(matches!(
+            break_production_inline(&p, positive(11), positive(10), &mut budget),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+    }
+
+    #[test]
+    fn production_inline_keeps_multiscalar_clusters_indivisible_and_accepts_body_only() {
+        let units = vec![text('日', 5), text('本', 5)];
+        let p = ProductionInlineParagraph::itemize(
+            NodeId::new(1),
+            units.clone(),
+            vec![ProductionTextClusterRange {
+                start_unit: 0,
+                end_unit: 2,
+            }],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        assert!(matches!(
+            break_production_inline(
+                &p,
+                positive(5),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(20, 20)
+            ),
+            Err(AtomicVectorInlineError::NoFeasibleLine)
+        ));
+        let p = ProductionInlineParagraph::itemize(
+            NodeId::new(1),
+            units,
+            vec![
+                ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 1,
+                },
+                ProductionTextClusterRange {
+                    start_unit: 1,
+                    end_unit: 2,
+                },
+            ],
+            JapaneseLineBreakMode::Normal,
+        )
+        .unwrap();
+        let mut budget = ProductionLineBreakBudget::new(3, 2);
+        let selected = break_production_inline(&p, positive(5), positive(10), &mut budget).unwrap();
+        assert_eq!(selected.lines().len(), 2);
+        assert_eq!(budget.remaining_steps(), 0);
+        assert_eq!(budget.remaining_lines(), 0);
+        assert!(matches!(
+            break_production_inline(
+                &p,
+                positive(5),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(2, 2)
+            ),
+            Err(AtomicVectorInlineError::CandidateLimit)
+        ));
+        assert!(matches!(
+            break_production_inline(
+                &p,
+                positive(5),
+                positive(10),
+                &mut ProductionLineBreakBudget::new(3, 1)
+            ),
+            Err(AtomicVectorInlineError::SelectionLimit)
+        ));
+    }
+
+    #[test]
+    fn production_inline_rejects_cluster_gaps_overlap_vector_crossing_and_mandatory_crossing() {
+        let cases = [
+            (
+                vec![text('日', 5), text('本', 5)],
+                vec![ProductionTextClusterRange {
+                    start_unit: 1,
+                    end_unit: 2,
+                }],
+            ),
+            (
+                vec![text('日', 5), text('本', 5)],
+                vec![
+                    ProductionTextClusterRange {
+                        start_unit: 0,
+                        end_unit: 2,
+                    },
+                    ProductionTextClusterRange {
+                        start_unit: 1,
+                        end_unit: 2,
+                    },
+                ],
+            ),
+            (
+                vec![
+                    text('A', 5),
+                    AtomicVectorInlineLogicalUnit::Vector(vector(2, 10, 8, 2, 0, 8, 10, 10, 0, 0)),
+                ],
+                vec![ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 2,
+                }],
+            ),
+            (
+                vec![text('\n', 0), text('B', 5)],
+                vec![ProductionTextClusterRange {
+                    start_unit: 0,
+                    end_unit: 2,
+                }],
+            ),
+        ];
+        for (units, clusters) in cases {
+            assert!(matches!(
+                ProductionInlineParagraph::itemize(
+                    NodeId::new(1),
+                    units,
+                    clusters,
+                    JapaneseLineBreakMode::Normal
+                ),
+                Err(AtomicVectorInlineError::InvalidBinding)
+            ));
+        }
     }
 
     #[test]

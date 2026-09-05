@@ -7,11 +7,14 @@ pub use math::{AtomicMathInlineItem, AtomicMathPlacement, MathAtomicItemError};
 mod vector;
 
 pub use vector::{
-    break_atomic_vector_inline, AtomicVectorInlineBreak, AtomicVectorInlineError,
-    AtomicVectorInlineItem, AtomicVectorInlineKind, AtomicVectorInlineLogicalUnit,
+    break_atomic_vector_inline, break_production_inline, AtomicVectorInlineBreak,
+    AtomicVectorInlineError, AtomicVectorInlineItem, AtomicVectorInlineKind, AtomicVectorInlineLogicalUnit,
     AtomicVectorInlineParagraph, AtomicVectorLineMetrics, AtomicVectorLineOccurrence,
     AtomicVectorSelectedLine, AtomicVectorSyntheticAlUnit, AtomicVectorTextUnit,
+    ProductionInlineBreak, ProductionInlineParagraph, ProductionInlineSelectedLine,
+    ProductionLineBreakBudget, ProductionTextClusterRange,
     VectorBoundaryBranch, VectorBoundaryItem, ATOMIC_VECTOR_INLINE_ALGORITHM,
+    PRODUCTION_INLINE_BREAK_ALGORITHM,
 };
 
 mod unicode_linebreak;

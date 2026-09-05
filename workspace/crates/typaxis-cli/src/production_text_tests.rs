@@ -45,6 +45,7 @@ fn production_text_fixture(
     {
         let uri = resource["uri"].as_str().unwrap();
         let source = match uri {
+            "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),
             "body-no-math.ttf" => job.join("../../../basic-document-1/combined/job/body.ttf"),
             "collection-no-math.ttc" => {
                 job.join("../../../basic-document-1/combined/job/collection.ttc")
@@ -66,7 +67,11 @@ fn production_text_fixture(
     let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
         &base,
         &limits,
-        profile.base().base().authorization().profile_fingerprint(),
+        profile
+            .base()
+            .base()
+            .authorization()
+            .profile_receipt_fingerprint(),
         session.roots(),
     )
     .unwrap();
@@ -83,6 +88,257 @@ fn production_text_fixture(
         resolver.parse_and_bind_declared_image(pending).unwrap();
     }
     (package, navigation, limits, resolver.finish().unwrap())
+}
+
+fn with_prepared_production_inlines(
+    bytes: &[u8],
+    check: impl FnOnce(&typaxis_layout::ProductionPreparedInlines<'_>),
+) {
+    let (package, navigation, limits, admitted) = production_text_fixture(bytes, &config());
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+        &package,
+        &navigation,
+        &semantics,
+        &limits,
+        &identity,
+    )
+    .unwrap();
+    let bindings = typaxis_layout::bind_staging_precomposed_vectors(
+        &package,
+        profile.base().base().authorization(),
+        &limits,
+        &admitted,
+    )
+    .unwrap();
+    let flow =
+        typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+    let shaped = typaxis_shaping::shape_production_authored_text(
+        &package,
+        &navigation,
+        &flow,
+        &admitted,
+        &limits,
+        bindings.epoch().fingerprint(),
+    )
+    .unwrap();
+    let prepared = typaxis_layout::prepare_production_inline_items(
+        &package,
+        &navigation,
+        profile.base().base().authorization(),
+        &limits,
+        &admitted,
+        &flow,
+        &shaped,
+        &bindings,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+    )
+    .unwrap();
+    prepared.verify(&flow, &shaped, &bindings).unwrap();
+    check(&prepared);
+}
+
+fn production_inline_vmb_fixture(surrounding_text: bool) -> Vec<u8> {
+    use serde_json::json;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A ", "B"], "Body")).unwrap();
+    let index: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/vmb-book/engine-v2/fixture-index.json"))).unwrap();
+    let case = &index["cases"][0];
+    assert_eq!(case["derived_svg"], "fraction-inline-720896.svg");
+    value["resources"]["images"][2]["uri"] = "vmb-fraction.svg".into();
+    value["resources"]["images"][2]["expected_sha256"] = case["derived_sha256"].clone();
+    value["resources"]["images"][2]["vector_provenance"] = json!({
+        "engine_id":case["engine_artifact"]["EngineID"],
+        "engine_version":case["engine_artifact"]["EngineVersion"],
+        "rules_version":index["rules_version"]
+    });
+    let tex_len = case["tex"].as_str().unwrap().len();
+    let source_span = json!({"source_id":0,"start_byte":0,"end_byte":tex_len});
+    value["sources"][0]["utf8_byte_length"] = tex_len.into();
+    value["sources"][0]["sha256"] = sha256(case["tex"].as_str().unwrap().as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
+        .into();
+    value["text_buffers"].as_array_mut().unwrap().push(json!({
+        "text_id":2,"utf8":case["tex"],
+        "mappings":[{"kind":"identity","source_span":source_span,
+            "text_range":{"start_byte":0,"end_byte":tex_len}}]
+    }));
+    let formula = json!({"kind":"math_vector", "node_id":if surrounding_text {4} else {3},
+        "span":source_span, "image_id":2,
+        "metrics":case["metrics"], "spacing":{"before":0,"after":0},
+        "source_tex":{"text_span":{"text_id":2,"start_byte":0,"end_byte":tex_len}},
+        "alt":case["speech"], "actual_text":null});
+    let children = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    if surrounding_text {
+        children[1]["node_id"] = 5.into();
+        children[1]["span"] = json!({"source_id":0,"start_byte":tex_len,"end_byte":tex_len});
+        children.insert(1, formula);
+    } else {
+        *children = vec![formula];
+    }
+    value["document"]["blocks"][0]["span"] = source_span.clone();
+    value["document"]["blocks"][0]["blocks"][0]["span"] = source_span;
+    serde_json::to_vec(&value).unwrap()
+}
+
+#[test]
+fn production_inline_joins_shaped_body_and_real_vmb_svg_in_one_candidate() {
+    with_prepared_production_inlines(&production_inline_vmb_fixture(true), |prepared| {
+        let paragraph = &prepared.paragraphs()[0];
+        let items = paragraph.items().unwrap();
+        assert_eq!(items.units().len(), 4); // A, space, atomic formula, B.
+        assert_eq!(
+            paragraph
+                .glyph_clusters()
+                .iter()
+                .map(|c| (c.start_unit(), c.end_unit()))
+                .collect::<Vec<_>>(),
+            [(0, 1), (1, 2), (3, 4)]
+        );
+        let selected = typaxis_linebreak::break_production_inline(
+            items,
+            PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap(),
+            paragraph.line_height().unwrap(),
+            &mut typaxis_linebreak::ProductionLineBreakBudget::new(100, 10),
+        )
+        .unwrap();
+        assert_eq!(selected.lines().len(), 1);
+        let line = &selected.lines()[0];
+        assert_eq!(line.origin_shift().get().raw(), 0);
+        assert_eq!(line.line().logical_advance().get().raw(), 2_645_629);
+        assert_eq!(line.line().occurrences().len(), 1);
+        assert_eq!(line.line().occurrences()[0].unit_index(), 2);
+        assert_eq!(line.line().occurrences()[0].pen_x().raw(), 707_789);
+        assert_eq!(line.line().metrics().line_height().get().raw(), 958_936);
+    });
+}
+
+#[test]
+fn production_inline_real_vmb_formula_alone_fits_after_origin_compensation() {
+    with_prepared_production_inlines(&production_inline_vmb_fixture(false), |prepared| {
+        let paragraph = &prepared.paragraphs()[0];
+        assert!(paragraph.glyph_clusters().is_empty());
+        let items = paragraph.items().unwrap();
+        let selected = typaxis_linebreak::break_production_inline(
+            items,
+            PositiveLength::new(Length::from_raw(1_556_093).unwrap()).unwrap(),
+            paragraph.line_height().unwrap(),
+            &mut typaxis_linebreak::ProductionLineBreakBudget::new(100, 10),
+        )
+        .unwrap();
+        let line = &selected.lines()[0];
+        assert_eq!(line.origin_shift().get().raw(), 45_056);
+        assert_eq!(line.required_inline_size().get().raw(), 1_556_093);
+        assert_eq!(line.line().logical_advance().get().raw(), 1_465_981);
+        let occurrence = line.line().occurrences()[0];
+        assert_eq!(occurrence.pen_x().raw(), 0);
+        assert_eq!(occurrence.item().metrics().origin_x().raw(), -45_056);
+        assert!(matches!(
+            typaxis_linebreak::break_production_inline(
+                items,
+                PositiveLength::new(Length::from_raw(1_556_092).unwrap()).unwrap(),
+                paragraph.line_height().unwrap(),
+                &mut typaxis_linebreak::ProductionLineBreakBudget::new(100, 10)
+            ),
+            Err(typaxis_linebreak::AtomicVectorInlineError::NoFeasibleLine)
+        ));
+    });
+}
+
+#[test]
+fn production_inline_body_only_cff_uses_the_same_candidate_kernel() {
+    with_prepared_production_inlines(
+        &production_text_single_paragraph(&["A B"], "Typaxis CFF Fixture"),
+        |prepared| {
+            let paragraph = &prepared.paragraphs()[0];
+            let selected = typaxis_linebreak::break_production_inline(
+                paragraph.items().unwrap(),
+                PositiveLength::new(Length::from_raw(1_179_648).unwrap()).unwrap(),
+                paragraph.line_height().unwrap(),
+                &mut typaxis_linebreak::ProductionLineBreakBudget::new(100, 10),
+            )
+            .unwrap();
+            assert_eq!(paragraph.glyph_clusters().len(), 3);
+            assert_eq!(selected.lines().len(), 1);
+            assert!(selected.lines()[0].line().occurrences().is_empty());
+            assert_eq!(
+                selected.lines()[0].line().logical_advance().get().raw(),
+                1_179_648
+            );
+        },
+    );
+}
+
+#[test]
+fn production_inline_pending_break_cannot_be_silently_omitted() {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
+    value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "kind":"soft_break", "node_id":4, "span":{"source_id":0,"start_byte":0,"end_byte":0}
+        }));
+    let (package, navigation, limits, admitted) =
+        production_text_fixture(&serde_json::to_vec(&value).unwrap(), &config());
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+        &package,
+        &navigation,
+        &semantics,
+        &limits,
+        &identity,
+    )
+    .unwrap();
+    let bindings = typaxis_layout::bind_staging_precomposed_vectors(
+        &package,
+        profile.base().base().authorization(),
+        &limits,
+        &admitted,
+    )
+    .unwrap();
+    let flow =
+        typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+    let shaped = typaxis_shaping::shape_production_authored_text(
+        &package,
+        &navigation,
+        &flow,
+        &admitted,
+        &limits,
+        bindings.epoch().fingerprint(),
+    )
+    .unwrap();
+    let result = typaxis_layout::prepare_production_inline_items(
+        &package,
+        &navigation,
+        profile.base().base().authorization(),
+        &limits,
+        &admitted,
+        &flow,
+        &shaped,
+        &bindings,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+    );
+    let error = match result {
+        Ok(_) => panic!("unresolved soft break must not disappear"),
+        Err(e) => e,
+    };
+    assert_eq!(error.owner.get(), 4);
+    assert_eq!(
+        error.kind,
+        typaxis_layout::ProductionInlinePreparationErrorKind::PendingInline("soft_break")
+    );
 }
 const PRODUCTION_TEXT_COMBINED: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),
     "/../../../samples/machine-package/profiles/production-book-1/combined/job/document-package.json"));

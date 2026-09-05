@@ -8,8 +8,16 @@ mod inline_vector;
 mod jpeg;
 mod math;
 mod math_vector;
+mod production_inline;
 mod safe_vector;
 mod semantic_container;
+
+pub use production_inline::{
+    prepare_production_inline_items, ProductionInlinePreparationError,
+    ProductionInlinePreparationErrorKind, ProductionPreparedInlineParagraph,
+    ProductionPreparedInlines, ProductionShapedClusterItem,
+    PRODUCTION_INLINE_PREPARATION_ALGORITHM,
+};
 
 pub use advanced_columns::{
     layout_staging_columns, StagingColumnBlockLayout, StagingColumnFlowOwnerKind,
