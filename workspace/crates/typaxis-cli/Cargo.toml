@@ -33,4 +33,5 @@ typaxis-pdf = { path = "../typaxis-pdf" }
 typaxis-manifest = { path = "../typaxis-manifest" }
 
 [dev-dependencies]
+serde_json = "=1.0.151"
 typaxis-testkit = { path = "../typaxis-testkit", features = ["precomposed-vector-fixtures"] }

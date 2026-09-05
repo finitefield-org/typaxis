@@ -1,5 +1,12 @@
 #![forbid(unsafe_code)]
 
+mod production_text;
+pub use production_text::{
+    shape_production_authored_text, ProductionAuthoredTextShape, ProductionBodyFont,
+    ProductionBodyParagraphShape, ProductionBodyTextRun, ProductionTextShapeError,
+    ProductionTextShapeErrorKind, PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM,
+};
+
 use read_fonts::TableProvider;
 use typaxis_core::{
     push_jcs_string, sha256, BidiLevel, FontFaceId, FontInstanceId, GeneratedBufferKey, GlyphRunId,
@@ -1343,6 +1350,7 @@ pub fn shape_staging_equation_number(
                 font_size: font_size.get(),
                 bidi_level: spec.bidi_level,
                 script: spec.script,
+                language: None,
                 pre_context: if spec.start == 0 {
                     None
                 } else {
@@ -1778,6 +1786,7 @@ pub enum LinkedShaperError {
     InvalidFontOrFace,
     FontMetadataMismatch,
     InvalidScript,
+    InvalidLanguage,
     EmptyBackendOutput,
     InconsistentBackendOutput,
     GlyphIdOutOfRange,
@@ -1831,6 +1840,7 @@ impl Shaper for LinkedShaper {
                 .get(),
             bidi_level: request.bidi_level(),
             script: request.script(),
+            language: None,
             pre_context: request.pre_context().map(ShapeTextView::utf8),
             post_context: request.post_context().map(ShapeTextView::utf8),
             max_output_records: request.max_output_records(),
@@ -1852,6 +1862,7 @@ struct LinkedBackendInput<'a> {
     font_size: Length,
     bidi_level: BidiLevel,
     script: OpenTypeTag,
+    language: Option<&'a str>,
     pre_context: Option<&'a str>,
     post_context: Option<&'a str>,
     max_output_records: u32,
@@ -1933,6 +1944,13 @@ fn shape_linked(
         harfrust::Direction::LeftToRight
     });
     unicode.set_script(script);
+    if let Some(language) = input.language {
+        unicode.set_language(
+            language
+                .parse()
+                .map_err(|_| LinkedShaperError::InvalidLanguage)?,
+        );
+    }
     unicode.set_cluster_level(harfrust::BufferClusterLevel::MonotoneGraphemes);
     let mut flags = harfrust::BufferFlags::empty();
     match input.pre_context {
@@ -3012,6 +3030,7 @@ mod tests {
             font_size: Length::from_raw(65_536).expect("one PDF point"),
             bidi_level: BidiLevel::new(bidi_level).expect("valid bidi level"),
             script: OpenTypeTag::new(script).expect("valid script"),
+            language: None,
             pre_context: None,
             post_context: None,
             max_output_records,

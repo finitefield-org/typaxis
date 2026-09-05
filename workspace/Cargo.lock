@@ -412,6 +412,7 @@ name = "typaxis-cli"
 version = "0.1.0"
 dependencies = [
  "rustix",
+ "serde_json",
  "toml",
  "typaxis-core",
  "typaxis-diagnostics",

@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax-owned production text flow now preserves ordered regions, paragraph styles, exact text and atomic objects; shaping, unified pagination and selected PDF text still pending |
+| Shared body/math flow and selected text placement | Syntax flow and admitted authored-text shaping implemented; real TT/TTC/CFF metrics, clusters and output limits verified; generated labels, unified pagination and selected PDF text still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -391,3 +391,96 @@ cargo test --manifest-path workspace/Cargo.toml \
 All verification processes for this follow-up reached terminal states. These
 231 passing tests establish the new syntax prerequisite and old-path regression;
 they do not demonstrate that the PDF writer consumes the new flow.
+
+## Follow-up: admitted authored body text shaping
+
+Added `typaxis-shaping/src/production_text.rs` with the sealed
+`shape_production_authored_text` entry point and internal algorithm
+`typaxis.production-authored-text-shape/1`. This consumes the syntax flow once
+at its boundary, resolves each paragraph's declared family and size against the
+admitted ledger, and uses the existing linked harfrust backend with the site's
+effective language. Legacy shaper/equation-number calls retain their previous
+language setting. No MATH table, native-math authorization or first-declared-font
+fallback is used to shape body text.
+
+The result retains paragraph/site owners, logical source order, TextSpan-backed
+glyph clusters, script and bidi levels, original glyph IDs, advances/offsets,
+selected face/hash/index/size and signed scaled hhea metrics. The metrics use
+the existing checked ties-to-even conversion. hhea metrics are explicitly not
+glyph ink bounds or a clipping rectangle. The original flow continues to own
+line-height, block styles, emphasis/link boundaries and atomic objects.
+
+Paragraph itemization sees authored text plus U+FFFC for atomic math and
+unresolved reference sites, a space for soft break and U+2028 for hard break.
+These placeholders are context only and never returned as painted glyph runs.
+Resolved reference labels can change paragraph context and require reshaping;
+pending reference owner IDs are exposed explicitly. Generated markers, soft-break
+spacing, math geometry, bidi line reordering and line/page selection remain the
+next stages' work. A paragraph without authored text has no fabricated body font.
+
+Context allocation is bounded by `max_shaping_context_bytes`, and each backend
+request retains the pinned harfrust output preflight. Retained runs + glyphs +
+clusters are also charged cumulatively against `max_fragments` across the whole
+document. Grapheme boundary checks and ordered site/run intersections use moving
+cursors, rather than rescanning the whole paragraph per site. The sealed,
+non-deserializable result borrows the exact flow and admitted ledger; verification
+compares those owners plus limits/epoch. Hierarchical digests bind all output,
+flow/admission/limit hashes and linked-shaper identity without constructing one
+document-sized glyph serialization. This is not yet the cache for final shaped
+lines, and no new public schema/profile capability is published.
+
+Five new CLI integration tests use actual contained host admission, syntax
+validation and profile preflight. They cover all 27 paragraphs of the combined
+fixture with separate normal TT/TTC body fonts, 14pt heading versus 12pt body,
+pending references and atomic objects; a native-math-free CFF body with distinct
+letter/space advances and exact source clusters; split grapheme, missing font,
+uncovered non-BMP character, backend context ceiling; document-wide output
+limits (two paragraphs accept 6 records and reject 5 at the second text owner);
+and deterministic output/foreign-flow/epoch rejection. Positive CFF evidence is
+for the existing name-keyed fixture, not Harano CID CFF or IVS support.
+
+The first run exposed an additional old-fixture problem: the production combined
+`body.ttf` and `collection.ttc` have ASCII in cmap format 4, while their preferred
+Windows full-repertoire format 12 only contains added math mappings. The existing
+scalar coverage helper can find ASCII in format 4; harfrust selects format 12 and
+emits visible glyph 0 for `Basic document`. The new body path rejects this with
+`MissingShapedGlyph` at owner 2 and TextSpan `(text_id=0, start=0, end=1)`. Glyph 0
+is also rejected at zero advance: that alone cannot prove it has no visible ink.
+Default-ignorable input is exempt from scalar coverage, but backend output that
+uses glyph 0 to hide it still needs an explicit suppressed-cluster owner before
+this path can accept it. A negative regression preserves the original conflicting fixture. Positive
+tests copy the already checked-in basic-document-1 MATH-free TT/TTC fonts into an
+isolated test job with their actual hashes; the frozen production fixture is not
+rewritten or silently treated as a valid body-shaping oracle. Fixing its cmap
+generator and separating native/body font usage remains required when publishing
+the new production layout. This observation concerns Typaxis fixture fonts and
+is not evidence of the same defect in VMB's Japanese fonts.
+
+This is a completed shaping prerequisite, not a completed production PDF fix.
+The public runner still uses the old fixed metrics and standard-text PDF painter.
+Next, generated text/context resolution and shaped cluster selection must feed
+one body/math line/page owner, then selected glyph/CID, links and structure must
+be projected from it. Standalone text-only staging acceptance also remains
+restricted by the old parser's requirement for a semantic/math/vector owner;
+the native-math-free positive test therefore uses a semantic container. Japanese
+positive shaping, GSUB/GPOS/locl-specific cases, common line selection, full-book
+PDF, Harano and all original §10 gates remain required.
+
+Completed verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-shaping --lib --locked
+# 24 passed, 0 failed.
+
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis --locked
+# 170 passed, 0 failed, 3 existing external-tool tests ignored.
+```
+
+The CLI test-only JSON fixture editor uses the already locked serde_json 1.0.151;
+the lock change only adds it to typaxis-cli's dependency list. No production JSON
+decoder or dependency version was replaced. Both verification processes reached
+terminal states; no full-book render/extract success is inferred from 194 tests.

@@ -644,7 +644,7 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 行頭の負originも新production bridgeで扱う。実engineの11pt数式は`origin_x=-0.6875pt`となり、spacing=0の式のみの段落を旧atomic-vector bridgeが空行overflowとして拒否することを確認した。候補行の`left=min(0, visual_left)`、`right=max(logical_advance, visual_right)`から必要幅を`right-left`として検査し、収まる候補のline originを`body_left-left`へ移す。これは行全体の配置補正であり、数式のorigin/advance/spacingを書き換えない。選択済みreceiptへこのoriginを含め、本文・SVG・タグ・リンクを同じ座標で投影する。実際の必要幅がbodyを超えた場合は依然としてoverflowとし、縮小やclipで隠さない。旧staging helperの凍結負例は新bridgeの正例で置換せず、別profile/recipeの試験として保持する。
 
-実装追補: `typaxis-syntax/src/production_flow.rs`に`prepare_production_text_flow`を追加した。これは順序・構造境界・継承style・exact text・言語を保持するsyntax側の入力ownerであり、選択済み配置receiptではない。本文shaping、共通行組み・改ページ、PDFへの接続は未完了で、現行production runnerの仮座標をこの入力の正しい配置と扱わない。検証結果は[実装台帳](28-vmb-book-production-progress.md)を参照する。
+実装追補: `typaxis-syntax/src/production_flow.rs`に`prepare_production_text_flow`を追加した。これは順序・構造境界・継承style・exact text・言語を保持するsyntax側の入力ownerであり、選択済み配置receiptではない。続いて`typaxis-shaping/src/production_text.rs`に`shape_production_authored_text`を追加し、admitted TT/TTC/CFFの実glyph・cluster・advance・hhea metricsを得る経路を検証した。参照labelは未確定ownerとして残し、解決後のcontext再shapeを要求する。共通行組み・改ページ・PDFへの接続は未完了で、現行production runnerの仮座標をこの入力の正しい配置と扱わない。検証結果は[実装台帳](28-vmb-book-production-progress.md)を参照する。
 
 ### 14.3 本文fontとPDF出力の設計
 

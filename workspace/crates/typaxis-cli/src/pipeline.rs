@@ -5355,6 +5355,8 @@ fn production_trace_json(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+    include!("production_text_tests.rs");
     use super::*;
     use std::cell::Cell;
     use std::fs;
