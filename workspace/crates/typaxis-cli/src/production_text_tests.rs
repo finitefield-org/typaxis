@@ -45,6 +45,7 @@ fn production_text_fixture(
     {
         let uri = resource["uri"].as_str().unwrap();
         let source = match uri {
+            "vmb-block-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-block-720896.svg"),
             "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),
             "body-no-math.ttf" => job.join("../../../basic-document-1/combined/job/body.ttf"),
             "collection-no-math.ttc" => {
@@ -102,6 +103,21 @@ fn with_prepared_production_inlines_config(
     config: &EffectiveConfig,
     check: impl FnOnce(&typaxis_layout::ProductionPreparedInlines<'_>),
 ) {
+    with_production_inline_context(bytes, config, |prepared, _, _, _, _, _| check(prepared));
+}
+
+fn with_production_inline_context(
+    bytes: &[u8],
+    config: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_layout::ProductionPreparedInlines<'_>,
+        &typaxis_syntax::ValidatedStagingSemanticPackage,
+        &typaxis_syntax::StagingPrecomposedVectorProfileAuthorization,
+        &typaxis_core::M4EffectiveResourceLimits,
+        &AdmittedResourceLedger,
+        &typaxis_layout::ValidatedPrecomposedVectorBindings,
+    ),
+) {
     let (package, navigation, limits, admitted) = production_text_fixture(bytes, config);
     let semantics =
         typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
@@ -146,7 +162,14 @@ fn with_prepared_production_inlines_config(
     )
     .unwrap();
     prepared.verify(&flow, &shaped, &bindings).unwrap();
-    check(&prepared);
+    check(
+        &prepared,
+        &package,
+        profile.base().base().authorization(),
+        &limits,
+        &admitted,
+        &bindings,
+    );
 }
 
 fn production_inline_vmb_fixture(surrounding_text: bool) -> Vec<u8> {
@@ -1028,3 +1051,5 @@ fn production_authored_text_charges_output_across_paragraphs() {
         }
     }
 }
+
+include!("production_body_tests.rs");

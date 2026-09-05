@@ -113,6 +113,9 @@ pub struct ProductionPreparedInlines<'a> {
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionPreparedInlines<'a> {
+    pub const fn source_flow(&self) -> &'a ProductionTextFlow<'a> {
+        self.flow
+    }
     pub fn paragraphs(&self) -> &[ProductionPreparedInlineParagraph] {
         &self.paragraphs
     }

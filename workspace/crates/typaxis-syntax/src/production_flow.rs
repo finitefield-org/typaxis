@@ -3,7 +3,7 @@
 use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 
-pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/1";
+pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
@@ -157,11 +157,15 @@ impl<'a> ProductionInlineSite<'a> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProductionTextParagraph<'a> {
+    page_name: Option<typaxis_core::PageName>,
     owner: NodeId,
     style: SemanticContainerInheritanceStyle,
     items: Vec<ProductionInlineSite<'a>>,
 }
 impl<'a> ProductionTextParagraph<'a> {
+    pub const fn page_name(&self) -> Option<&typaxis_core::PageName> {
+        self.page_name.as_ref()
+    }
     pub const fn owner(&self) -> NodeId {
         self.owner
     }
@@ -184,6 +188,12 @@ pub struct ProductionTextFlow<'a> {
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionTextFlow<'a> {
+    pub fn semantic_container_style(
+        &self,
+        owner: NodeId,
+    ) -> Option<&SemanticContainerComputedStyle> {
+        self.package.computed_style(owner)
+    }
     pub fn events(&self) -> &[ProductionFlowEvent] {
         &self.events
     }
@@ -369,7 +379,14 @@ impl<'a> Collector<'a> {
                     self.paragraphs
                         .try_reserve(1)
                         .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                    let page_name = self
+                        .rules
+                        .ordinary
+                        .cascade_basic_document(kind.as_str(), block.classes())
+                        .and_then(|computed| computed.page_name())
+                        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
                     self.paragraphs.push(ProductionTextParagraph {
+                        page_name,
                         owner,
                         style,
                         items,
@@ -593,7 +610,13 @@ fn encode_flow(flow: &ProductionTextFlow<'_>) -> String {
                 .map_or(0, |v| v.get().raw())
                 .to_string(),
         );
-        s.push_str(&format!(",\"owner\":{}}}", paragraph.owner.get()));
+        s.push_str(&format!(",\"owner\":{},\"page\":", paragraph.owner.get()));
+        if let Some(page) = &paragraph.page_name {
+            push_jcs_string(&mut s, page.as_str());
+        } else {
+            s.push_str("null");
+        }
+        s.push('}');
     }
     s.push_str(&format!("],\"text_bytes\":{}}}", flow.text_bytes));
     // Remaining block/source fields are bound by package_sha256. verify()

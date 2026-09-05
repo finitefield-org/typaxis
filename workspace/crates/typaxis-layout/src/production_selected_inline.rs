@@ -140,6 +140,15 @@ pub struct ProductionInlineLineLayout<'p, 'a> {
     fingerprint: [u8; 32],
 }
 impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
+    pub const fn source_flow(&self) -> &'a ProductionTextFlow<'a> {
+        self.prepared.flow
+    }
+    pub const fn binding_epoch(&self) -> &crate::PrecomposedVectorLayoutEpoch {
+        self.prepared.bindings.epoch()
+    }
+    pub const fn binding_set_fingerprint(&self) -> [u8; 32] {
+        self.prepared.bindings.fingerprint()
+    }
     pub fn paragraphs(&self) -> &[ProductionInlineParagraphLineLayout<'p, 'a>] {
         &self.paragraphs
     }

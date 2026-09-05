@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection verified; generated labels, common pagination and selected PDF text still pending |
+| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; generated labels, remaining subflows/general page policy and selected PDF text still pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Pending |
@@ -720,3 +720,98 @@ structure/navigation projection and the whole-book gates remain open. Nonzero
 GPOS offsets, ligatures, Japanese fonts and independent rendered baselines still
 need their own positive evidence. Public PDF writer behavior is unchanged, and
 no successful full-book PDF is inferred from this stage.
+
+
+## Follow-up: one cursor for body lines, block SVGs and captions (2026-09-06)
+
+Added `typaxis-pagination/src/production_body.rs` with
+`paginate_production_body` and internal algorithm
+`typaxis.production-body-pagination/1`. It consumes the preceding sealed line
+layout and existing resource-bound block preparation, checking package, profile,
+limits, admission, binding set and epoch identities before building work items.
+The returned immutable selection borrows those exact owners; its verify rejects
+another line or block owner even when independently produced from identical input.
+Paragraph and block indices stay connected to the original line glyph/SVG and
+block geometry records. The fragment array preserves source order across types.
+
+The syntax flow is now `typaxis.production-text-flow/2`. Paragraphs retain their
+computed page name, which the original inheritance-only record dropped. The
+ordinary closed cascade is reused. Named page selection is still pending in
+this cursor and returns an owner-specific error; the setting is not silently
+ignored. Source-flow access to semantic container styles retains package ownership.
+
+The cursor uses paragraph start/end indent and start/center/end alignment,
+selected line heights, producer-sized block content heights, and before/after
+spacing. Spacing is summed at same-page boundaries and discarded at a fresh
+page edge. Container vertical spacing and final keep pass to the first/last
+content item; nonzero container indents remain a pending owned region. Required
+line width determines aligned bounds. A zero-width hard-break-only line keeps
+its real height and unshifted inner frame, so end alignment cannot move a blank
+full-width rectangle past the body edge.
+
+`keep_with_next` uses actual following line/block heights and boundary spacing.
+Keep chains are premeasured in a bounded suffix array rather than repeatedly
+rescanning prefixes. A chain moves together when remaining space is insufficient;
+a chain larger than the body fails with its owner. `keep_caption=true` connects
+the SVG block through all measured caption lines; false permits caption lines
+to continue onto the next page. No fixed 20pt caption or successor estimate is
+used. A keep chain crossing an explicit page break is rejected as a conflict.
+
+Every explicit page-break node produces the next page, including leading,
+consecutive and trailing breaks. The initial page is retained even for an empty
+flow. Page limits are charged before allocation. Line-layout records, prepared
+blocks, ordered work items, keep extents, selected pages/fragments and explicit
+break records share the document fragment ceiling. Geometry arithmetic and
+fragment ordinals use checked operations before publication/allocation.
+
+Eight new CLI tests traverse the actual VMB engine 2.0.0 inline and block fraction
+fixtures with their original metrics, hashes and identity source mappings. The
+block SVG is a distinct declared resource; its repeated TeX gets a new source
+projection range and text buffer, preserving parent ownership and ordering.
+The initial test fixture used an already occupied image ID and renumbered the
+Document root from 1; both fixture errors were corrected without relaxing parser
+checks. Named page values use the wire `string` kind, lowered to StyleValue::Text.
+
+Observed positive geometry on a 3,000,000-raw-height body:
+
+- Body/inline paragraph owner 2: page 0, top 655,360, baseline 1,320,530.
+- Block fraction owner 6: page 0, top 1,745,368, viewport left 1,769,183,
+  height 1,552,815 and baseline 2,758,589. The actual same-page gap is 131,072.
+- Following body owner 7: page 1, top 655,360, with page-edge space removed.
+- With block keep-with-next enabled, owners 6 and 7 both move to page 1; their
+  measured group consumes 2,601,391 raw. A 2,500,000-high body rejects that group.
+- Vector/caption keep true yields fragment pages [0,1,1,2]; false yields
+  [0,0,1,1], using an actual 917,504-raw caption line.
+- Four explicit breaks produce five pages with fragment counts [0,2,0,1,0].
+  max_pages=5 passes and 4 rejects. Shared max_fragments=33 passes and 32 rejects
+  at the following body's owner. Repeated selection has the same fingerprint.
+
+Additional tests reject list-flow flattening, retain and diagnose the named
+paragraph page, and keep an end-aligned empty hard-break line within the body.
+No dictionary/collection of different content types gets independently paginated
+and subsequently overlaid.
+
+Completed local verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax -p typaxis-shaping -p typaxis-linebreak -p typaxis-layout \
+  -p typaxis-pagination -p typaxis-cli --lib --bin typaxis --locked
+# CLI: 189 passed, 0 failed, 3 existing external-tool tests ignored.
+# Syntax: 66 passed, 0 failed.
+# Shaping: 24 passed, 0 failed.
+# Linebreak: 44 passed, 0 failed.
+# Layout: 65 passed, 0 failed.
+# Pagination: 85 passed, 0 failed.
+```
+
+473 tests passed; log `/private/tmp/typaxis-production-body-verification.log`.
+This is an internal forward placement stage with measured keep groups. General
+bounded lookback/cost selection, widow/orphan rules, reference convergence,
+list markers, raster figures, native math, tables, footnotes, named pages and
+container horizontal frames still require integration. The current function
+rejects unconnected regions instead of flattening or omitting them. Math terminal
+receipts, common PDF font/paint usage, tags/navigation and the public build runner
+are not yet wired to these page positions. The full-book PDF and all §10 gates
+remain open; this evidence is not an independent PDF render/extract result.

@@ -4,6 +4,14 @@ mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;
 mod atomic_vector;
+mod production_body;
+
+pub use production_body::{
+    paginate_production_body, ProductionBodyFragment, ProductionBodyFragmentSource,
+    ProductionBodyPage, ProductionBodyPageBreak, ProductionBodyPaginationError,
+    ProductionBodyPaginationErrorKind, ProductionBodySelectedLayout,
+    PRODUCTION_BODY_PAGINATION_ALGORITHM,
+};
 
 #[cfg(any(test, feature = "staging-fixtures"))]
 pub use advanced_columns::staging_columns_selected_fixture;
