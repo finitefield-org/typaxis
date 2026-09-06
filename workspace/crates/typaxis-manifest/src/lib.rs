@@ -4465,7 +4465,9 @@ impl ManifestAdmissionLedger {
             &self.expected_images,
             false,
         )?;
-        let (fonts, images) = resource_progress_records(&progress)?;
+        let (fonts, images) = resource_progress_records(
+            &progress, &self.expected_fonts, &self.expected_images,
+        )?;
         validate_admission_limits(&self.sources, &fonts, &images, &self.binding)?;
         self.fonts = fonts;
         self.images = images;
@@ -4665,9 +4667,18 @@ impl ManifestAdmissionLedger {
 
 fn resource_progress_records(
     progress: &ResourceAdmissionProgressToken,
+    expected_fonts: &[ExpectedFontResource],
+    expected_images: &[ExpectedImageResource],
 ) -> Result<(ManifestFontRecords, ManifestImageRecords), BuildManifestError> {
     let mut fonts = BTreeMap::new();
     for font in progress.fonts() {
+        let declared = expected_fonts
+            .get(font.font_face_id().get() as usize)
+            .ok_or(BuildManifestError::PackageResourceMismatch)?
+            .media_type;
+        if declared.is_some_and(|media| media != font.media_kind().as_str()) {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        }
         if fonts
             .insert(
                 font.font_face_id(),
@@ -4679,8 +4690,8 @@ fn resource_progress_records(
                     sha256: font.content_hash(),
                     units_per_em: font.metadata().units_per_em,
                     glyph_count: font.metadata().glyph_count,
-                    attested_media_kind: None,
-                    media_declaration: None,
+                    attested_media_kind: declared.map(|_| font.media_kind().as_str()),
+                    media_declaration: declared.map(MediaDeclarationRecord::Declared),
                 },
             )
             .is_some()
@@ -4690,6 +4701,13 @@ fn resource_progress_records(
     }
     let mut images = BTreeMap::new();
     for image in progress.images() {
+        let declared = expected_images
+            .get(image.image_id().get() as usize)
+            .ok_or(BuildManifestError::PackageResourceMismatch)?
+            .media_type;
+        if declared.is_some_and(|media| media != image.media_kind().as_str()) {
+            return Err(BuildManifestError::PackageResourceMismatch);
+        }
         if images
             .insert(
                 image.image_id(),
@@ -4702,7 +4720,7 @@ fn resource_progress_records(
                     pixel_width: image.width().get(),
                     pixel_height: image.height().get(),
                     decoded_bytes: image.decoded_bytes(),
-                    media_declaration: None,
+                    media_declaration: declared.map(MediaDeclarationRecord::Declared),
                 },
             )
             .is_some()

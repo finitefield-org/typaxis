@@ -2096,6 +2096,23 @@ fn emit_production_resource_diagnostic(
                 .map_err(|_| Failure::internal("SVG budget note is not canonical"))?;
         }
     }
+    let font_context = match error {
+        ResourceAdmissionError::Cff1Detailed(failure) => Some(failure.context_note()),
+        ResourceAdmissionError::FontContainerDetailed(failure) => Some(failure.context_note()),
+        _ => None,
+    };
+    if let Some(context) = font_context {
+        if let Some(DiagnosticSubject::Resource(ResourceErrorSubject::FontFace(id))) = subject {
+            if let Some(declaration) = package.package().resources().font_faces.get(id.get() as usize) {
+                builder = builder.note(format!("resource={}", declaration.uri.as_str()))
+                    .map_err(|_| Failure::internal("font resource URI note is not canonical"))?;
+            }
+        }
+        builder = builder.note(context)
+            .map_err(|_| Failure::internal("font context note is not canonical"))?;
+        builder = builder.note(typaxis_resources::SUPPORTED_FONT_OUTLINES_NOTE)
+            .map_err(|_| Failure::internal("font support note is not canonical"))?;
+    }
     let _ = phase
         .emit(builder.build())
         .map_err(map_diagnostic_budget_error)?;

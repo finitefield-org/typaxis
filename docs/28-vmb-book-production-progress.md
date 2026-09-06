@@ -16,7 +16,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | Real VMB fixtures and provenance ledger | Unchanged chapter SVG plus 20 actual-engine conversions, original/derived hashes and font notices stored; original maximum-complexity book cases and full provenance runner still pending |
 | 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases admitted and placed through common page content below; distinct images, mixed PNG and public check/build gates pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | 8,193 and explicit 1,025 rejection passed; 8,192 positive boundary pending |
-| Detailed font diagnostics and TTC face list | Pending |
+| Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | Pending |
 | Vertical tables, cmap 14, IVS shaping/extraction | Pending |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
@@ -1938,3 +1938,95 @@ Logs: `/private/tmp/typaxis-list-existing-probes.log`,
 `/private/tmp/typaxis-list-existing-navigation-independent.log`,
 `/private/tmp/typaxis-list-existing-raster-independent.log`. All observations
 remain diagnostic-stage evidence; no public/full-book success is asserted.
+
+
+## 2026-09-06: CFF admission and TTC diagnostics through public check/build
+
+The previous design-confirmation turn made documentation progress and rechecked
+the actual package/font hashes. This implementation turn connects the detailed
+font failure path to resource admission and both public runners. It does not
+change accepted CFF/1 input, enable CID-keyed Harano, or complete the full-book gate.
+
+`typaxis-font` now exposes `admit_sfnt_cff1_detailed`. Its fixed-size `Copy`
+context records the first failure's phase, table, reason, requested face,
+embedding inspection, available offsets, CFF operator/cmap format and relevant
+admission budget observations. The legacy function calls the same implementation
+and returns the original error kind; the accepted fixture's complete admission
+receipt remains equal. No font data is rewritten to obtain admission.
+
+The scanner captures positions directly in the original bytes. `offset_kind=field`
+means an identified field/operator; `offset_kind=context-start` means the start of
+the parsing unit, not a claimed exact offending operand. Unknown positions remain
+absent. OS/2 is inspected for permission only after its range and checksum pass;
+unsafe or unreadable OS/2 stays `embedding=not-checked`. Table/checksum/permission,
+unsupported cmap and DICT operators, table/glyph/subroutine budgets are separated.
+Nested charstring/subset diagnostics are not yet wired to these reserved fields.
+
+Resource admission preserves detailed CFF errors. A separate diagnostic-only
+container inspector explains invalid face indexes and CFF/CFF2 outline mismatch
+without granting a receipt. TTC header/directory inspection is bounded to 4,096
+faces; normal notes show at most 32 present indexes, count and truncation. Presence
+is explicitly distinct from admission; truncated headers do not invent a list.
+CLI diagnostics keep the package JSON Pointer, add resource URI and font notes,
+and describe supported outlines plus the existing `inspect-font FONT` command.
+R7100 appears once; existing R713x budget and I9190 mappings remain kind-derived.
+
+The actual Harano probe exposed a second bug: partial resource progress discarded
+production media declarations in the failed manifest. This turned an R7100 input
+failure into exit 4 with `PackageResourceMismatch` when earlier fonts had been
+admitted. `resource_progress_records` now checks declared/observed media and keeps
+those facts for partial fonts and images. It still rejects mismatches and never
+adds the failing resource. Regression tests assert exit 1, output-null failed
+manifest, exact partial resource counts and retained media declarations, including
+an SVG failure after admitted PNG/SVG resources.
+
+Verification (target directory `/private/tmp/typaxis-vmb-book-build`):
+
+- `cargo test --manifest-path workspace/Cargo.toml -p typaxis-font --lib --locked`:
+  21 passed (`/private/tmp/typaxis-font-detailed-final.log`). Includes all truncated
+  prefixes, legacy kind/receipt parity, VORG versus permission, corrupt OS/2,
+  cmap 14, optional table ownership, exact CFF operator offsets and admission budgets.
+  The added subroutine-budget test initially assumed the small fixture contained
+  multiple subroutines and failed; it now explicitly constructs an over-budget
+  INDEX count and checks rejection before object allocation/later offsets. This
+  is not a claim of positive subroutine-corpus coverage.
+- `cargo test --manifest-path workspace/Cargo.toml -p typaxis-resource-admission --lib --locked`:
+  59 passed (`/private/tmp/typaxis-font-resource-tests.log`), including bounded TTC
+  notes and preexisting admission, SVG safety and sharing regressions.
+- `cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis machine_book_ --locked`:
+  6 passed, 1 independent navigation test ignored
+  (`/private/tmp/typaxis-font-book-regression.log`). The font test covers five
+  negative cases through each runner and checks manifest publication as well as
+  code, message, resource pointer and notes.
+- `cargo test --manifest-path workspace/Cargo.toml -p typaxis-manifest --lib --locked`:
+  38 passed (`/private/tmp/typaxis-font-manifest-regression.log`).
+- A final combined font/resource rerun also passed 21 + 59 tests after the
+  position-role review (`/private/tmp/typaxis-font-resource-final.log`).
+- The earlier broad CLI/resource run passed 229 CLI tests (3 ignored) and 59
+  resource tests, including the 5,000-alias selected-PDF regression
+  (`/private/tmp/typaxis-cff-integration-tests.log`). This precedes the subsequent
+  manifest fix; the focused book and manifest suites above verify that fix.
+
+The new reproducible real-file negative gate is:
+
+```sh
+python3 tools/verify_vmb_font_diagnostics.py \
+  --typaxis /private/tmp/typaxis-vmb-book-build/debug/typaxis \
+  --font /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  --output /private/tmp/typaxis-harano-diagnostic-20260906-final
+```
+
+The output directory must be new. The verifier requires the recorded Harano hash,
+stages its unchanged bytes in the existing small production fixture, runs both
+public commands with one package/config, records observations even on assertion
+failure, and checks no PDF and a valid failed manifest. The successful report is
+`/private/tmp/typaxis-harano-diagnostic-20260906-final/observed.json` with
+`passed=true`, `harano_supported=false`, `full_book=false`. Both commands return 1
+with `cff1 unsupported_table`, `/resources/font_faces/2`, `table=VORG`,
+`font_byte=108`, `embedding=allowed`, `fs_type=0x0000`. The initial failed-manifest
+finding is preserved under `/private/tmp/typaxis-harano-diagnostic-20260906/`.
+
+Remaining font work includes selected-glyph/evaluator/subset context, detailed
+TrueType metadata failures, and the entire CFF/2 CID/FD/cmap14/IVS and publication
+scope in design §7/§9.1. The formal VMB exporter and real full-book gates remain
+open; this negative admission result cannot stand in for them.

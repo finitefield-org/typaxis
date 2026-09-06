@@ -13,6 +13,13 @@ use typaxis_core::{
 
 use crate::{OriginalGlyphId, SubsetGlyphId};
 
+#[path = "cff_diagnostics.rs"]
+mod diagnostics;
+pub use diagnostics::{
+    admit_sfnt_cff1_detailed, Cff1Failure, FontEmbeddingStatus, FontFailureContext,
+    FontFailurePhase, FontFailureReason,
+};
+
 pub const CFF1_RESOURCE_PROFILE_ID: &str = "typaxis.resource-profile/sfnt-cff1/1";
 pub const CFF1_ADMISSION_ID: &str = "typaxis.sfnt-cff1-admission/1";
 pub const CFF1_CHARSTRING_EVALUATOR_ID: &str = "typaxis.cff1-charstring-evaluator/1";
@@ -459,32 +466,78 @@ pub fn admit_sfnt_cff1(
     face_index: u32,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<Cff1Admission, Cff1Error> {
+    admit_sfnt_cff1_detailed(source, face_index, limits).map_err(|failure| failure.kind)
+}
+
+fn admit_sfnt_cff1_inner(
+    source: &[u8],
+    face_index: u32,
+    limits: &M4EffectiveResourceLimits,
+    context: &mut FontFailureContext,
+) -> Result<Cff1Admission, Cff1Error> {
     if face_index != 0 {
         return Err(Cff1Error::InvalidFaceIndex);
     }
-    let table_records = preflight_sfnt(source, *limits.extension().get())?;
+    let table_records = preflight_sfnt(source, *limits.extension().get(), context)?;
     let tables = table_map(source, &table_records)?;
-    typed_read_fonts_check(source)?;
+    typed_read_fonts_check(source).map_err(|kind| {
+        let tag = match kind {
+            Cff1Error::InvalidHead => Some(*b"head"),
+            Cff1Error::InvalidMaxp => Some(*b"maxp"),
+            Cff1Error::InvalidHhea => Some(*b"hhea"),
+            Cff1Error::InvalidHmtx => Some(*b"hmtx"),
+            Cff1Error::InvalidCmap => Some(*b"cmap"),
+            Cff1Error::InvalidName => Some(*b"name"),
+            Cff1Error::InvalidOs2 => Some(*b"OS/2"),
+            Cff1Error::InvalidPost => Some(*b"post"),
+            Cff1Error::InvalidCff => Some(*b"CFF "),
+            _ => None,
+        };
+        if let Some(tag) = tag {
+            context.table(tag, &table_records, FontFailurePhase::TableDecode);
+        }
+        kind
+    })?;
 
+    context.table(*b"head", &table_records, FontFailurePhase::TableDecode);
     let head = parse_head(required_table(&tables, b"head")?)?;
-    let maxp = parse_maxp(required_table(&tables, b"maxp")?, limits)?;
+    context.table(*b"maxp", &table_records, FontFailurePhase::TableDecode);
+    let maxp_bytes = required_table(&tables, b"maxp")?;
+    let maxp = parse_maxp(maxp_bytes, limits).map_err(|kind| {
+        if kind == Cff1Error::GlyphLimit {
+            context.field(4);
+            context.limit = Some(u64::from(limits.extension().get().max_font_glyphs));
+            context.observed = read_u16(maxp_bytes, 4, Cff1Error::InvalidMaxp)
+                .ok()
+                .map(u64::from);
+        }
+        kind
+    })?;
+    context.table(*b"hhea", &table_records, FontFailurePhase::TableDecode);
     let hhea = parse_hhea(required_table(&tables, b"hhea")?)?;
+    context.table(*b"hmtx", &table_records, FontFailurePhase::TableDecode);
     let (advances, left_side_bearings) = parse_hmtx(
         required_table(&tables, b"hmtx")?,
         maxp,
         hhea.number_of_h_metrics,
     )?;
-    let cmap = parse_cmap(required_table(&tables, b"cmap")?, maxp)?;
+    context.table(*b"cmap", &table_records, FontFailurePhase::Cmap);
+    let cmap = parse_cmap(required_table(&tables, b"cmap")?, maxp, context)?;
+    context.table(*b"name", &table_records, FontFailurePhase::TableDecode);
     let names = parse_name(required_table(&tables, b"name")?)?;
+    context.table(*b"OS/2", &table_records, FontFailurePhase::TableDecode);
     let os2 = parse_os2(required_table(&tables, b"OS/2")?)?;
+    context.table(*b"post", &table_records, FontFailurePhase::TableDecode);
     let post = parse_post(required_table(&tables, b"post")?)?;
-    validate_optional_tables(source, &tables, maxp)?;
+    validate_optional_tables(source, &tables, maxp, &table_records, context)?;
+    context.table(*b"CFF ", &table_records, FontFailurePhase::CffIndex);
     let program = parse_cff(
         required_table(&tables, b"CFF ")?,
         maxp,
         &names.postscript_name,
         head.bbox,
         limits,
+        context,
     )?;
     let subroutine_count = u32::try_from(
         program
@@ -494,6 +547,14 @@ pub fn admit_sfnt_cff1(
             .ok_or(Cff1Error::SubroutineLimit)?,
     )
     .map_err(|_| Cff1Error::SubroutineLimit)?;
+    context.table(
+        *b"OS/2",
+        &table_records,
+        FontFailurePhase::EmbeddingPermission,
+    );
+    context.reason = FontFailureReason::RestrictedEmbedding;
+    context.field(8);
+    context.permission(os2.bytes);
     let embedding_permission = embedding_permission(os2.fs_type)?;
     let source_sha256 = sha256(source);
     let source_byte_length = u64::try_from(source.len()).map_err(|_| Cff1Error::InvalidSfnt)?;
@@ -591,16 +652,30 @@ fn push_hash(output: &mut String, hash: [u8; 32]) {
     output.push('"');
 }
 
-fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRecord>, Cff1Error> {
+fn preflight_sfnt(
+    source: &[u8],
+    limits: M4ResourceLimits,
+    context: &mut FontFailureContext,
+) -> Result<Vec<TableRecord>, Cff1Error> {
+    context.directory(None, Some(0), FontFailureReason::MalformedFont);
     if source.get(..4) != Some(b"OTTO") {
         return Err(Cff1Error::InvalidSfnt);
     }
+    context.file_offset = Some(4);
     let count = usize::from(read_u16(source, 4, Cff1Error::InvalidSfnt)?);
     if count == 0
         || u32::try_from(count).map_err(|_| Cff1Error::TableLimit)? > limits.max_font_tables
     {
+        context.reason = if count == 0 {
+            FontFailureReason::InvalidTableCount
+        } else {
+            FontFailureReason::BudgetExceeded
+        };
+        context.observed = Some(count as u64);
+        context.limit = Some(u64::from(limits.max_font_tables));
         return Err(Cff1Error::TableLimit);
     }
+    context.file_offset = None;
     let largest_power = 1usize << (usize::BITS - 1 - count.leading_zeros());
     let expected_search_range = largest_power
         .checked_mul(16)
@@ -635,13 +710,21 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
         let tag: [u8; 4] = source[record..record + 4]
             .try_into()
             .map_err(|_| Cff1Error::InvalidSfnt)?;
+        context.directory(
+            Some(tag),
+            Some(record),
+            FontFailureReason::InvalidTableOrder,
+        );
         if previous_tag.is_some_and(|previous| previous >= tag) {
             return Err(Cff1Error::InvalidSfnt);
         }
         previous_tag = Some(tag);
         if !REQUIRED_TABLES.contains(&tag) && !OPTIONAL_TABLES.contains(&tag) {
+            context.reason = FontFailureReason::UnsupportedTable;
             return Err(Cff1Error::UnsupportedTable);
         }
+        context.reason = FontFailureReason::InvalidTableRange;
+        context.file_offset = Some((record + 8) as u64);
         let expected_checksum = read_u32(source, record + 4, Cff1Error::InvalidSfnt)?;
         let offset = usize::try_from(read_u32(source, record + 8, Cff1Error::InvalidSfnt)?)
             .map_err(|_| Cff1Error::InvalidSfnt)?;
@@ -671,8 +754,13 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
             }
             checksum_bytes[8..12].fill(0);
         }
+        context.reason = FontFailureReason::ChecksumMismatch;
+        context.file_offset = Some((record + 4) as u64);
         if sfnt_checksum(&checksum_bytes) != expected_checksum {
             return Err(Cff1Error::InvalidSfnt);
+        }
+        if tag == *b"OS/2" {
+            context.permission(&source[offset..end]);
         }
         records.push(TableRecord {
             tag,
@@ -683,6 +771,7 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
     }
     for required in REQUIRED_TABLES {
         if !records.iter().any(|record| record.tag == required) {
+            context.directory(Some(required), None, FontFailureReason::MissingTable);
             return Err(Cff1Error::InvalidSfnt);
         }
     }
@@ -690,6 +779,13 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
     by_offset.sort_by_key(|record| record.offset);
     let mut cursor = directory_end;
     for record in by_offset {
+        context.directory(
+            Some(record.tag),
+            Some(record.offset),
+            FontFailureReason::InvalidTableRange,
+        );
+        // The unit starts here; a bad gap/padding byte can be elsewhere.
+        context.position_is_exact = false;
         if record.offset < cursor || source[cursor..record.offset].iter().any(|byte| *byte != 0) {
             return Err(Cff1Error::InvalidSfnt);
         }
@@ -702,6 +798,7 @@ fn preflight_sfnt(source: &[u8], limits: M4ResourceLimits) -> Result<Vec<TableRe
         }
         cursor = record.padded_end;
     }
+    context.directory(None, None, FontFailureReason::ChecksumMismatch);
     if cursor != source.len() || sfnt_checksum(source) != SFNT_CHECKSUM_MAGIC {
         return Err(Cff1Error::InvalidSfnt);
     }
@@ -925,6 +1022,8 @@ fn validate_optional_tables(
     source: &[u8],
     tables: &BTreeMap<[u8; 4], TableRef<'_>>,
     glyph_count: u16,
+    records: &[TableRecord],
+    context: &mut FontFailureContext,
 ) -> Result<(), Cff1Error> {
     let font = FontRef::new(source).map_err(|_| Cff1Error::InvalidOptionalTable)?;
     let all_glyphs = || {
@@ -936,14 +1035,17 @@ fn validate_optional_tables(
     };
 
     if let Some(table) = tables.get(b"BASE") {
+        context.table(*b"BASE", records, FontFailurePhase::TableDecode);
         font.base().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         validate_base_table(table.bytes, glyph_count)?;
     }
     if let Some(table) = tables.get(b"GDEF") {
+        context.table(*b"GDEF", records, FontFailurePhase::TableDecode);
         font.gdef().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         validate_gdef_table(table.bytes, glyph_count)?;
     }
     if tables.contains_key(b"GSUB") {
+        context.table(*b"GSUB", records, FontFailurePhase::TableDecode);
         let gsub = font.gsub().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         if read_u32(tables[b"GSUB"].bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
             return Err(Cff1Error::InvalidOptionalTable);
@@ -979,6 +1081,7 @@ fn validate_optional_tables(
         }
     }
     let gpos_lookup_count = if tables.contains_key(b"GPOS") {
+        context.table(*b"GPOS", records, FontFailurePhase::TableDecode);
         let gpos = font.gpos().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         if read_u32(tables[b"GPOS"].bytes, 0, Cff1Error::InvalidOptionalTable)? != 0x0001_0000 {
             return Err(Cff1Error::InvalidOptionalTable);
@@ -1021,6 +1124,7 @@ fn validate_optional_tables(
         0
     };
     let gsub_lookup_count = if tables.contains_key(b"GSUB") {
+        context.table(*b"GSUB", records, FontFailurePhase::TableDecode);
         font.gsub()
             .and_then(|table| table.lookup_list())
             .map(|list| list.lookup_count())
@@ -1029,6 +1133,7 @@ fn validate_optional_tables(
         0
     };
     if let Some(table) = tables.get(b"JSTF") {
+        context.table(*b"JSTF", records, FontFailurePhase::TableDecode);
         validate_jstf_table(
             table.bytes,
             glyph_count,
@@ -1037,10 +1142,12 @@ fn validate_optional_tables(
         )?;
     }
     if let Some(table) = tables.get(b"MATH") {
+        context.table(*b"MATH", records, FontFailurePhase::TableDecode);
         crate::math::validate_cff_math_table(table.bytes, glyph_count)
             .map_err(|_| Cff1Error::InvalidOptionalTable)?;
     }
     if let Some(table) = tables.get(b"kern") {
+        context.table(*b"kern", records, FontFailurePhase::TableDecode);
         font.kern().map_err(|_| Cff1Error::InvalidOptionalTable)?;
         validate_kern_table(table.bytes, glyph_count)?;
     }
@@ -1982,10 +2089,16 @@ fn valid_postscript_name(value: &str) -> bool {
         && bytes.get(6) == Some(&b'+'))
 }
 
-fn parse_cmap(bytes: &[u8], glyph_count: u16) -> Result<BTreeMap<u32, u16>, Cff1Error> {
+fn parse_cmap(
+    bytes: &[u8],
+    glyph_count: u16,
+    context: &mut FontFailureContext,
+) -> Result<BTreeMap<u32, u16>, Cff1Error> {
+    context.field(0);
     if read_u16(bytes, 0, Cff1Error::InvalidCmap)? != 0 {
         return Err(Cff1Error::InvalidCmap);
     }
+    context.field(2);
     let count = usize::from(read_u16(bytes, 2, Cff1Error::InvalidCmap)?);
     if count == 0 {
         return Err(Cff1Error::InvalidCmap);
@@ -1999,26 +2112,37 @@ fn parse_cmap(bytes: &[u8], glyph_count: u16) -> Result<BTreeMap<u32, u16>, Cff1
     let mut merged = BTreeMap::new();
     for index in 0..count {
         let record = 4 + index * 8;
+        context.cmap_format = None;
+        context.field(record);
         let platform = read_u16(bytes, record, Cff1Error::InvalidCmap)?;
         let encoding = read_u16(bytes, record + 2, Cff1Error::InvalidCmap)?;
         if !matches!((platform, encoding), (0, _) | (3, 1) | (3, 10)) {
             return Err(Cff1Error::InvalidCmap);
         }
+        context.field(record + 4);
         let offset = usize::try_from(read_u32(bytes, record + 4, Cff1Error::InvalidCmap)?)
             .map_err(|_| Cff1Error::InvalidCmap)?;
         if offset < records_end {
             return Err(Cff1Error::InvalidCmap);
         }
+        context.field(offset);
         let format = read_u16(bytes, offset, Cff1Error::InvalidCmap)?;
+        context.cmap_format = Some(format);
         let mappings = match format {
             4 if platform == 0 || (platform == 3 && encoding == 1) => {
+                context.at(offset);
                 parse_cmap_format4(bytes, offset, glyph_count)?
             }
             12 if platform == 0 || (platform == 3 && encoding == 10) => {
+                context.at(offset);
                 parse_cmap_format12(bytes, offset, glyph_count)?
             }
-            _ => return Err(Cff1Error::InvalidCmap),
+            _ => {
+                context.reason = FontFailureReason::UnsupportedCmapFormat;
+                return Err(Cff1Error::InvalidCmap);
+            }
         };
+        context.clear_position();
         for (scalar, gid) in mappings {
             if merged
                 .insert(scalar, gid)
@@ -2171,6 +2295,7 @@ fn parse_cmap_format12(
 
 #[derive(Clone, Debug)]
 struct CffIndex {
+    data_start: usize,
     objects: Vec<Vec<u8>>,
     start: usize,
     end: usize,
@@ -2189,6 +2314,7 @@ fn parse_cff_index(
     }
     if count == 0 {
         return Ok(CffIndex {
+            data_start: offset + 2,
             objects: Vec::new(),
             start: offset,
             end: offset.checked_add(2).ok_or(Cff1Error::InvalidCff)?,
@@ -2264,6 +2390,7 @@ fn parse_cff_index(
         objects.push(object);
     }
     Ok(CffIndex {
+        data_start,
         objects,
         start: offset,
         end,
@@ -2278,6 +2405,7 @@ enum DictOperand {
 
 #[derive(Clone, Debug)]
 struct DictEntry {
+    operator_offset: usize,
     operator: u16,
     operands: Vec<DictOperand>,
 }
@@ -2307,6 +2435,7 @@ fn parse_dict(bytes: &[u8]) -> Result<Vec<DictEntry>, Cff1Error> {
             return Err(Cff1Error::InvalidCff);
         }
         entries.push(DictEntry {
+            operator_offset: cursor,
             operator,
             operands: std::mem::take(&mut operands),
         });
@@ -2545,6 +2674,7 @@ fn parse_cff(
     expected_name: &str,
     expected_bbox: [i16; 4],
     limits: &M4EffectiveResourceLimits,
+    context: &mut FontFailureContext,
 ) -> Result<CffProgram, Cff1Error> {
     if bytes.get(..4).is_none()
         || bytes[0] != 1
@@ -2554,21 +2684,45 @@ fn parse_cff(
     {
         return Err(Cff1Error::InvalidCff);
     }
+    context.at(4);
     let names = parse_cff_index(bytes, 4, None)?;
     if names.objects.len() != 1 || names.objects[0].as_slice() != expected_name.as_bytes() {
         return Err(Cff1Error::InvalidCff);
     }
+    context.at(names.end);
     let top_dicts = parse_cff_index(bytes, names.end, None)?;
     if top_dicts.objects.len() != 1 {
         return Err(Cff1Error::InvalidCff);
     }
+    context.at(top_dicts.end);
     let strings = parse_cff_index(bytes, top_dicts.end, None)?;
+    context.at(strings.end);
     let global_subrs = parse_cff_index(
         bytes,
         strings.end,
         Some(limits.extension().get().max_cff_subroutines),
-    )?;
+    )
+    .map_err(|kind| {
+        if kind == Cff1Error::SubroutineLimit {
+            context.field(strings.end);
+            context.limit = Some(u64::from(limits.extension().get().max_cff_subroutines));
+            context.observed = read_u16(bytes, strings.end, Cff1Error::InvalidCff)
+                .ok()
+                .map(u64::from);
+        }
+        kind
+    })?;
+    context.phase = FontFailurePhase::CffTopDict;
+    context.at(top_dicts.data_start);
     let top = parse_dict(&top_dicts.objects[0])?;
+    if let Some(entry) = top
+        .iter()
+        .find(|e| !ALLOWED_TOP_DICT_OPERATORS.contains(&e.operator))
+    {
+        context.reason = FontFailureReason::UnsupportedCffOperator;
+        context.operator = Some(entry.operator);
+        context.field(top_dicts.data_start + entry.operator_offset);
+    }
     validate_top_dict(&top, expected_bbox, strings.objects.len())?;
     let charset_offset = one_dict_integer(&top, 15)?.unwrap_or(0);
     let encoding_offset = one_dict_integer(&top, 16)?.unwrap_or(0);
@@ -2582,10 +2736,14 @@ fn parse_cff(
     if private_size == 0 {
         return Err(Cff1Error::InvalidCff);
     }
+    context.phase = FontFailurePhase::CffIndex;
+    context.at(charstrings_offset);
     let charstrings = parse_cff_index(bytes, charstrings_offset, None)?;
     if charstrings.objects.len() != usize::from(expected_glyph_count) {
         return Err(Cff1Error::InvalidCff);
     }
+    context.phase = FontFailurePhase::TableDecode;
+    context.clear_position();
     let charset = parse_charset(
         bytes,
         charset_offset,
@@ -2599,16 +2757,29 @@ fn parse_cff(
         strings.objects.len(),
         &charset.sids,
     )?;
+    context.phase = FontFailurePhase::CffPrivateDict;
+    context.at(private_offset);
     let private_end = private_offset
         .checked_add(private_size)
         .ok_or(Cff1Error::InvalidCff)?;
     let private_bytes = bytes
         .get(private_offset..private_end)
         .ok_or(Cff1Error::InvalidCff)?;
+    context.phase = FontFailurePhase::CffPrivateDict;
+    context.at(private_offset);
     let private_entries = parse_dict(private_bytes)?;
+    if let Some(entry) = private_entries
+        .iter()
+        .find(|e| !ALLOWED_PRIVATE_DICT_OPERATORS.contains(&e.operator))
+    {
+        context.reason = FontFailureReason::UnsupportedCffOperator;
+        context.operator = Some(entry.operator);
+        context.field(private_offset + entry.operator_offset);
+    }
     validate_private_dict(&private_entries)?;
     let default_width_x = dict_fixed(&private_entries, 20)?.unwrap_or(0);
     let nominal_width_x = dict_fixed(&private_entries, 21)?.unwrap_or(0);
+    context.clear_position();
     let (local_subrs, local_range) = match one_dict_integer(&private_entries, 19)? {
         Some(relative) => {
             let offset = private_offset
@@ -2626,12 +2797,25 @@ fn parse_cff(
                         .map_err(|_| Cff1Error::SubroutineLimit)?,
                 )
                 .ok_or(Cff1Error::SubroutineLimit)?;
-            let index = parse_cff_index(bytes, offset, Some(remaining))?;
+            context.phase = FontFailurePhase::CffIndex;
+            context.at(offset);
+            let index = parse_cff_index(bytes, offset, Some(remaining)).map_err(|kind| {
+                if kind == Cff1Error::SubroutineLimit {
+                    context.field(offset);
+                    context.limit = Some(u64::from(limits.extension().get().max_cff_subroutines));
+                    context.observed = read_u16(bytes, offset, Cff1Error::InvalidCff)
+                        .ok()
+                        .map(|count| u64::from(count) + global_subrs.objects.len() as u64);
+                }
+                kind
+            })?;
             let range = Some((index.start, index.end));
             (index.objects, range)
         }
         None => (Vec::new(), None),
     };
+    context.phase = FontFailurePhase::TableDecode;
+    context.clear_position();
     let mut ranges = vec![
         (0usize, global_subrs.end),
         (charstrings.start, charstrings.end),
@@ -2666,18 +2850,19 @@ fn parse_cff(
     })
 }
 
+const ALLOWED_TOP_DICT_OPERATORS: &[u16] = &[
+    0, 1, 2, 3, 4, 5, 13, 14, 15, 16, 17, 18, 0x0C00, 0x0C01, 0x0C02, 0x0C03, 0x0C04, 0x0C05,
+    0x0C06, 0x0C07, 0x0C08,
+];
+
 fn validate_top_dict(
     entries: &[DictEntry],
     expected_bbox: [i16; 4],
     custom_string_count: usize,
 ) -> Result<(), Cff1Error> {
-    const ALLOWED: &[u16] = &[
-        0, 1, 2, 3, 4, 5, 13, 14, 15, 16, 17, 18, 0x0C00, 0x0C01, 0x0C02, 0x0C03, 0x0C04, 0x0C05,
-        0x0C06, 0x0C07, 0x0C08,
-    ];
     if entries
         .iter()
-        .any(|entry| !ALLOWED.contains(&entry.operator))
+        .any(|entry| !ALLOWED_TOP_DICT_OPERATORS.contains(&entry.operator))
     {
         return Err(Cff1Error::InvalidCff);
     }
@@ -2778,16 +2963,17 @@ fn validate_top_dict(
     Ok(())
 }
 
+const ALLOWED_PRIVATE_DICT_OPERATORS: &[u16] = &[
+    6, 7, 8, 9, 10, 11, 19, 20, 21, 0x0C09, 0x0C0A, 0x0C0B, 0x0C0C, 0x0C0D, 0x0C0E, 0x0C11, 0x0C12,
+    0x0C13,
+];
+
 fn validate_private_dict(entries: &[DictEntry]) -> Result<(), Cff1Error> {
     // Blue/hint values are validated but never copied.  Operators outside the
     // CFF1 Private DICT vocabulary are rejected instead of ignored.
-    const ALLOWED: &[u16] = &[
-        6, 7, 8, 9, 10, 11, 19, 20, 21, 0x0C09, 0x0C0A, 0x0C0B, 0x0C0C, 0x0C0D, 0x0C0E, 0x0C11,
-        0x0C12, 0x0C13,
-    ];
     if entries
         .iter()
-        .any(|entry| !ALLOWED.contains(&entry.operator))
+        .any(|entry| !ALLOWED_PRIVATE_DICT_OPERATORS.contains(&entry.operator))
     {
         return Err(Cff1Error::InvalidCff);
     }
@@ -4706,6 +4892,9 @@ fn subset_pdf_metrics(
 
 #[cfg(test)]
 mod tests {
+    mod diagnostic_tests {
+        include!("cff_diagnostic_tests.rs");
+    }
     use super::*;
     use typaxis_core::{ResourceLimits, ValidatedResourceLimits};
 
@@ -5314,6 +5503,7 @@ mod tests {
         let bbox = [0, -200, 600, 800];
         let mut valid = vec![
             DictEntry {
+                operator_offset: 0,
                 operator: 5,
                 operands: bbox
                     .into_iter()
@@ -5321,18 +5511,22 @@ mod tests {
                     .collect(),
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 17,
                 operands: vec![DictOperand::Integer(100)],
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 18,
                 operands: vec![DictOperand::Integer(10), DictOperand::Integer(200)],
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 0x0C06,
                 operands: vec![DictOperand::Integer(2)],
             },
             DictEntry {
+                operator_offset: 0,
                 operator: 0x0C07,
                 operands: vec![
                     DictOperand::Real("1E-3".to_owned()),

@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod font_diagnostic_tests { include!("font_diagnostic_tests.rs"); }
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt;
@@ -880,7 +882,16 @@ fn machine_book_svg_failure_publishes_attribute_token_and_svg_position() {
     wire.replace_typed_regions(wire.document().clone(), resources);
     fs::write(&path, typaxis_document_package::StagingSemanticDocumentPackageEncoder::new().encode(&wire).unwrap()).unwrap();
     let result = run_build_package(build_options(&job, &artifacts, &expected));
-    assert!(result.is_err());
+    assert_eq!(failure_exit_code(&result), 1);
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["output"].is_null());
+    assert_eq!(manifest["fonts"].as_array().unwrap().len(), 3);
+    assert_eq!(manifest["images"].as_array().unwrap().len(), 2);
+    for record in manifest["fonts"].as_array().unwrap().iter().chain(manifest["images"].as_array().unwrap()) {
+        assert_eq!(record["media_declaration"]["kind"], "declared");
+        assert_eq!(record["attested_media_kind"], record["media_declaration"]["media_type"]);
+    }
     assert!(!artifacts.join("output.pdf").exists());
     let diagnostics = read_json(&artifacts.join("diagnostics.json"));
     let first = &diagnostics["diagnostics"][0];

@@ -4,7 +4,9 @@ mod cff;
 mod math;
 
 pub use cff::{
-    admit_sfnt_cff1, Cff1Admission, Cff1EmbeddingPermission, Cff1Error, Cff1GlyphClosure,
+    admit_sfnt_cff1, admit_sfnt_cff1_detailed, Cff1Admission, Cff1EmbeddingPermission,
+    Cff1Error, Cff1Failure, Cff1GlyphClosure, FontEmbeddingStatus, FontFailureContext,
+    FontFailurePhase, FontFailureReason,
     Cff1PdfMetrics, Cff1Subset, Cff1SubsetSession, CFF1_ADMISSION_ID, CFF1_CHARSTRING_EVALUATOR_ID,
     CFF1_EMBEDDING_PERMISSION_ID, CFF1_GLYPH_CLOSURE_ID, CFF1_PDF_PLAN_ID,
     CFF1_RESOURCE_PROFILE_ID, CFF1_SUBSET_ID,

@@ -18,6 +18,8 @@ Typaxis baseline: `718ab6c9e1309b7dc750c62554c954cae4333131`
 
 設計の受け入れ条件は全巻PDFの生成・内容検証までである。parserや予算の単体試験、未配置画像のcheck成功、小規模PDFの生成だけでは完了としない。本文・数式の共通組版（§14）とVMB exporterの正式接続も、当初の全巻要件を満たすための必須修正に含める。
 
+今回の設計確認（2026-09-06）では、現在のコードと保存済み再現結果を照合し、元全巻packageのSHA-256・4,514画像、原ノ味ファイルのSHA-256・`fsType=0`・cmap 4/12/14を再確認した。Safe-SVG 2の終端前空白受理とproduction-book-1のprofile別予算値は既にコードへ反映されている。したがって今後の実装では、これらを再実装するのではなく、未完の詳細診断と実入力・公開check/buildの受け入れ試験を完結させる。フォントのadmission・container/face・CLI詳細診断は今回接続したが、charstring/subset等の詳細化は残る（実装台帳の同日追補参照）。原ノ味正式対応、正式VMB exporter、5,000 distinct画像と実全巻PDFの成功は未確認である。以下の設計仕様と、台帳に記した実装・検証状況を分けて読むこと。
+
 ## 1. 結論と修正範囲
 
 今回の章入力の直接原因は、複数パスではなく、`<path ... />` の **`/>` 直前の空白**である。実際の最初のSVGは、その空白だけを取り除くと複数パスのまま受理された。複数パスを一つへ結合したり、数式を画像リソースへ分割したりする修正は不要であり、描画順・穴・fill-ruleを変えるので採用しない。
@@ -897,3 +899,15 @@ source flow /5、authored shape /3、body pagination /3、body display /4、body
 検査用の選択済み経路の証拠であり、元全巻58 itemの公開build、式番号、generated storeの
 最終収束、汎用pagination、terminal/paint/manifest、正式VMB exporterと原ノ味の各ゲートは
 引き続き未完了である。
+
+
+## 15. フォント診断の実装追補（2026-09-06）
+
+§5.3・§7.6の詳細CFF admissionとcontainer/face診断をresource admissionおよび
+公開check/buildへ接続した。位置は`offset_kind=field`（特定したfield/operator）と
+`offset_kind=context-start`（解析単位の先頭）を区別し、未知のoperand位置を推測しない。
+現物原ノ味の両コマンドは`VORG`・`font_byte=108`・`fsType=0`を表示する。
+失敗manifestで部分受理済みresourceのmedia宣言を落とす不具合も修正した。
+検証コマンド・証拠・未対応範囲は[実装台帳](28-vmb-book-production-progress.md)の
+「CFF admission and TTC diagnostics through public check/build」を参照する。
+この追補は原ノ味の受理範囲や§10の全巻合格条件を変更しない。

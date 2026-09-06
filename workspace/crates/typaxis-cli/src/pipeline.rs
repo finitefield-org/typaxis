@@ -4392,6 +4392,8 @@ fn map_admission_error(error: typaxis_resources::ResourceAdmissionError) -> Fail
         | Error::SafeSvg2Detailed(_)
         | Error::InvalidJpeg(_)
         | Error::InvalidCff1(_)
+        | Error::Cff1Detailed(_)
+        | Error::FontContainerDetailed(_)
         | Error::DeclaredMediaMismatch
         | Error::SvgSafe2Staging
         | Error::InvalidFontFamily
@@ -4451,6 +4453,8 @@ pub(crate) fn map_public_resource_admission_error(
         | Error::SafeSvg2Detailed(_)
         | Error::InvalidJpeg(_)
         | Error::InvalidCff1(_)
+        | Error::Cff1Detailed(_)
+        | Error::FontContainerDetailed(_)
         | Error::DeclaredMediaMismatch
         | Error::SvgSafe2Staging
         | Error::InvalidFontFamily

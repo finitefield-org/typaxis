@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod jpeg;
+mod font_diagnostic;
+pub use font_diagnostic::{FontContainerFailure, FontContainerFailureReason, SUPPORTED_FONT_OUTLINES_NOTE};
 mod safe_vector;
 mod svg_diagnostic;
 pub use svg_diagnostic::{
@@ -37,7 +39,7 @@ use typaxis_document::{
     FontFaceDeclaration, FontMediaDeclaration, FontMediaType, ImageDeclaration,
     ImageMediaDeclaration, ImageMediaType, ResourceCatalog, StagingM4ResourceCatalog,
 };
-use typaxis_font::{admit_sfnt_cff1, Cff1Admission, Cff1Error, FontFamilyError, FontFamilyTable};
+use typaxis_font::{admit_sfnt_cff1_detailed, Cff1Admission, Cff1Error, Cff1Failure, FontFamilyError, FontFamilyTable};
 use typaxis_host_admission::{
     HostAdmissionError, HostAdmissionSession, HostReadIdentityLedger, HostReadIdentityLedgerToken,
     HostRootSetToken, OpenedContainedFile, RegisteredHostReadCandidate,
@@ -744,6 +746,8 @@ pub enum ResourceAdmissionError {
     SafeSvg2Detailed(SafeSvg2Failure),
     InvalidJpeg(JpegFailureReason),
     InvalidCff1(Cff1Error),
+    Cff1Detailed(Cff1Failure),
+    FontContainerDetailed(FontContainerFailure),
     VectorNodeLimit,
     VectorPathSegmentLimit,
     VectorNestingLimit,
@@ -767,6 +771,7 @@ impl ResourceAdmissionError {
             Self::VectorNodeLimit => R7120,
             Self::VectorPathSegmentLimit => R7121,
             Self::VectorNestingLimit => R7122,
+            Self::Cff1Detailed(failure) => Self::InvalidCff1(failure.kind).production_diagnostic_code(),
             Self::InvalidCff1(Cff1Error::TableLimit) => R7130,
             Self::InvalidCff1(Cff1Error::GlyphLimit) => R7131,
             Self::InvalidCff1(Cff1Error::SubroutineLimit) => R7132,
@@ -787,6 +792,12 @@ impl ResourceAdmissionError {
     pub fn production_message(self) -> String {
         if let Self::SafeSvg2Detailed(failure) = self {
             return format!("svg_safe_2 {}", failure.reason.as_str());
+        }
+        if let Self::Cff1Detailed(failure) = self {
+            return format!("cff1 {}", failure.context.reason.as_str());
+        }
+        if let Self::FontContainerDetailed(failure) = self {
+            return format!("font {}", failure.reason.as_str());
         }
         let message = self.canonical_message();
         let code = self.production_diagnostic_code().to_string();
@@ -868,6 +879,8 @@ impl ResourceAdmissionError {
                 JpegFailureReason::DecodeLimit => "R7111: JPEG decode workspace limit was exceeded",
                 JpegFailureReason::SpoolLimit => "R7100: JPEG spool limit was exceeded",
             },
+            Self::FontContainerDetailed(_) => "font container or selected outline is invalid or unsupported",
+            Self::Cff1Detailed(failure) => Self::InvalidCff1(failure.kind).canonical_message(),
             Self::InvalidCff1(error) => match error {
                 Cff1Error::TableLimit => "R7130: CFF1 font table limit was exceeded",
                 Cff1Error::GlyphLimit => "R7131: CFF1 font glyph limit was exceeded",
@@ -1749,13 +1762,12 @@ impl<'roots> AdmittedResourceResolver<'roots> {
             .as_ref()
             .and_then(|policy| policy.fonts.get(font_face_id.get() as usize))
             .ok_or(ResourceAdmissionError::DeclaredMediaMismatch)?;
-        let observed = attest_declared_font_media_kind(
-            source.bytes(),
-            source
-                .face_index()
-                .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?,
-        )
-        .map_err(|_| ResourceAdmissionError::DeclaredMediaMismatch)?;
+        let face_index = source.face_index()
+            .ok_or(ResourceAdmissionError::ReceiptKindMismatch)?;
+        let observed = attest_declared_font_media_kind(source.bytes(), face_index)
+            .map_err(|_| ResourceAdmissionError::FontContainerDetailed(
+                font_diagnostic::diagnose_font_container(source.bytes(), face_index)
+            ))?;
         let expected = match declared {
             FontMediaType::SfntTrueTypeGlyf => AdmittedFontMediaKind::SfntTrueTypeGlyf,
             FontMediaType::TtcTrueTypeGlyf => AdmittedFontMediaKind::TtcTrueTypeGlyf,
@@ -1786,8 +1798,8 @@ impl<'roots> AdmittedResourceResolver<'roots> {
         let profile_fingerprint = self
             .m4_profile_fingerprint
             .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?;
-        let admission = admit_sfnt_cff1(source.bytes(), 0, limits)
-            .map_err(ResourceAdmissionError::InvalidCff1)?;
+        let admission = admit_sfnt_cff1_detailed(source.bytes(), face_index, limits)
+            .map_err(ResourceAdmissionError::Cff1Detailed)?;
         let owner = VerifiedMetadataReceiptOwner::new();
         let receipt = owner.issue_cff1_font(source, admission, profile_fingerprint)?;
         self.bind_verified_metadata(receipt)
