@@ -51,6 +51,7 @@ fn production_text_fixture(
             continue;
         }
         let source = match uri {
+            "book-venn.png" | "orientation-alpha.png" => job.join("../../../../staging/production-book-1/vmb-book/raster").join(uri),
             "vmb-block-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-block-720896.svg"),
             "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),
             "body-no-math.ttf" => job.join("../../../basic-document-1/combined/job/body.ttf"),
@@ -1332,3 +1333,4 @@ fn production_authored_text_charges_output_across_paragraphs() {
 include!("production_body_tests.rs");
 
 include!("production_object_tests.rs");
+include!("production_raster_tests.rs");

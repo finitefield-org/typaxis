@@ -9,7 +9,9 @@ use typaxis_display_list::{
     StructureNodeId, StructureRole,
 };
 use typaxis_resource_admission::AdmittedResourceLedger;
-use typaxis_resources::{FrozenPdfFontPlan, PdfFontProgramKind};
+use typaxis_resources::{
+    FrozenPdfFontPlan, FrozenPdfImagePlan, ImageColorSpace, ImageEncoding, PdfFontProgramKind,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ProductionBodyFontObjectPart {
@@ -30,6 +32,8 @@ pub enum ProductionBodyObjectRole {
         part: ProductionBodyFontObjectPart,
     },
     Vector(u32),
+    Raster(u32),
+    RasterMask(u32),
     PageContent(u32),
     PageResources(u32),
     /// Owned by the final page tree, not by this contribution.
@@ -300,6 +304,13 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         b.bytes(form.content_stream())?;
         b.bytes("\nendstream")?;
     }
+    for (index, plan) in marked.content().rasters().plans().iter().enumerate() {
+        raster_objects(
+            &mut b,
+            u32::try_from(index).map_err(|_| E::ObjectLimit)?,
+            plan,
+        )?;
+    }
     let mut anchor_cursor = marked.anchors().iter().peekable();
     for page in marked.pages() {
         b.start(R::PageContent(page.page_index()))?;
@@ -339,6 +350,19 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
             b.bytes(format!(" /{} ", resource.resource_name()))?;
             b.reference(R::Vector(resource.form_relative_object_role()))?;
         }
+        let mut rasters = BTreeSet::new();
+        for draw in marked.content().pages()[page.page_index() as usize].draws() {
+            if let ProductionBodyPageDrawSource::Raster { plan_index } = draw.source() {
+                if !rasters.contains(&plan_index) {
+                    b.record(1)?;
+                    rasters.insert(plan_index);
+                    b.bytes(format!(" /PBR{plan_index} "))?;
+                    b.reference(R::Raster(
+                        u32::try_from(plan_index).map_err(|_| E::ObjectLimit)?,
+                    ))?;
+                }
+            }
+        }
         b.bytes(" >> >>")?;
     }
     navigation_objects(&mut b, &navigation)?;
@@ -364,6 +388,56 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
 }
 fn number(raw: i64) -> String {
     crate::tagged_pdf_v2::pdf_number_v2(raw)
+}
+
+fn raster_objects(b: &mut Builder<'_>, index: u32, plan: &FrozenPdfImagePlan) -> Result<(), E> {
+    let color = match plan.color_space() {
+        ImageColorSpace::Gray => "DeviceGray",
+        ImageColorSpace::Rgb => "DeviceRGB",
+        ImageColorSpace::Cmyk => return Err(E::ReceiptMismatch),
+    };
+    b.start(R::Raster(index))?;
+    b.bytes(format!("<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{color} /BitsPerComponent {}",
+        plan.width(), plan.height(), plan.bits_per_component()))?;
+    match plan.encoding() {
+        ImageEncoding::Flate => b.bytes(" /Filter /FlateDecode")?,
+        ImageEncoding::Jpeg => {
+            let jpeg = plan.jpeg_plan().ok_or(E::ReceiptMismatch)?;
+            let transform = u8::from(plan.color_space() == ImageColorSpace::Rgb);
+            if jpeg.color_transform() != transform
+                || plan.bits_per_component() != 8
+                || plan.alpha_mask().is_some()
+            {
+                return Err(E::ReceiptMismatch);
+            }
+            b.bytes(format!(
+                " /Filter /DCTDecode /DecodeParms << /ColorTransform {transform} >>"
+            ))?;
+        }
+        ImageEncoding::Raw => return Err(E::ReceiptMismatch),
+    }
+    if plan.alpha_mask().is_some() {
+        b.bytes(" /SMask ")?;
+        b.reference(R::RasterMask(index))?;
+    }
+    b.bytes(format!(
+        " /Length {} >>\nstream\n",
+        plan.encoded_bytes().len()
+    ))?;
+    b.bytes(plan.encoded_bytes())?;
+    b.bytes("\nendstream")?;
+    if let Some(mask) = plan.alpha_mask() {
+        if mask.encoding() != ImageEncoding::Flate
+            || mask.width() != plan.width()
+            || mask.height() != plan.height()
+        {
+            return Err(E::ReceiptMismatch);
+        }
+        b.start(R::RasterMask(index))?;
+        b.stream(&format!(" /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent {} /Filter /FlateDecode",
+            mask.width(), mask.height(), mask.bits_per_component()), mask.encoded_bytes())?;
+    }
+    Ok(())
 }
 
 fn font_objects(b: &mut Builder<'_>, font: &FrozenPdfFontPlan) -> Result<(), E> {

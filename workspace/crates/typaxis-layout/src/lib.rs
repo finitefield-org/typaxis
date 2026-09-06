@@ -13,6 +13,7 @@ mod safe_vector;
 mod semantic_container;
 
 pub use production_inline::{
+    ProductionPreparedRasterFigure,
     layout_production_inline_lines, prepare_production_inline_items,
     ProductionInlineAnchorPosition, ProductionInlineLineLayout,
     ProductionInlineParagraphLineLayout, ProductionInlinePreparationError,

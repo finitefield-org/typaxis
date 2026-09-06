@@ -670,7 +670,7 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 共通cursorの追補（2026-09-06）: `typaxis-pagination/src/production_body.rs`の`paginate_production_body`は、source flowの段落行、block SVG、vector caption、明示改ページを同じcursorで配置する。行とblockのpackage/profile/limits/admission/binding epochを照合し、段落の実行高とblockの実content heightを消費する。paragraphのstart/end indent、start/center/end alignment、before/after spaceを使用する。semantic containerは縦余白と末尾keepを子の最初/最後の配置へ伝え、非ゼロのcontainer indentとnamed-page選択はowner付き保留とする。captionは実際の本文行を消費し、keep_caption=trueではblockからcaption末尾までの実高さを同じページに保つ。keep_with_nextは後続の実行高・余白を含めて判断し、groupが空ページにも収まらない場合はoversizeとする。明示改ページは先頭・連続・末尾を含めて1 nodeにつき必ず次ページを作る。keepと明示改ページの衝突は診断し、片方を黙って無視しない。
 
-選択fragmentはparagraph/lineまたはblock index、page index、bounds、baseline、SVG viewportを持ち、本文glyphとinline SVGには同じline originを加える。page/fragment/work recordの有限予算を行・block preparationから継続し、既定の先頭blank pageもページ予算に数える。この実装は実寸法に基づく前方配置の段階である。汎用のbounded lookback/cost比較、widow/orphan、収束loop、list marker・raster figure・table/footnote/native mathの共通配置とterminal/paint authorizationは未接続で、これらを全巻対応済みと扱わない。source flowが未接続領域に遭遇した場合は部分結果を返さず、所有nodeを診断する。最終publication前に既存のpage-break policy/trace/convergence契約へ統合する。
+選択fragmentはparagraph/lineまたはblock index、page index、bounds、baseline、SVG viewportを持ち、本文glyphとinline SVGには同じline originを加える。page/fragment/work recordの有限予算を行・block preparationから継続し、既定の先頭blank pageもページ予算に数える。この実装は実寸法に基づく前方配置の段階である。汎用のbounded lookback/cost比較、widow/orphan、収束loop、list marker・table/footnote/native mathの共通配置とterminal/paint authorizationは未接続で、これらを全巻対応済みと扱わない。source flowが未接続領域に遭遇した場合は部分結果を返さず、所有nodeを診断する。最終publication前に既存のpage-break policy/trace/convergence契約へ統合する。
 
 ### 14.3 本文fontとPDF出力の設計
 
@@ -772,3 +772,43 @@ Rustと独立pypdf検査で確認した。独立検査はselected receiptに対�
 この接続は選択済み共通flowが扱える範囲の検査用PDFであり、anchor-only段落のprofile/flow cursor、
 汎用pagination、terminal/paint/manifest、公開check/build、正式VMB exporter、原ノ味・実全巻の
 受け入れ条件を完了した意味ではない。最新の実行結果は実装台帳を参照する。
+
+
+### 14.6 通常のPNG/JPEG図版とキャプションの共通配置
+
+追加実装（2026-09-06）: 元全巻の通常`figure`は51配置、参照するPNGは48宣言だった。
+`ProductionTextFlow`へ通常figureのsource owner/span、image ID、Alt、placement、解決済み
+styleを保持する。prepared inline ownerからadmitted imageのhash・ピクセル寸法へ結び、
+`width`の物理長とピクセル比で高さを一回だけround-half-to-evenで計算する。
+この経路は`placement=block`、明示したwidth、PNGまたはbaseline JPEGを扱う。auto幅、
+別placement、通常figureに指定したvector mediaは未対応理由を返す。named page、本文幅超過、
+ページより高い図版も所有node付きで拒否し、暗黙の縮小・切断・用紙変更をしない。
+
+共通paginationは通常図版を一つの実高さfragmentとして本文・数式と同じcursorに置く。
+キャプションは実際に組んだ各行を後続fragmentとして保持し、`keep_caption=true`なら
+図版から最後のcaption行までをkeepで結ぶ。falseなら通常の改ページ候補を使う。
+figureのspace_beforeは図版の前、space_afterとkeep_with_nextは最後のcaption行
+（captionなしなら図版）の後へ適用する。captionの行幅はその段落に解決したstyleとbody幅に
+従い、画像のwidthへ黙って縮めない。list/table/footnote等を含む未接続caption subflowは
+未対応診断を維持する。
+
+PDF用のraster planは選択済みdrawだけから作る。同じstable bytes/hash/mediaの画像は、
+異なるimage IDであっても一つのImage XObjectを共有する。論理宣言のadmission課金と
+配置node、Alt、caption、MCIDは共有しない。PNGは色と必要なalphaを分離し、固定した
+Rust deflate backendで可逆圧縮する。JPEGはadmission済みのnormalized streamと
+ColorTransformの検証結果を使う。PDF page rootのY反転と画像scanlineの変換を区別し、
+画像matrixを`[w 0 0 -h x y+h]`として元の上下方向を保存する。
+
+records/spoolは既存font・vector・textの保持分から継続する。decode前に正規化pixel buffer、
+色/alpha分離、明示したPNG decoder allocation ceiling、固定deflater workspaceと
+圧縮結果の一時コピーを予算へ含める。writerは出力の上限を確保前に検査する。
+`spool_charge`は戻り値が保持する圧縮payload、`peak_spool_charge`は処理中に検査した
+一時workspace込みの高水位を示し、実測RSSとは区別する。同じ画像の再配置ではdecodeと
+圧縮を繰り返さない。現時点の固定backendはflate2 1.1.9 / miniz_oxide 0.8.9で、既存PNG
+dependencyのlock済み実装を明示利用する。公開profile/capabilityの変更は行わない。
+
+通常図版は`Figure`のMCIDとsource Altへ結び、captionはその構造子として後続する。
+Formula用のActualText補助glyphを通常図版へ付けず、図版のAltを抽出本文へ混入しない。
+最終オブジェクトにはImage/必要なSMaskを割り当て、各ページのResourcesは実使用した
+画像のみを参照する。この接続は検査用PDF経路であり、公開writer、terminal/paint/manifest、
+正式VMB exporterと実全巻ゲートは引き続き未完了である。検証記録は実装台帳を参照する。

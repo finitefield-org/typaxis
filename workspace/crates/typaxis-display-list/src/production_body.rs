@@ -15,7 +15,7 @@ use typaxis_pagination::{ProductionBodyFragmentSource, ProductionBodySelectedLay
 use typaxis_resource_admission::{AdmittedResourceLedger, VectorContentKey};
 use typaxis_syntax::PrecomposedVectorKind;
 
-pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/2";
+pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/3";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyDisplayErrorKind {
     ReceiptMismatch,
@@ -168,6 +168,37 @@ impl<'d> ProductionBodyVectorDraw<'d> {
 pub enum ProductionBodyDraw<'d> {
     Text(ProductionBodyTextDraw<'d>),
     Vector(ProductionBodyVectorDraw<'d>),
+    Raster(ProductionBodyRasterDraw<'d>),
+}
+
+#[derive(Debug)]
+pub struct ProductionBodyRasterDraw<'d> {
+    owner: NodeId,
+    page_index: u32,
+    fragment_index: u32,
+    image: &'d typaxis_resource_admission::AdmittedImage,
+    alternative: &'d str,
+    viewport: Rect,
+}
+impl<'d> ProductionBodyRasterDraw<'d> {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn fragment_index(&self) -> u32 {
+        self.fragment_index
+    }
+    pub const fn image(&self) -> &'d typaxis_resource_admission::AdmittedImage {
+        self.image
+    }
+    pub const fn alternative(&self) -> &'d str {
+        self.alternative
+    }
+    pub const fn viewport(&self) -> Rect {
+        self.viewport
+    }
 }
 
 /// A nonpainting source anchor translated by its actual selected page fragment.
@@ -283,6 +314,36 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
         let index =
             u32::try_from(fragment_index).map_err(|_| error(fragment.owner(), E::RecordLimit))?;
         match fragment.source() {
+            ProductionBodyFragmentSource::RasterFigure { figure_index } => {
+                let figure = lines
+                    .figures()
+                    .get(figure_index as usize)
+                    .filter(|f| f.owner() == fragment.owner())
+                    .ok_or_else(|| error(fragment.owner(), E::ReceiptMismatch))?;
+                let image = admitted
+                    .image(figure.image_id())
+                    .ok_or_else(|| error(figure.owner(), E::ReceiptMismatch))?;
+                if image.content_hash() != figure.admitted_sha256()
+                    || image.width().get() != figure.pixel_width()
+                    || image.height().get() != figure.pixel_height()
+                {
+                    return Err(error(figure.owner(), E::ReceiptMismatch));
+                }
+                take(&mut remaining, 1, figure.owner())?;
+                draws
+                    .try_reserve(1)
+                    .map_err(|_| error(figure.owner(), E::AllocationFailure))?;
+                draws.push(ProductionBodyDraw::Raster(ProductionBodyRasterDraw {
+                    owner: figure.owner(),
+                    page_index: fragment.page_index(),
+                    fragment_index: index,
+                    image,
+                    alternative: figure.source().alternative(),
+                    viewport: fragment
+                        .viewport()
+                        .ok_or_else(|| error(figure.owner(), E::ReceiptMismatch))?,
+                }));
+            }
             ProductionBodyFragmentSource::ParagraphLine {
                 paragraph_index,
                 line_index,

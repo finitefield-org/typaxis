@@ -9,7 +9,8 @@ use typaxis_core::M4EffectiveResourceLimits;
 use typaxis_display_list::ProductionBodyDraw;
 use typaxis_resource_admission::AdmittedResourceLedger;
 use typaxis_resources::{
-    finalize_production_body_vectors, ProductionBodyFontPlans, ProductionBodyVectorPlans,
+    finalize_production_body_rasters, finalize_production_body_vectors, ProductionBodyFontPlans,
+    ProductionBodyRasterPlans, ProductionBodyVectorPlans, ResourceError,
     StagingSafeVectorResourceV2Error,
 };
 
@@ -21,11 +22,13 @@ pub enum ProductionBodyPageError {
     Forms(StagingSafeVectorResourceV2Error),
     Vectors(StagingSafeVectorPdfV2Error),
     Text(ProductionBodyTextError),
+    Rasters(ResourceError),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyPageDrawSource {
     Text { paint_index: usize },
     Vector { usage_index: usize },
+    Raster { plan_index: usize },
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductionBodyPageDraw {
@@ -68,6 +71,8 @@ pub struct ProductionBodyPageContent<'f, 'v, 'd, 's, 'p, 'a> {
     plans: ProductionBodyVectorPlans<'f, 'v, 'd, 's, 'p, 'a>,
     text: ProductionBodyTextContribution<'f, 'v, 'd, 's, 'p, 'a>,
     vectors: StagingSafeVectorPdfContributionV2,
+    rasters: ProductionBodyRasterPlans<'f, 'v, 'd, 's, 'p, 'a>,
+    raster_spool_base: u64,
     pages: Vec<ProductionBodyPage>,
     spool_charge: u64,
 }
@@ -84,6 +89,12 @@ impl<'f, 'v, 'd, 's, 'p, 'a> ProductionBodyPageContent<'f, 'v, 'd, 's, 'p, 'a> {
     pub fn pages(&self) -> &[ProductionBodyPage] {
         &self.pages
     }
+    pub const fn rasters(&self) -> &ProductionBodyRasterPlans<'f, 'v, 'd, 's, 'p, 'a> {
+        &self.rasters
+    }
+    pub const fn record_charge(&self) -> u64 {
+        self.rasters.record_charge()
+    }
     pub const fn spool_charge(&self) -> u64 {
         self.spool_charge
     }
@@ -98,6 +109,15 @@ impl<'f, 'v, 'd, 's, 'p, 'a> ProductionBodyPageContent<'f, 'v, 'd, 's, 'p, 'a> {
             .map_err(|_| ProductionBodyPageError::ReceiptMismatch)?;
         self.text
             .verify(fonts, admitted, limits)
+            .map_err(|_| ProductionBodyPageError::ReceiptMismatch)?;
+        self.rasters
+            .verify(
+                fonts,
+                admitted,
+                limits,
+                self.plans.record_charge(),
+                self.raster_spool_base,
+            )
             .map_err(|_| ProductionBodyPageError::ReceiptMismatch)
     }
 }
@@ -125,6 +145,16 @@ pub fn build_production_body_page_content<'f, 'v, 'd, 's, 'p, 'a>(
     spool_charge = spool_charge
         .checked_add(vectors.spool_bytes())
         .ok_or(E::OutputLimit)?;
+    let raster_spool_base = spool_charge;
+    let rasters = finalize_production_body_rasters(
+        fonts,
+        admitted,
+        limits,
+        plans.record_charge(),
+        raster_spool_base,
+    )
+    .map_err(E::Rasters)?;
+    spool_charge = rasters.spool_charge();
     let display = fonts.display();
     let mut pages = Vec::new();
     pages
@@ -166,6 +196,7 @@ pub fn build_production_body_page_content<'f, 'v, 'd, 's, 'p, 'a>(
             let draw_page = match draw {
                 ProductionBodyDraw::Text(t) => t.page_index(),
                 ProductionBodyDraw::Vector(v) => v.page_index(),
+                ProductionBodyDraw::Raster(r) => r.page_index(),
             };
             if draw_page > page.page_index {
                 break;
@@ -173,6 +204,7 @@ pub fn build_production_body_page_content<'f, 'v, 'd, 's, 'p, 'a>(
             if draw_page != page.page_index {
                 return Err(E::ReceiptMismatch);
             }
+            let raster_bytes;
             let (source, bytes) = match draw {
                 ProductionBodyDraw::Text(_) => {
                     let paint = text.paints().get(text_index).ok_or(E::ReceiptMismatch)?;
@@ -203,6 +235,26 @@ pub fn build_production_body_page_content<'f, 'v, 'd, 's, 'p, 'a>(
                     vector_index += 1;
                     (source, usage.content())
                 }
+                ProductionBodyDraw::Raster(r) => {
+                    let plan_index = rasters.draw_plan(draw_index).ok_or(E::ReceiptMismatch)?;
+                    let viewport = r.viewport();
+                    let bottom = viewport
+                        .y()
+                        .checked_add(viewport.height().get())
+                        .ok_or(E::OutputLimit)?;
+                    let n = crate::tagged_pdf_v2::pdf_number_v2;
+                    raster_bytes = format!(
+                        "q\n{} 0 0 -{} {} {} cm\n/PBR{plan_index} Do\nQ\n",
+                        n(viewport.width().get().raw()),
+                        n(viewport.height().get().raw()),
+                        n(viewport.x().raw()),
+                        n(bottom.raw())
+                    );
+                    (
+                        ProductionBodyPageDrawSource::Raster { plan_index },
+                        raster_bytes.as_bytes(),
+                    )
+                }
             };
             page.draws
                 .try_reserve(1)
@@ -232,6 +284,8 @@ pub fn build_production_body_page_content<'f, 'v, 'd, 's, 'p, 'a>(
         plans,
         text,
         vectors,
+        rasters,
+        raster_spool_base,
         pages,
         spool_charge,
     })

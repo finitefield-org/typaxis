@@ -632,6 +632,7 @@ dependencies = [
 name = "typaxis-resources"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "png",
  "read-fonts",
  "typaxis-core",

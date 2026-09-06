@@ -23,8 +23,11 @@ use typaxis_syntax::{
 #[path = "production_selected_inline.rs"]
 mod selected;
 pub use selected::*;
+#[path = "production_raster.rs"]
+mod raster;
+pub use raster::ProductionPreparedRasterFigure;
 
-pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/3";
+pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/4";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProductionInlinePreparationErrorKind {
     ReceiptMismatch,
@@ -33,6 +36,11 @@ pub enum ProductionInlinePreparationErrorKind {
     UnitLimit,
     PendingInline(&'static str),
     PendingBidiLineSelection,
+    MissingFigureImage,
+    UnsupportedFigureMedia,
+    MissingFigureWidth,
+    InvalidFigureGeometry,
+    PendingFigurePlacement,
     AllocationFailure,
     ArithmeticOverflow,
     Atomic(AtomicVectorInlineError),
@@ -135,6 +143,7 @@ pub struct ProductionPreparedInlines<'a> {
     shaped: &'a ProductionAuthoredTextShape<'a>,
     bindings: &'a ValidatedPrecomposedVectorBindings,
     paragraphs: Vec<ProductionPreparedInlineParagraph>,
+    figures: Vec<ProductionPreparedRasterFigure<'a>>,
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionPreparedInlines<'a> {
@@ -143,6 +152,9 @@ impl<'a> ProductionPreparedInlines<'a> {
     }
     pub fn paragraphs(&self) -> &[ProductionPreparedInlineParagraph] {
         &self.paragraphs
+    }
+    pub fn figures(&self) -> &[ProductionPreparedRasterFigure<'a>] {
+        &self.figures
     }
     pub const fn fingerprint(&self) -> [u8; 32] {
         self.fingerprint
@@ -423,6 +435,12 @@ pub fn prepare_production_inline_items<'a>(
             anchors,
         });
     }
+    let figures = raster::prepare_figures(
+        flow,
+        admitted,
+        &mut charge,
+        limits.base().get().max_fragments,
+    )?;
     let mut b = Vec::new();
     b.try_reserve_exact(
         paragraphs
@@ -449,6 +467,7 @@ pub fn prepare_production_inline_items<'a>(
         shaped,
         bindings,
         paragraphs,
+        figures,
         fingerprint: sha256(&b),
     })
 }

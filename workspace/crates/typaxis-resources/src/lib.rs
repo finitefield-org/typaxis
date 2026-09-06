@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod production_body;
+mod production_rasters;
 mod production_vectors;
 mod safe_vector;
 mod safe_vector_v2;
@@ -8,6 +9,7 @@ mod staging_text;
 mod vector_content;
 
 pub use production_vectors::{finalize_production_body_vectors, ProductionBodyVectorPlans};
+pub use production_rasters::{finalize_production_body_rasters, ProductionBodyRasterPlans};
 pub use production_body::{
     finalize_production_body_fonts, ProductionBodyFontPlans, PRODUCTION_BODY_FONTS_ALGORITHM,
 };
@@ -1991,11 +1993,24 @@ fn decode_png_bytes_for_pdf(
     height: NonZeroU32,
     decoded_byte_budget: u64,
 ) -> Result<ImageEncoderOutput, ResourceError> {
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(source));
+    decode_png_bytes_for_pdf_with_workspace(image_id, admitted_sha256, source, width, height,
+        decoded_byte_budget, png::Limits::default().bytes)
+}
+
+fn decode_png_bytes_for_pdf_with_workspace(
+    image_id: ImageResourceId,
+    admitted_sha256: [u8; 32],
+    source: &[u8],
+    width: NonZeroU32,
+    height: NonZeroU32,
+    decoded_byte_budget: u64,
+    decoder_workspace: usize,
+) -> Result<ImageEncoderOutput, ResourceError> {
+    let mut decoder = png::Decoder::new_with_limits(std::io::Cursor::new(source), png::Limits { bytes: decoder_workspace });
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder
         .read_info()
-        .map_err(|_| ResourceError::InvalidImagePlan)?;
+        .map_err(pdf_png_error)?;
     let output_len = reader
         .output_buffer_size()
         .ok_or(ResourceError::ResourceLimit)?;
@@ -2004,10 +2019,12 @@ fn decode_png_bytes_for_pdf(
     if output_len == 0 || output_len > admitted_budget {
         return Err(ResourceError::ResourceLimit);
     }
-    let mut decoded = vec![0; output_len];
+    let mut decoded = Vec::new();
+    decoded.try_reserve_exact(output_len).map_err(|_| ResourceError::ResourceLimit)?;
+    decoded.resize(output_len, 0);
     let frame = reader
         .next_frame(&mut decoded)
-        .map_err(|_| ResourceError::InvalidImagePlan)?;
+        .map_err(pdf_png_error)?;
     if frame.width != width.get()
         || frame.height != height.get()
         || frame.bit_depth != png::BitDepth::Eight
@@ -2062,6 +2079,13 @@ struct DecodedPdfPixels {
     color_space: ImageColorSpace,
     color: Vec<u8>,
     alpha: Option<Vec<u8>>,
+}
+
+fn pdf_png_error(error: png::DecodingError) -> ResourceError {
+    match error {
+        png::DecodingError::LimitsExceeded => ResourceError::ResourceLimit,
+        _ => ResourceError::InvalidImagePlan,
+    }
 }
 
 fn split_color_and_alpha(

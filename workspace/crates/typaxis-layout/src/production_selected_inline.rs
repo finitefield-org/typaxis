@@ -9,7 +9,7 @@ use typaxis_linebreak::{
 };
 use typaxis_shaping::{ProductionBodyFont, ProductionBodyTextRun, ShapedGlyph};
 
-pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/2";
+pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/3";
 
 /// Original glyph plus a line-local origin in the top-left, Y-down system.
 /// The shaper's positive Y offset is subtracted from the shared line baseline.
@@ -180,6 +180,9 @@ pub struct ProductionInlineLineLayout<'p, 'a> {
     fingerprint: [u8; 32],
 }
 impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
+    pub fn figures(&self) -> &[ProductionPreparedRasterFigure<'a>] {
+        &self.prepared.figures
+    }
     pub fn vector_binding(
         &self,
         owner: NodeId,
@@ -241,6 +244,7 @@ pub fn layout_production_inline_lines<'p, 'a>(
     }
     let mut remaining = prepared.max_fragments;
     charge(&mut remaining, prepared.paragraphs.len(), root)?;
+    charge(&mut remaining, prepared.figures.len(), root)?;
     let mut paragraphs = Vec::new();
     paragraphs
         .try_reserve_exact(prepared.paragraphs.len())

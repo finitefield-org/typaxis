@@ -893,6 +893,7 @@ fn production_body_page_content_interleaves_real_vmb_forms_and_text_at_selected_
             assert!(!bytes.contains("/MCID"));
             for (ordinal, draw) in page.draws().iter().enumerate() {
                 let original = match draw.source() {
+                    typaxis_pdf::ProductionBodyPageDrawSource::Raster { .. } => panic!("this fixture contains only text and vectors"),
                     S::Text { paint_index } => content.text().paint_bytes(paint_index).unwrap(),
                     S::Vector { usage_index } => {
                         let vector = &content.vectors().usages()[usage_index];
@@ -1063,7 +1064,7 @@ fn production_body_page_content_preserves_blank_pages_and_cumulative_limits() {
             typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
         let content =
             typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
-        records = content.plans().record_charge();
+        records = content.record_charge();
         output_bytes = content
             .pages()
             .iter()
@@ -1114,6 +1115,9 @@ fn production_body_page_content_preserves_blank_pages_and_cumulative_limits() {
                 assert!(matches!(
                     result,
                     Err(typaxis_pdf::ProductionBodyPageError::OutputLimit)
+                        | Err(typaxis_pdf::ProductionBodyPageError::Rasters(
+                            typaxis_resources::ResourceError::ResourceLimit
+                        ))
                         | Err(typaxis_pdf::ProductionBodyPageError::Forms(
                             typaxis_resources::StagingSafeVectorResourceV2Error::RecordLimit
                         ))
@@ -1589,7 +1593,7 @@ fn production_body_structure_blank_pages_and_marked_budget_boundaries() {
                 .sum();
             assert_eq!(
                 records,
-                content.plans().record_charge() + structure.record_charge()
+                content.record_charge() + structure.record_charge()
                     - display.record_charge()
                     + 4
             );

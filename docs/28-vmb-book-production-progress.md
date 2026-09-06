@@ -26,6 +26,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
 | Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
 | Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly and selected internal/URI links, destinations and outlines connected; public terminal/manifest closure pending |
+| Selected ordinary raster figures | Explicit width/pixel aspect, shared PNG/JPEG Image payloads, alpha masks, real captions/keep and per-occurrence Figure/Alt connected to diagnostic PDF; three independent raster probes pass. Public/full-book integration remains pending. |
 | Selected production navigation positions | Inline source-gap anchors and logical bounds now feed selected destinations, per-line internal/URI annotations, outline topology and OBJR/ParentTree objects; three independent navigation PDF probes pass. Anchor-only paragraph and public terminal/manifest closure remain pending; see the checkpoint below. |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
@@ -1631,3 +1632,153 @@ receipt-export tests passed **3 tests**; a fresh selected-body assembly probe pa
 `/private/tmp/typaxis-navigation-final-focused.log` and
 `/private/tmp/typaxis-navigation-final-assembly.log`. Public configuration rules
 were not changed to accept diagnostic environment variables.
+
+
+## Selected ordinary raster figures and captions (2026-09-06)
+
+The supplied full book has **51 ordinary figure placements referencing 48 PNG
+resources**, in addition to its SVG formulas. Their 39,708,000 source pixels would
+require up to 158,832,000 RGBA bytes; the largest image is 1200 × 720. This is input
+inspection, not a whole-book layout or peak-RSS result. Previously the selected
+body paginator rejected the ordinary Figure region.
+
+The production flow now retains each Figure's source owner/span, image ID, Alt,
+placement and resolved ordinary style. Prepared figures bind the exact admitted
+hash/dimensions and compute height from explicit physical width and pixel aspect
+with one exact ties-to-even conversion. The common forward cursor places a
+raster fragment followed by actual caption lines. keep_caption applies across
+that real span; before/after spacing and keep_with_next use the first/last actual
+fragment. Width overflow and oversize figures are diagnosed at the owner instead
+of shrinking, splitting or clipping the image. Auto width, non-block placement,
+vector media on this ordinary-raster path, named pages and unconnected caption
+subflows remain explicit unsupported/pending cases. These private algorithms
+advance their flow/preparation/selection/display/structure identities; no public
+profile or capabilities claims are changed.
+
+The selected display carries admitted image references. New raster plans derive
+only from that display and share stable identical bytes/hash/media across logical
+IDs while preserving every source Figure/Alt/caption/MCID. PNG color and alpha are
+losslessly compressed with the already-locked flate2 1.1.9/miniz_oxide 0.8.9 Rust
+backend; opaque masks are dropped. JPEG retains its admitted normalized stream
+and ColorTransform. The existing resource freeze paths retain their encoding
+policy; their shared decoder now reports allocation ceilings as ResourceLimit
+and reserves its normalized output fallibly.
+
+The raster branch accepts a retained base no lower than its exact font/display
+owner and checks record/spool ceilings before its maps, decode buffers and bounded
+compressed writer allocate. The page owner supplies the full font/text/vector
+base and verifies the same base on receipt validation; marked content merges the
+full raster charge without resetting it. PNG decoder allocations receive an
+explicit ceiling. Two pixel buffers, that decoder ceiling, a 1 MiB allowance for
+the pinned fixed deflater workspace, and temporary compressed copies are checked
+as a peak, while only compressed retained payloads carry forward. The exposed
+peak is a conservative accounting result, not measured RSS or a performance gate.
+The fixed deflater uses bounded hash/code/Huffman buffers plus flate2's 32 KiB
+output buffer; changing that backend requires reviewing its workspace allowance.
+
+Page streams keep one root Y flip and apply `[w 0 0 -h x y+h]` for image scanlines.
+PDF Image/SMask objects and page Resources use shared typed roles; each Figure
+gets its own structure MCR and source Alt, and captions remain its children. Raster
+Figures have no formula ActualText anchor and do not inject their Alt into body
+text extraction. Final source order still comes from the selected display.
+
+Fixtures now include the unchanged user-supplied image 39/node 170 PNG and its
+package/hash provenance, plus a synthetic asymmetric 2 × 2 RGBA image. The tests
+combine each of these and the existing baseline JPEG with actual VMB inline/block
+fraction SVGs, actual caption/following text and a distinct-ID alias Figure.
+They verify real caption keeps, explicit bounds, half-even ties, width/height
+overflow, sharing, alpha objects, structure, deterministic PDF bytes, exact owner
+and base validation, and record/peak-spool success at N and rejection at N−1.
+The fixture Alt/caption labels are synthetic, not the book's authored speech.
+
+Verification:
+
+```sh
+TYPAXIS_RASTER_PDF_PROBE_DIR=/private/tmp/typaxis-selected-raster-20260906 \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_raster_ --locked
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_ --locked
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resources -p typaxis-syntax -p typaxis-pdf --lib --locked
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_raster_probe.py \
+  --probe-root /private/tmp/typaxis-selected-raster-20260906 \
+  --output-root /private/tmp/typaxis-selected-raster-20260906-verification \
+  --mutool /opt/homebrew/bin/mutool --pdftotext /opt/homebrew/bin/pdftotext
+```
+
+The final focused run passed **3 tests**, including expanded boundary/overflow
+cases (`/private/tmp/typaxis-raster-final-focused.log`). The broad run passed
+**59 tests**, including 5,000 SVG alias placements and 65,536 selected body glyphs
+(`/private/tmp/typaxis-raster-production-regression.log`). Its 244.48-second
+concurrent local duration is not controlled performance evidence. The later
+library run passed **76 PDF, 28 resources and 66 syntax tests**
+(`/private/tmp/typaxis-raster-library-regression.log`). A 32-test selected-body
+regression also passed before the final decoder/boundary review.
+
+Independent pypdf validation and MuPDF 1.28.2 rendering passed **3 raster cases**,
+with **17 rejected mutations**: missing/duplicate paint, shifted/flipped image,
+wrong Alt and missing/changed alpha. Decoded image color/alpha matches source
+pixels, matrices match selected physical placement and shared payloads retain
+separate Figure/Alt/MCR/ParentTree owners. Both Poppler 26.08.0 **raw mode** and
+MuPDF text extraction preserve the expected body/formula/caption source sequence,
+removing only tool-generated line/page separators from that comparison. No
+authored spaces are collapsed. This is not a claim about Poppler's default
+geometric reordering mode. The VMB PNG's RGB stream is 50,359 compressed bytes;
+its raster stage reports 66,471 retained bytes including its inherited base and
+11,659,194 conservative peak bytes. Report:
+`/private/tmp/typaxis-selected-raster-20260906-verification/observed.json`; log:
+`/private/tmp/typaxis-raster-independent.log`.
+
+Remaining scope is unchanged: all 48 original PNGs in the full book, 5,000
+distinct mixed resources, general pagination/list/table/footnotes and final line
+shaping, terminal/paint/manifest and public runner closure, formal RenderBook
+exporter, original reference rendering, Japanese/Harano CID CFF and the complete
+whole-book gates. The diagnostic probe reports public_build/full_book false.
+VMB responsibilities and this boundary are recorded in its requested
+`docs/typaxis-book-export-design.md` §15.18.
+
+
+After the final decoder/budget review, the selected-body regression passed
+**32 tests** (the already-verified 5,000-alias and 65,536-glyph cases excluded),
+log `/private/tmp/typaxis-raster-final-body.log`. This run used only the
+`production_body_` diagnostic filter with BODY/NAVIGATION probe directories;
+those variables were not passed to public CLI tests. The final public profile
+regression passed **5 tests**, log `/private/tmp/typaxis-raster-public-regression.log`:
+
+```sh
+TYPAXIS_BODY_PDF_PROBE_DIR=/private/tmp/typaxis-body-raster-connected-20260906 \
+TYPAXIS_NAVIGATION_PDF_PROBE_DIR=/private/tmp/typaxis-navigation-raster-connected-20260906 \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_ --locked -- \
+  --skip production_body_page_content_places_5000_real_svg_aliases \
+  --skip production_body_more_than_65535
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis machine_production_book_1_ --locked
+```
+
+Fresh independent regressions passed **8 body cases / 7 rejected mutations**
+and **3 navigation cases / 28 rejected mutations**:
+
+```sh
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_body_probe.py \
+  --probe-root /private/tmp/typaxis-body-raster-connected-20260906 \
+  --output-root /private/tmp/typaxis-body-raster-connected-20260906-verification \
+  --pdftotext /opt/homebrew/bin/pdftotext --mutool /opt/homebrew/bin/mutool
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_navigation_probe.py \
+  --probe-root /private/tmp/typaxis-navigation-raster-connected-20260906 \
+  --output /private/tmp/typaxis-navigation-raster-connected-20260906-verification/observed.json
+```
+
+Logs: `/private/tmp/typaxis-raster-existing-body-independent.log` and
+`/private/tmp/typaxis-raster-existing-navigation-independent.log`. A final raster
+focused rerun also verifies byte-identical frozen plans from an independent
+encoding of the same selected owner; its 3 tests pass.

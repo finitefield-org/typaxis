@@ -646,6 +646,7 @@ fn production_body_navigation_resolves_real_vmb_and_multiline_links_to_selected_
                             t.logical_bounds().unwrap()
                         }
                         typaxis_display_list::ProductionBodyDraw::Vector(v) => v.viewport(),
+                        typaxis_display_list::ProductionBodyDraw::Raster(r) => r.viewport(),
                     };
                     assert!(link.bounds().x() <= rect.x());
                     assert!(link.bounds().y() <= rect.y());

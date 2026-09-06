@@ -1,0 +1,41 @@
+{
+  "algorithm": "typaxis.vmb-raster-fixture/1",
+  "cases": [
+    {
+      "file": "book-venn.png",
+      "sha256": "c38332b53215d144bdb799dc6e502f6aca52526dd832b63a4b9b144aa4bf016c",
+      "source_package_sha256": "e4fd7415cb33de5afff8c3b2a335c2afa06df1e22780c9913813d95536efffbb",
+      "source_image_id": 39,
+      "source_node_id": 170,
+      "width": 1200,
+      "height": 720,
+      "transformation": "none",
+      "source": "User-provided VMB fractions-equivalence v1 full-book package"
+    },
+    {
+      "file": "orientation-alpha.png",
+      "sha256": "b27c1b60dd816e78c8c30f52a480647cfe5ee5f245e6f5bb86570104249ac1d0",
+      "width": 2,
+      "height": 2,
+      "source": "Typaxis synthetic test pixels, row-major RGBA",
+      "rgba": [
+        255,
+        0,
+        0,
+        255,
+        0,
+        255,
+        0,
+        128,
+        0,
+        0,
+        255,
+        64,
+        255,
+        255,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -482,6 +482,7 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
         for draw in &display.draws()[group.draws()] {
             let (bounds, page, fragment) = match draw {
+                ProductionBodyDraw::Raster(r) => (Some(r.viewport()),r.page_index(),r.fragment_index()),
                 ProductionBodyDraw::Text(t) => {
                     (t.logical_bounds(), t.page_index(), t.fragment_index())
                 }

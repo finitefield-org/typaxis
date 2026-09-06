@@ -14,7 +14,7 @@ use typaxis_syntax::{
     ValidatedStagingStructureSemanticsV2,
 };
 
-pub const PRODUCTION_BODY_STRUCTURE_ALGORITHM: &str = "typaxis.production-body-structure/1";
+pub const PRODUCTION_BODY_STRUCTURE_ALGORITHM: &str = "typaxis.production-body-structure/2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyStructureError {
@@ -37,8 +37,12 @@ pub struct ProductionBodyStructureGroup {
     semantic_fragment_ordinal: u32,
     draws: Range<usize>,
     vector_usage_id: Option<u32>,
+    is_text: bool,
 }
 impl ProductionBodyStructureGroup {
+    pub const fn is_text(&self) -> bool {
+        self.is_text
+    }
     pub const fn node(&self) -> StructureNodeId {
         self.node
     }
@@ -205,6 +209,7 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
         while let Some(draw) = display.draws().get(draw_index) {
             let (source, draw_page, fragment) = match draw {
                 ProductionBodyDraw::Text(t) => (t.owner(), t.page_index(), t.fragment_index()),
+                ProductionBodyDraw::Raster(r) => (r.owner(), r.page_index(), r.fragment_index()),
                 ProductionBodyDraw::Vector(v) => {
                     (v.binding().node_id(), v.page_index(), v.fragment_index())
                 }
@@ -221,6 +226,16 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
                 return Err(E::InvalidPaint);
             }
             let usage = match draw {
+                ProductionBodyDraw::Raster(r) => {
+                    if node.role() != StructureRole::Figure
+                        || node.vector_binding_v2().is_some()
+                        || node.alternative() != Some(r.alternative())
+                        || !node_groups[id.get() as usize].is_empty()
+                    {
+                        return Err(E::InvalidPaint);
+                    }
+                    None
+                }
                 ProductionBodyDraw::Text(_) => {
                     if node.vector_binding_v2().is_some()
                         || node.equation_number_binding_v2().is_some()
@@ -250,11 +265,11 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
                     Some(usage)
                 }
             };
-            let merge = usage.is_none()
+            let merge = matches!(draw, ProductionBodyDraw::Text(_))
                 && previous_fragment == Some((id, fragment))
                 && groups
                     .last()
-                    .is_some_and(|g| g.page_index == page_index && g.vector_usage_id.is_none());
+                    .is_some_and(|g| g.page_index == page_index && g.is_text);
             if merge {
                 groups.last_mut().ok_or(E::InvalidPaint)?.draws.end = draw_index + 1;
             } else {
@@ -269,6 +284,7 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
                     semantic_fragment_ordinal: ordinal,
                     draws: draw_index..draw_index + 1,
                     vector_usage_id: usage,
+                    is_text: matches!(draw, ProductionBodyDraw::Text(_)),
                 });
             }
             previous_fragment = Some((id, fragment));

@@ -113,7 +113,6 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
     // Combine branches without charging their common display twice. Neither
     // branch receives a fresh resource budget at this merge.
     let mut record_charge = content
-        .plans()
         .record_charge()
         .checked_add(
             structure
@@ -192,7 +191,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
             }
             append(&mut page.content, b">")?;
             append(&mut page.content, b" >> BDC\n")?;
-            let body_text = group.vector_usage_id().is_none();
+            let body_text = group.is_text();
             if body_text {
                 // Only the selected fragment, never the registry's full source
                 // node. Keep authored spaces and ambiguous CID text together;
@@ -261,7 +260,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                     return Err(E::ReceiptMismatch);
                 }
                 match (draw.source(), group.vector_usage_id()) {
-                    (ProductionBodyPageDrawSource::Text { paint_index }, None) => {
+                    (ProductionBodyPageDrawSource::Text { paint_index }, None) if body_text => {
                         let paint = content
                             .text()
                             .paints()
@@ -289,6 +288,15 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                     (ProductionBodyPageDrawSource::Vector { usage_index }, Some(id))
                         if usage_index == id as usize =>
                     {
+                        append(
+                            &mut page.content,
+                            source.draw_content(ordinal).ok_or(E::ReceiptMismatch)?,
+                        )?;
+                    }
+                    (ProductionBodyPageDrawSource::Raster { plan_index }, None) if !body_text => {
+                        if content.rasters().draw_plan(draw_index) != Some(plan_index) {
+                            return Err(E::ReceiptMismatch);
+                        }
                         append(
                             &mut page.content,
                             source.draw_content(ordinal).ok_or(E::ReceiptMismatch)?,

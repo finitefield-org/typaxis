@@ -3,7 +3,7 @@
 use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 
-pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/3";
+pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
@@ -188,6 +188,42 @@ impl<'a> ProductionTextParagraph<'a> {
     }
 }
 
+/// A source figure with its computed ordinary style. Raster dimensions come
+/// later from the admitted resource, never from a filename or decoded alt text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProductionFigure<'a> {
+    owner: NodeId,
+    source_span: SourceSpan,
+    image_id: typaxis_core::ImageResourceId,
+    alternative: &'a str,
+    placement: &'a str,
+    style: SemanticContainerInheritanceStyle,
+    page_name: Option<typaxis_core::PageName>,
+}
+impl<'a> ProductionFigure<'a> {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+    pub const fn image_id(&self) -> typaxis_core::ImageResourceId {
+        self.image_id
+    }
+    pub const fn alternative(&self) -> &'a str {
+        self.alternative
+    }
+    pub const fn placement(&self) -> &'a str {
+        self.placement
+    }
+    pub const fn style(&self) -> &SemanticContainerInheritanceStyle {
+        &self.style
+    }
+    pub const fn page_name(&self) -> Option<&typaxis_core::PageName> {
+        self.page_name.as_ref()
+    }
+}
+
 /// Downstream consumers must bind to this owner and a paragraph/site index;
 /// a copied `ProductionInlineSite` alone does not authorize shaping or paint.
 pub struct ProductionTextFlow<'a> {
@@ -195,6 +231,7 @@ pub struct ProductionTextFlow<'a> {
     navigation: &'a ValidatedStagingBookNavigationV2,
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
+    figures: Vec<ProductionFigure<'a>>,
     text_bytes: u64,
     fingerprint: [u8; 32],
 }
@@ -222,6 +259,9 @@ impl<'a> ProductionTextFlow<'a> {
     pub fn paragraphs(&self) -> &[ProductionTextParagraph<'a>] {
         &self.paragraphs
     }
+    pub fn figures(&self) -> &[ProductionFigure<'a>] {
+        &self.figures
+    }
     pub const fn text_bytes(&self) -> u64 {
         self.text_bytes
     }
@@ -244,6 +284,7 @@ impl<'a> ProductionTextFlow<'a> {
         let observed = prepare_production_text_flow(package, navigation, limits)?;
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
+            || self.figures != observed.figures
             || self.text_bytes != observed.text_bytes
             || self.fingerprint != observed.fingerprint
         {
@@ -277,6 +318,7 @@ pub fn prepare_production_text_flow<'a>(
         buffers: wire.text_buffers(),
         events: Vec::new(),
         paragraphs: Vec::new(),
+        figures: Vec::new(),
         text_bytes: 0,
         node_charge: 0,
     };
@@ -292,6 +334,7 @@ pub fn prepare_production_text_flow<'a>(
         navigation,
         events: collector.events,
         paragraphs: collector.paragraphs,
+        figures: collector.figures,
         text_bytes: collector.text_bytes,
         fingerprint: [0; 32],
     };
@@ -306,6 +349,7 @@ struct Collector<'a> {
     buffers: &'a [WireStagingM4TextBuffer],
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
+    figures: Vec<ProductionFigure<'a>>,
     text_bytes: u64,
     node_charge: u64,
 }
@@ -448,8 +492,34 @@ impl<'a> Collector<'a> {
                         }
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. } => {
+                WireStagingM4Block::Figure {
+                    image_id,
+                    placement,
+                    alt,
+                    caption,
+                    ..
+                } => {
                     let style = self.ordinary(owner, "figure", block.classes(), parent)?;
+                    let page_name = self
+                        .rules
+                        .ordinary
+                        .cascade_basic_document("figure", block.classes())
+                        .and_then(|computed| computed.page_name())
+                        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
+                    self.figures
+                        .try_reserve(1)
+                        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                    self.figures.push(ProductionFigure {
+                        owner,
+                        source_span: lower_span(wire_block_span(block)).map_err(|_| {
+                            failure(ProductionFlowErrorKind::ReceiptMismatch, owner)
+                        })?,
+                        image_id: typaxis_core::ImageResourceId::new(*image_id),
+                        alternative: alt,
+                        placement,
+                        style: style.clone(),
+                        page_name,
+                    });
                     self.blocks(caption, Some(&style))?;
                 }
                 WireStagingM4Block::VectorFigure { caption, .. } => self.blocks(caption, parent)?,

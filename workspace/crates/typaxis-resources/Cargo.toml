@@ -12,6 +12,7 @@ workspace = true
 staging-fixtures = ["typaxis-display-list/staging-fixtures"]
 
 [dependencies]
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
 png = "=0.18.1"
 typaxis-core = { path = "../typaxis-core" }
 typaxis-font = { path = "../typaxis-font" }

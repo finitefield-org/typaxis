@@ -8,7 +8,7 @@ use typaxis_syntax::{
     ProductionFlowEvent as Event, ProductionFlowRegionKind as Region, StagingM4PageGeometry,
 };
 
-pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/1";
+pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyPaginationErrorKind {
@@ -54,6 +54,9 @@ pub enum ProductionBodyFragmentSource {
     },
     VectorBlock {
         block_index: u32,
+    },
+    RasterFigure {
+        figure_index: u32,
     },
 }
 /// Source order is the index in fragments(). Body glyphs and inline SVGs both
@@ -187,6 +190,7 @@ struct Frame {
     start: usize,
     container: Option<ComputedMachineBlockStyle>,
     vector: Option<usize>,
+    raster: Option<usize>,
 }
 struct Charge {
     remaining: u64,
@@ -318,6 +322,9 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         let height = PositiveLength::new(item.height)
             .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
         let (baseline, viewport) = match source {
+            ProductionBodyFragmentSource::RasterFigure { .. } => {
+                (None, Some(Rect::new(item.x, top, item.width, height)))
+            }
             ProductionBodyFragmentSource::ParagraphLine {
                 paragraph_index,
                 line_index,
@@ -420,6 +427,7 @@ fn collect_items(
     let mut stack: Vec<Frame> = Vec::new();
     let mut paragraph_cursor = 0;
     let mut block_cursor = 0;
+    let mut figure_cursor = 0;
     let push = |items: &mut Vec<Item>,
                 charge: &mut Charge,
                 item: Item|
@@ -439,9 +447,49 @@ fn collect_items(
                     start: items.len(),
                     container: None,
                     vector: None,
+                    raster: None,
                 };
                 match kind {
                     Region::Paragraph | Region::Heading => (),
+                    Region::Figure => {
+                        let figure = lines
+                            .figures()
+                            .get(figure_cursor)
+                            .filter(|f| f.owner() == owner)
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        if figure.source().page_name().is_some() {
+                            return Err(error(owner, E::PendingNamedPage));
+                        }
+                        let style = figure.source().style().block_style();
+                        let available = body
+                            .width()
+                            .get()
+                            .checked_sub(style.start_indent().get())
+                            .and_then(|w| w.checked_sub(style.end_indent().get()))
+                            .and_then(PositiveLength::new)
+                            .ok_or_else(|| error(owner, E::WidthMismatch))?;
+                        if figure.width().get() > available.get() {
+                            return Err(error(owner, E::WidthMismatch));
+                        }
+                        frame.raster = Some(figure_cursor);
+                        push(
+                            &mut items,
+                            charge,
+                            Item {
+                                owner,
+                                source: Some(ProductionBodyFragmentSource::RasterFigure {
+                                    figure_index: figure.source_index(),
+                                }),
+                                x: add(body.x(), style.start_indent().get(), owner)?,
+                                width: figure.width(),
+                                height: figure.height().get(),
+                                before: style.space_before().get(),
+                                after: Length::ZERO,
+                                keep: false,
+                            },
+                        )?;
+                        figure_cursor += 1;
+                    }
                     Region::SemanticContainer => {
                         let style = flow
                             .semantic_container_style(owner)
@@ -623,12 +671,27 @@ fn collect_items(
                     items[last].after = add(items[last].after, block.space_after().get(), owner)?;
                     items[last].keep |= block.keep_with_next();
                 }
+                if let Some(index) = frame.raster {
+                    let style = lines.figures()[index].source().style().block_style();
+                    let last = (frame.start..items.len())
+                        .rev()
+                        .find(|i| items[*i].source.is_some())
+                        .ok_or_else(|| error(owner, E::EmptyParagraph))?;
+                    if style.keep_caption() {
+                        for item in &mut items[frame.start..last] {
+                            item.keep = true;
+                        }
+                    }
+                    items[last].after = add(items[last].after, style.space_after().get(), owner)?;
+                    items[last].keep |= style.keep_with_next();
+                }
             }
         }
     }
     if !stack.is_empty()
         || paragraph_cursor != lines.paragraphs().len()
         || block_cursor != blocks.blocks().len()
+        || figure_cursor != lines.figures().len()
     {
         return Err(error(NodeId::new(0), E::ReceiptMismatch));
     }
@@ -680,6 +743,10 @@ fn fingerprint(
             ProductionBodyFragmentSource::VectorBlock { block_index } => {
                 bytes.push(1);
                 bytes.extend_from_slice(&block_index.to_be_bytes());
+            }
+            ProductionBodyFragmentSource::RasterFigure { figure_index } => {
+                bytes.push(2);
+                bytes.extend_from_slice(&figure_index.to_be_bytes());
             }
         }
         for v in [
