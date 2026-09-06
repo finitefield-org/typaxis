@@ -313,8 +313,18 @@ fn production_body_assembly_graph_and_opt_in_pdf_probes() {
         }));
     spaced["document"]["blocks"][0]["blocks"][0]["children"][2]["text_span"] =
         serde_json::json!({"text_id":id,"start_byte":0,"end_byte":2});
+    let mut doubled = spaced.clone();
+    doubled["text_buffers"][0]["utf8"] = "A  ".into();
+    doubled["text_buffers"][0]["mappings"][0]["text_range"]["end_byte"] = 3.into();
+    doubled["document"]["blocks"][0]["blocks"][0]["children"][0]["text_span"]["end_byte"] =
+        3.into();
+    doubled["text_buffers"][id]["utf8"] = "  B".into();
+    doubled["text_buffers"][id]["mappings"][0]["text_range"]["end_byte"] = 3.into();
+    doubled["document"]["blocks"][0]["blocks"][0]["children"][2]["text_span"]["end_byte"] =
+        3.into();
     cases.push(("vmb-body-visible-cff", visible));
     cases.push(("vmb-body-spaced-cff", spaced));
+    cases.push(("vmb-body-double-spaced-cff", doubled));
     for (name, family) in [
         ("body-tt", "Body"),
         ("body-ttc", "Collection"),

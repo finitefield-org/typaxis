@@ -192,6 +192,23 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
             }
             append(&mut page.content, b">")?;
             append(&mut page.content, b" >> BDC\n")?;
+            let body_text = group.vector_usage_id().is_none();
+            if body_text {
+                // Only the selected fragment, never the registry's full source
+                // node. Keep authored spaces and ambiguous CID text together;
+                // extractors otherwise discard standalone whitespace glyphs
+                // and guess their replacement from adjacent font geometry.
+                append(&mut page.content, b"/Span << /ActualText <FEFF")?;
+                for index in group.draws() {
+                    let Some(ProductionBodyDraw::Text(text)) = display.draws().get(index) else {
+                        return Err(E::ReceiptMismatch);
+                    };
+                    for unit in text.exact_text().encode_utf16() {
+                        append(&mut page.content, format!("{unit:04X}").as_bytes())?;
+                    }
+                }
+                append(&mut page.content, b"> >> BDC\n")?;
+            }
             if let Some(text) = structure.group_actual_text(group_index) {
                 append(&mut page.content, b"q\n/Span << /ActualText <FEFF")?;
                 for unit in text.encode_utf16() {
@@ -244,15 +261,41 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                     return Err(E::ReceiptMismatch);
                 }
                 match (draw.source(), group.vector_usage_id()) {
-                    (ProductionBodyPageDrawSource::Text { .. }, None) => {}
+                    (ProductionBodyPageDrawSource::Text { paint_index }, None) => {
+                        let paint = content
+                            .text()
+                            .paints()
+                            .get(paint_index)
+                            .ok_or(E::ReceiptMismatch)?;
+                        if paint.draw_index() != draw_index || paint.page_index() != page.page_index
+                        {
+                            return Err(E::ReceiptMismatch);
+                        }
+                        append(&mut page.content, b"q\n")?;
+                        append(
+                            &mut page.content,
+                            content
+                                .text()
+                                .paint_commands(paint_index)
+                                .ok_or(E::ReceiptMismatch)?,
+                        )?;
+                        if draw_index + 1 == group.draws().end {
+                            // Flush ActualText with the last retained text
+                            // paint's font/matrix still active, then restore.
+                            append(&mut page.content, b"EMC\n")?;
+                        }
+                        append(&mut page.content, b"Q\n")?;
+                    }
                     (ProductionBodyPageDrawSource::Vector { usage_index }, Some(id))
-                        if usage_index == id as usize => {}
+                        if usage_index == id as usize =>
+                    {
+                        append(
+                            &mut page.content,
+                            source.draw_content(ordinal).ok_or(E::ReceiptMismatch)?,
+                        )?;
+                    }
                     _ => return Err(E::ReceiptMismatch),
                 }
-                append(
-                    &mut page.content,
-                    source.draw_content(ordinal).ok_or(E::ReceiptMismatch)?,
-                )?;
                 append(&mut page.content, b"\n")?;
                 ordinal += 1;
             }

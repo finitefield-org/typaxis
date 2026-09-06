@@ -1259,7 +1259,7 @@ fn production_body_structure_marks_actual_text_and_vmb_vectors_in_source_order()
                 }
             }
             let page0 = std::str::from_utf8(marked.pages()[0].content()).unwrap();
-            assert_eq!(page0.matches("/ActualText").count(), 2);
+            assert_eq!(page0.matches("/ActualText").count(), 4);
             assert_eq!(page0.matches(" Do").count(), 2);
             assert!(
                 page0.find("/Span << /MCID 0").unwrap()
@@ -1278,7 +1278,7 @@ fn production_body_structure_marks_actual_text_and_vmb_vectors_in_source_order()
                     .unwrap()
                     .matches("/ActualText")
                     .count(),
-                0
+                1
             );
             let again = typaxis_pdf::build_production_body_marked_content(
                 &content, &structure, admitted, limits,
@@ -1415,12 +1415,26 @@ fn production_body_structure_splits_one_source_text_across_pages_without_repeate
                 assert_eq!(group.mcid(), 0);
                 assert!(structure.group_actual_text(index).is_none());
             }
-            // ActualText is absent at the source-node level; each painted cluster
-            // retains its exact scalar mapping in the frozen body font plan.
+            // Each selected fragment has its own replacement text. The full
+            // source node must never be repeated on every page/line.
             for page in marked.pages() {
                 let bytes = std::str::from_utf8(page.content()).unwrap();
                 assert_eq!(bytes.matches("/MCID 0 ").count(), 1);
-                assert!(!bytes.contains("/ActualText"));
+                assert_eq!(bytes.matches("/ActualText").count(), 1);
+                let group = &structure.page_groups(page.page_index()).unwrap()[0];
+                let selected_text: String = display.draws()[group.draws()]
+                    .iter()
+                    .map(|d| match d {
+                        typaxis_display_list::ProductionBodyDraw::Text(t) => t.exact_text(),
+                        _ => panic!("text-only group"),
+                    })
+                    .collect();
+                assert!(selected_text.len() < text.len());
+                let hex: String = selected_text
+                    .encode_utf16()
+                    .map(|u| format!("{u:04X}"))
+                    .collect();
+                assert!(bytes.contains(&format!("/ActualText <FEFF{hex}>")));
             }
             let painted: String = display
                 .draws()

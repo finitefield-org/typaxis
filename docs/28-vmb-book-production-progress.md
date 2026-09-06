@@ -28,7 +28,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly implemented; navigation and public terminal/manifest closure pending |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
-| Independent visual / baseline / spacing / extraction / tag verification | Seven diagnostic PDF probes below: structure/nonpainting pass, six exact extraction cases pass; explicit post-formula space fails in Poppler; full SVG/reference and full-book gates pending |
+| Independent visual / baseline / spacing / extraction / tag verification | Eight diagnostic PDF probes now pass structure/nonpainting and exact extraction, including the previously failing explicit post-formula space; full SVG/reference and full-book gates pending |
 | Performance, determinism, negative/tamper tests, old-profile regression | Pending |
 | macOS / explicitly managed Linux host evidence | Pending |
 
@@ -1281,3 +1281,85 @@ and terminal/paint/manifest closure, public check/build integration, the formal
 VMB exporter, all real-book/distinct-image/Harano/profile-publication gates and
 the other pending rows at the top of this ledger. No full-book PDF was produced
 or accepted by this checkpoint.
+
+## Preserve selected body whitespace in PDF extraction (2026-09-06)
+
+Previous goal turn classification: progress (diagnostic PDF assembly, independent
+probes and a concrete failing authored-space case were committed). This follow-up
+fixes that observed failure without changing text expectations, visible positions,
+font subsets, SVG geometry or the full-book acceptance conditions.
+
+`production_body_text.rs` records private byte ranges for the retained glyph and
+font commands, separately from standalone q/Q and cluster ActualText wrappers.
+The standalone text contribution is unchanged. `production_body_marked.rs` uses
+those typed ranges to enclose the exact selected source-owner/line-fragment text
+in one ActualText scope. It does not search/replace serialized PDF commands or
+nest a group replacement around cluster replacements. The group is closed while
+the last text paint's font/matrix is active, before its Q restores graphics state.
+The Formula's existing independent ActualText/MCID/managed-anchor scope is retained.
+
+Each body's replacement string is encoded incrementally from its selected draws;
+no full source-node string is repeated on successive lines/pages. Its bytes use
+the existing cumulative output/spool budget. Source ownership, MCID count/order,
+font CIDs, glyph coordinates, vector Do count and Form sharing remain unchanged.
+A multipage source-text regression now asserts each fragment's replacement text
+and rejects repeating the whole source text on every page.
+
+Primary-source investigation helped distinguish layout from extraction behavior:
+[Poppler TextOutputDev.cc](https://skia.googlesource.com/third_party/poppler/+/master/poppler/TextOutputDev.cc)
+ends words on standalone whitespace and uses font-dependent geometric heuristics
+when dumping raw words; ActualText is processed using the graphics state active
+at its end. Local PDF experiments, rather than this moving source alone, verified
+the actual installed 26.08.0 behavior. The fix preserves explicit text instead of
+retuning the managed font or choosing an arbitrary height to satisfy a heuristic.
+
+Verification commands and evidence:
+
+```sh
+TYPAXIS_BODY_PDF_PROBE_DIR=/private/tmp/typaxis-body-selected-text-20260906 \
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_ --locked
+
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-pdf --lib --locked
+```
+
+The selected-body run passed **27 tests**, including exact budget boundaries,
+multiline/multipage source text, the 65,535+ painted-glyph/CID case and 5,000 real
+SVG aliases. Its 271.05-second duration is not a controlled performance result.
+Log: `/private/tmp/typaxis-body-selected-text-focused.log`. The PDF library's
+**76 tests passed**, log `/private/tmp/typaxis-body-selected-text-pdf-regression.log`.
+A subsequent focused `production_body_assembly_graph` run passed after adding
+an eighth PDF case with two explicit spaces on both sides of the formula.
+
+```sh
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_body_probe.py \
+  --probe-root /private/tmp/typaxis-body-selected-text-20260906 \
+  --output-root /private/tmp/typaxis-body-selected-text-20260906-verification \
+  --pdftotext /opt/homebrew/bin/pdftotext --mutool /opt/homebrew/bin/mutool
+```
+
+The independent probe now exits **0**: **eight cases pass all structure,
+extraction and nonpainting checks**, and **seven negative assertions reject**
+their mutations. Poppler 26.08.0 and MuPDF 1.28.2 preserve zero, one and two
+post-formula spaces in these fixtures; their exact tool framing remains separate
+from authored text. The added regression mutant removes only the body replacement
+around `" B"`, preserving every glyph and vector placement. The independent
+extraction oracle rejects it, recreating the prior failure rather than merely
+checking for the new PDF syntax. The prior failed observations remain in the
+previous output directory as historical evidence; their expected strings were
+not changed to make the new run pass.
+
+The seven pre-existing cases were also compared directly against their previous
+PDF renders at 72/144/288 DPI: all **30 page-image comparisons were pixel-identical**.
+The eighth case independently checks its source-fixed body-A region and zero ink
+change with the managed anchor removed. These checks still do not substitute for
+the original-SVG/reference masks, real Japanese font or full-book gates.
+
+The observed authored-space failure from the preceding checkpoint is resolved
+for this corpus. General line-breaking/bidi/whitespace policy and full-book
+verification remain part of the original objective; no broader completion is
+inferred from these eight small PDFs. Selected navigation, terminal/paint/manifest
+closure and public build integration remain the next PDF integration work.

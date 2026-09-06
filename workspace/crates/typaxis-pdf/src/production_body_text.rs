@@ -19,6 +19,8 @@ pub struct ProductionBodyTextPaint {
     page_index: u32,
     font_instance_id: FontInstanceId,
     start: usize,
+    commands_start: usize,
+    commands_end: usize,
     end: usize,
 }
 impl ProductionBodyTextPaint {
@@ -50,6 +52,13 @@ impl<'f, 'v, 'd, 's, 'p, 'a> ProductionBodyTextContribution<'f, 'v, 'd, 's, 'p, 
     pub fn paint_bytes(&self, paint_index: usize) -> Option<&[u8]> {
         let p = self.paints.get(paint_index)?;
         Some(&self.bytes[p.start..p.end])
+    }
+    /// The exact retained glyph/graphics commands, without the standalone
+    /// q/Q and cluster ActualText wrappers. The marked-content owner supplies
+    /// one selected-fragment ActualText scope instead of nesting replacements.
+    pub(crate) fn paint_commands(&self, paint_index: usize) -> Option<&[u8]> {
+        let p = self.paints.get(paint_index)?;
+        Some(&self.bytes[p.commands_start..p.commands_end])
     }
     pub fn byte_length(&self) -> u64 {
         self.bytes.len() as u64
@@ -114,6 +123,7 @@ pub fn encode_production_body_text<'f, 'v, 'd, 's, 'p, 'a>(
             append(&mut bytes, b"> >> BDC\n", maximum)?;
         }
         let font_instance_id = font.pdf_font().font_instance_id();
+        let commands_start = bytes.len();
         append(
             &mut bytes,
             format!(
@@ -138,6 +148,7 @@ pub fn encode_production_body_text<'f, 'v, 'd, 's, 'p, 'a>(
             )?;
         }
         append(&mut bytes, b"ET\n", maximum)?;
+        let commands_end = bytes.len();
         if cluster.requires_actual_text() {
             append(&mut bytes, b"EMC\n", maximum)?;
         }
@@ -147,6 +158,8 @@ pub fn encode_production_body_text<'f, 'v, 'd, 's, 'p, 'a>(
             page_index: text.page_index(),
             font_instance_id,
             start,
+            commands_start,
+            commands_end,
             end: bytes.len(),
         });
     }

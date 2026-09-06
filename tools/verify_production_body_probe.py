@@ -27,6 +27,7 @@ CASES = {
     "vmb-body": [f"A {SPEECH}B\n{SPEECH}", "B"],
     "vmb-body-visible-cff": [f"A {SPEECH}B\n{SPEECH}", "B"],
     "vmb-body-spaced-cff": [f"A {SPEECH} B\n{SPEECH}", "B"],
+    "vmb-body-double-spaced-cff": [f"A  {SPEECH}  B\n{SPEECH}", "B"],
 }
 
 
@@ -53,6 +54,17 @@ def expected_roles(name):
     return [["/Span", "/Formula", "/Span", "/Formula"], ["/Span"]]
 
 
+def expected_group_text(name):
+    if name.startswith("body-"):
+        return [["A B"]]
+    if name == "vmb-formula-only":
+        return [[SPEECH]]
+    if name == "vmb-body-double-spaced-cff":
+        return [["A  ", SPEECH, "  B", SPEECH], ["B"]]
+    suffix = " B" if name == "vmb-body-spaced-cff" else "B"
+    return [["A ", SPEECH, suffix, SPEECH], ["B"]]
+
+
 def verify_structure(pdf, name):
     reader = PdfReader(pdf, strict=True)
     catalog = reader.trailer["/Root"]
@@ -71,6 +83,7 @@ def verify_structure(pdf, name):
         content = ContentStream(page.get_contents(), reader)
         stack, mcids, anchors, draws = [], [], 0, 0
         font, rendering = None, None
+        replacements = []
         for operands, operator in content.operations:
             if operator == b"BDC":
                 tag, properties = operands
@@ -91,10 +104,15 @@ def verify_structure(pdf, name):
                         require(node["/Alt"] == SPEECH, "Formula Alt")
                     mcids.append(mcid)
                 if "/ActualText" in properties:
-                    require(tag == "/Span" and properties["/ActualText"] == SPEECH,
-                            "per-occurrence ActualText")
-                    require(any(t == "/Formula" and "/MCID" in p for t, p in stack),
-                            "ActualText owner")
+                    require(tag == "/Span", "ActualText scope role")
+                    owners = [(t, p) for t, p in stack if "/MCID" in p]
+                    require(len(owners) == 1, "ActualText has one selected-fragment owner")
+                    mcid = int(owners[0][1]["/MCID"])
+                    require(properties["/ActualText"] == expected_group_text(name)[index][mcid],
+                            "per-selected-fragment ActualText")
+                    require(sum("/ActualText" in p for _, p in stack) == 1,
+                            "nested ActualText replacement")
+                    replacements.append(mcid)
             elif operator == b"EMC":
                 require(bool(stack), "unbalanced EMC")
                 stack.pop()
@@ -118,6 +136,7 @@ def verify_structure(pdf, name):
                         "shared Form contains occurrence semantics")
                 draws += 1
         require(not stack and len(mcids) == len(expected), "marked-content coverage")
+        require(replacements == mcids, "one exact replacement per selected group")
         require(anchors == draws == expected.count("/Formula"), "missing/duplicate formula anchor or Do")
         require(("/PBA" in page["/Resources"]["/Font"]) == (anchors > 0), "page anchor font usage")
         observed.append({"mcids": len(mcids), "form_placements": draws, "semantic_anchors": anchors})
@@ -234,6 +253,34 @@ def verify_mutants(pdf, output, pdftotext, mutool):
                 rejected.append("wrong-actual-text-extraction")
             else:
                 raise ProbeFailure("extractor verifier accepted wrong ActualText")
+    # Recreate the exact prior whitespace failure, preserving every glyph and
+    # vector placement. This proves the extraction oracle catches the regression,
+    # rather than merely enforcing the new marked-content representation.
+    writer = PdfWriter(clone_from=pdf.with_name("vmb-body-spaced-cff.pdf"))
+    page = writer.pages[0]
+    content = ContentStream(page.get_contents(), writer)
+    operations, pending_end, removed = [], False, False
+    for operands, operator in content.operations:
+        if operator == b"BDC" and operands[1].get("/ActualText") == " B":
+            require(not pending_end and not removed, "unique whitespace replacement")
+            pending_end = True
+            removed = True
+            continue
+        if operator == b"EMC" and pending_end:
+            pending_end = False
+            continue
+        operations.append((operands, operator))
+    require(removed and not pending_end, "whitespace regression mutant coverage")
+    content.operations = operations
+    page.replace_contents(content)
+    path = output / "mutant-missing-body-actual-text.pdf"
+    writer.write(path)
+    try:
+        verify_extraction(path, "vmb-body-spaced-cff", pdftotext, mutool)
+    except ProbeFailure:
+        rejected.append("missing-body-actual-text-extraction")
+    else:
+        raise ProbeFailure("extractor oracle accepted the prior whitespace regression")
     return rejected
 
 

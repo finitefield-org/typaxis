@@ -90,8 +90,9 @@ impl<'v, 'd, 's, 'p, 'a> ProductionBodyStructure<'v, 'd, 's, 'p, 'a> {
             .get(page as usize)
             .map(|r| &self.groups[r.clone()])
     }
-    /// Standard text is already encoded with exact cluster ToUnicode/ActualText.
-    /// Repeating the registry's full source text on each line duplicates extraction.
+    /// Registry replacement text applies only to vector occurrences. The PDF
+    /// marked-content owner assembles body text from this group's selected
+    /// draws; repeating the registry's full source on each line duplicates it.
     pub fn group_actual_text(&self, index: usize) -> Option<&str> {
         let group = self.groups.get(index)?;
         group.vector_usage_id?;

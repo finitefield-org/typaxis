@@ -534,6 +534,8 @@ PDFレンダリングは既存external-tool-policyのMuPDF/Poppler、72/144/288 
 
 FormulaタグとAlt/ActualTextの存在だけでは抽出成功とは判定しない。SVG Form自体に文字描画がない場合も、各配置の意味テキストが一回だけ、正しい順序・位置で抽出されるPDF出力方法をTypaxisのPDF層で検証する。抽出互換性のために補助要素が必要な場合は、選択済みbaselineとviewportに束縛し、描画比較で追加inkがないこと、余分な抽出文字・MCID・source occurrenceを作らないこと、object/spool予算へ課金することを要求する。VMB側に不可視文字やPDF用glyphを出力させない。
 
+本文のActualTextは、MCIDを共有する選択済みsource owner・行fragmentの文字列から構成する。元source nodeの全文を各行へ繰り返さず、複数clusterのreplacementを入れ子にしない。本文encoderが保持するglyph描画commandの型付き範囲を使い、最後の本文font/matrixが有効な間にActualTextを閉じ、その後にgraphics stateを復元する。生成済みPDFへの文字列置換や、抽出器の空白推定に合わせた描画位置の変更で代替しない。
+
 途中段階のPDF組立てAPIから得た検査用bytesと、公開`build-package`が発行する検証済み成果物を区別する。ページ・構造・navigation・font・描画の整合検査と既存の成果物検証を経て、PDFとmanifestを同時に公開するまで、§10の全巻成功やPDF/UA適合を宣言しない。
 
 ## 9. 実装順序と変更owner
