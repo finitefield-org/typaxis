@@ -152,6 +152,8 @@ VMB側の具体的な変換API・丸め・metadata処理は[VMB設計§4〜6](..
 
 空白正規化のためだけに座標を変換することはない。座標変換は**全巻の欠落寸法・内部単位の解消**に必要なexporter処理である。元SVG/metricsと変換後SVG/metricsの画面上の点の差を測定し、誤差は一つの16.16物理座標単位以内とする。丸めで非空輪郭が潰れる入力は黙って出力せずexport errorにする。
 
+実装追補（2026-09-06）: VMBに`MathExportSession`を追加し、Prepare済み入力を既存の実math adapterへ渡して、上記の寸法変換・配置別TeX/speech・内容hash共有へ接続した。明示式番号の子source span、配置ごとのspacingと一括wire照合も保持する。VMB設計§15.22と実装台帳に実行結果を記録した。公開checkで2画像・inline/block各1配置が受理されたが、既知の試験用package外枠を使った部品の検証であり、正式RenderBook全走査・PNG/JPEGとの共通資源列・公開buildと全巻PDFは未完了である。
+
 ### 4.4 scannerとpath処理の具体的な変更
 
 変更先は`workspace/crates/typaxis-resource-admission/src/safe_vector.rs`。新設するprivate enum `MarkupLexicalPolicy::{FrozenV1, SafeV2}`を`MarkupScanner::new(bytes, policy)`に渡し、既存`decode`は常にFrozenV1、`scanner`/`scan_v2`は常にSafeV2を使う。callerが任意policyでreceiptを発行できるpublic APIは作らない。

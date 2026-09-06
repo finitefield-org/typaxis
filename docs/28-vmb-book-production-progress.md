@@ -20,7 +20,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | Pending |
 | Vertical tables, cmap 14, IVS shaping/extraction | Pending |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
-| VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
+| VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
 | Shared body/math flow and selected text placement | Authored shaping and LTR body/SVG line placement, measured paragraph/block/caption/raster/list placement, shared body fonts, Forms and selected PDF contributions verified below. Page-end candidate costs are now connected to the internal body cursor; final reshaping/bidi, generated references, remaining subflows and public convergence/terminal/paint/manifest connection remain pending. |
@@ -2108,3 +2108,84 @@ those genuine owners, generated reference feedback and final line reshaping,
 tables/footnotes and public runner/manifest publication remains required. There
 is still no successful full-book PDF, 5,000 distinct mixed-resource gate,
 8,192 positive boundary, or unchanged Harano CID-CFF/IVS acceptance evidence.
+
+## 2026-09-06: VMB production math adapter and occurrence export binding
+
+The previous goal turn was progress: the measured page-end candidate policy was
+implemented and committed as Typaxis `cc64a49`, with VMB design `c3efbc10`.
+Both worktrees were clean at the start of this work. This turn connects VMB's
+existing actual production adapter to the previously implemented SVG lowering
+and source projection in the new `math_text.go`, `resources.go` and
+`math_export_seal.go`. It does not replace the full RenderBook/PDF objective with
+a math-only exporter. The exact VMB API/ownership/limits and remaining work are
+recorded in the required VMB document §15.22.
+
+The new session validates prepared book/source-map identity through
+`render.NewMathV2Adapter`, preserves each occurrence's actual TeX, semantic
+speech, language, engine identity and original location, and emits typed
+inline/block wire nodes. It shares only the derived SVG bytes by content hash;
+different speech/source occurrences retain separate source slices, node IDs and
+sidecar records. A different explicit font size can produce a separate image.
+Numbered blocks require an explicit resolved number presentation, with a child
+projection owner and exact TextSpan; missing numbers are rejected, not omitted.
+Generic math speech is rejected by the new VMB-R1515 constant, while adapter,
+source-map, geometry and cancellation causes remain available via Unwrap.
+
+Failures poison the session. Finish requires a closed validated projection and
+returns no partial successful set. Cumulative image/retained-byte/occurrence/JSON
+budgets bound construction; JSON metadata is preflighted without allocation and
+record-wise seals avoid reserializing a whole book for verification. A decoded
+sidecar is not a completed in-process export authority. Before package output,
+one batch `ValidateNodes` checks every inline/block against the completed set,
+including source/geometry/meaning/spacing/number fields and omission/duplication.
+The SVG-only registry must still be extended for PNG/JPEG in one global ID order;
+there is no geometry cache that bypasses per-occurrence validation.
+
+The tests build the existing `verified-math-intro` example through its real
+BuildCanonical→Prepare path and use the production math engine. They cover
+four math occurrences, speech-dependent raw hashes with shared derived SVG,
+font-size variants, Japanese/non-BMP source text, generated number ownership,
+source tamper, missing speech, exact small resource boundaries, metadata bounds,
+poisoned/zero/finished sessions, cancellation causes and sidecar/wire tampering.
+The final review also added source-order checks within each wire node list,
+transferred private image buffers without a second retained copy, and verified
+that canceled adapter cleanup can be completed with a live context without
+resuming construction or invalidating already completed output.
+This example is not the user-provided full fractions book.
+
+A separate opt-in public admission test places producer-returned inline/block
+nodes in the existing Typaxis test envelope (fixed metadata/page/font; complete
+body traversal is not used). Initial test-envelope failures correctly rejected
+an aliased config/resource root and an unknown document-root `kind` field. The
+fixture now uses a config outside its private job and the correct root schema;
+no Typaxis admission/schema/source check was loosened. Its final check-package
+succeeds without diagnostics: 2 SVG resources, 2 math placements and 62 projection
+bytes. No public build-package or independent PDF comparison was run for this
+new VMB component.
+
+Final local verification from `vmb-core/`:
+
+```sh
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+GOCACHE=/private/tmp/vmb-typaxis-go-build \
+go test ./internal/rendertypaxis -count=1 -v
+GOCACHE=/private/tmp/vmb-typaxis-go-build go vet ./internal/rendertypaxis
+```
+
+The final test log is `/private/tmp/vmb-typaxis-math-export-final.log`; 18 top-level
+tests passed, including the explicit public check (it is skipped without both
+external-tool variables). `go vet` exited 0. The checked binary was rebuilt with
+`cargo build --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis --locked`
+and `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build`.
+
+Recorded public check identities:
+
+- Binary SHA-256: `96c5b910456bbc3799e48e8987754578a1ee53b44fa5f30d669d381f7e1d9eb3`.
+- Package SHA-256: `1fdf330024ec00b3791f23dc65860647a05e53ea67011dd35cc8e2bc60486d96`.
+- Source SHA-256: `8dfd8d8f7aa8364e532be7f5fbce03a103687020444a707029520430f300d40f`.
+
+The full traversal/package writer and formal VMB process/ArtifactSink renderer,
+Typaxis generic convergence/terminal/paint/manifest connection, unchanged Harano
+CID-CFF/IVS, 5,000 distinct mixed images, 8,192 positive boundary and actual
+full-book check/build/render/extract/structure gates remain required and open.
