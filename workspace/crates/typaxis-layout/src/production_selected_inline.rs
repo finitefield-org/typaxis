@@ -9,7 +9,7 @@ use typaxis_linebreak::{
 };
 use typaxis_shaping::{ProductionBodyFont, ProductionBodyTextRun, ShapedGlyph};
 
-pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/1";
+pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/2";
 
 /// Original glyph plus a line-local origin in the top-left, Y-down system.
 /// The shaper's positive Y offset is subtracted from the shared line baseline.
@@ -108,12 +108,49 @@ impl<'p, 'a> ProductionPlacedInlineLine<'p, 'a> {
     }
 }
 
+/// Line-local position of a nonpainting anchor, in the same coordinate system
+/// as text pens and vector geometry. Pagination supplies the page translation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProductionInlineAnchorPosition {
+    line_index: u32,
+    x: Length,
+    baseline: Length,
+}
+impl ProductionInlineAnchorPosition {
+    pub const fn line_index(&self) -> u32 {
+        self.line_index
+    }
+    pub const fn x(&self) -> Length {
+        self.x
+    }
+    pub const fn baseline(&self) -> Length {
+        self.baseline
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProductionPlacedInlineAnchor {
+    source: ProductionPreparedInlineAnchor,
+    position: Option<ProductionInlineAnchorPosition>,
+}
+impl ProductionPlacedInlineAnchor {
+    pub const fn source(&self) -> &ProductionPreparedInlineAnchor {
+        &self.source
+    }
+    /// None retains an anchor in a paragraph without a selected line. A later
+    /// destination builder must resolve its flow cursor or report it unplaced.
+    pub const fn position(&self) -> Option<ProductionInlineAnchorPosition> {
+        self.position
+    }
+}
+
 pub struct ProductionInlineParagraphLineLayout<'p, 'a> {
     owner: NodeId,
     inline_size: PositiveLength,
     font: Option<&'p ProductionBodyFont>,
     selected: Option<ProductionInlineBreak>,
     lines: Vec<ProductionPlacedInlineLine<'p, 'a>>,
+    anchors: Vec<ProductionPlacedInlineAnchor>,
 }
 impl<'p, 'a> ProductionInlineParagraphLineLayout<'p, 'a> {
     pub const fn owner(&self) -> NodeId {
@@ -130,6 +167,9 @@ impl<'p, 'a> ProductionInlineParagraphLineLayout<'p, 'a> {
     }
     pub fn lines(&self) -> &[ProductionPlacedInlineLine<'p, 'a>] {
         &self.lines
+    }
+    pub fn anchors(&self) -> &[ProductionPlacedInlineAnchor] {
+        &self.anchors
     }
 }
 
@@ -227,7 +267,13 @@ pub fn layout_production_inline_lines<'p, 'a>(
             font: shape.font(),
             selected: None,
             lines: Vec::new(),
+            anchors: Vec::new(),
         };
+        charge(&mut remaining, p.anchors.len(), p.owner)?;
+        placed
+            .anchors
+            .try_reserve_exact(p.anchors.len())
+            .map_err(|_| error(p.owner, E::AllocationFailure))?;
         if let Some(items) = &p.items {
             // Unit pens and kernel SVG occurrences are retained by the selected
             // break result in addition to the projected records below.
@@ -401,6 +447,43 @@ pub fn layout_production_inline_lines<'p, 'a>(
                 return Err(error(p.owner, E::ReceiptMismatch));
             }
             placed.selected = Some(selected);
+        }
+        // Markers are ordered unit gaps. Advance through selected lines once;
+        // a boundary belongs to the following line except at paragraph end.
+        // In particular, before/after a hard-break unit are distinct positions.
+        let mut anchor_line = 0usize;
+        for source in &p.anchors {
+            let position = if let Some(selected) = &placed.selected {
+                while anchor_line + 1 < selected.lines().len()
+                    && source.boundary_unit >= selected.lines()[anchor_line].line().end_unit()
+                {
+                    anchor_line += 1;
+                }
+                let line = selected
+                    .lines()
+                    .get(anchor_line)
+                    .ok_or_else(|| error(source.owner, E::ReceiptMismatch))?;
+                let x = if source.boundary_unit == line.line().end_unit() {
+                    line.line()
+                        .logical_advance()
+                        .get()
+                        .checked_add(line.origin_shift().get())
+                        .ok_or_else(|| error(source.owner, E::ArithmeticOverflow))?
+                } else {
+                    shifted_pen(line, source.boundary_unit, source.owner)?
+                };
+                Some(ProductionInlineAnchorPosition {
+                    line_index: line.line().line_index(),
+                    x,
+                    baseline: placed.lines[anchor_line].baseline,
+                })
+            } else {
+                None
+            };
+            placed.anchors.push(ProductionPlacedInlineAnchor {
+                source: *source,
+                position,
+            });
         }
         // Prepared owner binds exact shaped glyphs/source and ordered unit maps;
         // selected owner binds measured pens/width/line metrics. Projection has

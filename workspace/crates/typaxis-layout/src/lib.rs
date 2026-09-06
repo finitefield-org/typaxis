@@ -13,11 +13,13 @@ mod safe_vector;
 mod semantic_container;
 
 pub use production_inline::{
-    layout_production_inline_lines, prepare_production_inline_items, ProductionInlineLineLayout,
+    layout_production_inline_lines, prepare_production_inline_items,
+    ProductionInlineAnchorPosition, ProductionInlineLineLayout,
     ProductionInlineParagraphLineLayout, ProductionInlinePreparationError,
     ProductionInlinePreparationErrorKind, ProductionPlacedGlyph, ProductionPlacedInline,
-    ProductionPlacedInlineLine, ProductionPlacedInlineVector, ProductionPlacedTextCluster,
-    ProductionPreparedInlineParagraph, ProductionPreparedInlines, ProductionShapedClusterItem,
+    ProductionPlacedInlineAnchor, ProductionPlacedInlineLine, ProductionPlacedInlineVector,
+    ProductionPlacedTextCluster, ProductionPreparedInlineAnchor, ProductionPreparedInlineParagraph,
+    ProductionPreparedInlines, ProductionShapedClusterItem,
     PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM, PRODUCTION_INLINE_PREPARATION_ALGORITHM,
 };
 

@@ -700,3 +700,47 @@ PDF writerはselected glyph位置とfrozen CID planから描画し、本文を�
 - 「本文A→inline式→本文B→block式→caption→次段落」が狭いページを跨ぐ入力で、可視内容・抽出・structure読み順が一致する。本文だけの段落の欠落、page 0集中、式や本文の二重配置を拒否する。
 - 見出しdestinationと複数行linkのpage/矩形が選択済み配置に一致する。タグがあるだけ、PDF bytesが生成された、画像数が一致しただけでは合格にしない。
 - 旧native math-only authorizationの拒否境界、同一package以外のreceipt/selected-layout tamper、old-profile corpusを維持する。§8の5,000件・全巻・独立PDF検査を省略しない。
+
+
+### 14.5 選択済み位置からのnavigation生成
+
+インラインアンカーは、source owner/spanと、その位置までに準備したlogical unit数を持つ
+非描画markerとして保持する。文字・数式・明示改行のunit列へは挿入せず、幅、UAX #14の
+break候補、glyph cluster、抽出文字列を増やさない。同じgapの複数アンカーはsource順を保つ。
+行境界と一致するgapは次の行へ所属させ、段落末尾だけは最終行のlogical advanceへ置く。
+明示改行の直前はそのcontrolのpen、直後は次行のpenになる。行内では選択済みunit penと
+origin shiftを使い、次の文字や式のglyph位置から逆算しない。
+
+行位置はline index・x・baselineとして保持し、paginationが選択したparagraph-line fragmentの
+x/yを加えてpage-spaceへ投影する。元のmarkerとpage/fragmentを結ぶprivate fieldのrecordを
+描画列とは別に保持する。markerの追加でMCIDやDoを増やさず、paragraph/endやpage 0の仮座標へ
+置換しない。準備・行選択・page projectionで各recordを文書全体の有限予算へ課金する。
+行選択はmarkerとlineを一方向に走査し、page projectionはline順のmarker範囲を検索して
+その行だけを読む。各行で段落中の全markerを再走査しない。
+
+アンカーだけの段落は現在のtagged profileでUnsupportedSemanticとなることを確認した。
+source flowはアンカーを保持するが、この追補の位置保持だけで受理範囲を変えない。
+将来その段落を受理するときは非描画flow cursorから移動先を確定する処理とprofile検査を
+同時に実装する。選択行がない状態をOptionの未確定位置として明示し、navigation builderは
+解決できなければowner付きのunplaced-anchor診断を返す。空文字やdummy glyphを追加しない。
+
+本文のlink用logical boundsは、選択済みcluster pen、実glyph advanceの合計、選択fontの
+ascender/descenderとページbaselineから求める。offset付きglyphのink boundsとは区別する。
+advanceが0なら正幅矩形を捏造せずNoneとし、後続のlink集約で他の実配置との関係を扱う。
+数式のboundsは既存のviewportを用いる。source registryのLink子孫のこれらの矩形を、同じ
+page/line fragment内で集約して注釈候補とする。行やページを跨ぐ巨大な矩形へ結合しない。
+ゼロ幅内容だけのlinkなど有効な矩形が得られない場合は、明示的に未配置として診断する。
+
+次に実装するnavigation ownerは、正確なselected display/structureとsource navigation registryを
+借用して照合する。inline anchorは上記record、heading/block/container anchorはそのsourceの
+最初の実selected descendant fragmentへ対応付ける。sourceのtarget名とoutline階層を維持し、
+PDFのdestination座標へのY変換は実page heightから一回だけ行う。sourceにexternal linkが
+存在する場合も黙って省略せず、そのlink種別を検証・出力する経路または明示診断へ接続する。
+
+PDF接続時はdestinations/outline/annotationを型付きobject roleに追加し、絶対object番号を
+割り当てる前に全graphの個数と参照を検査する。pageにはAnnots、catalogにはDests/Outlinesを
+接続する。Link StructElemのKへOBJRを追加し、annotation StructParentはpage MCID用キーに
+衝突しない範囲を使い、ParentTreeNextKeyも合わせて更新する。任意raw座標を受け取る旧staging
+helperを新production配置の証拠として流用しない。これらのPDF接続と独立検査が完了するまで、
+既存PendingNavigation拒否は外さない。terminal/paint/manifestと公開buildの接続はさらに別の
+残件であり、非描画markerとlogical boundsの実装だけで全巻ゲートを完了したとは扱わない。

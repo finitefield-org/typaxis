@@ -47,7 +47,9 @@ fn production_text_fixture(
         let uri = resource["uri"].as_str().unwrap();
         // Alias declarations share a staged file; admission still opens and
         // validates every declaration below, including all 5,000 aliases.
-        if !copied_paths.insert(uri) { continue; }
+        if !copied_paths.insert(uri) {
+            continue;
+        }
         let source = match uri {
             "vmb-block-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-block-720896.svg"),
             "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),
@@ -122,10 +124,13 @@ fn with_production_inline_context(
         &typaxis_layout::ValidatedPrecomposedVectorBindings,
     ),
 ) {
-    with_production_inline_tagged_context(bytes, config,
+    with_production_inline_tagged_context(
+        bytes,
+        config,
         |prepared, package, profile, limits, admitted, bindings, _, _| {
             check(prepared, package, profile, limits, admitted, bindings)
-        });
+        },
+    );
 }
 
 fn with_production_inline_tagged_context(
@@ -699,6 +704,203 @@ fn production_inline_soft_break_is_zero_width_and_owns_the_optional_boundary() {
     );
 }
 
+/// Insert two independent source anchors at every gap without adding text or
+/// control units. Equal-gap markers exercise stable source ordering.
+fn production_anchor_gaps_fixture(bytes: &[u8]) -> Vec<u8> {
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let children = &mut value["document"]["blocks"][0]["blocks"][0]["children"];
+    let original = children.as_array().unwrap().clone();
+    let mut marked = Vec::new();
+    for gap in 0..=original.len() {
+        for ordinal in 0..2 {
+            marked.push(serde_json::json!({
+                "kind":"anchor", "node_id":0,
+                "span":{"source_id":0,"start_byte":0,"end_byte":0},
+                "anchor_id":format!("gap-{gap}-{ordinal}")
+            }));
+        }
+        if let Some(child) = original.get(gap) {
+            marked.push(child.clone());
+        }
+    }
+    *children = marked.into();
+    production_body_renumber(&mut value["document"], &mut 0);
+    serde_json::to_vec(&value).unwrap()
+}
+
+#[test]
+fn production_line_anchors_preserve_break_affinity_source_order_and_text_geometry() {
+    for (kinds, width, positions) in [
+        (
+            vec!["A", "hard_break", "B"],
+            4_000_000,
+            vec![(0, 0), (0, 471_859), (1, 0), (1, 471_859)],
+        ),
+        (
+            vec!["A", "soft_break", "B"],
+            471_859,
+            vec![(0, 0), (0, 471_859), (1, 0), (1, 471_859)],
+        ),
+        (
+            vec!["A", "soft_break", "B"],
+            943_718,
+            vec![(0, 0), (0, 471_859), (0, 471_859), (0, 943_718)],
+        ),
+        (
+            vec!["A", "hard_break", "hard_break", "B"],
+            4_000_000,
+            vec![(0, 0), (0, 471_859), (1, 0), (2, 0), (2, 471_859)],
+        ),
+        (
+            vec!["A", "hard_break"],
+            4_000_000,
+            vec![(0, 0), (0, 471_859), (0, 471_859)],
+        ),
+    ] {
+        let base = production_explicit_break_fixture(&kinds);
+        let bytes = production_anchor_gaps_fixture(&base);
+        let width = PositiveLength::new(Length::from_raw(width).unwrap()).unwrap();
+        with_prepared_production_inlines(&base, |base_prepared| {
+            let base_layout =
+                typaxis_layout::layout_production_inline_lines(base_prepared, &[width], 100)
+                    .unwrap();
+            with_prepared_production_inlines(&bytes, |prepared| {
+                let layout =
+                    typaxis_layout::layout_production_inline_lines(prepared, &[width], 100)
+                        .unwrap();
+                let p = &layout.paragraphs()[0];
+                let original = &base_layout.paragraphs()[0];
+                assert_eq!(
+                    prepared.paragraphs()[0].items().unwrap().units().len(),
+                    kinds.len()
+                );
+                assert_eq!(p.anchors().len(), positions.len() * 2);
+                assert_eq!(
+                    layout.output_records(),
+                    base_layout.output_records() + p.anchors().len() as u64
+                );
+                for (index, marker) in p.anchors().iter().enumerate() {
+                    assert_eq!(marker.source(), &prepared.paragraphs()[0].anchors()[index]);
+                    assert_eq!(marker.source().boundary_unit() as usize, index / 2);
+                    let position = marker.position().unwrap();
+                    assert_eq!(
+                        (position.line_index(), position.x().raw()),
+                        positions[index / 2]
+                    );
+                    assert_eq!(
+                        position.baseline(),
+                        p.lines()[position.line_index() as usize].baseline()
+                    );
+                    if index > 0 {
+                        assert!(p.anchors()[index - 1].source().owner() < marker.source().owner());
+                    }
+                }
+                assert_eq!(p.lines().len(), original.lines().len());
+                for (a, b) in p.lines().iter().zip(original.lines()) {
+                    assert_eq!(a.baseline(), b.baseline());
+                    assert_eq!(a.items().len(), b.items().len());
+                    for (a, b) in a.items().iter().zip(b.items()) {
+                        if let (
+                            typaxis_layout::ProductionPlacedInline::Text(a),
+                            typaxis_layout::ProductionPlacedInline::Text(b),
+                        ) = (a, b)
+                        {
+                            assert_eq!((a.utf8(), a.pen_x()), (b.utf8(), b.pen_x()));
+                            assert_eq!(
+                                a.glyphs()
+                                    .iter()
+                                    .map(|g| (g.glyph().original_gid, g.x(), g.y()))
+                                    .collect::<Vec<_>>(),
+                                b.glyphs()
+                                    .iter()
+                                    .map(|g| (g.glyph().original_gid, g.x(), g.y()))
+                                    .collect::<Vec<_>>()
+                            );
+                        }
+                    }
+                }
+            });
+        });
+    }
+}
+
+#[test]
+fn production_line_anchors_apply_vector_origin_shift_and_keep_empty_profile_gate() {
+    let bytes = production_anchor_gaps_fixture(&production_inline_vmb_fixture(false));
+    with_prepared_production_inlines(&bytes, |prepared| {
+        let width = PositiveLength::new(Length::from_raw(2_000_000).unwrap()).unwrap();
+        let layout =
+            typaxis_layout::layout_production_inline_lines(prepared, &[width], 100).unwrap();
+        let p = &layout.paragraphs()[0];
+        let selected = &p.selected().unwrap().lines()[0];
+        assert!(selected.origin_shift().get().raw() > 0);
+        assert_eq!(
+            p.anchors()[0].position().unwrap().x(),
+            selected.origin_shift().get()
+        );
+        assert_eq!(
+            p.anchors()[2].position().unwrap().x(),
+            selected
+                .line()
+                .logical_advance()
+                .get()
+                .checked_add(selected.origin_shift().get())
+                .unwrap()
+        );
+        assert_eq!(p.lines()[0].items().len(), 1);
+    });
+    let bytes = production_anchor_gaps_fixture(&production_explicit_break_fixture(&[]));
+    // A wholly empty semantic container is rejected by existing profile rules.
+    // Retain the empty anchor paragraph beside a real paragraph in that flow.
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let body: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
+    value["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .push(body["document"]["blocks"][0]["blocks"][0].clone());
+    production_body_renumber(&mut value["document"], &mut 0);
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let configured = config();
+    let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
+        .decode(
+            &bytes,
+            &wire::DocumentPackageDecodePolicy::new(configured.limits()),
+        )
+        .unwrap();
+    let package = typaxis_syntax::StagingSemanticPackageParser::new()
+        .parse(decoded, configured.limits())
+        .unwrap();
+    let limits = typaxis_core::M4EffectiveResourceLimits::defaults_for(configured.limits());
+    let navigation =
+        typaxis_syntax::validate_staging_book_navigation_v2(&package, &limits).unwrap();
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    assert_eq!(
+        typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity
+        )
+        .unwrap_err(),
+        typaxis_machine_profile::StagingTaggedPdfProfileError::UnsupportedSemantic
+    );
+    let flow =
+        typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+    assert_eq!(
+        flow.paragraphs()[0]
+            .items()
+            .iter()
+            .filter(|s| matches!(s.content(), typaxis_syntax::ProductionInlineContent::Anchor))
+            .count(),
+        2
+    );
+}
+
 #[test]
 fn production_inline_hard_breaks_preserve_empty_lines_and_terminal_ownership() {
     for (kinds, ranges) in [
@@ -735,6 +937,55 @@ fn production_inline_hard_breaks_preserve_empty_lines_and_terminal_ownership() {
                     typaxis_linebreak::BreakKind::Mandatory
                 );
                 assert!(line.line().occurrences().is_empty());
+            }
+        });
+    }
+}
+
+#[test]
+fn production_line_anchors_share_document_record_budget_and_do_not_create_breaks() {
+    let bytes = production_anchor_gaps_fixture(&production_explicit_break_fixture(&["A", "B"]));
+    let width = PositiveLength::new(Length::from_raw(943_718).unwrap()).unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let mut second = value["document"]["blocks"][0]["blocks"][0].clone();
+    for child in second["children"].as_array_mut().unwrap() {
+        if let Some(id) = child.get_mut("anchor_id") {
+            *id = format!("second-{}", id.as_str().unwrap()).into();
+        }
+    }
+    value["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .push(second);
+    production_body_renumber(&mut value["document"], &mut 0);
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let mut required = 0;
+    with_prepared_production_inlines(&bytes, |prepared| {
+        let layout =
+            typaxis_layout::layout_production_inline_lines(prepared, &[width; 2], 100).unwrap();
+        required = layout.output_records();
+        assert_eq!(required, 30);
+        let narrow = PositiveLength::new(Length::from_raw(471_859).unwrap()).unwrap();
+        assert!(
+            typaxis_layout::layout_production_inline_lines(prepared, &[narrow; 2], 100).is_err(),
+            "an anchor must not authorize an otherwise prohibited A/B break"
+        );
+    });
+    for maximum in [required, required - 1] {
+        let configured = config_with_limits(ResourceLimits {
+            max_fragments: maximum,
+            ..ResourceLimits::default()
+        });
+        with_prepared_production_inlines_config(&bytes, &configured, |prepared| {
+            let result = typaxis_layout::layout_production_inline_lines(prepared, &[width; 2], 100);
+            if maximum == required {
+                assert_eq!(result.unwrap().output_records(), required);
+            } else {
+                let error = result.err().expect("document-wide marker budget");
+                assert_eq!(
+                    error.kind,
+                    typaxis_layout::ProductionInlinePreparationErrorKind::UnitLimit
+                );
             }
         });
     }

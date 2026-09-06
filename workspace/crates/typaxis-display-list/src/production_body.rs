@@ -8,13 +8,14 @@ use typaxis_core::{
 use typaxis_font::OriginalGlyphId;
 use typaxis_layout::PrecomposedVectorPlacementInput;
 use typaxis_layout::{
-    ProductionPlacedInline, ValidatedMathVectorReceipt, ValidatedPrecomposedVectorReceipt,
+    ProductionPlacedInline, ProductionPlacedInlineAnchor, ValidatedMathVectorReceipt,
+    ValidatedPrecomposedVectorReceipt,
 };
 use typaxis_pagination::{ProductionBodyFragmentSource, ProductionBodySelectedLayout};
 use typaxis_resource_admission::{AdmittedResourceLedger, VectorContentKey};
 use typaxis_syntax::PrecomposedVectorKind;
 
-pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/1";
+pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/2";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyDisplayErrorKind {
     ReceiptMismatch,
@@ -72,6 +73,7 @@ pub struct ProductionBodyTextDraw<'d> {
     font_size: PositiveLength,
     text_span: DisplayTextSpan,
     exact_text: &'d str,
+    logical_bounds: Option<Rect>,
     glyphs: Vec<ProductionBodyGlyph>,
 }
 impl<'d> ProductionBodyTextDraw<'d> {
@@ -104,6 +106,12 @@ impl<'d> ProductionBodyTextDraw<'d> {
     }
     pub fn glyphs(&self) -> &[ProductionBodyGlyph] {
         &self.glyphs
+    }
+    /// Selected pen/advance and actual font ascent/descent in page coordinates.
+    /// This is a logical interaction box, not a glyph ink bounding box. A
+    /// zero-extent cluster has no positive-area box; no extent is invented.
+    pub const fn logical_bounds(&self) -> Option<Rect> {
+        self.logical_bounds
     }
 }
 #[derive(Debug)]
@@ -162,10 +170,39 @@ pub enum ProductionBodyDraw<'d> {
     Vector(ProductionBodyVectorDraw<'d>),
 }
 
+/// A nonpainting source anchor translated by its actual selected page fragment.
+/// Kept separate from draws: it cannot create text, MCIDs or duplicate SVG paint.
+#[derive(Clone, Copy, Debug)]
+pub struct ProductionBodyInlineAnchor<'d> {
+    source: &'d ProductionPlacedInlineAnchor,
+    page_index: u32,
+    fragment_index: u32,
+    x: Length,
+    baseline: Length,
+}
+impl<'d> ProductionBodyInlineAnchor<'d> {
+    pub const fn source(&self) -> &'d ProductionPlacedInlineAnchor {
+        self.source
+    }
+    pub const fn page_index(&self) -> u32 {
+        self.page_index
+    }
+    pub const fn fragment_index(&self) -> u32 {
+        self.fragment_index
+    }
+    pub const fn x(&self) -> Length {
+        self.x
+    }
+    pub const fn baseline(&self) -> Length {
+        self.baseline
+    }
+}
+
 pub struct ProductionBodyDisplay<'d, 's, 'p, 'a> {
     selected: &'d ProductionBodySelectedLayout<'s, 'p, 'a>,
     admitted: &'d AdmittedResourceLedger,
     draws: Vec<ProductionBodyDraw<'d>>,
+    inline_anchors: Vec<ProductionBodyInlineAnchor<'d>>,
     record_charge: u64,
     fingerprint: [u8; 32],
 }
@@ -178,6 +215,9 @@ impl<'d, 's, 'p, 'a> ProductionBodyDisplay<'d, 's, 'p, 'a> {
     }
     pub fn draws(&self) -> &[ProductionBodyDraw<'d>] {
         &self.draws
+    }
+    pub fn inline_anchors(&self) -> &[ProductionBodyInlineAnchor<'d>] {
+        &self.inline_anchors
     }
     pub const fn selected(&self) -> &'d ProductionBodySelectedLayout<'s, 'p, 'a> {
         self.selected
@@ -238,6 +278,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
         .checked_sub(selected.record_charge())
         .ok_or_else(|| error(root, E::RecordLimit))?;
     let mut draws = Vec::new();
+    let mut inline_anchors = Vec::new();
     for (fragment_index, fragment) in selected.fragments().iter().enumerate() {
         let index =
             u32::try_from(fragment_index).map_err(|_| error(fragment.owner(), E::RecordLimit))?;
@@ -247,6 +288,36 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                 line_index,
             } => {
                 let p = &lines.paragraphs()[paragraph_index as usize];
+                // Source gap order implies nondecreasing selected line order.
+                // Binary range lookup avoids rescanning all paragraph anchors
+                // for each line of a long chapter.
+                let first = p
+                    .anchors()
+                    .partition_point(|a| a.position().is_some_and(|p| p.line_index() < line_index));
+                for anchor in &p.anchors()[first..] {
+                    let position = anchor
+                        .position()
+                        .ok_or_else(|| error(anchor.source().owner(), E::ReceiptMismatch))?;
+                    if position.line_index() != line_index {
+                        break;
+                    }
+                    let owner = anchor.source().owner();
+                    take(&mut remaining, 1, owner)?;
+                    inline_anchors
+                        .try_reserve(1)
+                        .map_err(|_| error(owner, E::AllocationFailure))?;
+                    let baseline = plus(fragment.bounds().y(), position.baseline(), owner)?;
+                    if fragment.baseline() != Some(baseline) {
+                        return Err(error(owner, E::ReceiptMismatch));
+                    }
+                    inline_anchors.push(ProductionBodyInlineAnchor {
+                        source: anchor,
+                        page_index: fragment.page_index(),
+                        fragment_index: index,
+                        x: plus(fragment.bounds().x(), position.x(), owner)?,
+                        baseline,
+                    });
+                }
                 for item in p.lines()[line_index as usize].items() {
                     let draw = match item {
                         ProductionPlacedInline::Text(cluster) => {
@@ -262,16 +333,42 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                             }
                             take(&mut remaining, cluster.glyphs().len() + 1, owner)?;
                             let mut glyphs = Vec::new();
+                            let mut advance = Length::ZERO;
                             glyphs
                                 .try_reserve_exact(cluster.glyphs().len())
                                 .map_err(|_| error(owner, E::AllocationFailure))?;
                             for glyph in cluster.glyphs() {
+                                advance = plus(advance, glyph.glyph().advance_x, owner)?;
                                 glyphs.push(ProductionBodyGlyph {
                                     original_gid: glyph.glyph().original_gid,
                                     x: plus(fragment.bounds().x(), glyph.x(), owner)?,
                                     y: plus(fragment.bounds().y(), glyph.y(), owner)?,
                                 });
                             }
+                            let height = font
+                                .ascender()
+                                .checked_sub(font.descender())
+                                .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
+                            if advance.raw() < 0 || height.raw() < 0 {
+                                return Err(error(owner, E::ReceiptMismatch));
+                            }
+                            let logical_bounds = if let (Some(width), Some(height)) =
+                                (PositiveLength::new(advance), PositiveLength::new(height))
+                            {
+                                let baseline = fragment
+                                    .baseline()
+                                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                                Some(Rect::new(
+                                    plus(fragment.bounds().x(), cluster.pen_x(), owner)?,
+                                    baseline
+                                        .checked_sub(font.ascender())
+                                        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
+                                    width,
+                                    height,
+                                ))
+                            } else {
+                                None
+                            };
                             let span = cluster.source_span();
                             ProductionBodyDraw::Text(ProductionBodyTextDraw {
                                 owner,
@@ -288,6 +385,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                                 )
                                 .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
                                 exact_text: cluster.utf8(),
+                                logical_bounds,
                                 glyphs,
                             })
                         }
@@ -346,6 +444,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
         selected,
         admitted,
         draws,
+        inline_anchors,
         record_charge: limits.base().get().max_fragments - remaining,
         fingerprint: sha256(&digest),
     })

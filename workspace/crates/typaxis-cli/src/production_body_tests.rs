@@ -490,6 +490,58 @@ fn production_body_display_and_pdf_text_use_selected_page_coordinates_and_fonts(
             selected.fragments()[2].baseline().unwrap()
         );
         assert!(text.iter().all(|t| t.font_size().get().raw() == 786_432));
+        for draw in &text {
+            let fragment = &selected.fragments()[draw.fragment_index() as usize];
+            let typaxis_pagination::ProductionBodyFragmentSource::ParagraphLine {
+                paragraph_index,
+                line_index,
+            } = fragment.source()
+            else {
+                panic!("text line")
+            };
+            let paragraph = &lines.paragraphs()[paragraph_index as usize];
+            let font = paragraph.font().unwrap();
+            let cluster = paragraph.lines()[line_index as usize]
+                .items()
+                .iter()
+                .find_map(|item| match item {
+                    typaxis_layout::ProductionPlacedInline::Text(c)
+                        if c.run().owner() == draw.owner()
+                            && c.source_span().start_byte() == draw.text_span().range().start_byte() =>
+                    {
+                        Some(c)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            let bounds = draw.logical_bounds().unwrap();
+            assert_eq!(
+                bounds.x(),
+                fragment.bounds().x().checked_add(cluster.pen_x()).unwrap()
+            );
+            assert_eq!(
+                bounds.y(),
+                fragment
+                    .baseline()
+                    .unwrap()
+                    .checked_sub(font.ascender())
+                    .unwrap()
+            );
+            assert_eq!(
+                bounds.width().get().raw(),
+                cluster
+                    .glyphs()
+                    .iter()
+                    .map(|g| g.glyph().advance_x.raw())
+                    .sum::<i64>()
+            );
+            assert_eq!(
+                bounds.height().get(),
+                font.ascender().checked_sub(font.descender()).unwrap()
+            );
+        }
+        // The explicit space is interactive logical area despite having no ink.
+        assert!(text[1].logical_bounds().unwrap().width().get().raw() > 0);
         let vectors = display
             .draws()
             .iter()
@@ -547,6 +599,37 @@ fn production_body_display_and_pdf_text_use_selected_page_coordinates_and_fonts(
             Err(typaxis_pdf::ProductionBodyTextError::ReceiptMismatch)
         );
         assert_eq!(fonts.fonts(), other_fonts.fonts());
+    });
+}
+
+#[test]
+fn production_body_display_anchors_follow_selected_fragments_across_pages_without_paint() {
+    let bytes = production_anchor_gaps_fixture(&production_explicit_break_fixture(
+        &["A", "hard_break", "B", "hard_break", "A"],
+    ));
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    value["page_masters"]["masters"][0]["body"]["height"] = 1_000_000.into();
+    value["page_masters"]["masters"][0]["footnote"] = serde_json::Value::Null;
+    with_production_body_resources(&value, &config(), |lines, blocks, limits, admitted| {
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        let display = typaxis_display_list::build_production_body_display(&selected, admitted, limits).unwrap();
+        assert_eq!(selected.pages().len(), 3);
+        assert_eq!(display.draws().len(), 3);
+        assert_eq!(display.inline_anchors().len(), 12);
+        assert_eq!(display.inline_anchors().iter().map(|a| a.page_index()).collect::<Vec<_>>(),
+            [0,0,0,0,1,1,1,1,2,2,2,2]);
+        for anchor in display.inline_anchors() {
+            let fragment = &selected.fragments()[anchor.fragment_index() as usize];
+            let position = anchor.source().position().unwrap();
+            assert_eq!(anchor.page_index(), fragment.page_index());
+            assert_eq!(anchor.x(), fragment.bounds().x().checked_add(position.x()).unwrap());
+            assert_eq!(anchor.baseline(), fragment.baseline().unwrap());
+            assert_eq!(fragment.source(), typaxis_pagination::ProductionBodyFragmentSource::ParagraphLine {
+                paragraph_index: 0, line_index: position.line_index(),
+            });
+        }
+        // Three text draws and three glyphs plus twelve nonpainting markers.
+        assert_eq!(display.record_charge(), selected.record_charge() + 18);
     });
 }
 

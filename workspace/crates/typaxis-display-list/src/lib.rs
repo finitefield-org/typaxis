@@ -6,7 +6,7 @@ pub use production_structure::{build_production_body_structure, ProductionBodySt
     ProductionBodyStructureError, ProductionBodyStructureGroup, PRODUCTION_BODY_STRUCTURE_ALGORITHM};
 pub use production_body::{build_production_body_display, ProductionBodyDisplay,
     ProductionBodyDisplayError, ProductionBodyDisplayErrorKind, ProductionBodyDraw,
-    ProductionBodyGlyph, ProductionBodyTextDraw, ProductionBodyVectorDraw,
+    ProductionBodyGlyph, ProductionBodyTextDraw, ProductionBodyVectorDraw, ProductionBodyInlineAnchor,
     PRODUCTION_BODY_DISPLAY_ALGORITHM};
 
 mod advanced_columns;

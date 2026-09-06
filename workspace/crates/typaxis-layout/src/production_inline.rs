@@ -3,6 +3,7 @@
 use crate::ValidatedPrecomposedVectorBindings;
 use typaxis_core::{
     sha256, Length, M4EffectiveResourceLimits, NodeId, NonNegativeLength, PositiveLength,
+    SourceSpan,
 };
 use typaxis_layout_contract::PrecomposedVectorPlacementInput;
 use typaxis_linebreak::{
@@ -23,7 +24,7 @@ use typaxis_syntax::{
 mod selected;
 pub use selected::*;
 
-pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/2";
+pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/3";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProductionInlinePreparationErrorKind {
     ReceiptMismatch,
@@ -82,11 +83,32 @@ impl ProductionShapedClusterItem {
         self.end_unit
     }
 }
+/// A nonpainting source marker at a gap between logical units. It contributes
+/// neither width nor a line-break opportunity, including inside styled text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProductionPreparedInlineAnchor {
+    owner: NodeId,
+    source_span: SourceSpan,
+    boundary_unit: u32,
+}
+impl ProductionPreparedInlineAnchor {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+    pub const fn boundary_unit(&self) -> u32 {
+        self.boundary_unit
+    }
+}
+
 pub struct ProductionPreparedInlineParagraph {
     owner: NodeId,
     line_height: Option<PositiveLength>,
     items: Option<ProductionInlineParagraph>,
     glyph_clusters: Vec<ProductionShapedClusterItem>,
+    anchors: Vec<ProductionPreparedInlineAnchor>,
 }
 impl ProductionPreparedInlineParagraph {
     pub const fn owner(&self) -> NodeId {
@@ -102,6 +124,9 @@ impl ProductionPreparedInlineParagraph {
     }
     pub fn glyph_clusters(&self) -> &[ProductionShapedClusterItem] {
         &self.glyph_clusters
+    }
+    pub fn anchors(&self) -> &[ProductionPreparedInlineAnchor] {
+        &self.anchors
     }
 }
 pub struct ProductionPreparedInlines<'a> {
@@ -181,6 +206,7 @@ pub fn prepare_production_inline_items<'a>(
         let mut units = Vec::new();
         let mut cluster_ranges = Vec::new();
         let mut glyph_clusters = Vec::new();
+        let mut anchors = Vec::new();
         let mut run_cursor = 0;
         for (site_index, site) in p.items().iter().enumerate() {
             let owner = site.owner();
@@ -348,8 +374,22 @@ pub fn prepare_production_inline_items<'a>(
                         .map_err(|_| error(owner, E::AllocationFailure))?;
                     units.push(AtomicVectorInlineLogicalUnit::Break(control));
                 }
-                ProductionInlineContent::Anchor
-                | ProductionInlineContent::BeginEmphasis
+                ProductionInlineContent::Anchor => {
+                    charge = charge
+                        .checked_add(1)
+                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .ok_or_else(|| error(owner, E::UnitLimit))?;
+                    anchors
+                        .try_reserve(1)
+                        .map_err(|_| error(owner, E::AllocationFailure))?;
+                    anchors.push(ProductionPreparedInlineAnchor {
+                        owner,
+                        source_span: site.source_span(),
+                        boundary_unit: u32::try_from(units.len())
+                            .map_err(|_| error(owner, E::ArithmeticOverflow))?,
+                    });
+                }
+                ProductionInlineContent::BeginEmphasis
                 | ProductionInlineContent::BeginStrong
                 | ProductionInlineContent::BeginLink
                 | ProductionInlineContent::EndContainer => (), // Retained by the borrowed syntax flow.
@@ -380,6 +420,7 @@ pub fn prepare_production_inline_items<'a>(
             line_height: p.style().line_height(),
             items,
             glyph_clusters,
+            anchors,
         });
     }
     let mut b = Vec::new();

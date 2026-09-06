@@ -26,6 +26,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
 | Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
 | Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly implemented; navigation and public terminal/manifest closure pending |
+| Selected production navigation positions | Inline source-gap anchors retained through actual page fragments; body logical link bounds use actual font metrics/advances. Destination/outline/annotation objects and anchor-only paragraph support remain pending; see the checkpoint below. |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Eight diagnostic PDF probes now pass structure/nonpainting and exact extraction, including the previously failing explicit post-formula space; full SVG/reference and full-book gates pending |
@@ -1363,3 +1364,117 @@ for this corpus. General line-breaking/bidi/whitespace policy and full-book
 verification remain part of the original objective; no broader completion is
 inferred from these eight small PDFs. Selected navigation, terminal/paint/manifest
 closure and public build integration remain the next PDF integration work.
+
+
+## Selected inline anchor positions and logical link bounds (2026-09-06)
+
+Previous goal turn classification: progress (selected body ActualText fixed the
+observed authored-space extraction failure and independent probes passed).
+This checkpoint adds the retained positions needed by selected navigation;
+it does not remove PendingNavigation or authorize public publication.
+
+`ProductionPreparedInlineAnchor` records source owner/span and an ordered logical
+unit gap without adding a glyph, advance or break opportunity. The line projection
+retains same-gap source order, assigns a line-boundary gap to the following line
+except at paragraph end, and uses actual unit pens plus the selected origin shift.
+Markers on opposite sides of an explicit hard-break control remain distinct.
+The marker-to-line pass is linear in markers plus selected lines.
+
+`ProductionBodyInlineAnchor` borrows the exact selected marker and translates it
+with its actual page fragment. It retains page/fragment identity, x and baseline,
+separately from all text/vector draws. Per-line binary lookup selects only the
+matching marker range. Preparation, line projection and page projection each
+charge retained marker records before allocation against document-wide ceilings.
+No per-paragraph budget reset or guessed page coordinates are introduced.
+
+`ProductionBodyTextDraw::logical_bounds` uses selected cluster pen, summed real
+glyph advances, selected page baseline and actual font ascender/descender. This
+is logical interaction area, not glyph ink bounds. A zero width or height yields
+no positive-area box; the code does not invent an extent or reject otherwise
+valid text solely because its logical box is empty. Vector interaction area can
+use the existing selected viewport. Link ancestry, per-line aggregation and
+annotation construction remain subsequent work.
+
+Private preparation/line/display algorithm identities advance to
+`typaxis.production-inline-preparation/3`,
+`typaxis.production-inline-line-layout/2`, and
+`typaxis.production-body-display/2`. The flow/shape/selected fingerprint chain
+binds source markers and geometry to these new projections. No public contract,
+profile, capabilities schema or publication identity is added.
+
+An attempted anchor-only paragraph regression exposed existing profile gates:
+a wholly empty semantic container fails base preflight; an anchor-only paragraph
+beside real content fails tagged preflight with UnsupportedSemantic. The final
+regression verifies that rejection and that source flow still retains its two
+anchors. It does not weaken the gate, insert dummy text or claim a successful
+empty-paragraph selected placement. The line projection explicitly represents
+unplaced markers for a future nonpainting flow-cursor implementation. The design
+in §14.5 records both the profile and destination work still required.
+
+Focused regression evidence covers duplicate gap markers, before/after hard
+breaks, consecutive and terminal breaks, soft-break taken/not taken, no invented
+A/B break, real VMB negative-origin compensation, exact shared document record
+limits, unchanged text/glyph geometry, three-page marker translation, and logical
+bounds on body/formula pages including explicit whitespace. The page case keeps
+12 markers separately from its three text draws and verifies all actual fragment
+identities; the marker record charge is included in the cumulative display total.
+
+The next navigation owner must bind this exact display/structure, resolve block
+and heading anchors to actual descendant fragments, aggregate Link children per
+page/line, and provide typed destination/outline/annotation roles. ParentTree,
+OBJR, catalog and page references must close before PendingNavigation is removed.
+The full-book, Harano, exporter, terminal/paint/manifest and independent whole-book
+gates remain unfinished. VMB exporter responsibilities and the anchor-only gate
+are recorded in its requested `docs/typaxis-book-export-design.md` §15.16.
+
+
+Verification commands:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_line_ --locked
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_ --locked
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_display --locked
+TYPAXIS_BODY_PDF_PROBE_DIR=/private/tmp/typaxis-body-navigation-positions-20260906 \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_assembly_graph --locked
+```
+
+The line projection run passed **9 tests**; the body run passed **28 tests**,
+including 5,000 real SVG aliases and 65,535+ selected body glyphs, in 225.99 seconds
+(not a controlled performance measurement). Logs:
+`/private/tmp/typaxis-body-anchor-tests.log` and
+`/private/tmp/typaxis-body-anchor-regression.log`.
+After review made zero-height logical boxes explicitly optional, the focused
+page-display **2 tests** and diagnostic assembly **1 test** passed on the final
+code. Logs: `/private/tmp/typaxis-body-anchor-display-tests.log` and
+`/private/tmp/typaxis-body-anchor-assembly-probe.log`.
+
+The workspace-wide `cargo fmt --all --check` found existing formatting differences
+in unrelated files; those were not rewritten. The changed preparation, selected
+line, display-body and inline test modules pass targeted rustfmt checks.
+Both repository diffs pass whitespace validation. This checkpoint introduces no
+GitHub Actions and performs no remote publication.
+
+
+The final diagnostic PDFs also passed the independent probe:
+
+```sh
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_body_probe.py \
+  --probe-root /private/tmp/typaxis-body-navigation-positions-20260906 \
+  --output-root /private/tmp/typaxis-body-navigation-positions-20260906-verification \
+  --pdftotext /opt/homebrew/bin/pdftotext --mutool /opt/homebrew/bin/mutool
+```
+
+Result: **8 cases**, **0 failed checks**, **7 rejected negative probes**.
+The structure/extraction/nonpainting results are in the output directory's
+`observed.json`; log `/private/tmp/typaxis-body-anchor-independent.log`.
+These existing small diagnostic PDFs have no selected link annotations and do
+not establish navigation completion or the full-book acceptance condition.
