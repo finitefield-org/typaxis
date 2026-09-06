@@ -1,6 +1,13 @@
 #![forbid(unsafe_code)]
 
 mod production_body;
+mod production_navigation;
+pub use production_navigation::{
+    build_production_body_navigation, ProductionBodyDestination, ProductionBodyLink,
+    ProductionBodyLinkTarget, ProductionBodyNavigation, ProductionBodyNavigationError,
+    ProductionBodyNavigationErrorKind, ProductionBodyOutlineTopology,
+    PRODUCTION_BODY_NAVIGATION_ALGORITHM,
+};
 mod production_structure;
 pub use production_structure::{build_production_body_structure, ProductionBodyStructure,
     ProductionBodyStructureError, ProductionBodyStructureGroup, PRODUCTION_BODY_STRUCTURE_ALGORITHM};

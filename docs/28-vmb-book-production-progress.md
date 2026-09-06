@@ -25,8 +25,8 @@ Harano support is claimed until the corresponding gates have evidence.
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
 | Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
 | Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
-| Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly implemented; navigation and public terminal/manifest closure pending |
-| Selected production navigation positions | Inline source-gap anchors retained through actual page fragments; body logical link bounds use actual font metrics/advances. Destination/outline/annotation objects and anchor-only paragraph support remain pending; see the checkpoint below. |
+| Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly and selected internal/URI links, destinations and outlines connected; public terminal/manifest closure pending |
+| Selected production navigation positions | Inline source-gap anchors and logical bounds now feed selected destinations, per-line internal/URI annotations, outline topology and OBJR/ParentTree objects; three independent navigation PDF probes pass. Anchor-only paragraph and public terminal/manifest closure remain pending; see the checkpoint below. |
 | TrueType full book, one package / PDF | Pending |
 | Unchanged Harano full book, one package / PDF | Pending |
 | Independent visual / baseline / spacing / extraction / tag verification | Eight diagnostic PDF probes now pass structure/nonpainting and exact extraction, including the previously failing explicit post-formula space; full SVG/reference and full-book gates pending |
@@ -1478,3 +1478,156 @@ The structure/extraction/nonpainting results are in the output directory's
 `observed.json`; log `/private/tmp/typaxis-body-anchor-independent.log`.
 These existing small diagnostic PDFs have no selected link annotations and do
 not establish navigation completion or the full-book acceptance condition.
+
+
+## Selected navigation connected to diagnostic PDF objects (2026-09-06)
+
+Previous goal turn classification: progress (private inline marker positions and
+logical text bounds were committed and verified). This checkpoint connects those
+positions to actual PDF navigation; it does not redefine the full-book objective
+around a smaller diagnostic corpus.
+
+`typaxis-display-list/src/production_navigation.rs` adds a private-field owner
+borrowing the exact selected structure/display and their validated source flow.
+Inline destinations use retained marker page coordinates; heading/container
+anchors use the first actual selected descendant fragment. A reverse registry
+pass propagates first fragments once. Parent-before-child lookup determines each
+paint's Link ancestor, then unions logical text bounds and actual SVG viewports
+only within one selected line/page. Source-order page ranges and node annotation
+indices avoid rescanning all annotations per page or StructElem. Unplaced
+anchors/links, nested links, receipt mismatch, geometry failure and resource
+limits retain the responsible source owner in typed errors.
+
+The flow now borrows typed internal/URI targets on BeginLink sites only. URI
+strings have already passed the package SafeUri policy; they are neither
+reconstructed from accessible names nor treated as destinations. EndContainer
+has no target. `typaxis.production-text-flow/3` distinguishes the new flow
+contract, while the package/flow/shape/selection fingerprint chain binds exact
+source target bytes. Navigation has algorithm
+`typaxis.production-body-navigation/1` and its own structure-bound fingerprint.
+
+The PDF contribution owns that navigation result and adds its additional record
+charges once to the common marked-content ancestor. Destinations are emitted as
+UTF-16BE name-tree keys in encoded code-unit order. Internal annotations reference
+those names; URI annotations use the existing writer convention of hex-encoded
+original URI bytes. All annotations carry source accessible names, actual page
+rectangles, page references, Border [0 0 0], Print flag and distinct StructParent
+keys. Page MCID ParentTree arrays are retained; annotation keys follow page keys
+and refer to Link StructElems. Each Link K array retains source children and adds
+one matching OBJR for each selected annotation.
+
+Outline topology retains dense source IDs, hierarchy, sibling backlinks and
+open descendant counts. Typed roles for destination trees, outline roots/items
+and link annotations join the full object graph before number assignment.
+Assembly connects catalog Names/Outlines and page Annots, checks all references,
+and retains its existing finite graph/output/spool limits. The old unconditional
+PendingNavigation enum/rejection is removed; unsupported or unplaced source
+content must fail at its actual typed owner boundary.
+
+Regressions include a real VMB formula with surrounding link text, heading and
+semantic-container destinations, root outline siblings and a child entry,
+three-page internal and URI links, exact final object record limits, and rejecting
+a different structure owner even for the same input. Source assertions prove the
+last-page target belongs to its actual inline marker, container/heading targets
+match real fragment top coordinates, and the clickable VMB rectangle contains
+both body text and the full selected formula viewport. URI-only navigation has
+no destination tree. The existing blank-page test now verifies a fully connected
+internal annotation instead of expecting blanket navigation rejection.
+
+`tools/verify_production_navigation_probe.py` independently parses diagnostic PDF
+bytes with pypdf and compares them with the selected receipt export. It checks
+name-tree ordering, page/rectangle conversion, target kinds, annotation ownership,
+ParentTree/OBJR backlinks, outline parents/siblings/descendant counts and coverage.
+Its three cases reject 28 mutations spanning missing/duplicate annotations,
+shifted rectangles/destinations, missing targets, URI changes, page-key collision,
+missing OBJRs, wrong ParentTree owners and an outline cycle. These are independent
+PDF serialization/graph checks, not a viewer interaction, PDF/UA, public-build or
+full-book certificate. The report explicitly keeps public_build/full_book false.
+
+Remaining work includes the existing anchor-only paragraph profile/flow cursor,
+all unconnected general pagination/source features, terminal and paint ownership,
+manifest/public pipeline closure, formal RenderBook exporter, Harano CID CFF and
+all original whole-book gates. No approximate source coordinates, dummy paints,
+chapter splitting or weaker full-book success condition are introduced.
+
+
+Review additionally bound navigation's preallocation checks to the complete
+retained marked-content record charge. The caller supplies a base no lower than
+the sealed structure's charge; the PDF contribution verifies it equals its exact
+marked owner. An exhausted base and an understated structure base fail before
+index/destination/link allocation. Final object budgets still include additional
+navigation records exactly once. Focused tests cover these two boundary failures
+in addition to the final object limit at N/N-1.
+
+Verification commands and results:
+
+```sh
+TYPAXIS_NAVIGATION_PDF_PROBE_DIR=/private/tmp/typaxis-selected-navigation-20260906 \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_body_navigation --locked
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-syntax -p typaxis-pdf --lib --locked
+```
+
+The final navigation run passed **3 tests** (multiple PDF cases per test), log
+`/private/tmp/typaxis-navigation-final-focused.log`. The library run passed
+**76 PDF tests** and **66 syntax tests**, log
+`/private/tmp/typaxis-navigation-library-regression.log`.
+
+A broader `production_` run was initially invoked with both diagnostic probe
+environment variables, exporting fresh body/navigation PDFs. It passed **51**
+tests including the 5,000 real SVG alias and 65,535+ body-glyph cases, but **5 public
+CLI tests failed** because strict public configuration correctly rejects unknown
+`TYPAXIS_BODY_PDF_PROBE_DIR`/`TYPAXIS_NAVIGATION_PDF_PROBE_DIR` settings. That run's
+346.77-second duration is not controlled performance evidence. Log:
+`/private/tmp/typaxis-navigation-production-regression.log`. This is a test command
+environment error, not justification to weaken unknown-configuration rejection.
+Probe variables belong only on the selected diagnostic test filters above.
+The public tests are rerun separately without these variables:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis machine_production_book_1_ --locked
+```
+
+The independently parsed diagnostic artifacts are verified with:
+
+```sh
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_navigation_probe.py \
+  --probe-root /private/tmp/typaxis-selected-navigation-20260906 \
+  --output /private/tmp/typaxis-selected-navigation-20260906-verification/observed.json
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_body_probe.py \
+  --probe-root /private/tmp/typaxis-body-navigation-connected-20260906 \
+  --output-root /private/tmp/typaxis-body-navigation-connected-20260906-verification \
+  --pdftotext /opt/homebrew/bin/pdftotext --mutool /opt/homebrew/bin/mutool
+```
+
+Navigation: **3 cases, 28 rejected mutations**. Existing body/formula probe:
+**8 cases, 0 failed checks, 7 rejected mutations**. These preserve exact extraction,
+structure and nonpainting regressions alongside the new navigation graph checks.
+Logs: `/private/tmp/typaxis-navigation-independent.log` and
+`/private/tmp/typaxis-navigation-body-independent.log`. The expected navigation
+coordinates are exported from sealed selected receipts, with separate Rust
+assertions tying those receipts to authored source/page/count facts. They are not
+reference-render or whole-book visual oracles.
+
+
+The clean public CLI rerun passed **5 tests**, including the existing combined
+fixture and feature-local tamper matrix. Log:
+`/private/tmp/typaxis-navigation-public-regression.log`. This verifies the existing
+public profile regression; it does not route the new selected-body writer through
+that public pipeline or prove the VMB full book succeeds there.
+
+The final navigation oracle also compares each annotation's Contents exactly
+with the source registry's accessible name. Three additional nonempty-name
+mutations are rejected, giving **28** negative navigation probes in total. Final
+receipt-export tests passed **3 tests**; a fresh selected-body assembly probe passed
+**1 test** after the allocation-base review. Logs:
+`/private/tmp/typaxis-navigation-final-focused.log` and
+`/private/tmp/typaxis-navigation-final-assembly.log`. Public configuration rules
+were not changed to accept diagnostic environment variables.

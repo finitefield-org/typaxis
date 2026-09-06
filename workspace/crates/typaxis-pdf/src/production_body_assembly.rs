@@ -1,6 +1,6 @@
 //! Resolves the selected body graph into inspectable PDF bytes. This assembly
 //! is not a VerifiedPdfBytesReceipt and cannot authorize publication. The final
-//! production terminal/navigation/manifest closure remains a separate boundary.
+//! production terminal/manifest closure remains a separate boundary.
 use crate::{
     ProductionBodyObjectChunk, ProductionBodyObjectContribution, ProductionBodyObjectRole,
 };
@@ -11,7 +11,6 @@ use typaxis_resource_admission::AdmittedResourceLedger;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyAssemblyError {
     ReceiptMismatch,
-    PendingNavigation,
     ObjectLimit,
     RecordLimit,
     SpoolLimit,
@@ -141,12 +140,10 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     let marked = source.marked();
     let display = marked.structure().display();
     let navigation = display.selected().line_layout().source_flow().navigation();
-    if !navigation.anchors().is_empty()
-        || !navigation.internal_links().is_empty()
-        || !navigation.outline().entries().is_empty()
-    {
-        return Err(E::PendingNavigation);
-    }
+    source
+        .navigation()
+        .verify(marked.structure())
+        .map_err(|_| E::ReceiptMismatch)?;
     let page_count = u32::try_from(marked.pages().len()).map_err(|_| E::ObjectLimit)?;
     let body_count = u32::try_from(source.objects().len()).map_err(|_| E::ObjectLimit)?;
     let count = body_count
@@ -190,8 +187,21 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         .try_reserve_exact(count as usize)
         .map_err(|_| E::AllocationFailure)?;
     let mut catalog = Vec::new();
-    budget.append(&mut catalog, format!("<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R /Lang <FEFF{}> /MarkInfo << /Marked true >> /ViewerPreferences << /DisplayDocTitle true >> /StructTreeRoot {} >>",
+    budget.append(&mut catalog, format!("<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R /Lang <FEFF{}> /MarkInfo << /Marked true >> /ViewerPreferences << /DisplayDocTitle true >> /StructTreeRoot {}",
         utf16(navigation.languages().document_language()), reference(R::StructureRoot)?))?;
+    if !source.navigation().destinations().is_empty() {
+        budget.append(
+            &mut catalog,
+            format!(" /Names << /Dests {} >>", reference(R::Destinations)?),
+        )?;
+    }
+    if !source.navigation().outline().is_empty() {
+        budget.append(
+            &mut catalog,
+            format!(" /Outlines {}", reference(R::Outlines)?),
+        )?;
+    }
+    budget.append(&mut catalog, " >>")?;
     graph.push((A::Catalog, catalog));
     let mut pages = Vec::new();
     budget.append(
@@ -231,9 +241,25 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     let geometry = display.selected().page_geometry();
     for page in 0..page_count {
         let mut bytes = Vec::new();
-        budget.append(&mut bytes, format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources {} /Contents {} /StructParents {page} /Tabs /S >>",
+        budget.append(&mut bytes, format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources {} /Contents {} /StructParents {page} /Tabs /S",
             number(geometry.page_width().get().raw()), number(geometry.page_height().get().raw()),
             reference(R::PageResources(page))?, reference(R::PageContent(page))?))?;
+        let links = source
+            .navigation()
+            .page_links(page)
+            .ok_or(E::ReceiptMismatch)?;
+        if !links.is_empty() {
+            budget.append(&mut bytes, " /Annots [")?;
+            for index in links {
+                let index = u32::try_from(index).map_err(|_| E::ObjectLimit)?;
+                budget.append(
+                    &mut bytes,
+                    format!("{} ", reference(R::LinkAnnotation(index))?),
+                )?;
+            }
+            budget.append(&mut bytes, "]")?;
+        }
+        budget.append(&mut bytes, " >>")?;
         graph.push((A::Body(R::Page(page)), bytes));
     }
     for object in source.objects() {

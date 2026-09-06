@@ -4,7 +4,10 @@
 use crate::{ProductionBodyMarkedContent, ProductionBodyPageDrawSource};
 use std::collections::BTreeSet;
 use typaxis_core::{FontInstanceId, M4EffectiveResourceLimits};
-use typaxis_display_list::{StructureNodeId, StructureRole};
+use typaxis_display_list::{
+    build_production_body_navigation, ProductionBodyNavigation, ProductionBodyNavigationError,
+    StructureNodeId, StructureRole,
+};
 use typaxis_resource_admission::AdmittedResourceLedger;
 use typaxis_resources::{FrozenPdfFontPlan, PdfFontProgramKind};
 
@@ -35,6 +38,10 @@ pub enum ProductionBodyObjectRole {
     ParentTree,
     IdTree,
     StructureNode(StructureNodeId),
+    Destinations,
+    Outlines,
+    Outline(u32),
+    LinkAnnotation(u32),
 }
 #[derive(Debug, Eq, PartialEq)]
 pub enum ProductionBodyObjectChunk {
@@ -57,7 +64,7 @@ impl ProductionBodyObject {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyObjectError {
     ReceiptMismatch,
-    PendingNavigation,
+    Navigation(ProductionBodyNavigationError),
     InvalidFont,
     InvalidStructure,
     ObjectLimit,
@@ -69,6 +76,7 @@ pub enum ProductionBodyObjectError {
 
 pub struct ProductionBodyObjectContribution<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a> {
     marked: &'m ProductionBodyMarkedContent<'c, 'f, 'v, 'd, 's, 'p, 'a>,
+    navigation: ProductionBodyNavigation<'c, 'v, 'd, 's, 'p, 'a>,
     objects: Vec<ProductionBodyObject>,
     record_charge: u64,
     spool_charge: u64,
@@ -81,6 +89,9 @@ impl<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>
     }
     pub fn objects(&self) -> &[ProductionBodyObject] {
         &self.objects
+    }
+    pub const fn navigation(&self) -> &ProductionBodyNavigation<'c, 'v, 'd, 's, 'p, 'a> {
+        &self.navigation
     }
     pub const fn record_charge(&self) -> u64 {
         self.record_charge
@@ -96,6 +107,12 @@ impl<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>
     ) -> Result<(), ProductionBodyObjectError> {
         if !std::ptr::eq(self.marked, marked) {
             return Err(ProductionBodyObjectError::ReceiptMismatch);
+        }
+        self.navigation
+            .verify(marked.structure())
+            .map_err(E::Navigation)?;
+        if self.navigation.record_base() != marked.record_charge() {
+            return Err(E::ReceiptMismatch);
         }
         marked
             .verify(marked.content(), marked.structure(), admitted, limits)
@@ -231,17 +248,13 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     marked
         .verify(marked.content(), marked.structure(), admitted, limits)
         .map_err(|_| E::ReceiptMismatch)?;
-    // Link StructElems need selected annotation OBJRs. Until the navigation
-    // owner is connected, do not issue a seemingly complete but missing /K.
-    if marked
-        .structure()
-        .registry()
-        .nodes()
-        .iter()
-        .any(|n| n.role() == StructureRole::Link)
-    {
-        return Err(E::PendingNavigation);
-    }
+    let navigation = build_production_body_navigation(
+        marked.structure(),
+        admitted,
+        limits,
+        marked.record_charge(),
+    )
+    .map_err(E::Navigation)?;
     let mut b = Builder {
         objects: Vec::new(),
         roles: BTreeSet::new(),
@@ -249,6 +262,7 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         spool: marked.spool_charge(),
         limits,
     };
+    b.record(navigation.additional_records())?;
     for font in marked.content().plans().fonts().fonts() {
         font_objects(&mut b, font.pdf_font())?;
     }
@@ -327,7 +341,8 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         }
         b.bytes(" >> >>")?;
     }
-    structure_objects(&mut b, marked)?;
+    navigation_objects(&mut b, &navigation)?;
+    structure_objects(&mut b, marked, &navigation)?;
     for object in &b.objects {
         for chunk in &object.chunks {
             if let ProductionBodyObjectChunk::Reference(role) = chunk {
@@ -341,6 +356,7 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     }
     Ok(ProductionBodyObjectContribution {
         marked,
+        navigation,
         objects: b.objects,
         record_charge: b.records,
         spool_charge: b.spool,
@@ -436,6 +452,7 @@ fn font_objects(b: &mut Builder<'_>, font: &FrozenPdfFontPlan) -> Result<(), E> 
 fn structure_objects(
     b: &mut Builder<'_>,
     marked: &ProductionBodyMarkedContent<'_, '_, '_, '_, '_, '_, '_>,
+    navigation: &ProductionBodyNavigation<'_, '_, '_, '_, '_, '_>,
 ) -> Result<(), E> {
     let structure = marked.structure();
     let registry = structure.registry();
@@ -443,7 +460,10 @@ fn structure_objects(
     b.start(R::StructureRoot)?;
     b.bytes("<< /Type /StructTreeRoot /RoleMap << /Em /Span /Exercise /Div /Proof /Div /Result /Div /Strong /Span >> /ParentTree ")?;
     b.reference(R::ParentTree)?;
-    b.bytes(format!(" /ParentTreeNextKey {} /K [", marked.pages().len()))?;
+    b.bytes(format!(
+        " /ParentTreeNextKey {} /K [",
+        annotation_parent_key(marked.pages().len(), navigation.links().len())?
+    ))?;
     for node in registry.nodes().iter().filter(|n| n.parent().is_none()) {
         b.reference(R::StructureNode(node.structure_node_id()))?;
         b.bytes(" ")?;
@@ -466,6 +486,14 @@ fn structure_objects(
             b.bytes(" ")?;
         }
         b.bytes("] ")?;
+    }
+    for (index, link) in navigation.links().iter().enumerate() {
+        b.bytes(format!(
+            "{} ",
+            annotation_parent_key(marked.pages().len(), index)?
+        ))?;
+        b.reference(R::StructureNode(link.node()))?;
+        b.bytes(" ")?;
     }
     b.bytes("] >>")?;
     if has_ids {
@@ -555,7 +583,153 @@ fn structure_objects(
             b.reference(R::StructureNode(child))?;
             b.bytes(" ")?;
         }
+        for &index in navigation
+            .node_links(node.structure_node_id())
+            .ok_or(E::InvalidStructure)?
+        {
+            let link = navigation
+                .links()
+                .get(index as usize)
+                .ok_or(E::InvalidStructure)?;
+            b.bytes("<< /Type /OBJR /Pg ")?;
+            b.reference(R::Page(link.page_index()))?;
+            b.bytes(" /Obj ")?;
+            b.reference(R::LinkAnnotation(index))?;
+            b.bytes(" >> ")?;
+        }
         b.bytes("] >>")?;
+    }
+    Ok(())
+}
+
+fn annotation_parent_key(pages: usize, index: usize) -> Result<u32, E> {
+    pages
+        .checked_add(index)
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or(E::ObjectLimit)
+}
+fn navigation_objects(
+    b: &mut Builder<'_>,
+    navigation: &ProductionBodyNavigation<'_, '_, '_, '_, '_, '_>,
+) -> Result<(), E> {
+    let structure = navigation.structure();
+    let selected = structure.display().selected();
+    let height = selected.page_geometry().page_height().get();
+    if !navigation.destinations().is_empty() {
+        b.record(navigation.destinations().len() as u64)?;
+        let mut order = Vec::new();
+        order
+            .try_reserve_exact(navigation.destinations().len())
+            .map_err(|_| E::AllocationFailure)?;
+        for destination in navigation.destinations() {
+            let name = navigation
+                .destination_name(destination.anchor_index())
+                .ok_or(E::ReceiptMismatch)?;
+            order.push((name.as_str(), destination));
+        }
+        // PDF name-tree keys compare encoded bytes. UTF-16BE code-unit order
+        // differs from Rust's UTF-8 string order for non-BMP names.
+        order.sort_unstable_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+        b.start(R::Destinations)?;
+        b.bytes("<< /Names [")?;
+        for (name, destination) in order {
+            let y = height
+                .checked_sub(destination.y())
+                .ok_or(E::ReceiptMismatch)?;
+            b.text(name)?;
+            b.bytes(" [")?;
+            b.reference(R::Page(destination.page_index()))?;
+            b.bytes(format!(
+                " /XYZ {} {} null] ",
+                number(destination.x().raw()),
+                number(y.raw())
+            ))?;
+        }
+        b.bytes("] >>")?;
+    }
+    if !navigation.outline().is_empty() {
+        let root = navigation.outline_root();
+        b.start(R::Outlines)?;
+        b.bytes(format!(
+            "<< /Type /Outlines /Count {} /First ",
+            root.descendants()
+        ))?;
+        b.reference(R::Outline(root.first().ok_or(E::ReceiptMismatch)?))?;
+        b.bytes(" /Last ")?;
+        b.reference(R::Outline(root.last().ok_or(E::ReceiptMismatch)?))?;
+        b.bytes(" >>")?;
+        for (entry, topology) in navigation
+            .outline_entries()
+            .iter()
+            .zip(navigation.outline())
+        {
+            b.start(R::Outline(entry.outline_id))?;
+            b.bytes("<< /Title ")?;
+            b.text(&entry.label)?;
+            b.bytes(" /Parent ")?;
+            b.reference(topology.parent().map_or(R::Outlines, R::Outline))?;
+            for (name, index) in [
+                ("Prev", topology.previous()),
+                ("Next", topology.next()),
+                ("First", topology.first()),
+                ("Last", topology.last()),
+            ] {
+                if let Some(index) = index {
+                    b.bytes(format!(" /{name} "))?;
+                    b.reference(R::Outline(index))?;
+                }
+            }
+            if topology.descendants() > 0 {
+                b.bytes(format!(" /Count {}", topology.descendants()))?;
+            }
+            b.bytes(" /Dest ")?;
+            b.text(entry.destination.as_str())?;
+            b.bytes(" >>")?;
+        }
+    }
+    for (index, link) in navigation.links().iter().enumerate() {
+        let index32 = u32::try_from(index).map_err(|_| E::ObjectLimit)?;
+        let bounds = link.bounds();
+        let right = bounds
+            .x()
+            .checked_add(bounds.width().get())
+            .ok_or(E::ReceiptMismatch)?;
+        let top = height.checked_sub(bounds.y()).ok_or(E::ReceiptMismatch)?;
+        let bottom = top
+            .checked_sub(bounds.height().get())
+            .ok_or(E::ReceiptMismatch)?;
+        let accessible = structure
+            .registry()
+            .node(link.node())
+            .and_then(|n| n.accessible_name())
+            .ok_or(E::InvalidStructure)?;
+        b.start(R::LinkAnnotation(index32))?;
+        b.bytes(format!("<< /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /F 4 /StructParent {} /P ",
+            number(bounds.x().raw()),number(bottom.raw()),number(right.raw()),number(top.raw()),annotation_parent_key(selected.pages().len(),index)?))?;
+        b.reference(R::Page(link.page_index()))?;
+        match link.target() {
+            typaxis_display_list::ProductionBodyLinkTarget::Internal(index) => {
+                b.bytes(" /Dest ")?;
+                b.text(
+                    navigation
+                        .destination_name(index)
+                        .ok_or(E::ReceiptMismatch)?
+                        .as_str(),
+                )?;
+            }
+            typaxis_display_list::ProductionBodyLinkTarget::Uri(uri) => {
+                // URI actions use the validated URI's original bytes, as in
+                // the existing PDF link writer, not UTF-16 destination names.
+                b.bytes(" /A << /S /URI /URI <")?;
+                for byte in uri.bytes() {
+                    b.bytes(format!("{byte:02X}"))?;
+                }
+                b.bytes("> >>")?;
+            }
+        }
+        b.bytes(" /Contents ")?;
+        b.text(accessible)?;
+        b.bytes(" >>")?;
     }
     Ok(())
 }

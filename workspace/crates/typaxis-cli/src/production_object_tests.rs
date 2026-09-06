@@ -238,7 +238,7 @@ fn production_body_objects_enforce_cumulative_budgets() {
 }
 
 #[test]
-fn production_body_objects_keep_blank_page_entries_and_refuse_missing_link_annotations() {
+fn production_body_objects_keep_blank_page_entries_and_connect_link_annotations() {
     use typaxis_pdf::ProductionBodyObjectRole as R;
     let mut value: serde_json::Value =
         serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
@@ -278,10 +278,29 @@ fn production_body_objects_keep_blank_page_entries_and_refuse_missing_link_annot
             .nodes()
             .iter()
             .any(|n| n.role() == typaxis_layout::StructureRole::Link));
-        assert_eq!(
-            typaxis_pdf::build_production_body_objects(marked, admitted, limits).err(),
-            Some(typaxis_pdf::ProductionBodyObjectError::PendingNavigation)
+        let objects = typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+        let navigation = objects.navigation();
+        assert_eq!(navigation.destinations().len(), 1);
+        assert_eq!(navigation.links().len(), 1);
+        let link = &navigation.links()[0];
+        let get = |role| objects.objects().iter().find(|o| o.role() == role).unwrap();
+        assert!(
+            production_object_references(get(R::StructureNode(link.node())))
+                .contains(&R::LinkAnnotation(0))
         );
+        assert_eq!(
+            production_object_references(get(R::LinkAnnotation(0))),
+            [R::Page(0)]
+        );
+        let root = String::from_utf8(production_object_bytes(get(R::StructureRoot))).unwrap();
+        assert!(root.contains("/ParentTreeNextKey 2"));
+        let annotation =
+            String::from_utf8(production_object_bytes(get(R::LinkAnnotation(0)))).unwrap();
+        assert!(annotation.contains("/StructParent 1"));
+        assert!(annotation.contains("/Border [0 0 0]"));
+        let pdf = typaxis_pdf::assemble_production_body_pdf(&objects, admitted, limits).unwrap();
+        assert!(pdf.object_number(R::Destinations).is_some());
+        assert!(String::from_utf8_lossy(pdf.bytes()).contains("/Annots ["));
     });
 }
 
@@ -504,4 +523,307 @@ fn production_body_assembly_checks_complete_object_output_and_spool_budgets() {
             }
         });
     }
+}
+
+fn production_body_navigation_vmb_fixture() -> serde_json::Value {
+    use serde_json::json;
+    let mut value = production_body_fixture(3_000_000);
+    let root = &mut value["document"]["blocks"][0];
+    root["anchor_id"] = "book".into();
+    let first = &mut root["blocks"][0];
+    first["kind"] = "heading".into();
+    first["level"] = 1.into();
+    first["anchor_id"] = "intro".into();
+    let children = first["children"].clone();
+    first["children"] = json!([{"kind":"link","node_id":0,"span":first["span"],
+        "target":{"kind":"internal","anchor_id":"target"},"children":children}]);
+    let mut last = root["blocks"][2].clone();
+    let text = last["children"][0].clone();
+    last["children"] =
+        json!([{"kind":"anchor","node_id":0,"span":last["span"],"anchor_id":"target"},text]);
+    root["blocks"][2] = json!({"kind":"semantic_container","semantic_kind":"result","node_id":0,
+        "classes":[],"anchor_id":"ending","span":last["span"],"blocks":[last]});
+    production_body_renumber(&mut value["document"], &mut 0);
+    let root = &value["document"]["blocks"][0];
+    value["outline"]["entries"] = json!([
+        {"outline_id":0,"parent_outline_id":null,"level":1,"destination":"book","label":"Book","source_kind":"semantic_container","source_node_id":root["node_id"]},
+        {"outline_id":1,"parent_outline_id":null,"level":1,"destination":"intro","label":"Introduction","source_kind":"heading","source_node_id":root["blocks"][0]["node_id"]},
+        {"outline_id":2,"parent_outline_id":1,"level":2,"destination":"ending","label":"Ending","source_kind":"semantic_container","source_node_id":root["blocks"][2]["node_id"]}
+    ]);
+    value
+}
+fn production_body_navigation_multiline_fixture() -> serde_json::Value {
+    use serde_json::json;
+    let bytes = production_explicit_break_fixture(&["A", "hard_break", "B", "hard_break", "A"]);
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let paragraph = &mut value["document"]["blocks"][0]["blocks"][0];
+    let children = paragraph["children"].clone();
+    paragraph["children"] = json!([{"kind":"link","node_id":0,"span":paragraph["span"],
+        "target":{"kind":"internal","anchor_id":"target"},"children":children}]);
+    let span = paragraph["span"].clone();
+    paragraph["children"][0]["children"]
+        .as_array_mut()
+        .unwrap()
+        .insert(
+            4,
+            json!({
+        "kind":"anchor","node_id":0,"span":span,"anchor_id":"target"}),
+        );
+    value["page_masters"]["masters"][0]["body"]["height"] = 1_000_000.into();
+    value["page_masters"]["masters"][0]["footnote"] = serde_json::Value::Null;
+    production_body_renumber(&mut value["document"], &mut 0);
+    value
+}
+
+#[test]
+fn production_body_navigation_resolves_real_vmb_and_multiline_links_to_selected_pages() {
+    use typaxis_pdf::ProductionBodyObjectRole as R;
+    for (name, value, expected_links, expected_pages) in [
+        (
+            "vmb-navigation",
+            production_body_navigation_vmb_fixture(),
+            1,
+            2,
+        ),
+        (
+            "multiline-navigation",
+            production_body_navigation_multiline_fixture(),
+            3,
+            3,
+        ),
+    ] {
+        with_production_marked_body(&value, &config(), |marked, admitted, limits| {
+            let objects =
+                typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+            let nav = objects.navigation();
+            nav.verify(marked.structure()).unwrap();
+            assert_eq!(nav.links().len(), expected_links);
+            assert_eq!(marked.pages().len(), expected_pages);
+            let target = nav
+                .destinations()
+                .iter()
+                .find(|d| nav.destination_name(d.anchor_index()).unwrap().as_str() == "target")
+                .unwrap();
+            assert_eq!(target.page_index() as usize, expected_pages - 1);
+            let selected = marked.structure().display().selected();
+            let fragment = &selected.fragments()[target.fragment_index() as usize];
+            assert_eq!(target.y(), fragment.baseline().unwrap());
+            assert!(nav
+                .links()
+                .iter()
+                .all(|l| l.destination_index() == Some(target.anchor_index())));
+            if name == "vmb-navigation" {
+                assert_eq!(nav.outline().len(), 3);
+                assert_eq!(nav.outline_root().descendants(), 3);
+                assert_eq!(
+                    (
+                        nav.outline()[1].first(),
+                        nav.outline()[1].last(),
+                        nav.outline()[1].descendants()
+                    ),
+                    (Some(2), Some(2), 1)
+                );
+                assert_eq!(nav.outline()[0].next(), Some(1));
+                assert_eq!(nav.outline()[1].previous(), Some(0));
+                for anchor in ["book", "intro", "ending"] {
+                    let d = nav
+                        .destinations()
+                        .iter()
+                        .find(|d| {
+                            nav.destination_name(d.anchor_index()).unwrap().as_str() == anchor
+                        })
+                        .unwrap();
+                    let f = &selected.fragments()[d.fragment_index() as usize];
+                    assert_eq!((d.x(), d.y()), (f.bounds().x(), f.bounds().y()));
+                    assert_eq!(d.page_index(), if anchor == "ending" { 1 } else { 0 });
+                }
+                let link = &nav.links()[0];
+                // Real VMB formula ink viewport must be inside the clickable
+                // box along with both surrounding body text runs.
+                for draw in marked.structure().display().draws().iter().take(4) {
+                    let rect = match draw {
+                        typaxis_display_list::ProductionBodyDraw::Text(t) => {
+                            t.logical_bounds().unwrap()
+                        }
+                        typaxis_display_list::ProductionBodyDraw::Vector(v) => v.viewport(),
+                    };
+                    assert!(link.bounds().x() <= rect.x());
+                    assert!(link.bounds().y() <= rect.y());
+                    assert!(
+                        link.bounds()
+                            .x()
+                            .checked_add(link.bounds().width().get())
+                            .unwrap()
+                            >= rect.x().checked_add(rect.width().get()).unwrap()
+                    );
+                    assert!(
+                        link.bounds()
+                            .y()
+                            .checked_add(link.bounds().height().get())
+                            .unwrap()
+                            >= rect.y().checked_add(rect.height().get()).unwrap()
+                    );
+                }
+            } else {
+                assert_eq!(
+                    nav.links()
+                        .iter()
+                        .map(|l| l.page_index())
+                        .collect::<Vec<_>>(),
+                    [0, 1, 2]
+                );
+                assert!(nav
+                    .links()
+                    .iter()
+                    .all(|l| l.bounds().width().get().raw() == 471_859));
+                assert!(nav
+                    .links()
+                    .iter()
+                    .all(|l| l.bounds().height().get().raw() == 786_432));
+            }
+            let pdf =
+                typaxis_pdf::assemble_production_body_pdf(&objects, admitted, limits).unwrap();
+            for index in 0..expected_links {
+                assert!(pdf.object_number(R::LinkAnnotation(index as u32)).is_some());
+            }
+            // Export exact selected navigation receipts as an independent PDF
+            // serialization oracle. Source/page/count assertions above prevent
+            // accepting an arbitrary self-consistent replacement layout.
+            if let Some(root) = std::env::var_os("TYPAXIS_NAVIGATION_PDF_PROBE_DIR") {
+                let root = PathBuf::from(root);
+                fs::create_dir_all(&root).unwrap();
+                fs::write(root.join(format!("{name}.pdf")), pdf.bytes()).unwrap();
+                let expected = serde_json::json!({
+                    "name":name,"pages":expected_pages,"page_height_raw":selected.page_geometry().page_height().get().raw(),
+                    "destinations":nav.destinations().iter().map(|d|serde_json::json!({"name":nav.destination_name(d.anchor_index()).unwrap().as_str(),"page":d.page_index(),"x_raw":d.x().raw(),"y_raw":d.y().raw()})).collect::<Vec<_>>(),
+                    "links":nav.links().iter().enumerate().map(|(i,l)|serde_json::json!({"page":l.page_index(),"destination":nav.destination_name(l.destination_index().unwrap()).unwrap().as_str(),"rect_raw":[l.bounds().x().raw(),l.bounds().y().raw(),l.bounds().width().get().raw(),l.bounds().height().get().raw()],"contents":nav.structure().registry().node(l.node()).unwrap().accessible_name().unwrap(),"struct_parent":expected_pages+i,"structure_object":pdf.object_number(R::StructureNode(l.node())).unwrap()})).collect::<Vec<_>>(),
+                    "outline":nav.outline_entries().iter().map(|e|serde_json::json!({"id":e.outline_id,"parent":e.parent_outline_id,"title":e.label,"destination":e.destination.as_str()})).collect::<Vec<_>>()
+                });
+                fs::write(
+                    root.join(format!("{name}.expected.json")),
+                    serde_json::to_vec_pretty(&expected).unwrap(),
+                )
+                .unwrap();
+            }
+        });
+    }
+}
+
+#[test]
+fn production_body_navigation_owner_and_combined_object_budget_are_enforced() {
+    let value = production_body_navigation_multiline_fixture();
+    let mut required = 0;
+    with_production_marked_body(&value, &config(), |marked, admitted, limits| {
+        let objects = typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+        required = objects.record_charge();
+        assert!(objects.navigation().additional_records() > 0);
+        assert_eq!(objects.navigation().record_base(), marked.record_charge());
+        for (base, kind) in [
+            (
+                marked.structure().record_charge() - 1,
+                typaxis_display_list::ProductionBodyNavigationErrorKind::ReceiptMismatch,
+            ),
+            (
+                limits.base().get().max_fragments,
+                typaxis_display_list::ProductionBodyNavigationErrorKind::RecordLimit,
+            ),
+        ] {
+            assert_eq!(
+                typaxis_display_list::build_production_body_navigation(
+                    marked.structure(),
+                    admitted,
+                    limits,
+                    base
+                )
+                .err()
+                .unwrap()
+                .kind,
+                kind
+            );
+        }
+        with_production_marked_body(&value, &config(), |other, _, _| {
+            assert_eq!(
+                objects
+                    .navigation()
+                    .verify(other.structure())
+                    .unwrap_err()
+                    .kind,
+                typaxis_display_list::ProductionBodyNavigationErrorKind::ReceiptMismatch
+            );
+        });
+    });
+    for maximum in [required, required - 1] {
+        let configured = config_with_limits(ResourceLimits {
+            max_fragments: maximum,
+            ..ResourceLimits::default()
+        });
+        with_production_marked_body(&value, &configured, |marked, admitted, limits| {
+            let result = typaxis_pdf::build_production_body_objects(marked, admitted, limits);
+            if maximum == required {
+                assert_eq!(result.unwrap().record_charge(), required);
+            } else {
+                assert_eq!(
+                    result.err(),
+                    Some(typaxis_pdf::ProductionBodyObjectError::RecordLimit)
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn production_body_navigation_preserves_external_uri_bytes_and_tag_owner() {
+    let mut value = production_body_navigation_multiline_fixture();
+    let link = &mut value["document"]["blocks"][0]["blocks"][0]["children"][0];
+    let owner = link["node_id"].as_u64().unwrap() as u32;
+    link["target"] = serde_json::json!({"kind":"uri","uri":"https://example.com/"});
+    link["children"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|c| c["kind"] != "anchor");
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_marked_body(&value, &config(), |marked, admitted, limits| {
+        let objects = typaxis_pdf::build_production_body_objects(marked, admitted, limits).unwrap();
+        assert_eq!(objects.navigation().links().len(), 3);
+        for (index, link) in objects.navigation().links().iter().enumerate() {
+            assert_eq!(link.owner(), NodeId::new(owner));
+            assert_eq!(
+                link.target(),
+                typaxis_display_list::ProductionBodyLinkTarget::Uri("https://example.com/")
+            );
+            assert_eq!(link.destination_index(), None);
+            let annotation = objects
+                .objects()
+                .iter()
+                .find(|o| {
+                    o.role() == typaxis_pdf::ProductionBodyObjectRole::LinkAnnotation(index as u32)
+                })
+                .unwrap();
+            let bytes = String::from_utf8(production_object_bytes(annotation)).unwrap();
+            assert!(bytes.contains("/A << /S /URI /URI <68747470733A2F2F6578616D706C652E636F6D2F>"));
+            assert!(!bytes.contains("/Dest"));
+        }
+        let pdf = typaxis_pdf::assemble_production_body_pdf(&objects, admitted, limits).unwrap();
+        assert!(objects.navigation().destinations().is_empty());
+        assert!(pdf
+            .object_number(typaxis_pdf::ProductionBodyObjectRole::Destinations)
+            .is_none());
+        if let Some(root) = std::env::var_os("TYPAXIS_NAVIGATION_PDF_PROBE_DIR") {
+            let root = PathBuf::from(root);
+            fs::create_dir_all(&root).unwrap();
+            fs::write(root.join("external-navigation.pdf"), pdf.bytes()).unwrap();
+            let nav = objects.navigation();
+            let expected = serde_json::json!({"name":"external-navigation","pages":3,
+                "page_height_raw":nav.structure().display().selected().page_geometry().page_height().get().raw(),
+                "destinations":[],"outline":[],
+                "links":nav.links().iter().enumerate().map(|(i,l)|serde_json::json!({"page":l.page_index(),"uri":"https://example.com/",
+                    "rect_raw":[l.bounds().x().raw(),l.bounds().y().raw(),l.bounds().width().get().raw(),l.bounds().height().get().raw()],
+                    "contents":nav.structure().registry().node(l.node()).unwrap().accessible_name().unwrap(),"struct_parent":3+i,"structure_object":pdf.object_number(typaxis_pdf::ProductionBodyObjectRole::StructureNode(l.node())).unwrap()})).collect::<Vec<_>>()});
+            fs::write(
+                root.join("external-navigation.expected.json"),
+                serde_json::to_vec_pretty(&expected).unwrap(),
+            )
+            .unwrap();
+        }
+    });
 }

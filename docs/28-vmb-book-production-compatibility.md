@@ -744,3 +744,31 @@ PDF接続時はdestinations/outline/annotationを型付きobject roleに追加�
 helperを新production配置の証拠として流用しない。これらのPDF接続と独立検査が完了するまで、
 既存PendingNavigation拒否は外さない。terminal/paint/manifestと公開buildの接続はさらに別の
 残件であり、非描画markerとlogical boundsの実装だけで全巻ゲートを完了したとは扱わない。
+
+
+実装追補（2026-09-06、selected navigation接続）: `ProductionBodyNavigation`を追加し、上記の
+private marker・選択済みfragment・source structure registryからdestination、行別link、outlineの
+親子・前後関係を生成する。container/headingの最初のfragmentはregistryを逆順に一回伝播して
+求め、各移動先で文書全体を走査しない。本文の論理矩形と数式viewportを同じpage/line内だけで
+集約する。source targetと構造ownerが対応しない場合、実配置のないanchor/link、nested link、
+算術・予算超過はowner付きの型付きエラーとなる。以前の一律PendingNavigation拒否は、この
+ownerを検証してPDF graphへ接続する処理へ置き換えた。
+
+`ProductionInlineSite`は、BeginLinkに限り検証済みの内部targetまたはURIを借用して保持する。
+EndContainerへtargetを複製しない。`typaxis.production-text-flow/3`がその契約を区別し、元packageの
+hashとflow再検証でtargetも結ぶ。URI actionは既存PDF writerと同じく検証済みURIの元bytesを
+hex stringへ格納する。内部destination名とoutline titleはUTF-16BEとし、name treeは実際の
+UTF-16 code unit順で並べる。URIだけの文書に空のDests treeを追加しない。
+
+検査用PDFのcatalog/pageにNames/Dests、Outlines、Annotsを接続し、Link StructElemのOBJRと
+annotationのStructParentを相互参照させる。page MCID用のParentTree配列は維持し、その後ろの
+キーに注釈用StructElem参照を追加する。追加の構造index・link record・文字列・PDF objectを
+既存の文書全体予算へ含め、全graphの参照を解決してからobject番号とxrefを確定する。
+注釈にはBorder [0 0 0]を指定し、クリック領域のための可視枠やglyphを追加しない。
+
+現物VMB数式のリンク、heading/containerの目次、3ページに分かれた内部リンクとURIリンクを
+Rustと独立pypdf検査で確認した。独立検査はselected receiptに対するPDF座標・参照・タグ・
+目次階層の一致を検証し、移動先・矩形・注釈・OBJR・ParentTree・目次cycle等の改ざんを拒否する。
+この接続は選択済み共通flowが扱える範囲の検査用PDFであり、anchor-only段落のprofile/flow cursor、
+汎用pagination、terminal/paint/manifest、公開check/build、正式VMB exporter、原ノ味・実全巻の
+受け入れ条件を完了した意味ではない。最新の実行結果は実装台帳を参照する。

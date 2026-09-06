@@ -3,7 +3,7 @@
 use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 
-pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/2";
+pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/3";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
@@ -139,6 +139,14 @@ pub struct ProductionInlineSite<'a> {
     source_span: SourceSpan,
     language: &'a str,
     content: ProductionInlineContent<'a>,
+    link_target: Option<ProductionInlineLinkTarget<'a>>,
+}
+/// Borrowed from the already validated package. URI spelling is preserved;
+/// navigation must not reinterpret it as an internal anchor or visible text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProductionInlineLinkTarget<'a> {
+    Internal { anchor_id: &'a str },
+    Uri { uri: &'a str },
 }
 impl<'a> ProductionInlineSite<'a> {
     pub const fn owner(&self) -> NodeId {
@@ -152,6 +160,9 @@ impl<'a> ProductionInlineSite<'a> {
     }
     pub const fn content(&self) -> ProductionInlineContent<'a> {
         self.content
+    }
+    pub const fn link_target(&self) -> Option<ProductionInlineLinkTarget<'a>> {
+        self.link_target
     }
 }
 
@@ -521,6 +532,17 @@ impl<'a> Collector<'a> {
                 source_span,
                 language,
                 content,
+                link_target: match inline {
+                    WireStagingM4Inline::Link {
+                        target: WireStagingM4LinkTarget::Internal { anchor_id },
+                        ..
+                    } => Some(ProductionInlineLinkTarget::Internal { anchor_id }),
+                    WireStagingM4Inline::Link {
+                        target: WireStagingM4LinkTarget::Uri { uri },
+                        ..
+                    } => Some(ProductionInlineLinkTarget::Uri { uri }),
+                    _ => None,
+                },
             };
             output
                 .try_reserve(1)
@@ -536,6 +558,7 @@ impl<'a> Collector<'a> {
                     .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
                 output.push(ProductionInlineSite {
                     content: ProductionInlineContent::EndContainer,
+                    link_target: None,
                     ..site
                 });
             }
