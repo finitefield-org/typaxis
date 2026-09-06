@@ -7,10 +7,11 @@ mod atomic_vector;
 mod production_body;
 
 pub use production_body::{
-    paginate_production_body, ProductionBodyFragment, ProductionBodyFragmentSource,
+    paginate_production_body, ProductionBodyBreakCandidate, ProductionBodyBreakDecision,
+    ProductionBodyBreakReason, ProductionBodyFragment, ProductionBodyFragmentSource,
     ProductionBodyListMarker, ProductionBodyPage, ProductionBodyPageBreak,
     ProductionBodyPaginationError, ProductionBodyPaginationErrorKind, ProductionBodySelectedLayout,
-    PRODUCTION_BODY_PAGINATION_ALGORITHM,
+    PRODUCTION_BODY_BREAK_POLICY, PRODUCTION_BODY_PAGINATION_ALGORITHM,
 };
 
 #[cfg(any(test, feature = "staging-fixtures"))]

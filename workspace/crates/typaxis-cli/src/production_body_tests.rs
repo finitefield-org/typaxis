@@ -347,14 +347,14 @@ fn production_body_preserves_explicit_blank_pages_and_exact_page_limit() {
 #[test]
 fn production_body_fragment_budget_is_shared_with_line_and_block_preparation() {
     let value = production_body_fixture(3_000_000);
-    for maximum in [33, 32] {
+    for maximum in [40, 39] {
         let cfg = config_with_limits(ResourceLimits {
             max_fragments: maximum,
             ..ResourceLimits::default()
         });
         with_production_body_inputs(&value, &cfg, |lines, blocks, limits| {
             let result = typaxis_pagination::paginate_production_body(lines, blocks, limits);
-            if maximum == 33 {
+            if maximum == 40 {
                 assert_eq!(result.unwrap().record_charge(), maximum);
             } else {
                 let err = match result {
@@ -1752,6 +1752,291 @@ fn production_body_structure_keeps_figure_caption_as_child_after_its_vector_pain
             assert!(
                 bytes.find("/Figure << /MCID 0").unwrap() < bytes.find("/Span << /MCID 1").unwrap()
             );
+        },
+    );
+}
+
+
+#[test]
+fn production_body_page_choices_avoid_a_single_continuation_line_and_enforce_search_budget() {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_explicit_break_fixture(&[
+            "A",
+            "hard_break",
+            "A",
+            "hard_break",
+            "B",
+            "hard_break",
+            "B",
+        ]))
+        .unwrap();
+    value["page_masters"]["masters"][0]["body"]["height"] = (3 * 917_504).into();
+    value["page_masters"]["masters"][0]["footnote"] = serde_json::Value::Null;
+    for maximum in [3, 2] {
+        let cfg = config_with_limits(ResourceLimits {
+            max_page_break_lookback: maximum,
+            ..ResourceLimits::default()
+        });
+        with_production_body_resources(&value, &cfg, |lines, blocks, limits, admitted| {
+            assert_eq!(lines.paragraphs()[0].lines().len(), 4);
+            let result = typaxis_pagination::paginate_production_body(lines, blocks, limits);
+            if maximum == 2 {
+                let err = match result {
+                    Err(e) => e,
+                    Ok(_) => panic!("search cannot truncate candidates"),
+                };
+                assert_eq!(
+                    err.kind,
+                    typaxis_pagination::ProductionBodyPaginationErrorKind::PageBreakLookbackLimit {
+                        limit: 2,
+                        observed: 3
+                    }
+                );
+                assert_eq!(err.owner.get(), 2);
+                return;
+            }
+            let selected = result.unwrap();
+            assert_eq!(
+                selected
+                    .pages()
+                    .iter()
+                    .map(|p| p.fragment_count())
+                    .collect::<Vec<_>>(),
+                [2, 2]
+            );
+            assert_eq!(
+                selected
+                    .fragments()
+                    .iter()
+                    .map(|f| f.page_index())
+                    .collect::<Vec<_>>(),
+                [0, 0, 1, 1]
+            );
+            assert_eq!(
+                selected
+                    .fragments()
+                    .iter()
+                    .map(|f| f.bounds().y().raw())
+                    .collect::<Vec<_>>(),
+                [655_360, 1_572_864, 655_360, 1_572_864]
+            );
+            assert_eq!(selected.page_break_decisions()[0].selected().end_item(), 2);
+            assert_eq!(selected.page_break_decisions()[0].candidates().len(), 3);
+            assert_eq!(
+                selected.page_break_decisions()[1].reason(),
+                typaxis_pagination::ProductionBodyBreakReason::End
+            );
+            let display =
+                typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                    .unwrap();
+            let painted: String = display
+                .draws()
+                .iter()
+                .map(|d| match d {
+                    typaxis_display_list::ProductionBodyDraw::Text(t) => t.exact_text(),
+                    _ => panic!("body-only case"),
+                })
+                .collect();
+            assert_eq!(painted, "AABB");
+            let fonts =
+                typaxis_resources::finalize_production_body_fonts(&display, admitted, limits)
+                    .unwrap();
+            let text = typaxis_pdf::encode_production_body_text(&fonts, admitted, limits).unwrap();
+            text.verify(&fonts, admitted, limits).unwrap();
+            assert_eq!(
+                text.paints()
+                    .iter()
+                    .map(|p| p.page_index())
+                    .collect::<Vec<_>>(),
+                [0, 0, 1, 1]
+            );
+            let again =
+                typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            assert_eq!(selected.fingerprint(), again.fingerprint());
+        });
+    }
+}
+
+#[test]
+fn production_body_book_sized_page_requires_explicit_sufficient_lookback() {
+    let mut kinds = Vec::new();
+    for index in 0..70 {
+        if index > 0 {
+            kinds.push("hard_break");
+        }
+        kinds.push("A");
+    }
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_explicit_break_fixture(&kinds)).unwrap();
+    value["page_masters"]["masters"][0]["body"]["height"] = (33 * 917_504).into();
+    value["page_masters"]["masters"][0]["footnote"] = serde_json::Value::Null;
+    value["page_masters"]["masters"][0]["height"] = (33 * 917_504 + 2 * 655_360).into();
+    value["page_masters"]["masters"][0]["trim"]["height"] = (33 * 917_504 + 2 * 655_360).into();
+    for maximum in [32, 128] {
+        let cfg = config_with_limits(ResourceLimits {
+            max_page_break_lookback: maximum,
+            ..ResourceLimits::default()
+        });
+        with_production_body_inputs(&value, &cfg, |lines, blocks, limits| {
+            assert_eq!(lines.paragraphs()[0].lines().len(), 70);
+            let result = typaxis_pagination::paginate_production_body(lines, blocks, limits);
+            if maximum == 32 {
+                let e = match result {
+                    Err(e) => e,
+                    Ok(_) => panic!("33 candidates exceed 32"),
+                };
+                assert_eq!(
+                    e.kind,
+                    typaxis_pagination::ProductionBodyPaginationErrorKind::PageBreakLookbackLimit {
+                        limit: 32,
+                        observed: 33
+                    }
+                );
+            } else {
+                let selected = result.unwrap();
+                assert_eq!(
+                    selected
+                        .pages()
+                        .iter()
+                        .map(|p| p.fragment_count())
+                        .collect::<Vec<_>>(),
+                    [33, 33, 4]
+                );
+                assert_eq!(selected.fragments().len(), 70);
+                for (index, f) in selected.fragments().iter().enumerate() {
+                    assert_eq!(
+                        f.source(),
+                        typaxis_pagination::ProductionBodyFragmentSource::ParagraphLine {
+                            paragraph_index: 0,
+                            line_index: index as u32
+                        }
+                    );
+                }
+                assert_eq!(
+                    selected
+                        .page_break_decisions()
+                        .iter()
+                        .map(|d| d.candidates().len())
+                        .collect::<Vec<_>>(),
+                    [33, 33, 1]
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn production_body_cost_selected_break_keeps_four_real_vmb_formulas_and_semantics() {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_inline_vmb_fixture(true)).unwrap();
+    let template = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let tex = value["text_buffers"][2]["utf8"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let size = tex.len();
+    let buffer = value["text_buffers"][2].clone();
+    let mut children = Vec::new();
+    for index in 0..4 {
+        let begin = index * size;
+        let end = begin + size;
+        if index > 0 {
+            children.push(serde_json::json!({"kind":"hard_break","node_id":0,"span":{"source_id":0,"start_byte":begin,"end_byte":begin}}));
+        }
+        let mut line = template.clone();
+        line[0]["span"] = serde_json::json!({"source_id":0,"start_byte":begin,"end_byte":begin});
+        line[1]["span"] = serde_json::json!({"source_id":0,"start_byte":begin,"end_byte":end});
+        line[2]["span"] = serde_json::json!({"source_id":0,"start_byte":end,"end_byte":end});
+        line[1]["source_tex"]["text_span"]["text_id"] = (2 + index).into();
+        if index > 0 {
+            let mut b = buffer.clone();
+            b["text_id"] = (2 + index).into();
+            b["mappings"][0]["source_span"] = line[1]["span"].clone();
+            value["text_buffers"].as_array_mut().unwrap().push(b);
+        }
+        children.extend(line);
+    }
+    value["sources"][0]["utf8_byte_length"] = (4 * size).into();
+    value["sources"][0]["sha256"] = sha256(tex.repeat(4).as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
+        .into();
+    value["document"]["blocks"][0]["span"]["end_byte"] = (4 * size).into();
+    value["document"]["blocks"][0]["blocks"][0]["span"]["end_byte"] = (4 * size).into();
+    value["document"]["blocks"][0]["blocks"][0]["children"] = children.into();
+    production_body_renumber(&mut value["document"], &mut 0);
+    value["page_masters"]["masters"][0]["body"]["height"] = (3 * 958_936).into();
+    value["page_masters"]["masters"][0]["footnote"] = serde_json::Value::Null;
+    with_production_body_structure_resources(
+        &value,
+        &config(),
+        |lines, blocks, limits, admitted, semantics, profile| {
+            let selected =
+                typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            assert_eq!(
+                selected
+                    .pages()
+                    .iter()
+                    .map(|p| p.fragment_count())
+                    .collect::<Vec<_>>(),
+                [2, 2]
+            );
+            let display =
+                typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                    .unwrap();
+            let fonts =
+                typaxis_resources::finalize_production_body_fonts(&display, admitted, limits)
+                    .unwrap();
+            let content =
+                typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+            assert_eq!(content.vectors().forms().len(), 1);
+            assert_eq!(content.vectors().usages().len(), 4);
+            let structure = typaxis_display_list::build_production_body_structure(
+                &display,
+                semantics,
+                profile.authorization(),
+                profile.base().authorization(),
+                admitted,
+                limits,
+            )
+            .unwrap();
+            let formulas = structure
+                .groups()
+                .iter()
+                .filter(|g| g.vector_usage_id().is_some())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                formulas.iter().map(|g| g.page_index()).collect::<Vec<_>>(),
+                [0, 0, 1, 1]
+            );
+            for group in formulas {
+                let node = structure.registry().node(group.node()).unwrap();
+                assert_eq!(node.role(), typaxis_layout::StructureRole::Formula);
+                assert!(node.alternative().is_some());
+                assert!(node.actual_text().is_some());
+            }
+            let marked = typaxis_pdf::build_production_body_marked_content(
+                &content, &structure, admitted, limits,
+            )
+            .unwrap();
+            for page in marked.pages() {
+                let stream = std::str::from_utf8(page.content()).unwrap();
+                assert_eq!(stream.matches(" Do").count(), 2);
+                assert_eq!(stream.matches("/Formula <<").count(), 2);
+            }
+            let painted: String = display
+                .draws()
+                .iter()
+                .filter_map(|d| match d {
+                    typaxis_display_list::ProductionBodyDraw::Text(t) => Some(t.exact_text()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(painted, "A BA BA BA B");
         },
     );
 }

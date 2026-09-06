@@ -672,7 +672,7 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 共通cursorの追補（2026-09-06）: `typaxis-pagination/src/production_body.rs`の`paginate_production_body`は、source flowの段落行、block SVG、vector caption、明示改ページを同じcursorで配置する。行とblockのpackage/profile/limits/admission/binding epochを照合し、段落の実行高とblockの実content heightを消費する。paragraphのstart/end indent、start/center/end alignment、before/after spaceを使用する。semantic containerは縦余白と末尾keepを子の最初/最後の配置へ伝え、非ゼロのcontainer indentとnamed-page選択はowner付き保留とする。captionは実際の本文行を消費し、keep_caption=trueではblockからcaption末尾までの実高さを同じページに保つ。keep_with_nextは後続の実行高・余白を含めて判断し、groupが空ページにも収まらない場合はoversizeとする。明示改ページは先頭・連続・末尾を含めて1 nodeにつき必ず次ページを作る。keepと明示改ページの衝突は診断し、片方を黙って無視しない。
 
-選択fragmentはparagraph/lineまたはblock index、page index、bounds、baseline、SVG viewportを持ち、本文glyphとinline SVGには同じline originを加える。page/fragment/work recordの有限予算を行・block preparationから継続し、既定の先頭blank pageもページ予算に数える。この実装は実寸法に基づく前方配置の段階である。汎用のbounded lookback/cost比較、widow/orphan、収束loop、table/footnote/native mathの共通配置とterminal/paint authorizationは未接続で、これらを全巻対応済みと扱わない。source flowが未接続領域に遭遇した場合は部分結果を返さず、所有nodeを診断する。最終publication前に既存のpage-break policy/trace/convergence契約へ統合する。
+選択fragmentはparagraph/lineまたはblock index、page index、bounds、baseline、SVG viewportを持ち、本文glyphとinline SVGには同じline originを加える。page/fragment/work recordの有限予算を行・block preparationから継続し、既定の先頭blank pageもページ予算に数える。当初は実寸法に基づく前方配置だけだったが、§14.8の内部候補比較とwidow/orphan・heading costを接続した。汎用のpage-break trace/budget receipt、収束loop、table/footnote/native mathの共通配置とterminal/paint authorizationは未接続で、これらを全巻対応済みと扱わない。source flowが未接続領域に遭遇した場合は部分結果を返さず、所有nodeを診断する。最終publication前に既存のpage-break policy/trace/convergence契約へ統合する。
 
 ### 14.3 本文fontとPDF出力の設計
 
@@ -911,3 +911,53 @@ source flow /5、authored shape /3、body pagination /3、body display /4、body
 検証コマンド・証拠・未対応範囲は[実装台帳](28-vmb-book-production-progress.md)の
 「CFF admission and TTC diagnostics through public check/build」を参照する。
 この追補は原ノ味の受理範囲や§10の全巻合格条件を変更しない。
+
+
+### 14.8 実測された本文fragmentからの改ページ候補選択
+
+`production_breaks.rs`を共通body cursorの内部stageとして設ける。入力は既に行組みした
+paragraph line、block SVG、図版、captionとlist markerの必要高さを反映したItem列であり、
+sourceの文字数や画像数から行高を推定しない。`typaxis.production-body-pagination/4`に
+内部選択方針`typaxis.production-body-break/1`を結び、そのidentityと全候補をfingerprintへ含める。
+公開profile/contractの切替や、汎用収束stateの発行を意味する識別子ではない。
+
+選択手順は次のとおり。
+
+1. keep chainの実高さを逆方向に一度計算し、空ページを超えるchainと明示改ページを跨ぐkeepを
+   先に拒否する。SVGやcaptionの分割方法をこのstageで変更しない。
+2. 現ページの最初のItemから、EOF、明示改ページ、または実高さのoverflowまで走査する。
+   ページ先頭のbefore spaceは捨て、内部境界だけ前Itemのafterと次Itemのbeforeを加算する。
+   list marker用leading/trailingは一度だけ加える。
+3. EOF/明示改ページまで全て収まる場合は、その必須境界一つを採用する。それ以外は、
+   収まった各Itemの後ろの境界を逆順に評価する。keepの付いた境界は候補にしない。
+4. 非keep候補の評価・確保前に`max_page_break_lookback`を消費する。全候補を調べられない場合は
+   `PageBreakLookbackLimit { limit, observed }`と境界ownerを返し、途中までの最良候補を返さない。
+5. 候補はsource順に保存し、以下のcost合計が最小の境界を採用する。同額ならend Item indexが
+   小さい方とする。次のページを同じ入力列の続きから開始する。
+
+| component | 内部方針 /1 の計算 |
+| --- | --- |
+| widow_orphan | 段落内部で切る場合、現ページ側が2行未満なら1,000,000、残りが2行未満ならさらに1,000,000。ページを跨いだ段落は現在のページに載る行だけを数える。 |
+| heading_isolation | 候補直前がheadingの行なら2,000,000。heading途中の分割とheading直後の孤立の両方を避ける。 |
+| unused_space | `floor((body_height - used_height) * 1000000 / body_height)`。固定小数点のraw値とcheckedなi128中間演算を使う。 |
+| keep / table_split / footnote_split / overflow | 0。keepは候補禁止、未接続subflowは上流の保留診断、overflowは候補不成立として扱う。 |
+
+必須境界のcostはすべて0。widow/orphanとheadingの条件はsoftな選好であり、2行入らない本文高で
+文書を消失させない。将来の全stateの最適化やtable/footnoteのcostを、この局所方針で代用しない。
+
+各decisionはpage index、開始Item、全候補の終端Item/owner/used height/component cost、
+選択候補index、終了理由を保持する。Item・補助paragraph/heading情報・decision・candidate・
+配置fragmentは同じ有限record予算へ課金する。選択後のmaterializationはdecisionの範囲だけを
+配置し、ページ末尾で使用高さが選択候補と一致することを確認する。明示改ページの先頭・連続・
+末尾による空ページも従来どおりページ予算へ数える。
+
+VMBの書籍用configには`max_page_break_lookback = 128`を追加する。既定32のままでは、
+33個の候補がある普通の本文ページも拒否されるためである。128は書籍用の明示policy値であり、
+一般defaultの変更や全入力の成功保証ではない。70行/33行収容の合成入力で32の拒否と128での
+33+33+4行配置を検証する。実全巻の候補最大数・総数・最大RSSは別途測定し、必要なpolicy変更は
+package/configの新しい試験条件として記録する。失敗後の暗黙増枠・自動再試行はしない。
+
+内部decisionは汎用`PageBreakSearchBudget`や`LayoutPassCoordinator`の真正なreceiptではない。
+公開runnerへ接続する際は同じ候補順・選択結果を汎用のflow boundary/epoch/traceへ結び、
+上限超過をG6xxx診断へ伝え、生成文字列の再計算と最低2passの収束検査を行う。この接続、
+最終line reshaping、terminal/paint/manifestと実全巻の公開check/buildは依然として必須残件である。

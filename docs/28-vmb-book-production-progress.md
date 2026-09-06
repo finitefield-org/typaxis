@@ -23,7 +23,8 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering and source projection builder implemented in VMB; RenderBook traversal, semantic speech and final package/sidecar encoding remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Syntax flow, admitted authored-text shaping and LTR body/SVG inline candidate bridge implemented; actual-engine negative-origin, mixed body/formula candidates, zero-width explicit breaks and shared line-local glyph/SVG projection and forward paragraph/block-SVG/caption pagination verified; selected page-space display, shared body font CIDs and PDF text contributions now verified below; generated labels, remaining subflows/general page policy and shared SVG Form/page content and batch package verification now verified below; public PDF/structure connection still pending |
+| Shared body/math flow and selected text placement | Authored shaping and LTR body/SVG line placement, measured paragraph/block/caption/raster/list placement, shared body fonts, Forms and selected PDF contributions verified below. Page-end candidate costs are now connected to the internal body cursor; final reshaping/bidi, generated references, remaining subflows and public convergence/terminal/paint/manifest connection remain pending. |
+| Measured body page-break candidates | Internal policy /1 enumerates all feasible non-keep boundaries, applies widow/orphan/heading/unused-space costs, retains candidates in pagination /4 fingerprints and rejects max+1 before evaluation. Generic trace/budget receipts and public runner integration remain pending. |
 | Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
 | Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly and selected internal/URI links, destinations and outlines connected; public terminal/manifest closure pending |
 | Selected production lists | Syntax-generated markers, admitted-font shaping, real nested item frames, one label on the first actual fragment, marker height, Lbl/LBody and diagnostic PDF now connected; 11 focused tests and 4 independent probes pass below. Numbered math, final generated-store convergence, public/full-book integration remain pending. |
@@ -2030,3 +2031,80 @@ Remaining font work includes selected-glyph/evaluator/subset context, detailed
 TrueType metadata failures, and the entire CFF/2 CID/FD/cmap14/IVS and publication
 scope in design §7/§9.1. The formal VMB exporter and real full-book gates remain
 open; this negative admission result cannot stand in for them.
+
+## 2026-09-06: bounded measured body page-end choices
+
+The common body cursor now chooses page ends using the measured Item stream in
+`typaxis-pagination/src/production_breaks.rs`. This replaces its greedy automatic
+cut only; explicit page breaks, hard keep chains, real line/vector/raster/caption
+heights and list marker extents remain binding. See design §14.8 for the exact
+internal `typaxis.production-body-break/1` costs. The selected layout identity is
+now `typaxis.production-body-pagination/4`; its fingerprint includes the policy,
+all candidates, component costs, selected index and termination reason. Private
+immutable decisions are exposed read-only for subsequent trace integration.
+
+An overflowing page enumerates every fitting non-keep boundary. It rejects the
+candidate at limit+1 before evaluating or allocating it instead of returning a
+truncated best effort. EOF and forced breaks that already fit have only their
+mandatory candidate. Widow/orphan costs count actual lines on the current page,
+including continuation paragraphs; heading isolation and unused height use the
+same real placement geometry. Materialization verifies its page ranges and used
+heights against the chosen candidates. Decision/candidate/paragraph/heading
+records share the existing cumulative record budget. The existing exact budget
+case consequently changes from 33 to 40 (2 paragraph-length, 2 decision and 3
+candidate records); 39 fails at the final owning paragraph as expected.
+
+New verification includes:
+
+- Seven kernel tests: first/last single-line avoidance, continuation counts,
+  heading boundaries, hard keep exclusion, spaces and marker extents, exact
+  candidate limit and no allocation at limit+1, mandatory blank pages, equal-cost
+  deterministic tie choice, and fingerprint coverage of unselected candidates.
+- Actual shaped four-line body: a fullest 3+1 split becomes 2+2, source text stays
+  `AABB`, PDF text paints use pages 0,0,1,1 and limit 2 rejects the third candidate.
+- A 70-line input with a valid 33-line page: default 32 rejects observed 33;
+  explicit 128 retains all 70 source lines in 33+33+4 pages. An initial test used
+  a body taller than its fixture media/trim and correctly failed BaseProfile;
+  the test now explicitly defines the larger page and matching trim.
+- Four actual-engine VMB fraction placements surrounded by text: 2+2 pages,
+  one shared SVG Form, four usages, two Formula marked-content groups per page,
+  nonempty per-occurrence Alt/ActualText and unchanged `A B` surrounding text.
+  The first repeated fixture incorrectly reused source spans and failed
+  InvalidSourceSpan; it now stores four original TeX spans and corresponding
+  mapped buffers. No source validation was weakened. This is selected page
+  content/structure evidence, not an independent raster comparison or public
+  whole-book publication gate.
+
+Commands ran locally with
+`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build` and `--locked`:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination --lib --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis --locked \
+  production_body_ -- --skip more_than_65535 --skip places_5000
+```
+
+Results: 92 pagination tests passed
+(`/private/tmp/typaxis-body-break-pagination.log`); the full CLI run passed 233
+with 3 ignored in 227.44 seconds
+(`/private/tmp/typaxis-body-break-cli-full.log`), including the 65,536-glyph and
+5,000-real-SVG-alias regressions. After a checked conversion of the decision
+start index and the additional kernel tie test, the final focused CLI run passed
+35 tests (`/private/tmp/typaxis-body-break-cli-final-focused.log`), and the final
+pagination run above includes all seven new kernel tests. No public full-book
+runner or optional independent PDF probe was invoked by this change.
+
+The VMB design §8 now explicitly includes `max_page_break_lookback = 128`; §15.21
+records ownership and no implicit retry/increase. This is a book export policy
+proposal tested with the 70-line case, not an increase to the general default or
+a proof that 128 suffices for every real full-book page. Formal VMB config and
+RenderBook process integration, actual per-page candidate distributions and RSS
+measurements remain pending.
+
+The internal choices do not mint generic `PageBreakSearchBudget`, FlowPosition,
+LayoutPassCoordinator state or terminal/paint authorization receipts. Connecting
+those genuine owners, generated reference feedback and final line reshaping,
+tables/footnotes and public runner/manifest publication remains required. There
+is still no successful full-book PDF, 5,000 distinct mixed-resource gate,
+8,192 positive boundary, or unchanged Harano CID-CFF/IVS acceptance evidence.

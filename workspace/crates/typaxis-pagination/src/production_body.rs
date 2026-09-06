@@ -11,8 +11,14 @@ use typaxis_syntax::{
 #[path = "production_list.rs"]
 mod list;
 pub use list::ProductionBodyListMarker;
+#[path = "production_breaks.rs"]
+mod page_breaks;
+pub use page_breaks::{
+    ProductionBodyBreakCandidate, ProductionBodyBreakDecision, ProductionBodyBreakReason,
+    PRODUCTION_BODY_BREAK_POLICY,
+};
 
-pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/3";
+pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyPaginationErrorKind {
@@ -27,6 +33,10 @@ pub enum ProductionBodyPaginationErrorKind {
     KeepAcrossForcedBreak,
     Oversize,
     PageLimit,
+    PageBreakLookbackLimit {
+        limit: u16,
+        observed: u32,
+    },
     FragmentLimit,
     AllocationFailure,
     ArithmeticOverflow,
@@ -138,10 +148,14 @@ pub struct ProductionBodySelectedLayout<'s, 'p, 'a> {
     fragments: Vec<ProductionBodyFragment>,
     breaks: Vec<ProductionBodyPageBreak>,
     list_markers: Vec<ProductionBodyListMarker>,
+    decisions: Vec<ProductionBodyBreakDecision>,
     record_charge: u64,
     fingerprint: [u8; 32],
 }
 impl<'s, 'p, 'a> ProductionBodySelectedLayout<'s, 'p, 'a> {
+    pub fn page_break_decisions(&self) -> &[ProductionBodyBreakDecision] {
+        &self.decisions
+    }
     pub fn list_markers(&self) -> &[ProductionBodyListMarker] {
         &self.list_markers
     }
@@ -274,7 +288,7 @@ pub fn paginate_production_body<'s, 'p, 'a>(
     let (mut items, mut marker_bindings) = collect_items(lines, blocks, &mut charge)?;
     list::prepare_metrics(lines, blocks, &mut items, &mut marker_bindings)?;
     // Suffix keep extents are measured from real selected lines/caption lines.
-    // They make forward selection linear, without rescanning a long keep chain.
+    // Validate hard keep chains before examining soft page-end candidates.
     charge.take(items.len(), root)?;
     let mut group_heights = Vec::new();
     group_heights
@@ -302,6 +316,13 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         }
         group_heights[index] = height;
     }
+    for (item, height) in items.iter().zip(&group_heights) {
+        if *height > body.height().get() {
+            return Err(error(item.owner, E::Oversize));
+        }
+    }
+    let decisions = page_breaks::plan(&items, lines, body, limits, &mut charge)?;
+    let mut decision_cursor = 0;
     let mut pages = Vec::new();
     let mut fragments = Vec::new();
     let mut breaks = Vec::new();
@@ -323,24 +344,24 @@ pub fn paginate_production_body<'s, 'p, 'a>(
             after = Length::ZERO;
             continue;
         };
-        let extent = group_heights[index];
-        if extent > body.height().get() {
-            return Err(error(item.owner, E::Oversize));
+        let decision = decisions
+            .get(decision_cursor)
+            .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
+        if decision.start_item() as usize == index && decision.page_index() as usize == pages.len() {
+            new_page(&mut pages, fragments.len(), limits, &mut charge, item.owner)?;
+            after = Length::ZERO;
         }
-        let mut before = if pages.last().unwrap().fragment_count == 0 {
+        if decision.page_index() as usize != pages.len() - 1
+            || index < decision.start_item() as usize
+            || index >= decision.selected().end_item() as usize
+        {
+            return Err(error(item.owner, E::ReceiptMismatch));
+        }
+        let before = if pages.last().unwrap().fragment_count == 0 {
             Length::ZERO
         } else {
             add(after, item.before, item.owner)?
         };
-        if add(
-            add(pages.last().unwrap().used_height, before, item.owner)?,
-            extent,
-            item.owner,
-        )? > body.height().get()
-        {
-            new_page(&mut pages, fragments.len(), limits, &mut charge, item.owner)?;
-            before = Length::ZERO;
-        }
         let page_index = (pages.len() - 1) as u32;
         let page = pages.last_mut().unwrap();
         let top = add(
@@ -429,9 +450,18 @@ pub fn paginate_production_body<'s, 'p, 'a>(
             item.consumed()?,
             item.owner,
         )?;
+        if page.used_height > body.height().get() {
+            return Err(error(item.owner, E::ReceiptMismatch));
+        }
+        if index + 1 == decision.selected().end_item() as usize {
+            if page.used_height != decision.selected().used_height() {
+                return Err(error(item.owner, E::ReceiptMismatch));
+            }
+            decision_cursor += 1;
+        }
         after = item.after;
     }
-    if marker_cursor != marker_bindings.len() {
+    if marker_cursor != marker_bindings.len() || decision_cursor != decisions.len() {
         return Err(error(root, E::ReceiptMismatch));
     }
     let mut result = ProductionBodySelectedLayout {
@@ -442,6 +472,7 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         fragments,
         breaks,
         list_markers,
+        decisions,
         record_charge: limits.base().get().max_fragments - charge.remaining,
         fingerprint: [0; 32],
     };
@@ -823,10 +854,18 @@ fn fingerprint(
     layout: &ProductionBodySelectedLayout<'_, '_, '_>,
 ) -> Result<[u8; 32], ProductionBodyPaginationError> {
     // Fixed-size records avoid one unbounded decimal/JSON rendering per glyph.
+    let decision_records = layout
+        .decisions
+        .iter()
+        .try_fold(0usize, |sum, d| {
+            sum.checked_add(1)?.checked_add(d.candidates().len())
+        })
+        .ok_or_else(|| error(NodeId::new(0), E::ArithmeticOverflow))?;
     let records = layout
         .pages
         .len()
-        .checked_add(layout.fragments.len())
+        .checked_add(decision_records)
+        .and_then(|n| n.checked_add(layout.fragments.len()))
         .and_then(|n| n.checked_add(layout.breaks.len()))
         .and_then(|n| n.checked_add(layout.list_markers.len()))
         .ok_or_else(|| error(NodeId::new(0), E::ArithmeticOverflow))?;
@@ -835,11 +874,12 @@ fn fingerprint(
         .try_reserve_exact(
             records
                 .checked_mul(128)
-                .and_then(|n| n.checked_add(128))
+                .and_then(|n| n.checked_add(160))
                 .ok_or_else(|| error(NodeId::new(0), E::ArithmeticOverflow))?,
         )
         .map_err(|_| error(NodeId::new(0), E::AllocationFailure))?;
     bytes.extend_from_slice(&sha256(PRODUCTION_BODY_PAGINATION_ALGORITHM.as_bytes()));
+    bytes.extend_from_slice(&sha256(PRODUCTION_BODY_BREAK_POLICY.as_bytes()));
     bytes.extend_from_slice(&layout.lines.fingerprint());
     bytes.extend_from_slice(&layout.blocks.receipt().fingerprint());
     bytes.extend_from_slice(&layout.limits_fingerprint);
@@ -903,6 +943,9 @@ fn fingerprint(
     }
     for marker in &layout.list_markers {
         list::encode_marker(marker, &mut bytes);
+    }
+    for decision in &layout.decisions {
+        page_breaks::encode(decision, &mut bytes);
     }
     Ok(sha256(&bytes))
 }
