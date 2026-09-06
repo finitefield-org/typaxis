@@ -670,7 +670,7 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 共通cursorの追補（2026-09-06）: `typaxis-pagination/src/production_body.rs`の`paginate_production_body`は、source flowの段落行、block SVG、vector caption、明示改ページを同じcursorで配置する。行とblockのpackage/profile/limits/admission/binding epochを照合し、段落の実行高とblockの実content heightを消費する。paragraphのstart/end indent、start/center/end alignment、before/after spaceを使用する。semantic containerは縦余白と末尾keepを子の最初/最後の配置へ伝え、非ゼロのcontainer indentとnamed-page選択はowner付き保留とする。captionは実際の本文行を消費し、keep_caption=trueではblockからcaption末尾までの実高さを同じページに保つ。keep_with_nextは後続の実行高・余白を含めて判断し、groupが空ページにも収まらない場合はoversizeとする。明示改ページは先頭・連続・末尾を含めて1 nodeにつき必ず次ページを作る。keepと明示改ページの衝突は診断し、片方を黙って無視しない。
 
-選択fragmentはparagraph/lineまたはblock index、page index、bounds、baseline、SVG viewportを持ち、本文glyphとinline SVGには同じline originを加える。page/fragment/work recordの有限予算を行・block preparationから継続し、既定の先頭blank pageもページ予算に数える。この実装は実寸法に基づく前方配置の段階である。汎用のbounded lookback/cost比較、widow/orphan、収束loop、list marker・table/footnote/native mathの共通配置とterminal/paint authorizationは未接続で、これらを全巻対応済みと扱わない。source flowが未接続領域に遭遇した場合は部分結果を返さず、所有nodeを診断する。最終publication前に既存のpage-break policy/trace/convergence契約へ統合する。
+選択fragmentはparagraph/lineまたはblock index、page index、bounds、baseline、SVG viewportを持ち、本文glyphとinline SVGには同じline originを加える。page/fragment/work recordの有限予算を行・block preparationから継続し、既定の先頭blank pageもページ予算に数える。この実装は実寸法に基づく前方配置の段階である。汎用のbounded lookback/cost比較、widow/orphan、収束loop、table/footnote/native mathの共通配置とterminal/paint authorizationは未接続で、これらを全巻対応済みと扱わない。source flowが未接続領域に遭遇した場合は部分結果を返さず、所有nodeを診断する。最終publication前に既存のpage-break policy/trace/convergence契約へ統合する。
 
 ### 14.3 本文fontとPDF出力の設計
 
@@ -812,3 +812,88 @@ Formula用のActualText補助glyphを通常図版へ付けず、図版のAltを�
 最終オブジェクトにはImage/必要なSMaskを割り当て、各ページのResourcesは実使用した
 画像のみを参照する。この接続は検査用PDF経路であり、公開writer、terminal/paint/manifest、
 正式VMB exporterと実全巻ゲートは引き続き未完了である。検証記録は実装台帳を参照する。
+
+### 14.7 リスト内の本文・数式と生成ラベルの接続設計
+
+設計追補（2026-09-06）。保全した元全巻には16個のlist、58個のitemがあり、最初の
+list ownerは2908である。item内の本文と数式も全巻の必須対象に含める。本節は完成時の
+接続仕様であり、検査用の共通配置・PDF経路への接続状況は末尾追補と実装台帳に記録する。
+公開writerと全巻ゲートの達成とは区別する。
+
+**sourceと文字生成。** `ProductionTextFlow`にlistのowner、ordered/start、解決済みstyle、
+page_name、itemのowner、親list、item ordinal、source span、languageを保持する。
+markerは既存のlist規則に従い、orderedはcheckedな`start + ordinal`とピリオド、
+unorderedはU+2022とする。末尾空白をmarker本文へ追加しない。markerはitemをownerとする
+`GeneratedBufferKey(ListMarker, ordinal=0)`に結び、authored paragraphや元source bytesへ
+挿入しない。生成文字列の確保前に桁数・UTF-8 bytesを計算し、既存parsed textと合算した
+text予算、per-buffer予算、record予算を検査する。番号overflowはitem owner付きで拒否する。
+段階的なgenerated overlayは完全なgenerated storeの代用とせず、最終convergenceで
+他の生成文字列と統合し、source由来のkey/textと最終reference fingerprintを再検証する。
+
+**実フォントと幅。** `typaxis-shaping`は解決済みlist font family/size、実admitted face、
+effective languageを使ってmarkerをshapeする。本文と同じglyph coverage・cluster・
+missing glyph検査を行い、実glyph advanceの合計を幅とする。U+2022がないfontを空白や
+別記号で代替しない。生成spanを保持したrun、選択face/hash、metrics、glyph/cluster列を
+fingerprintへ含め、本文と共通の有限record予算から課金する。
+
+`typaxis-layout`はlistごとに全itemのmarker実幅の最大値を一度計算し、右揃えのmarker列を
+作る。markerとitem本文の間隔は既存規則のlist font size 1 emであり、PDF用の空白文字では
+ない。親の利用可能幅からlistのstart/end indent、marker列幅、間隔を引いてitem frameを
+決める。nested listは親item frameを基準とする。9から10へ桁が増えても同じlistの本文左端は
+一致する。各段落はitem frameから自身のindentを引いた幅で改行を選び、配置時も同じframeを
+使う。markerだけで幅を使い切る場合はlist owner付き`ListFrameExhausted`相当で拒否する。
+
+**ページ選択。** `typaxis-pagination`はlist/itemをsource順の共通flowに接続する。
+各itemのmarkerを、最初の実描画fragmentとその選択pageへ一度だけ結び付ける。
+本文行で始まるitemではその行のbaseline、block数式ではその実baselineに揃える。
+baselineを持たない図版で始まる場合は、最初の描画領域上端とmarker ascenderからbaselineを
+決める。markerのascender/descentが最初のfragmentより大きければ必要な上下量をページ消費高へ
+含め、本文・SVGの元の高さやline-local座標は変更しない。nested labelが同じfragmentへ付く
+場合は必要量の最大を使い、各labelの横位置とsource順は独立に保持する。
+
+itemが次ページへ継続してもmarkerを再描画しない。先頭に明示page breakがある場合はそれを
+処理した後の最初の実fragmentへ結ぶ。描画fragmentを持たないitemはowner付きで拒否し、
+marker用のdummy段落を作らない。listのbefore/after/keepは最初・最後の実fragmentへ適用し、
+markerを含む先頭行がページより高い場合もoversizeを返す。汎用lookback/widow/収束規則への
+接続は§14.2と同じ公開前ゲートであり、前方配置だけで代用しない。
+
+item内の通常図版はitem幅でwidthを検査する。block数式・式番号・captionも同じitem frameを
+渡して再準備し、body全幅で計算した結果を横移動するだけの接続にしない。captionの段落幅は
+解決済みitem frameと自身のstyleに従う。未接続table/footnote等は引き続きそのownerで診断する。
+
+**displayとPDF構造。** `typaxis-display-list`は選択したmarkerのfont・cluster・位置を
+通常の本文と共通のfont/CID/subset経路へ渡す。ただし生成source keyはauthored spanと区別し、
+display buffer IDを割り当てる場合も両namespaceの衝突と整数overflowを検査する。
+既存の`L → LI → (Lbl, LBody)`のLblへmarkerを結び、item本文と数式はLBodyへ残す。
+LblのActualTextはcanonical markerそのものとし、1 itemにつき1回のpaintを要求する。
+続きページやSVG共有によってLbl、Formula、MCIDを複製しない。marker位置・生成key・font・
+選択fragmentをreceiptと最終manifestへ含め、別itemへの差し替えを拒否する。
+
+追加の必須試験はordered 9→10、unordered、nested list、複数行item、ページ継続、先頭の
+inline/block分数、図版とcaption、本文より大きいmarker font、番号overflow、glyph不足、
+幅・高さ・text/record予算の境界とする。視覚試験ではmarkerと本文glyphに非空輪郭のある
+固定fontを使う。独立PDF検査でmarkerの回数・位置、抽出順、Lbl/LBody/FormulaとParentTreeを
+確認し、marker欠落・重複・別item参照・誤baselineを改ざん負例にする。元全巻の16 list/
+58 itemと各item内の本文・数式のinventory一致も全巻ゲートへ加える。
+
+VMB側の責務は[VMB設計§14.7](../../../v/vmb-container/docs/typaxis-book-export-design.md)に
+記載する。VMBはlist構造と元の内容を渡し、番号の可視文字・PDF座標・Lblを先に生成しない。
+
+
+実装追補（2026-09-06）: sourceが生成したmarkerをadmitted fontでshapeし、
+`layout_production_body_inline_lines`で実marker列幅とnested item frameを計算する経路を追加した。
+共通paginationは最初の描画fragmentへmarkerを一度だけ配置し、先頭の空のhard-break行や
+明示page breakはラベルの描画先にしない。大きなラベルの上下量を消費高へ含め、同じ先頭行に
+付くnested labelは必要量の最大を一度だけ課金する。block数式の利用可能幅とstart/center/end
+整列は実item frameで再計算する。式番号付きblockの再準備は未接続であり、拒否を維持する。
+
+選択済みmarkerのgenerated key、実glyph/clusterと位置をdisplay→共有font/CID→PDFへ接続し、
+既存のLblへ結ぶ。Lblの置換文字列はそのMCID内のSpanに一度だけActualTextとして出し、
+StructElemへ重複して付けない。LBodyには元の本文・数式・図版・captionが残る。
+source flow /5、authored shape /3、body pagination /3、body display /4、body structure /3へ
+内部identityを更新した。公開contract/profile/capabilityの変更は含めない。
+
+基礎の11試験、4種の独立PDF検査、36件の改ざん拒否を実装台帳へ記録した。これらは
+検査用の選択済み経路の証拠であり、元全巻58 itemの公開build、式番号、generated storeの
+最終収束、汎用pagination、terminal/paint/manifest、正式VMB exporterと原ノ味の各ゲートは
+引き続き未完了である。

@@ -8,13 +8,19 @@ use typaxis_syntax::{
     ProductionFlowEvent as Event, ProductionFlowRegionKind as Region, StagingM4PageGeometry,
 };
 
-pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/2";
+#[path = "production_list.rs"]
+mod list;
+pub use list::ProductionBodyListMarker;
+
+pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/3";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyPaginationErrorKind {
     ReceiptMismatch,
     PendingRegion(&'static str),
     PendingNamedPage,
+    PendingEquationNumber,
+    EmptyListItem,
     PendingContainerIndent,
     EmptyParagraph,
     WidthMismatch,
@@ -131,10 +137,14 @@ pub struct ProductionBodySelectedLayout<'s, 'p, 'a> {
     pages: Vec<ProductionBodyPage>,
     fragments: Vec<ProductionBodyFragment>,
     breaks: Vec<ProductionBodyPageBreak>,
+    list_markers: Vec<ProductionBodyListMarker>,
     record_charge: u64,
     fingerprint: [u8; 32],
 }
 impl<'s, 'p, 'a> ProductionBodySelectedLayout<'s, 'p, 'a> {
+    pub fn list_markers(&self) -> &[ProductionBodyListMarker] {
+        &self.list_markers
+    }
     pub fn pages(&self) -> &[ProductionBodyPage] {
         &self.pages
     }
@@ -184,6 +194,18 @@ struct Item {
     before: Length,
     after: Length,
     keep: bool,
+    leading: Length,
+    trailing: Length,
+    viewport_left: Option<Length>,
+}
+impl Item {
+    fn consumed(&self) -> Result<Length, ProductionBodyPaginationError> {
+        add(
+            add(self.leading, self.height, self.owner)?,
+            self.trailing,
+            self.owner,
+        )
+    }
 }
 struct Frame {
     owner: NodeId,
@@ -191,6 +213,7 @@ struct Frame {
     container: Option<ComputedMachineBlockStyle>,
     vector: Option<usize>,
     raster: Option<usize>,
+    marker: Option<usize>,
 }
 struct Charge {
     remaining: u64,
@@ -245,7 +268,11 @@ pub fn paginate_production_body<'s, 'p, 'a>(
             .ok_or_else(|| error(root, E::FragmentLimit))?,
     };
     let body = blocks.page_geometry().body();
-    let items = collect_items(lines, blocks, &mut charge)?;
+    if lines.frames().is_some_and(|f| f.body() != body) {
+        return Err(error(root, E::ReceiptMismatch));
+    }
+    let (mut items, mut marker_bindings) = collect_items(lines, blocks, &mut charge)?;
+    list::prepare_metrics(lines, blocks, &mut items, &mut marker_bindings)?;
     // Suffix keep extents are measured from real selected lines/caption lines.
     // They make forward selection linear, without rescanning a long keep chain.
     charge.take(items.len(), root)?;
@@ -256,7 +283,7 @@ pub fn paginate_production_body<'s, 'p, 'a>(
     group_heights.resize(items.len(), Length::ZERO);
     for index in (0..items.len()).rev() {
         let item = &items[index];
-        let mut height = item.height;
+        let mut height = item.consumed()?;
         if item.keep {
             if let Some(next) = items.get(index + 1) {
                 if next.source.is_none() {
@@ -278,6 +305,8 @@ pub fn paginate_production_body<'s, 'p, 'a>(
     let mut pages = Vec::new();
     let mut fragments = Vec::new();
     let mut breaks = Vec::new();
+    let mut list_markers = Vec::new();
+    let mut marker_cursor = 0;
     new_page(&mut pages, 0, limits, &mut charge, root)?;
     let mut after = Length::ZERO;
     for (index, item) in items.iter().enumerate() {
@@ -315,8 +344,12 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         let page_index = (pages.len() - 1) as u32;
         let page = pages.last_mut().unwrap();
         let top = add(
-            body.y(),
-            add(page.used_height, before, item.owner)?,
+            add(
+                body.y(),
+                add(page.used_height, before, item.owner)?,
+                item.owner,
+            )?,
+            item.leading,
             item.owner,
         )?;
         let height = PositiveLength::new(item.height)
@@ -343,7 +376,8 @@ pub fn paginate_production_body<'s, 'p, 'a>(
                 (
                     baseline,
                     Some(Rect::new(
-                        block.viewport_left(),
+                        item.viewport_left
+                            .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?,
                         y,
                         block.viewport_width(),
                         block.viewport_height(),
@@ -362,6 +396,24 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         fragments
             .try_reserve(1)
             .map_err(|_| error(item.owner, E::AllocationFailure))?;
+        while let Some(binding) = marker_bindings.get(marker_cursor) {
+            if binding.item_index != Some(index) {
+                break;
+            }
+            charge.take(1, item.owner)?;
+            list_markers
+                .try_reserve(1)
+                .map_err(|_| error(item.owner, E::AllocationFailure))?;
+            list_markers.push(list::place_marker(
+                lines,
+                binding,
+                fragments.len() as u32,
+                page_index,
+                top,
+                body,
+            )?);
+            marker_cursor += 1;
+        }
         fragments.push(ProductionBodyFragment {
             owner: item.owner,
             page_index,
@@ -374,10 +426,13 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         page.fragment_count = next_fragment_count;
         page.used_height = add(
             add(page.used_height, before, item.owner)?,
-            item.height,
+            item.consumed()?,
             item.owner,
         )?;
         after = item.after;
+    }
+    if marker_cursor != marker_bindings.len() {
+        return Err(error(root, E::ReceiptMismatch));
     }
     let mut result = ProductionBodySelectedLayout {
         lines,
@@ -386,6 +441,7 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         pages,
         fragments,
         breaks,
+        list_markers,
         record_charge: limits.base().get().max_fragments - charge.remaining,
         fingerprint: [0; 32],
     };
@@ -420,7 +476,7 @@ fn collect_items(
     lines: &ProductionInlineLineLayout<'_, '_>,
     blocks: &StagingPrecomposedVectorBlockLayout,
     charge: &mut Charge,
-) -> Result<Vec<Item>, ProductionBodyPaginationError> {
+) -> Result<(Vec<Item>, Vec<list::MarkerBinding>), ProductionBodyPaginationError> {
     let flow = lines.source_flow();
     let body = blocks.page_geometry().body();
     let mut items: Vec<Item> = Vec::new();
@@ -428,6 +484,8 @@ fn collect_items(
     let mut paragraph_cursor = 0;
     let mut block_cursor = 0;
     let mut figure_cursor = 0;
+    let mut list_cursor = 0;
+    let mut marker_bindings = Vec::new();
     let push = |items: &mut Vec<Item>,
                 charge: &mut Charge,
                 item: Item|
@@ -448,9 +506,49 @@ fn collect_items(
                     container: None,
                     vector: None,
                     raster: None,
+                    marker: None,
                 };
                 match kind {
                     Region::Paragraph | Region::Heading => (),
+                    Region::List => {
+                        let frames = lines
+                            .frames()
+                            .ok_or_else(|| error(owner, E::PendingRegion("list")))?;
+                        let source = flow
+                            .lists()
+                            .get(list_cursor)
+                            .filter(|l| l.owner() == owner)
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        if frames.lists().get(list_cursor).map(|l| l.owner()) != Some(owner) {
+                            return Err(error(owner, E::ReceiptMismatch));
+                        }
+                        if source.page_name().is_some() {
+                            return Err(error(owner, E::PendingNamedPage));
+                        }
+                        frame.container = Some(source.style().block_style());
+                        list_cursor += 1;
+                    }
+                    Region::ListItem => {
+                        let index = marker_bindings.len();
+                        let source = flow
+                            .list_items()
+                            .get(index)
+                            .filter(|i| i.owner() == owner)
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        charge.take(1, owner)?;
+                        marker_bindings
+                            .try_reserve(1)
+                            .map_err(|_| error(owner, E::AllocationFailure))?;
+                        marker_bindings.push(list::MarkerBinding {
+                            marker_index: index as u32,
+                            item_index: None,
+                            baseline: Length::ZERO,
+                        });
+                        frame.marker = Some(index);
+                        if flow.lists().get(source.list_index() as usize).is_none() {
+                            return Err(error(owner, E::ReceiptMismatch));
+                        }
+                    }
                     Region::Figure => {
                         let figure = lines
                             .figures()
@@ -461,8 +559,8 @@ fn collect_items(
                             return Err(error(owner, E::PendingNamedPage));
                         }
                         let style = figure.source().style().block_style();
-                        let available = body
-                            .width()
+                        let (region_left, region_width) = list::region_frame(lines, body, owner)?;
+                        let available = region_width
                             .get()
                             .checked_sub(style.start_indent().get())
                             .and_then(|w| w.checked_sub(style.end_indent().get()))
@@ -476,11 +574,14 @@ fn collect_items(
                             &mut items,
                             charge,
                             Item {
+                                leading: Length::ZERO,
+                                trailing: Length::ZERO,
+                                viewport_left: None,
                                 owner,
                                 source: Some(ProductionBodyFragmentSource::RasterFigure {
                                     figure_index: figure.source_index(),
                                 }),
-                                x: add(body.x(), style.start_indent().get(), owner)?,
+                                x: add(region_left, style.start_indent().get(), owner)?,
                                 width: figure.width(),
                                 height: figure.height().get(),
                                 before: style.space_before().get(),
@@ -513,17 +614,22 @@ fn collect_items(
                         if block.page_name().is_some() {
                             return Err(error(owner, E::PendingNamedPage));
                         }
+                        let (block_left, block_width, viewport_left) =
+                            list::block_frame(lines, body, block)?;
                         frame.vector = Some(block_cursor);
                         push(
                             &mut items,
                             charge,
                             Item {
+                                leading: Length::ZERO,
+                                trailing: Length::ZERO,
+                                viewport_left: Some(viewport_left),
                                 owner,
                                 source: Some(ProductionBodyFragmentSource::VectorBlock {
                                     block_index: block_cursor as u32,
                                 }),
-                                x: block.inner_frame_left(),
-                                width: block.inner_frame_width(),
+                                x: block_left,
+                                width: block_width,
                                 height: block.content_height().get(),
                                 before: block.space_before().get(),
                                 after: Length::ZERO,
@@ -536,6 +642,9 @@ fn collect_items(
                         &mut items,
                         charge,
                         Item {
+                            leading: Length::ZERO,
+                            trailing: Length::ZERO,
+                            viewport_left: None,
                             owner,
                             source: None,
                             x: body.x(),
@@ -572,8 +681,8 @@ fn collect_items(
                     return Err(error(owner, E::PendingNamedPage));
                 }
                 let style = p.style().block_style();
-                let width = body
-                    .width()
+                let (region_left, region_width) = list::region_frame(lines, body, owner)?;
+                let width = region_width
                     .get()
                     .checked_sub(style.start_indent().get())
                     .and_then(|w| w.checked_sub(style.end_indent().get()))
@@ -602,7 +711,7 @@ fn collect_items(
                             .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
                     };
                     let x = add(
-                        add(body.x(), style.start_indent().get(), owner)?,
+                        add(region_left, style.start_indent().get(), owner)?,
                         offset,
                         owner,
                     )?;
@@ -615,6 +724,9 @@ fn collect_items(
                         &mut items,
                         charge,
                         Item {
+                            leading: Length::ZERO,
+                            trailing: Length::ZERO,
+                            viewport_left: None,
                             owner,
                             source: Some(ProductionBodyFragmentSource::ParagraphLine {
                                 paragraph_index: index,
@@ -644,6 +756,13 @@ fn collect_items(
                     .pop()
                     .filter(|f| f.owner == owner)
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                if let Some(index) = frame.marker {
+                    marker_bindings[index].item_index = Some(
+                        (frame.start..items.len())
+                            .find(|i| list::has_paint(&items[*i], lines))
+                            .ok_or_else(|| error(owner, E::EmptyListItem))?,
+                    );
+                }
                 if let Some(style) = frame.container {
                     let first = (frame.start..items.len())
                         .find(|i| items[*i].source.is_some())
@@ -692,10 +811,12 @@ fn collect_items(
         || paragraph_cursor != lines.paragraphs().len()
         || block_cursor != blocks.blocks().len()
         || figure_cursor != lines.figures().len()
+        || list_cursor != flow.lists().len()
+        || marker_bindings.len() != flow.list_items().len()
     {
         return Err(error(NodeId::new(0), E::ReceiptMismatch));
     }
-    Ok(items)
+    Ok((items, marker_bindings))
 }
 
 fn fingerprint(
@@ -707,6 +828,7 @@ fn fingerprint(
         .len()
         .checked_add(layout.fragments.len())
         .and_then(|n| n.checked_add(layout.breaks.len()))
+        .and_then(|n| n.checked_add(layout.list_markers.len()))
         .ok_or_else(|| error(NodeId::new(0), E::ArithmeticOverflow))?;
     let mut bytes = Vec::new();
     bytes
@@ -778,6 +900,9 @@ fn fingerprint(
         bytes.push(2);
         bytes.extend_from_slice(&b.owner.get().to_be_bytes());
         bytes.extend_from_slice(&b.produced_page_index.to_be_bytes());
+    }
+    for marker in &layout.list_markers {
+        list::encode_marker(marker, &mut bytes);
     }
     Ok(sha256(&bytes))
 }

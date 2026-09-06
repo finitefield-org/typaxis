@@ -15,7 +15,10 @@ use typaxis_pagination::{ProductionBodyFragmentSource, ProductionBodySelectedLay
 use typaxis_resource_admission::{AdmittedResourceLedger, VectorContentKey};
 use typaxis_syntax::PrecomposedVectorKind;
 
-pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/3";
+#[path = "production_list.rs"]
+mod list;
+
+pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/4";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyDisplayErrorKind {
     ReceiptMismatch,
@@ -73,10 +76,14 @@ pub struct ProductionBodyTextDraw<'d> {
     font_size: PositiveLength,
     text_span: DisplayTextSpan,
     exact_text: &'d str,
+    generated_provenance: Option<typaxis_text::GeneratedProvenance>,
     logical_bounds: Option<Rect>,
     glyphs: Vec<ProductionBodyGlyph>,
 }
 impl<'d> ProductionBodyTextDraw<'d> {
+    pub const fn generated_provenance(&self) -> Option<typaxis_text::GeneratedProvenance> {
+        self.generated_provenance
+    }
     pub const fn owner(&self) -> NodeId {
         self.owner
     }
@@ -310,9 +317,17 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
         .ok_or_else(|| error(root, E::RecordLimit))?;
     let mut draws = Vec::new();
     let mut inline_anchors = Vec::new();
+    let mut marker_cursor = 0;
     for (fragment_index, fragment) in selected.fragments().iter().enumerate() {
         let index =
             u32::try_from(fragment_index).map_err(|_| error(fragment.owner(), E::RecordLimit))?;
+        while let Some(marker) = selected.list_markers().get(marker_cursor) {
+            if marker.fragment_index() != index {
+                break;
+            }
+            list::append_marker(selected, marker, admitted, &mut remaining, &mut draws)?;
+            marker_cursor += 1;
+        }
         match fragment.source() {
             ProductionBodyFragmentSource::RasterFigure { figure_index } => {
                 let figure = lines
@@ -446,6 +461,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                                 )
                                 .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
                                 exact_text: cluster.utf8(),
+                                generated_provenance: None,
                                 logical_bounds,
                                 glyphs,
                             })
@@ -497,6 +513,9 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                 )?));
             }
         }
+    }
+    if marker_cursor != selected.list_markers().len() {
+        return Err(error(root, E::ReceiptMismatch));
     }
     let mut digest = [0u8; 64];
     digest[..32].copy_from_slice(&sha256(PRODUCTION_BODY_DISPLAY_ALGORITHM.as_bytes()));

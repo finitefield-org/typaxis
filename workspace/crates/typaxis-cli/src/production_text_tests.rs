@@ -51,6 +51,7 @@ fn production_text_fixture(
             continue;
         }
         let source = match uri {
+            "body-list-no-math.ttf" | "collection-list-no-math.ttc" | "body-list-visible.ttf" => job.join("../../../../staging/production-book-1/vmb-book/list-fonts").join(uri),
             "book-venn.png" | "orientation-alpha.png" => job.join("../../../../staging/production-book-1/vmb-book/raster").join(uri),
             "vmb-block-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-block-720896.svg"),
             "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),
@@ -999,13 +1000,13 @@ fn production_text_without_math_fonts() -> serde_json::Value {
     for (index, name, hash) in [
         (
             0,
-            "body-no-math.ttf",
-            "c399cf1de56ffdc143b97547749a128b49b9356ec89a07a86ab0ca8107b3c50e",
+            "body-list-no-math.ttf",
+            "271832ab63e0f7cba2ca918d6746e931b00a7746f9c2aeb306ee55c0bc53a26d",
         ),
         (
             1,
-            "collection-no-math.ttc",
-            "3a5f1d1bcbda54c4fa3543f0b886d6fa86cec51ed0328a22e10874426112259c",
+            "collection-list-no-math.ttc",
+            "143f1f32b9690558bc405fb62bd0b33f7dea25f937b67fc40a4d74ced463eb12",
         ),
     ] {
         value["resources"]["font_faces"][index]["uri"] = name.into();
@@ -1334,3 +1335,4 @@ include!("production_body_tests.rs");
 
 include!("production_object_tests.rs");
 include!("production_raster_tests.rs");
+include!("production_list_tests.rs");

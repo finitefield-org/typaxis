@@ -22,12 +22,12 @@ pub use book_navigation::{
     DOCUMENT_METADATA_ALGORITHM, OUTLINE_REGISTRY_ALGORITHM,
 };
 pub use semantic_container::{
-    prepare_production_text_flow, ProductionFlowError, ProductionFlowErrorKind,
-    ProductionFigure, ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent,
-    ProductionInlineLinkTarget, ProductionInlineSite,
-    ProductionTextFlow, ProductionTextParagraph, PRODUCTION_TEXT_FLOW_ALGORITHM,
-    PrecomposedVectorActualTextResolution, PrecomposedVectorField, PrecomposedVectorKind,
-    PrecomposedVectorMetricPayload, ProductionMachineParseOutcome, StagingCffProfileView,
+    prepare_production_text_flow, PrecomposedVectorActualTextResolution, PrecomposedVectorField,
+    PrecomposedVectorKind, PrecomposedVectorMetricPayload, PrecomposedVectorVerification,
+    ProductionFigure, ProductionFlowError, ProductionFlowErrorKind, ProductionFlowEvent,
+    ProductionFlowRegionKind, ProductionInlineContent, ProductionInlineLinkTarget,
+    ProductionInlineSite, ProductionList, ProductionListItem, ProductionMachineParseOutcome,
+    ProductionTextFlow, ProductionTextParagraph, StagingCffProfileView,
     StagingJpegFigureProfileUse, StagingJpegProfileView, StagingM4PageGeometry,
     StagingMathLayoutBudgetGuard, StagingMathProfileAuthorization, StagingMathProfileProgressToken,
     StagingMathProfileSessionIdentity, StagingMathProfileView,
@@ -38,8 +38,9 @@ pub use semantic_container::{
     ValidatedPrecomposedVectorEffectiveLanguage, ValidatedPrecomposedVectorEquationNumber,
     ValidatedPrecomposedVectorLanguageOverride, ValidatedPrecomposedVectorMetrics,
     ValidatedPrecomposedVectorTextBinding, ValidatedProductionMachinePackage,
-    PrecomposedVectorVerification, ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
+    ValidatedStagingMathNode, ValidatedStagingSemanticPackage,
     PRECOMPOSED_VECTOR_EFFECTIVE_LANGUAGE_ALGORITHM, PRECOMPOSED_VECTOR_METRICS_ALGORITHM,
+    PRODUCTION_TEXT_FLOW_ALGORITHM,
 };
 pub use tagged_structure::{
     validate_staging_structure_semantics, validate_staging_structure_semantics_v2,

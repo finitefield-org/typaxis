@@ -3,8 +3,9 @@
 mod production_text;
 pub use production_text::{
     shape_production_authored_text, ProductionAuthoredTextShape, ProductionBodyFont,
-    ProductionBodyParagraphShape, ProductionBodyTextRun, ProductionTextShapeError,
-    ProductionTextShapeErrorKind, PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM,
+    ProductionBodyParagraphShape, ProductionBodyTextRun, ProductionListMarkerShape,
+    ProductionTextShapeError, ProductionTextShapeErrorKind,
+    PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM,
 };
 
 use read_fonts::TableProvider;

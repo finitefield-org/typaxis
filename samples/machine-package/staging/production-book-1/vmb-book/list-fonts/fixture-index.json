@@ -1,0 +1,28 @@
+{
+  "algorithm": "typaxis.production-list-font-fixture/1",
+  "fonttools": "4.51.0",
+  "changes": "Append U+2022 bullet glyph and cmap entry; preserve original ASCII glyph IDs and advances; no MATH table",
+  "cases": [
+    {
+      "source": "samples/machine-package/profiles/basic-document-1/combined/job/body.ttf",
+      "source_sha256": "c399cf1de56ffdc143b97547749a128b49b9356ec89a07a86ab0ca8107b3c50e",
+      "file": "body-list-no-math.ttf",
+      "sha256": "271832ab63e0f7cba2ca918d6746e931b00a7746f9c2aeb306ee55c0bc53a26d",
+      "visible_decimal_markers": false
+    },
+    {
+      "source": "samples/machine-package/profiles/basic-document-1/combined/job/collection.ttc",
+      "source_sha256": "3a5f1d1bcbda54c4fa3543f0b886d6fa86cec51ed0328a22e10874426112259c",
+      "file": "collection-list-no-math.ttc",
+      "sha256": "143f1f32b9690558bc405fb62bd0b33f7dea25f937b67fc40a4d74ced463eb12",
+      "visible_decimal_markers": false
+    },
+    {
+      "source": "samples/machine-package/profiles/basic-document-1/combined/job/body.ttf",
+      "source_sha256": "c399cf1de56ffdc143b97547749a128b49b9356ec89a07a86ab0ca8107b3c50e",
+      "file": "body-list-visible.ttf",
+      "sha256": "17857592837017395c9f22614b712f41d2ad6175a5b3a39c4d8aa879c99044c6",
+      "visible_decimal_markers": true
+    }
+  ]
+}

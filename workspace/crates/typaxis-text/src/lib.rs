@@ -237,6 +237,9 @@ impl TextStore {
     }
 }
 
+mod generated_overlay;
+pub use generated_overlay::GeneratedTextOverlay;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GeneratedBufferDraft {
     key: GeneratedBufferKey,

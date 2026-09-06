@@ -14,7 +14,7 @@ use typaxis_syntax::{
     ValidatedStagingStructureSemanticsV2,
 };
 
-pub const PRODUCTION_BODY_STRUCTURE_ALGORITHM: &str = "typaxis.production-body-structure/2";
+pub const PRODUCTION_BODY_STRUCTURE_ALGORITHM: &str = "typaxis.production-body-structure/3";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyStructureError {
@@ -182,6 +182,7 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
         return Err(E::RecordLimit);
     }
     let mut source_nodes = BTreeMap::<NodeId, StructureNodeId>::new();
+    let mut label_nodes = BTreeMap::<NodeId, StructureNodeId>::new();
     let mut node_groups = Vec::new();
     node_groups
         .try_reserve_exact(registry.nodes().len())
@@ -189,6 +190,12 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
     for node in registry.nodes() {
         if let StructureOwner::Source(source) = node.owner() {
             source_nodes.insert(source, node.structure_node_id());
+        }
+        if let StructureOwner::Generated(key) = node.owner() {
+            if key.slot() == typaxis_layout::GeneratedStructureSlot::ListLabel && key.ordinal() == 0
+            {
+                label_nodes.insert(key.owner_node_id(), node.structure_node_id());
+            }
         }
         node_groups.push(Vec::new());
     }
@@ -220,7 +227,12 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
             if draw_page != page_index {
                 return Err(E::InvalidPaint);
             }
-            let id = *source_nodes.get(&source).ok_or(E::InvalidPaint)?;
+            let id = if matches!(draw,ProductionBodyDraw::Text(t) if t.generated_provenance().is_some())
+            {
+                *label_nodes.get(&source).ok_or(E::InvalidPaint)?
+            } else {
+                *source_nodes.get(&source).ok_or(E::InvalidPaint)?
+            };
             let node = registry.node(id).ok_or(E::InvalidPaint)?;
             if !node.paint_required() {
                 return Err(E::InvalidPaint);
@@ -236,13 +248,35 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
                     }
                     None
                 }
-                ProductionBodyDraw::Text(_) => {
+                ProductionBodyDraw::Text(t) => {
                     if node.vector_binding_v2().is_some()
                         || node.equation_number_binding_v2().is_some()
-                        || node.role() != StructureRole::Span
                         || node.actual_text().is_none()
                     {
                         return Err(E::InvalidPaint);
+                    }
+                    match t.generated_provenance() {
+                        None if node.role() != StructureRole::Span => return Err(E::InvalidPaint),
+                        None => (),
+                        Some(provenance) => {
+                            let index = flow
+                                .list_items()
+                                .binary_search_by_key(&source, |i| i.owner())
+                                .map_err(|_| E::InvalidPaint)?;
+                            let item = &flow.list_items()[index];
+                            let text = flow.list_marker_text(index).ok_or(E::InvalidPaint)?;
+                            let range = provenance.text_span().range();
+                            if node.role() != StructureRole::Label
+                                || provenance.buffer_key() != item.key()
+                                || node.actual_text() != Some(text)
+                                || text.get(
+                                    range.start_byte().get() as usize
+                                        ..range.end_byte().get() as usize,
+                                ) != Some(t.exact_text())
+                            {
+                                return Err(E::InvalidPaint);
+                            }
+                        }
                     }
                     None
                 }
@@ -299,6 +333,27 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
         if node.paint_required() && node_groups[node.structure_node_id().get() as usize].is_empty()
         {
             return Err(E::MissingPaint);
+        }
+        if node.role() == StructureRole::Label {
+            let owned = &node_groups[node.structure_node_id().get() as usize];
+            if owned.len() != 1 {
+                return Err(E::InvalidPaint);
+            }
+            let mut end = 0;
+            for draw in &display.draws()[groups[owned[0]].draws()] {
+                let ProductionBodyDraw::Text(t) = draw else {
+                    return Err(E::InvalidPaint);
+                };
+                let provenance = t.generated_provenance().ok_or(E::InvalidPaint)?;
+                let range = provenance.text_span().range();
+                if range.start_byte().get() != end {
+                    return Err(E::InvalidPaint);
+                }
+                end = range.end_byte().get();
+            }
+            if end as usize != node.actual_text().ok_or(E::InvalidPaint)?.len() {
+                return Err(E::InvalidPaint);
+            }
         }
     }
     // All derived records are deterministic projections of these sealed owners.

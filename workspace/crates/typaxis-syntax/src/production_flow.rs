@@ -3,7 +3,7 @@
 use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 
-pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/4";
+pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/5";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
@@ -13,6 +13,7 @@ pub enum ProductionFlowErrorKind {
     TextLimit,
     NodeLimit,
     AllocationFailure,
+    MarkerOverflow,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductionFlowError {
@@ -28,6 +29,7 @@ impl std::fmt::Display for ProductionFlowError {
             ProductionFlowErrorKind::TextLimit => "text_limit",
             ProductionFlowErrorKind::NodeLimit => "node_limit",
             ProductionFlowErrorKind::AllocationFailure => "allocation_failure",
+            ProductionFlowErrorKind::MarkerOverflow => "marker_overflow",
         };
         write!(
             formatter,
@@ -224,6 +226,68 @@ impl<'a> ProductionFigure<'a> {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProductionList {
+    owner: NodeId,
+    ordered: bool,
+    start: Option<u32>,
+    style: SemanticContainerInheritanceStyle,
+    page_name: Option<typaxis_core::PageName>,
+}
+impl ProductionList {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn ordered(&self) -> bool {
+        self.ordered
+    }
+    pub const fn start(&self) -> Option<u32> {
+        self.start
+    }
+    pub const fn style(&self) -> &SemanticContainerInheritanceStyle {
+        &self.style
+    }
+    pub const fn page_name(&self) -> Option<&typaxis_core::PageName> {
+        self.page_name.as_ref()
+    }
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProductionListItem<'a> {
+    owner: NodeId,
+    list_index: u32,
+    item_index: u32,
+    source_span: SourceSpan,
+    language: &'a str,
+    ordered_value: Option<u32>,
+}
+impl<'a> ProductionListItem<'a> {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn list_index(&self) -> u32 {
+        self.list_index
+    }
+    pub const fn item_index(&self) -> u32 {
+        self.item_index
+    }
+    pub const fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+    pub const fn language(&self) -> &'a str {
+        self.language
+    }
+    pub const fn ordered_value(&self) -> Option<u32> {
+        self.ordered_value
+    }
+    pub const fn key(&self) -> typaxis_core::GeneratedBufferKey {
+        typaxis_core::GeneratedBufferKey::new(
+            self.owner,
+            typaxis_core::GenerationKind::ListMarker,
+            0,
+        )
+    }
+}
+
 /// Downstream consumers must bind to this owner and a paragraph/site index;
 /// a copied `ProductionInlineSite` alone does not authorize shaping or paint.
 pub struct ProductionTextFlow<'a> {
@@ -232,10 +296,42 @@ pub struct ProductionTextFlow<'a> {
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
     figures: Vec<ProductionFigure<'a>>,
+    lists: Vec<ProductionList>,
+    list_items: Vec<ProductionListItem<'a>>,
+    generated: typaxis_text::GeneratedTextOverlay,
     text_bytes: u64,
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionTextFlow<'a> {
+    pub fn lists(&self) -> &[ProductionList] {
+        &self.lists
+    }
+    pub fn list_items(&self) -> &[ProductionListItem<'a>] {
+        &self.list_items
+    }
+    pub fn list_marker_text(&self, item_index: usize) -> Option<&str> {
+        let item = self.list_items.get(item_index)?;
+        self.generated
+            .buffer(item.key())
+            .map(|buffer| buffer.utf8())
+    }
+    pub fn list_marker_provenance(
+        &self,
+        item_index: usize,
+    ) -> Option<typaxis_text::GeneratedProvenance> {
+        let item = self.list_items.get(item_index)?;
+        let text = self.list_marker_text(item_index)?;
+        self.generated
+            .provenance(
+                item.key(),
+                typaxis_core::Utf8ByteOffset::new(0),
+                typaxis_core::Utf8ByteOffset::new(u32::try_from(text.len()).ok()?),
+            )
+            .ok()
+    }
+    pub const fn generated_text_bytes(&self) -> u64 {
+        self.generated.generated_bytes()
+    }
     /// The exact validated source owners retained by this flow. Downstream
     /// structure builders must use these, rather than a same-hash reparse.
     pub const fn package(&self) -> &'a ValidatedStagingSemanticPackage {
@@ -285,6 +381,9 @@ impl<'a> ProductionTextFlow<'a> {
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
             || self.figures != observed.figures
+            || self.lists != observed.lists
+            || self.list_items != observed.list_items
+            || self.generated != observed.generated
             || self.text_bytes != observed.text_bytes
             || self.fingerprint != observed.fingerprint
         {
@@ -319,6 +418,15 @@ pub fn prepare_production_text_flow<'a>(
         events: Vec::new(),
         paragraphs: Vec::new(),
         figures: Vec::new(),
+        lists: Vec::new(),
+        list_items: Vec::new(),
+        generated_records: Vec::new(),
+        generated_bytes: 0,
+        parsed_bytes: wire
+            .text_buffers()
+            .iter()
+            .try_fold(0u64, |n, b| n.checked_add(b.utf8.len() as u64))
+            .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, root))?,
         text_bytes: 0,
         node_charge: 0,
     };
@@ -329,12 +437,21 @@ pub fn prepare_production_text_flow<'a>(
         collector.blocks(&footnote.blocks, None)?;
         collector.end(owner)?;
     }
+    let generated = typaxis_text::GeneratedTextOverlay::new(
+        collector.generated_records,
+        limits.base(),
+        collector.parsed_bytes,
+    )
+    .map_err(|_| failure(ProductionFlowErrorKind::TextLimit, root))?;
     let mut result = ProductionTextFlow {
         package,
         navigation,
         events: collector.events,
         paragraphs: collector.paragraphs,
         figures: collector.figures,
+        lists: collector.lists,
+        list_items: collector.list_items,
+        generated,
         text_bytes: collector.text_bytes,
         fingerprint: [0; 32],
     };
@@ -350,6 +467,11 @@ struct Collector<'a> {
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
     figures: Vec<ProductionFigure<'a>>,
+    lists: Vec<ProductionList>,
+    list_items: Vec<ProductionListItem<'a>>,
+    generated_records: Vec<(typaxis_core::GeneratedBufferKey, String)>,
+    generated_bytes: u64,
+    parsed_bytes: u64,
     text_bytes: u64,
     node_charge: u64,
 }
@@ -466,11 +588,94 @@ impl<'a> Collector<'a> {
                         .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))?;
                     self.blocks(blocks, Some(style.inheritance_style()))?;
                 }
-                WireStagingM4Block::List { items, .. } => {
+                WireStagingM4Block::List {
+                    ordered,
+                    start,
+                    items,
+                    ..
+                } => {
                     let style = self.ordinary(owner, "list", block.classes(), parent)?;
-                    for item in items {
+                    let list_index = u32::try_from(self.lists.len())
+                        .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
+                    let page_name = self
+                        .rules
+                        .ordinary
+                        .cascade_basic_document("list", block.classes())
+                        .and_then(|s| s.page_name())
+                        .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, owner))?;
+                    self.lists
+                        .try_reserve(1)
+                        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+                    self.lists.push(ProductionList {
+                        owner,
+                        ordered: *ordered,
+                        start: *start,
+                        style: style.clone(),
+                        page_name,
+                    });
+                    for (index, item) in items.iter().enumerate() {
                         let item_owner = NodeId::new(item.node_id);
                         self.begin(item_owner, Kind::ListItem)?;
+                        if self.list_items.len() as u64 >= self.package.limits().get().max_fragments
+                        {
+                            return Err(failure(ProductionFlowErrorKind::NodeLimit, item_owner));
+                        }
+                        let value = if *ordered {
+                            Some(
+                                start
+                                    .unwrap_or(1)
+                                    .checked_add(u32::try_from(index).map_err(|_| {
+                                        failure(ProductionFlowErrorKind::MarkerOverflow, item_owner)
+                                    })?)
+                                    .ok_or_else(|| {
+                                        failure(ProductionFlowErrorKind::MarkerOverflow, item_owner)
+                                    })?,
+                            )
+                        } else {
+                            None
+                        };
+                        // Charge canonical marker bytes before allocating them;
+                        // layout spacing is not appended to the marker text.
+                        let size = if let Some(v) = value {
+                            u64::from(v.checked_ilog10().unwrap_or(0)) + 2
+                        } else {
+                            3
+                        };
+                        self.generated_bytes = self
+                            .generated_bytes
+                            .checked_add(size)
+                            .filter(|n| {
+                                self.parsed_bytes.checked_add(*n).is_some_and(|n| {
+                                    n <= self.package.limits().get().max_text_bytes
+                                }) && size
+                                    <= u64::from(self.package.limits().get().max_text_buffer_bytes)
+                            })
+                            .ok_or_else(|| {
+                                failure(ProductionFlowErrorKind::TextLimit, item_owner)
+                            })?;
+                        self.list_items.try_reserve(1).map_err(|_| {
+                            failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
+                        })?;
+                        self.generated_records.try_reserve(1).map_err(|_| {
+                            failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
+                        })?;
+                        let source = ProductionListItem {
+                            owner: item_owner,
+                            list_index,
+                            item_index: u32::try_from(index).map_err(|_| {
+                                failure(ProductionFlowErrorKind::NodeLimit, item_owner)
+                            })?,
+                            source_span: lower_span(item.span).map_err(|_| {
+                                failure(ProductionFlowErrorKind::ReceiptMismatch, item_owner)
+                            })?,
+                            language: self.language(item_owner)?,
+                            ordered_value: value,
+                        };
+                        self.generated_records.push((
+                            source.key(),
+                            value.map_or_else(|| "•".to_owned(), |v| format!("{v}.")),
+                        ));
+                        self.list_items.push(source);
                         self.blocks(&item.blocks, Some(&style))?;
                         self.end(item_owner)?;
                     }
@@ -657,7 +862,9 @@ fn encode_flow(flow: &ProductionTextFlow<'_>) -> String {
             ProductionFlowEvent::End { owner } => s.push_str(&format!("[\"end\",{}]", owner.get())),
         }
     }
-    s.push_str("],\"language_sha256\":");
+    s.push_str("],\"generated_text_sha256\":");
+    push_jcs_string(&mut s, &hex(flow.generated.reference_fingerprint().bytes()));
+    s.push_str(",\"language_sha256\":");
     push_jcs_string(&mut s, &hex(flow.navigation.languages().fingerprint()));
     s.push_str(",\"limits_sha256\":");
     push_jcs_string(&mut s, &hex(flow.navigation.limits().fingerprint()));

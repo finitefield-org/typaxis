@@ -116,8 +116,13 @@ fn with_production_body_structure_resources(
                     .unwrap()
                 })
                 .collect::<Vec<_>>();
-            let lines =
-                typaxis_layout::layout_production_inline_lines(prepared, &widths, 100_000).unwrap();
+            let lines = if prepared.source_flow().lists().is_empty() {
+                typaxis_layout::layout_production_inline_lines(prepared, &widths, 100_000).unwrap()
+            } else {
+                typaxis_layout::layout_production_body_inline_lines(
+                    prepared, blocks.page_geometry().body(), 100_000,
+                ).unwrap()
+            };
             check(&lines, &blocks, limits, admitted, semantics, tagged);
         },
     );
@@ -436,22 +441,23 @@ fn production_body_retains_named_paragraph_page_for_its_pending_policy() {
 }
 
 #[test]
-fn production_body_does_not_flatten_unconnected_list_flow() {
+fn production_body_list_marker_uses_first_real_item_fragment() {
     let mut value = production_body_fixture(3_000_000);
     let p = value["document"]["blocks"][0]["blocks"][2].clone();
     value["document"]["blocks"][0]["blocks"][2] = serde_json::json!({"kind":"list","node_id":7,"span":p["span"],"classes":[],"ordered":true,"start":1,
         "items":[{"node_id":8,"span":p["span"],"blocks":[p]}]});
     production_body_renumber(&mut value["document"], &mut 0);
     with_production_body_inputs(&value, &config(), |lines, blocks, limits| {
-        let err = match typaxis_pagination::paginate_production_body(lines, blocks, limits) {
-            Err(e) => e,
-            Ok(_) => panic!("list needs marker and layout owner"),
-        };
-        assert_eq!(err.owner.get(), 7);
+        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+        assert_eq!(selected.list_markers().len(), 1);
+        let marker = &selected.list_markers()[0];
+        assert_eq!(marker.owner().get(), 8);
+        assert_eq!(marker.fragment_index(), 2);
         assert_eq!(
-            err.kind,
-            typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion("list")
+            marker.baseline(),
+            selected.fragments()[2].baseline().unwrap()
         );
+        assert_eq!(lines.list_markers()[0].utf8(), "1.");
     });
 }
 

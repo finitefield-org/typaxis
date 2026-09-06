@@ -8,8 +8,8 @@ mod production_body;
 
 pub use production_body::{
     paginate_production_body, ProductionBodyFragment, ProductionBodyFragmentSource,
-    ProductionBodyPage, ProductionBodyPageBreak, ProductionBodyPaginationError,
-    ProductionBodyPaginationErrorKind, ProductionBodySelectedLayout,
+    ProductionBodyListMarker, ProductionBodyPage, ProductionBodyPageBreak,
+    ProductionBodyPaginationError, ProductionBodyPaginationErrorKind, ProductionBodySelectedLayout,
     PRODUCTION_BODY_PAGINATION_ALGORITHM,
 };
 

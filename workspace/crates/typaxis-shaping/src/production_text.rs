@@ -1,6 +1,7 @@
 //! Authored body text shaping, before reference resolution and line selection.
 //! The sealed result borrows its syntax/admission owners. It cannot authorize PDF
-//! paint: atomic math, generated labels, and all line/page positions are pending.
+//! paint: atomic math and all line/page positions are separate downstream owners.
+//! Canonical list labels are shaped here in the generated text namespace.
 use super::*;
 use typaxis_core::M4EffectiveResourceLimits;
 use typaxis_syntax::{
@@ -8,8 +9,11 @@ use typaxis_syntax::{
     ValidatedStagingBookNavigationV2,
 };
 
+#[path = "production_list_markers.rs"]
+mod list_markers;
+pub use list_markers::ProductionListMarkerShape;
 pub const PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM: &str =
-    "typaxis.production-authored-text-shape/2";
+    "typaxis.production-authored-text-shape/3";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionTextShapeErrorKind {
@@ -18,6 +22,7 @@ pub enum ProductionTextShapeErrorKind {
     MissingSelectedFont,
     MissingDeclaredFontCoverage,
     MissingShapedGlyph { span: TextSpan },
+    MissingGeneratedGlyph,
     InvalidFontMetrics,
     ContextLimit,
     OutputLimit,
@@ -147,10 +152,14 @@ pub struct ProductionAuthoredTextShape<'a> {
     limits_fingerprint: [u8; 32],
     epoch: [u8; 32],
     paragraphs: Vec<ProductionBodyParagraphShape<'a>>,
+    list_markers: Vec<ProductionListMarkerShape<'a>>,
     output_records: u64,
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionAuthoredTextShape<'a> {
+    pub fn list_markers(&self) -> &[ProductionListMarkerShape<'a>] {
+        &self.list_markers
+    }
     pub fn paragraphs(&self) -> &[ProductionBodyParagraphShape<'a>] {
         &self.paragraphs
     }
@@ -221,10 +230,13 @@ pub fn shape_production_authored_text<'a>(
             &mut output_records,
         )?);
     }
+    let list_markers = list_markers::shape_markers(flow, admitted, limits, &mut output_records)?;
     // Fixed-size paragraph digests bound the document receipt allocation even for
     // books with millions of glyphs. Each paragraph owns a separate glyph digest.
     let capacity = paragraphs
         .len()
+        .checked_add(list_markers.len())
+        .ok_or_else(|| error(root, E::ArithmeticOverflow))?
         .checked_mul(32)
         .and_then(|n| n.checked_add(256))
         .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
@@ -244,12 +256,16 @@ pub fn shape_production_authored_text<'a>(
     for paragraph in &paragraphs {
         bytes.extend_from_slice(&paragraph.fingerprint);
     }
+    for marker in &list_markers {
+        bytes.extend_from_slice(&marker.fingerprint());
+    }
     Ok(ProductionAuthoredTextShape {
         flow,
         admitted,
         limits_fingerprint: limits.fingerprint(),
         epoch,
         paragraphs,
+        list_markers,
         output_records,
         fingerprint: sha256(&bytes),
     })

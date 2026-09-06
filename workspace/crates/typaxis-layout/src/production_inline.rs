@@ -26,6 +26,12 @@ pub use selected::*;
 #[path = "production_raster.rs"]
 mod raster;
 pub use raster::ProductionPreparedRasterFigure;
+#[path = "production_list_frames.rs"]
+mod list_frames;
+pub use list_frames::{
+    layout_production_body_inline_lines, ProductionBodyInlineFrames, ProductionInlineFrame,
+    ProductionListFrame,
+};
 
 pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/4";
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,6 +47,8 @@ pub enum ProductionInlinePreparationErrorKind {
     MissingFigureWidth,
     InvalidFigureGeometry,
     PendingFigurePlacement,
+    InvalidListMarker,
+    ListFrameExhausted,
     AllocationFailure,
     ArithmeticOverflow,
     Atomic(AtomicVectorInlineError),
@@ -147,6 +155,9 @@ pub struct ProductionPreparedInlines<'a> {
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionPreparedInlines<'a> {
+    pub fn list_markers(&self) -> &[typaxis_shaping::ProductionListMarkerShape<'a>] {
+        self.shaped.list_markers()
+    }
     pub const fn source_flow(&self) -> &'a ProductionTextFlow<'a> {
         self.flow
     }

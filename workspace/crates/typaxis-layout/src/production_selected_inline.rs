@@ -177,9 +177,16 @@ pub struct ProductionInlineLineLayout<'p, 'a> {
     prepared: &'p ProductionPreparedInlines<'a>,
     paragraphs: Vec<ProductionInlineParagraphLineLayout<'p, 'a>>,
     output_records: u64,
-    fingerprint: [u8; 32],
+    pub(super) fingerprint: [u8; 32],
+    pub(super) frames: Option<ProductionBodyInlineFrames<'p, 'a>>,
 }
 impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
+    pub fn frames(&self) -> Option<&ProductionBodyInlineFrames<'p, 'a>> {
+        self.frames.as_ref()
+    }
+    pub fn list_markers(&self) -> &[typaxis_shaping::ProductionListMarkerShape<'a>] {
+        self.prepared.list_markers()
+    }
     pub fn figures(&self) -> &[ProductionPreparedRasterFigure<'a>] {
         &self.prepared.figures
     }
@@ -237,12 +244,23 @@ pub fn layout_production_inline_lines<'p, 'a>(
     inline_sizes: &[PositiveLength],
     max_candidate_steps: u64,
 ) -> Result<ProductionInlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
+    layout_with_record_base(prepared, inline_sizes, max_candidate_steps, 0)
+}
+pub(super) fn layout_with_record_base<'p, 'a>(
+    prepared: &'p ProductionPreparedInlines<'a>,
+    inline_sizes: &[PositiveLength],
+    max_candidate_steps: u64,
+    record_base: u64,
+) -> Result<ProductionInlineLineLayout<'p, 'a>, ProductionInlinePreparationError> {
     use ProductionInlinePreparationErrorKind as E;
     let root = NodeId::new(0);
     if inline_sizes.len() != prepared.paragraphs.len() {
         return Err(error(root, E::ReceiptMismatch));
     }
-    let mut remaining = prepared.max_fragments;
+    let mut remaining = prepared
+        .max_fragments
+        .checked_sub(record_base)
+        .ok_or_else(|| error(root, E::UnitLimit))?;
     charge(&mut remaining, prepared.paragraphs.len(), root)?;
     charge(&mut remaining, prepared.figures.len(), root)?;
     let mut paragraphs = Vec::new();
@@ -509,6 +527,7 @@ pub fn layout_production_inline_lines<'p, 'a>(
         paragraphs,
         output_records: prepared.max_fragments - remaining,
         fingerprint: sha256(&digests),
+        frames: None,
     })
 }
 
