@@ -3459,3 +3459,51 @@ This is admission of a body contribution in the known test envelope, not complet
 package export, public build/PDF or full-book acceptance. All previously recorded
 Harano/chapter/full-book/scale/both-host gates remain mandatory. Launched tests are
 terminal; no public profile changed or branch was pushed.
+
+### 2026-09-07: Actual prepared fractions-book inventory
+
+Companion **`5fc26fac`** adds `tools/typaxis-book-audit`, a real canonical-build and
+RenderBook preparation audit with explicit project/profile/locale, release mode
+recorded in the report, and exclusive creation of output. It counts section content
+without counting speech/alt again as visible inline occurrences. Root metadata and
+other root collections are not folded into the section inventory. Nested content,
+rich labels, table cells and map payload counting passed a focused unit test.
+
+Current fractions v1 / profile.print / ja release preparation failed with **4,786
+VMB-E0317** unit-review errors and **232 VMB-E0473** assessment approval errors; no
+report or publication was created. These are observations about release mode, not
+new approval requirements imposed on all PDF generation. Authored statuses were
+not changed. An explicit **draft inventory** (`-release=false`) succeeded:
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+go test ./tools/typaxis-book-audit -count=1
+go run ./tools/typaxis-book-audit \
+  -project ../vmb-book-fractions-equivalence/v1/project.json \
+  -profile profile.print -locale ja -release=false \
+  -output /private/tmp/new-book-inventory.json
+```
+
+The report is tracked in the companion at
+`vmb-core/tools/typaxis-book-audit/testdata/fractions-print-draft.inventory.json`.
+Report SHA-256: `bb90768919c9f0fe70f24f34847627346ebbc938a3a7d56feea7c3a1ceae89d7`.
+Canonical SHA-256: `ff25625dbf10f7abde790c6cf6d3279369958512ae8940c4e89940cb967df6e9`.
+Source digest: `sha256:1b7ff2b6b607fd3d34cbef4b30500059dbcc71ff2a38622f01222414b2a0b436`.
+
+Observed: **167 sections, 6,343 inline math, 278 block equations, 51 figures,
+260 exercises, 285 proofs, 123 terms, 418 glossary entries**. All exercises carry
+AnswerType/Difficulty/EstimatedMinutes/ExerciseMode; 252 proofs carry Methods.
+These identify actual remaining exporter payloads rather than hypothetical feature
+coverage. All 6,343 prepared inline math payloads lack explicit Speech/SemanticRef.
+This does not yet prove absence in all underlying authored semantic records;
+source assembly and semantic recovery must be investigated. Generic speech or raw
+TeX cannot substitute for the required mathematical meaning.
+
+This preparation does not match the saved **8,149-occurrence / 4,514-resource**
+package and must be tracked separately. The smaller inventory is not a replacement
+for the mandatory original full-book gate. No DocumentPackage or PDF was generated
+by the audit. Logs: `/private/tmp/vmb-original-prepared-inventory.log`,
+`/private/tmp/vmb-original-prepared-draft-inventory-v3.log`,
+`/private/tmp/vmb-book-audit-tests.log` (unit test passed in 0.481 s). All launched
+processes reached terminal state. Independent implementation work remains; the
+goal is not blocked or complete, and no branch was pushed.
