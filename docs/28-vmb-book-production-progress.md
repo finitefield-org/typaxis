@@ -3168,3 +3168,52 @@ evidence. Logs: `/private/tmp/typaxis-cff-v2-pdf-regression.log`,
 Public profile/manifest union, package font selection, selected-layout paint
 closure, formal exporter, full-book/scale and both-host gates remain mandatory.
 No public profile was activated by this checkpoint.
+
+### Private resource-set /3 host admission and font instances (2026-09-07)
+
+Added a separate staging resolver and immutable /3 ledger with exhaustive
+TrueType/CFF-v2 font variants. Stable reads, host session checks, aggregate
+resource bytes, image parsers and vector work budgets use the existing resolver.
+CFF /2 is held in a separate map, validates declaration/media/hash/face and can
+only finish into the new ledger. No old CFF receipt or old resource ledger is
+constructed for it. CFF failures retain the font-face subject and typed /2 detail.
+The ledger fingerprint binds /3 identity, source/declaration, CFF admission,
+limits and the supplied upstream profile fingerprint. Runtime session identity
+is retained independently of content fingerprint. Canonical JSON capacity is
+bounded before allocation; complete pipeline allocation accounting is still due.
+
+The new font-instance table borrows the actual ledger and resolves dense IDs in
+selected-face order without accepting a substitute ledger. Style selection and
+actual shaping/paint/manifest connections to this owner remain outstanding.
+
+Verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resource-admission --locked
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resource-admission production_v3 --locked -- --ignored
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-shaping -p typaxis-resources --locked
+```
+
+Admission: **64 unit tests and 2 compile-fail doc tests passed**, one original
+font test ignored. Explicit original: **1 passed**, using unchanged Harano plus
+TrueType and PNG through real host reads. Two Harano declarations preserve the
+original bytes/admission and distinct face IDs. Different completion orders
+produce identical content fingerprints; distinct runtime sessions remain distinct.
+The old resolver still rejects Harano. Other new tests reject foreign pending
+sessions, duplicate binding, missing resources and out-of-range selected faces.
+An exact combined font/image byte ceiling succeeds; one byte less fails on image
+read and cannot be bypassed by retry. Logs:
+`/private/tmp/typaxis-production-v3-admission-regression.log`,
+`/private/tmp/typaxis-production-v3-original.log`,
+`/private/tmp/typaxis-production-v3-downstream-regression.log`.
+
+No public contract/profile/schema alias was changed. The upstream typed 1.5
+preflight/manifest union and instance-to-shaping connection are still required,
+along with formal exporter, common layout, public PDF and full-book/scale/host gates.

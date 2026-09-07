@@ -1,5 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod production_v3;
+pub use production_v3::{
+    AdmittedCff1FontV2, AdmittedProductionFontInstanceV3, AdmittedProductionFontInstancesV3,
+    AdmittedProductionFontV3, AdmittedProductionResourceLedgerV3, ProductionResourceErrorV3,
+    StagingProductionResourceResolverV3, STAGING_PRODUCTION_RESOURCE_SET_V3,
+};
 mod jpeg;
 mod font_diagnostic;
 pub use font_diagnostic::{FontContainerFailure, FontContainerFailureReason, SUPPORTED_FONT_OUTLINES_NOTE};
@@ -3821,6 +3827,9 @@ fn push_hash_hex(output: &mut String, bytes: [u8; 32]) {
 
 #[cfg(test)]
 mod tests {
+    mod production_v3_tests {
+        include!("production_v3_tests.rs");
+    }
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};

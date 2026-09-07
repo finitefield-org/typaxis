@@ -644,6 +644,35 @@ FontFile3/OpenType、ToUnicode、CIDSetの6 objectを生成する。旧receipt�
 これはfont単位のprivate-staging接続である。公開profile/manifest union、packageのfont選択、
 共通layoutからのpaint照合、正式exporter、全巻・scale・両OSの検証は引き続き必須である。
 
+### 7.14 resource-set /3のhost admissionとfont instance
+
+`StagingProductionResourceResolverV3`は既存のhost root・stable read session・累積resource bytes・
+vector work budgetを共有し、CFF /2を別mapで保持する。宣言media、face index、URI、期待hashを
+検証したうえでsealed `Cff1AdmissionV2`を生成する。CFF詳細エラーはfont face IDと
+`Cff1FailureV2`のまま保持する。別sessionのpending bytesや重複bindingは拒否する。
+
+確定先は新しい`AdmittedProductionResourceLedgerV3`だけである。font variantはTrueTypeと
+CFF /2を明示的に区別し、CFF /1をこのledgerへ入れる経路や、CFF /2を旧ledgerへcastする
+経路は提供しない。画像の実admission、declaration順のdense ID、vector digest alias検査、
+family tableを共有する。fingerprintのdomainは`typaxis.admitted-production-resources/3`で、
+resource-set /3、元bytes・宣言、CFF admission、実効予算、上位profile fingerprintを束縛する。
+canonical JSONはescapeを考慮した保守的容量をspool上限内で事前予約する。
+
+`AdmittedProductionFontInstancesV3`は確定したledgerを借用し、選択faceの順序・重複によらず
+dense instance IDを発行する。解決先のledgerを呼出側から差し替える引数は持たない。
+これはfont選択後のinstance所有者であり、style選択、line reshaping、paintやmanifestの
+上位ownerへの接続を代替しない。
+
+実host読み込みでTrueType、原ノ味の同一bytesを持つ2宣言、PNGを混在させた。異なる読み込み順で
+fingerprintが一致し、各CFF /2 variantに元23,060 glyphと元bytesを保持する。別のadmission
+sessionは同じfingerprintでもruntime sessionとして区別する。旧resolverでは同じ原ノ味を拒否する。
+通常fixtureではfont+imageの合計読み込みbytesの上限ちょうどで確定し、1 byte小さい上限では
+image readを繰り返しても失敗し、ledgerは確定しない。
+
+このAPIはprivate stagingであり、上位のcontract 1.5 / production-book-2 preflight receipt、
+profile・manifestのexhaustive union、シェーピングへのinstance接続、公開dispatchは残件である。
+既存CLIのprofile登録やschema aliasは変更しない。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成
