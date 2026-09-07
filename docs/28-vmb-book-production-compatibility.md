@@ -2366,3 +2366,20 @@ language、MarkInfo・ViewerPreferences、実StructTreeRoot参照、destination�
 
 ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
 1件ignored（12.30秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.64 共通本文・脚注driverのPDF予算診断（実装追補）
+
+共通driverのmarked content、注釈／構造／resource object、assembly、book最終writer観測の
+型付きエラーを分類し、予算超過をInternalへ潰さずFailureKind::Limit（exit 5）へ渡す。
+object数／PDF allocationはG6100、記録数はL5110、output／spoolはD8101としてstageと元errorを
+保持する。navigation内の記録数／allocation超過もLimitへ分類する。receipt／font／structure
+不一致等の内部整合性エラーはI9190のInternalとする。
+
+実source-to-PDF driverで成功した値からobject数・output bytes・spool・記録数を各1だけ減らし、
+Limit分類・診断prefix・未完成PDFをcallbackへ渡さないことを確認する。display／font／content等の
+他stageと配置失敗の精密診断、公開writer／manifest・CLIへの接続および全巻受入は引き続き必要である。
+
+ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`では既存163件が
+成功。追加テストの記録数診断の期待値をD8101からL5110へ修正後、`cargo test -p typaxis-cli
+--bin typaxis production_common_footnote_pdf_limits`が成功（1.10秒）。変更後の4予算境界と
+callback非公開を確認した。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

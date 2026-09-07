@@ -286,29 +286,26 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             let content =
                 typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
                     .map_err(|e| Failure::internal(format!("common footnote content: {e:?}")))?;
-            let marked = typaxis_pdf::build_production_footnote_marked_content(
-                &content, admitted, limits,
-            )
-            .map_err(|e| Failure::internal(format!("common footnote marked content: {e:?}")))?;
+            let marked =
+                typaxis_pdf::build_production_footnote_marked_content(&content, admitted, limits)
+                    .map_err(map_common_marked_error)?;
             let annotations =
                 typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
-                    .map_err(|e| {
-                        Failure::internal(format!("common footnote annotations: {e:?}"))
-                    })?;
+                    .map_err(|e| map_common_object_error("annotations", e))?;
             let structure_objects = typaxis_pdf::build_production_footnote_structure_objects(
                 &annotations,
                 admitted,
                 limits,
             )
-            .map_err(|e| Failure::internal(format!("common footnote structure objects: {e:?}")))?;
+            .map_err(|e| map_common_object_error("structure objects", e))?;
             let resources = typaxis_pdf::build_production_footnote_resource_objects(
                 &structure_objects,
                 admitted,
                 limits,
             )
-            .map_err(|e| Failure::internal(format!("common footnote resources: {e:?}")))?;
+            .map_err(|e| map_common_object_error("resources", e))?;
             let pdf = typaxis_pdf::assemble_production_footnote_pdf(&resources, admitted, limits)
-                .map_err(|e| Failure::internal(format!("common footnote assembly: {e:?}")))?;
+                .map_err(|e| map_common_assembly_error("assembly", e))?;
             pdf.verify(&resources, admitted, limits).map_err(|e| {
                 Failure::internal(format!("common footnote assembly identity: {e:?}"))
             })?;
@@ -345,9 +342,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
                 admitted,
                 limits,
             )
-            .map_err(|error| {
-                Failure::internal(format!("common book PDF observation: {error:?}"))
-            })?;
+            .map_err(|e| map_common_assembly_error("book PDF observation", e))?;
             let observation = ProductionCommonFootnoteObservation {
                 line_reshape_passes: stable.passes().len(),
                 page_passes: pages.passes(),
@@ -363,4 +358,49 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
         },
     )
     .map_err(map_production_input_error)?
+}
+
+fn common_pdf_failure(stage: &str, code: Option<&str>, error: impl std::fmt::Debug) -> Failure {
+    match code {
+        Some(code) => Failure::limit(format!("{code}: common footnote {stage}: {error:?}")),
+        None => Failure::internal(format!("I9190: common footnote {stage}: {error:?}")),
+    }
+}
+fn map_common_assembly_error(
+    stage: &str,
+    error: typaxis_pdf::ProductionBodyAssemblyError,
+) -> Failure {
+    use typaxis_pdf::ProductionBodyAssemblyError as E;
+    let code = match error {
+        E::ObjectLimit | E::AllocationFailure => Some("G6100"),
+        E::RecordLimit => Some("L5110"),
+        E::SpoolLimit | E::OutputLimit => Some("D8101"),
+        E::ReceiptMismatch | E::Metadata => None,
+    };
+    common_pdf_failure(stage, code, error)
+}
+fn map_common_object_error(stage: &str, error: typaxis_pdf::ProductionBodyObjectError) -> Failure {
+    use typaxis_display_list::ProductionBodyNavigationErrorKind as N;
+    use typaxis_pdf::ProductionBodyObjectError as E;
+    let code = match &error {
+        E::ObjectLimit | E::AllocationFailure => Some("G6100"),
+        E::RecordLimit => Some("L5110"),
+        E::SpoolLimit | E::OutputLimit => Some("D8101"),
+        E::Navigation(e) => match e.kind {
+            N::RecordLimit | N::AllocationFailure => Some("L5110"),
+            _ => None,
+        },
+        E::ReceiptMismatch | E::InvalidFont | E::InvalidStructure => None,
+    };
+    common_pdf_failure(stage, code, error)
+}
+fn map_common_marked_error(error: typaxis_pdf::ProductionBodyMarkedError) -> Failure {
+    use typaxis_pdf::ProductionBodyMarkedError as E;
+    let code = match error {
+        E::RecordLimit => Some("L5110"),
+        E::OutputLimit => Some("D8101"),
+        E::AllocationFailure => Some("G6100"),
+        E::ReceiptMismatch => None,
+    };
+    common_pdf_failure("marked content", code, error)
 }

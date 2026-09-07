@@ -295,3 +295,73 @@ fn production_common_footnote_driver_never_exposes_partial_pages() {
         );
     }
 }
+
+#[test]
+fn production_common_footnote_pdf_limits_keep_limit_exit_and_hide_partial_output() {
+    let value = production_body_navigation_vmb_fixture();
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let mut object_count = 0;
+    let mut output_bytes = 0;
+    let mut spool_bytes = 0;
+    let mut record_count = 0;
+    for mode in 0..5 {
+        let mut resource_limits = ResourceLimits::default();
+        match mode {
+            1 => resource_limits.max_pdf_objects = object_count - 1,
+            2 => resource_limits.max_output_bytes = output_bytes - 1,
+            3 => resource_limits.max_spool_bytes = spool_bytes - 1,
+            4 => resource_limits.max_fragments = record_count - 1,
+            _ => {}
+        }
+        let cfg = config_with_limits(resource_limits);
+        let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+        let semantics =
+            typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+                .unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity,
+        )
+        .unwrap();
+        let mut called = false;
+        let result = with_production_common_footnote_pdf(
+            &package,
+            &navigation,
+            &semantics,
+            &profile,
+            &admitted,
+            &limits,
+            typaxis_linebreak::JapaneseLineBreakMode::Normal,
+            100_000,
+            |pdf, _, _, book_pdf, _| {
+                called = true;
+                object_count = pdf.objects().len() as u32;
+                output_bytes = pdf.bytes().len() as u64;
+                spool_bytes = book_pdf.spool_charge();
+                record_count = book_pdf.record_charge();
+                Ok(())
+            },
+        );
+        if mode == 0 {
+            result.unwrap();
+            assert!(called);
+        } else {
+            assert!(!called);
+            let error = result.unwrap_err();
+            assert_eq!(error.kind, FailureKind::Limit, "mode={mode}: {error:?}");
+            assert_eq!(error.kind.exit_code(), 5);
+            assert!(
+                error.message.starts_with(match mode {
+                    1 => "G6100:",
+                    4 => "L5110:",
+                    _ => "D8101:",
+                }),
+                "{error:?}"
+            );
+        }
+    }
+}
