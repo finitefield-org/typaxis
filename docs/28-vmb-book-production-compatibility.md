@@ -2401,3 +2401,22 @@ CLIへの接続と全巻受入ゲートは引き続き必要である。
 ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_common_footnote`は3件成功。
 `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は164件成功・1件ignored
 （14.81秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.66 共通行再組版の内側の予算診断（実装追補）
+
+共通本文・脚注driverはProductionBodyReshapeErrorを文字列prefixで分類せず、Shape／Layout／
+Feedbackの内側の型を確認する。inline candidate・selection・unit、shape context・出力record、
+再組版iteration・line shape・paragraph textの上限とallocation失敗をL5110／Limitへ渡す。
+shapeのOutputLimitはbytesではなくmax_fragmentsによる保持record数の上限であることを確認し、
+D8101と混同しない。receiptやline context等の内部不一致と、実行可能な改行がない入力を区別し、
+元の内側のerrorをmessageに保持する。
+
+4種の実source-to-PDF fixtureで、共有探索予算0と成功必要量の1不足の両方がL5110／Limitに
+なること、必要量ちょうどでは同一PDFを返すことを検証する。その他のresource内部診断、
+公開writer／manifest・CLIへの接続と全巻受入ゲートは引き続き必要である。
+
+ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_common_footnote`は3件成功。
+`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は164件成功・1件ignored
+（12.07秒）。shape OutputLimitの分類修正後、実max_fragments=5／6境界を使う
+`production_authored_text_charges_output_across_paragraphs`が成功（0.10秒）し、L5110／Limitと
+元node 5の保持を確認した。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

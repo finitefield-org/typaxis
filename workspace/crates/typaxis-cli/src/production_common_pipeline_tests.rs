@@ -228,7 +228,7 @@ fn production_common_footnote_driver_closes_actual_source_to_pdf() {
                     Ok(())
                 },
             );
-            if budget == used_steps - 1 {
+            if budget == 0 || budget == used_steps - 1 {
                 let error = result.as_ref().unwrap_err();
                 assert_eq!(error.kind, FailureKind::Limit, "{error:?}");
                 assert!(error.message.starts_with("L5110:"), "{error:?}");

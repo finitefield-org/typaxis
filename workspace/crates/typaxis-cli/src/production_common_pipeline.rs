@@ -359,7 +359,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             inspect(&pdf, &pages, &book_inputs, &book_pdf, observation)
         },
     )
-    .map_err(map_production_input_error)?
+    .map_err(map_common_reshape_error)?
 }
 
 fn common_pdf_failure(stage: &str, code: Option<&str>, error: impl std::fmt::Debug) -> Failure {
@@ -439,5 +439,55 @@ fn map_common_pagination_error(
         | E::EmptyFootnote
         | E::PendingContainerIndent
         | E::EmptyParagraph => Failure::input(error.to_string()),
+    }
+}
+
+fn map_common_reshape_error(error: typaxis_layout::ProductionBodyReshapeError) -> Failure {
+    use typaxis_layout::{
+        ProductionBodyReshapeError as E, ProductionInlinePreparationErrorKind as L,
+    };
+    use typaxis_linebreak::{AtomicVectorInlineError as A, BreakError as B};
+    use typaxis_shaping::ProductionTextShapeErrorKind as S;
+    let (kind, code) = match &error {
+        E::Layout(e) => match &e.kind {
+            L::UnitLimit | L::AllocationFailure => (FailureKind::Limit, "L5110"),
+            L::ReceiptMismatch | L::ArithmeticOverflow => (FailureKind::Internal, "I9190"),
+            L::Atomic(cause) => match cause {
+                A::CandidateLimit | A::SelectionLimit | A::AllocationFailure => {
+                    (FailureKind::Limit, "L5110")
+                }
+                A::InvalidBinding | A::ArithmeticOverflow => (FailureKind::Internal, "I9190"),
+                A::EmptyParagraph
+                | A::MissingVector
+                | A::UnicodeLineBreak
+                | A::InvalidLineSize
+                | A::NoFeasibleLine
+                | A::Oversize(_) => (FailureKind::Input, "L5100"),
+            },
+            _ => (FailureKind::Input, "L5100"),
+        },
+        E::Shape(e) => match e.kind {
+            S::ContextLimit | S::OutputLimit | S::AllocationFailure => {
+                (FailureKind::Limit, "L5110")
+            }
+            S::ReceiptMismatch | S::InvalidLineContext | S::ArithmeticOverflow => {
+                (FailureKind::Internal, "I9190")
+            }
+            _ => (FailureKind::Input, "L5100"),
+        },
+        E::Feedback(e) => match e {
+            B::IterationLimit
+            | B::LineShapeLimit
+            | B::ParagraphTextLimit
+            | B::AllocationFailure => (FailureKind::Limit, "L5110"),
+            B::NoFeasibleBreak => (FailureKind::Input, "L5100"),
+            _ => (FailureKind::Internal, "I9190"),
+        },
+    };
+    let message = format!("{code}: {error}");
+    match kind {
+        FailureKind::Limit => Failure::limit(message),
+        FailureKind::Internal => Failure::internal(message),
+        _ => Failure::input(message),
     }
 }

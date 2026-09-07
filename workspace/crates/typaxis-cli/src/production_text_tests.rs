@@ -2053,6 +2053,10 @@ fn production_authored_text_charges_output_across_paragraphs() {
                     error.kind,
                     typaxis_shaping::ProductionTextShapeErrorKind::OutputLimit
                 );
+                let failure = map_common_reshape_error(typaxis_layout::ProductionBodyReshapeError::Shape(error));
+                assert_eq!(failure.kind, FailureKind::Limit);
+                assert!(failure.message.starts_with("L5110:"), "{failure:?}");
+                assert!(failure.message.contains("NodeId(5)"), "{failure:?}");
             }
             (6, Ok(shaped)) => assert_eq!(shaped.output_records(), 6),
             _ => panic!("document output budget was not exact"),
