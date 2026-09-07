@@ -3418,3 +3418,44 @@ This verifies a body contribution in the known test envelope, not final page
 reference convergence, PDF links, formal complete package export or public build.
 All previously recorded full-goal gates remain mandatory. All test processes
 reached terminal state; no public profile was changed or branch pushed.
+
+### 2026-09-07: VMB result, proof and exercise container traversal
+
+Companion commit **`61548af3`** adds `package_semantic.go`. Result kinds retain
+`semantic_kind=result`, proofs retain proof and exercises retain exercise. Their
+real IDs become registered anchors. Existing author classes are retained, and the
+type class is not duplicated. Statement/Blocks/Prompt use the common traversal.
+Resolved heading prefixes are checked against the original logical number; rich
+authored titles keep their source provenance. Generated heading wrappers, prefixes,
+separators and locale proof-end text are marked generated. Proof targets become
+internal links validated after traversal, including forward targets.
+
+The implementation currently accepts the principal title/number/body fields and
+proof Proves/QED. Assumptions, concept/prerequisite metadata, formal verification,
+proof methods, exercise parts/choices/hints and answer/mode fields still fail the
+populated-field guard. Their actual content and publication policy must be added;
+this checkpoint does not remove them from the full objective. Heading/style policy
+must still be integrated with the formal resolver.
+
+Real source-bound inline/block math inside the three container kinds passed source
+projection, rich-title, proof-link, QED, class/provenance and exact node-budget
+checks. Eleven negative cases passed. All rendertypaxis regression tests, including
+**six explicit public check-package cases**, passed in **41.954 seconds**:
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis/... -count=1 -v
+```
+
+New case: **2 images, 2 math occurrences, 123 projection bytes**, empty diagnostics.
+Package SHA-256: `18c0ce49fa53b29b8722459a1c57e7e15a2e2c56cdf62dd3f7fc1493eec2e1d3`.
+Source SHA-256: `f842cab9de3fd27f68375144499b34c30c411d24dbd387d9ba915ac106f51070`.
+Binary SHA-256 remains
+`2fe9e0cc5c233561ee3d29385e45b867c896d58ff6d753b383a1e5488f48677f`.
+Logs: `/private/tmp/vmb-semantic-public.log`, `/private/tmp/vmb-semantic-regression.log`.
+This is admission of a body contribution in the known test envelope, not complete
+package export, public build/PDF or full-book acceptance. All previously recorded
+Harano/chapter/full-book/scale/both-host gates remain mandatory. Launched tests are
+terminal; no public profile changed or branch was pushed.
