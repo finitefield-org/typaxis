@@ -23,9 +23,11 @@ pub use diagnostics::{
 #[path = "cff_v2.rs"]
 mod v2;
 pub use v2::{
-    inspect_cff1_program_v2, CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2,
-    CffOutlineCommandV2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
-    CffProgramInspectionV2,
+    inspect_cff1_program_v2, validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2,
+    CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2, CffOutlineCommandV2,
+    CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
+    CffProgramInspectionV2, CffTableFailureKindV2, CffTableFailureV2, CffVariationSequencesV2,
+    CffVerticalMetricsV2, VariationCoverage,
 };
 
 pub const CFF1_RESOURCE_PROFILE_ID: &str = "typaxis.resource-profile/sfnt-cff1/1";

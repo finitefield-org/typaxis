@@ -18,7 +18,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure and FD-bound Type2 inspection verified against all original Harano glyphs and independent outline/width hashes; sfnt /2 admission, selected cache/closure, subset/PDF integration pending (checkpoint below) |
-| Vertical tables, cmap 14, IVS shaping/extraction | Pending |
+| Vertical tables, cmap 14, IVS shaping/extraction | Borrowed vertical/format-14 structural validators and all-original-entry independent hashes passed; base cmap /2 admission, IVS shaping/extraction pending (checkpoint below) |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
@@ -2774,3 +2774,60 @@ Final original-font run: **2 passed**, no failures, including the complete
 independent outline/width hash assertions. Log:
 `/private/tmp/typaxis-cff-execution-harano-final.log`. Verification started for
 this checkpoint reached terminal states; no branch push or public PDF occurred.
+
+
+## 2026-09-07 checkpoint: bounded vertical tables and variation coverage
+
+Added separate CFF /2 table validators. They borrow unchanged input bytes and
+provide sparse VORG/default origins, long/trailing vmtx metrics, and compressed
+format-14 Default/NonDefault(GID)/Missing lookup. No vertical value is applied to
+horizontal positioning. vhea accepts versions 0x10000 and 0x11000, checks reserved
+fields and requires its paired vmtx with exact glyph-derived length.
+
+UVS validates platform/encoding identity, selector order, scalar/range order,
+GID range, default/non-default disjointness and payload overlap. Exact same-kind
+payload sharing is allowed and charged per selector. Fixed limits are 256
+selectors and 1,000,000 expanded-equivalent values, checked without expansion.
+Errors retain table-relative byte offsets and explicit limit/observed fields.
+This supplements, rather than completes, base cmap validation and IVS shaping.
+
+Independent evidence (FontTools 4.51.0, unchanged source SHA-256
+`66ef3270e68690612e8bf982acfad0e8b40212ce64661cce2bb6d3a98ac84717`):
+
+```sh
+python3 tools/inspect_harano_cff_tables.py \
+  /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf
+```
+
+The tool checks every GID in order and serializes origin i16, advance u16 and
+bearing i16, all big-endian. All 23,060 records hash to
+`a48a869c98cf13ff94cd763ccabf2dbdf849bedc531ea46126a36a075db6c676`.
+There are 21,012 long metrics and 152 VORG overrides. All 17 selectors and 14,780
+UVS values, ordered by selector/base and serialized as two big-endian u32 values,
+a default/non-default byte and big-endian u16 GID (zero for default), hash to
+`ed20f9a7d92d9331403ef147385f2025670839d3af63f3af8e91265567c789a8`.
+Rust tests assert both independently obtained hashes using the unchanged source.
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-resource-admission -p typaxis-resources \
+  -p typaxis-shaping --lib --locked
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font cff_v2_ --locked -- --ignored
+```
+
+Regression result: **162 passed** (font 48, resource-admission 62, resources 28,
+shaping 24), no failures; four explicit-original tests ignored in this run.
+Separate original-font result: **4 passed**, no failures, including existing
+all-glyph Type2 and CID/FD structure tests. Logs:
+`/private/tmp/typaxis-cff-tables-regression.log` and
+`/private/tmp/typaxis-cff-tables-harano.log`.
+Boundary tests cover every truncated prefix, trailing lengths, missing table
+pairs, wrong versions/reserved values, glyph order/range, invalid encoding,
+Unicode surrogate crossings, UVS category intersections, absent offsets,
+selector/value limits and charged shared payloads. Public /1 behavior and
+profile/contract registry remain unchanged. No public Harano/full-book gate or
+IVS shaping/extraction success is claimed; those remain required work.

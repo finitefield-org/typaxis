@@ -643,3 +643,16 @@ pub use evaluate::{
 #[cfg(test)]
 #[path = "cff_v2_evaluate_tests.rs"]
 mod evaluate_tests;
+
+#[path = "cff_v2_vertical.rs"]
+mod vertical;
+pub use vertical::{
+    validate_cff_vertical_metrics_v2, CffTableFailureKindV2, CffTableFailureV2,
+    CffVerticalMetricsV2,
+};
+
+#[path = "cff_v2_variations.rs"]
+mod variations;
+pub use variations::{
+    validate_cff_variation_sequences_v2, CffVariationSequencesV2, VariationCoverage,
+};

@@ -497,6 +497,26 @@ fontを編集したり、文字のadvanceをCFF幅へ置き換えたりしない
 selected-glyph closure・subset receipt、sfnt/cmap14/IVS、公開PDFと全巻ゲートは引き続き必要。
 既存CFF `/1`のprogram型とresource/manifest identity、および公開profile registryは変更しない。
 
+### 7.8 縦tableと異体字対応表の構造検査
+
+`validate_cff_vertical_metrics_v2`は元tableを借用し、VORGの疎な上書きと
+vmtxの末尾short bearingを展開せずに取得する。vhea versionはOpenType仕様の
+`0x00010000`と`0x00011000`、予約fieldとmetricDataFormatは0を要求する。
+version 1.0のlineGapも予約値0として検査する。水平組版には適用しない。
+構造検査はvheaの集計extremaと全glyphの値の一致を追加条件としない。
+
+`validate_cff_variation_sequences_v2`はcmapのencoding recordからplatform 0 /
+encoding 5のformat 14を一つだけ取得する。selectorと各Unicode範囲の順序・重複・
+scalar範囲、GID範囲、default/non-default間の交差とpayloadの部分重複を拒否する。
+同じ種類のpayloadの完全共有は認めるが、値数はselectorごとに課金する。
+selector上限256、展開相当値数上限1,000,000はpayload走査前および圧縮rangeの加算時に
+検査する。lookupは圧縮tableを借用し、Default / NonDefault(GID) / Missingを区別する。
+基底cmapの検証と、二scalarを保持したIVS shapingは別の必須工程である。
+
+原ノ味の全23,060縦metricと17 selector・14,780対応値を、元fontのhashを固定して
+FontToolsの独立取得と照合した。再現用toolは`tools/inspect_harano_cff_tables.py`。
+ここまでで正式sfnt admission、subset、公開PDF、IVS抽出の対応完了とは扱わない。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成

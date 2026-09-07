@@ -4,12 +4,14 @@ mod cff;
 mod math;
 
 pub use cff::{
-    admit_sfnt_cff1, admit_sfnt_cff1_detailed, inspect_cff1_program_v2, Cff1Admission,
+    admit_sfnt_cff1, admit_sfnt_cff1_detailed, inspect_cff1_program_v2,
+    validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2, Cff1Admission,
     Cff1EmbeddingPermission, Cff1Error, Cff1Failure, Cff1GlyphClosure, Cff1PdfMetrics, Cff1Subset,
     Cff1SubsetSession, CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2,
     CffOutlineCommandV2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
-    CffProgramInspectionV2, FontEmbeddingStatus, FontFailureContext, FontFailurePhase,
-    FontFailureReason, CFF1_ADMISSION_ID, CFF1_CHARSTRING_EVALUATOR_ID,
+    CffProgramInspectionV2, CffTableFailureKindV2, CffTableFailureV2, CffVariationSequencesV2,
+    CffVerticalMetricsV2, FontEmbeddingStatus, FontFailureContext, FontFailurePhase,
+    FontFailureReason, VariationCoverage, CFF1_ADMISSION_ID, CFF1_CHARSTRING_EVALUATOR_ID,
     CFF1_EMBEDDING_PERMISSION_ID, CFF1_GLYPH_CLOSURE_ID, CFF1_PDF_PLAN_ID,
     CFF1_RESOURCE_PROFILE_ID, CFF1_SUBSET_ID,
 };
