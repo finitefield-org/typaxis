@@ -3551,3 +3551,45 @@ Assumptions/formal verification, remaining exercise content, section/root metada
 formal package/sidecar/CLI publication and all original PDF/full-book/Harano/scale/
 both-host gates remain required. All launched tests reached terminal state; no
 public profile changed or branch was pushed.
+
+### 2026-09-07: Joined body/source encoding and private staging
+
+Companion **`8bd8b92c`** adds `EncodeBookBody` and private staging. The encoder
+validates every actual document node's pointer/parent/span and every text owner
+against the projection. Actual tree math is collected and checked against the
+completed math session; separate convenience lists cannot conceal changed visible
+math. Annotations gain a process-local integrity fingerprint and are rechecked
+against their source and semantic owner before encoding.
+
+`vmb.typaxis-book-source-map/1` joins the exact body-document JSON hash, projection
+URI/hash/length, node/text mappings, image declarations, math occurrences and
+annotations. The body hash is not a full DocumentPackage hash. Encoding is
+bounded, deterministic encoding/json output, not a JCS or full schema-admission
+claim. Caller-defined serializers, cycles, invalid UTF-8 and excessive structures
+are rejected before JSON allocation. Defaults bound document output to 64 MiB and
+sidecar output to 256 MiB, with separate conservative preflight bounds; global
+pipeline allocation closure is still required.
+
+Encoded artifacts own document, sidecar and projection bytes. Private `Stage`
+creates a new 0700 directory and exclusive 0600 files `body-document.json`,
+`source/book-projection.txt` and `typaxis-source-map.json`, syncing and closing each.
+Failure removes its owned temporary directory. Existing files are not overwritten.
+Complete resources/package/config/math-export files, public CLI execution and
+ArtifactSink publication are still outstanding.
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis/... -count=1 -v
+```
+
+All regression tests, including six existing public body-admission cases, passed
+in **51.926 s**. New checks cover joined content/hashes, deterministic bytes,
+copy ownership, exact output ceilings and ceilings minus one, eleven altered or
+executable inputs, table/footnote topology, cancellation, and exact staged files
+after the original projection is changed. These public tests do not represent
+admission/build of the new partial staging directory as a full package.
+Logs: `/private/tmp/vmb-sidecar-tests.log`, `/private/tmp/vmb-sidecar-regression.log`.
+All launched tests reached terminal state. No public profile was changed or branch
+pushed; full-book, Harano, scale, both-host and public PDF/manifest gates remain.
