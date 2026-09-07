@@ -2265,3 +2265,21 @@ ParentTreeと合わせて双方向の構造参照を照合するが、IDTree本�
 production_body_assembly::production_parent_tree`は2件成功、`cargo test -p typaxis-cli --bin typaxis
 production_footnote_page_content_combines_draws_and_separator_artifacts`は18種のPDFを含む1件成功
 （4.06秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.58 実IDTreeの完全対応検証（実装追補）
+
+本文・脚注assemblyの構造検証はIDTree本体も照合する。実payload中の絶対object番号から
+実object観測のStructureNode roleを解決し、そのregistry nodeが持つ構造IDと項目全体を比較する。
+IDは既存writerと同じsource byte順で厳密な昇順を要求し、項目数をregistryのID数に一致させる。
+これにより重複・欠落・異なるIDとobjectの組合せを拒否する。IDがない場合はIDTreeが存在しない
+ことも要求する。参照番号の先頭0、桁あふれ、異なるgeneration、余分な末尾も拒否する。
+
+照合は実sliceの逐次読み取りとobject／registryの定数時間参照で行い、ID用map・sort用配列・
+複製文字列を作らない。unit testはUnicode ID、重複・順序逆転、件数不一致、全byteの変更と
+全位置の切り詰め、数値境界を検証する。実脚注fixtureでは生成したdefinition IDに接続する。
+これは構造object検証の拡張であり、marked stream・公開receipt／manifest・全巻等の受入は
+引き続き未完了である。
+
+ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
+は3件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
+1件ignored（12.68秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

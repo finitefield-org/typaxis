@@ -32,6 +32,53 @@ fn compare_payload(
     }
 }
 
+// Read the absolute reference to select its source ID, then compare the complete
+// entry. Strict ordering plus the exact count proves one-to-one ID coverage.
+fn verify_id_tree<'a>(
+    bytes: &[u8],
+    expected_count: usize,
+    source_id: impl Fn(u32) -> Option<&'a str>,
+) -> Result<(), E> {
+    let mut rest = bytes
+        .strip_prefix(b"<< /Names [")
+        .ok_or(E::ReceiptMismatch)?;
+    let mut previous: Option<&str> = None;
+    for _ in 0..expected_count {
+        let end = rest
+            .iter()
+            .position(|&b| b == b'>')
+            .ok_or(E::ReceiptMismatch)?;
+        let reference = rest
+            .get(end + 1..)
+            .and_then(|b| b.strip_prefix(b" "))
+            .ok_or(E::ReceiptMismatch)?;
+        let digits = reference.iter().take_while(|b| b.is_ascii_digit()).count();
+        if digits == 0 || digits > 10 || reference[0] == b'0' {
+            return Err(E::ReceiptMismatch);
+        }
+        let mut number = 0u32;
+        for &digit in &reference[..digits] {
+            number = number
+                .checked_mul(10)
+                .and_then(|n| n.checked_add(u32::from(digit - b'0')))
+                .ok_or(E::ReceiptMismatch)?;
+        }
+        let id = source_id(number).ok_or(E::ReceiptMismatch)?;
+        if previous.is_some_and(|prior| prior.as_bytes() >= id.as_bytes()) {
+            return Err(E::ReceiptMismatch);
+        }
+        let mut sink = ExactBytes(rest);
+        sink.text(id).map_err(|_| E::ReceiptMismatch)?;
+        write!(&mut sink, " {number} 0 R ").map_err(|_| E::ReceiptMismatch)?;
+        rest = sink.0;
+        previous = Some(id);
+    }
+    if rest != b"] >>" {
+        return Err(E::ReceiptMismatch);
+    }
+    Ok(())
+}
+
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
     pub(super) fn verify_structure_nodes(&self) -> Result<(), E> {
         let annotations = self.source.structure_objects().annotations();
@@ -74,6 +121,33 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
             }
             sink.write_str(" >>")
         })?;
+        let nodes = structure.registry().nodes();
+        let id_count = nodes
+            .iter()
+            .filter(|node| node.structure_id().is_some())
+            .count();
+        match (id_count, self.object_number(R::IdTree)) {
+            (0, None) => {}
+            (0, Some(_)) | (_, None) => return Err(E::ReceiptMismatch),
+            (_, Some(object)) => verify_id_tree(
+                self.object_bytes(object).ok_or(E::ReceiptMismatch)?,
+                id_count,
+                |number| {
+                    let observation = self.objects().get(number.checked_sub(1)? as usize)?;
+                    if observation.number() != number {
+                        return None;
+                    }
+                    let A::Body(R::StructureNode(id)) = observation.role() else {
+                        return None;
+                    };
+                    let node = nodes.get(id.get() as usize)?;
+                    if node.structure_node_id() != id {
+                        return None;
+                    }
+                    node.structure_id()
+                },
+            )?,
+        }
         for node in structure.registry().nodes() {
             let id = node.structure_node_id();
             let object = self
@@ -212,6 +286,45 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_id_tree_requires_exact_sorted_source_coverage() {
+        let bytes = b"<< /Names [<FEFF0041> 7 0 R <FEFF65E5D83DDE00> 12 0 R ] >>";
+        let resolve = |number| match number {
+            7 => Some("A"),
+            12 => Some("日😀"),
+            _ => None,
+        };
+        assert_eq!(verify_id_tree(bytes, 2, resolve), Ok(()));
+        for count in [0, 1, 3] {
+            assert_eq!(
+                verify_id_tree(bytes, count, resolve),
+                Err(E::ReceiptMismatch)
+            );
+        }
+        for index in 0..bytes.len() {
+            let mut changed = bytes.to_vec();
+            changed[index] ^= 1;
+            assert_eq!(
+                verify_id_tree(&changed, 2, resolve),
+                Err(E::ReceiptMismatch)
+            );
+            assert_eq!(
+                verify_id_tree(&bytes[..index], 2, resolve),
+                Err(E::ReceiptMismatch)
+            );
+        }
+        for invalid in [
+            b"<< /Names [<FEFF65E5D83DDE00> 12 0 R <FEFF0041> 7 0 R ] >>".as_slice(),
+            b"<< /Names [<FEFF0041> 7 0 R <FEFF0041> 7 0 R ] >>",
+            b"<< /Names [<FEFF0041> 4294967296 0 R <FEFF65E5D83DDE00> 12 0 R ] >>",
+            b"<< /Names [<FEFF0041> 07 0 R <FEFF65E5D83DDE00> 12 0 R ] >>",
+            b"<< /Names [<FEFF0041> 7 0 R <FEFF65E5D83DDE00> 12 0 R ] >> ",
+        ] {
+            assert_eq!(verify_id_tree(invalid, 2, resolve), Err(E::ReceiptMismatch));
+        }
+        assert_eq!(verify_id_tree(b"<< /Names [] >>", 0, resolve), Ok(()));
+    }
 
     #[test]
     fn production_structure_text_checks_utf16_surrogates_and_literal_delimiters() {
