@@ -3271,3 +3271,50 @@ The upstream typed contract/profile receipt, full mixed-font finalizer, common
 paragraph/page/paint ownership and public manifest/writer remain outstanding.
 Formal exporter, real chapter/full-book/scale and both-host gates are still part
 of the unchanged completion scope. No public profile or schema alias changed.
+
+### RenderBook body traversal in the companion exporter (2026-09-07)
+
+Companion VMB commit **`6fed376c`** adds `LowerBookBody` under
+`vmb-core/internal/rendertypaxis/package_body.go`. It walks section headings,
+paragraphs, strong/emphasis, breaks, external links, ordered/unordered lists and
+actual inline/block math through one source projection. Node IDs, spans and text
+buffers come from the traversal. Number prefixes are generated provenance;
+number presentation and inline spacing are explicit inputs. Unhandled populated
+fields and unsupported node kinds fail with source context and no partial result.
+Allocation checks precede child-array reservation; projection enforces each real
+node. Math adapter cleanup uses a separate bounded context after cancellation.
+
+Ordinary Go tests passed for `rendertypaxis`, `render` and `rendermath`; the final
+rendertypaxis run also passed with the exact-node-boundary and explicit-spacing
+tests. Real source-bound VMB math is used in the traversal fixture. All wire
+nodes match projection IDs/spans; text mappings, original math occurrences and
+repeat-execution bytes are checked. Public `check-package` passed for both the
+prior math test and the new body test. The new body has **2 images, 2 formula
+occurrences and 88 projection bytes**.
+
+```sh
+cargo build --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --locked
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+go test ./internal/rendertypaxis/... ./internal/render/... ./internal/rendermath/...
+go test ./internal/rendertypaxis/... -count=1
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis -run 'TestBookBodyPublicCheckPackage|TestMathExportPublicCheckPackage' -count=1 -v
+```
+
+Binary SHA-256: `2fe9e0cc5c233561ee3d29385e45b867c896d58ff6d753b383a1e5488f48677f`.
+Body test package SHA-256:
+`85e3a5ac0b185a48d70204593e9c3699b588a2ca867fc707507529f42a0ec329`.
+Source SHA-256: `fe9f74e6f7aaa1bdb78945e828cd4866ad6801bb4bcc3780b25de65f5669a6e3`.
+Logs: `/private/tmp/vmb-typaxis-body-regression.log`,
+`/private/tmp/vmb-typaxis-body-final-tests.log`,
+`/private/tmp/vmb-typaxis-body-public.log`.
+
+This is a body contribution, not the complete exporter: the public test still
+joins it to a known test envelope. Metadata/font/style/page/outline assembly,
+remaining table/figure/reference/container/footnote traversal, bounded collection
+of all findings, CLI adapter and ArtifactSink publication are outstanding. It
+neither proves build/PDF success nor replaces the chapter, full-book, distinct/
+alias scale and both-host gates. All launched processes reached terminal state;
+no public profile was changed or branch pushed.
