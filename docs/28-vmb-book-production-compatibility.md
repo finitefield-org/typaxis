@@ -1995,3 +1995,27 @@ recordsと新しいmarked bytesを加算する。生成結果は元contentとの
 脚注参照先を含む注釈・リンク、manifest・公開writerの最終接続は引き続き必要である。
 独立した完成PDFの抽出順・tag・navigation検証、および動的参照、全allocation寿命管理、
 元全巻・原ノ味・規模・両hostの完了条件を維持する。
+
+### 14.45 脚注参照番号から実定義へのnavigation計画（実装追補）
+
+`build_production_footnote_reference_navigation`は構造結果とadmission／limitsを検証し、
+同じterminal ownerが保持する脚注行の定義・参照対応を使う。生成FootnoteLabelの親を
+NoteまたはReferenceとして照合し、通常のsource anchorやURIとは区別した脚注専用計画を作る。
+
+定義のdestination列はsource定義順を維持する。移動先のページ・fragmentは最初に実配置された
+定義番号と一致し、領域はその番号と最初の実内容fragment、および同fragmentの全描画を含む。
+数式・図・大きいlist markerで始まる脚注でも上端を取りこぼさない。継続fragmentを新たな
+定義先として登録しない。
+
+参照link列は実ページ／描画順と各Reference構造nodeを保持し、参照番号の実logical boundsを
+同じfragment内で結合する。複数回の参照を失わず、それぞれがsourceに対応した定義indexを指す。
+ページごとのlink範囲を保持し、未配置の定義／参照、二重の定義ラベル、順序不整合を拒否する。
+任意の座標や参照先を入力する公開constructorは作らない。
+
+先行marked-contentなどを保持するrecord chargeを受け取り、構造より小さい基準値は拒否する。
+定義・参照・最初のfragmentの一時index、保持結果、ページ範囲と各linkを同じ上限へ加算する。
+結果は元の構造ownerとの同一性、admission／limitsを再検証できる。
+
+これは脚注専用の幾何・参照先計画である。通常anchor／URI／outlineを含むjoint navigation、
+注釈object・StructParent、定義destinationのPDF化、必要な戻りリンクと最終writerへの統合は
+引き続き必要である。元全巻・原ノ味・両hostを含む完成PDFの受入条件を緩和しない。

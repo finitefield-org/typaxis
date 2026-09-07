@@ -5100,3 +5100,48 @@ destinations/annotations, final structure/ParentTree/font/image objects, manifes
 and the public writer remain to connect, together with dynamic references,
 complete allocation/retry budgeting and original full-book/Harano/scale/both-host
 acceptance. No push.
+
+## Footnote definition destinations and reference hit areas
+
+Implemented §14.45. A new authenticated footnote-reference navigation plan
+uses the actual terminal-owned definition/reference mapping and generated
+FootnoteLabel groups. Definition destinations retain source definition indices
+while reference links retain selected paint/page order. Each Reference maps
+to its exact definition index; repeated references and multiple digits remain
+distinct source occurrences. The first definition fragment, its number and
+all associated paints contribute to the destination bounds, including large
+list markers, formulas and figures. Continuations do not create another
+definition destination. Hit rectangles cover only actual reference-number
+draws, joined within the same fragment.
+
+The result stores Note/Reference structure nodes, page/fragment coordinates,
+page link ranges, exact structure identity and a deterministic fingerprint.
+Missing/duplicate destinations, unplaced references, invalid geometry/order
+and foreign structure/admission/limits are rejected. Navigation records start
+from the caller's retained marked-content charge, never below structure charge;
+temporary indexes, retained destinations and links are included.
+
+Verification (all terminal; target directory
+`/private/tmp/typaxis-vmb-book-build`, manifest `workspace/Cargo.toml`):
+- `cargo check -p typaxis-display-list --locked`: passed, 7.20 s.
+- `cargo test -p typaxis-cli --bin typaxis production_footnote_ --locked`:
+  **55 passed, 0 failed, 9.68 s** before the final reversed-order/first-row
+  additions; `/private/tmp/typaxis-footnote-nav-tests.log`.
+- `cargo test -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000`:
+  **152 passed, 0 failed, 1 explicitly ignored, 15.02 s**;
+  `/private/tmp/typaxis-footnote-nav-final.log`. Reversed reference/definition
+  order, repeated references, multiple digits, real formula/raster definitions,
+  continuing notes, exact/one-short retained record budgets, identity rejection
+  and existing ordinary navigation/structure/object/assembly regressions pass.
+- After adding a definition starting with a large list marker and checking
+  that each destination contains all paints of its first fragment:
+  `cargo test -p typaxis-cli --bin typaxis production_footnote_page_content_combines --locked`,
+  **1 passed, 0 failed, 2.58 s**, `/private/tmp/typaxis-footnote-nav-first-row.log`.
+
+The two unchanged 5,000-SVG unmarked-content cases were explicitly excluded
+from this regression; their prior completed evidence remains above. The
+saved-job test remains explicitly ignored. This dedicated reference plan is
+not complete joint navigation: ordinary anchors/URI/outline, PDF annotation
+objects/StructParent, destination serialization and needed return links still
+require integration. No public PDF receipt, original-book/Harano/both-host
+acceptance or push is claimed.

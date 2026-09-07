@@ -18,6 +18,9 @@ impl<'g, 'q, 'b, 'f, 's, 'p, 'a> ProductionBodyFootnoteMathTerminals<'g, 'q, 'b,
     pub fn block_layout(&self) -> &'s typaxis_layout::StagingPrecomposedVectorBlockLayout {
         self.flow.blocks
     }
+    pub fn footnote_lines(&self) -> &typaxis_layout::ProductionFootnoteLines<'s, 'p, 'a> {
+        self.flow.footnotes()
+    }
     pub fn registry(&self) -> &'g StagingMathVectorFlowRegistry {
         self.registry
     }

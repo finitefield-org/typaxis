@@ -587,3 +587,11 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
     }
     Ok(result)
 }
+
+
+#[path = "production_footnote_navigation.rs"]
+mod production_footnote_navigation;
+pub use production_footnote_navigation::{
+    build_production_footnote_reference_navigation, ProductionFootnoteDestination,
+    ProductionFootnoteReferenceLink, ProductionFootnoteReferenceNavigation,
+};

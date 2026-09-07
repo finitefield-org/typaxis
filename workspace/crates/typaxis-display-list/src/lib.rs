@@ -3,6 +3,8 @@
 mod production_body;
 mod production_navigation;
 pub use production_navigation::{
+    build_production_footnote_reference_navigation, ProductionFootnoteDestination,
+    ProductionFootnoteReferenceLink, ProductionFootnoteReferenceNavigation,
     build_production_body_navigation, ProductionBodyDestination, ProductionBodyLink,
     ProductionBodyLinkTarget, ProductionBodyNavigation, ProductionBodyNavigationError,
     ProductionBodyNavigationErrorKind, ProductionBodyOutlineTopology,

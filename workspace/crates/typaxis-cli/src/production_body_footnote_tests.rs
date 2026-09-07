@@ -2067,7 +2067,22 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
     let mut multi = production_footnote_multi_digit_fixture();
     multi["page_masters"]["masters"][0]["footnote"]["height"] = 16_000_000.into();
     multi["page_masters"]["masters"][0]["footnote"]["y"] = 3_000_000.into();
+    let mut reversed = production_footnote_flow_fixture();
+    let children = reversed["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    let count = children.len();
+    children.swap(count - 1, count - 2);
+    production_body_renumber(&mut reversed["document"], &mut 0);
+    let mut list_note = production_footnote_flow_fixture();
+    list_note["document"]["footnotes"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .remove(0);
+    production_body_renumber(&mut list_note["document"], &mut 0);
     for value in [
+        list_note,
+        reversed,
         multi,
         raster_note,
         production_footnote_flow_fixture(),
@@ -2342,6 +2357,183 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     assert_eq!(anchor.baseline(), vector.baseline().unwrap());
                     assert_eq!(anchor.page_index(), vector.page_index());
                 }
+
+                let nav = typaxis_display_list::build_production_footnote_reference_navigation(
+                    &structure,
+                    admitted,
+                    limits,
+                    marked.record_charge(),
+                )
+                .unwrap();
+                nav.verify(&structure, admitted, limits).unwrap();
+                assert_eq!(nav.record_base(), marked.record_charge());
+                assert!(nav.additional_records() > 0);
+                let source_notes = terminals.footnote_lines();
+                assert_eq!(nav.destinations().len(), source_notes.definitions().len());
+                let fragments: Vec<_> = geometry
+                    .pages()
+                    .iter()
+                    .flat_map(|p| p.fragments())
+                    .collect();
+                for (index, destination) in nav.destinations().iter().enumerate() {
+                    assert_eq!(destination.definition_index(), index);
+                    assert_eq!(
+                        destination.owner(),
+                        source_notes.definitions()[index].owner()
+                    );
+                    assert_eq!(
+                        structure
+                            .registry()
+                            .node(destination.node())
+                            .unwrap()
+                            .role(),
+                        typaxis_display_list::StructureRole::Note
+                    );
+                    let (first_index, first) = fragments
+                        .iter()
+                        .enumerate()
+                        .find(|(_, f)| f.definition_index() == Some(index))
+                        .unwrap();
+                    assert_eq!(destination.fragment_index(), first_index as u32);
+                    assert_eq!(destination.page_index(), first.fragment().page_index());
+                    let bounds = first.fragment().bounds();
+                    assert!(destination.bounds().x() <= bounds.x());
+                    assert!(destination.bounds().y() <= bounds.y());
+                    assert!(
+                        destination.bounds().x().raw() + destination.bounds().width().get().raw()
+                            >= bounds.x().raw() + bounds.width().get().raw()
+                    );
+                    assert!(
+                        destination.bounds().y().raw() + destination.bounds().height().get().raw()
+                            >= bounds.y().raw() + bounds.height().get().raw()
+                    );
+                    for draw in display.draws() {
+                        let (fragment, rect) = match draw {
+                            ProductionBodyDraw::Text(t) => (t.fragment_index(), t.logical_bounds()),
+                            ProductionBodyDraw::Vector(v) => {
+                                (v.fragment_index(), Some(v.viewport()))
+                            }
+                            ProductionBodyDraw::Raster(r) => {
+                                (r.fragment_index(), Some(r.viewport()))
+                            }
+                        };
+                        if fragment == first_index as u32 {
+                            if let Some(rect) = rect {
+                                let target = destination.bounds();
+                                assert!(target.x() <= rect.x() && target.y() <= rect.y());
+                                assert!(
+                                    target.x().raw() + target.width().get().raw()
+                                        >= rect.x().raw() + rect.width().get().raw()
+                                );
+                                assert!(
+                                    target.y().raw() + target.height().get().raw()
+                                        >= rect.y().raw() + rect.height().get().raw()
+                                );
+                            }
+                        }
+                    }
+                }
+                let expected_owners: std::collections::BTreeSet<_> = source_notes
+                    .references()
+                    .iter()
+                    .map(|r| r.owner())
+                    .collect();
+                let actual_owners: std::collections::BTreeSet<_> =
+                    nav.links().iter().map(|r| r.owner()).collect();
+                assert_eq!(expected_owners, actual_owners);
+                for link in nav.links() {
+                    let reference = source_notes
+                        .references()
+                        .iter()
+                        .find(|r| r.owner() == link.owner())
+                        .unwrap();
+                    assert_eq!(link.definition_index(), reference.definition_index());
+                    assert_eq!(
+                        structure.registry().node(link.node()).unwrap().role(),
+                        typaxis_display_list::StructureRole::Reference
+                    );
+                    let rects: Vec<_> = display
+                        .draws()
+                        .iter()
+                        .filter_map(|draw| match draw {
+                            ProductionBodyDraw::Text(t)
+                                if t.owner() == link.owner()
+                                    && t.page_index() == link.page_index()
+                                    && t.fragment_index() == link.fragment_index() =>
+                            {
+                                t.logical_bounds()
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    let left = rects.iter().map(|r| r.x().raw()).min().unwrap();
+                    let top = rects.iter().map(|r| r.y().raw()).min().unwrap();
+                    let right = rects
+                        .iter()
+                        .map(|r| r.x().raw() + r.width().get().raw())
+                        .max()
+                        .unwrap();
+                    let bottom = rects
+                        .iter()
+                        .map(|r| r.y().raw() + r.height().get().raw())
+                        .max()
+                        .unwrap();
+                    assert_eq!(
+                        (
+                            link.bounds().x().raw(),
+                            link.bounds().y().raw(),
+                            link.bounds().width().get().raw(),
+                            link.bounds().height().get().raw()
+                        ),
+                        (left, top, right - left, bottom - top)
+                    );
+                }
+                let mut cursor = 0;
+                for page in 0..geometry.pages().len() {
+                    let range = nav.page_links(page as u32).unwrap();
+                    assert_eq!(range.start, cursor);
+                    assert!(nav.links()[range.clone()]
+                        .iter()
+                        .all(|l| l.page_index() == page as u32));
+                    cursor = range.end;
+                }
+                assert_eq!(cursor, nav.links().len());
+                assert!(nav.page_links(geometry.pages().len() as u32).is_none());
+                let again = typaxis_display_list::build_production_footnote_reference_navigation(
+                    &structure,
+                    admitted,
+                    limits,
+                    marked.record_charge(),
+                )
+                .unwrap();
+                assert_eq!(again.fingerprint(), nav.fingerprint());
+                assert_eq!(again.destinations(), nav.destinations());
+                assert_eq!(again.links(), nav.links());
+                let other_structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                assert_eq!(
+                    nav.verify(&other_structure, admitted, limits)
+                        .err()
+                        .unwrap()
+                        .kind,
+                    typaxis_display_list::ProductionBodyNavigationErrorKind::ReceiptMismatch
+                );
+                assert_eq!(
+                    typaxis_display_list::build_production_footnote_reference_navigation(
+                        &structure, admitted, limits, 0
+                    )
+                    .err()
+                    .unwrap()
+                    .kind,
+                    typaxis_display_list::ProductionBodyNavigationErrorKind::ReceiptMismatch
+                );
                 let other_content =
                     typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
                         .unwrap();
@@ -2532,6 +2724,79 @@ fn production_footnote_marked_content_preserves_prior_records_spool_and_output()
                             .iter()
                             .map(|p| p.content().len() as u64)
                             .sum();
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_reference_navigation_keeps_retained_record_budget() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    for mode in 0..3 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+                let result = typaxis_display_list::build_production_footnote_reference_navigation(
+                    &structure,
+                    admitted,
+                    limits,
+                    marked.record_charge(),
+                );
+                if mode == 2 {
+                    assert_eq!(
+                        result.err().unwrap().kind,
+                        typaxis_display_list::ProductionBodyNavigationErrorKind::RecordLimit
+                    );
+                } else {
+                    let nav = result.unwrap();
+                    if mode == 0 {
+                        records = nav.record_base() + nav.additional_records();
                     }
                 }
             },
