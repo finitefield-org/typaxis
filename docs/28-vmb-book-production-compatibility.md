@@ -1594,3 +1594,29 @@ ownerで`FootnoteFrameExhausted`を返す。定義終了時には元のframeを�
 これは横方向の内容幅の確保であり、番号のbaseline・上下占有量・配置を確定した結果
 ではない。それらを断片の実測高さへ接続し、参照ページとの同時選択・継続脚注・最終
 paintを閉じる必要がある。公開writerおよび全巻受け入れのゲートは維持する。
+
+
+### 14.25 脚注定義番号のbaselineと上下占有量
+
+実測body flowは、定義番号を各定義内の最初の描画項目に結び付けた
+`ProductionFootnoteMarkerBinding`を保持する。定義owner・定義index・定義内item index・
+内容上端に対するbaselineを公開するが、任意構築やページ・paintの許可には使わない。
+段落行では選択済み実行のbaseline、baselineを持つvector blockではviewport上端offsetと
+実baselineの和を使う。baselineを持たないblockやrasterでは番号fontのascenderを使い、
+番号の上端を内容上端へ揃える。
+
+番号fontの実ascender/descenderから、内容上端より上の量と内容高さを超える下の量を
+算出し、項目のleading/trailingへ反映する。リスト番号と同じ計算を共用し、同じ項目に
+複数の番号が付く場合は上下それぞれの最大値を採用する。追加量を合算して同じ領域を
+重複予約しない。脚注断片探索の消費高さにこの占有量が含まれる。
+
+定義ごとのbindingを1 recordとして保持予算へ加える。先頭の明示改ページは番号の
+描画項目にならず、番号はその項目を実際に含む選択の`marker()`からのみ参照できる。
+継続断片には定義番号を繰り返さない。描画項目が全くない定義は、仮の描画項目を補わず
+定義ownerの`EmptyFootnote`として拒否する。
+
+段落・実VMB vector・vectorを先頭に持つlist・rasterを使い、baseline、上下追加量の共有、
+実消費高さちょうど／1単位不足、先頭改ページと継続時の番号の有無、保持予算の境界を
+検査する。これで定義番号を含む内容断片の高さを扱えるが、参照ページとの同時選択、
+複数定義間spacing、ページ上の予約・配置・構造とpaintの接続は未完了である。
+公開writerと全巻受け入れのゲートは維持する。

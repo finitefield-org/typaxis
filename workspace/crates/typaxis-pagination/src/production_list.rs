@@ -147,41 +147,61 @@ pub(super) fn prepare_metrics(
         let item = items
             .get_mut(index)
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        let baseline = match item.source.ok_or_else(|| error(owner, E::EmptyListItem))? {
-            ProductionBodyFragmentSource::ParagraphLine {
-                paragraph_index,
-                line_index,
-            } => {
-                lines.paragraphs()[paragraph_index as usize].lines()[line_index as usize].baseline()
-            }
-            ProductionBodyFragmentSource::VectorBlock { block_index } => {
-                let block = &blocks.blocks()[block_index as usize];
-                match block.baseline() {
-                    Some(b) => add(block.viewport_top_offset().get(), b.get(), owner)?,
-                    None => marker.font().ascender(),
-                }
-            }
-            ProductionBodyFragmentSource::RasterFigure { .. } => marker.font().ascender(),
-        };
-        let ascent = marker.font().ascender();
-        let descent = marker.font().descender();
-        if ascent <= descent {
-            return Err(error(owner, E::ReceiptMismatch));
-        }
-        let leading = ascent
-            .checked_sub(baseline)
-            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?
-            .max(Length::ZERO);
-        let trailing = baseline
-            .checked_sub(descent)
-            .and_then(|n| n.checked_sub(item.height))
-            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?
-            .max(Length::ZERO);
-        item.leading = item.leading.max(leading);
-        item.trailing = item.trailing.max(trailing);
+        let baseline = prepare_marker_metrics(
+            lines,
+            blocks,
+            item,
+            marker.font().ascender(),
+            marker.font().descender(),
+            owner,
+        )?;
         binding.baseline = baseline;
     }
     Ok(())
+}
+
+/// Merge each label's vertical extent with the same real content item. Nested
+/// labels share the maximum leading/trailing; they do not add duplicate height.
+pub(super) fn prepare_marker_metrics(
+    lines: &ProductionInlineLineLayout<'_, '_>,
+    blocks: &StagingPrecomposedVectorBlockLayout,
+    item: &mut Item,
+    ascent: Length,
+    descent: Length,
+    owner: NodeId,
+) -> Result<Length, ProductionBodyPaginationError> {
+    let baseline = match item
+        .source
+        .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+    {
+        ProductionBodyFragmentSource::ParagraphLine {
+            paragraph_index,
+            line_index,
+        } => lines.paragraphs()[paragraph_index as usize].lines()[line_index as usize].baseline(),
+        ProductionBodyFragmentSource::VectorBlock { block_index } => {
+            let block = &blocks.blocks()[block_index as usize];
+            match block.baseline() {
+                Some(b) => add(block.viewport_top_offset().get(), b.get(), owner)?,
+                None => ascent,
+            }
+        }
+        ProductionBodyFragmentSource::RasterFigure { .. } => ascent,
+    };
+    if ascent <= descent {
+        return Err(error(owner, E::ReceiptMismatch));
+    }
+    let leading = ascent
+        .checked_sub(baseline)
+        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?
+        .max(Length::ZERO);
+    let trailing = baseline
+        .checked_sub(descent)
+        .and_then(|n| n.checked_sub(item.height))
+        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?
+        .max(Length::ZERO);
+    item.leading = item.leading.max(leading);
+    item.trailing = item.trailing.max(trailing);
+    Ok(baseline)
 }
 
 pub(super) fn place_marker(

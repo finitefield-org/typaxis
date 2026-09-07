@@ -4336,3 +4336,48 @@ Final production regression: **112 passed, 0 failed, 1 explicitly ignored** in
 ran against the final behavior; subsequent source edits only wrapped/reordered
 exports and formatted the new test call. All launched commands are terminal.
 No branch push or new public/full-book PDF acceptance result is claimed.
+
+### Footnote definition labels join measured fragment height
+
+Prepared body flow now retains one opaque definition-marker binding per actual
+definition. The binding identifies the first paintable local item and its real
+content-relative baseline. Paragraph baselines come from selected lines; vector
+baselines include the actual viewport top offset. Rasters and blocks without a
+baseline align the label's font ascender to the content top.
+
+The existing list-marker metric calculation is shared. Each label's actual font
+ascender/descender expands the item's leading/trailing as necessary. Multiple
+labels on one item take maxima rather than adding overlapping extents. Footnote
+boundary selection consumes this measured height. A selection exposes its label
+only when it contains the bound item; leading forced breaks do not consume the
+label, and continuation fragments do not repeat it. Definitions with no paintable
+item report `EmptyFootnote` at the definition owner. Each retained binding adds
+one record, preserving exact/one-short budget coverage. No page or paint receipt
+is issued by this binding.
+
+Final focused footnote tests: **15 passed, 0 failed, 1.37 s**;
+`/private/tmp/typaxis-footnote-metrics-final.log`. They cover real paragraph/vector/
+list/raster baselines, a 64 pt definition label, shared first-vector extents, exact
+consumed-height capacity and a one-unit shortage, continuation ownership, forced
+breaks, empty-definition rejection and retained-record boundaries. Initial test
+fixtures were corrected to keep the enlarged font local to footnotes and give the
+new vector-containing list its true source span.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_list --locked
+```
+List regression log: `/private/tmp/typaxis-footnote-metrics-list-regression.log`.
+Reference-page coupling, inter-definition spacing, page reservation/placement,
+structure and public paint remain incomplete, as do original full-book/Harano/
+scale and both-host acceptance. No new public or full-book PDF result is claimed.
+
+List regression: **11 passed, 0 failed, 2.76 s**, including nested-label height
+sharing, continuation pages, real vector/raster baselines, PDF assembly and
+independent PDF probes. No functional changes followed these test runs. All
+launched test commands are terminal; no branch push is claimed.

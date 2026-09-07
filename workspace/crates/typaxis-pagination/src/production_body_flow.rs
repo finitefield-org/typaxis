@@ -51,6 +51,30 @@ impl ProductionBodyFlowItem {
     }
 }
 
+/// Definition label bound to one item in that definition's local stream.
+/// Baseline is relative to the content top, before the item's leading offset.
+/// This binding carries no page or paint permission.
+pub struct ProductionFootnoteMarkerBinding {
+    owner: NodeId,
+    definition_index: usize,
+    item_index: usize,
+    baseline: Length,
+}
+impl ProductionFootnoteMarkerBinding {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn definition_index(&self) -> usize {
+        self.definition_index
+    }
+    pub const fn item_index(&self) -> usize {
+        self.item_index
+    }
+    pub const fn baseline(&self) -> Length {
+        self.baseline
+    }
+}
+
 /// Owns one source-ordered collection. Definition slices never join the body
 /// slice; no page index, vertical position, continuation or paint is authorized.
 pub struct ProductionPreparedBodyFlow<'f, 's, 'p, 'a> {
@@ -58,6 +82,7 @@ pub struct ProductionPreparedBodyFlow<'f, 's, 'p, 'a> {
     blocks: &'s StagingPrecomposedVectorBlockLayout,
     footnotes: &'f typaxis_layout::ProductionFootnoteLines<'s, 'p, 'a>,
     collected: CollectedItems,
+    definition_markers: Vec<ProductionFootnoteMarkerBinding>,
     record_charge: u64,
     limits_fingerprint: [u8; 32],
 }
@@ -70,6 +95,12 @@ impl<'f, 's, 'p, 'a> ProductionPreparedBodyFlow<'f, 's, 'p, 'a> {
             .definitions
             .get(definition_index)
             .map(|r| &self.collected.items[r.clone()])
+    }
+    pub fn definition_marker(
+        &self,
+        definition_index: usize,
+    ) -> Option<&ProductionFootnoteMarkerBinding> {
+        self.definition_markers.get(definition_index)
     }
     pub fn footnotes(&self) -> &typaxis_layout::ProductionFootnoteLines<'s, 'p, 'a> {
         self.footnotes
@@ -133,12 +164,49 @@ pub fn prepare_production_body_flow<'f, 's, 'p, 'a>(
         &mut collected.items,
         &mut collected.marker_bindings,
     )?;
+    let markers = lines.footnote_markers();
+    if markers.len() != collected.definitions.len() {
+        return Err(error(root, E::ReceiptMismatch));
+    }
+    charge.take(markers.len(), root)?;
+    let mut definition_markers = Vec::new();
+    definition_markers
+        .try_reserve_exact(markers.len())
+        .map_err(|_| error(root, E::AllocationFailure))?;
+    for (definition_index, (marker, range)) in
+        markers.iter().zip(&collected.definitions).enumerate()
+    {
+        let owner = marker.source().owner();
+        if footnotes.definitions()[definition_index].owner() != owner {
+            return Err(error(owner, E::ReceiptMismatch));
+        }
+        let items = &mut collected.items[range.clone()];
+        let item_index = items
+            .iter()
+            .position(|item| list::has_paint(item, lines))
+            .ok_or_else(|| error(owner, E::EmptyFootnote))?;
+        let baseline = list::prepare_marker_metrics(
+            lines,
+            blocks,
+            &mut items[item_index],
+            marker.font().ascender(),
+            marker.font().descender(),
+            owner,
+        )?;
+        definition_markers.push(ProductionFootnoteMarkerBinding {
+            owner,
+            definition_index,
+            item_index,
+            baseline,
+        });
+    }
     let record_charge = limits.base().get().max_fragments - charge.remaining;
     Ok(ProductionPreparedBodyFlow {
         lines,
         blocks,
         footnotes,
         collected,
+        definition_markers,
         record_charge,
         limits_fingerprint: limits.fingerprint(),
     })

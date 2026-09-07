@@ -9,7 +9,7 @@ mod production_body;
 pub use production_body::{
     prepare_production_body_flow, ProductionPreparedBodyFlow, ProductionBodyFlowItem,
     prepare_production_footnote_search, ProductionFootnoteBreakSearch,
-    ProductionFootnoteCursor, ProductionFootnoteFragmentSelection,
+    ProductionFootnoteCursor, ProductionFootnoteFragmentSelection, ProductionFootnoteMarkerBinding,
     finalize_production_body_math_terminals, paginate_production_body,
     paginate_stable_production_body,
     ProductionBodyPagePass, ProductionBodyPageStability, ProductionStableBodyPages,

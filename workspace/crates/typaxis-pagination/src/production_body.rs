@@ -37,7 +37,7 @@ mod body_flow;
 pub use body_flow::{
     prepare_production_body_flow, prepare_production_footnote_search,
     ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteFragmentSelection,
-    ProductionPreparedBodyFlow,
+    ProductionFootnoteMarkerBinding, ProductionPreparedBodyFlow,
 };
 
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
@@ -49,6 +49,7 @@ pub enum ProductionBodyPaginationErrorKind {
     PendingNamedPage,
     PendingEquationNumber,
     EmptyListItem,
+    EmptyFootnote,
     PendingContainerIndent,
     EmptyParagraph,
     WidthMismatch,

@@ -136,7 +136,7 @@ fn production_footnote_flow_collects_real_blocks_and_lists_without_body_splicing
                     flow.footnotes().record_charge() + blocks.blocks().len() as u64;
                 assert_eq!(
                     flow.record_charge(),
-                    records_before_collection + 2 + count as u64 + 4
+                    records_before_collection + 2 + count as u64 + 4 + 2
                 );
                 required = flow.record_charge();
                 let other = typaxis_layout::layout_production_body_inline_lines(
@@ -334,6 +334,12 @@ fn production_footnote_breaks_preserve_continuation_and_reject_foreign_cursors()
             let selected = search.evaluate(&cursor, capacity).unwrap().unwrap();
             selected.verify(flow).unwrap();
             assert_eq!(selected.consumed_range().start, end);
+            assert_eq!(
+                selected.marker().is_some(),
+                selected
+                    .consumed_range()
+                    .contains(&flow.definition_marker(0).unwrap().item_index())
+            );
             assert!(!selected.items().is_empty());
             assert!(selected.used_height() <= capacity);
             assert_eq!(selected.available_height(), capacity);
@@ -484,6 +490,12 @@ fn production_footnote_breaks_consume_leading_consecutive_and_trailing_forced_br
             };
             let selected = search.evaluate(&cursor, capacity).unwrap().unwrap();
             assert_eq!(selected.consumed_range().start, end);
+            assert_eq!(
+                selected.marker().is_some(),
+                selected
+                    .consumed_range()
+                    .contains(&flow.definition_marker(0).unwrap().item_index())
+            );
             assert!(selected.consumed_range().end > end);
             if end < 2 {
                 assert!(selected.items().is_empty());
@@ -869,4 +881,216 @@ fn production_footnote_columns_share_actual_marker_extents_and_reject_exhaustion
             },
         );
     }
+}
+
+#[test]
+fn production_footnote_marker_metrics_join_real_baselines_and_merge_list_extents() {
+    use typaxis_pagination::{
+        prepare_production_body_flow, prepare_production_footnote_search,
+        ProductionBodyFragmentSource as Source,
+    };
+    for kind in ["paragraph", "vector", "list", "raster"] {
+        let mut value = production_footnote_flow_fixture();
+        let paragraph = value["document"]["footnotes"][1]["blocks"][0].clone();
+        let first = match kind {
+            "vector" => value["document"]["footnotes"][0]["blocks"][0].clone(),
+            "list" => {
+                let mut list = value["document"]["footnotes"][0]["blocks"][1].clone();
+                list["span"] = value["document"]["footnotes"][0]["span"].clone();
+                list["items"].as_array_mut().unwrap().truncate(1);
+                list["items"][0]["span"] = list["span"].clone();
+                list["items"][0]["blocks"] =
+                    serde_json::json!([value["document"]["footnotes"][0]["blocks"][0], paragraph]);
+                list
+            }
+            "raster" => {
+                let raster =
+                    production_raster_fixture("orientation-alpha.png", 1_500_000, 10_000_000);
+                value["resources"]["images"] = raster["resources"]["images"].clone();
+                let mut figure = raster["document"]["blocks"][0]["blocks"][2].clone();
+                figure["caption"] = serde_json::json!([]);
+                production_body_set_style(&mut value, "figure", "width", 1_500_000.into());
+                production_body_set_style(&mut value, "figure", "keep_caption", false.into());
+                figure
+            }
+            _ => paragraph.clone(),
+        };
+        value["document"]["footnotes"][0]["blocks"] =
+            serde_json::json!([first, paragraph, paragraph]);
+        production_footnote_marker_style(&mut value, "Body", 64 * 65_536);
+        fn mark_paragraphs(node: &mut serde_json::Value) {
+            if node["kind"] == "paragraph" {
+                node["classes"] = serde_json::json!(["note"]);
+            }
+            match node {
+                serde_json::Value::Object(object) => {
+                    for child in object.values_mut() {
+                        mark_paragraphs(child);
+                    }
+                }
+                serde_json::Value::Array(array) => {
+                    for child in array {
+                        mark_paragraphs(child);
+                    }
+                }
+                _ => {}
+            }
+        }
+        mark_paragraphs(&mut value["document"]["footnotes"]);
+        production_body_renumber(&mut value["document"], &mut 0);
+        with_production_inline_context(
+            &serde_json::to_vec(&value).unwrap(),
+            &config(),
+            |prepared, package, profile, limits, admitted, bindings| {
+                let math = typaxis_layout::prepare_staging_math_vector_flows(
+                    package, profile, limits, admitted, bindings,
+                )
+                .unwrap();
+                let blocks = typaxis_layout::prepare_staging_precomposed_vector_blocks(
+                    package, profile, limits, admitted, bindings, &math,
+                )
+                .unwrap();
+                let lines = typaxis_layout::layout_production_body_inline_lines(
+                    prepared,
+                    profile.page_geometry().body(),
+                    100_000,
+                )
+                .unwrap();
+                let registry =
+                    typaxis_layout::prepare_production_footnote_lines(&lines, limits).unwrap();
+                let flow =
+                    prepare_production_body_flow(&lines, &blocks, &registry, limits).unwrap();
+                let binding = flow.definition_marker(0).unwrap();
+                let marker = &lines.footnote_markers()[0];
+                assert_eq!(binding.owner(), marker.source().owner());
+                assert_eq!(binding.definition_index(), 0);
+                assert_eq!(binding.item_index(), 0);
+                assert!(flow.definition_marker(2).is_none());
+                let item = &flow.definition_items(0).unwrap()[0];
+                let baseline = match item.source().unwrap() {
+                    Source::ParagraphLine {
+                        paragraph_index,
+                        line_index,
+                    } => lines.paragraphs()[paragraph_index as usize].lines()[line_index as usize]
+                        .baseline(),
+                    Source::VectorBlock { block_index } => {
+                        let block = &blocks.blocks()[block_index as usize];
+                        block
+                            .viewport_top_offset()
+                            .get()
+                            .checked_add(block.baseline().unwrap().get())
+                            .unwrap()
+                    }
+                    Source::RasterFigure { .. } => marker.font().ascender(),
+                };
+                assert_eq!(binding.baseline(), baseline);
+                let font = marker.font();
+                let mut leading = font
+                    .ascender()
+                    .checked_sub(baseline)
+                    .unwrap()
+                    .max(Length::ZERO);
+                let mut trailing = baseline
+                    .checked_sub(font.descender())
+                    .unwrap()
+                    .checked_sub(item.height())
+                    .unwrap()
+                    .max(Length::ZERO);
+                if kind == "list" {
+                    let list_font = lines.list_markers()[0].font();
+                    leading = leading.max(
+                        list_font
+                            .ascender()
+                            .checked_sub(baseline)
+                            .unwrap()
+                            .max(Length::ZERO),
+                    );
+                    trailing = trailing.max(
+                        baseline
+                            .checked_sub(list_font.descender())
+                            .unwrap()
+                            .checked_sub(item.height())
+                            .unwrap()
+                            .max(Length::ZERO),
+                    );
+                }
+                // Both definition and list labels share the same first vector.
+                // Taking maxima prevents counting the same vertical area twice.
+                assert_eq!(item.leading(), leading, "{kind}");
+                assert_eq!(item.trailing(), trailing, "{kind}");
+                let height = item
+                    .height()
+                    .checked_add(leading)
+                    .unwrap()
+                    .checked_add(trailing)
+                    .unwrap();
+                assert_eq!(item.consumed_height().unwrap(), height);
+                if kind != "paragraph" {
+                    assert!(leading > Length::ZERO || trailing > Length::ZERO, "{kind}");
+                }
+                let mut search =
+                    prepare_production_footnote_search(&flow, limits, 100_000).unwrap();
+                let cursor = search.begin(0).unwrap();
+                assert!(search
+                    .evaluate(
+                        &cursor,
+                        height.checked_sub(Length::from_raw(1).unwrap()).unwrap()
+                    )
+                    .unwrap()
+                    .is_none());
+                let selected = search.evaluate(&cursor, height).unwrap().unwrap();
+                assert_eq!(selected.items().len(), 1);
+                assert_eq!(selected.used_height(), height);
+                assert!(std::ptr::eq(selected.marker().unwrap(), binding));
+                let next = selected.continuation().unwrap();
+                let continuation = search
+                    .evaluate(&next, flow.footnote_region().unwrap().height().get())
+                    .unwrap()
+                    .unwrap();
+                assert!(continuation.marker().is_none());
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_marker_rejects_definition_without_a_paint_anchor() {
+    let mut value = production_footnote_break_fixture();
+    let span = value["document"]["footnotes"][0]["span"].clone();
+    value["document"]["footnotes"][0]["blocks"] = serde_json::json!([
+        {"kind":"page_break","node_id":0,"span":span,"classes":[]}
+    ]);
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_inline_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, package, profile, limits, admitted, bindings| {
+            let math = typaxis_layout::prepare_staging_math_vector_flows(
+                package, profile, limits, admitted, bindings,
+            )
+            .unwrap();
+            let blocks = typaxis_layout::prepare_staging_precomposed_vector_blocks(
+                package, profile, limits, admitted, bindings, &math,
+            )
+            .unwrap();
+            let lines = typaxis_layout::layout_production_body_inline_lines(
+                prepared,
+                profile.page_geometry().body(),
+                100_000,
+            )
+            .unwrap();
+            let registry =
+                typaxis_layout::prepare_production_footnote_lines(&lines, limits).unwrap();
+            let failure = typaxis_pagination::prepare_production_body_flow(
+                &lines, &blocks, &registry, limits,
+            )
+            .err()
+            .unwrap();
+            assert_eq!(failure.owner, registry.definitions()[0].owner());
+            assert_eq!(
+                failure.kind,
+                typaxis_pagination::ProductionBodyPaginationErrorKind::EmptyFootnote
+            );
+        },
+    );
 }

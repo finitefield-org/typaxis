@@ -18,8 +18,8 @@ impl ProductionFootnoteCursor<'_, '_, '_, '_, '_> {
 }
 
 /// A bounded selection of measured content, not a page or footnote paint receipt.
-/// Generated definition-marker metrics must also join the common items before
-/// the final page owner may treat this as the complete footnote reservation.
+/// Definition-marker extents are included. Cross-definition spacing, page
+/// reservation and reference-page coupling still belong to the final page owner.
 pub struct ProductionFootnoteFragmentSelection<'b, 'f, 's, 'p, 'a> {
     cursor: ProductionFootnoteCursor<'b, 'f, 's, 'p, 'a>,
     content_end: usize,
@@ -40,6 +40,17 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteFragmentSelection<'b, 'f, 's, 'p, 'a>
             .flow
             .definition_items(self.cursor.definition_index)
             .expect("bound definition")[self.cursor.next_item..self.content_end]
+    }
+    /// The label belongs only to the selection containing its first real item.
+    /// Continuation selections do not repeat it; leading forced breaks do not
+    /// consume it before any paintable content is selected.
+    pub fn marker(&self) -> Option<&ProductionFootnoteMarkerBinding> {
+        self.cursor
+            .flow
+            .definition_marker(self.cursor.definition_index)
+            .filter(|marker| {
+                (self.cursor.next_item..self.content_end).contains(&marker.item_index())
+            })
     }
     /// Local definition indices, including a consumed forced break if present.
     pub fn consumed_range(&self) -> std::ops::Range<usize> {
