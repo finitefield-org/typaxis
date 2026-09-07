@@ -4693,3 +4693,36 @@ It is not dynamic reference/line convergence, final math terminal or separator
 paint closure, complete display/tag/navigation/public writer/manifest, or any
 original full-book/Harano/scale/both-host acceptance result. Those gates remain
 incomplete. No public/full-book PDF or branch push is claimed.
+
+### Explicit footnote separator ink geometry
+
+Implemented design §14.35. The existing footnote painter's 0.5 pt stroke and
+0.25 pt center offset now use shared layout constants alongside the existing
+1 pt band. Joint placed pages retain the exact full-width ink rectangle at the
+reservation top, charge its record/work, and compare it during repeated-page
+stability checks. Empty forced footnote fragments/blank pages have no separator;
+continuations containing actual content do. Existing painter dimensions are
+unchanged. This does not yet emit the new joint pathway's PDF commands.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-display-list \
+  footnote --locked
+```
+Final footnote regression **40 passed, 0 failed, 2.89 s**,
+`/private/tmp/typaxis-joint-separator-final.log`. Assertions cover reservation
+origin/width, exact stroke/center constants, continuation separators, absence on
+blank pages and empty forced footnote selections, repeated placement/stability,
+and exact/one-short cumulative work/record budgets including separator geometry.
+Display-list filter **1 passed, 0 failed**, log
+`/private/tmp/typaxis-joint-separator-display.log`; this existing test covers marker
+clusters, not separator rendering. Painter constant reuse was compiled and
+inspected; no new independent-render/PDF acceptance is claimed.
+
+Public joint display/terminal/tag/navigation/manifest closure, dynamic-reference
+convergence, and original full-book/Harano/scale/both-host acceptance remain
+incomplete. No public/full-book PDF or branch push is claimed.

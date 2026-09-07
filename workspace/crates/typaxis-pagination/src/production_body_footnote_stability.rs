@@ -70,7 +70,8 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
             let r = right.selection();
             let lc = l.candidate();
             let rc = r.candidate();
-            if l.page_index() != r.page_index()
+            if left.separator_ink() != right.separator_ink()
+                || l.page_index() != r.page_index()
                 || l.forced_break() != r.forced_break()
                 || lc.body_range() != rc.body_range()
                 || lc.body_height() != rc.body_height()

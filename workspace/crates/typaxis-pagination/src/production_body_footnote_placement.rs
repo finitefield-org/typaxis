@@ -27,6 +27,7 @@ impl ProductionBodyFootnotePlacedFragment {
 /// display-list receipt: stable page closure is still required.
 pub struct ProductionBodyFootnotePlacedPage<'q, 'b, 'f, 's, 'p, 'a> {
     selection: &'q ProductionBodyFootnotePageSelection<'b, 'f, 's, 'p, 'a>,
+    separator_ink: Option<Rect>,
     fragments: Vec<ProductionBodyFootnotePlacedFragment>,
     list_markers: Vec<ProductionBodyListMarker>,
     footnote_markers: Vec<ProductionBodyFootnotePlacedMarker>,
@@ -34,6 +35,11 @@ pub struct ProductionBodyFootnotePlacedPage<'q, 'b, 'f, 's, 'p, 'a> {
 impl<'q, 'b, 'f, 's, 'p, 'a> ProductionBodyFootnotePlacedPage<'q, 'b, 'f, 's, 'p, 'a> {
     pub fn selection(&self) -> &'q ProductionBodyFootnotePageSelection<'b, 'f, 's, 'p, 'a> {
         self.selection
+    }
+    /// Full-width 0.5 pt separator ink at the top of the reserved 1 pt band.
+    /// No separator exists on a page containing only an empty forced fragment.
+    pub fn separator_ink(&self) -> Option<Rect> {
+        self.separator_ink
     }
     pub fn list_markers(&self) -> &[ProductionBodyListMarker] {
         &self.list_markers
@@ -91,9 +97,25 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
                 )?;
             }
         }
+        let separator_ink = if let Some(bounds) = candidate.footnote_bounds() {
+            self.step(root)?;
+            self.content.charge.take(1, root)?;
+            let height = Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_STROKE_RAW)
+                .and_then(PositiveLength::new)
+                .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
+            if height.get().raw() > typaxis_layout::FOOTNOTE_SEPARATOR_BAND_RAW
+                || height.get() > bounds.height().get()
+            {
+                return Err(error(root, E::ReceiptMismatch));
+            }
+            Some(Rect::new(bounds.x(), bounds.y(), bounds.width(), height))
+        } else {
+            None
+        };
         let (list_markers, footnote_markers) = self.place_page_markers(&fragments)?;
         Ok(ProductionBodyFootnotePlacedPage {
             selection,
+            separator_ink,
             fragments,
             list_markers,
             footnote_markers,

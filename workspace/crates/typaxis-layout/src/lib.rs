@@ -1010,6 +1010,9 @@ fn nonnegative_raw(raw: i64) -> Result<NonNegativeLength, StagingMachineListLayo
 
 pub const STAGING_FOOTNOTE_PROFILE_ID: &str = "typaxis.machine-pdf/footnote-1";
 pub const FOOTNOTE_SEPARATOR_BAND_RAW: i64 = 65_536;
+/// Frozen horizontal separator stroke: 0.5 pt, centered 0.25 pt below band top.
+pub const FOOTNOTE_SEPARATOR_STROKE_RAW: i64 = 32_768;
+pub const FOOTNOTE_SEPARATOR_CENTER_RAW: i64 = 16_384;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StagingFootnoteRegistryError {

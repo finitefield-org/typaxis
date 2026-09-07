@@ -372,6 +372,7 @@ fn production_footnote_pages_continue_notes_after_body_end() {
         while !page.next_state().is_complete() {
             let next = search.select_page(page.next_state()).unwrap().unwrap();
             let geometry = search.place_page_content(&next).unwrap();
+            assert!(geometry.separator_ink().is_some());
             assert!(geometry.footnote_markers().is_empty());
             assert!(geometry
                 .fragments()
@@ -430,6 +431,7 @@ fn production_footnote_pages_preserve_consecutive_and_trailing_forced_breaks() {
         assert_eq!(stable.sequence().pages().len(), 5);
         let geometry = search.place_pages_content(&sequence).unwrap();
         for index in [0, 1, 4] {
+            assert!(geometry.pages()[index].separator_ink().is_none());
             assert!(geometry.pages()[index].fragments().is_empty());
             assert!(geometry.pages()[index].list_markers().is_empty());
             assert!(geometry.pages()[index].footnote_markers().is_empty());
@@ -525,6 +527,19 @@ fn production_footnote_page_content_uses_selected_origins_and_source_scopes() {
                     .filter(|f| f.definition_index().is_none())
                     .count(),
                 body.len()
+            );
+            let separator = placed.separator_ink().unwrap();
+            let reservation = selected.candidate().footnote_bounds().unwrap();
+            assert_eq!(separator.x(), reservation.x());
+            assert_eq!(separator.y(), reservation.y());
+            assert_eq!(separator.width(), reservation.width());
+            assert_eq!(
+                separator.height().get().raw(),
+                typaxis_layout::FOOTNOTE_SEPARATOR_STROKE_RAW
+            );
+            assert_eq!(
+                separator.height().get().raw() / 2,
+                typaxis_layout::FOOTNOTE_SEPARATOR_CENTER_RAW
             );
             let region = selected.candidate().footnotes().unwrap();
             assert_eq!(
@@ -965,4 +980,40 @@ fn production_footnote_stability_charges_both_passes_and_exact_comparison() {
             }
         });
     }
+}
+
+#[test]
+fn production_footnote_separator_requires_actual_content_not_a_forced_fragment() {
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let mut value = production_footnote_break_fixture();
+    let paragraph = value["document"]["footnotes"][0]["blocks"][0].clone();
+    let forced =
+        serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":paragraph["span"]});
+    value["document"]["footnotes"][0]["blocks"] = serde_json::json!([forced, paragraph, forced]);
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_footnote_prepared(&value, &config(), |flow, limits| {
+        let mut search = prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+        let stable = search.select_stable_pages().unwrap();
+        let placed = search.place_pages_content(stable.sequence()).unwrap();
+        assert!(placed.pages().len() >= 3);
+        let first = &placed.pages()[0];
+        assert!(first
+            .selection()
+            .candidate()
+            .footnotes()
+            .unwrap()
+            .forced_break_owner()
+            .is_some());
+        assert!(first.separator_ink().is_none());
+        assert!(placed.pages().last().unwrap().separator_ink().is_none());
+        assert!(placed.pages().iter().any(|p| p.separator_ink().is_some()));
+        for page in placed.pages() {
+            assert_eq!(
+                page.separator_ink().is_some(),
+                page.fragments()
+                    .iter()
+                    .any(|f| f.definition_index().is_some())
+            );
+        }
+    });
 }

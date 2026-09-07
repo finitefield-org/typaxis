@@ -5564,8 +5564,9 @@ impl ValidatedDisplayDocument {
             .checked_add(footnote_selected.body_frame().height().get())
             .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
         let separator_center_offset =
-            Length::from_raw(16_384).ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
-        let separator_width = Length::from_raw(32_768)
+            Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_CENTER_RAW)
+                .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
+        let separator_width = Length::from_raw(typaxis_layout::FOOTNOTE_SEPARATOR_STROKE_RAW)
             .and_then(PositiveLength::new)
             .ok_or(FootnoteProfileDisplayError::NumericOverflow)?;
         let separator_band = Length::from_raw(FOOTNOTE_SEPARATOR_BAND_RAW)
