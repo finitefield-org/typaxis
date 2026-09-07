@@ -435,6 +435,7 @@ fn encode(
 pub struct AdmittedProductionFontInstancesV3<'a> {
     ledger: &'a AdmittedProductionResourceLedgerV3,
     faces: Vec<FontFaceId>,
+    fingerprint: [u8; 32],
 }
 impl<'a> AdmittedProductionFontInstancesV3<'a> {
     pub fn from_used_faces(
@@ -442,15 +443,49 @@ impl<'a> AdmittedProductionFontInstancesV3<'a> {
         used: impl IntoIterator<Item = FontFaceId>,
     ) -> Result<Self, ProductionResourceErrorV3> {
         let mut faces = BTreeSet::new();
+        let mut count = 0u64;
         for id in used {
+            count = count
+                .checked_add(1)
+                .filter(|n| *n <= ledger.effective_limits().base().get().max_fragments)
+                .ok_or(ResourceAdmissionError::ResourceLimit)?;
             if ledger.font(id).is_none() {
                 return Err(ResourceAdmissionError::MissingLogicalResource.into());
             }
             faces.insert(id);
         }
+        let capacity = faces
+            .len()
+            .checked_mul(11)
+            .and_then(|n| n.checked_add(256))
+            .ok_or(ResourceAdmissionError::ResourceLimit)?;
+        if capacity as u64 > ledger.effective_limits().base().get().max_spool_bytes {
+            return Err(ResourceAdmissionError::ResourceLimit.into());
+        }
+        let mut ordered = Vec::new();
+        ordered
+            .try_reserve_exact(faces.len())
+            .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+        ordered.extend(faces);
+        let faces = ordered;
+        let mut canonical = String::new();
+        canonical
+            .try_reserve_exact(capacity)
+            .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
+        canonical.push_str("{\"algorithm\":\"typaxis.production-font-instances/3\",\"faces\":[");
+        for (i, face) in faces.iter().enumerate() {
+            if i != 0 {
+                canonical.push(',');
+            }
+            canonical.push_str(&face.get().to_string());
+        }
+        canonical.push_str("],\"ledger_fingerprint\":");
+        push_hash_hex(&mut canonical, ledger.fingerprint());
+        canonical.push('}');
         Ok(Self {
             ledger,
-            faces: faces.into_iter().collect(),
+            faces,
+            fingerprint: sha256(canonical.as_bytes()),
         })
     }
     pub fn len(&self) -> usize {
@@ -462,6 +497,9 @@ impl<'a> AdmittedProductionFontInstancesV3<'a> {
     pub fn ledger_fingerprint(&self) -> [u8; 32] {
         self.ledger.fingerprint()
     }
+    pub fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
     pub fn resolve(
         &self,
         id: typaxis_core::FontInstanceId,
@@ -469,6 +507,7 @@ impl<'a> AdmittedProductionFontInstancesV3<'a> {
         let face = *self.faces.get(id.get() as usize)?;
         Some(AdmittedProductionFontInstanceV3 {
             instance: id,
+            table_fingerprint: self.fingerprint,
             font: self.ledger.font(face)?,
             ledger: self.ledger,
         })
@@ -477,10 +516,14 @@ impl<'a> AdmittedProductionFontInstancesV3<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct AdmittedProductionFontInstanceV3<'a> {
     instance: typaxis_core::FontInstanceId,
+    table_fingerprint: [u8; 32],
     font: &'a AdmittedProductionFontV3,
     ledger: &'a AdmittedProductionResourceLedgerV3,
 }
 impl<'a> AdmittedProductionFontInstanceV3<'a> {
+    pub fn table_fingerprint(self) -> [u8; 32] {
+        self.table_fingerprint
+    }
     pub fn font_instance_id(self) -> typaxis_core::FontInstanceId {
         self.instance
     }

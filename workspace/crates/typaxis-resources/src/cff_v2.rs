@@ -29,12 +29,16 @@ impl std::error::Error for Cff1PdfPlanErrorV2 {}
 pub struct FrozenPdfCff1ClusterV2 {
     run_id: GlyphRunId,
     cluster_index: u32,
+    font_size: PositiveLength,
     source: ShapeSourceSpan,
     exact_text: String,
     cids: Vec<Cid>,
     requires_actual_text: bool,
 }
 impl FrozenPdfCff1ClusterV2 {
+    pub fn font_size(&self) -> PositiveLength {
+        self.font_size
+    }
     pub fn run_id(&self) -> GlyphRunId {
         self.run_id
     }
@@ -59,7 +63,6 @@ pub struct FrozenPdfCff1PlanV2 {
     subset: Cff1SubsetV2,
     admission_fingerprint: [u8; 32],
     limits_fingerprint: [u8; 32],
-    font_size: PositiveLength,
     bindings: Vec<CidBinding>,
     dense_widths: Vec<u32>,
     clusters: Vec<FrozenPdfCff1ClusterV2>,
@@ -75,9 +78,6 @@ impl FrozenPdfCff1PlanV2 {
     }
     pub fn font_instance_id(&self) -> FontInstanceId {
         self.subset.closure().font_instance_id()
-    }
-    pub fn font_size(&self) -> PositiveLength {
-        self.font_size
     }
     pub fn subset(&self) -> &Cff1SubsetV2 {
         &self.subset
@@ -135,7 +135,6 @@ struct Prepared<'a, 'font> {
     input: &'a Cff1PdfFontInputV2<'a, 'font>,
     closure: typaxis_font::Cff1GlyphClosureV2,
     unicode: BTreeMap<OriginalGlyphId, Option<UnicodeScalar>>,
-    size: PositiveLength,
 }
 
 /// Close every instance before executing any glyph. Face unions execute in
@@ -160,10 +159,9 @@ pub fn freeze_cff1_pdf_fonts_v2<'a, 'font>(
         if input.admission.limits_fingerprint() != limits.fingerprint() {
             return Err(E::IdentityMismatch);
         }
-        let Some(first_run) = input.runs.first() else {
+        if input.runs.is_empty() {
             return Err(E::InvalidInput);
-        };
-        let size = first_run.font_size();
+        }
         let mut gids = BTreeSet::new();
         let mut unicode = BTreeMap::new();
         let mut run_ids = BTreeSet::new();
@@ -171,7 +169,6 @@ pub fn freeze_cff1_pdf_fonts_v2<'a, 'font>(
             let run = shaped.glyph_run();
             if shaped.admission().fingerprint() != input.admission.fingerprint()
                 || run.font != input.font_instance_id
-                || shaped.font_size() != size
             {
                 return Err(E::IdentityMismatch);
             }
@@ -240,7 +237,6 @@ pub fn freeze_cff1_pdf_fonts_v2<'a, 'font>(
                     input,
                     closure,
                     unicode,
-                    size,
                 },
             )
             .is_some()
@@ -325,6 +321,7 @@ pub fn freeze_cff1_pdf_fonts_v2<'a, 'font>(
                 clusters.push(FrozenPdfCff1ClusterV2 {
                     run_id: shaped.glyph_run().run_id,
                     cluster_index: i as u32,
+                    font_size: shaped.font_size(),
                     source: cluster.source_span,
                     exact_text: owned,
                     cids,
@@ -336,7 +333,6 @@ pub fn freeze_cff1_pdf_fonts_v2<'a, 'font>(
             subset,
             admission_fingerprint: prepared.input.admission.fingerprint(),
             limits_fingerprint: limits.fingerprint(),
-            font_size: prepared.size,
             bindings,
             dense_widths,
             clusters,
@@ -394,6 +390,8 @@ fn encode(plan: &FrozenPdfCff1PlanV2, capacity: usize) -> Result<String, E> {
         }
         s.push_str("],\"cluster_index\":");
         s.push_str(&c.cluster_index.to_string());
+        s.push_str(",\"font_size\":");
+        s.push_str(&c.font_size.get().raw().to_string());
         s.push_str(",\"run_id\":");
         s.push_str(&c.run_id.get().to_string());
         s.push_str(",\"source\":");
@@ -402,9 +400,7 @@ fn encode(plan: &FrozenPdfCff1PlanV2, capacity: usize) -> Result<String, E> {
         push_jcs_string(&mut s, &c.exact_text);
         s.push('}');
     }
-    s.push_str("],\"font_size\":");
-    s.push_str(&plan.font_size.get().raw().to_string());
-    s.push_str(",\"limits_fingerprint\":");
+    s.push_str("],\"limits_fingerprint\":");
     push_resource_hash(&mut s, plan.limits_fingerprint);
     s.push_str(",\"subset_fingerprint\":");
     push_resource_hash(&mut s, plan.subset.fingerprint());

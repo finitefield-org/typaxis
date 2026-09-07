@@ -620,7 +620,8 @@ FreeTypeでは58,696件のunhinted raster・位置・advance比較が一致し�
 `freeze_cff1_pdf_fonts_v2`はsealed admissionと実`Cff1ShapedRunV2`を受け取り、
 全instanceの選択集合を閉じてからface/GID順のunionを単一CFF sessionで評価する。
 結果は旧`FrozenPdfFontPlan`から独立した`FrozenPdfCff1PlanV2`となる。
-異なるadmission・実効予算・instance・font size、重複run/instanceを拒否する。
+異なるadmission・実効予算・instance、重複run/instanceを拒否する。
+文字サイズはclusterごとに保持し、同一faceの異なるサイズでもsubsetを共有する。
 
 planはsubset、dense widths、CID bindings、clusterの元文字列・出典・ActualText要否を
 保持する。Unicode候補が競合するGIDや複数scalar/glyphのclusterを単一scalarへ潰さない。
@@ -670,8 +671,28 @@ sessionは同じfingerprintでもruntime sessionとして区別する。旧resol
 image readを繰り返しても失敗し、ledgerは確定しない。
 
 このAPIはprivate stagingであり、上位のcontract 1.5 / production-book-2 preflight receipt、
-profile・manifestのexhaustive union、シェーピングへのinstance接続、公開dispatchは残件である。
+profile・manifestのexhaustive union、共通layoutへの接続、公開dispatchは残件である。
 既存CLIのprofile登録やschema aliasは変更しない。
+
+### 7.15 ledger由来のinstanceから実shapeとCFF計画への接続
+
+`shape_production_run_v3`はledgerが発行したinstanceからfont bytes・face index・metadataを
+導出し、TrueTypeとCFF /2を明示分岐して既存linked backendでshapeする。呼出側が別のfont IDや
+bytesを差し込む引数は持たない。出力は実instanceと元request（source、UTF-8、サイズ、
+language/script、bidi level、pre/post context）を保持する。featureは既存backendの固定defaultである。
+
+instance tableは選択face集合とledger fingerprintを`typaxis.production-font-instances/3`で
+識別する。別の選択集合で同じ数値instance IDを再利用しても、同じtableとは扱わない。
+`freeze_production_cff1_fonts_v3`は実shape出力からadmission・face IDを導出し、同一runtime
+session・ledger fingerprint・instance tableであることを検査する。異なるsessionやtableの
+runを混ぜず、CFF以外のrunを黙って除外しない。確定したCFF集合も元ledgerへの参照を保持する。
+
+元原ノ味の11pt IVS付き本文と22pt基底文字の同一GIDが、1 subset・1 CIDを共有することを
+実host read→instance→shape→subsetで検証した。advanceは実shapeで2倍となり、各clusterは
+異なるfont sizeと元文字列を保持する。font単位の単一size制約は§14.3の共有方針に反するため
+除去した。source/sizeを含むplan fingerprintは維持する。TrueTypeの実shape、source長不一致と
+context超過の拒否も検証した。これは上位のstyle選択・行再shape・page/paint/manifest閉包や、
+TrueType/CFF混在文書全体のfont finalizer・公開PDFの完成を意味しない。
 
 ## 8. 実VMB結合テスト
 

@@ -43,6 +43,8 @@ pub use vector_content::{
 };
 
 use core::num::NonZeroU32;
+mod production_cff_v3;
+pub use production_cff_v3::{freeze_production_cff1_fonts_v3, FrozenProductionCff1FontsV3};
 mod cff_v2;
 pub use cff_v2::{
     freeze_cff1_pdf_fonts_v2, Cff1PdfFontInputV2, Cff1PdfPlanErrorV2,

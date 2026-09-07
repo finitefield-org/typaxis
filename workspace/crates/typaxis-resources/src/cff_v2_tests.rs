@@ -177,10 +177,18 @@ fn cff_v2_pdf_plan_original_extraction_identity_and_instance_union() {
     wrong_size.font_size = PositiveLength::new(Length::from_raw(12 * 65536).unwrap()).unwrap();
     let wrong_size = shape_cff1_run_v2(&admission, wrong_size).unwrap();
     let mixed_sizes = [&shaped, &wrong_size];
-    assert!(matches!(
-        freeze_cff1_pdf_fonts_v2(&[make(&mixed_sizes)]),
-        Err(E::IdentityMismatch)
-    ));
+    let mixed = freeze_cff1_pdf_fonts_v2(&[make(&mixed_sizes)]).unwrap();
+    assert_eq!(mixed[0].subset().sha256(), plan.subset().sha256());
+    assert_eq!(mixed[0].bindings(), plan.bindings());
+    assert_eq!(
+        mixed[0].clusters().last().unwrap().font_size(),
+        wrong_size.font_size()
+    );
+    assert_ne!(
+        mixed[0].clusters()[0].font_size(),
+        mixed[0].clusters().last().unwrap().font_size()
+    );
+    assert_ne!(mixed[0].fingerprint(), plan.fingerprint());
 }
 
 #[test]

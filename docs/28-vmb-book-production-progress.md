@@ -3217,3 +3217,57 @@ read and cannot be bypassed by retry. Logs:
 No public contract/profile/schema alias was changed. The upstream typed 1.5
 preflight/manifest union and instance-to-shaping connection are still required,
 along with formal exporter, common layout, public PDF and full-book/scale/host gates.
+
+### Ledger-bound /3 shaping and multi-size CFF sharing (2026-09-07)
+
+Connected ledger-issued instances to actual linked shaping for TrueType and
+CFF /2. The input has no caller-selected font ID or bytes: those come from the
+sealed instance. The output retains that instance plus the exact request,
+including source, language/script, bidi level, size and context. Feature behavior
+remains the linked backend's fixed defaults.
+
+Added an instance-table fingerprint over the selected face set and /3 ledger,
+with bounded input iteration and canonical allocation. This distinguishes
+numeric instance IDs reused by different selected tables. The CFF resource
+bridge now derives face/admission from these shaped instances, requires the same
+runtime session, ledger fingerprint and instance-table fingerprint, and keeps a
+reference to the actual ledger. It rejects TrueType instead of silently omitting
+it from a mixed document; the complete mixed-font finalizer is still required.
+
+Found and corrected an incompatible restriction in the new CFF /2 font plan:
+it had required one font size per instance. FontInstance does not include size,
+and §14 requires body/caption/heading to share document font usage. Size now
+belongs to each frozen cluster and its canonical identity. Different sizes of
+the same face/GID share subset bytes and CID bindings.
+
+Validation:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resource-admission -p typaxis-shaping -p typaxis-resources -p typaxis-pdf --locked
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resource-admission -p typaxis-resources -p typaxis-pdf --locked -- --ignored
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resources production_v3 --locked
+```
+
+Ordinary regression: **196 unit + 4 doc tests passed**, 6 original-font tests
+ignored. Explicit originals: **4 passed** (admission 1, resources 2, PDF 1).
+After retaining the full request in the shape owner, the targeted ordinary
+shape test also passed. Real host-read Harano at 11pt and 22pt uses one shared
+CID/subset, exact IVS source and distinct cluster sizes; actual advance doubles.
+Foreign runtime sessions with equal content fingerprints and different selected
+tables are rejected. TrueType shape, exact source, context bounds and source
+length mismatch are tested. Logs:
+`/private/tmp/typaxis-production-v3-shape-regression.log`,
+`/private/tmp/typaxis-production-v3-shape-original-final.log`,
+`/private/tmp/typaxis-production-v3-bound-input-tests.log`.
+
+The upstream typed contract/profile receipt, full mixed-font finalizer, common
+paragraph/page/paint ownership and public manifest/writer remain outstanding.
+Formal exporter, real chapter/full-book/scale and both-host gates are still part
+of the unchanged completion scope. No public profile or schema alias changed.
