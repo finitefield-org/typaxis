@@ -1853,3 +1853,29 @@ JCS／integrity encoderの保守的なピークspool予約を実行前に確保�
 一致することを要求する。脚注の要求順ではparent owner番号の昇順を前提にできないためである。
 この分離は共用描画処理の準備であり、本文・脚注terminalからの新しい描画入口、脚注番号・
 区切り線・タグ・公開PDFの接続自体は引き続き必要である。
+
+### 14.38 本文・脚注terminalからの共用描画入口（実装追補）
+
+`build_production_footnote_display`は§14.36の検証済みterminal結果を借用し、admissionと
+limitsの一致を確認してから`ProductionBodyFootnoteDisplay`を作る。元のregistry、行、block、
+geometryへの結び付きを保持し、任意の未検証fragmentを受け取る入口は作らない。
+
+ページ内のfragment番号を全体の実内容列の番号へ変換し、共通の`project_display`で本文・
+脚注の文字、inline anchor、inline/block vector、raster、list marker、式番号を生成する。
+脚注番号とリスト記号は同じ生成文字描画処理を使い、実フォント・glyph・baseline・advance、
+生成buffer key・cluster範囲を保持する。式番号は全体の実fragment番号で検索する。ページ列に
+保持された空ページもsource geometryから参照できる。
+
+区切り線はpage番号・実占有矩形・最初の脚注描画の直前位置`before_draw`を持つ別の描画
+レコードとして保持する。本文と脚注の描画順を分離せず、番号や記号を含む最初の脚注描画より
+前に挿入できる。線を持たない空ページではレコードを作らない。
+
+行・block・terminal fingerprintに加え、実fragmentのsource・owner・定義scope・位置・baseline・
+viewport・余白、記号、区切り線を固定長の増分hashへ含める。geometryの大きさに比例する
+fingerprint用bufferは作らない。1回の描画生成ではterminalまでのrecord chargeを引き継ぎ、
+ページ内コピー、一時projection、保持する描画列と区切り線のrecordsを加算する。別々の描画
+生成呼出しを跨ぐpipeline全体の寿命・再試行予算は、このimmutable結果だけでは管理しない。
+
+これは実描画データの生成であり、区切り線のPDF命令化・artifact分類、脚注の構造tag、リンク、
+font usage／PDF content／object／manifestの公開接続は引き続き必要である。動的参照の収束、
+元全巻・原ノ味・規模・両hostの完了条件を緩和しない。

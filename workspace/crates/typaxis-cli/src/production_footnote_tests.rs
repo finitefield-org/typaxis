@@ -293,6 +293,21 @@ fn with_production_footnote_math_prepared(
         &typaxis_layout::StagingMathVectorFlowRegistry,
     ),
 ) {
+    with_production_footnote_display_prepared(value, cfg, |flow, limits, math, _| {
+        check(flow, limits, math)
+    });
+}
+
+fn with_production_footnote_display_prepared(
+    value: &serde_json::Value,
+    cfg: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_pagination::ProductionPreparedBodyFlow<'_, '_, '_, '_>,
+        &typaxis_core::M4EffectiveResourceLimits,
+        &typaxis_layout::StagingMathVectorFlowRegistry,
+        &typaxis_resources::AdmittedResourceLedger,
+    ),
+) {
     with_production_inline_context(
         &serde_json::to_vec(value).unwrap(),
         cfg,
@@ -317,7 +332,7 @@ fn with_production_footnote_math_prepared(
                 &lines, &blocks, &footnotes, limits,
             )
             .unwrap();
-            check(&flow, limits, &math);
+            check(&flow, limits, &math, admitted);
         },
     );
 }

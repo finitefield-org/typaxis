@@ -7,8 +7,23 @@ pub struct ProductionBodyFootnoteMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
     terminals: StagingMathVectorTerminalReceiptSet,
     numbers: Vec<ProductionBodyEquationNumber>,
     spool_bytes: u64,
+    flow: &'b ProductionPreparedBodyFlow<'f, 's, 'p, 'a>,
+    registry: &'g StagingMathVectorFlowRegistry,
+    record_charge: u64,
 }
 impl<'g, 'q, 'b, 'f, 's, 'p, 'a> ProductionBodyFootnoteMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn line_layout(&self) -> &'s typaxis_layout::ProductionInlineLineLayout<'p, 'a> {
+        self.flow.lines
+    }
+    pub fn block_layout(&self) -> &'s typaxis_layout::StagingPrecomposedVectorBlockLayout {
+        self.flow.blocks
+    }
+    pub fn registry(&self) -> &'g StagingMathVectorFlowRegistry {
+        self.registry
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
     pub fn geometry(&self) -> &'g ProductionBodyFootnotePlacedSequence<'q, 'b, 'f, 's, 'p, 'a> {
         self.geometry
     }
@@ -31,7 +46,7 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         &mut self,
         stable: &ProductionBodyFootnoteStablePages<'b, 'f, 's, 'p, 'a>,
         geometry: &'g ProductionBodyFootnotePlacedSequence<'q, 'b, 'f, 's, 'p, 'a>,
-        registry: &StagingMathVectorFlowRegistry,
+        registry: &'g StagingMathVectorFlowRegistry,
         limits: &M4EffectiveResourceLimits,
     ) -> Result<
         ProductionBodyFootnoteMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a>,
@@ -127,6 +142,9 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         }
         Ok(ProductionBodyFootnoteMathTerminals {
             geometry,
+            flow,
+            registry,
+            record_charge: self.record_charge(),
             terminals,
             numbers,
             spool_bytes,

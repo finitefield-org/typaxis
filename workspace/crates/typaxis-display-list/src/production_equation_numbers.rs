@@ -3,7 +3,7 @@ use super::*;
 use typaxis_shaping::ShapeSourceSpan;
 
 pub(super) fn append_number<'d>(
-    selected: &DisplayInput<'d, '_, '_>,
+    selected: &DisplayInput<'_, 'd, '_, '_>,
     parent: NodeId,
     fragment_index: u32,
     admitted: &AdmittedResourceLedger,

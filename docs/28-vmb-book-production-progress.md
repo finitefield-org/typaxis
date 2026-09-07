@@ -4812,3 +4812,55 @@ paint. The authenticated joint adapter, footnote-number/separator draws and
 complete tags/navigation/PDF/manifest remain pending, as do dynamic reference
 convergence and original full-book/Harano/scale/both-host acceptance. No public
 full-book PDF or branch push is claimed.
+
+### Authenticated joint body/footnote display projection
+
+Implemented design §14.38. `build_production_footnote_display` borrows completed
+stable-page math terminals, authenticates admitted resources/limits and retains
+the source binding. The shared display input now separates source lifetimes from
+temporary page-fragment views and supports a checked global fragment offset.
+Text, inline anchors, vectors, raster figures, list markers and equation numbers
+use the existing projection; footnote and list labels share generated-glyph paint
+logic. Separator records retain page/ink/before-draw placement. No arbitrary
+public geometry constructor or substitute PDF receipt was introduced.
+
+The incremental fingerprint binds source receipts and actual fragment/marker/
+separator geometry without a document-sized hash buffer. Per-invocation record
+accounting starts at the authenticated terminal charge and includes temporary
+fragment/projection and retained output allocations. It does not itself govern
+lifetimes/retries across independent display-building invocations; the complete
+pipeline owner remains to be connected.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-display-list --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_list --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_equation_numbers --locked
+```
+Check **4.93 s**. Focused display tests **2 passed, 0.92 s**. Final footnote
+regression **44 passed, 0 failed, 6.25 s**,
+`/private/tmp/typaxis-joint-display-verified.log`. Coverage includes real body and
+footnote formula/number/list geometry, generated definition text/glyph counts,
+global fragment/page mapping, reversed demand order, footnote-only continuations,
+raster projection, separator insertion before actual footnote paint, repeatable
+fingerprints and exact/one-short preceding-plus-projection record budgets.
+List regression **11 passed, 1.90 s**; common driver **2 passed, 1 explicitly
+ignored, 1.25 s**; equation numbers **3 passed, 0.48 s**. Logs:
+`/private/tmp/typaxis-joint-display-{lists,common,numbers}.log`.
+
+This is joint display data, not yet emitted/tagged joint PDF content. Separator
+commands/artifact classification, footnote structure and links, font usage/content/
+objects/manifest/public writer, complete pipeline budgets, dynamic-reference
+convergence, and original full-book/Harano/scale/both-host acceptance remain
+incomplete. No new public/full-book PDF or branch push is claimed.

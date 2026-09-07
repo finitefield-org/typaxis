@@ -1174,3 +1174,169 @@ fn production_footnote_math_terminals_keep_record_work_and_spool_budgets() {
         });
     }
 }
+
+#[test]
+fn production_footnote_display_projects_real_text_vectors_numbers_and_separators() {
+    use typaxis_display_list::{build_production_footnote_display, ProductionBodyDraw};
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let mut reversed = production_footnote_flow_fixture();
+    let children = reversed["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    let count = children.len();
+    children.swap(count - 1, count - 2);
+    production_body_renumber(&mut reversed["document"], &mut 0);
+    let mut continued = production_footnote_two_long_definitions();
+    continued["page_masters"]["masters"][0]["footnote"]["height"] = 2_000_000.into();
+    for value in [
+        production_footnote_flow_fixture(),
+        production_footnote_joint_geometry_fixture(),
+        production_footnote_numbered_definition_fixture(),
+        production_numbered_body_fixture(3_000_000),
+        reversed,
+        continued,
+        production_raster_fixture("book-venn.png", 2_000_001, 6_000_000),
+    ] {
+        with_production_footnote_display_prepared(
+            &value,
+            &config(),
+            |flow, limits, registry, admitted| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                display.verify_resources(admitted, limits).unwrap();
+                assert!(std::ptr::eq(display.source(), &terminals));
+                let all: Vec<_> = geometry
+                    .pages()
+                    .iter()
+                    .flat_map(|p| p.fragments())
+                    .collect();
+                let mut previous = 0;
+                for draw in display.draws() {
+                    let (index, page) = match draw {
+                        ProductionBodyDraw::Text(d) => (d.fragment_index(), d.page_index()),
+                        ProductionBodyDraw::Vector(d) => (d.fragment_index(), d.page_index()),
+                        ProductionBodyDraw::Raster(d) => (d.fragment_index(), d.page_index()),
+                    };
+                    assert!(index >= previous);
+                    previous = index;
+                    assert_eq!(all[index as usize].fragment().page_index(), page);
+                }
+                assert_eq!(
+                    display
+                        .draws()
+                        .iter()
+                        .filter(|d| matches!(d, ProductionBodyDraw::Raster(_)))
+                        .count(),
+                    terminals.line_layout().figures().len()
+                );
+                let expected_numbers = registry.equation_number_shapes().len();
+                assert_eq!(display.draws().iter().filter(|d| matches!(d, ProductionBodyDraw::Text(t) if t.equation_number().is_some())).count(), expected_numbers);
+                for marker in terminals.line_layout().footnote_markers() {
+                    let key = marker.provenance().buffer_key();
+                    let labels: Vec<_> = display
+                        .draws()
+                        .iter()
+                        .filter_map(|d| match d {
+                            ProductionBodyDraw::Text(t)
+                                if t.generated_provenance()
+                                    .is_some_and(|p| p.buffer_key() == key) =>
+                            {
+                                Some(t)
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    assert!(!labels.is_empty());
+                    assert_eq!(
+                        labels.iter().map(|t| t.exact_text()).collect::<String>(),
+                        marker.utf8()
+                    );
+                    assert_eq!(
+                        labels.iter().map(|t| t.glyphs().len()).sum::<usize>(),
+                        marker.glyph_run().glyphs.len()
+                    );
+                }
+                assert_eq!(
+                    display.separators().len(),
+                    geometry
+                        .pages()
+                        .iter()
+                        .filter(|p| p.separator_ink().is_some())
+                        .count()
+                );
+                for sep in display.separators() {
+                    assert_eq!(
+                        Some(sep.ink()),
+                        geometry.pages()[sep.page_index() as usize].separator_ink()
+                    );
+                    assert!(sep.before_draw() < display.draws().len());
+                    let draw = &display.draws()[sep.before_draw()];
+                    let index = match draw {
+                        ProductionBodyDraw::Text(d) => d.fragment_index(),
+                        ProductionBodyDraw::Vector(d) => d.fragment_index(),
+                        ProductionBodyDraw::Raster(d) => d.fragment_index(),
+                    };
+                    assert!(all[index as usize].definition_index().is_some());
+                    assert_eq!(
+                        all[index as usize].fragment().page_index(),
+                        sep.page_index()
+                    );
+                }
+                let second =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                assert_eq!(display.fingerprint(), second.fingerprint());
+                assert_eq!(display.record_charge(), second.record_charge());
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_display_retains_preceding_and_projection_record_charges() {
+    use typaxis_display_list::{
+        build_production_footnote_display, ProductionBodyDisplayErrorKind as E,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    for mode in 0..3 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_display_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let result = build_production_footnote_display(&terminals, admitted, limits);
+                if mode == 2 {
+                    assert_eq!(result.err().unwrap().kind, E::RecordLimit);
+                } else {
+                    let display = result.unwrap();
+                    assert!(display.record_charge() > terminals.record_charge());
+                    if mode == 0 {
+                        records = display.record_charge();
+                    }
+                }
+            },
+        );
+    }
+}

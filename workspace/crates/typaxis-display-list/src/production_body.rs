@@ -17,6 +17,12 @@ use typaxis_syntax::PrecomposedVectorKind;
 
 #[path = "production_equation_numbers.rs"]
 mod equation_numbers;
+#[path = "production_footnote_display.rs"]
+mod footnotes;
+pub use footnotes::{
+    build_production_footnote_display, ProductionBodyFootnoteDisplay,
+    ProductionFootnoteSeparatorDraw,
+};
 #[path = "production_list.rs"]
 mod list;
 
@@ -307,26 +313,28 @@ impl<'d, 's, 'p, 'a> ProductionBodyDisplay<'d, 's, 'p, 'a> {
 
 /// Borrowed projection inputs. Constructors remain inside this module so each
 /// public pathway must authenticate its own complete selection first.
-struct DisplayInput<'d, 'p, 'a> {
+struct DisplayInput<'v, 'd, 'p, 'a> {
     lines: &'d typaxis_layout::ProductionInlineLineLayout<'p, 'a>,
     blocks: &'d typaxis_layout::StagingPrecomposedVectorBlockLayout,
-    fragments: &'d [typaxis_pagination::ProductionBodyFragment],
-    markers: &'d [typaxis_pagination::ProductionBodyListMarker],
+    fragments: &'v [typaxis_pagination::ProductionBodyFragment],
+    markers: &'v [typaxis_pagination::ProductionBodyListMarker],
     numbers: &'d [typaxis_pagination::ProductionBodyEquationNumber],
     registry: Option<&'d typaxis_layout::StagingMathVectorFlowRegistry>,
     fingerprint: [u8; 32],
+    fragment_offset: u32,
+    footnote_markers: &'v [typaxis_pagination::ProductionBodyFootnotePlacedMarker],
 }
-impl<'d, 'p, 'a> DisplayInput<'d, 'p, 'a> {
+impl<'v, 'd, 'p, 'a> DisplayInput<'v, 'd, 'p, 'a> {
     fn line_layout(&self) -> &'d typaxis_layout::ProductionInlineLineLayout<'p, 'a> {
         self.lines
     }
     fn block_layout(&self) -> &'d typaxis_layout::StagingPrecomposedVectorBlockLayout {
         self.blocks
     }
-    fn fragments(&self) -> &'d [typaxis_pagination::ProductionBodyFragment] {
+    fn fragments(&self) -> &'v [typaxis_pagination::ProductionBodyFragment] {
         self.fragments
     }
-    fn list_markers(&self) -> &'d [typaxis_pagination::ProductionBodyListMarker] {
+    fn list_markers(&self) -> &'v [typaxis_pagination::ProductionBodyListMarker] {
         self.markers
     }
     fn equation_numbers(&self) -> &'d [typaxis_pagination::ProductionBodyEquationNumber] {
@@ -358,6 +366,8 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
         numbers: selected.equation_numbers(),
         registry: selected.math_flow_registry(),
         fingerprint: selected.fingerprint(),
+        fragment_offset: 0,
+        footnote_markers: &[],
     };
     let projection = project_display(&input, admitted, limits, selected.record_charge())?;
     let mut digest = [0u8; 64];
@@ -373,7 +383,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
     })
 }
 fn project_display<'d, 'p, 'a>(
-    selected: &DisplayInput<'d, 'p, 'a>,
+    selected: &DisplayInput<'_, 'd, 'p, 'a>,
     admitted: &'d AdmittedResourceLedger,
     limits: &M4EffectiveResourceLimits,
     prior_charge: u64,
@@ -394,12 +404,30 @@ fn project_display<'d, 'p, 'a>(
     let mut draws = Vec::new();
     let mut inline_anchors = Vec::new();
     let mut marker_cursor = 0;
+    let mut footnote_cursor = 0;
     let mut parsed_buffer_count = None;
     for (fragment_index, fragment) in selected.fragments().iter().enumerate() {
-        let index =
+        let local_index =
             u32::try_from(fragment_index).map_err(|_| error(fragment.owner(), E::RecordLimit))?;
+        let index = local_index
+            .checked_add(selected.fragment_offset)
+            .ok_or_else(|| error(fragment.owner(), E::RecordLimit))?;
+        while let Some(marker) = selected.footnote_markers.get(footnote_cursor) {
+            if marker.fragment_index() != local_index {
+                break;
+            }
+            list::append_footnote_marker(
+                selected,
+                marker,
+                fragment.page_index(),
+                admitted,
+                &mut remaining,
+                &mut draws,
+            )?;
+            footnote_cursor += 1;
+        }
         while let Some(marker) = selected.list_markers().get(marker_cursor) {
-            if marker.fragment_index() != index {
+            if marker.fragment_index() != local_index {
                 break;
             }
             list::append_marker(selected, marker, admitted, &mut remaining, &mut draws)?;
@@ -638,7 +666,9 @@ fn project_display<'d, 'p, 'a>(
             }
         }
     }
-    if marker_cursor != selected.list_markers().len() {
+    if marker_cursor != selected.list_markers().len()
+        || footnote_cursor != selected.footnote_markers.len()
+    {
         return Err(error(root, E::ReceiptMismatch));
     }
     Ok(Projection {
@@ -648,7 +678,7 @@ fn project_display<'d, 'p, 'a>(
     })
 }
 fn vector_draw<'d>(
-    selected: &DisplayInput<'d, '_, '_>,
+    selected: &DisplayInput<'_, 'd, '_, '_>,
     admitted: &AdmittedResourceLedger,
     owner: NodeId,
     fragment_index: u32,
@@ -685,7 +715,11 @@ fn vector_draw<'d>(
     Ok(ProductionBodyVectorDraw {
         baseline: selected
             .fragments()
-            .get(fragment_index as usize)
+            .get(
+                fragment_index
+                    .checked_sub(selected.fragment_offset)
+                    .ok_or_else(|| error(owner, E::ReceiptMismatch))? as usize,
+            )
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?
             .baseline(),
         content_key,
