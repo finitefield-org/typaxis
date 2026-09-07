@@ -5838,3 +5838,24 @@ The runner is not yet the formal adapter: capability validation, canonical confi
 same-input check/build sequencing, strict artifact validation and ArtifactSink
 publication remain. Public common writer/manifest and full-book/Harano/scale/host
 gates also remain incomplete. A zero process exit is not PDF acceptance.
+
+
+## 2026-09-08 — Probe and select advertised Typaxis book capabilities
+
+VMB commit `b85c60ad` implements exporter §15.42. The bounded process runner probes
+capabilities once; a bounded duplicate-aware JSON loader precedes selection of
+contract 1.4 / production-book-1. The gate checks host capabilities, coordinate
+units, unique profile identities, availability, requested resource media/components,
+math SVG 2 inline/block support and required PDF features. It retains the actual
+descriptor hash and engine version, not a layout or publication receipt.
+
+The actual descriptor and binary hashes are recorded with the checked-in fixture.
+An explicit real-binary probe is included in the final exporter regression:
+`VMB_TYPAXIS_CAPABILITY_BINARY=/private/tmp/typaxis-vmb-book-build/debug/typaxis`
+with `go test -C vmb-core ./internal/rendertypaxis -count=1`; passed in 52.337 s,
+`/private/tmp/vmb-capability-final-regression.log`, process exited 0.
+Typaxis runtime was unchanged; its tests were not repeated for this exporter change.
+
+Canonical config, requirements derived from staged input, same-input check/build
+sequencing, strict output verification and ArtifactSink remain. Public common
+writer/manifest and original-book/Harano/scale/host acceptance are still open.
