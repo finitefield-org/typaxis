@@ -265,6 +265,13 @@ pub fn prepare_production_footnote_lines<'s, 'p, 'a>(
                     continue;
                 };
                 let owner = cluster.run().owner();
+                match part.buffer_key().generation_kind() {
+                    typaxis_core::GenerationKind::FootnoteMarker => {}
+                    // Page candidates are already checked by line selection;
+                    // they do not create a footnote demand or definition edge.
+                    typaxis_core::GenerationKind::PageReference => continue,
+                    _ => return Err(error(owner, E::ReceiptMismatch)),
+                }
                 let reference_index = result
                     .references
                     .binary_search_by_key(&owner, |r| r.owner)

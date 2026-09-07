@@ -385,79 +385,134 @@ fn production_common_footnote_pdf_limits_keep_limit_exit_and_hide_partial_output
 #[test]
 fn production_page_reference_candidates_shape_and_select_real_generated_digits() {
     use serde_json::json;
-    let mut value: serde_json::Value =
-        serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
-    value["document"]["blocks"][0]["anchor_id"] = "target".into();
-    let paragraph = &mut value["document"]["blocks"][0]["blocks"][0];
-    let span = paragraph["span"].clone();
-    paragraph["children"].as_array_mut().unwrap().push(json!({
-        "kind":"reference", "node_id":4, "span":span, "target":"target", "format":"page"
-    }));
-    let bytes = serde_json::to_vec(&value).unwrap();
-    let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());
-    let semantics =
-        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
-            .unwrap();
-    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
-    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
-        &package,
-        &navigation,
-        &semantics,
-        &limits,
-        &identity,
-    )
-    .unwrap();
-    let authorization = profile.base().base().authorization();
-    let bindings = typaxis_layout::bind_staging_precomposed_vectors(
-        &package,
-        authorization,
-        &limits,
-        &admitted,
-    )
-    .unwrap();
-    let mut fingerprints = Vec::new();
-    for page in [1, 12] {
-        let flow = typaxis_syntax::prepare_production_text_flow_with_page_references(
+    for blank_pages in [0u32, 1, 11] {
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
+        value["document"]["blocks"][0]["anchor_id"] = "target".into();
+        let paragraph = &mut value["document"]["blocks"][0]["blocks"][0];
+        let span = paragraph["span"].clone();
+        paragraph["children"].as_array_mut().unwrap().push(json!({
+            "kind":"reference", "node_id":4, "span":span, "target":"target", "format":"page"
+        }));
+        for _ in 0..blank_pages {
+            value["document"]["blocks"].as_array_mut().unwrap().insert(
+                0,
+                json!({"kind":"page_break", "node_id":0, "classes":[], "span":span}),
+            );
+        }
+        production_body_renumber(&mut value["document"], &mut 0);
+        let reference_owner = NodeId::new(
+            value["document"]["blocks"][blank_pages as usize]["blocks"][0]["children"][1]["node_id"]
+                .as_u64()
+                .unwrap() as u32,
+        );
+        let actual_page = blank_pages + 1;
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());
+        let semantics =
+            typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+                .unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
             &package,
             &navigation,
+            &semantics,
             &limits,
-            &[(NodeId::new(4), page)],
+            &identity,
         )
         .unwrap();
-        let shaped = typaxis_shaping::shape_production_authored_text(
+        let authorization = profile.base().base().authorization();
+        let bindings = typaxis_layout::bind_staging_precomposed_vectors(
             &package,
-            &navigation,
-            &flow,
-            &admitted,
-            &limits,
-            bindings.epoch().fingerprint(),
-        )
-        .unwrap();
-        let prepared = typaxis_layout::prepare_production_inline_items(
-            &package,
-            &navigation,
             authorization,
             &limits,
             &admitted,
-            &flow,
-            &shaped,
-            &bindings,
-            typaxis_linebreak::JapaneseLineBreakMode::Normal,
         )
         .unwrap();
-        assert_eq!(
-            prepared.paragraphs()[0].glyph_clusters().len(),
-            1 + page.to_string().len()
-        );
-        let width = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
-        let lines =
-            typaxis_layout::layout_production_inline_lines(&prepared, &[width], 1000).unwrap();
-        lines.verify(&prepared).unwrap();
-        assert_eq!(
-            flow.page_reference_text(NodeId::new(4)),
-            Some(page.to_string().as_str())
-        );
-        fingerprints.push(flow.fingerprint());
+        let mut fingerprints = Vec::new();
+        for page in [1, 12] {
+            let flow = typaxis_syntax::prepare_production_text_flow_with_page_references(
+                &package,
+                &navigation,
+                &limits,
+                &[(reference_owner, page)],
+            )
+            .unwrap();
+            let shaped = typaxis_shaping::shape_production_authored_text(
+                &package,
+                &navigation,
+                &flow,
+                &admitted,
+                &limits,
+                bindings.epoch().fingerprint(),
+            )
+            .unwrap();
+            let prepared = typaxis_layout::prepare_production_inline_items(
+                &package,
+                &navigation,
+                authorization,
+                &limits,
+                &admitted,
+                &flow,
+                &shaped,
+                &bindings,
+                typaxis_linebreak::JapaneseLineBreakMode::Normal,
+            )
+            .unwrap();
+            assert_eq!(
+                prepared.paragraphs()[0].glyph_clusters().len(),
+                1 + page.to_string().len()
+            );
+            let width = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
+            let lines =
+                typaxis_layout::layout_production_inline_lines(&prepared, &[width], 1000).unwrap();
+            lines.verify(&prepared).unwrap();
+            assert_eq!(
+                flow.page_reference_text(reference_owner),
+                Some(page.to_string().as_str())
+            );
+            fingerprints.push(flow.fingerprint());
+            with_production_common_footnote_pdf_candidates(
+                &package,
+                &navigation,
+                &semantics,
+                &profile,
+                &admitted,
+                &limits,
+                typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                100_000,
+                Some(&[(reference_owner, page)]),
+                |pdf, _, book, _, observed| {
+                    assert!(observed.line_reshape_passes >= 2);
+                    assert!(observed.page_passes >= 2);
+                    assert_eq!(pdf.page_count(), actual_page);
+                    // Resolve the actual root placement, including leading blank pages.
+                    // Rendering a candidate must not make it page evidence.
+                    let resolved = book
+                        .resolved_page_references()
+                        .collect::<Result<Vec<_>, _>>()
+                        .unwrap();
+                    assert_eq!(resolved, vec![(reference_owner, actual_page)]);
+                    assert_eq!(
+                        resolved == vec![(reference_owner, page)],
+                        page == actual_page
+                    );
+                    let label = format!(
+                        "/ActualText <FEFF{}>",
+                        page.to_string()
+                            .encode_utf16()
+                            .map(|unit| format!("{unit:04X}"))
+                            .collect::<String>()
+                    );
+                    assert!(pdf
+                        .bytes()
+                        .windows(label.len())
+                        .any(|bytes| bytes == label.as_bytes()));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        }
+        assert_ne!(fingerprints[0], fingerprints[1]);
     }
-    assert_ne!(fingerprints[0], fingerprints[1]);
 }

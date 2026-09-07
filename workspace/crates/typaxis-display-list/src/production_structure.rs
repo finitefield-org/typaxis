@@ -272,7 +272,7 @@ fn project_structure(
             if draw_page != page_index {
                 return Err(E::InvalidPaint);
             }
-            let id = if matches!(draw,ProductionBodyDraw::Text(t) if t.generated_provenance().is_some())
+            let id = if matches!(draw,ProductionBodyDraw::Text(t) if t.generated_provenance().is_some_and(|p| p.buffer_key().generation_kind() != typaxis_core::GenerationKind::PageReference))
             {
                 *label_nodes.get(&source).ok_or(E::InvalidPaint)?
             } else {
@@ -319,6 +319,27 @@ fn project_structure(
                     match t.generated_provenance() {
                         None if node.role() != StructureRole::Span => return Err(E::InvalidPaint),
                         None => (),
+                        Some(provenance)
+                            if provenance.buffer_key().generation_kind()
+                                == typaxis_core::GenerationKind::PageReference =>
+                        {
+                            let whole = flow
+                                .page_reference_provenance(source)
+                                .ok_or(E::InvalidPaint)?;
+                            let text = flow.page_reference_text(source).ok_or(E::InvalidPaint)?;
+                            let range = provenance.text_span().range();
+                            if node.role() != StructureRole::Reference
+                                || node.owner() != StructureOwner::Source(source)
+                                || provenance.buffer_key() != whole.buffer_key()
+                                || provenance.text_span().text_id() != whole.text_span().text_id()
+                                || text.get(
+                                    range.start_byte().get() as usize
+                                        ..range.end_byte().get() as usize,
+                                ) != Some(t.exact_text())
+                            {
+                                return Err(E::InvalidPaint);
+                            }
+                        }
                         Some(provenance) => {
                             let (expected_key, text) = match node.owner() {
                                 StructureOwner::Generated(key) if key.slot() == typaxis_layout::GeneratedStructureSlot::ListLabel => {
@@ -398,6 +419,30 @@ fn project_structure(
         if node.paint_required() && node_groups[node.structure_node_id().get() as usize].is_empty()
         {
             return Err(E::MissingPaint);
+        }
+        if let StructureOwner::Source(owner) = node.owner() {
+            if let Some(text) = flow.page_reference_text(owner) {
+                let mut end = 0;
+                for &group in &node_groups[node.structure_node_id().get() as usize] {
+                    for draw in &draws[groups[group].draws()] {
+                        let ProductionBodyDraw::Text(t) = draw else {
+                            return Err(E::InvalidPaint);
+                        };
+                        let range = t
+                            .generated_provenance()
+                            .ok_or(E::InvalidPaint)?
+                            .text_span()
+                            .range();
+                        if range.start_byte().get() != end {
+                            return Err(E::InvalidPaint);
+                        }
+                        end = range.end_byte().get();
+                    }
+                }
+                if end as usize != text.len() {
+                    return Err(E::InvalidPaint);
+                }
+            }
         }
         if node.role() == StructureRole::Label {
             let owned = &node_groups[node.structure_node_id().get() as usize];

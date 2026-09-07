@@ -203,9 +203,77 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
         ProductionCommonFootnoteObservation,
     ) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
+    with_production_common_footnote_pdf_candidates(
+        package,
+        navigation,
+        semantics,
+        profile,
+        admitted,
+        limits,
+        japanese_mode,
+        max_candidate_steps,
+        None,
+        inspect,
+    )
+}
+
+// Candidate labels are not final page evidence. The convergence owner must
+// compare their targets with actual destinations before authorizing publication.
+pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
+    package: &typaxis_syntax::ValidatedStagingSemanticPackage,
+    navigation: &typaxis_syntax::ValidatedStagingBookNavigationV2,
+    semantics: &typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+    profile: &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &typaxis_core::M4EffectiveResourceLimits,
+    japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
+    max_candidate_steps: u64,
+    page_values: Option<&[(NodeId, u32)]>,
+    inspect: impl FnOnce(
+        &typaxis_pdf::ProductionFootnotePdfAssembly<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        &typaxis_pagination::ProductionBodyFootnoteStablePages<'_, '_, '_, '_, '_>,
+        &typaxis_display_list::ProductionFootnoteBookNavigation<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        &typaxis_pdf::ProductionBookPdfObservation,
+        ProductionCommonFootnoteObservation,
+    ) -> Result<R, Failure>,
+) -> Result<R, Failure> {
     let authorization = profile.base().base().authorization();
-    let flow = typaxis_syntax::prepare_production_text_flow(package, navigation, limits)
-        .map_err(map_production_input_error)?;
+    let flow = match page_values {
+        Some(values) => typaxis_syntax::prepare_production_text_flow_with_page_references(
+            package, navigation, limits, values,
+        ),
+        None => typaxis_syntax::prepare_production_text_flow(package, navigation, limits),
+    }
+    .map_err(map_production_input_error)?;
     let bindings =
         typaxis_layout::bind_staging_precomposed_vectors(package, authorization, limits, admitted)
             .map_err(map_production_input_error)?;

@@ -2487,3 +2487,24 @@ writer／manifest・CLI接続および全巻等の受入ゲートは引き続き
 ローカル検証: syntax `production_flow_`は7件成功、ページ参照の実shaping／行選択testは1件成功。
 `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は165件成功・1件ignored
 （13.58秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.71 ページ参照候補の共通PDF接続と実ページ値の取得（実装追補）
+
+共通本文・脚注driverに明示したページ参照候補を渡し、再組版・ページ配置・structure・font・
+PDF assemblyまで同じgenerated textを保持する。脚注準備ではPageReferenceを脚注markerと
+区別する。structureでは元sourceのReference nodeへ結び、generated key、buffer、各文字列と
+全byte範囲の連続被覆を検証する。Labelや原文TextSpanへの置換は行わない。
+
+sealed book selectionの`resolved_page_references`は、同じsourceのPage-format参照について
+anchor名とownerを実destinationへ照合し、1始まりの実ページ値をallocationなしで取得する。
+戻り順はsource traversal順であり、次候補として保持する側で予算計上とowner順への整列が必要。
+候補値を実配置の証拠として扱わない。行・ページと参照値を再帰的に更新する収束処理、累積予算、
+Text／Number形式、公開writer／manifest・CLIおよび元全巻等の受入ゲートは未完である。
+
+実source-to-PDF testは先頭の空白ページ数0／1／11と候補1／12を組み合わせ、実ページ数と
+参照先1／2／12、候補に一致するPDF ActualText、行とページの複数passを検証する。
+ローカル検証: ページ参照testは1件成功（6組のPDF、0.42秒）。`cargo test
+--manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ -- --skip 5000`
+は165件成功・1件ignored（12.85秒）。targetは`/private/tmp/typaxis-vmb-book-build`、
+最終ログは`/private/tmp/typaxis-page-reference-final-regression.log`。5,000画像と実全巻の
+検証は今回のテストに含まれない。

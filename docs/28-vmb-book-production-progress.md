@@ -5594,3 +5594,19 @@ Final strengthened language check passed the integrated 18-fixture test:
 It verifies each observed language against the actual unique MCID/Lang prefix
 in the referenced serialized PageContent, including equation children.
 All processes started for this implementation step are terminal. No push.
+
+## 2026-09-08 — Generated page references through joint PDF assembly
+
+Implemented the candidate PDF path and actual destination projection described
+in design §14.71. Page-reference digits retain their generated provenance and
+source Reference structure node through line reshaping, joint pagination, fonts
+and PDF. Footnote preparation distinguishes these digits from footnote markers.
+The sealed book selection resolves reference targets to actual one-based pages
+without allocation; supplied candidate labels are not final page evidence.
+
+Six fixture combinations cover labels 1/12 and actual target pages 1/2/12.
+CLI production regressions passed 165 tests, with 1 ignored and unchanged
+5,000-image tests excluded (12.85 s). Log:
+`/private/tmp/typaxis-page-reference-final-regression.log`.
+Automatic reference convergence and cumulative retry budgets, public writer/
+manifest/CLI integration and the full book/Harano/scale/host gates remain open.

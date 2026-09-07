@@ -307,6 +307,54 @@ impl ProductionFootnoteBookNavigation<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_
     pub fn selected(&self) -> &BookNavigationSelectedReceiptV2 {
         &self.selected
     }
+    /// Actual one-based destination pages for Page-format references, in source
+    /// traversal order. This borrows the sealed selection and allocates nothing.
+    /// A caller retaining these rows must charge and sort them before supplying
+    /// another generated-text candidate. Matching labels alone do not prove
+    /// convergence of the surrounding line and page layout.
+    pub fn resolved_page_references(
+        &self,
+    ) -> impl Iterator<Item = Result<(NodeId, u32), BookNavigationSelectedError>> + '_ {
+        let flow = self
+            .source
+            .structure()
+            .display()
+            .source()
+            .line_layout()
+            .source_flow();
+        flow.paragraphs()
+            .iter()
+            .flat_map(|p| p.items())
+            .filter_map(|site| {
+                let Some(typaxis_syntax::ProductionInlineReference::Anchor {
+                    target,
+                    target_owner,
+                    format: typaxis_syntax::ProductionReferenceFormat::Page,
+                }) = site.reference()
+                else {
+                    return None;
+                };
+                Some((|| {
+                    let index = self
+                        .selected
+                        .destinations
+                        .binary_search_by(|binding| {
+                            binding.destination.anchor_id.as_str().cmp(target)
+                        })
+                        .map_err(|_| BookNavigationSelectedError::DestinationMismatch)?;
+                    let binding = &self.selected.destinations[index];
+                    if binding.source_node_id != target_owner {
+                        return Err(BookNavigationSelectedError::DestinationMismatch);
+                    }
+                    let page = binding
+                        .destination
+                        .page_index
+                        .checked_add(1)
+                        .ok_or(BookNavigationSelectedError::DestinationOutOfBounds)?;
+                    Ok((site.owner(), page))
+                })())
+            })
+    }
     pub fn child_language_paints(&self) -> &[BookLanguagePaintV2] {
         &self.child_language_paints
     }
