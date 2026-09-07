@@ -18,7 +18,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure, FD-bound Type2 and internal whole-sfnt /2 admission verified on unchanged original Harano; selected closure/cache and real dense-CID subset verified internally, including independent outlines/UVS/raster comparison; name-keyed /2, aggregate resource owner and public PDF integration pending (checkpoint below) |
-| Vertical tables, cmap 14, IVS shaping/extraction | Vertical/format-14 validators and combined base/UVS coverage are connected to internal /2 admission; independent all-original-entry hashes passed; actual IVS shaping/extraction pending (checkpoint below) |
+| Vertical tables, cmap 14, IVS shaping/extraction | Internal /2 admission and actual linked shaping preserve every original UVS and source cluster through dense subset mapping; independent full-UVS subset/render checks passed; package selection, ToUnicode/ActualText and public extraction binding pending (checkpoint below) |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
@@ -3032,3 +3032,82 @@ Log: `/private/tmp/typaxis-cff-subset-regression-final.log`. All launched proces
 reached terminal states. Actual IVS shaping/source clusters/ToUnicode, public
 resource/PDF/manifest binding, name-keyed /2 and all full-book/scale/platform gates
 remain mandatory. No public profile registry, public PDF or branch push occurred.
+
+
+## 2026-09-07 checkpoint: actual linked shaping of every original UVS
+
+`shape_cff1_run_v2` supplies only the sealed admission's original bytes, face,
+metrics and effective limits to the existing `shape_linked`/harfrust backend.
+It preflights complete base+VS pairs, refuses isolated/missing/split selectors,
+retains the original UTF-8 and exposes exact logical-cluster text. No selector
+is dropped or replaced. Input plus pre/post context obey the admission's context
+byte ceiling; the existing backend record-bound/reservation/output accounting
+is reused. This is a font-level integration, not package style selection or
+layout/PDF authorization. Old /1 default-ignorable behavior remains unchanged.
+
+The original-font test shapes **all 14,780 UVS**, in bounded runs of 200 pairs
+separated by ordinary spaces. Every actual backend GID, UTF-8 source range and
+`cluster_text` equals the expected original pair. It explicitly covers distinct
+sequences sharing one GID. The actual selected output union generates a
+**14,674-glyph**, **6,563,684-byte** subset with SHA-256
+`aad51459429ea109f404e42b29e5b38e350430d9bdebbefbaff10c328b1d481c`.
+All original pairs resolve through the resulting dense subset mapping. Default
+Type2 work usage is **7,422,048 operations**, **1,354,039 segments**, with no
+limit overrides. The test also refuses a missing pair with exact relative byte
+range 3..8, standalone VS, repeated VS, post-context splitting, excessive context
+and mismatched source-span length.
+
+```sh
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+TYPAXIS_HARANO_IVS_SUBSET_OUTPUT=/private/tmp/typaxis-harano-all-ivs-v2.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-shaping cff_v2_shape_original --locked -- --ignored --nocapture
+python3 tools/verify_harano_cff_subset.py \
+  /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  /private/tmp/typaxis-harano-all-ivs-v2.otf \
+  /private/tmp/typaxis-harano-all-ivs-v2.otf.gids
+/private/tmp/typaxis-verify-cff-subset-raster \
+  /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  /private/tmp/typaxis-harano-all-ivs-v2.otf \
+  /private/tmp/typaxis-harano-all-ivs-v2.otf.gids
+```
+
+The raster binary is built from the C verifier with the dependency flags in the
+previous checkpoint. FontTools 4.51.0 verifies all **14,674 outlines**, source/
+output hmtx and normalized CFF widths, **14,002 base mappings** and **14,780 UVS**.
+Selected outline/mapping hash:
+`127b543d1f072edb1af4e404c9cacc6544be0485f50bb903b60a64c10bc4108b`.
+This set uses source FDs **3, 5, 12, 14** and has no CFF/hmtx disagreements; it
+does not replace the previous all-12-FD/width-disagreement fixture.
+FreeType 2.14.3 passes **58,696** exact unhinted bitmap/origin/advance comparisons
+at 12/24/48/96px. Facts/logs:
+`/private/tmp/typaxis-harano-all-ivs-fonttools.json`,
+`/private/tmp/typaxis-harano-all-ivs-freetype.log`,
+`/private/tmp/typaxis-cff-shape-original.log`.
+
+Final ordinary regression: **167 passed** (font 53, admission 62, resources 28,
+shaping 24), ten explicit-original tests ignored, no failures. Log:
+`/private/tmp/typaxis-cff-shape-regression.log`.
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-resource-admission -p typaxis-resources \
+  -p typaxis-shaping --lib --locked
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-shaping cff_v2 --locked -- --ignored
+```
+
+The font-level all-UVS result is not a ToUnicode/ActualText or public full-book
+extraction claim. Package selection and the exhaustive profile-specific resource,
+shaping, PDF and manifest owners still need private-staging integration under
+§9.1, followed by the public/all-book gates before publication. Full exporter,
+common-layout closure and scale/platform verification remain mandatory.
+
+Final explicit-original verification: **10 passed** (font 8, shaping 2), no
+failures. Log: `/private/tmp/typaxis-cff-shape-original-final.log`. Every process
+launched for this checkpoint reached a terminal state. No public profile
+registry, public PDF, or branch push occurred.

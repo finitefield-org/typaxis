@@ -36,7 +36,7 @@ impl Cff1AdmissionV2 {
     pub(super) fn horizontal_metrics(&self) -> (&[u16], &[i16]) {
         (&self.advances, &self.left_side_bearings)
     }
-    pub(super) fn effective_limits(&self) -> &M4EffectiveResourceLimits {
+    pub fn effective_limits(&self) -> &M4EffectiveResourceLimits {
         &self.effective_limits
     }
     pub fn source(&self) -> &[u8] {

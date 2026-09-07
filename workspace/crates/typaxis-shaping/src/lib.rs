@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod cff_v2;
 mod production_text;
+pub use cff_v2::{shape_cff1_run_v2, Cff1ShapeErrorV2, Cff1ShapeInputV2, Cff1ShapedRunV2};
 pub use production_text::{
     production_equation_number_font, reshape_production_authored_text,
     shape_production_authored_text, ProductionAuthoredTextShape, ProductionBodyFont,

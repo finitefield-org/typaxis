@@ -589,6 +589,32 @@ canonical subsetは元hint programを保持しないため、描画比較は双�
 これは選択subsetの検証であり、IVSの実shaping/cluster/ToUnicode、public resource・PDF・
 manifestへの接続、Harano全巻・scaleの独立検査は引き続き必須残件である。
 
+### 7.12 元二scalarの実シェーピングと全UVS subset join
+
+`shape_cff1_run_v2`はsealed `Cff1AdmissionV2`の元bytes・face 0・metric・実効予算を
+既存の`shape_linked`へ渡すfont単位の接続である。入力UTF-8とpre/post contextのbytesを
+予算検査し、harfrustの既存record上限・事前予約・実出力課金を共有する。
+基底文字の直後にVSがあれば必ずpair coverageを検査する。孤立VS、Missing pair、run外の
+post contextへ分割されたVSを拒否し、VSを削除・置換して再試行しない。
+旧 `/1` のdefault-ignorable規則は変更しない。
+
+harfrustへは元二scalarをそのままinputとして渡す。`Cff1ShapedRunV2`はadmissionと元UTF-8を
+保持し、`cluster_text`は実clusterの元文字列を返す。複数sequenceが同じGIDへ対応しても
+文字列をGIDから推測しない。source span長とUTF-8 byte境界も既存backendで検証する。
+このownerはpackageのstyle/font選択、layout epochやPDF publicationを認可するものではなく、
+その上位ownerへの接続は引き続き必要である。
+
+元原ノ味の全14,780 UVSを200 pairごとのrunで実シェーピングし、全GID・全source clusterと
+元文字列を照合した。実shape出力の選択集合から14,674 glyphのsubsetを生成し、全UVSが
+dense GIDへ正しくjoinする。FontToolsは全選択輪郭、14,002基底対応と全14,780 UVSを照合し、
+FreeTypeでは58,696件のunhinted raster・位置・advance比較が一致した。
+既定CFF予算で7,422,048 operations・1,354,039 outline segmentsを使用し、subsetは
+6,563,684 bytesとなる。全UVSが使うFDは4種類であり、§7.11の全実使用12 FD試験とは区別する。
+
+この全UVS検証は公開PDFのToUnicode/ActualText抽出やHarano全巻ゲートを代替しない。
+§9.1に従うprivate stagingのprofile別resource/shaping/PDF/manifest union接続と、
+正式exporter・共通layout・公開CLI・両OSの全巻検証は必須残件である。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成
