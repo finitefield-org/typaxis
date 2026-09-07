@@ -2246,3 +2246,22 @@ assemblyを検証する経路でも実行される。公開tagged観測・PDF/UA
 は18種の実PDFを含む1件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`
 は163件成功・1件ignored（13.02秒）。いずれも`workspace/Cargo.toml`と
 `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build`を使用した。
+
+### 14.57 実構造root・StructElem・MCR・OBJRの検証（実装追補）
+
+本文・脚注assemblyの`verify`は実StructTreeRootのRoleMap、ParentTree参照、次の注釈キー、
+root node列とIDTree参照を照合する。各StructElemは実object bytes全体を検証し、role、親参照、
+言語、Alt、ID、リスト／表属性、子の順序をsource registryと照合する。MCRはnodeごとの実groupから
+ページ絶対番号とMCIDを確認し、OBJRはnodeごとの注釈bindingからページ・注釈絶対番号を確認する。
+両方のnode別indexについて所有者も再確認し、未定義のobject参照を拒否する。
+
+文字列はUTF-16 code unitをstack上でhex化して実sliceと直接比較し、検証用の文字列や配列を
+確保しない。日本語、surrogate pair、PDF delimiter、改行、空文字を明示したunit testを追加した。
+ParentTreeと合わせて双方向の構造参照を照合するが、IDTree本体・marked streamの最終検証、
+公開tagged観測／PDF receipt／manifestおよび元全巻等の必須受入ゲートは未完了である。
+
+ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
+1件ignored（12.60秒）。root検証追加後、`cargo test -p typaxis-pdf --lib
+production_body_assembly::production_parent_tree`は2件成功、`cargo test -p typaxis-cli --bin typaxis
+production_footnote_page_content_combines_draws_and_separator_artifacts`は18種のPDFを含む1件成功
+（4.06秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
