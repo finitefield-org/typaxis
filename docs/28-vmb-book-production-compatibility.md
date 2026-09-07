@@ -2283,3 +2283,20 @@ IDは既存writerと同じsource byte順で厳密な昇順を要求し、項目�
 ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
 は3件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
 1件ignored（12.68秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.59 実PageContent streamと選択marked contentの一致検証（実装追補）
+
+本文・脚注assemblyの`verify`は、各実PageContent objectのdirect Length、stream開始／終了の
+形式、payload全体をsource chainで保持するmarked pageと照合する。ページ数とpage indexの
+連続性も再確認する。これにより構造groupから生成済みのMCID・ActualText・言語・本文／脚注
+描画・separator artifactを含むbytesが、実PDFの対応するPageContent objectに保持されたことを
+確認する。生成器とは独立したPDF命令parserやPDF/UA検証器の代替にはしない。
+
+借用sliceを直接比較し、stream全体の再確保・UTF-8変換・keyword検索は行わない。unit testは
+payload中の`endstream`等の文字列、非UTF-8 bytes、空payload、全byteの変更と全位置の
+切り詰め、Length不一致、末尾追加を検証する。公開receipt／manifestへの封印、最終ページ／
+resource参照の検証、公開writer・CLIと全巻等の受入ゲートは引き続き未完了である。
+
+ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
+は4件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
+1件ignored（34.53秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

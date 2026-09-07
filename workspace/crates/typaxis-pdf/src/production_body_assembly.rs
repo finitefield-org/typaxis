@@ -484,7 +484,8 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
             .verify(source.structure_objects(), admitted, limits)
             .map_err(|_| ProductionBodyAssemblyError::ReceiptMismatch)?;
         self.verify_parent_tree()?;
-        self.verify_structure_nodes()
+        self.verify_structure_nodes()?;
+        self.verify_marked_streams()
     }
 }
 pub fn assemble_production_footnote_pdf<

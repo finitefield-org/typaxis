@@ -10,6 +10,10 @@ impl Write for ExactBytes<'_> {
     }
 }
 impl ExactBytes<'_> {
+    fn bytes(&mut self, bytes: &[u8]) -> fmt::Result {
+        self.0 = self.0.strip_prefix(bytes).ok_or(fmt::Error)?;
+        Ok(())
+    }
     fn text(&mut self, text: &str) -> fmt::Result {
         self.write_str("<FEFF")?;
         for unit in text.encode_utf16() {
@@ -30,6 +34,16 @@ fn compare_payload(
     } else {
         Err(E::ReceiptMismatch)
     }
+}
+
+// This writer uses uncompressed, direct-length page streams. Compare their
+// framing as well as their bytes; scanning for PDF keywords is not a parser.
+fn verify_marked_stream(bytes: &[u8], content: &[u8]) -> Result<(), E> {
+    compare_payload(bytes, |sink| {
+        write!(sink, "<< /Length {} >>\nstream\n", content.len())?;
+        sink.bytes(content)?;
+        sink.write_str("\nendstream")
+    })
 }
 
 // Read the absolute reference to select its source ID, then compare the complete
@@ -80,6 +94,25 @@ fn verify_id_tree<'a>(
 }
 
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub(super) fn verify_marked_streams(&self) -> Result<(), E> {
+        let marked = self.source.structure_objects().annotations().marked();
+        if marked.pages().len() != self.page_count() as usize {
+            return Err(E::ReceiptMismatch);
+        }
+        for (index, page) in marked.pages().iter().enumerate() {
+            if page.page_index() as usize != index {
+                return Err(E::ReceiptMismatch);
+            }
+            let number = self
+                .object_number(R::PageContent(page.page_index()))
+                .ok_or(E::ReceiptMismatch)?;
+            verify_marked_stream(
+                self.object_bytes(number).ok_or(E::ReceiptMismatch)?,
+                page.content(),
+            )?;
+        }
+        Ok(())
+    }
     pub(super) fn verify_structure_nodes(&self) -> Result<(), E> {
         let annotations = self.source.structure_objects().annotations();
         let structure = annotations.marked().structure();
@@ -286,6 +319,42 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_marked_stream_requires_exact_length_content_and_framing() {
+        // Payload contains delimiter-like text and non-UTF8 bytes. Verification
+        // must use the retained length, not an endstream/EMC keyword search.
+        let content = b"BDC\nendstream\nEMC\n\x00\xff";
+        let bytes = b"<< /Length 20 >>\nstream\nBDC\nendstream\nEMC\n\x00\xff\nendstream";
+        assert_eq!(content.len(), 20);
+        assert_eq!(verify_marked_stream(bytes, content), Ok(()));
+        for index in 0..bytes.len() {
+            let mut changed = bytes.to_vec();
+            changed[index] ^= 1;
+            assert_eq!(
+                verify_marked_stream(&changed, content),
+                Err(E::ReceiptMismatch)
+            );
+            assert_eq!(
+                verify_marked_stream(&bytes[..index], content),
+                Err(E::ReceiptMismatch)
+            );
+        }
+        assert_eq!(
+            verify_marked_stream(bytes, &content[..19]),
+            Err(E::ReceiptMismatch)
+        );
+        assert_eq!(
+            verify_marked_stream(b"<< /Length 0 >>\nstream\n\nendstream", b""),
+            Ok(())
+        );
+        let mut extra = bytes.to_vec();
+        extra.push(b' ');
+        assert_eq!(
+            verify_marked_stream(&extra, content),
+            Err(E::ReceiptMismatch)
+        );
+    }
 
     #[test]
     fn production_id_tree_requires_exact_sorted_source_coverage() {
