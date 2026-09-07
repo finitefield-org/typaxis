@@ -2644,3 +2644,13 @@ pdfinfo -destsはtargetを12ページへ解決する。検査用PDFは
 `/private/tmp/typaxis-footnote-reference-regression.log`）。workspace manifestと前節のtargetを
 使用し、5,000画像は今回再実行していない。Text／Number形式、公開writer／manifest、全工程の
 allocation管理、正式exporter、必要な戻りリンク、元全巻・原ノ味等の受入は引き続き未完である。
+
+
+### 14.78 VMB文書JSONの確保前上限確認（実装追補）
+
+VMB側EncodeBookBodyで、文書全体をmarshalする前に閉じたDTOのJSON byte数を計数する。
+指定MaxDocumentBytesを超える入力は全体JSONを確保する前に拒否し、必要量ちょうどは従来と
+同じJSONを生成する。UTF-8・HTML／制御文字escape・整数・数式DTOを含めて既存serializerと
+一致を確認し、独自serializerは実行しない。interfaceを階層に数えず、wire深さ256を維持する。
+詳細と検証はVMB正本§15.40を参照する。sidecar等を含む全allocation管理、正式exporterの
+CLI／ArtifactSink接続、公開writer／manifestと全巻・原ノ味・規模・両host受入は未完である。

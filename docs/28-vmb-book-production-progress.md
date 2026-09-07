@@ -5733,3 +5733,18 @@ CLI production regression: 168 passed, 1 ignored, 12.57 s
 (`/private/tmp/typaxis-footnote-reference-regression.log`); unchanged 5,000-image
 cases excluded. All processes ended. Full objective and public integration,
 exporter, allocation and full-book/Harano/scale/host gates remain open.
+
+
+## 2026-09-08 — Admit exporter document JSON before encoding
+
+VMB commit `36cd6cc6` implements design §14.78 / exporter §15.40. EncodeBookBody
+counts the exact closed DTO JSON size before whole-document marshal, rejecting
+the requested byte limit before allocating that encoded document. Existing bytes,
+HTML/Unicode escaping, integer boundaries and embedded math DTOs are preserved.
+Custom serializers are rejected without execution; interface wrappers do not
+consume JSON nesting depth. Tests cover exact/one-short and depth 256/257.
+Final local `go test ./internal/rendertypaxis -count=1` passed in 50.903 s;
+log `/private/tmp/vmb-json-size-final-regression.log`, process exited 0.
+Typaxis runtime was unchanged, so its regression was not repeated for this change.
+This does not complete sidecar/package allocation accounting, formal exporter,
+public writer/manifest or full-book/Harano/scale/host acceptance. Goal remains open.
