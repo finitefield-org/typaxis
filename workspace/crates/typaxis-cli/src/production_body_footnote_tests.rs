@@ -1810,14 +1810,11 @@ fn production_footnote_text_accounts_for_prior_fonts_records_and_spool() {
                 .unwrap();
                 let result = typaxis_pdf::encode_production_footnote_text(&fonts, admitted, limits);
                 if mode == 2 || mode == 4 || mode == 6 {
-                    assert_eq!(
-                        result.err().unwrap(),
-                        if mode == 2 {
-                            typaxis_pdf::ProductionBodyTextError::RecordLimit
-                        } else {
-                            typaxis_pdf::ProductionBodyTextError::OutputLimit
-                        }
-                    );
+                    let error = result.err().unwrap();
+                    assert_eq!(error, if mode == 2 { typaxis_pdf::ProductionBodyTextError::RecordLimit } else { typaxis_pdf::ProductionBodyTextError::OutputLimit });
+                    let failure = map_common_content_error(typaxis_pdf::ProductionBodyPageError::Text(error));
+                    assert_eq!(failure.kind, FailureKind::Limit);
+                    assert!(failure.message.starts_with(if mode == 2 { "L5110:" } else { "D8101:" }));
                 } else {
                     let encoded = result.unwrap();
                     if mode == 0 {
@@ -2021,10 +2018,11 @@ fn production_footnote_vectors_account_for_prior_records_and_text_spool() {
                     &fonts, admitted, limits,
                 );
                 if mode == 2 {
-                    assert_eq!(
-                        result.err().unwrap(),
-                        typaxis_resources::StagingSafeVectorResourceV2Error::RecordLimit
-                    );
+                    let error = result.err().unwrap();
+                    assert_eq!(error, typaxis_resources::StagingSafeVectorResourceV2Error::RecordLimit);
+                    let failure = map_common_content_error(typaxis_pdf::ProductionBodyPageError::Forms(error));
+                    assert_eq!(failure.kind, FailureKind::Limit);
+                    assert!(failure.message.starts_with("D8101:"));
                     return;
                 }
                 let plans = result.unwrap();
@@ -2032,10 +2030,11 @@ fn production_footnote_vectors_account_for_prior_records_and_text_spool() {
                     &plans, &text, admitted, limits,
                 );
                 if mode == 4 {
-                    assert_eq!(
-                        result.err().unwrap(),
-                        typaxis_pdf::StagingSafeVectorPdfV2Error::SpoolLimit
-                    );
+                    let error = result.err().unwrap();
+                    assert_eq!(error, typaxis_pdf::StagingSafeVectorPdfV2Error::SpoolLimit);
+                    let failure = map_common_content_error(typaxis_pdf::ProductionBodyPageError::Vectors(error));
+                    assert_eq!(failure.kind, FailureKind::Limit);
+                    assert!(failure.message.starts_with("D8101:"));
                 } else {
                     let pdf = result.unwrap();
                     if mode == 0 {
@@ -3813,16 +3812,11 @@ fn production_footnote_page_content_accounts_for_prior_records_spool_and_output(
                 let result =
                     typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits);
                 if mode == 2 || mode == 4 || mode == 6 {
-                    assert_eq!(
-                        result.err().unwrap(),
-                        if mode == 2 {
-                            typaxis_pdf::ProductionBodyPageError::Rasters(
-                                typaxis_resources::ResourceError::ResourceLimit,
-                            )
-                        } else {
-                            typaxis_pdf::ProductionBodyPageError::OutputLimit
-                        }
-                    );
+                    let error = result.err().unwrap();
+                    assert_eq!(error, if mode == 2 { typaxis_pdf::ProductionBodyPageError::Rasters(typaxis_resources::ResourceError::ResourceLimit) } else { typaxis_pdf::ProductionBodyPageError::OutputLimit });
+                    let failure = map_common_content_error(error);
+                    assert_eq!(failure.kind, FailureKind::Limit);
+                    assert!(failure.message.starts_with(if mode == 2 { "G6100:" } else { "D8101:" }));
                 } else {
                     let encoded = result.unwrap();
                     if mode == 0 {

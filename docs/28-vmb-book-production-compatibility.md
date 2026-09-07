@@ -2434,3 +2434,18 @@ font／content内部の診断、公開writer／manifest・CLIへの接続と全�
 
 ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は164件成功・
 1件ignored（12.28秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.68 共通page content内部の予算診断（実装追補）
+
+共通本文・脚注driverはProductionBodyPageErrorのText／Forms／Vectors／Rastersを型で分類し、
+一律Internalへ変換しない。text記録数はL5110、content／textのoutput・allocationと既存Form／
+vectorの予算分類はD8101、raster ResourceLimitはG6100のLimitとする。receipt・candidate・
+placement等の内部不一致はI9190／Internalに保持し、内側のerror全体をmessageへ残す。
+
+実text encodingの記録数／spool／output境界、実Form planの記録数不足、実vector contributionの
+spool不足、実page contentのresource記録数／spool／output境界で診断分類を検証する。
+font内部の精密診断、公開writer／manifest・CLIへの接続と全巻受入ゲートは引き続き必要である。
+
+ローカル検証: 追加assertionの挿入位置を修正した後、`cargo test -p typaxis-cli --bin typaxis
+production_ -- --skip 5000`は164件成功・1件ignored（16.63秒）。
+`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

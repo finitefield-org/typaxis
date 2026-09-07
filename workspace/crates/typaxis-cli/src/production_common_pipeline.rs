@@ -287,7 +287,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
                     .map_err(|e| Failure::input(format!("common footnote fonts: {e:?}")))?;
             let content =
                 typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
-                    .map_err(|e| Failure::internal(format!("common footnote content: {e:?}")))?;
+                    .map_err(map_common_content_error)?;
             let marked =
                 typaxis_pdf::build_production_footnote_marked_content(&content, admitted, limits)
                     .map_err(map_common_marked_error)?;
@@ -510,4 +510,47 @@ fn map_common_structure_error(
         E::ReceiptMismatch | E::Registry | E::MissingPaint | E::InvalidPaint => None,
     };
     common_pdf_failure("structure", code, error)
+}
+
+fn map_common_content_error(error: typaxis_pdf::ProductionBodyPageError) -> Failure {
+    use typaxis_pdf::{
+        ProductionBodyPageError as E, ProductionBodyTextError as T,
+        StagingSafeVectorPdfV2Error as V,
+    };
+    use typaxis_resources::{ResourceError, StagingSafeVectorResourceV2Error as F};
+    let code = match error {
+        E::OutputLimit | E::AllocationFailure => Some("D8101"),
+        E::ReceiptMismatch => None,
+        E::Text(cause) => match cause {
+            T::RecordLimit => Some("L5110"),
+            T::OutputLimit | T::AllocationFailure => Some("D8101"),
+            T::ReceiptMismatch => None,
+        },
+        E::Forms(cause) => match cause {
+            F::CountOverflow
+            | F::RecordLimit
+            | F::ObjectRoleCountOverflow
+            | F::AllocationFailure => Some("D8101"),
+            F::DisplayMismatch
+            | F::CandidateMismatch
+            | F::AliasMismatch(_)
+            | F::LimitsMismatch
+            | F::ReceiptMismatch => None,
+        },
+        E::Vectors(cause) => match cause {
+            V::CountOverflow | V::SpoolLimit | V::AllocationFailure => Some("D8101"),
+            V::DisplayMismatch
+            | V::FormPlanMismatch
+            | V::CandidateMismatch
+            | V::InvalidIr
+            | V::InvalidPlacement
+            | V::ArithmeticOverflow
+            | V::ContributionMismatch
+            | V::FinalWriterMismatch
+            | V::FinalPdfMismatch => None,
+        },
+        E::Rasters(ResourceError::ResourceLimit) => Some("G6100"),
+        E::Rasters(_) => None,
+    };
+    common_pdf_failure("content", code, error)
 }
