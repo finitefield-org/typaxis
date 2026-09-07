@@ -676,3 +676,9 @@ pub use production_book_observation::{
 
 #[path = "production_parent_tree.rs"]
 mod production_parent_tree;
+
+#[path = "production_page_reference_closure.rs"]
+mod production_page_reference_closure;
+pub use production_page_reference_closure::{
+    seal_production_page_reference_pdf, ProductionPageReferencePdfClosure,
+};

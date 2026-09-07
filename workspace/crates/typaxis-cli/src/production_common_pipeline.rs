@@ -678,6 +678,21 @@ pub(crate) fn with_converged_production_page_reference_pdf<R>(
                 );
                 let labels_match = next == values;
                 if labels_match && previous == Some(state) {
+                    let references = typaxis_pdf::seal_production_page_reference_pdf(
+                        pdf,
+                        book,
+                        profile.base().authorization(),
+                        admitted,
+                        limits,
+                        total.record_charge,
+                    )
+                    .map_err(|e| map_common_assembly_error("final page references", e))?;
+                    references
+                        .verify(pdf, book, profile.base().authorization(), admitted, limits)
+                        .map_err(|e| {
+                            map_common_assembly_error("final page reference identity", e)
+                        })?;
+                    total.record_charge = references.record_charge();
                     let inspect = inspect
                         .take()
                         .ok_or_else(|| Failure::internal("page reference consumer reused"))?;

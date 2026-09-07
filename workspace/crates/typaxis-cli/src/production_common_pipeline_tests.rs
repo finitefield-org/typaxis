@@ -409,6 +409,7 @@ fn production_page_reference_fixture(blank_pages: u32) -> (serde_json::Value, No
 
 #[test]
 fn production_page_reference_candidates_shape_and_select_real_generated_digits() {
+    let mut first_closure: Option<typaxis_pdf::ProductionPageReferencePdfClosure> = None;
     for blank_pages in [0u32, 1, 11] {
         let (value, reference_owner) = production_page_reference_fixture(blank_pages);
         let actual_page = blank_pages + 1;
@@ -503,6 +504,59 @@ fn production_page_reference_candidates_shape_and_select_real_generated_digits()
                         resolved == vec![(reference_owner, page)],
                         page == actual_page
                     );
+                    let closed = typaxis_pdf::seal_production_page_reference_pdf(
+                        pdf,
+                        book,
+                        profile.base().authorization(),
+                        &admitted,
+                        &limits,
+                        observed.record_charge,
+                    );
+                    if page == actual_page {
+                        let closed = closed.unwrap();
+                        assert_eq!(closed.reference_count(), 1);
+                        assert_eq!(closed.pdf_sha256(), pdf.content_hash());
+                        assert_eq!(closed.record_charge(), observed.record_charge + 1);
+                        closed
+                            .verify(
+                                pdf,
+                                book,
+                                profile.base().authorization(),
+                                &admitted,
+                                &limits,
+                            )
+                            .unwrap();
+                        if let Some(first) = &first_closure {
+                            assert_eq!(
+                                first.verify(
+                                    pdf,
+                                    book,
+                                    profile.base().authorization(),
+                                    &admitted,
+                                    &limits
+                                ),
+                                Err(typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch)
+                            );
+                        } else {
+                            first_closure = Some(closed);
+                        }
+                        assert_eq!(
+                            typaxis_pdf::seal_production_page_reference_pdf(
+                                pdf,
+                                book,
+                                profile.base().authorization(),
+                                &admitted,
+                                &limits,
+                                u64::MAX
+                            ),
+                            Err(typaxis_pdf::ProductionBodyAssemblyError::RecordLimit)
+                        );
+                    } else {
+                        assert_eq!(
+                            closed,
+                            Err(typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch)
+                        );
+                    }
                     let label = format!(
                         "/ActualText <FEFF{}>",
                         page.to_string()

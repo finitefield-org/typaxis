@@ -5657,3 +5657,22 @@ PDF: `/private/tmp/typaxis-page-reference-reflow-visible.pdf`, SHA-256
 All processes from this step are terminal. This does not complete public
 CLI/writer/manifest, full allocation accounting, exporter or the original-book,
 Japanese-font/Harano, scale and both-host acceptance gates.
+
+## 2026-09-08 — Final PDF page-reference closure
+
+Added the source-bound PDF-layer closure described in design §14.74. It verifies
+the actual PDF/structure/source chain and sealed navigation, checks every
+Page-reference value against its actual destination, and binds the resulting
+opaque receipt to flow, selection, profile, limits and PDF fingerprints.
+The common convergence driver creates and re-verifies this closure before
+calling its consumer, charging its one retained record to the cumulative budget.
+No expected values or success flag can be supplied by a caller.
+
+Tests reject wrong candidate labels, reuse against a different PDF and record
+overflow, and cover exact/one-short cumulative records including the new receipt.
+CLI check passed (55.50 s); production regression excluding unchanged 5,000-image
+cases passed 167 tests, 1 ignored, 15.43 s
+(`/private/tmp/typaxis-page-reference-closure-regression.log`).
+This proves final page labels only. It does not issue a public PDF receipt or
+PDF/UA declaration; public writer/manifest, full allocation ownership, other
+reference formats, exporter and full acceptance gates remain open.

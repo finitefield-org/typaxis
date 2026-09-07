@@ -2557,3 +2557,25 @@ Poppler／MuPDF抽出で11ページ=A、12ページ=13、13ページ=Aを照合�
 targetが13ページのXYZ destinationであることを確認した。数字の可視輪郭はMuPDFとPopplerで
 描画した。本文Aの輪郭はこの診断fontでは空であり、本文可視性の検証には含めない。
 全プロセスは終了済みである。
+
+### 14.74 最終PDFのページ参照closure（実装追補）
+
+公開writer接続の前提として、PDF層にProductionPageReferencePdfClosureを追加した。
+seal_production_page_reference_pdfは、実PDFとstructure／sourceの強い検証、同じnavigationに
+結び付くbook selectionの検証を行い、全Page-referenceのgenerated値を実destinationへ照合する。
+呼び出し側から期待ページ値や成功flagを受け取らない。flow・selected book・profile・limits・
+PDFのfingerprint、参照数と記録費用をprivate fieldに保持し、verifyは同じ入力から再検証する。
+
+closureは保持recordを1件追加する。本文・参照文字列やPDF全体を新たにコピーしない。
+共通driverは、実ページ値と連続2回の完成結果が一致した後でこのclosureを生成・再検証し、
+累積record費用へ加えてからconsumerを呼ぶ。closureはページ参照の正しさだけを証明し、
+PDF/UA宣言、汎用組版の収束認可、VerifiedPdfBytesReceiptの発行を意味しない。
+
+実PDFテストでは正しい1／12ページ値のclosure、誤った候補値の拒否、別PDFに対するclosureの
+再利用拒否、record overflowを確認した。収束の必要record量ちょうど／1不足テストもこの1件を
+含めて通過した。ローカルCLI check成功（55.50秒）、`cargo test --manifest-path
+workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ -- --skip 5000`は167件成功・
+1件ignored（15.43秒）。targetは前節と同じ、ログは
+`/private/tmp/typaxis-page-reference-closure-regression.log`。5,000画像の再実行は含まない。
+公開writer／manifestの統合、全allocation予算、Text／Number参照、正式exporter、元全巻・
+原ノ味・規模・両host受入は引き続き必要である。
