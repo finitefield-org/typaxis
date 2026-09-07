@@ -2110,3 +2110,22 @@ Builderは先行object数を保持し、新しいobjectを追加するたびに�
 page tree・catalog・metadata、絶対object番号・xref、manifest・公開writerの統合はまだ必要である。
 既存TT／TTC／CFF1の小fixture検証を原ノ味・次期CFF profileの受入証拠に読み替えない。
 動的参照、全allocation寿命管理、元全巻・原ノ味・規模・両hostのゲートを維持する。
+
+### 14.50 本文・脚注の最終object番号と診断PDF組み立て（実装追補）
+
+`assemble_production_footnote_pdf`はresource結果から注釈・構造・描画までの所有関係を検証し、
+借用iteratorで各contributionを通常本文と共通のPDF組み立て処理へ渡す。全objectを事前に
+複製する配列は追加しない。Pageを含む全object数と累積recordsを番号割当て前に検査し、
+重複role・解決できない参照・予定数と実object数の不一致を拒否する。
+
+Catalog、Pages、元メタデータ、PageのMediaBox／Contents／Resources、StructParentsと
+本文・脚注を統合したAnnotsを生成する。構造・注釈・destination／outline・resourceを同じ
+絶対番号へ解決し、objectのoffset・長さ・hash、xref、trailerを確定する。spoolは先行
+contributionと組み立て中のコピーを累積し、最終bytesの出力上限も検査する。結果は元の
+resource ownerを借用し、別ownerによる検証を拒否する。
+
+16種の小fixtureで実objectのhash／offset／xref、ページ参照、注釈順序、空ページ、再実行の
+byte一致を検証する。records・spool・全object数・出力bytesは境界値と1不足の拒否を検証する。
+これは独立PDFツールで検査できる診断assemblyであり、`VerifiedPdfBytesReceipt`や公開可能性の
+証明ではない。manifest・公開writer・CLIへの接続、必要な戻りリンク、動的参照、全allocation／
+retry管理、元全巻・原ノ味・規模・両host受入は引き続き必須である。

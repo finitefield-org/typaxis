@@ -5333,3 +5333,60 @@ Existing ordinary font/object/structure/navigation/assembly and cumulative
 budget regressions pass. The unchanged 5,000-SVG unmarked-content tests were
 explicitly excluded; the saved-job test remains explicitly ignored. All
 processes from this implementation step are terminal.
+
+## 2026-09-08 — Joint body/footnote diagnostic PDF assembly
+
+Implemented §14.50. The common assembler now accepts borrowed object iterators,
+source-authenticated metadata/geometry and the selected page annotation ranges.
+`assemble_production_footnote_pdf` joins annotations, structure and resource
+contributions, counts the complete graph before numbering, resolves every typed
+reference, and emits Pages/Catalog/metadata, Page Annots/StructParents, xref and
+trailer. It carries the cumulative records/spool and checks final output bytes;
+the opaque result rejects a different resource owner. Ordinary assembly uses
+the same projector.
+
+Tests cover 16 fixtures (TT/TTC/CFF1, navigation, reversed/repeated/multi-digit
+footnotes, continued definitions, large list labels, formula numbers, empty
+pages, PNG/JPEG). They inspect every object's bytes after reference substitution,
+hash/offset/xref, page resources/content and merged annotation ranges, repeat
+bytes, and receipt identity. Exact/one-short records, spool, total objects and
+output limits are exercised. No public PDF/UA receipt is asserted.
+
+Validation:
+- `cargo check -p typaxis-pdf --locked`: pass, 16.28 s,
+  `/private/tmp/typaxis-joint-assembly-check.log`.
+- CLI `production_footnote_`: 61 passed, 0 failed, 14.29 s,
+  `/private/tmp/typaxis-joint-assembly-tests-2.log`.
+- CLI `production_ -- --skip production_body_page_content_places_5000`:
+  158 passed, 0 failed, 1 explicitly ignored, 21.18 s,
+  `/private/tmp/typaxis-joint-assembly-clean-final.log`.
+  Target directory `/private/tmp/typaxis-vmb-book-build`; all commands use
+  `--locked` and the workspace manifest. The unchanged 5,000-SVG tests were
+  excluded and the saved-job test remains ignored.
+
+Diagnostic PDFs are in `/private/tmp/typaxis-joint-pdf-probes.3oKa2e`.
+`inspect.py` ran Poppler 26.08.0 and MuPDF 1.28.2 over 16 PDFs / 33 pages:
+80 info/extraction/structure-root/render checks passed without stderr warnings.
+`report.json` records hashes and both extracted texts. MuPDF independently
+resolved the mixed fixture's four annotations (ordinary destination, two
+footnote XYZ destinations, URI) through ParentTree and the owning OBJRs;
+`mixed-links.log` records those dictionaries. Visual inspection of the mixed
+fixture's first page confirms the separator and formula placement, but these
+small/artificial fonts do not prove original-book typography or Harano output.
+Poppler and MuPDF extraction order differs in this fixture; this is not a
+complete reading-order/accessibility acceptance audit.
+
+The first probe-enabled broad run had 5 machine-test failures because the strict
+CLI environment parser correctly rejected `TYPAXIS_FOOTNOTE_PDF_PROBE_DIR`.
+It still produced all 16 probes. The clean regression above ran without that
+diagnostic variable; the CLI parser was not relaxed.
+
+Manifest/public writer/CLI integration, required return links, dynamic page
+references, complete allocation/retry ownership and all original-book/Harano/
+scale/both-host gates remain required. This is inspectable diagnostic assembly,
+not `VerifiedPdfBytesReceipt`, publication authorization, or completion of doc 28.
+
+Final strengthened budget fixture uses actual footnotes across multiple pages:
+`production_footnote_assembly_keeps_complete_graph_and_byte_budgets` passed
+1/1, 2.02 s, `/private/tmp/typaxis-joint-assembly-footnote-budget.log`.
+All processes from this step are terminal.

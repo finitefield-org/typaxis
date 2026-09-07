@@ -2,7 +2,8 @@
 
 mod production_body_pages;
 mod production_body_assembly;
-pub use production_body_assembly::{assemble_production_body_pdf, ProductionBodyPdfAssembly,
+pub use production_body_assembly::{assemble_production_footnote_pdf, ProductionFootnotePdfAssembly,
+    assemble_production_body_pdf, ProductionBodyPdfAssembly,
     ProductionBodyAssemblyError, ProductionBodyAssemblyObject, ProductionBodyAssemblyRole};
 mod production_body_objects;
 pub use production_body_objects::{build_production_footnote_resource_objects, ProductionFootnoteResourceObjects,

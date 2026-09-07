@@ -144,8 +144,56 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         .navigation()
         .verify(marked.structure())
         .map_err(|_| E::ReceiptMismatch)?;
-    let page_count = u32::try_from(marked.pages().len()).map_err(|_| E::ObjectLimit)?;
-    let body_count = u32::try_from(source.objects().len()).map_err(|_| E::ObjectLimit)?;
+    let projected = project_pdf_assembly(
+        source.objects().iter(),
+        source.objects().len(),
+        marked.pages().len(),
+        display.selected().page_geometry().page_width().get().raw(),
+        display.selected().page_geometry().page_height().get().raw(),
+        navigation,
+        !source.navigation().destinations().is_empty(),
+        !source.navigation().outline().is_empty(),
+        |p| source.navigation().page_links(p),
+        source.record_charge(),
+        source.spool_charge(),
+        limits,
+    )?;
+    Ok(ProductionBodyPdfAssembly {
+        source,
+        numbers: projected.numbers,
+        observations: projected.observations,
+        bytes: projected.bytes,
+        hash: projected.hash,
+        page_count: projected.page_count,
+        record_charge: projected.record_charge,
+        spool_charge: projected.spool_charge,
+    })
+}
+struct AssemblyProjection {
+    numbers: BTreeMap<ProductionBodyObjectRole, u32>,
+    observations: Vec<ProductionBodyAssemblyObject>,
+    bytes: Vec<u8>,
+    hash: [u8; 32],
+    page_count: u32,
+    record_charge: u64,
+    spool_charge: u64,
+}
+fn project_pdf_assembly<'s>(
+    objects: impl Iterator<Item = &'s crate::ProductionBodyObject> + Clone,
+    object_count: usize,
+    pages: usize,
+    page_width: i64,
+    page_height: i64,
+    navigation: &typaxis_syntax::ValidatedStagingBookNavigationV2,
+    has_destinations: bool,
+    has_outline: bool,
+    page_links: impl Fn(u32) -> Option<std::ops::Range<usize>>,
+    record_base: u64,
+    spool_base: u64,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<AssemblyProjection, E> {
+    let page_count = u32::try_from(pages).map_err(|_| E::ObjectLimit)?;
+    let body_count = u32::try_from(object_count).map_err(|_| E::ObjectLimit)?;
     let count = body_count
         .checked_add(page_count)
         .and_then(|n| n.checked_add(4))
@@ -154,8 +202,7 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     if count > limits.base().get().max_pdf_objects || count == u32::MAX {
         return Err(E::ObjectLimit);
     }
-    let record_charge = source
-        .record_charge()
+    let record_charge = record_base
         .checked_add(u64::from(count).checked_mul(5).ok_or(E::RecordLimit)?)
         .and_then(|v| v.checked_add(1))
         .ok_or(E::RecordLimit)?;
@@ -166,7 +213,10 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     for page in 0..page_count {
         numbers.insert(R::Page(page), 5 + page);
     }
-    for (index, object) in source.objects().iter().enumerate() {
+    for (index, object) in objects.clone().enumerate() {
+        if index >= object_count {
+            return Err(E::ReceiptMismatch);
+        }
         let number = 5 + page_count + u32::try_from(index).map_err(|_| E::ObjectLimit)?;
         if numbers.insert(object.role(), number).is_some() {
             return Err(E::ReceiptMismatch);
@@ -180,7 +230,7 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     };
     let mut budget = Budget {
         limits,
-        spool: source.spool_charge(),
+        spool: spool_base,
     };
     let mut graph: Vec<(A, Vec<u8>)> = Vec::new();
     graph
@@ -189,13 +239,13 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     let mut catalog = Vec::new();
     budget.append(&mut catalog, format!("<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R /Lang <FEFF{}> /MarkInfo << /Marked true >> /ViewerPreferences << /DisplayDocTitle true >> /StructTreeRoot {}",
         utf16(navigation.languages().document_language()), reference(R::StructureRoot)?))?;
-    if !source.navigation().destinations().is_empty() {
+    if has_destinations {
         budget.append(
             &mut catalog,
             format!(" /Names << /Dests {} >>", reference(R::Destinations)?),
         )?;
     }
-    if !source.navigation().outline().is_empty() {
+    if has_outline {
         budget.append(
             &mut catalog,
             format!(" /Outlines {}", reference(R::Outlines)?),
@@ -238,16 +288,12 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     budget.append(&mut metadata, xmp.as_bytes())?;
     budget.append(&mut metadata, "\nendstream")?;
     graph.push((A::Metadata, metadata));
-    let geometry = display.selected().page_geometry();
     for page in 0..page_count {
         let mut bytes = Vec::new();
         budget.append(&mut bytes, format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources {} /Contents {} /StructParents {page} /Tabs /S",
-            number(geometry.page_width().get().raw()), number(geometry.page_height().get().raw()),
+            number(page_width), number(page_height),
             reference(R::PageResources(page))?, reference(R::PageContent(page))?))?;
-        let links = source
-            .navigation()
-            .page_links(page)
-            .ok_or(E::ReceiptMismatch)?;
+        let links = page_links(page).ok_or(E::ReceiptMismatch)?;
         if !links.is_empty() {
             budget.append(&mut bytes, " /Annots [")?;
             for index in links {
@@ -262,7 +308,7 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         budget.append(&mut bytes, " >>")?;
         graph.push((A::Body(R::Page(page)), bytes));
     }
-    for object in source.objects() {
+    for object in objects {
         let mut bytes = Vec::new();
         for chunk in object.chunks() {
             match chunk {
@@ -316,8 +362,7 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
             count + 1
         ),
     )?;
-    Ok(ProductionBodyPdfAssembly {
-        source,
+    Ok(AssemblyProjection {
         numbers,
         observations,
         hash: sha256(&output),
@@ -332,4 +377,184 @@ fn number(raw: i64) -> String {
 }
 fn utf16(text: &str) -> String {
     text.encode_utf16().map(|u| format!("{u:04X}")).collect()
+}
+
+/// Inspectable PDF bytes; public production receipt/manifest closure is separate.
+pub struct ProductionFootnotePdfAssembly<
+    'o,
+    'r,
+    'z,
+    'm,
+    'c,
+    'e,
+    't,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+> {
+    source: &'o crate::ProductionFootnoteResourceObjects<
+        'r,
+        'z,
+        'm,
+        'c,
+        'e,
+        't,
+        'v,
+        'd,
+        'g,
+        'q,
+        'b,
+        'f,
+        's,
+        'p,
+        'a,
+    >,
+    numbers: BTreeMap<ProductionBodyObjectRole, u32>,
+    observations: Vec<ProductionBodyAssemblyObject>,
+    bytes: Vec<u8>,
+    hash: [u8; 32],
+    page_count: u32,
+    record_charge: u64,
+    spool_charge: u64,
+}
+impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub const fn content_hash(&self) -> [u8; 32] {
+        self.hash
+    }
+    pub fn objects(&self) -> &[ProductionBodyAssemblyObject] {
+        &self.observations
+    }
+    pub fn object_number(&self, role: ProductionBodyObjectRole) -> Option<u32> {
+        self.numbers.get(&role).copied()
+    }
+    pub const fn page_count(&self) -> u32 {
+        self.page_count
+    }
+    pub const fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub const fn spool_charge(&self) -> u64 {
+        self.spool_charge
+    }
+    pub fn verify(
+        &self,
+        source: &crate::ProductionFootnoteResourceObjects<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), ProductionBodyAssemblyError> {
+        if !std::ptr::eq(self.source, source) {
+            return Err(ProductionBodyAssemblyError::ReceiptMismatch);
+        }
+        source
+            .verify(source.structure_objects(), admitted, limits)
+            .map_err(|_| ProductionBodyAssemblyError::ReceiptMismatch)
+    }
+}
+pub fn assemble_production_footnote_pdf<
+    'o,
+    'r,
+    'z,
+    'm,
+    'c,
+    'e,
+    't,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+>(
+    source: &'o crate::ProductionFootnoteResourceObjects<
+        'r,
+        'z,
+        'm,
+        'c,
+        'e,
+        't,
+        'v,
+        'd,
+        'g,
+        'q,
+        'b,
+        'f,
+        's,
+        'p,
+        'a,
+    >,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<
+    ProductionFootnotePdfAssembly<'o, 'r, 'z, 'm, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    E,
+> {
+    source
+        .verify(source.structure_objects(), admitted, limits)
+        .map_err(|_| E::ReceiptMismatch)?;
+    let structure = source.structure_objects();
+    let annotations = structure.annotations();
+    let marked = annotations.marked();
+    let display = marked.structure().display();
+    let navigation = annotations.navigation();
+    navigation
+        .verify(marked.structure())
+        .map_err(|_| E::ReceiptMismatch)?;
+    let objects = annotations
+        .objects()
+        .iter()
+        .chain(structure.objects())
+        .chain(source.objects());
+    let geometry = display.source().block_layout().page_geometry();
+    let projected = project_pdf_assembly(
+        objects,
+        source.retained_object_count(),
+        marked.pages().len(),
+        geometry.page_width().get().raw(),
+        geometry.page_height().get().raw(),
+        display.source().line_layout().source_flow().navigation(),
+        !navigation.destinations().is_empty(),
+        !navigation.outline().is_empty(),
+        |p| annotations.page_annotations(p),
+        source.record_charge(),
+        source.spool_charge(),
+        limits,
+    )?;
+    Ok(ProductionFootnotePdfAssembly {
+        source,
+        numbers: projected.numbers,
+        observations: projected.observations,
+        bytes: projected.bytes,
+        hash: projected.hash,
+        page_count: projected.page_count,
+        record_charge: projected.record_charge,
+        spool_charge: projected.spool_charge,
+    })
 }
