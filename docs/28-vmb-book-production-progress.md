@@ -5748,3 +5748,24 @@ log `/private/tmp/vmb-json-size-final-regression.log`, process exited 0.
 Typaxis runtime was unchanged, so its regression was not repeated for this change.
 This does not complete sidecar/package allocation accounting, formal exporter,
 public writer/manifest or full-book/Harano/scale/host acceptance. Goal remains open.
+
+
+## 2026-09-08 — Bind footnote number hit areas and static return targets
+
+Implemented design §14.79 in common footnote navigation. Each definition keeps
+its generated Label node and number-only logical bounds separately from the
+forward destination covering the first content row. Its return target identifies
+the first source reference's actual selected link, preserving independent forward
+links for later occurrences. A definition-sized lookup is charged before allocation;
+the internal navigation hash domain is now /2.
+
+The existing integrated test now covers 19 fixtures including repeated references,
+independently reconstructs number bounds from draws, and checks first-reference
+selection. Node IDs must remain in source order: an attempted shuffled-ID fixture
+was correctly rejected by input validation and was removed. Final CLI production
+regression passed: 168 passed, 1 ignored, 14.91 s, unchanged 5,000-image cases
+excluded. Log: `/private/tmp/typaxis-footnote-return-regression.log`; process exited 0.
+
+Return annotation/Link structure emission is still required. This change does not
+publish common PDF bytes or close public writer/manifest, exporter, allocation or
+original-book/Harano/scale/host acceptance. The complete objective remains open.

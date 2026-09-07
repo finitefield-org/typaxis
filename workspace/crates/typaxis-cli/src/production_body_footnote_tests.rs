@@ -2130,6 +2130,13 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
     language_note["document"]["blocks"][0]["language"] = "fr".into();
     let mut language_equation = production_footnote_numbered_definition_fixture();
     language_equation["document"]["footnotes"][0]["blocks"][0]["language"] = "fr".into();
+    // A definition's static return target is its first source occurrence;
+    // later references retain their own independent forward links.
+    let mut repeated_note = production_footnote_flow_fixture();
+    let children = repeated_note["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut().unwrap();
+    children.push(children[children.len() - 2].clone());
+    production_body_renumber(&mut repeated_note["document"], &mut 0);
     for (case_index, value) in [
         serde_json::from_slice(&production_text_single_paragraph(&["A B"], "Body")).unwrap(),
         serde_json::from_slice(&production_text_single_paragraph(&["A B"], "Collection")).unwrap(),
@@ -2153,6 +2160,7 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
         production_raster_fixture("color-2x1.jpg", 2_000_001, 6_000_000),
         language_note,
         language_equation,
+        repeated_note,
     ]
     .into_iter()
     .enumerate()
@@ -2454,6 +2462,41 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                             .role(),
                         typaxis_display_list::StructureRole::Note
                     );
+                    let label = structure.registry().node(destination.label_node()).unwrap();
+                    assert_eq!(label.role(), typaxis_display_list::StructureRole::Label);
+                    assert_eq!(label.parent(), Some(destination.node()));
+                    let mut label_rects = structure.groups().iter()
+                        .filter(|g| g.node() == destination.label_node())
+                        .flat_map(|g| g.draws())
+                        .map(|i| match &display.draws()[i] {
+                            ProductionBodyDraw::Text(t) => t.logical_bounds().unwrap(),
+                            _ => panic!("non-text footnote number"),
+                        });
+                    let first_label = label_rects.next().unwrap();
+                    let (mut left, mut top, mut right, mut bottom) = (
+                        first_label.x().raw(), first_label.y().raw(),
+                        first_label.x().raw() + first_label.width().get().raw(),
+                        first_label.y().raw() + first_label.height().get().raw());
+                    for rect in label_rects {
+                        left = left.min(rect.x().raw()); top = top.min(rect.y().raw());
+                        right = right.max(rect.x().raw() + rect.width().get().raw());
+                        bottom = bottom.max(rect.y().raw() + rect.height().get().raw());
+                    }
+                    let actual = destination.label_bounds();
+                    assert_eq!((actual.x().raw(), actual.y().raw(), actual.width().get().raw(),
+                        actual.height().get().raw()), (left, top, right-left, bottom-top));
+                    let expected = source_notes.references().iter()
+                        .find(|r| r.definition_index() == index);
+                    match (expected, destination.return_link_index()) {
+                        (Some(reference), Some(target)) => {
+                            let link = &nav.links()[target];
+                            assert_eq!(link.owner(), reference.owner());
+                            assert_eq!(link.definition_index(), index);
+                            assert_eq!(target, nav.links().iter().position(|l| l.owner() == reference.owner()).unwrap());
+                        }
+                        (None, None) => {}
+                        _ => panic!("return target did not preserve source reference"),
+                    }
                     let (first_index, first) = fragments
                         .iter()
                         .enumerate()

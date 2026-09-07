@@ -11,8 +11,26 @@ pub struct ProductionFootnoteDestination {
     page_index: u32,
     fragment_index: u32,
     bounds: Rect,
+    label_node: StructureNodeId,
+    label_bounds: Rect,
+    return_link_index: Option<usize>,
 }
 impl ProductionFootnoteDestination {
+    /// The generated number's structure owner and hit area, excluding the
+    /// adjacent definition text. The forward destination covers the first row.
+    pub fn label_node(&self) -> StructureNodeId {
+        self.label_node
+    }
+    pub fn label_bounds(&self) -> Rect {
+        self.label_bounds
+    }
+    /// Index into this navigation's reference links. A static return action
+    /// points to the first authored reference, not the smallest node ID or the
+    /// first reference encountered while painting a page.
+    pub fn return_link_index(&self) -> Option<usize> {
+        self.return_link_index
+    }
+
     pub fn definition_index(&self) -> usize {
         self.definition_index
     }
@@ -129,7 +147,7 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
     let pages = display.source().geometry().pages().len();
     let max = limits.base().get().max_fragments;
     let fixed = (source.definitions().len() as u64)
-        .checked_mul(6)
+        .checked_mul(7)
         .and_then(|n| n.checked_add((source.references().len() as u64).checked_mul(3)?))
         .and_then(|n| n.checked_add(pages as u64))
         .ok_or_else(|| error(root, E::RecordLimit))?;
@@ -148,15 +166,21 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
         }
     }
     let mut references = BTreeMap::new();
-    for reference in source.references() {
+    for (ordinal, reference) in source.references().iter().enumerate() {
         if reference.definition_index() >= source.definitions().len()
             || references
-                .insert(reference.owner(), (reference.definition_index(), false))
+                .insert(
+                    reference.owner(),
+                    (reference.definition_index(), false, ordinal),
+                )
                 .is_some()
         {
             return Err(error(reference.owner(), E::ReceiptMismatch));
         }
     }
+    let mut first_references: Vec<Option<(usize, usize)>> = Vec::new();
+    reserve(&mut first_references, definitions.len(), root)?;
+    first_references.resize(definitions.len(), None);
     let mut destinations = Vec::new();
     reserve(&mut destinations, definitions.len(), root)?;
     destinations.resize(definitions.len(), None);
@@ -251,6 +275,7 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
                 }
                 // Include the actual first content row, which may be taller
                 // than its number when a definition starts with math or a figure.
+                let label_bounds = bounds;
                 let bounds = union(first_bounds, bounds, owner)?;
                 if destinations[index]
                     .replace(ProductionFootnoteDestination {
@@ -260,6 +285,9 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
                         page_index: group.page_index(),
                         fragment_index,
                         bounds,
+                        label_node: label.structure_node_id(),
+                        label_bounds,
+                        return_link_index: None,
                     })
                     .is_some()
                 {
@@ -267,7 +295,7 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
                 }
             }
             StructureRole::Reference => {
-                let (definition_index, seen) = references
+                let (definition_index, seen, ordinal) = references
                     .get_mut(&owner)
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                 *seen = true;
@@ -295,11 +323,15 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
                         bounds,
                     });
                 }
+                let first = &mut first_references[*definition_index];
+                if first.is_none_or(|(prior, _)| *ordinal < prior) {
+                    *first = Some((*ordinal, links.len() - 1));
+                }
             }
             _ => return Err(error(owner, E::ReceiptMismatch)),
         }
     }
-    for (&owner, (_, seen)) in &references {
+    for (&owner, (_, seen, _)) in &references {
         if !seen {
             return Err(error(owner, E::UnplacedLink));
         }
@@ -307,10 +339,10 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
     let mut retained = Vec::new();
     reserve(&mut retained, destinations.len(), root)?;
     for (index, destination) in destinations.into_iter().enumerate() {
-        retained.push(
-            destination
-                .ok_or_else(|| error(source.definitions()[index].owner(), E::UnplacedAnchor))?,
-        );
+        let mut destination = destination
+            .ok_or_else(|| error(source.definitions()[index].owner(), E::UnplacedAnchor))?;
+        destination.return_link_index = first_references[index].map(|(_, link)| link);
+        retained.push(destination);
     }
     let mut page_links = Vec::new();
     reserve(&mut page_links, pages, root)?;
@@ -330,7 +362,7 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
     }
     let mut digest = [0u8; 64];
     digest[..32].copy_from_slice(&sha256(
-        b"typaxis.production-footnote-reference-navigation/1",
+        b"typaxis.production-footnote-reference-navigation/2",
     ));
     digest[32..].copy_from_slice(&structure.fingerprint());
     Ok(ProductionFootnoteReferenceNavigation {

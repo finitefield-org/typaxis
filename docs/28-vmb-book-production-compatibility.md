@@ -2654,3 +2654,23 @@ VMB側EncodeBookBodyで、文書全体をmarshalする前に閉じたDTOのJSON 
 一致を確認し、独自serializerは実行しない。interfaceを階層に数えず、wire深さ256を維持する。
 詳細と検証はVMB正本§15.40を参照する。sidecar等を含む全allocation管理、正式exporterの
 CLI／ArtifactSink接続、公開writer／manifestと全巻・原ノ味・規模・両host受入は未完である。
+
+
+### 14.79 脚注定義番号と戻り先の結合（実装追補）
+
+共通脚注navigationは、定義の最初の本文行を覆うforward destinationとは別に、生成番号だけの
+logical boundsとLabel構造nodeを保持する。番号のclick領域を定義本文・数式・図まで広げない。
+各定義の静的な戻り先はsource順で最初の参照とし、完成したreference link列のindexで保持する。
+同一参照の番号が複数groupへ分かれた場合も先頭の実fragmentへ戻す。後続の参照から定義への
+forward linkはそれぞれ保持する。viewerの履歴に応じて直前のclick位置へ戻る機能ではない。
+
+参照探索用の定義数分の配列を確保前に既存record予算へ追加計上する。navigation fingerprintの
+内部domainを/2へ変更する。CLI共通回帰では番号boundsを実drawから独立に集約して照合し、
+複数参照でもsource順の先頭が選ばれることと、必要record量ちょうど／1不足を検証した。
+最終コマンドはworkspace manifest・`/private/tmp/typaxis-vmb-book-build`を使う
+`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`。168件成功・1件ignored
+（14.91秒、`/private/tmp/typaxis-footnote-return-regression.log`）、全プロセス終了済み。
+
+この変更は戻り先と番号領域の計画までで、戻りリンクのPDF annotation・対応するLink構造は
+まだ生成しない。公開writer／manifestへの共通組版接続、正式exporter、全allocation予算、
+元全巻・原ノ味・規模・両hostの受入とともに必要な残件として維持する。
