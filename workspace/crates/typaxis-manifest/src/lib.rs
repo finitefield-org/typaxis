@@ -46,7 +46,8 @@ pub use math::{
     StagingMathManifestFact, STAGING_MATH_MANIFEST_ALGORITHM,
 };
 pub use math_vector::{
-    build_staging_math_vector_manifest, StagingMathVectorManifest, StagingMathVectorManifestError,
+    build_production_math_vector_manifest, build_staging_math_vector_manifest,
+    ProductionMathVectorManifest, StagingMathVectorManifest, StagingMathVectorManifestError,
     StagingMathVectorManifestFact, STAGING_MATH_VECTOR_MANIFEST_ALGORITHM,
 };
 pub use safe_vector::{
@@ -55,7 +56,8 @@ pub use safe_vector::{
     STAGING_SAFE_VECTOR_MANIFEST_ALGORITHM,
 };
 pub use safe_vector_v2::{
-    build_staging_safe_vector_manifest_v2, StagingSafeVectorManifestAliasV2,
+    build_production_safe_vector_manifest, build_staging_safe_vector_manifest_v2,
+    ProductionSafeVectorManifest, StagingSafeVectorManifestAliasV2,
     StagingSafeVectorManifestPlacementV2, StagingSafeVectorManifestResourceV2,
     StagingSafeVectorManifestV2, StagingSafeVectorManifestV2Error,
     StagingSafeVectorPlacementDetailsV2, StagingVectorMetricFactV2,

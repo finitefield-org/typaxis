@@ -285,6 +285,12 @@ pub struct StagingSafeVectorManifestV2 {
 }
 
 impl StagingSafeVectorManifestV2 {
+    pub const fn display_fingerprint(&self) -> [u8; 32] {
+        self.display_fingerprint
+    }
+    pub const fn limits_fingerprint(&self) -> [u8; 32] {
+        self.limits_fingerprint
+    }
     pub fn resources(&self) -> &[StagingSafeVectorManifestResourceV2] {
         &self.resources
     }
@@ -858,31 +864,40 @@ fn encode_manifest(
     placement_count: u32,
     resources: &[StagingSafeVectorManifestResourceV2],
 ) -> String {
+    encode_manifest_facts(
+        [
+            ("admitted_sha256", admitted.fingerprint().bytes()),
+            (
+                "candidate_registry_sha256",
+                candidates.receipt().fingerprint(),
+            ),
+            ("display_sha256", display.receipt().fingerprint()),
+            (
+                "final_writer_sha256",
+                pdf.vector_final_writer().fingerprint(),
+            ),
+            ("form_plans_sha256", plans.fingerprint()),
+            ("limits_sha256", limits.fingerprint()),
+            ("package_sha256", package.semantic_fingerprint()),
+            ("pdf_closure_sha256", pdf.safe_vector().fingerprint()),
+            ("pdf_contribution_sha256", contribution.fingerprint()),
+            ("pdf_sha256", pdf.final_pdf().content_hash()),
+            ("profile_sha256", profile.profile_fingerprint()),
+        ],
+        placement_count,
+        resources,
+    )
+}
+
+fn encode_manifest_facts(
+    fingerprints: [(&str, [u8; 32]); 11],
+    placement_count: u32,
+    resources: &[StagingSafeVectorManifestResourceV2],
+) -> String {
     let mut out = String::from("{\"algorithm\":");
     push_jcs_string(&mut out, STAGING_SAFE_VECTOR_MANIFEST_V2_ALGORITHM);
     out.push_str(",\"contract\":\"typaxis.contract/1.4\",\"fingerprints\":{");
-    for (index, (key, value)) in [
-        ("admitted_sha256", admitted.fingerprint().bytes()),
-        (
-            "candidate_registry_sha256",
-            candidates.receipt().fingerprint(),
-        ),
-        ("display_sha256", display.receipt().fingerprint()),
-        (
-            "final_writer_sha256",
-            pdf.vector_final_writer().fingerprint(),
-        ),
-        ("form_plans_sha256", plans.fingerprint()),
-        ("limits_sha256", limits.fingerprint()),
-        ("package_sha256", package.semantic_fingerprint()),
-        ("pdf_closure_sha256", pdf.safe_vector().fingerprint()),
-        ("pdf_contribution_sha256", contribution.fingerprint()),
-        ("pdf_sha256", pdf.final_pdf().content_hash()),
-        ("profile_sha256", profile.profile_fingerprint()),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    for (index, (key, value)) in fingerprints.into_iter().enumerate() {
         if index > 0 {
             out.push(',');
         }
@@ -1369,3 +1384,9 @@ mod tests {
         assert!(root.math_vector_record().is_some());
     }
 }
+
+#[path = "production_safe_vector_manifest.rs"]
+mod production_safe_vector_manifest;
+pub use production_safe_vector_manifest::{
+    build_production_safe_vector_manifest, ProductionSafeVectorManifest,
+};

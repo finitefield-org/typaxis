@@ -2746,3 +2746,29 @@ FontToolsの輪郭／mapping比較とFreeTypeの112描画比較は維持され�
 接続されていない。共通組版のtagged manifest観測、収束driverからの最終serializer呼出しと
 累積予算引継ぎ、正式exporter、全allocation監査、元全巻・原ノ味全巻・規模・両host・
 人によるPDF/UA確認等の受入は未完であり、19件の機械検証をその代替にはしない。
+
+
+### 14.82 共通組版からのsafe-vector／math-vector manifest（実装追補）
+
+`build_production_safe_vector_manifest`は共通page contentと最終tagged PDF、
+book manifestを照合し、実drawの位置・意味上のfragment順序・数式terminalと、
+実writerのPage／Content／Form番号から既存`typaxis.safe-vector-manifest/2`を生成する。
+共通drawはsource bindingと選択された物理配置を一つのreceiptに結ぶため、
+selected-placementとdisplay-commandの両fingerprintはその実drawを参照する。
+frame indexには共通組版の物理fragment indexを用いる。Formを共有するaliasごとの
+使用fingerprintを保持し、未使用resourceのForm番号はnullのままにする。
+content・image・object role・math flowの索引を用い、aliasごとに全配置を再走査しない。
+
+`build_production_math_vector_manifest`はそのsafe manifestと同じ共通display／limitsを
+要求し、実math bindingのTeX source・alternative・metrics・provenance・式番号情報を、
+対応する最終safe-vector usage fingerprintへ結び付ける。元のbinding-set fingerprintを
+保持し、既存`typaxis.math-vector-manifest/1`のfact encoderを共用する。
+owner索引で対応を確認し、重複owner、欠落した数式usage、異なるdisplay／limitsは拒否する。
+
+両入口は先行phaseのrecord／spool chargeを引き継ぎ、索引・保持record・source文字列と
+canonical化の上限を事前加算する。各入口について最終PDF生成までを含むexact／one-short
+予算試験を追加した。19件の共通fixtureでは最終PDF hash・object番号・viewport／matrix・
+alias使用数・数式source／binding／usageを確認し、異なる書籍profileとlimitsを拒否する。
+既存manifest encoderの回帰も確認した。これは全pipelineのallocation監査や規模受入の
+完了を意味しない。tagged manifest観測、公開CLI・root manifestへの接続、収束driverの
+累積予算引継ぎ、正式exporterおよび全巻等の受入は引き続き未完である。

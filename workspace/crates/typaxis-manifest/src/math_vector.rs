@@ -137,95 +137,13 @@ pub fn build_staging_math_vector_manifest(
         let common = bindings
             .receipt(math.node_id())
             .ok_or(StagingMathVectorManifestError::BindingMismatch)?;
-        if common.fingerprint() != math.common_fingerprint()
-            || !matches!(
-                (math.kind(), common.kind()),
-                (
-                    PrecomposedMathVectorKind::Inline,
-                    PrecomposedVectorKind::MathVector
-                ) | (
-                    PrecomposedMathVectorKind::Block,
-                    PrecomposedVectorKind::MathVectorBlock
-                )
-            )
-        {
-            return Err(StagingMathVectorManifestError::KindMismatch);
-        }
         let placement = safe_vector
             .resources()
             .iter()
             .flat_map(|resource| resource.placements())
             .find(|placement| placement.owner() == math.node_id())
             .ok_or(StagingMathVectorManifestError::SafeVectorMismatch)?;
-        if placement.binding_fingerprint() != Some(common.fingerprint())
-            || placement.kind() != common.kind().into()
-            || placement.details().metrics().is_none()
-        {
-            return Err(StagingMathVectorManifestError::SafeVectorMismatch);
-        }
-        let syntax = package
-            .precomposed_vector_metrics_for(math.node_id())
-            .ok_or(StagingMathVectorManifestError::PackageMismatch)?;
-        if syntax.fingerprint() != common.metrics_fingerprint()
-            || syntax.alternative().alternative_sha256() != common.alternative_sha256()
-        {
-            return Err(StagingMathVectorManifestError::PackageMismatch);
-        }
-        let source = math.source();
-        let owner_span = common.owner_source_span();
-        let mapped = source.mapped_source_span();
-        let text = source.text_span();
-        let equation_number_jcs = match math.kind() {
-            PrecomposedMathVectorKind::Inline => {
-                if syntax.equation_number().is_some() {
-                    return Err(StagingMathVectorManifestError::KindMismatch);
-                }
-                None
-            }
-            PrecomposedMathVectorKind::Block => {
-                syntax.equation_number().map(encode_equation_number)
-            }
-        };
-        let placement_details_jcs =
-            encode_math_placement_details(placement.details(), math.kind())?;
-        let provenance = math.provenance();
-        let mut fact = StagingMathVectorManifestFact {
-            node_id: math.node_id(),
-            kind: math.kind(),
-            owner_source_id: owner_span.source_id().get(),
-            owner_source_start: owner_span.start_byte().get(),
-            owner_source_end: owner_span.end_byte().get(),
-            text_buffer_id: text.text_id().get(),
-            text_start: text.start_byte().get(),
-            text_end: text.end_byte().get(),
-            mapped_source_id: mapped.source_id().get(),
-            mapped_source_start: mapped.start_byte().get(),
-            mapped_source_end: mapped.end_byte().get(),
-            text_buffer_sha256: source.text_buffer_sha256(),
-            source_tex_sha256: source.exact_slice_sha256(),
-            alternative_sha256: common.alternative_sha256(),
-            resolved_actual_text_sha256: math.resolved_actual_text_sha256(),
-            language: placement.language().to_owned(),
-            metrics: placement
-                .details()
-                .metrics()
-                .ok_or(StagingMathVectorManifestError::SafeVectorMismatch)?,
-            common_binding_fingerprint: common.fingerprint(),
-            math_binding_fingerprint: math.fingerprint(),
-            selected_placement_fingerprint: placement.selected_placement_fingerprint(),
-            display_command_fingerprint: placement.display_command_fingerprint(),
-            safe_vector_usage_fingerprint: placement.fingerprint(),
-            pdf_use_fingerprint: placement.pdf_use_fingerprint(),
-            placement_details_jcs,
-            equation_number_jcs,
-            provenance_engine_id: provenance.engine_id.clone(),
-            provenance_engine_version: provenance.engine_version.clone(),
-            provenance_rules_version: provenance.rules_version.clone(),
-            canonical_jcs: String::new(),
-            fingerprint: [0; 32],
-        };
-        fact.canonical_jcs = encode_fact(&fact);
-        fact.fingerprint = sha256(fact.canonical_jcs.as_bytes());
+        let fact = build_math_fact(package, math, common, placement)?;
         facts.push(fact);
     }
     facts.sort_unstable_by_key(|fact| fact.node_id);
@@ -249,6 +167,95 @@ pub fn build_staging_math_vector_manifest(
         fingerprint: sha256(canonical_jcs.as_bytes()),
         canonical_jcs,
     })
+}
+
+fn build_math_fact(
+    package: &ValidatedStagingSemanticPackage,
+    math: &typaxis_layout::ValidatedMathVectorReceipt,
+    common: &typaxis_layout::ValidatedPrecomposedVectorReceipt,
+    placement: &crate::StagingSafeVectorManifestPlacementV2,
+) -> Result<StagingMathVectorManifestFact, StagingMathVectorManifestError> {
+    if common.fingerprint() != math.common_fingerprint()
+        || !matches!(
+            (math.kind(), common.kind()),
+            (
+                PrecomposedMathVectorKind::Inline,
+                PrecomposedVectorKind::MathVector
+            ) | (
+                PrecomposedMathVectorKind::Block,
+                PrecomposedVectorKind::MathVectorBlock
+            )
+        )
+    {
+        return Err(StagingMathVectorManifestError::KindMismatch);
+    }
+    if placement.binding_fingerprint() != Some(common.fingerprint())
+        || placement.kind() != common.kind().into()
+        || placement.details().metrics().is_none()
+    {
+        return Err(StagingMathVectorManifestError::SafeVectorMismatch);
+    }
+    let syntax = package
+        .precomposed_vector_metrics_for(math.node_id())
+        .ok_or(StagingMathVectorManifestError::PackageMismatch)?;
+    if syntax.fingerprint() != common.metrics_fingerprint()
+        || syntax.alternative().alternative_sha256() != common.alternative_sha256()
+    {
+        return Err(StagingMathVectorManifestError::PackageMismatch);
+    }
+    let source = math.source();
+    let owner_span = common.owner_source_span();
+    let mapped = source.mapped_source_span();
+    let text = source.text_span();
+    let equation_number_jcs = match math.kind() {
+        PrecomposedMathVectorKind::Inline => {
+            if syntax.equation_number().is_some() {
+                return Err(StagingMathVectorManifestError::KindMismatch);
+            }
+            None
+        }
+        PrecomposedMathVectorKind::Block => syntax.equation_number().map(encode_equation_number),
+    };
+    let placement_details_jcs = encode_math_placement_details(placement.details(), math.kind())?;
+    let provenance = math.provenance();
+    let mut fact = StagingMathVectorManifestFact {
+        node_id: math.node_id(),
+        kind: math.kind(),
+        owner_source_id: owner_span.source_id().get(),
+        owner_source_start: owner_span.start_byte().get(),
+        owner_source_end: owner_span.end_byte().get(),
+        text_buffer_id: text.text_id().get(),
+        text_start: text.start_byte().get(),
+        text_end: text.end_byte().get(),
+        mapped_source_id: mapped.source_id().get(),
+        mapped_source_start: mapped.start_byte().get(),
+        mapped_source_end: mapped.end_byte().get(),
+        text_buffer_sha256: source.text_buffer_sha256(),
+        source_tex_sha256: source.exact_slice_sha256(),
+        alternative_sha256: common.alternative_sha256(),
+        resolved_actual_text_sha256: math.resolved_actual_text_sha256(),
+        language: placement.language().to_owned(),
+        metrics: placement
+            .details()
+            .metrics()
+            .ok_or(StagingMathVectorManifestError::SafeVectorMismatch)?,
+        common_binding_fingerprint: common.fingerprint(),
+        math_binding_fingerprint: math.fingerprint(),
+        selected_placement_fingerprint: placement.selected_placement_fingerprint(),
+        display_command_fingerprint: placement.display_command_fingerprint(),
+        safe_vector_usage_fingerprint: placement.fingerprint(),
+        pdf_use_fingerprint: placement.pdf_use_fingerprint(),
+        placement_details_jcs,
+        equation_number_jcs,
+        provenance_engine_id: provenance.engine_id.clone(),
+        provenance_engine_version: provenance.engine_version.clone(),
+        provenance_rules_version: provenance.rules_version.clone(),
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    fact.canonical_jcs = encode_fact(&fact);
+    fact.fingerprint = sha256(fact.canonical_jcs.as_bytes());
+    Ok(fact)
 }
 
 fn encode_manifest(
@@ -518,3 +525,9 @@ mod tests {
         assert!(manifest.canonical_jcs().contains("\"terminal\":1"));
     }
 }
+
+#[path = "production_math_vector_manifest.rs"]
+mod production_math_vector_manifest;
+pub use production_math_vector_manifest::{
+    build_production_math_vector_manifest, ProductionMathVectorManifest,
+};

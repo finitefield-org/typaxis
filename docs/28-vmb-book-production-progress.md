@@ -6033,3 +6033,39 @@ and tagged-structure manifest projection, cumulative convergence-driver handoff
 and public CLI routing remain. Public build/full-book/exporter/Harano/scale/host
 acceptance is still incomplete; this change does not resolve the adapter's old
 public-writer failure by itself.
+
+
+## Common safe-vector and math-vector manifest projection (2026-09-08)
+
+Added `build_production_safe_vector_manifest` and
+`build_production_math_vector_manifest`. Both consume the common layout's real
+receipts and inherit cumulative record/spool charges from the preceding manifest.
+The safe manifest joins actual draws, semantic fragment order, block terminals,
+resource aliases and final PDF object/use observations. Indexed joins avoid a
+full placement scan per alias. The math manifest uses an owner index to bind
+actual source TeX, alternative, metrics, equation number and provenance to the
+final safe usage; it retains the source layout's binding-set identity. Existing
+canonical encoders are shared with the legacy builders, preserving the versioned
+record formats. Common selected-placement and display-command hashes refer to
+the same immutable source-and-physical-placement draw receipt.
+
+The 19-case common PDF fixture checks canonical hashes, final PDF and actual
+Page/Content/Form identities, viewport/matrix, semantic and physical fragment
+indices, alias counts and usage hashes, plus math source/binding/use identities.
+Foreign book authorization and foreign limits are rejected. Each new phase has
+an end-to-end exact/one-short record and spool budget test.
+
+Local verification (all processes exited):
+
+- CLI `production_ -- --skip 5000`: **172 passed, 1 ignored**, 13.03 seconds;
+  `/private/tmp/typaxis-common-math-manifest-regression.log`.
+- Manifest library: **38 passed**, 0.36 seconds;
+  `/private/tmp/typaxis-common-math-manifest-library.log`.
+- Final 19-case geometry/alias/math/foreign-limit test: **1 passed**, 5.05 seconds;
+  `/private/tmp/typaxis-common-vector-manifests-final.log`.
+
+The tagged member still needs common marked-content and PDF observations.
+Public CLI/root-manifest routing and convergence-budget handoff remain. This
+change does not close the formal exporter, full allocation audit, original and
+Harano full-book, scale, host or human PDF/UA acceptance gates. No full-scale
+5000-case rerun or public CLI success is claimed here.
