@@ -819,4 +819,5 @@ pub use production_page_reference_closure::{
 mod production_common_tagged_pdf;
 pub use production_common_tagged_pdf::{
     write_production_common_tagged_pdf, ProductionCommonTaggedPdf,
+    ProductionCommonTaggedObservation, ProductionCommonVectorMarkedObservation,
 };

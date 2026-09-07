@@ -13,6 +13,7 @@ use typaxis_syntax::{
 #[derive(Debug)]
 pub struct ProductionCommonTaggedPdf {
     final_pdf: VerifiedPdfBytesReceipt,
+    tagged_observation: ProductionCommonTaggedObservation,
     book_navigation: BookNavigationPdfObservationV2,
     safe_vector: crate::StagingSafeVectorPdfClosureV2,
     vector_final_writer: crate::StagingSafeVectorPdfFinalWriterObservationV2,
@@ -28,6 +29,9 @@ pub struct ProductionCommonTaggedPdf {
     spool_charge: u64,
 }
 impl ProductionCommonTaggedPdf {
+    pub fn tagged_observation(&self) -> &ProductionCommonTaggedObservation {
+        &self.tagged_observation
+    }
     pub fn final_pdf(&self) -> &VerifiedPdfBytesReceipt {
         &self.final_pdf
     }
@@ -204,6 +208,10 @@ pub fn write_production_common_tagged_pdf(
         return Err(E::SpoolLimit);
     }
 
+    let tagged_observation =
+        observe_common_tagged_graph(&pdf, limits, record_charge, spool_charge)?;
+    let record_charge = tagged_observation.record_charge;
+    let spool_charge = tagged_observation.spool_charge;
     let final_pdf = VerifiedPdfBytesReceipt {
         bytes: pdf.bytes,
         sha256: pdf.hash,
@@ -240,6 +248,7 @@ pub fn write_production_common_tagged_pdf(
     }
     Ok(ProductionCommonTaggedPdf {
         final_pdf,
+        tagged_observation,
         book_navigation,
         safe_vector: safe.closure,
         vector_final_writer: pdf.vector_final_writer,
@@ -265,3 +274,8 @@ fn map_book_projection_error(error: typaxis_display_list::BookNavigationSelected
         _ => E::ReceiptMismatch,
     }
 }
+
+#[path = "production_common_tagged_observation.rs"]
+mod observation;
+use observation::observe_common_tagged_graph;
+pub use observation::{ProductionCommonTaggedObservation, ProductionCommonVectorMarkedObservation};

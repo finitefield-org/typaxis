@@ -73,6 +73,7 @@ pub use tagged_pdf::{
     STAGING_TAGGED_PDF_MANIFEST_ALGORITHM,
 };
 pub use tagged_pdf_v2::{
+    build_production_tagged_manifest, ProductionTaggedManifest,
     build_staging_tagged_pdf_manifest_v2, StagingTaggedPdfManifestV2,
     StagingTaggedPdfManifestV2Error, StagingTaggedPdfVectorStructureFactV2,
     STAGING_TAGGED_PDF_MANIFEST_V2_ALGORITHM,

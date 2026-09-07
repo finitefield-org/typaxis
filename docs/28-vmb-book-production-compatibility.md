@@ -2772,3 +2772,32 @@ alias使用数・数式source／binding／usageを確認し、異なる書籍pro
 既存manifest encoderの回帰も確認した。これは全pipelineのallocation監査や規模受入の
 完了を意味しない。tagged manifest観測、公開CLI・root manifestへの接続、収束driverの
 累積予算引継ぎ、正式exporterおよび全巻等の受入は引き続き未完である。
+
+
+### 14.83 共通PDFのtagged観測とmanifest（実装追補）
+
+共通serializerは実graphの検証後に`ProductionCommonTaggedObservation`を発行する。
+`typaxis.production-common-marked-content/1`は、全ページの実marked streamの
+byte length／hashと、実drawを構造・MCIDへ結び付ける共通structure fingerprintを記録する。
+`typaxis.production-common-tagged-pdf-observation/1`は、それに加えて全出力objectの
+番号／offset／byte length／hash、最終PDF hash、structure registry、およびvectorごとの
+実MCID・Page／Content／StructElem番号・paint／semantic fragment順序を記録する。
+共通structure receiptをselected-binding identityとして使い、旧staging選択のreceiptを
+合成しない。観測値はprivate factoryが同じ検証済みassemblyから取得し、外部から
+object番号や適合flagを注入できる入口は設けない。
+
+`build_production_tagged_manifest`は、この観測と共通structure、safe／math manifestの
+identity・source kind・metrics・language・usageの対応を確認し、既存
+`typaxis.tagged-pdf-manifest/2`を生成する。既存builderとcanonical encoderを共用し、
+math sourceだけにmath binding参照を残す。異なる最終PDF／limitsは拒否する。
+観測とmanifestの追加record／canonical bytesを確保前に加算し、先行phaseからの
+累積record／spool上限を引き継ぐ。serializerの既存予算試験と、新tagged manifestの
+exact／one-short試験でこの引継ぎを確認する。
+
+19件の共通fixtureで実MCID・object番号・object payload hash・marked stream hash・
+canonical順序とmanifest参照を照合した。book／safe／math／taggedの4 memberが既存の
+root dependency検証を通ることも確認した。再生成した19 PDFのhash／sizeは§14.81の
+veraPDF合格証拠と全件一致した。PDF library 85件（1件ignored）、manifest library 38件、
+CLI production回帰173件（1件ignored）が成功した。これは公開CLIを切り替えた証拠ではない。
+収束driverからの最終serializer呼出し・累積予算引継ぎ、root側の保持／複製費用の接続、
+正式exporter、全allocation監査および全巻・原ノ味・規模・両host等の受入は未完である。

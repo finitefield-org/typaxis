@@ -5,6 +5,7 @@ mod production_body_assembly;
 pub use production_body_assembly::{
     assemble_production_body_pdf, assemble_production_footnote_pdf,
     write_production_common_tagged_pdf, ProductionCommonTaggedPdf,
+    ProductionCommonTaggedObservation, ProductionCommonVectorMarkedObservation,
     observe_production_footnote_book_pdf, seal_production_page_reference_pdf,
     ProductionPageReferencePdfClosure, ProductionBodyAssemblyError,
     ProductionBodyAssemblyObject, ProductionBodyAssemblyRole, ProductionBodyPdfAssembly,

@@ -6069,3 +6069,49 @@ Public CLI/root-manifest routing and convergence-budget handoff remain. This
 change does not close the formal exporter, full allocation audit, original and
 Harano full-book, scale, host or human PDF/UA acceptance gates. No full-scale
 5000-case rerun or public CLI success is claimed here.
+
+
+## Common tagged observation and manifest (2026-09-08)
+
+The common serializer now issues a private-factory
+`ProductionCommonTaggedObservation` after verifying the actual assembly. Its
+marked-content record binds every selected page stream's length/hash to the
+common structure receipt. Its PDF observation binds all actual object numbers,
+offsets, lengths and payload hashes, final PDF identity and structure registry,
+plus dense vector records containing MCID, semantic/paint ordinals and actual
+Page/Content/StructElem numbers. The common structure receipt is the selected
+binding identity; no legacy selected receipt or caller-supplied object fact is
+fabricated. These records are retained by `ProductionCommonTaggedPdf` with
+precharged cumulative record/spool costs.
+
+Added `build_production_tagged_manifest` and `ProductionTaggedManifest`. The
+builder checks common structure/PDF/limits and safe/math dependency identities,
+then joins each vector usage to its actual marked observation and source
+structure. It shares the existing tagged-manifest/2 canonical encoder. The
+19-case test checks all object and marked-stream hashes, canonical ordering,
+actual MCID/object observations and per-vector fact references. Foreign PDF and
+limits are rejected. All four common manifests pass the existing root member
+assembly/dependency check in the fixture. A full-pipeline exact/one-short budget
+test covers the new tagged manifest; existing serializer budget tests cover its
+additional observation costs.
+
+Local verification (all handles exited):
+
+- CLI `production_ -- --skip 5000`: **173 passed, 1 ignored**, 13.51 seconds;
+  `/private/tmp/typaxis-common-tagged-manifest-regression.log`.
+- Manifest library: **38 passed**, 0.37 seconds; PDF library: **85 passed,
+  1 ignored**, 0.38 seconds;
+  `/private/tmp/typaxis-common-tagged-manifest-libraries.log`.
+- Regenerated 19-case PDF fixture: **1 passed**, 5.39 seconds;
+  `/private/tmp/typaxis-common-tagged-manifest-19.log`. All 19 PDFs under
+  `/private/tmp/typaxis-common-tagged-manifest-19` match the checked-in veraPDF
+  evidence hashes and byte lengths exactly. No new validator result is claimed.
+- Final foreign-PDF/19-case test: **1 passed**, 5.13 seconds;
+  `/private/tmp/typaxis-common-tagged-manifest-final.log`.
+
+Public CLI routing is still the legacy writer. Convergence-driver handoff must
+preserve all preceding charges when emitting the final common PDF, and root
+manifest retention/copies need corresponding budget integration. Formal exporter,
+whole-pipeline allocation, original/Harano full-book, scale, host and human PDF/UA
+acceptance remain incomplete. Neither this fixture nor the root member check
+substitutes for those gates.
