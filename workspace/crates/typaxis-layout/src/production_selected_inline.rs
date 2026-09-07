@@ -8,7 +8,7 @@ use typaxis_linebreak::{
 };
 use typaxis_shaping::{ProductionBodyFont, ProductionBodyTextRun, ShapedGlyph};
 
-pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/4";
+pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/5";
 
 /// Original glyph plus a line-local origin in the top-left, Y-down system.
 /// The shaper's positive Y offset is subtracted from the shared line baseline.
@@ -187,6 +187,9 @@ impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
     pub fn frames(&self) -> Option<&ProductionBodyInlineFrames<'p, 'a>> {
         self.frames.as_ref()
     }
+    pub fn footnote_markers(&self) -> &[typaxis_shaping::ProductionFootnoteMarkerShape<'a>] {
+        self.prepared.footnote_markers()
+    }
     pub fn list_markers(&self) -> &[typaxis_shaping::ProductionListMarkerShape<'a>] {
         self.prepared.list_markers()
     }
@@ -267,6 +270,14 @@ pub(super) fn layout_with_record_base<'p, 'a>(
         .max_fragments
         .checked_sub(record_base)
         .ok_or_else(|| error(root, E::UnitLimit))?;
+    // Definition marker glyphs remain retained through this selected-line owner,
+    // even before their column/baseline is assigned. Carry their records once.
+    for marker in prepared.footnote_markers() {
+        let owner = marker.source().owner();
+        charge(&mut remaining, 1, owner)?;
+        charge(&mut remaining, marker.glyph_run().glyphs.len(), owner)?;
+        charge(&mut remaining, marker.glyph_run().clusters.len(), owner)?;
+    }
     charge(&mut remaining, prepared.paragraphs.len(), root)?;
     charge(&mut remaining, prepared.figures.len(), root)?;
     let mut paragraphs = Vec::new();

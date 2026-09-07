@@ -4,7 +4,7 @@ pub use production_flow::{
     prepare_production_text_flow, ProductionFigure, ProductionFlowError, ProductionFlowErrorKind,
     ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent,
     ProductionInlineLinkTarget, ProductionInlineReference, ProductionInlineSite, ProductionList,
-    ProductionListItem, ProductionReferenceFormat, ProductionTextFlow, ProductionTextParagraph,
+    ProductionListItem, ProductionFootnoteDefinition, ProductionReferenceFormat, ProductionTextFlow, ProductionTextParagraph,
     PRODUCTION_TEXT_FLOW_ALGORITHM,
 };
 

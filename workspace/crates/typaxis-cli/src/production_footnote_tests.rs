@@ -607,3 +607,197 @@ fn production_footnote_breaks_respect_keep_spacing_and_maximum_region_height() {
         );
     });
 }
+
+fn production_footnote_marker_style(value: &mut serde_json::Value, family: &str, size: i64) {
+    let rules = value["style_sheet"]["rules"].as_array_mut().unwrap();
+    let mut rule = rules
+        .iter()
+        .find(|r| r["selector"] == "paragraph")
+        .unwrap()
+        .clone();
+    rule["selector"] = "paragraph.note".into();
+    rule["style_id"] = "footnote-marker-test".into();
+    rule["source_order"] = (rules
+        .iter()
+        .map(|r| r["source_order"].as_u64().unwrap())
+        .max()
+        .unwrap()
+        + 1)
+    .into();
+    for declaration in rule["declarations"].as_array_mut().unwrap() {
+        if declaration["name"] == "font_family" {
+            declaration["value"]["families"] = serde_json::json!([family]);
+        }
+        if declaration["name"] == "font_size" {
+            declaration["value"]["value"] = size.into();
+        }
+    }
+    rules.push(rule);
+    value["document"]["footnotes"][0]["blocks"][0]["classes"] = serde_json::json!(["note"]);
+}
+
+#[test]
+fn production_footnote_marker_glyphs_use_definition_style_and_generated_owner() {
+    let mut value = production_footnote_break_fixture();
+    production_footnote_marker_style(&mut value, "Body", 1_048_576);
+    with_production_inline_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, _, _, _, admitted, _| {
+            let flow = prepared.source_flow();
+            let markers = prepared.footnote_markers();
+            assert_eq!(markers.len(), 1);
+            let marker = &markers[0];
+            assert!(std::ptr::eq(
+                marker.source(),
+                &flow.footnote_definitions()[0]
+            ));
+            assert_eq!(marker.source().owner().get(), 5);
+            assert_eq!(marker.source().id(), "note");
+            assert_eq!(marker.source().style_paragraph_index(), Some(1));
+            assert_eq!(marker.definition_index(), 0);
+            assert_eq!(marker.utf8(), "1");
+            assert_eq!(marker.font().size().get().raw(), 1_048_576);
+            assert_ne!(
+                marker.font().size(),
+                flow.paragraphs()[0].style().font_size().unwrap()
+            );
+            assert_eq!(
+                marker.font().content_hash(),
+                admitted
+                    .font(marker.font().face_id())
+                    .unwrap()
+                    .content_hash()
+            );
+            assert_eq!(
+                marker.provenance(),
+                flow.footnote_marker_provenance(marker.source().owner())
+                    .unwrap()
+            );
+            assert_eq!(
+                marker.provenance().buffer_key().generation_kind(),
+                typaxis_core::GenerationKind::FootnoteMarker
+            );
+            assert_eq!(
+                marker.glyph_run().source_span,
+                typaxis_shaping::ShapeSourceSpan::Generated(marker.provenance())
+            );
+            assert!(marker
+                .glyph_run()
+                .glyphs
+                .iter()
+                .all(|g| g.original_gid.get() != 0));
+            assert_eq!(
+                marker.advance().get().raw(),
+                marker
+                    .glyph_run()
+                    .glyphs
+                    .iter()
+                    .map(|g| g.advance_x.raw())
+                    .sum::<i64>()
+            );
+            assert_ne!(
+                marker.provenance().buffer_key(),
+                flow.footnote_marker_provenance(typaxis_core::NodeId::new(4))
+                    .unwrap()
+                    .buffer_key()
+            );
+        },
+    );
+}
+
+#[test]
+fn production_footnote_marker_vector_only_definition_uses_declared_base_style() {
+    let mut value = production_footnote_flow_fixture();
+    value["document"]["footnotes"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(1);
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_inline_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, _, _, _, _, _| {
+            let marker = &prepared.footnote_markers()[0];
+            assert_eq!(marker.source().style_paragraph_index(), None);
+            assert_eq!(marker.utf8(), "1");
+            assert_eq!(marker.font().size().get().raw(), 786_432);
+            assert_eq!(prepared.footnote_markers()[1].utf8(), "2");
+            assert!(marker.advance().get() > Length::ZERO);
+        },
+    );
+}
+
+#[test]
+fn production_footnote_marker_shape_budget_is_shared_and_missing_coverage_reports_definition() {
+    let value = production_footnote_break_fixture();
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let mut required = 0;
+    for delta in [None, Some(0), Some(1)] {
+        let cfg = delta.map_or_else(config, |d| {
+            config_with_limits(ResourceLimits {
+                max_fragments: required - d,
+                ..ResourceLimits::default()
+            })
+        });
+        let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+        let flow =
+            typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+        let result = typaxis_shaping::shape_production_authored_text(
+            &package,
+            &navigation,
+            &flow,
+            &admitted,
+            &limits,
+            sha256(b"footnote-markers"),
+        );
+        if delta == Some(1) {
+            let failure = result.err().unwrap();
+            assert_eq!(failure.owner.get(), 5);
+            assert_eq!(
+                failure.kind,
+                typaxis_shaping::ProductionTextShapeErrorKind::OutputLimit
+            );
+        } else {
+            let shape = result.unwrap();
+            required = shape.output_records();
+            let again = typaxis_shaping::shape_production_authored_text(
+                &package,
+                &navigation,
+                &flow,
+                &admitted,
+                &limits,
+                sha256(b"footnote-markers"),
+            )
+            .unwrap();
+            assert_eq!(shape.fingerprint(), again.fingerprint());
+            assert_eq!(
+                shape.footnote_markers()[0].fingerprint(),
+                again.footnote_markers()[0].fingerprint()
+            );
+        }
+    }
+    let mut value = value;
+    value["document"]["footnotes"][0]["blocks"][0]["children"][0]["text_span"]["end_byte"] =
+        1.into();
+    production_footnote_marker_style(&mut value, "Typaxis CFF Fixture", 786_432);
+    let (package, navigation, limits, admitted) =
+        production_text_fixture(&serde_json::to_vec(&value).unwrap(), &config());
+    let flow =
+        typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+    let failure = typaxis_shaping::shape_production_authored_text(
+        &package,
+        &navigation,
+        &flow,
+        &admitted,
+        &limits,
+        sha256(b"footnote-markers"),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(failure.owner.get(), 5);
+    assert_eq!(
+        failure.kind,
+        typaxis_shaping::ProductionTextShapeErrorKind::MissingDeclaredFontCoverage
+    );
+}

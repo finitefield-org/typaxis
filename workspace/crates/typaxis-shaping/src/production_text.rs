@@ -13,8 +13,11 @@ use typaxis_syntax::{
 #[path = "production_list_markers.rs"]
 mod list_markers;
 pub use list_markers::ProductionListMarkerShape;
+#[path = "production_footnote_markers.rs"]
+mod footnote_markers;
+pub use footnote_markers::ProductionFootnoteMarkerShape;
 pub const PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM: &str =
-    "typaxis.production-authored-text-shape/4";
+    "typaxis.production-authored-text-shape/5";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionTextShapeErrorKind {
@@ -167,12 +170,16 @@ pub struct ProductionAuthoredTextShape<'a> {
     epoch: [u8; 32],
     paragraphs: Vec<ProductionBodyParagraphShape<'a>>,
     list_markers: Vec<ProductionListMarkerShape<'a>>,
+    footnote_markers: Vec<ProductionFootnoteMarkerShape<'a>>,
     output_records: u64,
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionAuthoredTextShape<'a> {
     pub const fn line_context_fingerprint(&self) -> Option<[u8; 32]> {
         self.line_context_fingerprint
+    }
+    pub fn footnote_markers(&self) -> &[ProductionFootnoteMarkerShape<'a>] {
+        &self.footnote_markers
     }
     pub fn list_markers(&self) -> &[ProductionListMarkerShape<'a>] {
         &self.list_markers
@@ -315,11 +322,14 @@ fn shape_authored_text<'a>(
         )?);
     }
     let list_markers = list_markers::shape_markers(flow, admitted, limits, &mut output_records)?;
+    let footnote_markers =
+        footnote_markers::shape_markers(flow, admitted, limits, &mut output_records)?;
     // Fixed-size paragraph digests bound the document receipt allocation even for
     // books with millions of glyphs. Each paragraph owns a separate glyph digest.
     let capacity = paragraphs
         .len()
         .checked_add(list_markers.len())
+        .and_then(|n| n.checked_add(footnote_markers.len()))
         .ok_or_else(|| error(root, E::ArithmeticOverflow))?
         .checked_mul(32)
         .and_then(|n| n.checked_add(256))
@@ -343,6 +353,9 @@ fn shape_authored_text<'a>(
     for marker in &list_markers {
         bytes.extend_from_slice(&marker.fingerprint());
     }
+    for marker in &footnote_markers {
+        bytes.extend_from_slice(&marker.fingerprint());
+    }
     let mut fingerprint = sha256(&bytes);
     if let Some(context) = line_context_fingerprint {
         let mut record = [0u8; 64];
@@ -358,6 +371,7 @@ fn shape_authored_text<'a>(
         epoch,
         paragraphs,
         list_markers,
+        footnote_markers,
         output_records,
         fingerprint,
     })

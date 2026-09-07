@@ -4,7 +4,7 @@ use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 use typaxis_document_package::WireStagingM4ReferenceFormat;
 
-pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/6";
+pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/7";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
@@ -316,6 +316,29 @@ impl<'a> ProductionListItem<'a> {
     }
 }
 
+/// Definition-order marker source. Its font style is resolved through its owning flow.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProductionFootnoteDefinition<'a> {
+    owner: NodeId,
+    id: &'a str,
+    style_paragraph: Option<u32>,
+    language: &'a str,
+}
+impl<'a> ProductionFootnoteDefinition<'a> {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn id(&self) -> &'a str {
+        self.id
+    }
+    pub const fn style_paragraph_index(&self) -> Option<u32> {
+        self.style_paragraph
+    }
+    pub const fn language(&self) -> &'a str {
+        self.language
+    }
+}
+
 /// Downstream consumers must bind to this owner and a paragraph/site index;
 /// a copied `ProductionInlineSite` alone does not authorize shaping or paint.
 pub struct ProductionTextFlow<'a> {
@@ -326,11 +349,26 @@ pub struct ProductionTextFlow<'a> {
     figures: Vec<ProductionFigure<'a>>,
     lists: Vec<ProductionList>,
     list_items: Vec<ProductionListItem<'a>>,
+    footnote_definitions: Vec<ProductionFootnoteDefinition<'a>>,
+    footnote_base_style: Option<SemanticContainerInheritanceStyle>,
     generated: typaxis_text::GeneratedTextOverlay,
     text_bytes: u64,
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionTextFlow<'a> {
+    pub fn footnote_definitions(&self) -> &[ProductionFootnoteDefinition<'a>] {
+        &self.footnote_definitions
+    }
+    pub fn footnote_marker_style(
+        &self,
+        index: usize,
+    ) -> Option<&SemanticContainerInheritanceStyle> {
+        let definition = self.footnote_definitions.get(index)?;
+        match definition.style_paragraph {
+            Some(index) => self.paragraphs.get(index as usize).map(|p| &p.style),
+            None => self.footnote_base_style.as_ref(),
+        }
+    }
     pub fn lists(&self) -> &[ProductionList] {
         &self.lists
     }
@@ -431,6 +469,8 @@ impl<'a> ProductionTextFlow<'a> {
             || self.figures != observed.figures
             || self.lists != observed.lists
             || self.list_items != observed.list_items
+            || self.footnote_definitions != observed.footnote_definitions
+            || self.footnote_base_style != observed.footnote_base_style
             || self.generated != observed.generated
             || self.text_bytes != observed.text_bytes
             || self.fingerprint != observed.fingerprint
@@ -496,11 +536,38 @@ pub fn prepare_production_text_flow<'a>(
         node_charge: 0,
     };
     collector.blocks(&wire.document().blocks, None)?;
+    let mut footnote_definitions = Vec::new();
+    footnote_definitions
+        .try_reserve_exact(wire.document().footnotes.len())
+        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
+    let mut footnote_base_style = None;
     for footnote in &wire.document().footnotes {
         let owner = NodeId::new(footnote.node_id);
         collector.add_footnote_marker(owner, &footnote.footnote_id)?;
         collector.begin(owner, ProductionFlowRegionKind::Footnote)?;
+        let start = collector.paragraphs.len();
         collector.blocks(&footnote.blocks, None)?;
+        let (style_paragraph, language_owner) = if let Some(first) = collector.paragraphs.get(start)
+        {
+            (
+                Some(
+                    u32::try_from(start)
+                        .map_err(|_| failure(ProductionFlowErrorKind::NodeLimit, owner))?,
+                ),
+                first.owner(),
+            )
+        } else {
+            if footnote_base_style.is_none() {
+                footnote_base_style = Some(collector.ordinary(owner, "paragraph", &[], None)?);
+            }
+            (None, owner)
+        };
+        footnote_definitions.push(ProductionFootnoteDefinition {
+            owner,
+            id: &footnote.footnote_id,
+            style_paragraph,
+            language: collector.language(language_owner)?,
+        });
         collector.end(owner)?;
     }
     let generated = typaxis_text::GeneratedTextOverlay::new(
@@ -517,6 +584,8 @@ pub fn prepare_production_text_flow<'a>(
         figures: collector.figures,
         lists: collector.lists,
         list_items: collector.list_items,
+        footnote_definitions,
+        footnote_base_style,
         generated,
         text_bytes: collector.text_bytes,
         fingerprint: [0; 32],
@@ -1039,6 +1108,22 @@ fn encode_flow(flow: &ProductionTextFlow<'_>) -> String {
             ProductionFlowEvent::End { owner } => s.push_str(&format!("[\"end\",{}]", owner.get())),
         }
     }
+    s.push_str("],\"footnote_definitions\":[");
+    for (index, definition) in flow.footnote_definitions.iter().enumerate() {
+        if index != 0 {
+            s.push(',');
+        }
+        s.push_str(&format!("[{},", definition.owner.get()));
+        push_jcs_string(&mut s, definition.id);
+        s.push(',');
+        push_jcs_string(&mut s, definition.language);
+        s.push(',');
+        match definition.style_paragraph {
+            Some(index) => s.push_str(&index.to_string()),
+            None => s.push_str("null"),
+        }
+        s.push(']');
+    }
     s.push_str("],\"generated_text_sha256\":");
     push_jcs_string(&mut s, &hex(flow.generated.reference_fingerprint().bytes()));
     s.push_str(",\"language_sha256\":");
@@ -1419,6 +1504,20 @@ mod tests {
                 .text_id()
         );
         flow.verify(&package, &navigation, &limits).unwrap();
+        assert_eq!(flow.footnote_definitions()[0].owner().get(), 92);
+        let original_source = flow.footnote_definitions[0].clone();
+        let paragraph = original_source.style_paragraph_index().unwrap() as usize;
+        assert_eq!(flow.paragraphs()[paragraph].owner().get(), 93);
+        assert_eq!(
+            flow.footnote_marker_style(0),
+            Some(flow.paragraphs()[paragraph].style())
+        );
+        flow.footnote_definitions[0].style_paragraph = Some(0);
+        assert!(flow.verify(&package, &navigation, &limits).is_err());
+        flow.footnote_definitions[0] = original_source.clone();
+        flow.footnote_definitions[0].language = "und-x-tamper";
+        assert!(flow.verify(&package, &navigation, &limits).is_err());
+        flow.footnote_definitions[0] = original_source;
         let records = flow
             .generated
             .buffers()

@@ -177,6 +177,9 @@ pub struct ProductionPreparedInlines<'a> {
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionPreparedInlines<'a> {
+    pub fn footnote_markers(&self) -> &[typaxis_shaping::ProductionFootnoteMarkerShape<'a>] {
+        self.shaped.footnote_markers()
+    }
     pub fn list_markers(&self) -> &[typaxis_shaping::ProductionListMarkerShape<'a>] {
         self.shaped.list_markers()
     }

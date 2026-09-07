@@ -1546,3 +1546,29 @@ keepが明示改ページを跨ぐ場合は拒否し、定義末尾のkeepを次
 許可ではない。定義番号のglyphとその占有量の接続、参照を含む本文候補との同時評価、
 継続脚注を含むページ状態、構造・公開PDFへの接続はまだ必要である。通常の本文ページ
 選択のcostと内部識別子は変更せず、公開profileや公開writerのゲートも解除しない。
+
+
+### 14.23 脚注定義番号の実font shape
+
+共通flowは定義順の`ProductionFootnoteDefinition`を保持する。番号styleは定義内の
+最初の段落・見出しの実computed styleを参照する。入れ子container/list内の段落も対象で、
+本文側の参照位置のfontを流用しない。段落がない定義では、classesなしの宣言済み基本
+paragraph styleを一度だけ解決して共有する。いずれもfont family/sizeの宣言がなければ
+shapeで拒否し、admission先頭fontや仮のfont sizeを補わない。
+
+段落styleを使う場合のlanguageはその段落owner、基本styleの場合は定義ownerの検証済み
+language recordへ結び付ける。sourceの定義ID・owner・style参照先・languageを保持し、
+flow再構築検証で付け替えを拒否する。
+
+定義番号は、list markerと共用する実font shaperで独立したLTR labelとして組む。
+`ProductionFootnoteMarkerShape`は元の定義source、definition index、実glyph/cluster、
+実advance、font metricsとgenerated provenanceを保持する。番号を本文bufferへ移したり、
+空白へ置き換えたりしない。生成kind・owner-local ordinalもmarker hashへ含める。
+markerの保持量はshapeの出力予算に加え、選択済み行の予算へも一度引き継ぐ。
+
+複数桁「10」、定義側だけ異なるfont size、段落なしの実VMB vector定義、別fontでの数字
+coverage不足、保持量ちょうど／1不足、style参照先と言語の改変拒否を検査する。
+内部識別子はflow `/7`、authored-text-shape `/5`、inline-line-layout `/5`となる。
+これはまだ番号列の幅・baseline・上下占有量を脚注frameへ配置した結果ではない。
+それらを本文行幅・断片高さへ接続し、参照ページとの同時選択と最終paintを閉じる必要がある。
+公開profile・公開writerと全巻受け入れのゲートは維持する。

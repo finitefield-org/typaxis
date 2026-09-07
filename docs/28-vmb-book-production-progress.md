@@ -4248,3 +4248,52 @@ were added; the final pagination crate passed `cargo check -p typaxis-pagination
 work/record accounting and tests did not change after the broad run began.
 All launched commands are terminal. No branch push or new public/full-book PDF
 acceptance result is claimed.
+
+### Actual admitted-font shapes for footnote definition numbers
+
+The flow now retains definition-order marker sources and binds each marker to
+its first actual paragraph/heading's computed style and language. A definition
+without paragraphs uses the declared classless paragraph base style, resolved
+once; it never takes the first admitted font or a synthetic font size. The source
+keeps actual definition ID/owner and paragraph-style index. Reconstruction rejects
+style-index or language tampering.
+
+Footnote and list labels share the actual admitted-font shaping kernel, including
+coverage, metrics, backend/cluster validation, missing-glyph rejection and retained
+record charging. Definition markers retain source pointers, generated provenance,
+real glyphs/advances and font metrics through the selected-line owner. Marker
+fingerprints now encode generation kind and owner-local ordinal. Definition marker
+records are also carried once into selected-line accounting. Internal algorithms:
+text flow **/7**, authored text shape **/5**, inline line layout **/5**.
+
+Focused marker tests: **3 passed, 0.20 s**, including a definition-only font-size
+change, vector-only definition base style, deterministic shapes, exact shape
+record budget / one-record shortage, and digit coverage failure at the actual
+definition owner using the CFF fixture font. The multi-digit registry test now
+also checks the actual two-cluster definition marker "10". Final combined
+footnote tests: **12 passed, 0 failed, 0.85 s**;
+`/private/tmp/typaxis-footnote-marker-final.log`.
+Full syntax tests: **69 passed** in **0.96 s**, plus **6 compile-fail doc tests**
+in **2.54 s**; `/private/tmp/typaxis-footnote-marker-syntax-all.log`.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked -- --nocapture
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-syntax --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked
+```
+Production regression log: `/private/tmp/typaxis-footnote-marker-regression.log`.
+The marker column, baseline and vertical extents still need to join footnote
+frames/items before final reservation. Reference-page coupling, public paint/PDF,
+original full-book/Harano/scale and both-host gates remain incomplete.
+
+Final production regression: **111 passed, 0 failed, 1 explicitly ignored** in
+**266.28 s**, including both selected 5,000-resource PDF cases.
+No production implementation changed after the regression began. All launched
+commands are terminal. No branch push or new public/full-book PDF acceptance
+result is claimed.

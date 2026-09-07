@@ -717,6 +717,12 @@ fn production_footnote_line_registry_covers_every_cluster_of_multi_digit_markers
         &serde_json::to_vec(&value).unwrap(),
         &config(),
         |prepared, _, _, limits, _, _| {
+            let markers = prepared.footnote_markers();
+            assert_eq!(markers.len(), 10);
+            assert_eq!(markers[9].utf8(), "10");
+            assert_eq!(markers[9].source().owner().get(), 42);
+            assert_eq!(markers[9].glyph_run().clusters.len(), 2);
+            assert!(markers[9].advance().get() > markers[0].advance().get());
             let width = PositiveLength::new(Length::from_raw(20_000_000).unwrap()).unwrap();
             let lines =
                 typaxis_layout::layout_production_inline_lines(prepared, &vec![width; 11], 1000)

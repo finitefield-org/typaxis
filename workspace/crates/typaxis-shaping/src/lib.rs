@@ -9,7 +9,7 @@ pub use cff_v2::{shape_cff1_run_v2, Cff1ShapeErrorV2, Cff1ShapeInputV2, Cff1Shap
 pub use production_text::{
     production_equation_number_font, reshape_production_authored_text,
     shape_production_authored_text, ProductionAuthoredTextShape, ProductionBodyFont,
-    ProductionBodyParagraphShape, ProductionBodyTextRun, ProductionListMarkerShape,
+    ProductionBodyParagraphShape, ProductionBodyTextRun, ProductionListMarkerShape, ProductionFootnoteMarkerShape,
     ProductionParagraphLineContext, ProductionTextShapeError, ProductionTextShapeErrorKind,
     PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM,
 };
