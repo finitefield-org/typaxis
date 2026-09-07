@@ -281,6 +281,18 @@ fn with_production_footnote_prepared(
         &typaxis_core::M4EffectiveResourceLimits,
     ),
 ) {
+    with_production_footnote_math_prepared(value, cfg, |flow, limits, _| check(flow, limits));
+}
+
+fn with_production_footnote_math_prepared(
+    value: &serde_json::Value,
+    cfg: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_pagination::ProductionPreparedBodyFlow<'_, '_, '_, '_>,
+        &typaxis_core::M4EffectiveResourceLimits,
+        &typaxis_layout::StagingMathVectorFlowRegistry,
+    ),
+) {
     with_production_inline_context(
         &serde_json::to_vec(value).unwrap(),
         cfg,
@@ -305,7 +317,7 @@ fn with_production_footnote_prepared(
                 &lines, &blocks, &footnotes, limits,
             )
             .unwrap();
-            check(&flow, limits);
+            check(&flow, limits, &math);
         },
     );
 }

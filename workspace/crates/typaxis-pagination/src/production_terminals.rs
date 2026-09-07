@@ -118,94 +118,16 @@ pub fn finalize_production_body_math_terminals<'s, 'p, 'a>(
     numbers
         .try_reserve_exact(registry.equation_number_shapes().len())
         .map_err(|_| error(root, E::AllocationFailure))?;
-    for (fragment_index, fragment) in selected.fragments.iter().enumerate() {
-        let ProductionBodyFragmentSource::VectorBlock { block_index } = fragment.source else {
-            continue;
-        };
-        let block = selected
-            .blocks
-            .blocks()
-            .get(block_index as usize)
-            .filter(|b| b.owner() == fragment.owner)
-            .ok_or_else(|| error(fragment.owner, E::ReceiptMismatch))?;
-        let Some(flow) = block.math_flow() else {
-            continue;
-        };
-        let source = registry
-            .flow(flow.flow_id())
-            .filter(|s| s.owner() == block.owner() && s.fingerprint() == flow.flow_fingerprint())
-            .ok_or_else(|| error(block.owner(), E::ReceiptMismatch))?;
-        let viewport = fragment
-            .viewport
-            .ok_or_else(|| error(block.owner(), E::ReceiptMismatch))?;
-        let expected_y = add(
-            fragment.bounds.y(),
-            block.viewport_top_offset().get(),
-            block.owner(),
+    for (index, fragment) in selected.fragments.iter().enumerate() {
+        consume_selected_fragment(
+            index,
+            fragment,
+            selected.blocks,
+            selected.pages.len(),
+            registry,
+            &mut ledger,
+            &mut numbers,
         )?;
-        let expected_baseline = block
-            .baseline()
-            .map(|b| add(expected_y, b.get(), block.owner()))
-            .transpose()?;
-        if fragment.page_index as usize >= selected.pages.len()
-            || viewport.width() != block.viewport_width()
-            || viewport.height() != block.viewport_height()
-            || viewport.y() != expected_y
-            || fragment.baseline != expected_baseline
-            || fragment.bounds.height() != block.content_height()
-        {
-            return Err(error(block.owner(), E::ReceiptMismatch));
-        }
-        match (
-            block.equation_number(),
-            registry.equation_number_shape(block.owner()),
-        ) {
-            (None, None) => (),
-            (Some(number), Some(shape)) => {
-                if shape.node_id() != number.owner()
-                    || shape.owner() != block.owner()
-                    || shape.fingerprint() != number.shape_fingerprint()
-                    || shape.width() != number.width()
-                    || shape.height() != number.height()
-                    || shape.source_span() != number.source_span()
-                {
-                    return Err(error(block.owner(), E::ReceiptMismatch));
-                }
-                let left = add(
-                    fragment.bounds.x(),
-                    fragment.bounds.width().get(),
-                    block.owner(),
-                )?
-                .checked_sub(number.width().get())
-                .ok_or_else(|| error(block.owner(), E::ArithmeticOverflow))?;
-                let required = add(
-                    add(viewport.x(), viewport.width().get(), block.owner())?,
-                    number.minimum_gap().get(),
-                    block.owner(),
-                )?;
-                if left < required {
-                    return Err(error(block.owner(), E::WidthMismatch));
-                }
-                let top = add(
-                    fragment.bounds.y(),
-                    number.top_offset().get(),
-                    block.owner(),
-                )?;
-                numbers.push(ProductionBodyEquationNumber {
-                    owner: number.owner(),
-                    parent_owner: block.owner(),
-                    fragment_index: u32::try_from(fragment_index)
-                        .map_err(|_| error(root, E::FragmentLimit))?,
-                    page_index: fragment.page_index,
-                    bounds: Rect::new(left, top, number.width(), number.height()),
-                    shape_fingerprint: shape.fingerprint(),
-                });
-            }
-            _ => return Err(error(block.owner(), E::ReceiptMismatch)),
-        }
-        ledger
-            .consume_selected(source.flow_id(), block.owner())
-            .map_err(|cause| error(block.owner(), E::MathTerminal(cause)))?;
     }
     if numbers.len() != registry.equation_number_shapes().len() {
         return Err(error(root, E::ReceiptMismatch));
@@ -265,4 +187,104 @@ pub fn finalize_production_body_math_terminals<'s, 'p, 'a>(
     selected.record_charge = record_charge;
     selected.fingerprint = fingerprint;
     Ok(selected)
+}
+
+/// Common atomic block/number validation for ordinary and joint pages.
+pub(super) fn consume_selected_fragment(
+    fragment_index: usize,
+    fragment: &ProductionBodyFragment,
+    blocks: &StagingPrecomposedVectorBlockLayout,
+    page_count: usize,
+    registry: &StagingMathVectorFlowRegistry,
+    ledger: &mut typaxis_layout::StagingMathVectorTerminalLedger,
+    numbers: &mut Vec<ProductionBodyEquationNumber>,
+) -> Result<(), ProductionBodyPaginationError> {
+    let root = NodeId::new(0);
+    let ProductionBodyFragmentSource::VectorBlock { block_index } = fragment.source else {
+        return Ok(());
+    };
+    let block = blocks
+        .blocks()
+        .get(block_index as usize)
+        .filter(|b| b.owner() == fragment.owner)
+        .ok_or_else(|| error(fragment.owner, E::ReceiptMismatch))?;
+    let Some(flow) = block.math_flow() else {
+        return Ok(());
+    };
+    let source = registry
+        .flow(flow.flow_id())
+        .filter(|s| s.owner() == block.owner() && s.fingerprint() == flow.flow_fingerprint())
+        .ok_or_else(|| error(block.owner(), E::ReceiptMismatch))?;
+    let viewport = fragment
+        .viewport
+        .ok_or_else(|| error(block.owner(), E::ReceiptMismatch))?;
+    let expected_y = add(
+        fragment.bounds.y(),
+        block.viewport_top_offset().get(),
+        block.owner(),
+    )?;
+    let expected_baseline = block
+        .baseline()
+        .map(|b| add(expected_y, b.get(), block.owner()))
+        .transpose()?;
+    if fragment.page_index as usize >= page_count
+        || viewport.width() != block.viewport_width()
+        || viewport.height() != block.viewport_height()
+        || viewport.y() != expected_y
+        || fragment.baseline != expected_baseline
+        || fragment.bounds.height() != block.content_height()
+    {
+        return Err(error(block.owner(), E::ReceiptMismatch));
+    }
+    match (
+        block.equation_number(),
+        registry.equation_number_shape(block.owner()),
+    ) {
+        (None, None) => (),
+        (Some(number), Some(shape)) => {
+            if shape.node_id() != number.owner()
+                || shape.owner() != block.owner()
+                || shape.fingerprint() != number.shape_fingerprint()
+                || shape.width() != number.width()
+                || shape.height() != number.height()
+                || shape.source_span() != number.source_span()
+            {
+                return Err(error(block.owner(), E::ReceiptMismatch));
+            }
+            let left = add(
+                fragment.bounds.x(),
+                fragment.bounds.width().get(),
+                block.owner(),
+            )?
+            .checked_sub(number.width().get())
+            .ok_or_else(|| error(block.owner(), E::ArithmeticOverflow))?;
+            let required = add(
+                add(viewport.x(), viewport.width().get(), block.owner())?,
+                number.minimum_gap().get(),
+                block.owner(),
+            )?;
+            if left < required {
+                return Err(error(block.owner(), E::WidthMismatch));
+            }
+            let top = add(
+                fragment.bounds.y(),
+                number.top_offset().get(),
+                block.owner(),
+            )?;
+            numbers.push(ProductionBodyEquationNumber {
+                owner: number.owner(),
+                parent_owner: block.owner(),
+                fragment_index: u32::try_from(fragment_index)
+                    .map_err(|_| error(root, E::FragmentLimit))?,
+                page_index: fragment.page_index,
+                bounds: Rect::new(left, top, number.width(), number.height()),
+                shape_fingerprint: shape.fingerprint(),
+            });
+        }
+        _ => return Err(error(block.owner(), E::ReceiptMismatch)),
+    }
+    ledger
+        .consume_selected(source.flow_id(), block.owner())
+        .map_err(|cause| error(block.owner(), E::MathTerminal(cause)))?;
+    Ok(())
 }

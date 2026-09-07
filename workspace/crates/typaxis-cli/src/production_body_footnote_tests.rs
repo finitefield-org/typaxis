@@ -1017,3 +1017,160 @@ fn production_footnote_separator_requires_actual_content_not_a_forced_fragment()
         }
     });
 }
+
+fn production_footnote_numbered_definition_fixture() -> serde_json::Value {
+    let mut value = production_numbered_body_fixture(3_000_000);
+    let formula = value["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .remove(1);
+    let span = formula["span"].clone();
+    let mut region = value["document"]["blocks"][0].clone();
+    region["blocks"] = serde_json::json!([formula]);
+    region["span"] = span.clone();
+    value["document"]["footnotes"] = serde_json::json!([{"node_id":0,"span":span,"footnote_id":"equation-note","blocks":[region]}]);
+    let paragraph = &mut value["document"]["blocks"][0]["blocks"][0];
+    let end = paragraph["span"]["end_byte"].clone();
+    paragraph["children"].as_array_mut().unwrap().push(serde_json::json!({"kind":"footnote_reference","node_id":0,"footnote_id":"equation-note","span":{"source_id":0,"start_byte":end,"end_byte":end}}));
+    let body = value["page_masters"]["masters"][0]["body"].clone();
+    value["page_masters"]["masters"][0]["footnote"] =
+        serde_json::json!({"x":body["x"],"y":13000000,"width":16000000,"height":6000000});
+    production_body_renumber(&mut value["document"], &mut 0);
+    value
+}
+
+#[test]
+fn production_footnote_math_terminals_close_real_stable_body_and_definition_blocks() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    for value in [
+        production_footnote_flow_fixture(),
+        production_footnote_joint_geometry_fixture(),
+        production_numbered_body_fixture(3_000_000),
+        production_footnote_numbered_definition_fixture(),
+    ] {
+        with_production_footnote_math_prepared(&value, &config(), |flow, limits, registry| {
+            let mut search =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            let stable = search.select_stable_pages().unwrap();
+            let geometry = search.place_pages_content(stable.sequence()).unwrap();
+            let terminals = search
+                .finalize_page_math(&stable, &geometry, registry, limits)
+                .unwrap();
+            assert!(std::ptr::eq(terminals.geometry(), &geometry));
+            terminals.terminals().verify(registry).unwrap();
+            assert_eq!(
+                terminals.terminals().receipts().len(),
+                registry.flows().len()
+            );
+            assert_eq!(
+                terminals.equation_numbers().len(),
+                registry.equation_number_shapes().len()
+            );
+            assert!(terminals.spool_bytes() <= search.terminal_spool_charge());
+            for number in terminals.equation_numbers() {
+                let fragment = geometry
+                    .pages()
+                    .iter()
+                    .flat_map(|p| p.fragments())
+                    .nth(number.fragment_index() as usize)
+                    .unwrap()
+                    .fragment();
+                assert_eq!(number.parent_owner(), fragment.owner());
+                assert_eq!(number.page_index(), fragment.page_index());
+            }
+            let other_stable = search.select_stable_pages().unwrap();
+            assert_eq!(
+                search
+                    .finalize_page_math(&other_stable, &geometry, registry, limits)
+                    .err()
+                    .unwrap()
+                    .kind,
+                E::ReceiptMismatch
+            );
+            let mut other =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            assert_eq!(
+                other
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .err()
+                    .unwrap()
+                    .kind,
+                E::ReceiptMismatch
+            );
+        });
+    }
+}
+
+#[test]
+fn production_footnote_math_terminals_keep_record_work_and_spool_budgets() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    let mut work = 0;
+    let mut spool = 0;
+    for mode in 0..7 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                5 => spool,
+                6 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_math_prepared(&value, &cfg, |flow, limits, registry| {
+            let mut search = prepare_production_footnote_demand_search(
+                flow,
+                limits,
+                match mode {
+                    3 => work,
+                    4 => work - 1,
+                    _ => 100_000,
+                },
+            )
+            .unwrap();
+            let stable = search.select_stable_pages().unwrap();
+            let geometry = search.place_pages_content(stable.sequence()).unwrap();
+            let result = search.finalize_page_math(&stable, &geometry, registry, limits);
+            if [2, 4, 6].contains(&mode) {
+                assert_eq!(
+                    result.err().unwrap().kind,
+                    match mode {
+                        2 => E::FragmentLimit,
+                        4 => E::FootnoteSearchLimit,
+                        _ => E::SpoolLimit,
+                    }
+                );
+            } else {
+                result.unwrap();
+                if mode == 0 {
+                    records = search.record_charge();
+                    work = search.work_steps();
+                    spool = search.terminal_spool_charge();
+                }
+                if [1, 3, 5].contains(&mode) {
+                    assert_eq!(
+                        search
+                            .finalize_page_math(&stable, &geometry, registry, limits)
+                            .err()
+                            .unwrap()
+                            .kind,
+                        match mode {
+                            1 => E::FragmentLimit,
+                            3 => E::FootnoteSearchLimit,
+                            _ => E::SpoolLimit,
+                        }
+                    );
+                }
+            }
+        });
+    }
+}

@@ -1818,3 +1818,24 @@ owner・座標・baseline・viewport・余白、リスト記号と脚注番号�
 既存painterは数値literalを共通定数へ置き換えるだけで、線幅・中心位置・butt capなどの
 描画仕様を変えない。新しい実占有矩形は区切り線の配置情報であり、新しい本文・脚注経路の
 公開display/PDF命令、artifact/tag分類、最終PDF receiptへの接続は別途必要である。
+
+### 14.36 安定本文・脚注ページの数式terminal（実装追補）
+
+`finalize_page_math`は同じ探索の安定ページ列と、それを実際に借用する全ページgeometryを
+受け取る。別の安定結果や探索のgeometry、異なるlimits／math registry／layout epochは拒否する。
+返す`ProductionBodyFootnoteMathTerminals`もそのgeometryを借用し、terminal receipt集合と
+式番号の実配置を保持する。式番号のfragment番号はページ順に平坦化した実内容列を指す。
+
+通常本文と同じ`consume_selected_fragment`で、block owner・flow fingerprint、viewport寸法・
+位置、baseline、内容高さ、式番号shape・source・幅・高さ・最小間隔を検証する。本文・脚注の
+vector blockを実選択順でterminal ledgerへ一度ずつ渡し、ledger全体のfinish／verifyと
+式番号総数の一致を要求する。未配置のregistry flowを成功扱いにする例外は追加しない。
+inline数式は既存の行配置側の認可が必要であり、このblock terminal処理で代用しない。
+
+ledger・receipt・式番号のrecordsと、走査・検証workは探索の累積予算を使う。terminal用の
+JCS／integrity encoderの保守的なピークspool予約を実行前に確保し、同じ探索での再試行でも
+加算する。保持するcanonical bytesは別に実測する。このspool会計はterminal段階の累積値で、
+全pipelineのspoolや公開出力の原子的publishを認可するものではない。
+
+新しいterminal結果は実選択への結び付きを持つが、公開display/tag/navigation/PDF/manifestの
+完成ではない。動的参照の再整形・収束、元全巻・原ノ味・規模・両hostのゲートは引き続き必要。

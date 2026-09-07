@@ -5,15 +5,15 @@ use super::*;
 mod footnote_breaks;
 pub use footnote_breaks::{
     prepare_production_footnote_demand_search, prepare_production_footnote_search,
-    ProductionBodyFootnoteCandidate, ProductionBodyFootnotePageSelection,
-    ProductionBodyFootnotePageSequence, ProductionBodyFootnotePageState,
-    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
-    ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,
-    ProductionBodyFootnoteStablePages, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
-    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
-    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
-    ProductionFootnoteFragmentSelection, ProductionFootnoteRegionFragment,
-    ProductionFootnoteRegionSelection,
+    ProductionBodyFootnoteCandidate, ProductionBodyFootnoteMathTerminals,
+    ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageSequence,
+    ProductionBodyFootnotePageState, ProductionBodyFootnotePlacedFragment,
+    ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
+    ProductionBodyFootnotePlacedSequence, ProductionBodyFootnoteStablePages,
+    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteFragmentSelection,
+    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
 };
 
 #[path = "production_footnote_references.rs"]

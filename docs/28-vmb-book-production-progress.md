@@ -4726,3 +4726,52 @@ inspected; no new independent-render/PDF acceptance is claimed.
 Public joint display/terminal/tag/navigation/manifest closure, dynamic-reference
 convergence, and original full-book/Harano/scale/both-host acceptance remain
 incomplete. No public/full-book PDF or branch push is claimed.
+
+### Stable joint-page block math terminal closure
+
+Implemented design §14.36. `finalize_page_math` authenticates the same search's
+stable sequence, its exact borrowed geometry, limits, registry and epoch. It uses
+the extracted common `consume_selected_fragment` for real block/viewport/baseline
+and equation-number validation, consumes each selected block in the registry's
+terminal ledger, and requires complete finish/verify and number counts. The result
+borrows the physical geometry and retains terminal receipts and equation-number
+placements indexed into the flattened page/content stream. Ordinary body terminal
+validation uses the same helper; no dummy terminal or unplaced-flow exception was
+introduced.
+
+Records and work use the same cumulative search budget. Terminal spool reservations
+are checked before ledger allocation, accumulate across attempts, and bound the
+measured retained canonical bytes. This is terminal-phase accounting, not complete
+pipeline spool/publication closure.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-pagination --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_equation_numbers --locked
+```
+Check **2.94 s**. Focused terminal tests **2 passed, 1.55 s**. Final footnote
+regression **42 passed, 0 failed, 2.64 s**,
+`/private/tmp/typaxis-joint-terminal-closure.log`. Coverage includes real body and
+footnote formula blocks, empty block registry, numbered body and numbered footnote
+formulas, stable-result/geometry mismatch, foreign search, and exact/one-short
+record/work/spool budgets with cumulative retries. The new numbered-footnote
+fixture preserves its declared styled container and uses an explicitly wide
+footnote region for the number plus definition-marker columns. Its initial missing
+inherited text style and insufficient-width failures were fixture corrections;
+no fallback font or formula scaling was added.
+Common driver **2 passed, 1 explicitly ignored, 0.64 s**, log
+`/private/tmp/typaxis-joint-terminal-common.log`; equation-number regression
+**3 passed, 0.31 s**, `/private/tmp/typaxis-joint-terminal-numbers.log`.
+
+Public joint display/tag/navigation/PDF/manifest integration, dynamic reference
+convergence, original full-book/Harano/scale/both-host acceptance remain incomplete.
+No public/full-book PDF or branch push is claimed.

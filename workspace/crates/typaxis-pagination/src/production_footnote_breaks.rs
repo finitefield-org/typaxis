@@ -6,13 +6,14 @@ use std::collections::BTreeSet;
 mod demand;
 pub use demand::{
     prepare_production_footnote_demand_search, ProductionBodyFootnoteCandidate,
-    ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageSequence,
-    ProductionBodyFootnotePageState, ProductionBodyFootnotePlacedFragment,
-    ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
-    ProductionBodyFootnotePlacedSequence, ProductionBodyFootnoteStablePages,
-    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
-    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
-    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
+    ProductionBodyFootnoteMathTerminals, ProductionBodyFootnotePageSelection,
+    ProductionBodyFootnotePageSequence, ProductionBodyFootnotePageState,
+    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
+    ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,
+    ProductionBodyFootnoteStablePages, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteRegionFragment,
+    ProductionFootnoteRegionSelection,
 };
 
 #[derive(Clone, Copy)]

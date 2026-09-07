@@ -9,9 +9,9 @@ mod pages;
 #[path = "production_body_footnote_placement.rs"]
 mod placement;
 pub use placement::{
-    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
-    ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,
-    ProductionBodyFootnoteStablePages,
+    ProductionBodyFootnoteMathTerminals, ProductionBodyFootnotePlacedFragment,
+    ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
+    ProductionBodyFootnotePlacedSequence, ProductionBodyFootnoteStablePages,
 };
 #[path = "production_footnote_required_region.rs"]
 mod required_region;
@@ -103,6 +103,7 @@ pub struct ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     maximum_pages: u32,
     maximum_reflows: u16,
     maximum_passes: u16,
+    terminal_spool: u64,
 }
 impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     pub fn record_charge(&self) -> u64 {
@@ -349,6 +350,7 @@ pub fn prepare_production_footnote_demand_search<'b, 'f, 's, 'p, 'a>(
         content,
         owner_id,
         next_state: 0,
+        terminal_spool: 0,
         maximum_pages: limits.base().get().max_pages,
         maximum_passes: limits.base().get().max_layout_passes,
         maximum_reflows: limits.base().get().max_footnote_reflows_per_page,
