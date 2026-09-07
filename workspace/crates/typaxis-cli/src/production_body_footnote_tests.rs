@@ -2791,6 +2791,139 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     end = range.end;
                 }
                 assert_eq!(end, annotations.bindings().len());
+
+                let structure_objects = typaxis_pdf::build_production_footnote_structure_objects(
+                    &annotations,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                structure_objects
+                    .verify(&annotations, admitted, limits)
+                    .unwrap();
+                assert!(std::ptr::eq(structure_objects.annotations(), &annotations));
+                {
+                    use typaxis_pdf::{
+                        ProductionBodyObjectChunk as Chunk, ProductionBodyObjectRole as Role,
+                    };
+                    let dictionary = |object: &typaxis_pdf::ProductionBodyObject| {
+                        String::from_utf8(
+                            object
+                                .chunks()
+                                .iter()
+                                .flat_map(|c| {
+                                    if let Chunk::Bytes(b) = c {
+                                        b.as_slice()
+                                    } else {
+                                        &[]
+                                    }
+                                })
+                                .copied()
+                                .collect(),
+                        )
+                        .unwrap()
+                    };
+                    let refs = |object: &typaxis_pdf::ProductionBodyObject| {
+                        object
+                            .chunks()
+                            .iter()
+                            .filter_map(|c| {
+                                if let Chunk::Reference(r) = c {
+                                    Some(*r)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    let object = |role| {
+                        structure_objects
+                            .objects()
+                            .iter()
+                            .find(|o| o.role() == role)
+                            .unwrap()
+                    };
+                    let registry = structure.registry();
+                    let root = object(Role::StructureRoot);
+                    assert!(dictionary(root).contains(&format!(
+                        "/ParentTreeNextKey {}",
+                        geometry.pages().len() + annotations.bindings().len()
+                    )));
+                    assert!(refs(root).contains(&Role::ParentTree));
+                    let parent = object(Role::ParentTree);
+                    let expected: Vec<_> = (0..geometry.pages().len())
+                        .flat_map(|page| {
+                            structure
+                                .page_groups(page as u32)
+                                .unwrap()
+                                .iter()
+                                .map(|g| Role::StructureNode(g.node()))
+                        })
+                        .chain(
+                            annotations
+                                .bindings()
+                                .iter()
+                                .map(|a| Role::StructureNode(a.node())),
+                        )
+                        .collect();
+                    assert_eq!(refs(parent), expected);
+                    let bytes = dictionary(parent);
+                    for page in 0..geometry.pages().len() {
+                        assert!(bytes.contains(&format!("{page} [")));
+                    }
+                    for binding in annotations.bindings() {
+                        assert!(bytes.contains(&format!("{} ", binding.parent_key())));
+                    }
+                    assert_eq!(
+                        structure_objects.objects().len(),
+                        registry.nodes().len()
+                            + 2
+                            + usize::from(
+                                registry.nodes().iter().any(|n| n.structure_id().is_some())
+                            )
+                    );
+                    let mut objr_count = 0;
+                    for node in registry.nodes() {
+                        let object = object(Role::StructureNode(node.structure_node_id()));
+                        let bytes = dictionary(object);
+                        assert!(bytes.contains(&format!("/S /{} /P", node.role().pdf_name())));
+                        let groups = structure.node_groups(node.structure_node_id()).unwrap();
+                        let links = annotations
+                            .node_annotations(node.structure_node_id())
+                            .unwrap();
+                        assert_eq!(bytes.matches("/Type /MCR").count(), groups.len());
+                        assert_eq!(bytes.matches("/Type /OBJR").count(), links.len());
+                        let mut expected = vec![node
+                            .parent()
+                            .map_or(Role::StructureRoot, Role::StructureNode)];
+                        for &i in groups {
+                            let group = &structure.groups()[i];
+                            expected.push(Role::Page(group.page_index()));
+                            assert!(bytes.contains(&format!("/MCID {} >>", group.mcid())));
+                        }
+                        expected.extend(node.children().iter().copied().map(Role::StructureNode));
+                        for &i in links {
+                            let binding = &annotations.bindings()[i as usize];
+                            assert_eq!(binding.node(), node.structure_node_id());
+                            expected.push(Role::Page(binding.page_index()));
+                            expected.push(Role::LinkAnnotation(i));
+                        }
+                        assert_eq!(refs(object), expected);
+                        objr_count += links.len();
+                    }
+                    assert_eq!(objr_count, annotations.objects().len());
+                    assert!(!dictionary(parent).contains("Artifact"));
+                }
+                let other_annotations =
+                    typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
+                        .unwrap();
+                assert_eq!(
+                    structure_objects
+                        .verify(&other_annotations, admitted, limits)
+                        .err()
+                        .unwrap(),
+                    typaxis_pdf::ProductionBodyObjectError::ReceiptMismatch
+                );
                 let other_marked = typaxis_pdf::build_production_footnote_marked_content(
                     &content, admitted, limits,
                 )
@@ -3237,4 +3370,100 @@ fn production_footnote_annotations_conflicting_enclosing_link_is_rejected_by_pro
     // The authenticated tagged path refuses this semantic overlap before
     // annotation construction. This helper asserts UnsupportedSemantic.
     with_production_footnote_untagged_prepared(&value, &config(), |_, _| {});
+}
+
+#[test]
+fn production_footnote_structure_objects_keep_cumulative_object_record_and_spool_limits() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_body_navigation_vmb_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+    let mut objects = 0;
+    for mode in 0..7 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            max_pdf_objects: match mode {
+                5 => objects,
+                6 => objects - 1,
+                _ => ResourceLimits::default().max_pdf_objects,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+
+                let annotations =
+                    typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
+                        .unwrap();
+                let result = typaxis_pdf::build_production_footnote_structure_objects(
+                    &annotations,
+                    admitted,
+                    limits,
+                );
+                if mode == 2 || mode == 4 || mode == 6 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_pdf::ProductionBodyObjectError::RecordLimit
+                        } else if mode == 6 {
+                            typaxis_pdf::ProductionBodyObjectError::ObjectLimit
+                        } else {
+                            typaxis_pdf::ProductionBodyObjectError::SpoolLimit
+                        }
+                    );
+                } else {
+                    let projected = result.unwrap();
+                    if mode == 0 {
+                        records = projected.record_charge();
+                        spool = projected.spool_charge();
+                        objects = (projected.objects().len() + annotations.objects().len()) as u32;
+                    }
+                }
+            },
+        );
+    }
 }

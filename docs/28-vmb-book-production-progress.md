@@ -5237,3 +5237,45 @@ ParentTree/OBJR/page Annots and all final objects, named destinations/outlines,
 needed return links, manifest and public writer. Full object-budget closure,
 dynamic references, allocation/retry lifetimes and original full-book/Harano/
 scale/both-host acceptance remain open. No public PDF receipt or push.
+
+## Joint ParentTree and structure objects
+
+Implemented §14.48. The exact annotation owner feeds the same structure-object
+projector as ordinary body output. The contribution includes StructTreeRoot,
+ParentTree, every structure node and optional IDTree. Page arrays follow actual
+MCID order; annotation keys map to the retained Link/Reference structure nodes.
+Each node retains registry children and attributes, actual MCRs and matching
+OBJRs pointing to the annotation's page and LinkAnnotation role. Artifacts
+are absent from the structure tree.
+
+Before allocation, the combined retained annotation and new structure object
+count is checked. Records/spool start from the complete annotation contribution.
+The opaque result borrows that exact owner and rejects another annotation
+instance. Page references remain typed and unresolved until final assembly.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-pdf --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_ --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000
+```
+Check **1.08 s**. Footnotes **59 passed, 0 failed, 5.23 s**,
+`/private/tmp/typaxis-joint-structure-objects-tests.log`.
+Final regression **156 passed, 0 failed, 1 explicitly ignored, 13.15 s**,
+`/private/tmp/typaxis-joint-structure-objects-final.log`.
+
+Tests inspect ParentTree reference order and key bytes, ParentTreeNextKey,
+all node parent/child/MCR/OBJR references, page/annotation ownership, complete
+structure object counts, foreign owner rejection and exact/one-short combined
+object/record/spool budgets. Existing ordinary structure/object/assembly
+regressions pass. The unchanged 5,000-SVG unmarked-content cases were explicitly
+excluded; the saved-job test remains explicitly ignored.
+
+Final page Annots/StructParents, font/image/vector/content object integration,
+ordinary destinations/outlines, complete numbering/manifest/public writer,
+needed return links, dynamic references and full allocation/retry budgets
+remain open, as do original full-book/Harano/scale/both-host acceptance.
+No completed public PDF or push is claimed.

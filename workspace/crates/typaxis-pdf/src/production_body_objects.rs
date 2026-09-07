@@ -529,14 +529,42 @@ fn structure_objects(
     navigation: &ProductionBodyNavigation<'_, '_, '_, '_, '_, '_>,
 ) -> Result<(), E> {
     let structure = marked.structure();
-    let registry = structure.registry();
+    project_structure_objects(
+        b,
+        structure.registry(),
+        marked.pages(),
+        structure.groups(),
+        |p| structure.page_groups(p),
+        |n| structure.node_groups(n),
+        navigation.links().len(),
+        |i| {
+            navigation
+                .links()
+                .get(i)
+                .map(|l| (l.node(), l.page_index()))
+        },
+        |n| navigation.node_links(n),
+    )
+}
+
+fn project_structure_objects<'s>(
+    b: &mut Builder<'_>,
+    registry: &typaxis_display_list::StructureRegistryReceiptV2,
+    pages: &[crate::ProductionBodyMarkedPage],
+    groups: &[typaxis_display_list::ProductionBodyStructureGroup],
+    page_groups: impl Fn(u32) -> Option<&'s [typaxis_display_list::ProductionBodyStructureGroup]>,
+    node_groups: impl Fn(StructureNodeId) -> Option<&'s [usize]>,
+    annotation_count: usize,
+    annotation: impl Fn(usize) -> Option<(StructureNodeId, u32)>,
+    node_annotations: impl Fn(StructureNodeId) -> Option<&'s [u32]>,
+) -> Result<(), E> {
     let has_ids = registry.nodes().iter().any(|n| n.structure_id().is_some());
     b.start(R::StructureRoot)?;
     b.bytes("<< /Type /StructTreeRoot /RoleMap << /Em /Span /Exercise /Div /Proof /Div /Result /Div /Strong /Span >> /ParentTree ")?;
     b.reference(R::ParentTree)?;
     b.bytes(format!(
         " /ParentTreeNextKey {} /K [",
-        annotation_parent_key(marked.pages().len(), navigation.links().len())?
+        annotation_parent_key(pages.len(), annotation_count)?
     ))?;
     for node in registry.nodes().iter().filter(|n| n.parent().is_none()) {
         b.reference(R::StructureNode(node.structure_node_id()))?;
@@ -550,23 +578,18 @@ fn structure_objects(
     b.bytes(" >>")?;
     b.start(R::ParentTree)?;
     b.bytes("<< /Nums [")?;
-    for page in marked.pages() {
+    for page in pages {
         b.bytes(format!("{} [", page.page_index()))?;
-        for group in structure
-            .page_groups(page.page_index())
-            .ok_or(E::InvalidStructure)?
-        {
+        for group in page_groups(page.page_index()).ok_or(E::InvalidStructure)? {
             b.reference(R::StructureNode(group.node()))?;
             b.bytes(" ")?;
         }
         b.bytes("] ")?;
     }
-    for (index, link) in navigation.links().iter().enumerate() {
-        b.bytes(format!(
-            "{} ",
-            annotation_parent_key(marked.pages().len(), index)?
-        ))?;
-        b.reference(R::StructureNode(link.node()))?;
+    for index in 0..annotation_count {
+        let (node, _) = annotation(index).ok_or(E::InvalidStructure)?;
+        b.bytes(format!("{} ", annotation_parent_key(pages.len(), index)?))?;
+        b.reference(R::StructureNode(node))?;
         b.bytes(" ")?;
     }
     b.bytes("] >>")?;
@@ -644,11 +667,8 @@ fn structure_objects(
             b.bytes(" >>")?;
         }
         b.bytes(" /K [")?;
-        for &index in structure
-            .node_groups(node.structure_node_id())
-            .ok_or(E::InvalidStructure)?
-        {
-            let group = &structure.groups()[index];
+        for &index in node_groups(node.structure_node_id()).ok_or(E::InvalidStructure)? {
+            let group = &groups[index];
             b.bytes("<< /Type /MCR /Pg ")?;
             b.reference(R::Page(group.page_index()))?;
             b.bytes(format!(" /MCID {} >> ", group.mcid()))?;
@@ -657,16 +677,13 @@ fn structure_objects(
             b.reference(R::StructureNode(child))?;
             b.bytes(" ")?;
         }
-        for &index in navigation
-            .node_links(node.structure_node_id())
-            .ok_or(E::InvalidStructure)?
-        {
-            let link = navigation
-                .links()
-                .get(index as usize)
-                .ok_or(E::InvalidStructure)?;
+        for &index in node_annotations(node.structure_node_id()).ok_or(E::InvalidStructure)? {
+            let (annotation_node, page) = annotation(index as usize).ok_or(E::InvalidStructure)?;
+            if annotation_node != node.structure_node_id() {
+                return Err(E::InvalidStructure);
+            }
             b.bytes("<< /Type /OBJR /Pg ")?;
-            b.reference(R::Page(link.page_index()))?;
+            b.reference(R::Page(page))?;
             b.bytes(" /Obj ")?;
             b.reference(R::LinkAnnotation(index))?;
             b.bytes(" >> ")?;
@@ -813,4 +830,11 @@ mod production_footnote_annotations;
 pub use production_footnote_annotations::{
     build_production_footnote_annotations, ProductionFootnoteAnnotations,
     ProductionFootnoteAnnotationBinding, ProductionFootnoteAnnotationSource,
+};
+
+
+#[path = "production_footnote_structure_objects.rs"]
+mod production_footnote_structure_objects;
+pub use production_footnote_structure_objects::{
+    build_production_footnote_structure_objects, ProductionFootnoteStructureObjects,
 };

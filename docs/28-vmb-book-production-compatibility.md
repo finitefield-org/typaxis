@@ -2067,3 +2067,24 @@ parent-before-childの構造列を一度たどる。脚注番号が既存Link内
 ParentTree・最終ページ／font／image object、通常destination／outline、必要な戻りリンク、
 manifest・公開writerへの統合はまだ必要である。完成PDFの独立検証、動的参照、
 全allocation寿命管理、元全巻・原ノ味・規模・両hostのゲートを維持する。
+
+### 14.48 本文・脚注のParentTreeと構造object（実装追補）
+
+`build_production_footnote_structure_objects`は§14.47の注釈結果を検証して借用し、
+通常本文と共通の構造object生成処理を使う。StructTreeRoot、ParentTree、全構造node、
+必要なIDTreeを生成する。ページ内の実MCID順でParentTreeのページ配列を作り、
+続けて注釈のStructParent keyを対応するLink／Reference nodeへ結び付ける。
+
+各nodeのKには実groupのMCR、registryにある子node、そのnodeに属する注釈のOBJRを保持する。
+OBJRは同じ注釈bindingのページとLinkAnnotation roleを参照し、別nodeへの対応は拒否する。
+Note／Reference／生成Labelの関係、Lang・Alt・ID・list/table属性は元registryから引き継ぐ。
+区切り線Artifactは構造nodeやParentTreeの要素に加えない。
+
+生成前に、保持済み注釈object数と今回必要な全構造object数を合算して上限を確認する。
+records／spoolも注釈結果までの保持量を引き継ぐ。生成結果は元注釈ownerとの同一性を
+検証でき、既存objectを無償で複製したり、独立した新予算へ切り替えたりしない。
+
+この段階ではPage参照は未解決である。最終ページのAnnots／StructParents、font・image・
+vector・content object、通常destination／outlineと全object番号の統合、必要な戻りリンク、
+manifest・公開writerへの接続はまだ必要である。完成PDFの独立検証、動的参照、
+全allocation寿命管理、元全巻・原ノ味・規模・両hostのゲートを維持する。
