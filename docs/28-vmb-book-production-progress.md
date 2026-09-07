@@ -5550,3 +5550,47 @@ The final foreign-profile rejection checks and all 18 integrated fixtures passed
 **1/1, 4.01 s** (`/private/tmp/typaxis-book-seal-profile-test.log`).
 Unchanged 5,000-SVG tests were excluded and the saved-job probe remains ignored.
 All processes from this step are terminal. No public PDF receipt or push.
+
+## 2026-09-08 — Actual final book PDF observations
+
+Implemented §14.55. The observer verifies joint PDF and book selection against
+the same navigation, then derives actual Catalog/Info hashes, raw XMP length/hash,
+outline absolute numbers/parents, and ordinary/vector/child language PageContent
+references. Object payload access borrows the exact serialized range in constant
+time. No whole-PDF or object copy is added. Each language observation also joins
+its actual marked-content group and checks page/language equality.
+
+The existing book final-writer observation format is preserved. Its bounded
+internal constructor counts and reserves the exact canonical JSON sizes; Info,
+language and outline temporary JSON and the final JSON all join cumulative
+spool. Rows, validation maps and copied metadata/outline/language strings are
+charged as well. The common driver returns these observations alongside the
+PDF, stable pages and sealed book selection.
+
+Integrated tests cover actual object slices, Catalog/Info/XMP hashes, outline
+numbers/parents/text, language PageContent references and child fingerprints,
+foreign-navigation rejection, and exact/one-short cumulative records/spool.
+The existing PDF unit fixture proves that an internally consistent observation
+with diagnostic (no PDF/UA claim) XMP is still rejected by public book closure
+as InvalidMetadata. No conformance declaration or public receipt was added.
+
+Validation so far (workspace manifest, `--locked`, target
+`/private/tmp/typaxis-vmb-book-build`): PDF check passed in **1m 12s**
+(`/private/tmp/typaxis-book-writer-check-2.log`); footnote tests **64 passed,
+0 failed, 7.50 s** (`/private/tmp/typaxis-book-writer-footnote-tests.log`);
+PDF book navigation tests **4 passed, 0 failed, 0.24 s**
+(`/private/tmp/typaxis-book-writer-navigation-tests.log`).
+CLI production regressions (unchanged 5,000-SVG tests excluded) **163 passed,
+0 failed, 1 explicitly ignored, 13.04 s**
+(`/private/tmp/typaxis-book-writer-final.log`).
+
+These are final-writer facts, not a VerifiedPdfBytesReceipt or release approval.
+Public book/tagged manifest and writer/CLI integration, required return links,
+dynamic references, full allocation/retry ownership and original-book/Harano/
+scale/both-host acceptance remain required.
+
+Final strengthened language check passed the integrated 18-fixture test:
+**1/1, 3.94 s** (`/private/tmp/typaxis-book-writer-language-test.log`).
+It verifies each observed language against the actual unique MCID/Lang prefix
+in the referenced serialized PageContent, including equation children.
+All processes started for this implementation step are terminal. No push.

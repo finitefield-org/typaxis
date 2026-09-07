@@ -199,6 +199,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             '_,
             '_,
         >,
+        &typaxis_pdf::ProductionBookPdfObservation,
         ProductionCommonFootnoteObservation,
     ) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
@@ -337,18 +338,28 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
                     limits,
                 )
                 .map_err(map_production_internal_error)?;
+            let book_pdf = typaxis_pdf::observe_production_footnote_book_pdf(
+                &pdf,
+                &book_inputs,
+                profile.base().authorization(),
+                admitted,
+                limits,
+            )
+            .map_err(|error| {
+                Failure::internal(format!("common book PDF observation: {error:?}"))
+            })?;
             let observation = ProductionCommonFootnoteObservation {
                 line_reshape_passes: stable.passes().len(),
                 page_passes: pages.passes(),
                 line_candidate_steps: stable.candidate_steps(),
                 page_work_steps: search.work_steps(),
-                record_charge: book_inputs.record_charge(),
-                spool_charge: book_inputs.spool_charge(),
+                record_charge: book_pdf.record_charge(),
+                spool_charge: book_pdf.spool_charge(),
                 display_sha256: display.fingerprint(),
                 flow_registry_sha256: math.receipt().fingerprint(),
                 block_math_terminals: terminals.terminals().receipts().len(),
             };
-            inspect(&pdf, &pages, &book_inputs, observation)
+            inspect(&pdf, &pages, &book_inputs, &book_pdf, observation)
         },
     )
     .map_err(map_production_input_error)?

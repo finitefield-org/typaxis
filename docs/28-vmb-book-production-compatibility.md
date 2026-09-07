@@ -2210,3 +2210,21 @@ outlineが複製する文字列も事前にspoolへ加える。destination regis
 別navigationや別profileは拒否する。旧Displayの強い検証を代用せず、新しいwrapperのsource
 検証と既存のsealed内容検証を区別する。これで公開PDF receiptやbook／tagged manifestが
 成立したとは扱わない。公開writer／CLI、動的参照、全allocation寿命と元全巻等のゲートを残す。
+
+### 14.55 実PDFのbook最終writer観測（実装追補）
+
+`observe_production_footnote_book_pdf`は同じnavigationに結び付いたPDF assemblyとbook選択を
+検証し、実Catalog／Info object bytes、Metadata stream内の実XMP、outlineの絶対番号・
+親番号、通常／vector言語paintの実PageContent番号から既存のbook最終writer観測を構成する。
+式番号の子言語paintは別列で保持する。言語paintのdrawが所属する実marked-content groupの
+ページ・言語とも照合する。別navigationで作ったbook選択を組み合わせることは拒否する。
+
+assemblyは確定したoffsetと長さからobject本体の借用sliceを定数時間で返せる。観測のために
+PDF全体やobject本体を複製しない。Info・outline・言語の保持行／文字列と検証mapを累積予算へ
+加算する。既存book観測エンコーダーを共通emitterにし、Info・言語・outlineの一時JSONと最終
+観測JSONは必要長を計数してから確保し、すべてspoolへ計上する。公開constructorと形式は維持する。
+
+共通driverはPDF・安定ページ・book選択と、この最終writer観測までを同時に提供する。
+この観測は公開権限を発行しない。XMPは実assemblyの適合宣言なしのbytesを記録する。
+公開book closureが要求する適合宣言付きXMPとは異なり、その検証は引き続き拒否する。
+PDF receipt、公開book／tagged manifestとwriter／CLI、全巻等の受入は未完了である。

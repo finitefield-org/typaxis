@@ -367,6 +367,16 @@ pub struct BookNavigationPdfOutlineObservationV2 {
 }
 
 impl BookNavigationPdfOutlineObservationV2 {
+    pub fn parent_object(&self) -> u32 {
+        self.parent_object
+    }
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+    pub fn destination(&self) -> &str {
+        &self.destination
+    }
+
     #[doc(hidden)]
     pub fn from_final_writer(
         outline_id: u32,
@@ -415,6 +425,10 @@ pub struct BookNavigationPdfLanguagePaintObservationV2 {
 }
 
 impl BookNavigationPdfLanguagePaintObservationV2 {
+    pub fn page_content_object(&self) -> u32 {
+        self.page_content_object
+    }
+
     #[doc(hidden)]
     pub fn from_final_writer(
         source: BookNavigationPdfLanguagePaintSourceV2,
@@ -516,6 +530,13 @@ pub struct BookNavigationPdfFinalWriterObservationV2 {
 }
 
 impl BookNavigationPdfFinalWriterObservationV2 {
+    pub fn info(&self) -> &BookNavigationPdfInfoObservationV2 {
+        &self.info
+    }
+    pub fn outlines(&self) -> &[BookNavigationPdfOutlineObservationV2] {
+        &self.outlines
+    }
+
     #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]
     pub fn from_final_writer(
@@ -533,6 +554,45 @@ impl BookNavigationPdfFinalWriterObservationV2 {
         outlines: Vec<BookNavigationPdfOutlineObservationV2>,
         language_paints: Vec<BookNavigationPdfLanguagePaintObservationV2>,
         xmp: BookXmpObservationV2,
+    ) -> Result<Self, BookNavigationPdfError> {
+        Self::from_final_writer_bounded(
+            final_pdf_sha256,
+            final_pdf_byte_length,
+            page_count,
+            object_count,
+            catalog_object,
+            catalog_object_bytes,
+            catalog_language,
+            metadata_object,
+            outline_root_object,
+            destination_registry_sha256,
+            info,
+            outlines,
+            language_paints,
+            xmp,
+            &mut 0,
+            u64::MAX,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_final_writer_bounded(
+        final_pdf_sha256: [u8; 32],
+        final_pdf_byte_length: u64,
+        page_count: u32,
+        object_count: u32,
+        catalog_object: u32,
+        catalog_object_bytes: &[u8],
+        catalog_language: String,
+        metadata_object: u32,
+        outline_root_object: Option<u32>,
+        destination_registry_sha256: [u8; 32],
+        info: BookNavigationPdfInfoObservationV2,
+        outlines: Vec<BookNavigationPdfOutlineObservationV2>,
+        language_paints: Vec<BookNavigationPdfLanguagePaintObservationV2>,
+        xmp: BookXmpObservationV2,
+        spool: &mut u64,
+        maximum_spool: u64,
     ) -> Result<Self, BookNavigationPdfError> {
         if final_pdf_sha256 == [0; 32]
             || final_pdf_byte_length == 0
@@ -592,7 +652,29 @@ impl BookNavigationPdfFinalWriterObservationV2 {
             canonical_jcs: String::new(),
             fingerprint: [0; 32],
         };
-        value.canonical_jcs = encode_final_writer_observation_v2(&value);
+        let hashes = [
+            sha256(
+                encode_book_bounded(spool, maximum_spool, |out| {
+                    write_info_observation_v2(out, &value.info)
+                })?
+                .as_bytes(),
+            ),
+            sha256(
+                encode_book_bounded(spool, maximum_spool, |out| {
+                    write_pdf_language_paints_v2(out, &value.language_paints)
+                })?
+                .as_bytes(),
+            ),
+            sha256(
+                encode_book_bounded(spool, maximum_spool, |out| {
+                    write_pdf_outlines_v2(out, &value.outlines)
+                })?
+                .as_bytes(),
+            ),
+        ];
+        value.canonical_jcs = encode_book_bounded(spool, maximum_spool, |out| {
+            write_final_writer_observation_v2(out, &value, &hashes)
+        })?;
         value.fingerprint = sha256(value.canonical_jcs.as_bytes());
         Ok(value)
     }
@@ -877,28 +959,36 @@ fn validate_final_writer_observation_v2(
 }
 
 fn encode_final_writer_observation_v2(value: &BookNavigationPdfFinalWriterObservationV2) -> String {
-    let mut output = String::from("{\"catalog_language\":");
-    push_jcs_string(&mut output, &value.catalog_language);
+    let hashes = [
+        sha256(encode_info_observation_v2(&value.info).as_bytes()),
+        sha256(encode_pdf_language_paints_v2(&value.language_paints).as_bytes()),
+        sha256(encode_pdf_outlines_v2(&value.outlines).as_bytes()),
+    ];
+    let mut output = String::new();
+    write_final_writer_observation_v2(&mut output, value, &hashes);
+    output
+}
+fn write_final_writer_observation_v2(
+    output: &mut dyn BookCanonicalSink,
+    value: &BookNavigationPdfFinalWriterObservationV2,
+    hashes: &[[u8; 32]; 3],
+) {
+    output.push_str("{\"catalog_language\":");
+    push_book_string(output, &value.catalog_language);
     output.push_str(",\"catalog_object\":");
     output.push_str(&value.catalog_object.to_string());
     output.push_str(",\"catalog_object_sha256\":");
-    push_hash(&mut output, value.catalog_object_sha256);
+    push_hash(output, value.catalog_object_sha256);
     output.push_str(",\"destination_registry_sha256\":");
-    push_hash(&mut output, value.destination_registry_sha256);
+    push_hash(output, value.destination_registry_sha256);
     output.push_str(",\"final_pdf_byte_length\":");
     output.push_str(&value.final_pdf_byte_length.to_string());
     output.push_str(",\"final_pdf_sha256\":");
-    push_hash(&mut output, value.final_pdf_sha256);
+    push_hash(output, value.final_pdf_sha256);
     output.push_str(",\"info_sha256\":");
-    push_hash(
-        &mut output,
-        sha256(encode_info_observation_v2(&value.info).as_bytes()),
-    );
+    push_hash(output, hashes[0]);
     output.push_str(",\"language_paints_sha256\":");
-    push_hash(
-        &mut output,
-        sha256(encode_pdf_language_paints_v2(&value.language_paints).as_bytes()),
-    );
+    push_hash(output, hashes[1]);
     output.push_str(",\"metadata_object\":");
     output.push_str(&value.metadata_object.to_string());
     output.push_str(",\"object_count\":");
@@ -910,53 +1000,64 @@ fn encode_final_writer_observation_v2(value: &BookNavigationPdfFinalWriterObserv
         output.push_str("null");
     }
     output.push_str(",\"outlines_sha256\":");
-    push_hash(
-        &mut output,
-        sha256(encode_pdf_outlines_v2(&value.outlines).as_bytes()),
-    );
+    push_hash(output, hashes[2]);
     output.push_str(",\"page_count\":");
     output.push_str(&value.page_count.to_string());
     output.push_str(",\"xmp\":{\"algorithm\":");
-    push_jcs_string(&mut output, value.xmp.algorithm);
+    push_book_string(output, value.xmp.algorithm);
     output.push_str(",\"byte_length\":");
     output.push_str(&value.xmp.byte_length.to_string());
     output.push_str(",\"sha256\":");
-    push_hash(&mut output, value.xmp.sha256);
+    push_hash(output, value.xmp.sha256);
     output.push_str("}}");
-    output
 }
 
 fn encode_info_observation_v2(value: &BookNavigationPdfInfoObservationV2) -> String {
-    let mut output = String::from("{\"author\":");
-    push_nullable(&mut output, value.author.as_deref());
+    let mut output = String::new();
+    write_info_observation_v2(&mut output, value);
+    output
+}
+fn write_info_observation_v2(
+    output: &mut dyn BookCanonicalSink,
+    value: &BookNavigationPdfInfoObservationV2,
+) {
+    output.push_str("{\"author\":");
+    push_nullable(output, value.author.as_deref());
     output.push_str(",\"creation_date\":");
-    push_nullable(&mut output, value.creation_date.as_deref());
+    push_nullable(output, value.creation_date.as_deref());
     output.push_str(",\"keywords\":");
-    push_nullable(&mut output, value.keywords.as_deref());
+    push_nullable(output, value.keywords.as_deref());
     output.push_str(",\"modification_date\":");
-    push_nullable(&mut output, value.modification_date.as_deref());
+    push_nullable(output, value.modification_date.as_deref());
     output.push_str(",\"object_number\":");
     output.push_str(&value.object_number.to_string());
     output.push_str(",\"object_sha256\":");
-    push_hash(&mut output, value.object_sha256);
+    push_hash(output, value.object_sha256);
     output.push_str(",\"producer\":");
-    push_jcs_string(&mut output, &value.producer);
+    push_book_string(output, &value.producer);
     output.push_str(",\"subject\":");
-    push_nullable(&mut output, value.subject.as_deref());
+    push_nullable(output, value.subject.as_deref());
     output.push_str(",\"title\":");
-    push_nullable(&mut output, value.title.as_deref());
+    push_nullable(output, value.title.as_deref());
     output.push('}');
-    output
 }
 
 fn encode_pdf_outlines_v2(values: &[BookNavigationPdfOutlineObservationV2]) -> String {
-    let mut output = String::from("[");
+    let mut output = String::new();
+    write_pdf_outlines_v2(&mut output, values);
+    output
+}
+fn write_pdf_outlines_v2(
+    output: &mut dyn BookCanonicalSink,
+    values: &[BookNavigationPdfOutlineObservationV2],
+) {
+    output.push_str("[");
     for (index, value) in values.iter().enumerate() {
         if index != 0 {
             output.push(',');
         }
         output.push_str("{\"destination\":");
-        push_jcs_string(&mut output, &value.destination);
+        push_book_string(output, &value.destination);
         output.push_str(",\"object_number\":");
         output.push_str(&value.object_number.to_string());
         output.push_str(",\"outline_id\":");
@@ -966,23 +1067,30 @@ fn encode_pdf_outlines_v2(values: &[BookNavigationPdfOutlineObservationV2]) -> S
         output.push_str(",\"source_node_id\":");
         output.push_str(&value.source_node_id.to_string());
         output.push_str(",\"title\":");
-        push_jcs_string(&mut output, &value.title);
+        push_book_string(output, &value.title);
         output.push('}');
     }
     output.push(']');
-    output
 }
 
 fn encode_pdf_language_paints_v2(values: &[BookNavigationPdfLanguagePaintObservationV2]) -> String {
-    let mut output = String::from("[");
+    let mut output = String::new();
+    write_pdf_language_paints_v2(&mut output, values);
+    output
+}
+fn write_pdf_language_paints_v2(
+    output: &mut dyn BookCanonicalSink,
+    values: &[BookNavigationPdfLanguagePaintObservationV2],
+) {
+    output.push_str("[");
     for (index, value) in values.iter().enumerate() {
         if index != 0 {
             output.push(',');
         }
         output.push_str("{\"language\":");
-        push_jcs_string(&mut output, &value.language);
+        push_book_string(output, &value.language);
         output.push_str(",\"language_record_fingerprint\":");
-        push_hash(&mut output, value.language_record_fingerprint);
+        push_hash(output, value.language_record_fingerprint);
         output.push_str(",\"owner_node_id\":");
         output.push_str(&value.owner_node_id.to_string());
         output.push_str(",\"page_content_object\":");
@@ -1005,7 +1113,6 @@ fn encode_pdf_language_paints_v2(values: &[BookNavigationPdfLanguagePaintObserva
         output.push_str("}}");
     }
     output.push(']');
-    output
 }
 
 fn encode_pdf_observation_v2(value: &BookNavigationPdfObservationV2) -> String {
@@ -2320,15 +2427,15 @@ fn push_optional_u32(output: &mut String, value: Option<u32>) {
     }
 }
 
-fn push_nullable(output: &mut String, value: Option<&str>) {
+fn push_nullable(output: &mut dyn BookCanonicalSink, value: Option<&str>) {
     if let Some(value) = value {
-        push_jcs_string(output, value);
+        push_book_string(output, value);
     } else {
         output.push_str("null");
     }
 }
 
-fn push_hash(output: &mut String, value: [u8; 32]) {
+fn push_hash(output: &mut dyn BookCanonicalSink, value: [u8; 32]) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     output.push('"');
     for byte in value {
@@ -2704,6 +2811,62 @@ mod tests {
             xmp,
         )
         .unwrap();
+        let expected_spool = (encode_info_observation_v2(&final_writer.info).len()
+            + encode_pdf_language_paints_v2(&final_writer.language_paints).len()
+            + encode_pdf_outlines_v2(&final_writer.outlines).len()
+            + final_writer.canonical_jcs().len()) as u64;
+        let bounded = |spool: &mut u64, maximum| {
+            BookNavigationPdfFinalWriterObservationV2::from_final_writer_bounded(
+                pdf_sha256,
+                final_pdf.byte_length(),
+                final_pdf.page_count(),
+                final_pdf.object_count(),
+                1,
+                b"<< /Type /Catalog /Lang (ja) >>",
+                "ja".to_owned(),
+                3,
+                None,
+                selected.destination_registry_sha256(),
+                final_writer.info.clone(),
+                Vec::new(),
+                Vec::new(),
+                final_writer.xmp.clone(),
+                spool,
+                maximum,
+            )
+        };
+        let mut spool = 0;
+        assert_eq!(bounded(&mut spool, expected_spool).unwrap(), final_writer);
+        assert_eq!(spool, expected_spool);
+        assert_eq!(
+            bounded(&mut 0, expected_spool - 1).unwrap_err(),
+            BookNavigationPdfError::SpoolLimit
+        );
+        let mut diagnostic = final_writer.clone();
+        diagnostic.xmp = BookXmpObservationV2::from_final_writer(
+            crate::tagged_pdf::encode_book_xmp_with_conformance(
+                navigation.metadata(),
+                navigation.languages().document_language(),
+                &engine,
+                false,
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        diagnostic.canonical_jcs = encode_final_writer_observation_v2(&diagnostic);
+        diagnostic.fingerprint = sha256(diagnostic.canonical_jcs.as_bytes());
+        assert_eq!(
+            observe_staging_book_navigation_pdf_v2(
+                &navigation,
+                &profile,
+                &selected,
+                limits,
+                &engine,
+                &diagnostic,
+                &final_pdf
+            ),
+            Err(BookNavigationPdfError::InvalidMetadata)
+        );
         let observation = observe_staging_book_navigation_pdf_v2(
             &navigation,
             &profile,
@@ -2946,4 +3109,67 @@ mod tests {
             Err(BookNavigationPdfError::ReceiptMismatch)
         );
     }
+}
+
+trait BookCanonicalSink {
+    fn push_str(&mut self, value: &str);
+    fn push(&mut self, value: char);
+}
+impl BookCanonicalSink for String {
+    fn push_str(&mut self, value: &str) {
+        String::push_str(self, value);
+    }
+    fn push(&mut self, value: char) {
+        String::push(self, value);
+    }
+}
+fn push_book_string(output: &mut dyn BookCanonicalSink, value: &str) {
+    output.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{09}' => output.push_str("\\t"),
+            '\u{0a}' => output.push_str("\\n"),
+            '\u{0c}' => output.push_str("\\f"),
+            '\u{0d}' => output.push_str("\\r"),
+            character if character <= '\u{1f}' => {
+                output.push_str(&format!("\\u{:04x}", u32::from(character)));
+            }
+            character => output.push(character),
+        }
+    }
+    output.push('"');
+}
+
+fn encode_book_bounded(
+    spool: &mut u64,
+    maximum: u64,
+    emit: impl Fn(&mut dyn BookCanonicalSink),
+) -> Result<String, BookNavigationPdfError> {
+    struct Count(Option<usize>);
+    impl BookCanonicalSink for Count {
+        fn push_str(&mut self, value: &str) {
+            self.0 = self.0.and_then(|n| n.checked_add(value.len()));
+        }
+        fn push(&mut self, value: char) {
+            self.0 = self.0.and_then(|n| n.checked_add(value.len_utf8()));
+        }
+    }
+    let mut count = Count(Some(0));
+    emit(&mut count);
+    let length = count.0.ok_or(BookNavigationPdfError::SpoolLimit)?;
+    *spool = spool
+        .checked_add(length as u64)
+        .ok_or(BookNavigationPdfError::SpoolLimit)?;
+    if *spool > maximum {
+        return Err(BookNavigationPdfError::SpoolLimit);
+    }
+    let mut result = String::new();
+    result
+        .try_reserve_exact(length)
+        .map_err(|_| BookNavigationPdfError::AllocationFailure)?;
+    emit(&mut result);
+    Ok(result)
 }

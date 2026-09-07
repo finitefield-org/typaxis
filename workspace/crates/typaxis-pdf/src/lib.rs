@@ -2,27 +2,35 @@
 
 mod production_body_pages;
 mod production_body_assembly;
-pub use production_body_assembly::{assemble_production_footnote_pdf, ProductionFootnotePdfAssembly,
-    assemble_production_body_pdf, ProductionBodyPdfAssembly,
-    ProductionBodyAssemblyError, ProductionBodyAssemblyObject, ProductionBodyAssemblyRole};
+pub use production_body_assembly::{
+    assemble_production_body_pdf, assemble_production_footnote_pdf,
+    observe_production_footnote_book_pdf, ProductionBodyAssemblyError,
+    ProductionBodyAssemblyObject, ProductionBodyAssemblyRole, ProductionBodyPdfAssembly,
+    ProductionBookPdfObservation, ProductionFootnotePdfAssembly,
+};
 mod production_body_objects;
-pub use production_body_objects::{build_production_footnote_resource_objects, ProductionFootnoteResourceObjects,
-    build_production_footnote_structure_objects, ProductionFootnoteStructureObjects,
-    build_production_footnote_annotations, ProductionFootnoteAnnotations,
-    ProductionFootnoteAnnotationBinding, ProductionFootnoteAnnotationSource, build_production_body_objects, ProductionBodyObjectContribution,
-    ProductionBodyObject, ProductionBodyObjectChunk, ProductionBodyObjectRole,
-    ProductionBodyFontObjectPart, ProductionBodyObjectError};
+pub use production_body_objects::{
+    build_production_body_objects, build_production_footnote_annotations,
+    build_production_footnote_resource_objects, build_production_footnote_structure_objects,
+    ProductionBodyFontObjectPart, ProductionBodyObject, ProductionBodyObjectChunk,
+    ProductionBodyObjectContribution, ProductionBodyObjectError, ProductionBodyObjectRole,
+    ProductionFootnoteAnnotationBinding, ProductionFootnoteAnnotationSource,
+    ProductionFootnoteAnnotations, ProductionFootnoteResourceObjects,
+    ProductionFootnoteStructureObjects,
+};
 mod production_body_marked;
 pub use production_body_marked::{
-    build_production_footnote_marked_content, ProductionFootnoteMarkedContent,build_production_body_marked_content, ProductionBodyMarkedContent,
-    ProductionBodyMarkedError, ProductionBodyMarkedPage, ProductionBodySemanticAnchor};
-mod production_body_text;
+    build_production_body_marked_content, build_production_footnote_marked_content,
+    ProductionBodyMarkedContent, ProductionBodyMarkedError, ProductionBodyMarkedPage,
+    ProductionBodySemanticAnchor, ProductionFootnoteMarkedContent,
+};
 mod advanced_columns;
 mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
 mod cff_v2;
+mod production_body_text;
 pub use cff_v2::{encode_cff1_pdf_objects_v2, Cff1PdfObjectsV2};
 mod cff;
 mod jpeg;
@@ -34,9 +42,9 @@ mod tagged_pdf;
 mod tagged_pdf_v2;
 
 pub use production_body_pages::{
-    build_production_body_page_content, build_production_footnote_page_content,
-    ProductionBodyPage, ProductionBodyPageArtifact, ProductionBodyPageContent, ProductionFootnotePageContent,
-    ProductionBodyPageDraw, ProductionBodyPageDrawSource, ProductionBodyPageError,
+    build_production_body_page_content, build_production_footnote_page_content, ProductionBodyPage,
+    ProductionBodyPageArtifact, ProductionBodyPageContent, ProductionBodyPageDraw,
+    ProductionBodyPageDrawSource, ProductionBodyPageError, ProductionFootnotePageContent,
 };
 pub use production_body_text::{
     encode_production_footnote_text, ProductionFootnoteTextContribution,

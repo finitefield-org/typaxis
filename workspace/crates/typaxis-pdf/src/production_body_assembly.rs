@@ -69,6 +69,9 @@ impl ProductionBodyPdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_> {
     pub const fn content_hash(&self) -> [u8; 32] {
         self.hash
     }
+    pub fn object_bytes(&self, number: u32) -> Option<&[u8]> {
+        assembled_object_bytes(&self.bytes, &self.observations, number)
+    }
     pub fn objects(&self) -> &[ProductionBodyAssemblyObject] {
         &self.observations
     }
@@ -434,6 +437,9 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
     pub const fn content_hash(&self) -> [u8; 32] {
         self.hash
     }
+    pub fn object_bytes(&self, number: u32) -> Option<&[u8]> {
+        assembled_object_bytes(&self.bytes, &self.observations, number)
+    }
     pub fn objects(&self) -> &[ProductionBodyAssemblyObject] {
         &self.observations
     }
@@ -637,3 +643,26 @@ fn project_vector_final_writer(
         .ok_or(E::SpoolLimit)?;
     Ok(result)
 }
+
+fn assembled_object_bytes<'a>(
+    bytes: &'a [u8],
+    observations: &[ProductionBodyAssemblyObject],
+    number: u32,
+) -> Option<&'a [u8]> {
+    let index = usize::try_from(number.checked_sub(1)?).ok()?;
+    let object = observations.get(index)?;
+    if object.number != number {
+        return None;
+    }
+    let start = usize::try_from(object.offset)
+        .ok()?
+        .checked_add(number.ilog10() as usize + 8)?;
+    let end = start.checked_add(usize::try_from(object.byte_length).ok()?)?;
+    bytes.get(start..end)
+}
+
+#[path = "production_book_observation.rs"]
+mod production_book_observation;
+pub use production_book_observation::{
+    observe_production_footnote_book_pdf, ProductionBookPdfObservation,
+};
