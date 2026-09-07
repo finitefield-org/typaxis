@@ -25,6 +25,19 @@ fn production_text_fixture(
 ) {
     let job = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../samples/machine-package/profiles/production-book-1/combined/job");
+    production_text_fixture_at(bytes, config, &job)
+}
+
+fn production_text_fixture_at(
+    bytes: &[u8],
+    config: &EffectiveConfig,
+    job: &Path,
+) -> (
+    typaxis_syntax::ValidatedStagingSemanticPackage,
+    typaxis_syntax::ValidatedStagingBookNavigationV2,
+    typaxis_core::M4EffectiveResourceLimits,
+    AdmittedResourceLedger,
+) {
     let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
         .decode(
             bytes,
@@ -1363,3 +1376,5 @@ include!("production_container_tests.rs");
 include!("production_terminal_tests.rs");
 
 include!("production_reshape_tests.rs");
+
+include!("production_common_pipeline_tests.rs");

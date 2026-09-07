@@ -1330,3 +1330,34 @@ pass上限の停止を検証する。fixtureはHaranoAjiや全巻の代替では
 全pipelineのallocation予算を閉じたとは扱わない。公開profile/contractは変更しない。
 §14.12の負originについては、共通行選択器は既にvisual範囲に応じてglyphとvectorの両方へ
 同じorigin shiftを適用する。公開旧行選択器の拒否を緩めず、この共通経路へ接続する。
+
+
+### 14.14 共通本文graphのlifetime ownerと実exporter package
+
+`with_production_common_body_pdf` は同じpackage/navigation/profile/host-admitted ledger
+から本文flow、vector bindings、math registry、block準備を所有する。
+`with_converged_production_body_lines` の実安定callback内で共通paginationを行い、
+同じmath registryのblock terminalを閉じ、その選択から本文display、font使用、
+page content、structure、marked content、objects、検査用PDFまで借用関係を保つ。
+consumerへ渡すのは最後まで検証できたassemblyと、実pass数・候補数・選択/flowの
+fingerprint・block terminal数の観測値である。未収束/予算失敗でconsumerを呼ばない。
+このownerはnative math fontを本文fontの代用にせず、実選択された本文fontを使う。
+
+新ownerは公開writer/manifestのreceiptではない。公開CLIへの接続、page/generated
+referenceの汎用収束、最終bidi規則、全stageの累積allocation課金、table/footnote/native
+mathを含む全flowの閉包は引き続き必要である。検査用assembly bytesをそのまま
+VerifiedPdfBytesReceiptへ変換したり、既存manifestのownerに付け替えたりしない。
+
+VMBのStageBookPackageから生成した、本文・見出し・ordered list・inline/block数式の
+小規模jobを新ownerへ渡した。admission用fixture fontは見出しprefix「1」のglyphがなく
+拒否されたため、その入力を保全し、Arial Unicodeを明示した新しい生成jobで再検査した。
+新jobでは2回の最終行reshape、84候補steps、1 block terminal、1 pageの検査用PDFが
+成功した。Poppler/MuPDFの空白正規化抽出は元packageのsource順の本文・番号・
+ActualTextと一致し、両rendererで日本語と2式の可視描画を確認した。
+この入力にはequation numberがない。番号付きの共通owner接続は別のunit fixtureで検査する。
+
+同じ新jobの公開checkは成功したが、公開buildはexit 4 / I9190 native math mismatchの
+ままで、PDFを発行しなかった。全input hashはbuild前後で一致。公開writerにはnative
+math fontの先頭を標準本文描画へ使う経路が残るが、I9190の特定return siteまで断定しない。
+実fontへの暗黙置換やdummy native mathでこの公開経路を成功扱いにはしない。
+詳細hash、保存job、検査PDFとlogは実装台帳とVMB設計§15.38を参照。

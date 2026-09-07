@@ -3791,3 +3791,74 @@ paint and manifest remains required; dummy native math is not a repair.
 Full RenderBook coverage, complete config/process/publication, original-book,
 Harano, scale, both-host and independent PDF gates remain. All processes are
 terminal; no public profile was changed or branch pushed.
+
+
+### 2026-09-07: Common body lifetime owner through stable selection and assembly
+
+`with_production_common_body_pdf` joins existing genuine body flow/bindings/math
+registry, selected-line reshape feedback, pagination, block math terminal
+completion, display/font use, marked structure, objects and PDF assembly under
+one borrowing lifetime. Only a successfully verified final assembly reaches the
+callback. It reports actual pass count, candidate work, selected/flow hashes and
+completed block count. It neither requests a synthetic native-math font nor
+issues a public VerifiedPdfBytesReceipt. Public terminal/paint/manifest closure,
+page/generated convergence, final bidi and full cumulative allocation remain.
+
+New tests cover native-math-free text plus inline/block vectors, numbered blocks,
+at least two real reshape passes, repeat determinism and no consumer invocation
+when candidate budget is exhausted. Saved-job inspection is an explicitly ignored
+test requiring an absolute input job and exclusive diagnostic PDF output; it
+checks the original source files and admits the declared resource bytes. The
+normal production regression finished with **94 passed, 0 failed, 1 ignored** in
+**262.51 s**, including both 5,000-resource page-content tests.
+
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked -- --nocapture
+```
+
+Logs: `/private/tmp/typaxis-common-driver-final.log` (focused tests),
+`/private/tmp/typaxis-common-driver-regression.log` (regression). Initial compilation
+failed on include-file inner doc comments; corrected comments and include location
+compiled successfully. The long-running tests were observed live, not restarted.
+
+The actual VMB assembler job with the admission-only fixture font failed real
+shaping at **node 2, text 0, bytes 0..1** (the heading prefix `1` had no glyph).
+Log: `/private/tmp/typaxis-common-vmb-job.log`. That input remains unchanged.
+Companion **`3e1d9b01`** adds an explicit optional test font path. A separately
+generated job selects local Arial Unicode (not redistributed):
+
+- Job: `/private/tmp/vmb-assembled-package-smoke/typaxis-body-2451059118`.
+- Package SHA-256: `fe97596c3c205df5f8ca1c4242b6013f267a8f7bc73a01a64490937c70975a02`.
+- Font SHA-256: `876af2cd4854644e7f3e7feb2f688997fdb3343c6df6693611209c9dfb47ccec`.
+- Source SHA-256: `fe9f74e6f7aaa1bdb78945e828cd4866ad6801bb4bcc3780b25de65f5669a6e3`.
+
+This generated package passed public check, then produced **one diagnostic page**
+through the common owner with **2 reshape passes, 84 candidate steps, 1 block
+terminal**, no native math. PDF: `/private/tmp/vmb-common-real-font-diagnostic.pdf`,
+SHA-256 `d534fdbacb4eecea2ae70f0a19173138217eb24e9f49a07f2e4a58eac7bd267a`.
+The ignored test was invoked with `TYPAXIS_COMMON_BODY_JOB` set to that job,
+`TYPAXIS_COMMON_BODY_PDF` set to the diagnostic output, and cargo test filter
+`production_common_driver_saved_vmb_job -- --ignored --nocapture`.
+Log: `/private/tmp/typaxis-common-real-font-job.log`; successful inspection 1.27 s.
+
+Poppler **26.08.0** and MuPDF **1.28.2** extracted the source-order heading, body,
+ordered-list numbering and formula ActualText, equal after whitespace normalization.
+Both renderings visibly contain the Japanese body and two formula outlines.
+There are two Formula structure nodes. This input has **no equation number**;
+numbered-block coverage belongs to the separate unit fixture. pdffonts reports
+embedded CID TrueType with Unicode and a Type 3 resource. This is not a full
+independent tagged-PDF audit or an exact whitespace/baseline comparison.
+Report: `/private/tmp/vmb-common-independent-report.json`; script:
+`/private/tmp/verify-vmb-common-diagnostic.py`. Renderings:
+`/private/tmp/vmb-common-page.png`, `/private/tmp/vmb-common-mupdf-page.png`.
+
+The **same real-font package/config/resources** still fail public build with
+**exit 4 / I9190**, without a public PDF. Input hashes before/after match.
+`/private/tmp/vmb-real-font-public-build.log` records the command and hashes; public
+binary SHA-256 is `ff3b1022fa79d949b0a66f533aa0a0d9976bc41b38193dc037b6765d539bb65e`.
+The common diagnostic success must not be relabeled as public build success.
+Original whole-book, Harano, real distinct/alias scale, both-host and public PDF/
+manifest gates remain mandatory. All launched builds/tests are terminal. No public
+profile was changed, no font/PDF binary was committed, and no branch was pushed.

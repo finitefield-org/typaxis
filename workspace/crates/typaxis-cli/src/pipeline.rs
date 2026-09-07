@@ -4680,6 +4680,8 @@ impl ProductionBookBuildOutput {
     }
 }
 
+include!("production_common_pipeline.rs");
+
 /// Compose the already-published M4 owners without reopening SVG or
 /// reinterpreting producer math. The only graphics input is the admitted
 /// canonical vector IR bound to the exact host-read ledger.
