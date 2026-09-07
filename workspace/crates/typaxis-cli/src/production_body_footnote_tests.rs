@@ -1582,6 +1582,76 @@ fn production_footnote_fonts_bind_selected_glyphs_and_generated_unicode() {
                     }
                 }
                 assert!(fonts.text_plan(display.draws().len()).is_none());
+                let encoded =
+                    typaxis_pdf::encode_production_footnote_text(&fonts, admitted, limits).unwrap();
+                encoded.verify(&fonts, admitted, limits).unwrap();
+                assert!(std::ptr::eq(encoded.fonts(), &fonts));
+                let text_draws: Vec<_> = display
+                    .draws()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, d)| {
+                        if let ProductionBodyDraw::Text(t) = d {
+                            Some((i, t))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                assert_eq!(encoded.paints().len(), text_draws.len());
+                assert_eq!(
+                    encoded.record_charge(),
+                    fonts.record_charge() + text_draws.len() as u64
+                );
+                for (paint_index, (paint, (draw_index, text))) in
+                    encoded.paints().iter().zip(text_draws).enumerate()
+                {
+                    let (font, cluster) = fonts.text_plan(draw_index).unwrap();
+                    assert_eq!(paint.draw_index(), draw_index);
+                    assert_eq!(paint.page_index(), text.page_index());
+                    assert_eq!(paint.font_instance_id(), font.pdf_font().font_instance_id());
+                    let commands =
+                        std::str::from_utf8(encoded.paint_commands(paint_index).unwrap()).unwrap();
+                    assert_eq!(commands.matches(" Tj\n").count(), text.glyphs().len());
+                    for (line, (glyph, cid)) in commands
+                        .lines()
+                        .filter(|line| line.ends_with(" Tj"))
+                        .zip(text.glyphs().iter().zip(cluster.cids()))
+                    {
+                        let tokens: Vec<_> = line.split_whitespace().collect();
+                        assert_eq!(&tokens[..4], &["1", "0", "0", "-1"]);
+                        assert_eq!(
+                            tokens[4].parse::<f64>().unwrap() * 65536.0,
+                            glyph.x().raw() as f64
+                        );
+                        assert_eq!(
+                            tokens[5].parse::<f64>().unwrap() * 65536.0,
+                            glyph.y().raw() as f64
+                        );
+                        assert_eq!(tokens[6], "Tm");
+                        assert_eq!(tokens[7], format!("<{:04X}>", cid.get()));
+                    }
+                    let bytes =
+                        std::str::from_utf8(encoded.paint_bytes(paint_index).unwrap()).unwrap();
+                    assert_eq!(
+                        bytes.contains("/ActualText"),
+                        cluster.requires_actual_text()
+                    );
+                    assert!(!commands.contains("/ActualText"));
+                }
+                assert!(encoded.paint_bytes(encoded.paints().len()).is_none());
+                assert!(encoded.paint_commands(encoded.paints().len()).is_none());
+                let other_fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                assert_eq!(
+                    encoded
+                        .verify(&other_fonts, admitted, limits)
+                        .err()
+                        .unwrap(),
+                    typaxis_pdf::ProductionBodyTextError::ReceiptMismatch
+                );
                 let other = build_production_footnote_structure(
                     &display,
                     semantics,
@@ -1658,6 +1728,84 @@ fn production_footnote_fonts_account_for_prior_structure_records_and_spool() {
                     if mode == 0 {
                         records = fonts.record_charge();
                         spool = fonts.spool_charge();
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_text_accounts_for_prior_fonts_records_and_spool() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+    let mut output = 0;
+    for mode in 0..7 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            max_output_bytes: match mode {
+                5 => output,
+                6 => output - 1,
+                _ => ResourceLimits::default().max_output_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let result = typaxis_pdf::encode_production_footnote_text(&fonts, admitted, limits);
+                if mode == 2 || mode == 4 || mode == 6 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_pdf::ProductionBodyTextError::RecordLimit
+                        } else {
+                            typaxis_pdf::ProductionBodyTextError::OutputLimit
+                        }
+                    );
+                } else {
+                    let encoded = result.unwrap();
+                    if mode == 0 {
+                        records = encoded.record_charge();
+                        spool = fonts.spool_charge() + encoded.byte_length();
+                        output = encoded.byte_length();
                     }
                 }
             },

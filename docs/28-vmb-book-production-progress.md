@@ -4955,3 +4955,42 @@ Joint PDF text/content, marked content, ParentTree/font objects, links, manifest
 and public writer remain pending, together with full pipeline retry/retention
 accounting, dynamic references and original full-book/Harano/scale/both-host
 acceptance. No new public/full-book PDF or branch push is claimed.
+
+## Joint body/footnote PDF text contribution
+
+Implemented §14.41: authenticated joint font plans now feed the shared existing
+text encoder. Each retained paint binds its draw/page/font instance and uses the
+actual selected coordinates and frozen CIDs. Standalone ActualText wrappers and
+the inner commands are separately accessible for subsequent marked-content
+assembly. Another font-plan instance is rejected. Prior font records/spool are
+included before allocating text paint records and retaining command bytes.
+
+Local verification:
+- `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build cargo check --manifest-path workspace/Cargo.toml -p typaxis-pdf`: passed, 4.40 s.
+- Footnote regression before the additional output-limit boundary cases:
+  49 passed, 0 failed, 3.41 s, `/private/tmp/typaxis-joint-text-final.log`.
+- Tests cover real body/footnote/list/equation/multi-digit draws, exact font-plan
+  identity, paint ordering, parsed PDF coordinates/CIDs and ActualText wrapper
+  selection; exact and one-short record/spool/output budgets traverse all
+  preceding phases. An initial string comparison incorrectly expected the
+  floating-point display's shorter decimal spelling; the corrected test parses
+  emitted numbers and compares fixed-point coordinates and ordered CIDs.
+
+The joint page/vector/raster/separator stream, marked content, object graph,
+links, manifest and public writer still require integration. Full pipeline
+retry/retention budgeting and dynamic references remain pending. This change
+does not establish original full-book/Harano/scale/both-host acceptance or
+produce a newly authorized public PDF.
+
+Final regression (terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli production_ --locked
+```
+**148 passed, 0 failed, 1 explicitly ignored, 240.88 s**,
+`/private/tmp/typaxis-joint-text-regressions.log`. This includes the final
+output-budget cases, ordinary common driver, font object/Unicode and body
+display tests, and both existing 5,000-SVG page-content tests (alias sharing
+and distinct Forms). The ignored saved-job test requires explicit input/output
+paths. The 5,000-SVG cases validate the existing ordinary-body content path,
+not original-book or complete joint-footnote PDF acceptance. No branch push.

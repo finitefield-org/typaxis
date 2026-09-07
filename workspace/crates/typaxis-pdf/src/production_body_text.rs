@@ -3,7 +3,10 @@
 use typaxis_core::{FontInstanceId, M4EffectiveResourceLimits};
 use typaxis_display_list::ProductionBodyDraw;
 use typaxis_resource_admission::AdmittedResourceLedger;
-use typaxis_resources::ProductionBodyFontPlans;
+use typaxis_resources::{
+    FrozenStagingPdfTextClusterPlan, FrozenStagingPdfTextFontPlan, ProductionBodyFontPlans,
+    ProductionFootnoteFontPlans,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyTextError {
@@ -90,21 +93,55 @@ pub fn encode_production_body_text<'f, 'v, 'd, 's, 'p, 'a>(
     fonts
         .verify(fonts.display(), admitted, limits)
         .map_err(|_| E::ReceiptMismatch)?;
-    let mut record_charge = fonts.record_charge();
+    let projection = encode_text_projection(
+        fonts.display().draws(),
+        |i| fonts.text_plan(i),
+        fonts.record_charge(),
+        fonts.spool_charge(),
+        limits,
+    )?;
+    Ok(ProductionBodyTextContribution {
+        fonts,
+        paints: projection.paints,
+        bytes: projection.bytes,
+        record_charge: projection.record_charge,
+    })
+}
+
+struct TextProjection {
+    paints: Vec<ProductionBodyTextPaint>,
+    bytes: Vec<u8>,
+    record_charge: u64,
+}
+
+fn encode_text_projection<'c>(
+    draws: &[ProductionBodyDraw<'_>],
+    text_plan: impl Fn(
+        usize,
+    ) -> Option<(
+        &'c FrozenStagingPdfTextFontPlan,
+        &'c FrozenStagingPdfTextClusterPlan,
+    )>,
+    prior_records: u64,
+    prior_spool: u64,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<TextProjection, ProductionBodyTextError> {
+    use ProductionBodyTextError as E;
+    let mut record_charge = prior_records;
     let remaining_spool = limits
         .base()
         .get()
         .max_spool_bytes
-        .checked_sub(fonts.spool_charge())
+        .checked_sub(prior_spool)
         .ok_or(E::OutputLimit)?;
     let maximum = limits.base().get().max_output_bytes.min(remaining_spool);
     let mut bytes = Vec::new();
     let mut paints = Vec::new();
-    for (draw_index, draw) in fonts.display().draws().iter().enumerate() {
+    for (draw_index, draw) in draws.iter().enumerate() {
         let ProductionBodyDraw::Text(text) = draw else {
             continue;
         };
-        let (font, cluster) = fonts.text_plan(draw_index).ok_or(E::ReceiptMismatch)?;
+        let (font, cluster) = text_plan(draw_index).ok_or(E::ReceiptMismatch)?;
         if cluster.cids().len() != text.glyphs().len() {
             return Err(E::ReceiptMismatch);
         }
@@ -163,8 +200,7 @@ pub fn encode_production_body_text<'f, 'v, 'd, 's, 'p, 'a>(
             end: bytes.len(),
         });
     }
-    Ok(ProductionBodyTextContribution {
-        fonts,
+    Ok(TextProjection {
         paints,
         bytes,
         record_charge,
@@ -186,4 +222,79 @@ fn append(bytes: &mut Vec<u8>, value: &[u8], maximum: u64) -> Result<(), Product
         .map_err(|_| ProductionBodyTextError::AllocationFailure)?;
     bytes.extend_from_slice(value);
     Ok(())
+}
+
+pub struct ProductionFootnoteTextContribution<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    fonts: &'e ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    paints: Vec<ProductionBodyTextPaint>,
+    bytes: Vec<u8>,
+    record_charge: u64,
+}
+impl<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    ProductionFootnoteTextContribution<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+{
+    pub const fn fonts(
+        &self,
+    ) -> &'e ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+        self.fonts
+    }
+    pub fn paints(&self) -> &[ProductionBodyTextPaint] {
+        &self.paints
+    }
+    pub fn paint_bytes(&self, paint_index: usize) -> Option<&[u8]> {
+        let p = self.paints.get(paint_index)?;
+        Some(&self.bytes[p.start..p.end])
+    }
+    /// The exact retained glyph/graphics commands, without the standalone
+    /// q/Q and cluster ActualText wrappers. The marked-content owner supplies
+    /// one selected-fragment ActualText scope instead of nesting replacements.
+    pub fn paint_commands(&self, paint_index: usize) -> Option<&[u8]> {
+        let p = self.paints.get(paint_index)?;
+        Some(&self.bytes[p.commands_start..p.commands_end])
+    }
+    pub fn byte_length(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+    pub const fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub fn verify(
+        &self,
+        fonts: &ProductionFootnoteFontPlans<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), ProductionBodyTextError> {
+        if !std::ptr::eq(self.fonts, fonts) {
+            return Err(ProductionBodyTextError::ReceiptMismatch);
+        }
+        fonts
+            .verify(fonts.structure(), admitted, limits)
+            .map_err(|_| ProductionBodyTextError::ReceiptMismatch)
+    }
+}
+
+pub fn encode_production_footnote_text<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+    fonts: &'e ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<
+    ProductionFootnoteTextContribution<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    ProductionBodyTextError,
+> {
+    fonts
+        .verify(fonts.structure(), admitted, limits)
+        .map_err(|_| ProductionBodyTextError::ReceiptMismatch)?;
+    let projection = encode_text_projection(
+        fonts.structure().display().draws(),
+        |i| fonts.text_plan(i),
+        fonts.record_charge(),
+        fonts.spool_charge(),
+        limits,
+    )?;
+    Ok(ProductionFootnoteTextContribution {
+        fonts,
+        paints: projection.paints,
+        bytes: projection.bytes,
+        record_charge: projection.record_charge,
+    })
 }

@@ -33,6 +33,7 @@ pub use production_body_pages::{
     ProductionBodyPageDraw, ProductionBodyPageDrawSource, ProductionBodyPageError,
 };
 pub use production_body_text::{
+    encode_production_footnote_text, ProductionFootnoteTextContribution,
     encode_production_body_text, ProductionBodyTextContribution, ProductionBodyTextError,
     ProductionBodyTextPaint,
 };

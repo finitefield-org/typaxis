@@ -1919,3 +1919,23 @@ registryの論理的な順序と実PDFの読み上げ順・抽出順は最終の
 この段階は使用計画とsubsetの確定であり、新しい経路のPDF text/content命令、marked content、
 ParentTree・font object・リンク・manifestの公開接続はまだ必要である。原ノ味の次期profileを
 現行CFF経路へ混入しない。動的参照の収束、元全巻・原ノ味・規模・両hostのゲートは維持する。
+
+### 14.41 本文・脚注の実座標とCIDによるPDF文字命令（実装追補）
+
+`encode_production_footnote_text`は構造に結び付いたフォント計画を検証して借用し、
+通常本文と共通の文字エンコーダーを使う。本文、脚注、参照番号、定義番号、リスト記号、
+式番号の各glyphについて、実配置のx/yと確定済みCIDを使ったTm／Tj命令を生成する。
+フォント辞書名は確定済みfont instanceに対応する。非text描画には文字命令を作らない。
+
+結果は元の計画との同一性、draw番号、ページ番号、font instance、各描画のbyte範囲を保持する。
+単独描画用のq/Qと必要なcluster ActualTextを含む範囲、および後続のmarked-content処理が
+重複したActualTextを作らず包める内部命令範囲を分ける。これはページ全体のroot変換や
+構造tagを含む完成PDFではない。
+
+recordsはフォント計画までのchargeに実text描画ごとの保持レコードを加算する。文字命令の
+保持bytesは先行spoolを差し引いた容量とmax_output_bytesの両方に制限する。全pipelineの
+再試行や複数結果の同時保持の予算管理は、このimmutable contributionだけでは完結しない。
+
+新経路のvector／raster／区切り線を含むページcontent、marked content、ParentTree、
+font object、リンク、manifest、公開writerへの接続は引き続き必要である。動的参照の収束、
+元全巻・原ノ味・規模・両hostの完了条件は維持する。
