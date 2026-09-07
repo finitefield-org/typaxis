@@ -297,3 +297,181 @@ fn production_footnote_joint_candidate_preserves_cumulative_record_and_work_budg
         });
     }
 }
+
+#[test]
+fn production_footnote_pages_choose_fit_and_preserve_owned_continuity() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    let value = production_footnote_joint_geometry_fixture();
+    with_production_footnote_prepared(&value, &config(), |flow, limits| {
+        let mut search = prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+        let start = search.begin_pages().unwrap();
+        let first = search.select_page(&start).unwrap().unwrap();
+        assert_eq!(first.page_index(), 0);
+        assert_eq!(first.candidate().body_range(), 0..1);
+        assert_eq!(first.next_state().body_start(), 1);
+        let records = search.record_charge();
+        let retry = search.select_page(&start).unwrap().unwrap();
+        assert_eq!(retry.candidate().body_range(), 0..1);
+        assert!(search.record_charge() > records);
+        let second = search.select_page(first.next_state()).unwrap().unwrap();
+        assert_eq!(second.page_index(), 1);
+        assert_eq!(second.candidate().body_range(), 1..2);
+        assert!(second.candidate().footnotes().is_none());
+        assert!(second.next_state().is_complete());
+        assert!(search.select_page(second.next_state()).unwrap().is_none());
+        let mut other = prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+        assert_eq!(
+            other.select_page(&start).err().unwrap().kind,
+            E::ReceiptMismatch
+        );
+    });
+    for (pages, reflows, expected) in [(1, 8, E::PageLimit), (100, 1, E::FootnoteSearchLimit)] {
+        let cfg = config_with_limits(ResourceLimits {
+            max_pages: pages,
+            max_footnote_reflows_per_page: reflows,
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_prepared(&value, &cfg, |flow, limits| {
+            let mut search =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            let start = search.begin_pages().unwrap();
+            if pages == 1 {
+                let first = search.select_page(&start).unwrap().unwrap();
+                assert_eq!(
+                    search.select_page(first.next_state()).err().unwrap().kind,
+                    expected
+                );
+            } else {
+                assert_eq!(search.select_page(&start).err().unwrap().kind, expected);
+            }
+        });
+    }
+}
+
+#[test]
+fn production_footnote_pages_continue_notes_after_body_end() {
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let mut value = production_footnote_two_long_definitions();
+    value["page_masters"]["masters"][0]["footnote"]["height"] = 2_000_000.into();
+    with_production_footnote_prepared(&value, &config(), |flow, limits| {
+        let mut search = prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+        let start = search.begin_pages().unwrap();
+        let mut page = search.select_page(&start).unwrap().unwrap();
+        assert_eq!(page.candidate().body_range().end, flow.body_items().len());
+        let mut continuations = 0;
+        while !page.next_state().is_complete() {
+            let next = search.select_page(page.next_state()).unwrap().unwrap();
+            assert!(next.candidate().body_range().is_empty());
+            assert!(
+                next.candidate().footnotes().unwrap().used_height() > typaxis_core::Length::ZERO
+            );
+            page = next;
+            continuations += 1;
+            assert!(continuations < 30);
+        }
+        assert!(continuations > 0);
+    });
+}
+
+#[test]
+fn production_footnote_pages_preserve_consecutive_and_trailing_forced_breaks() {
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let mut value = production_footnote_joint_geometry_fixture();
+    let blocks = value["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap();
+    let point =
+        |n: &serde_json::Value| serde_json::json!({"source_id":0,"start_byte":n,"end_byte":n});
+    let leading = serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":point(&blocks[0]["span"]["start_byte"])});
+    let trailing = serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":point(&blocks.last().unwrap()["span"]["end_byte"])});
+    blocks.insert(0, leading.clone());
+    blocks.insert(0, leading);
+    blocks.push(trailing);
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_footnote_prepared(&value, &config(), |flow, limits| {
+        let mut search = prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+        let start = search.begin_pages().unwrap();
+        let first = search.select_page(&start).unwrap().unwrap();
+        assert_eq!(first.candidate().body_range(), 0..0);
+        assert!(first.forced_break().is_some());
+        let second = search.select_page(first.next_state()).unwrap().unwrap();
+        assert_eq!(second.candidate().body_range(), 1..1);
+        assert!(second.forced_break().is_some());
+        let third = search.select_page(second.next_state()).unwrap().unwrap();
+        assert_eq!(third.candidate().body_range(), 2..3);
+        let fourth = search.select_page(third.next_state()).unwrap().unwrap();
+        assert_eq!(fourth.candidate().body_range(), 3..4);
+        assert!(fourth.forced_break().is_some());
+        assert!(!fourth.next_state().is_complete());
+        let fifth = search.select_page(fourth.next_state()).unwrap().unwrap();
+        assert_eq!(fifth.page_index(), 4);
+        assert_eq!(fifth.candidate().body_range(), 5..5);
+        assert!(fifth.next_state().is_complete());
+    });
+}
+
+#[test]
+fn production_footnote_pages_charge_selected_snapshot_and_discarded_alternatives() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    let value = production_footnote_joint_geometry_fixture();
+    let mut records = 0;
+    let mut work = 0;
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: if mode == 1 {
+                records
+            } else if mode == 2 {
+                records - 1
+            } else {
+                ResourceLimits::default().max_fragments
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_prepared(&value, &cfg, |flow, limits| {
+            let mut search = prepare_production_footnote_demand_search(
+                flow,
+                limits,
+                if mode == 3 {
+                    work
+                } else if mode == 4 {
+                    work - 1
+                } else {
+                    100_000
+                },
+            )
+            .unwrap();
+            let start = search.begin_pages().unwrap();
+            let result = search.select_page(&start);
+            if mode == 2 || mode == 4 {
+                assert_eq!(
+                    result.err().unwrap().kind,
+                    if mode == 2 {
+                        E::FragmentLimit
+                    } else {
+                        E::FootnoteSearchLimit
+                    }
+                );
+            } else {
+                assert_eq!(result.unwrap().unwrap().candidate().body_range(), 0..1);
+                if mode == 0 {
+                    records = search.record_charge();
+                    work = search.work_steps();
+                }
+                if mode == 1 || mode == 3 {
+                    assert_eq!(
+                        search.select_page(&start).err().unwrap().kind,
+                        if mode == 1 {
+                            E::FragmentLimit
+                        } else {
+                            E::FootnoteSearchLimit
+                        }
+                    );
+                }
+            }
+        });
+    }
+}

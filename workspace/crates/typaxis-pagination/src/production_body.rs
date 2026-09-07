@@ -35,14 +35,15 @@ pub use page_feedback::{
 #[path = "production_body_flow.rs"]
 mod body_flow;
 pub use body_flow::{
-    prepare_production_footnote_demand_search, ProductionFootnoteDemandSearch,
-    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
+    prepare_production_body_flow, prepare_production_footnote_demand_search,
+    prepare_production_footnote_search, ProductionBodyFootnoteCandidate,
+    ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageState,
+    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteFlowReference,
+    ProductionFootnoteFragmentSelection, ProductionFootnoteMarkerBinding,
     ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
-    ProductionBodyFootnoteCandidate,
-    prepare_production_body_flow, prepare_production_footnote_search,
-    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteFragmentSelection,
-    ProductionFootnoteMarkerBinding, ProductionPreparedBodyFlow,
-    ProductionFootnoteFlowReference,
+    ProductionPreparedBodyFlow,
 };
 
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";

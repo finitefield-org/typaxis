@@ -5,7 +5,8 @@ use super::*;
 mod footnote_breaks;
 pub use footnote_breaks::{
     prepare_production_footnote_demand_search, prepare_production_footnote_search,
-    ProductionBodyFootnoteCandidate, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
+    ProductionBodyFootnoteCandidate, ProductionBodyFootnotePageSelection,
+    ProductionBodyFootnotePageState, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
     ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
     ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
     ProductionFootnoteFragmentSelection, ProductionFootnoteRegionFragment,

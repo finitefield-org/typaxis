@@ -4526,3 +4526,40 @@ Common-driver regression: **2 passed, 0 failed, 1 explicitly ignored** in
 **0.82 s**. All launched commands are terminal. No implementation changes
 followed final verification; the last added fixture exercised the above-body
 geometry branch. No branch push or new public/full-book PDF result is claimed.
+
+### Owned joint body/footnote page search
+
+Implemented `begin_pages` / `select_page` (design §14.31). An opaque page state
+owns the body cursor, page index and demand snapshot. Every legal body boundary
+is tested for actual simultaneous fit; deterministic common body cost/source
+order selects a candidate. Only its state is forked into the next page, with
+snapshot/work charges. Search identity, page limits, per-selection reflow limits,
+lookback and cumulative budgets remain enforced. Incoming notes can continue on
+pages with no body advancement. Leading/consecutive/trailing forced body breaks
+preserve blank pages; keep across a forced break fails before selection.
+
+Verification:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-pagination --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+```
+Final footnote regression **31 passed, 0 failed, 1.82 s**, log
+`/private/tmp/typaxis-joint-pages-verified.log`. Common driver **2 passed,
+0 failed, 1 explicitly ignored, 0.62 s**, log
+`/private/tmp/typaxis-joint-pages-common.log`. Check passed in 7.23 s.
+Tests cover selection of a fitting shorter body candidate, owned next-page
+continuity, branch retries, rejection of another search, page/reflow caps,
+footnote-only continuations, consecutive/trailing blank pages, and exact/one-short
+record/work budgets including the selected snapshot. Initial test failures were
+fixture JSON path/source-span key mistakes; corrected before final regression.
+
+No public/full-book PDF or branch push is claimed. This is local page selection
+using existing body boundary costs, not a complete global pagination policy or
+stability/paint receipt. Physical placement, convergence, public writer, original
+full-book, Harano, scale and both-host acceptance gates remain incomplete.

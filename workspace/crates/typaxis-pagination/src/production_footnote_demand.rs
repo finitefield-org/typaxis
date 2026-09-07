@@ -4,9 +4,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[path = "production_body_footnote_candidate.rs"]
 mod body_candidate;
+#[path = "production_body_footnote_pages.rs"]
+mod pages;
 #[path = "production_footnote_required_region.rs"]
 mod required_region;
 pub use body_candidate::ProductionBodyFootnoteCandidate;
+pub use pages::{ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageState};
 
 static NEXT_SEARCH: AtomicU64 = AtomicU64::new(1);
 
@@ -87,6 +90,8 @@ pub struct ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     content: ProductionFootnoteBreakSearch<'b, 'f, 's, 'p, 'a>,
     owner_id: u64,
     next_state: u64,
+    maximum_pages: u32,
+    maximum_reflows: u16,
 }
 impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
     pub fn record_charge(&self) -> u64 {
@@ -333,6 +338,8 @@ pub fn prepare_production_footnote_demand_search<'b, 'f, 's, 'p, 'a>(
         content,
         owner_id,
         next_state: 0,
+        maximum_pages: limits.base().get().max_pages,
+        maximum_reflows: limits.base().get().max_footnote_reflows_per_page,
     })
 }
 
