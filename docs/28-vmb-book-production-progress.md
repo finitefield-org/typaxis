@@ -3636,3 +3636,36 @@ package assembly, public build/PDF or ArtifactSink publication. Full original-bo
 Harano, distinct/alias scale, both-host and public manifest gates remain mandatory.
 All launched tests reached terminal state; no public profile changed or branch
 was pushed.
+
+### 2026-09-07: Prepared-book publication metadata
+
+Companion **`8591c9e2`** adds `EncodeBookMetadata`: title/subtitle, author names,
+description, identifiers and keywords are derived from RenderBook. An independent
+`vmb.typaxis-book-metadata/1` record retains publisher, contributor roles, rights,
+all identifiers and rich source metadata. Dates are explicit valid UTC seconds or
+null; publication dates are not turned into invented midnight timestamps.
+Modification-before-creation, unresolved dynamic references, missing math speech,
+invalid controls and ambiguous/unknown inline payloads fail without partial output.
+
+The initial public check found the existing strict keyword-order rule. The encoder
+now emits unique keywords in UTF-8 ascending order while preserving original order
+and duplicates in the source record. The other package regression cases passed;
+corrected metadata unit/public tests passed in **1.746 s**. Tests cover retained
+fields, explicit presentation, byte ceilings, owned bytes and invalid inputs.
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis -run 'TestEncodeBookMetadata|TestBookMetadataPublicCheckPackage' -count=1 -v
+```
+
+The public test replaces fixture metadata with the actual prepared example's
+metadata: **2 images, 2 formula occurrences, 123 projection bytes**, empty diagnostics.
+Package SHA-256: `b0252a26f069f6574bd1a3156db6ab4c537f8af217369e4aa9756d1fa0796736`.
+Source SHA-256 remains `f842cab9de3fd27f68375144499b34c30c411d24dbd387d9ba915ac106f51070`.
+Logs: `/private/tmp/vmb-metadata-regression.log` (includes initial keyword failure),
+`/private/tmp/vmb-metadata-final.log` (corrected success). This is metadata encoding
+and test-envelope admission, not the final assembler, source-record publication or
+PDF/full-book/Harano/scale/both-host acceptance. All launched tests are terminal;
+no public profile changed or branch was pushed.
