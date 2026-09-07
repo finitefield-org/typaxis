@@ -4196,3 +4196,55 @@ sample is `/private/tmp/typaxis-footnote-items-sample.txt`. All launched tests
 and sampling processes are terminal. Only API documentation comments changed
 after the regression binary was started. No branch push or new full-book/public
 PDF acceptance result is claimed.
+
+### Footnote content-fragment boundary search and continuation cursors
+
+The shared page-boundary kernel now exposes a page-independent boundary choice.
+Ordinary body pagination wraps the same choice with its actual page index;
+footnote content selection does not manufacture a page assignment.
+`ProductionFootnoteBreakSearch` borrows the measured flow and reuses paragraph
+lengths/heading context once. Opaque source-bound cursors start each definition
+and advance from actual selected ranges, including consumed forced breaks.
+Repeated candidate evaluation shares cumulative candidate records and visited
+item work. No-fit at a smaller capacity differs from hard Oversize at the actual
+declared maximum. Negative / above-maximum capacity is rejected.
+
+Four focused tests verify continuation without content loss/duplication, foreign
+flow/cursor rejection, exact records and visited-work limits, non-refunded retries,
+exact candidate-lookback rejection, leading/consecutive/trailing forced breaks,
+keep chains, inter-paragraph spacing, keep across a forced break, and an actual
+VMB block exceeding the maximum region. **4 passed, 0 failed, 0.60 s**;
+log `/private/tmp/typaxis-footnote-selection-final.log`.
+The shared boundary-kernel regression passed **7 tests**, covering measured
+widow/orphan choices, headings/keeps, spaces/marker extents, tie ordering,
+candidate limits, continuation and forced blank pages;
+log `/private/tmp/typaxis-footnote-selection-pagination.log`.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote_breaks --locked -- --nocapture
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination \
+  production_body --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked
+```
+Production regression log: `/private/tmp/typaxis-footnote-selection-regression.log`.
+This selects measured content only. Definition-marker glyph metrics and spacing
+between definitions must join final reservation; reference-page assignment,
+body/footnote candidate coupling, continuations in page state, structure/public
+PDF and original full-book/Harano/both-host acceptance remain open.
+
+Final production regression: **108 passed, 0 failed, 1 explicitly ignored** in
+**676.00 s**, including both selected 5,000-resource PDF cases. The same process
+was retained and observed active throughout the longer run. After its binary
+started, only a definition-index accessor, formatting and documentation comments
+were added; the final pagination crate passed `cargo check -p typaxis-pagination
+--locked` with the same manifest/target directory (log
+`/private/tmp/typaxis-footnote-selection-final-check.log`). Boundary selection,
+work/record accounting and tests did not change after the broad run began.
+All launched commands are terminal. No branch push or new public/full-book PDF
+acceptance result is claimed.

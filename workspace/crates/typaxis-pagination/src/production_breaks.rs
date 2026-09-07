@@ -1,5 +1,5 @@
-//! Page-end choices over real body fragments. All feasible non-keep boundaries
-//! on an overflowing page are examined; budget exhaustion never truncates them.
+//! Boundary choices over measured content. All feasible non-keep boundaries
+//! in an overflowing region are examined; budget exhaustion never truncates them.
 use super::*;
 use crate::CostComponents;
 use std::collections::BTreeSet;
@@ -124,8 +124,8 @@ fn candidate(
         )
         .map_err(|_| error(last.owner, E::ArithmeticOverflow))?
     };
-    // Keep is a hard boundary restriction; unsupported table/footnote subflows
-    // are rejected upstream. Their costs are not guessed here.
+    // Keep is a hard boundary restriction. Page ownership and cross-region
+    // reservation costs are not estimated by this content-boundary kernel.
     let costs = CostComponents::new(
         0,
         isolated * ISOLATION_COST,
@@ -154,10 +154,47 @@ fn select(
     maximum: u16,
     charge: &mut Charge,
 ) -> Result<ProductionBodyBreakDecision, ProductionBodyPaginationError> {
+    let selection = select_boundary(
+        items,
+        start,
+        height,
+        paragraph_lengths,
+        headings,
+        maximum,
+        charge,
+        |_| Ok(()),
+    )?;
+    Ok(ProductionBodyBreakDecision {
+        page_index,
+        start_item: selection.start_item,
+        selected_candidate: selection.selected_candidate,
+        reason: selection.reason,
+        candidates: selection.candidates,
+    })
+}
+
+pub(super) struct BoundarySelection {
+    pub start_item: u32,
+    pub selected_candidate: u32,
+    pub reason: ProductionBodyBreakReason,
+    pub candidates: Vec<ProductionBodyBreakCandidate>,
+}
+
+pub(super) fn select_boundary(
+    items: &[Item],
+    start: usize,
+    height: Length,
+    paragraph_lengths: &[usize],
+    headings: &BTreeSet<NodeId>,
+    maximum: u16,
+    charge: &mut Charge,
+    mut visit: impl FnMut(NodeId) -> Result<(), ProductionBodyPaginationError>,
+) -> Result<BoundarySelection, ProductionBodyPaginationError> {
     let owner = items[start].owner;
     let mut used = Length::ZERO;
     let mut end = start;
     while let Some(item) = items.get(end).filter(|i| i.source.is_some()) {
+        visit(item.owner)?;
         let spacing = if end == start {
             Length::ZERO
         } else {
@@ -206,6 +243,7 @@ fn select(
         let mut height_at_boundary = used;
         while boundary > start {
             let item = &items[boundary - 1];
+            visit(item.owner)?;
             if !item.keep {
                 let observed = candidates.len() as u32 + 1;
                 if observed > u32::from(maximum) {
@@ -253,8 +291,7 @@ fn select(
         .min_by_key(|(_, c)| (c.costs.total(), c.end_item))
         .map(|(index, _)| index as u32)
         .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-    Ok(ProductionBodyBreakDecision {
-        page_index,
+    Ok(BoundarySelection {
         start_item: u32::try_from(start).map_err(|_| error(owner, E::FragmentLimit))?,
         selected_candidate,
         reason,
@@ -269,6 +306,22 @@ pub(super) fn plan(
     limits: &M4EffectiveResourceLimits,
     charge: &mut Charge,
 ) -> Result<Vec<ProductionBodyBreakDecision>, ProductionBodyPaginationError> {
+    let (lengths, headings) = prepare_context(lines, charge)?;
+    plan_items(
+        items,
+        &lengths,
+        &headings,
+        body.height().get(),
+        limits.base().get().max_pages,
+        limits.base().get().max_page_break_lookback,
+        charge,
+    )
+}
+
+pub(super) fn prepare_context(
+    lines: &ProductionInlineLineLayout<'_, '_>,
+    charge: &mut Charge,
+) -> Result<(Vec<usize>, BTreeSet<NodeId>), ProductionBodyPaginationError> {
     let mut headings = BTreeSet::new();
     for event in lines.source_flow().events() {
         if let Event::Begin {
@@ -286,15 +339,7 @@ pub(super) fn plan(
         .try_reserve_exact(lines.paragraphs().len())
         .map_err(|_| error(NodeId::new(0), E::AllocationFailure))?;
     lengths.extend(lines.paragraphs().iter().map(|p| p.lines().len()));
-    plan_items(
-        items,
-        &lengths,
-        &headings,
-        body.height().get(),
-        limits.base().get().max_pages,
-        limits.base().get().max_page_break_lookback,
-        charge,
-    )
+    Ok((lengths, headings))
 }
 
 fn plan_items(

@@ -34,7 +34,11 @@ pub use page_feedback::{
 
 #[path = "production_body_flow.rs"]
 mod body_flow;
-pub use body_flow::{prepare_production_body_flow, ProductionPreparedBodyFlow};
+pub use body_flow::{
+    prepare_production_body_flow, prepare_production_footnote_search,
+    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteFragmentSelection,
+    ProductionPreparedBodyFlow,
+};
 
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
 
@@ -52,6 +56,8 @@ pub enum ProductionBodyPaginationErrorKind {
     Oversize,
     PageLimit,
     PagePassLimit,
+    InvalidFootnoteCapacity,
+    FootnoteSearchLimit,
     PageBreakLookbackLimit { limit: u16, observed: u32 },
     FragmentLimit,
     SpoolLimit,

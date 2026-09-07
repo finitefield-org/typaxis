@@ -1,6 +1,13 @@
 //! Measured body and definition streams, before page reservation or assignment.
 use super::*;
 
+#[path = "production_footnote_breaks.rs"]
+mod footnote_breaks;
+pub use footnote_breaks::{
+    prepare_production_footnote_search, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
+    ProductionFootnoteFragmentSelection,
+};
+
 impl ProductionBodyFlowItem {
     pub const fn owner(&self) -> NodeId {
         self.owner

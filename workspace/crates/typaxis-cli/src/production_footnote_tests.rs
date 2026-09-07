@@ -255,3 +255,355 @@ fn production_footnote_flow_retains_forced_breaks_and_stable_line_registry() {
         },
     );
 }
+
+fn production_footnote_break_fixture() -> serde_json::Value {
+    use serde_json::json;
+    let text = "A B ".repeat(8);
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A ", &text], "Body")).unwrap();
+    let span = json!({"source_id":0,"start_byte":0,"end_byte":0});
+    value["document"]["blocks"][0]["blocks"][0]["children"][1] =
+        json!({"kind":"footnote_reference","node_id":4,"span":span,"footnote_id":"note"});
+    value["document"]["footnotes"] = json!([{"node_id":5,"span":span,"footnote_id":"note",
+    "blocks":[{"kind":"paragraph","node_id":6,"span":span,"classes":[],"children":[{
+        "kind":"text","node_id":7,"span":span,"text_span":{"text_id":1,"start_byte":0,"end_byte":text.len()}
+    }]}]}]);
+    value["page_masters"]["masters"][0]["footnote"] =
+        json!({"x":655360,"y":13000000,"width":1500000,"height":6000000});
+    value
+}
+
+fn with_production_footnote_prepared(
+    value: &serde_json::Value,
+    cfg: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_pagination::ProductionPreparedBodyFlow<'_, '_, '_, '_>,
+        &typaxis_core::M4EffectiveResourceLimits,
+    ),
+) {
+    with_production_inline_context(
+        &serde_json::to_vec(value).unwrap(),
+        cfg,
+        |prepared, package, profile, limits, admitted, bindings| {
+            let math = typaxis_layout::prepare_staging_math_vector_flows(
+                package, profile, limits, admitted, bindings,
+            )
+            .unwrap();
+            let blocks = typaxis_layout::prepare_staging_precomposed_vector_blocks(
+                package, profile, limits, admitted, bindings, &math,
+            )
+            .unwrap();
+            let lines = typaxis_layout::layout_production_body_inline_lines(
+                prepared,
+                profile.page_geometry().body(),
+                100_000,
+            )
+            .unwrap();
+            let footnotes =
+                typaxis_layout::prepare_production_footnote_lines(&lines, limits).unwrap();
+            let flow = typaxis_pagination::prepare_production_body_flow(
+                &lines, &blocks, &footnotes, limits,
+            )
+            .unwrap();
+            check(&flow, limits);
+        },
+    );
+}
+
+#[test]
+fn production_footnote_breaks_preserve_continuation_and_reject_foreign_cursors() {
+    use typaxis_pagination::{
+        prepare_production_footnote_search, ProductionBodyBreakReason as Reason,
+    };
+    let value = production_footnote_break_fixture();
+    with_production_footnote_prepared(&value, &config(), |flow, limits| {
+        let items = flow.definition_items(0).unwrap();
+        assert!(items.len() >= 6);
+        let height = items[0].consumed_height().unwrap();
+        let capacity = height.checked_add(height).unwrap();
+        let mut search = prepare_production_footnote_search(flow, limits, 100_000).unwrap();
+        let mut cursor = search.begin(0).unwrap();
+        assert_eq!(cursor.definition_index(), 0);
+        assert_eq!(cursor.next_item(), 0);
+        let before = search.record_charge();
+        assert!(search.evaluate(&cursor, Length::ZERO).unwrap().is_none());
+        assert!(search.record_charge() > before);
+        let mut end = 0;
+        let mut source_items = Vec::new();
+        loop {
+            let selected = search.evaluate(&cursor, capacity).unwrap().unwrap();
+            selected.verify(flow).unwrap();
+            assert_eq!(selected.consumed_range().start, end);
+            assert!(!selected.items().is_empty());
+            assert!(selected.used_height() <= capacity);
+            assert_eq!(selected.available_height(), capacity);
+            assert!(selected.forced_break_owner().is_none());
+            assert!(selected.selected_candidate_index().is_some());
+            let expected_height = selected
+                .items()
+                .iter()
+                .enumerate()
+                .try_fold(Length::ZERO, |total, (index, item)| {
+                    let space = if index == 0 {
+                        Length::ZERO
+                    } else {
+                        selected.items()[index - 1]
+                            .space_after()
+                            .checked_add(item.space_before())
+                            .unwrap()
+                    };
+                    total
+                        .checked_add(space)?
+                        .checked_add(item.consumed_height().unwrap())
+                })
+                .unwrap();
+            assert_eq!(selected.used_height(), expected_height);
+            source_items.extend(selected.items().iter().map(|i| i.source()));
+            end = selected.consumed_range().end;
+            let Some(next) = selected.continuation() else {
+                assert_eq!(selected.reason(), Reason::End);
+                break;
+            };
+            assert_eq!(selected.reason(), Reason::Overflow);
+            assert_eq!(next.next_item(), end);
+            cursor = next;
+        }
+        assert_eq!(end, items.len());
+        assert_eq!(
+            source_items,
+            items.iter().map(|i| i.source()).collect::<Vec<_>>()
+        );
+        with_production_footnote_prepared(&value, &config(), |other, other_limits| {
+            let mut other_search =
+                prepare_production_footnote_search(other, other_limits, 100_000).unwrap();
+            let foreign = other_search.begin(0).unwrap();
+            assert_eq!(
+                search.evaluate(&foreign, capacity).err().unwrap().kind,
+                typaxis_pagination::ProductionBodyPaginationErrorKind::ReceiptMismatch
+            );
+            let selected = other_search.evaluate(&foreign, capacity).unwrap().unwrap();
+            assert!(selected.verify(flow).is_err());
+        });
+    });
+}
+
+#[test]
+fn production_footnote_breaks_accumulate_candidate_records_and_visited_work() {
+    use typaxis_pagination::{
+        prepare_production_footnote_search, ProductionBodyPaginationErrorKind as E,
+    };
+    let value = production_footnote_break_fixture();
+    let mut required_records = 0;
+    let mut required_work = 0;
+    for (record_delta, work_delta) in [
+        (None, None),
+        (Some(0), None),
+        (Some(1), None),
+        (None, Some(0)),
+        (None, Some(1)),
+    ] {
+        let cfg = record_delta.map_or_else(config, |delta| {
+            config_with_limits(ResourceLimits {
+                max_fragments: required_records - delta,
+                ..ResourceLimits::default()
+            })
+        });
+        with_production_footnote_prepared(&value, &cfg, |flow, limits| {
+            let capacity =
+                Length::from_raw(2 * flow.definition_items(0).unwrap()[0].height().raw()).unwrap();
+            let work_limit = work_delta.map_or(100_000, |delta| required_work - delta);
+            let mut search = prepare_production_footnote_search(flow, limits, work_limit).unwrap();
+            let cursor = search.begin(0).unwrap();
+            let result = search.evaluate(&cursor, capacity);
+            if record_delta == Some(1) {
+                assert_eq!(result.err().unwrap().kind, E::FragmentLimit);
+            } else if work_delta == Some(1) {
+                assert_eq!(result.err().unwrap().kind, E::FootnoteSearchLimit);
+            } else {
+                let selected = result.unwrap().unwrap();
+                assert_eq!(selected.items().len(), 2);
+                required_records = search.record_charge();
+                required_work = search.visited_items();
+                drop(selected);
+                if work_delta == Some(0) {
+                    assert_eq!(
+                        search.evaluate(&cursor, capacity).err().unwrap().kind,
+                        E::FootnoteSearchLimit
+                    );
+                } else if record_delta == Some(0) {
+                    assert_eq!(
+                        search.evaluate(&cursor, capacity).err().unwrap().kind,
+                        E::FragmentLimit
+                    );
+                }
+            }
+        });
+    }
+    let cfg = config_with_limits(ResourceLimits {
+        max_page_break_lookback: 1,
+        ..ResourceLimits::default()
+    });
+    with_production_footnote_prepared(&value, &cfg, |flow, limits| {
+        let capacity =
+            Length::from_raw(2 * flow.definition_items(0).unwrap()[0].height().raw()).unwrap();
+        let mut search = prepare_production_footnote_search(flow, limits, 100_000).unwrap();
+        let cursor = search.begin(0).unwrap();
+        assert_eq!(
+            search.evaluate(&cursor, capacity).err().unwrap().kind,
+            E::PageBreakLookbackLimit {
+                limit: 1,
+                observed: 2
+            }
+        );
+    });
+}
+
+#[test]
+fn production_footnote_breaks_consume_leading_consecutive_and_trailing_forced_breaks_once() {
+    use typaxis_pagination::{
+        prepare_production_footnote_search, ProductionBodyBreakReason as Reason,
+    };
+    let mut value = production_footnote_break_fixture();
+    let paragraph = value["document"]["footnotes"][0]["blocks"][0].clone();
+    let forced =
+        serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":paragraph["span"]});
+    value["document"]["footnotes"][0]["blocks"] =
+        serde_json::json!([forced, forced, paragraph, forced]);
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_footnote_prepared(&value, &config(), |flow, limits| {
+        let mut search = prepare_production_footnote_search(flow, limits, 100_000).unwrap();
+        let mut cursor = search.begin(0).unwrap();
+        let mut end = 0;
+        let mut breaks = Vec::new();
+        let mut content = Vec::new();
+        loop {
+            let capacity = if end < 2 {
+                Length::ZERO
+            } else {
+                Length::from_raw(2 * 917_504).unwrap()
+            };
+            let selected = search.evaluate(&cursor, capacity).unwrap().unwrap();
+            assert_eq!(selected.consumed_range().start, end);
+            assert!(selected.consumed_range().end > end);
+            if end < 2 {
+                assert!(selected.items().is_empty());
+                assert!(selected.candidates().is_empty());
+                assert_eq!(selected.used_height(), Length::ZERO);
+            }
+            if let Some(owner) = selected.forced_break_owner() {
+                assert_eq!(selected.reason(), Reason::Forced);
+                breaks.push(owner);
+            }
+            content.extend(selected.items().iter().map(|i| i.source()));
+            end = selected.consumed_range().end;
+            let Some(next) = selected.continuation() else {
+                assert_eq!(selected.reason(), Reason::Forced);
+                break;
+            };
+            cursor = next;
+        }
+        let items = flow.definition_items(0).unwrap();
+        assert_eq!(end, items.len());
+        assert_eq!(
+            breaks,
+            items
+                .iter()
+                .filter(|i| i.source().is_none())
+                .map(|i| i.owner())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(breaks.len(), 3);
+        assert_eq!(
+            content,
+            items
+                .iter()
+                .filter(|i| i.source().is_some())
+                .map(|i| i.source())
+                .collect::<Vec<_>>()
+        );
+    });
+}
+
+#[test]
+fn production_footnote_breaks_respect_keep_spacing_and_maximum_region_height() {
+    use typaxis_pagination::{
+        prepare_production_footnote_search, ProductionBodyPaginationErrorKind as E,
+    };
+    let mut value = production_footnote_break_fixture();
+    let mut paragraph = value["document"]["footnotes"][0]["blocks"][0].clone();
+    paragraph["children"][0]["text_span"]["end_byte"] = 1.into();
+    value["document"]["footnotes"][0]["blocks"] =
+        serde_json::json!([paragraph, paragraph, paragraph, paragraph]);
+    production_body_renumber(&mut value["document"], &mut 0);
+    for keep in [false, true] {
+        production_body_set_style(&mut value, "paragraph", "keep_with_next", keep.into());
+        with_production_footnote_prepared(&value, &config(), |flow, limits| {
+            let mut search = prepare_production_footnote_search(flow, limits, 100_000).unwrap();
+            let cursor = search.begin(0).unwrap();
+            let items = flow.definition_items(0).unwrap();
+            assert_eq!(items.len(), 4);
+            let two_height = items[0]
+                .consumed_height()
+                .unwrap()
+                .checked_add(items[0].space_after())
+                .unwrap()
+                .checked_add(items[1].space_before())
+                .unwrap()
+                .checked_add(items[1].consumed_height().unwrap())
+                .unwrap();
+            let partial = search.evaluate(&cursor, two_height).unwrap();
+            if keep {
+                assert!(partial.is_none());
+            } else {
+                let partial = partial.unwrap();
+                assert_eq!(partial.items().len(), 2);
+                assert_eq!(partial.used_height(), two_height);
+            }
+            let maximum = flow.footnote_region().unwrap().height().get();
+            let complete = search.evaluate(&cursor, maximum).unwrap().unwrap();
+            assert_eq!(complete.items().len(), 4);
+            assert!(complete.continuation().is_none());
+            assert_eq!(complete.used_height().raw(), 4 * 917_504 + 6 * 65_536);
+            for invalid in [
+                Length::from_raw(-1).unwrap(),
+                maximum.checked_add(Length::from_raw(1).unwrap()).unwrap(),
+            ] {
+                assert_eq!(
+                    search.evaluate(&cursor, invalid).err().unwrap().kind,
+                    E::InvalidFootnoteCapacity
+                );
+            }
+        });
+    }
+    let forced =
+        serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":paragraph["span"]});
+    value["document"]["footnotes"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .insert(1, forced);
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_footnote_prepared(&value, &config(), |flow, limits| {
+        assert_eq!(
+            prepare_production_footnote_search(flow, limits, 100_000)
+                .err()
+                .unwrap()
+                .kind,
+            E::KeepAcrossForcedBreak
+        );
+    });
+    let mut oversize = production_footnote_flow_fixture();
+    oversize["page_masters"]["masters"][0]["footnote"]["height"] = 1.into();
+    with_production_footnote_prepared(&oversize, &config(), |flow, limits| {
+        let mut search = prepare_production_footnote_search(flow, limits, 100_000).unwrap();
+        let cursor = search.begin(0).unwrap();
+        assert!(search.evaluate(&cursor, Length::ZERO).unwrap().is_none());
+        assert_eq!(
+            search
+                .evaluate(&cursor, Length::from_raw(1).unwrap())
+                .err()
+                .unwrap()
+                .kind,
+            E::Oversize
+        );
+    });
+}
