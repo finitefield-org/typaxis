@@ -17,7 +17,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases and 5,000 synthetic distinct-paint Forms pass selected placement/structure/object tests; required engine-generated distinct formulas, mixed PNG and public check/build gates remain pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
-| CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure, FD-bound Type2 and internal whole-sfnt /2 admission verified on unchanged original Harano; selected closure and source-bound cache verified internally; name-keyed /2, aggregate resource owner and subset/PDF integration pending (checkpoint below) |
+| CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure, FD-bound Type2 and internal whole-sfnt /2 admission verified on unchanged original Harano; selected closure/cache and real dense-CID subset verified internally, including independent outlines/UVS/raster comparison; name-keyed /2, aggregate resource owner and public PDF integration pending (checkpoint below) |
 | Vertical tables, cmap 14, IVS shaping/extraction | Vertical/format-14 validators and combined base/UVS coverage are connected to internal /2 admission; independent all-original-entry hashes passed; actual IVS shaping/extraction pending (checkpoint below) |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
@@ -2944,3 +2944,91 @@ mandatory. No public profile registry was enabled in this checkpoint.
 Final explicit-original verification: **7 passed**, no failures. Log:
 `/private/tmp/typaxis-cff-selection-original-final.log`. All checks launched for
 this checkpoint reached terminal states. No public PDF or branch push occurred.
+
+
+## 2026-09-07 checkpoint: real selected OpenType subset, UVS and raster equivalence
+
+`Cff1SubsetSessionV2::subset` now returns `Cff1SubsetV2` with actual OpenType
+bytes, source/dense mapping, authoritative widths, PDF metrics and a /2 receipt
+bound to source and sealed closure. Shared canonical Type2 and sfnt/header/name/
+horizontal/PDF-metric recipes preserve /1 behavior. Source CFF/PostScript width
+is not copied into output widths: CFF, hmtx and future PDF Widths use admitted hmtx.
+CharString-byte subtotal and final sfnt size are bounded; the final sfnt buffer
+is allocated after its exact size check. Complete cumulative accounting of all
+temporary serializer/pipeline allocations remains a separate mandatory item.
+
+The subset retains selected base cmap entries and all resolvable selected UVS.
+Source defaults and non-defaults both become explicit dense-GID non-default
+mappings in the canonical format 14. UVS-only selection works with an empty
+format 12; input validation still requires a base subtable and, for an empty
+base map, a usable non-default UVS. The ordinary regression test covers this
+case and rejects an empty-base table containing only unusable/default coverage.
+
+The original-font fixture selects **28 glyphs**, including Japanese text,
+punctuation, UVS, all **12 actually used FDs**, and the two known CFF/hmtx width
+disagreements. It produces **5,052 bytes** with SHA-256
+`6557c69c765076c5872ce68e4e49ff91eaa1119d6fac36df4abfdf82231765ff`.
+The Rust test asserts deterministic bytes/receipt, no repeated Type2 work,
+selected hmtx/Widths, all retained/dropped original UVS keys, sfnt checksums and
+exact 5,052/5,051-byte success/failure. It does not pass a generated subset off
+as an original input: source admission deliberately rejects subset-prefix names.
+
+```sh
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+TYPAXIS_HARANO_SUBSET_OUTPUT=/private/tmp/typaxis-harano-selected-v2.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font cff_v2_ --locked -- --ignored
+python3 tools/verify_harano_cff_subset.py \
+  /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  /private/tmp/typaxis-harano-selected-v2.otf \
+  /private/tmp/typaxis-harano-selected-v2.otf.gids
+```
+
+FontTools 4.51.0 independently compares every selected Type2 outline command and
+fixed coordinate, source/output advance and bearing, output CFF width, dense CID,
+**27 base mappings and 12 UVS pairs**. All match. Output uses one FD, no local or
+global Subrs. The selected outline/mapping hash is
+`6d9824bced9f9d8cd9ab905fa17e36cef5b3ac663b9eeb626ac90b630aed913f`.
+Facts: `/private/tmp/typaxis-cff-subset-fonttools-facts.json`. FontTools warns
+about the deliberately zeroed deterministic head timestamps; this does not
+alter bytes or the comparison. Original source hash is checked before parsing.
+
+Independent raster verifier (Homebrew dependency flags were obtained through
+`pkg-config --cflags --libs freetype2`):
+
+```sh
+cc -Wall -Wextra -Werror \
+  -I/opt/homebrew/opt/freetype/include/freetype2 \
+  -I/opt/homebrew/opt/libpng/include/libpng16 \
+  -L/opt/homebrew/opt/freetype/lib tools/verify_cff_subset_raster.c \
+  -lfreetype -o /private/tmp/typaxis-verify-cff-subset-raster
+/private/tmp/typaxis-verify-cff-subset-raster \
+  /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  /private/tmp/typaxis-harano-selected-v2.otf \
+  /private/tmp/typaxis-harano-selected-v2.otf.gids
+```
+
+FreeType **2.14.3** rendered all 28 source/dense GID pairs at 12, 24, 48 and 96px:
+**112 exact bitmap, origin and advance comparisons passed**. Both fonts use
+NO_HINTING/NO_AUTOHINT/NO_BITMAP to compare preserved outlines; canonical CFF
+subsets do not copy hint programs. This is not a default-hinted comparison or a
+full-book PDF rendering claim. Log:
+`/private/tmp/typaxis-cff-subset-freetype-final.log`.
+
+Final explicit-original run: **8 passed**, no failures, log
+`/private/tmp/typaxis-cff-subset-original-final.log`. Final ordinary regression:
+**167 passed** (font 53, resource-admission 62, resources 28, shaping 24), eight
+original tests ignored, no failures:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-resource-admission -p typaxis-resources \
+  -p typaxis-shaping --lib --locked
+```
+
+Log: `/private/tmp/typaxis-cff-subset-regression-final.log`. All launched processes
+reached terminal states. Actual IVS shaping/source clusters/ToUnicode, public
+resource/PDF/manifest binding, name-keyed /2 and all full-book/scale/platform gates
+remain mandatory. No public profile registry, public PDF or branch push occurred.

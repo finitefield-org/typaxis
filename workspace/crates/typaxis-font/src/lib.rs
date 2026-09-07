@@ -8,7 +8,7 @@ pub use cff::{
     validate_cff_cmap_v2, validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2,
     Cff1Admission, Cff1AdmissionV2, Cff1EmbeddingPermission, Cff1Error, Cff1Failure,
     Cff1FailureKindV2, Cff1FailureV2, Cff1GlyphClosure, Cff1GlyphClosureV2, Cff1PdfMetrics,
-    Cff1Subset, Cff1SubsetSession, Cff1SubsetSessionV2, CffCmapFailureV2, CffCmapV2,
+    Cff1Subset, Cff1SubsetSession, Cff1SubsetSessionV2, Cff1SubsetV2, CffCmapFailureV2, CffCmapV2,
     CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2, CffOutlineCommandV2,
     CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
     CffProgramInspectionV2, CffSelectionFailureV2, CffTableFailureKindV2, CffTableFailureV2,

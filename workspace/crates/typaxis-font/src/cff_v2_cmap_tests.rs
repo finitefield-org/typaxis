@@ -145,3 +145,24 @@ fn cff_v2_cmap_original_harano_base_and_resolved_sequences() {
         "825b70e8ec61dc7e6b9b6909910cdbb30a23e25f203b1f1f7b1aa2c429132214"
     );
 }
+
+#[test]
+fn cff_v2_cmap_empty_base_requires_usable_nondefault_variation() {
+    let mut b = fixture();
+    b.drain(36..48);
+    b[24..28].copy_from_slice(&16u32.to_be_bytes());
+    b[32..36].fill(0);
+    b[16..20].copy_from_slice(&36u32.to_be_bytes());
+    let p = validate_cff_cmap_v2(&b, 5).unwrap();
+    assert_eq!(p.base_mapping_count(), 0);
+    assert_eq!(p.glyph_for_sequence('\u{4e03}', Some('\u{e0100}')), Some(4));
+    assert_eq!(p.glyph_for_sequence('\u{4e00}', Some('\u{e0100}')), None);
+    let mut mapping = BTreeMap::new();
+    mapping.insert(OriginalGlyphId::new(4), SubsetGlyphId::new(1));
+    let bytes = super::super::subset::build_cmap(&p, &mapping).unwrap();
+    let p = validate_cff_cmap_v2(&bytes, 2).unwrap();
+    assert_eq!(p.base_mapping_count(), 0);
+    assert_eq!(p.glyph_for_sequence('\u{4e03}', Some('\u{e0100}')), Some(1));
+    *b.last_mut().unwrap() = 0;
+    assert!(validate_cff_cmap_v2(&b, 5).is_err());
+}

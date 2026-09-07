@@ -560,6 +560,35 @@ source SHA-256とGIDである。異なるinstance/face IDのaliasでも同じsou
 FontFaceId順に準備する必要がある。現時点のsessionは選択評価を所有するが、subset bytesの
 生成とreceipt、上位resource ownerへの接続、公開PDFはまだ実装完了とは扱わない。
 
+### 7.11 実OpenType subsetと独立輪郭・描画検証
+
+`Cff1SubsetSessionV2::subset`はsealed closureを検証・準備した後、選択された輪郭から
+dense CIDのCFFを生成する。既存のcanonical Type2 serializer、sfnt checksum、name/head、
+水平metricとPDF metricのrecipeを共有し、旧 `/1` の出力を変更しない。
+生成CFFの幅、subset hmtx、`Cff1SubsetV2::original_widths`はadmitted hmtxへ一致させる。
+生成bytesのSHA-256、closure fingerprint、source hash、subset名を `/2` receiptへ結ぶ。
+CharString bytesの小計と最終sfnt長にsubset byte上限を適用し、最終sfnt bufferは長さを
+確認してから作る。一時serializer allocationを含む全stageの累積課金は引き続き別の必須工程である。
+
+subset cmapは選択された基底mapとUVSを保持する。UVSはdefault/non-defaultのどちらも、
+解決済みのdense GIDを持つ明示non-default mappingへcanonical化する。基底mapのない
+non-default専用GIDのsubsetも扱い、format 12は空にできるが、/2入力の空基底mapには
+実際に使用可能なnon-default UVSを要求する。format 14だけで基底tableを省略することは
+認めず、未対応pairを基底文字へ落とさない。
+
+元原ノ味から28 glyph（実使用の全12 FD、和文・句読点・幅が異なる2 glyph、UVSを含む）を
+選択して5,052-byte subsetを生成した。FontToolsは全選択輪郭、元hmtxのadvance/bearing、
+生成CFF幅、dense CID、27基底対応と12 UVSを照合する。FreeType 2.14.3では全glyphを
+12/24/48/96pxで描画し、112件のbitmap・位置・advanceが一致した。
+canonical subsetは元hint programを保持しないため、描画比較は双方で
+[hintingとbitmap strikeを無効](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html)にする。
+
+元font用admissionは従来どおりsubset prefix名を入力拒否するため、生成fontを元fontとして
+再admitすることを検証の代用にしない。生成物はsfnt構造検査と上記の独立parse/renderで検査する。
+5,052 bytesで成功し、5,051 bytesで出力を返さない境界も検証した。
+これは選択subsetの検証であり、IVSの実shaping/cluster/ToUnicode、public resource・PDF・
+manifestへの接続、Harano全巻・scaleの独立検査は引き続き必須残件である。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成

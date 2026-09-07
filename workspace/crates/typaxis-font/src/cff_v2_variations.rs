@@ -65,6 +65,38 @@ impl OwnedCffVariationSequencesV2 {
     }
 }
 impl CffVariationSequencesV2<'_> {
+    pub(super) fn visit_pairs<E>(
+        &self,
+        mut visit: impl FnMut(u32, u32, VariationCoverage) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let b = self.table;
+        for i in 0..self.records {
+            let at = 10 + i * 11;
+            let selector = u24_at(b, at);
+            for (field, stride) in [(at + 3, 4), (at + 7, 5)] {
+                let offset = u32_at(b, field) as usize;
+                if offset == 0 {
+                    continue;
+                }
+                for j in 0..u32_at(b, offset) as usize {
+                    let at = offset + 4 + j * stride;
+                    let base = u24_at(b, at);
+                    if stride == 4 {
+                        for scalar in base..=base + u32::from(b[at + 3]) {
+                            visit(scalar, selector, VariationCoverage::Default)?;
+                        }
+                    } else {
+                        visit(
+                            base,
+                            selector,
+                            VariationCoverage::NonDefault(u16_at(b, at + 3)),
+                        )?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     pub(super) fn into_owned(self) -> Result<OwnedCffVariationSequencesV2, CffTableFailureV2> {
         let mut bytes = Vec::new();
         bytes

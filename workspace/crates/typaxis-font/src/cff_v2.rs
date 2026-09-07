@@ -697,3 +697,7 @@ pub use admission::{admit_sfnt_cff1_v2, Cff1AdmissionV2, Cff1FailureKindV2, Cff1
 #[path = "cff_v2_selection.rs"]
 mod selection;
 pub use selection::{Cff1GlyphClosureV2, Cff1SubsetSessionV2, CffSelectionFailureV2};
+
+#[path = "cff_v2_subset.rs"]
+mod subset;
+pub use subset::Cff1SubsetV2;

@@ -26,6 +26,9 @@ fn is_selector(c: char) -> bool {
     matches!(c as u32, 0xfe00..=0xfe0f | 0xe0100..=0xe01ef)
 }
 impl CffCmapV2 {
+    pub(super) fn base_map(&self) -> &BTreeMap<u32, u16> {
+        &self.base
+    }
     pub fn base_mapping_count(&self) -> usize {
         self.base.len()
     }
@@ -59,6 +62,22 @@ pub fn validate_cff_cmap_v2(bytes: &[u8], glyph_count: u16) -> Result<CffCmapV2,
     context.table_tag = Some(*b"cmap");
     let base = parse_base_cmap(bytes, glyph_count, &mut context, variations.is_some())
         .map_err(|kind| CffCmapFailureV2::Base { kind, context })?;
+    if base.is_empty() {
+        let mut usable = false;
+        if let Some(v) = &variations {
+            v.visit_pairs::<std::convert::Infallible>(|_, _, coverage| {
+                usable |= matches!(coverage,VariationCoverage::NonDefault(gid) if gid!=0);
+                Ok(())
+            })
+            .unwrap();
+        }
+        if !usable {
+            return Err(CffCmapFailureV2::Base {
+                kind: Cff1Error::InvalidCmap,
+                context,
+            });
+        }
+    }
     let variations = variations
         .map(|v| v.into_owned())
         .transpose()

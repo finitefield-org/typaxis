@@ -4,6 +4,9 @@ use super::*;
 
 #[derive(Debug)]
 pub struct Cff1AdmissionV2 {
+    table_records: Vec<TableRecord>,
+    family: String,
+    subfamily: String,
     effective_limits: M4EffectiveResourceLimits,
     source: Arc<[u8]>,
     source_sha256: [u8; 32],
@@ -19,6 +22,20 @@ pub struct Cff1AdmissionV2 {
     program: CffProgramInspectionV2,
 }
 impl Cff1AdmissionV2 {
+    pub(super) fn table_bytes(&self, tag: &[u8; 4]) -> Result<&[u8], Cff1Error> {
+        let r = self
+            .table_records
+            .iter()
+            .find(|r| &r.tag == tag)
+            .ok_or(Cff1Error::InvalidSubset)?;
+        Ok(&self.source[r.offset..r.offset + r.length])
+    }
+    pub(super) fn family_names(&self) -> (&str, &str) {
+        (&self.family, &self.subfamily)
+    }
+    pub(super) fn horizontal_metrics(&self) -> (&[u16], &[i16]) {
+        (&self.advances, &self.left_side_bearings)
+    }
     pub(super) fn effective_limits(&self) -> &M4EffectiveResourceLimits {
         &self.effective_limits
     }
@@ -215,6 +232,9 @@ pub fn admit_sfnt_cff1_v2(
     identity.push('}');
     let units_per_em = head.units_per_em;
     Ok(Cff1AdmissionV2 {
+        table_records: records,
+        family: names.family,
+        subfamily: names.subfamily,
         effective_limits: limits.clone(),
         source,
         source_sha256,

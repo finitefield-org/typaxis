@@ -25,8 +25,8 @@ mod v2;
 pub use v2::{
     admit_sfnt_cff1_v2, inspect_cff1_program_v2, validate_cff_cmap_v2,
     validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2, Cff1AdmissionV2,
-    Cff1FailureKindV2, Cff1FailureV2, Cff1GlyphClosureV2, Cff1SubsetSessionV2, CffCmapFailureV2,
-    CffCmapV2, CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2,
+    Cff1FailureKindV2, Cff1FailureV2, Cff1GlyphClosureV2, Cff1SubsetSessionV2, Cff1SubsetV2,
+    CffCmapFailureV2, CffCmapV2, CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2,
     CffOutlineCommandV2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
     CffProgramInspectionV2, CffSelectionFailureV2, CffTableFailureKindV2, CffTableFailureV2,
     CffVariationSequencesV2, CffVerticalMetricsV2, VariationCoverage,
@@ -2145,6 +2145,7 @@ fn parse_base_cmap(
         return Err(Cff1Error::InvalidCmap);
     }
     let mut merged = BTreeMap::new();
+    let mut has_base = false;
     for index in 0..count {
         let record = 4 + index * 8;
         context.cmap_format = None;
@@ -2180,6 +2181,7 @@ fn parse_base_cmap(
                 return Err(Cff1Error::InvalidCmap);
             }
         };
+        has_base = true;
         context.clear_position();
         for (scalar, gid) in mappings {
             if merged
@@ -2190,7 +2192,7 @@ fn parse_base_cmap(
             }
         }
     }
-    if merged.is_empty() {
+    if !has_base || (merged.is_empty() && !validated_variations) {
         return Err(Cff1Error::InvalidCmap);
     }
     Ok(merged)
@@ -4614,6 +4616,13 @@ fn build_subset_cmap(
     source: &BTreeMap<u32, u16>,
     mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
 ) -> Result<Vec<u8>, Cff1Error> {
+    build_subset_cmap_with_empty(source, mapping, false)
+}
+fn build_subset_cmap_with_empty(
+    source: &BTreeMap<u32, u16>,
+    mapping: &BTreeMap<OriginalGlyphId, SubsetGlyphId>,
+    allow_empty: bool,
+) -> Result<Vec<u8>, Cff1Error> {
     let mut selected = Vec::new();
     selected
         .try_reserve_exact(source.len())
@@ -4626,7 +4635,7 @@ fn build_subset_cmap(
             selected.push((*scalar, u32::from(subset_gid.get())));
         }
     }
-    if selected.is_empty() {
+    if selected.is_empty() && !allow_empty {
         return Err(Cff1Error::InvalidSubset);
     }
     let mut groups = Vec::<[u32; 3]>::new();
@@ -4705,7 +4714,23 @@ fn build_subset_horizontal_metrics(
     source_gids: &[OriginalGlyphId],
     bboxes: &[[i16; 4]],
 ) -> Result<(Vec<u8>, Vec<u8>), Cff1Error> {
-    if source_gids.len() != bboxes.len() || admission.hhea.len() != 36 {
+    build_subset_horizontal_metrics_from(
+        &admission.hhea,
+        &admission.advances,
+        &admission.left_side_bearings,
+        source_gids,
+        bboxes,
+    )
+}
+
+fn build_subset_horizontal_metrics_from(
+    source_hhea: &[u8],
+    advances: &[u16],
+    left_side_bearings: &[i16],
+    source_gids: &[OriginalGlyphId],
+    bboxes: &[[i16; 4]],
+) -> Result<(Vec<u8>, Vec<u8>), Cff1Error> {
+    if source_gids.len() != bboxes.len() || source_hhea.len() != 36 {
         return Err(Cff1Error::InvalidSubset);
     }
     let mut hmtx = Vec::new();
@@ -4722,12 +4747,8 @@ fn build_subset_horizontal_metrics(
     let mut max_extent = i32::MIN;
     for (gid, bbox) in source_gids.iter().zip(bboxes) {
         let index = usize::from(gid.get());
-        let advance = *admission
-            .advances
-            .get(index)
-            .ok_or(Cff1Error::InvalidSubset)?;
-        let lsb = *admission
-            .left_side_bearings
+        let advance = *advances.get(index).ok_or(Cff1Error::InvalidSubset)?;
+        let lsb = *left_side_bearings
             .get(index)
             .ok_or(Cff1Error::InvalidSubset)?;
         hmtx.extend_from_slice(&advance.to_be_bytes());
@@ -4747,7 +4768,7 @@ fn build_subset_horizontal_metrics(
         min_rsb = min_rsb.min(rsb);
         max_extent = max_extent.max(extent);
     }
-    let mut hhea = admission.hhea.clone();
+    let mut hhea = source_hhea.to_vec();
     hhea[10..12].copy_from_slice(&advance_width_max.to_be_bytes());
     hhea[12..14].copy_from_slice(
         &i16::try_from(min_lsb)
@@ -4948,19 +4969,27 @@ fn subset_pdf_metrics(
     admission: &Cff1Admission,
     bbox: [i16; 4],
 ) -> Result<Cff1PdfMetrics, Cff1Error> {
-    let ascent = i32::from(read_i16(&admission.hhea, 4, Cff1Error::InvalidSubset)?);
-    let descent = i32::from(read_i16(&admission.hhea, 6, Cff1Error::InvalidSubset)?);
-    let os2_version = read_u16(&admission.os2, 0, Cff1Error::InvalidSubset)?;
+    subset_pdf_metrics_from(&admission.hhea, &admission.os2, &admission.post, bbox)
+}
+fn subset_pdf_metrics_from(
+    hhea: &[u8],
+    os2: &[u8],
+    post: &[u8],
+    bbox: [i16; 4],
+) -> Result<Cff1PdfMetrics, Cff1Error> {
+    let ascent = i32::from(read_i16(hhea, 4, Cff1Error::InvalidSubset)?);
+    let descent = i32::from(read_i16(hhea, 6, Cff1Error::InvalidSubset)?);
+    let os2_version = read_u16(os2, 0, Cff1Error::InvalidSubset)?;
     let cap_height = if os2_version >= 2 {
-        i32::from(read_i16(&admission.os2, 88, Cff1Error::InvalidSubset)?)
+        i32::from(read_i16(os2, 88, Cff1Error::InvalidSubset)?)
     } else {
         ascent
     };
     if ascent <= 0 || descent >= 0 || cap_height <= 0 {
         return Err(Cff1Error::InvalidSubset);
     }
-    let italic_fixed = read_i32(&admission.post, 4, Cff1Error::InvalidSubset)?;
-    let fixed_pitch = read_u32(&admission.post, 12, Cff1Error::InvalidSubset)? != 0;
+    let italic_fixed = read_i32(post, 4, Cff1Error::InvalidSubset)?;
+    let fixed_pitch = read_u32(post, 12, Cff1Error::InvalidSubset)? != 0;
     let mut flags = 0x20;
     if fixed_pitch {
         flags |= 0x01;

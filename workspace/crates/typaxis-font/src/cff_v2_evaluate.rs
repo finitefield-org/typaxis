@@ -118,6 +118,9 @@ pub struct CffEvaluatedGlyphV2 {
     source_width_fixed: i32,
 }
 impl CffEvaluatedGlyphV2 {
+    pub(super) fn canonical_charstring(&self) -> Result<Vec<u8>, Cff1Error> {
+        canonical_charstring(self.advance, &self.outline.segments)
+    }
     pub const fn gid(&self) -> u16 {
         self.gid
     }
