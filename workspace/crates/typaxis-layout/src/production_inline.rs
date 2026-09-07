@@ -20,6 +20,13 @@ use typaxis_syntax::{
     ValidatedStagingSemanticPackage,
 };
 
+#[path = "production_footnotes.rs"]
+mod footnotes;
+pub use footnotes::{
+    prepare_production_footnote_lines, ProductionFootnoteDefinitionLines,
+    ProductionFootnoteLineReference, ProductionFootnoteLines, ProductionFootnoteReferencePosition,
+};
+
 #[path = "production_line_context.rs"]
 mod line_context;
 #[path = "production_selected_inline.rs"]

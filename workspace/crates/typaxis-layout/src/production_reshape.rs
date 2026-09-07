@@ -43,10 +43,14 @@ impl From<BreakError> for ProductionBodyReshapeError {
 /// comparison. The callback cannot retain the borrowed shape/selection graph.
 pub struct ProductionConvergedBodyLines<'s, 'p, 'a> {
     lines: &'s ProductionInlineLineLayout<'p, 'a>,
+    footnotes: ProductionFootnoteLines<'s, 'p, 'a>,
     passes: &'s [LineReshapePassRecord],
     candidate_steps: u64,
 }
 impl<'s, 'p, 'a> ProductionConvergedBodyLines<'s, 'p, 'a> {
+    pub const fn footnotes(&self) -> &ProductionFootnoteLines<'s, 'p, 'a> {
+        &self.footnotes
+    }
     pub const fn lines(&self) -> &'s ProductionInlineLineLayout<'p, 'a> {
         self.lines
     }
@@ -153,6 +157,7 @@ pub fn with_converged_production_body_lines<R>(
             LineReshapeObservation::Stable => {
                 return Ok(use_stable(ProductionConvergedBodyLines {
                     lines: &selected,
+                    footnotes: prepare_production_footnote_lines(&selected, limits)?,
                     passes: feedback.records(),
                     candidate_steps: max_candidate_steps - remaining_steps,
                 }))

@@ -66,6 +66,8 @@ pub(crate) fn with_production_common_body_pdf<R>(
         blocks.page_geometry().body(),
         max_candidate_steps,
         |stable| {
+            stable.footnotes().verify(stable.lines(), limits)
+                .map_err(map_production_internal_error)?;
             let stable_pages = typaxis_pagination::paginate_stable_production_body(
                 stable.lines(),
                 &blocks,

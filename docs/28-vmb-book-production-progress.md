@@ -4064,3 +4064,54 @@ in **263.44 s**, including both selected 5,000-resource PDF cases. Log:
 terminal. The explicit saved-VMB job was not run in this regression. No branch
 was pushed. Footnote page/structure closure, dynamic page/counter convergence,
 public writer/manifest, original full-book, Harano and both-host acceptance remain.
+
+
+### 2026-09-07: Footnote definition ranges and selected reference positions
+
+Added `ProductionFootnoteLines`, built from the actual selected lines and the same
+validated wire/flow. Definitions retain borrowed source IDs, owners, canonical
+numbers and their exact event/paragraph ranges. References join to definition
+indices, retain body-versus-definition source scope, and record the first/last
+selected cluster positions. Coverage checks require the complete canonical
+generated marker, with matching key/buffer/range and bytes. Repeated references
+remain distinct source owners and placements.
+
+The registry has private fields and borrows the exact selected-line owner.
+Verification rejects a separate selection even when it has the same contents.
+Definition and reference/coverage records are charged on top of selected output
+before allocation; a one-definition/one-reference input requires 3 additional
+records. Exact fit succeeds and one less rejects. Stable line callbacks own this
+registry, and the common PDF owner verifies it before attempting pagination.
+This does not assign footnotes to pages, prove region fit, or close publication.
+The existing page rejection remains; the future page owner must retain the
+registry's cumulative charge when integrating actual definition placement.
+
+Focused projection/source-binding checks: **7 passed** in **0.37 s**, including
+record boundaries, foreign selection rejection, actual line positions, source
+ranges and callback ownership. Log `/private/tmp/typaxis-footnote-registry-tests.log`.
+Repeated-reference check initially passed in **0.11 s**; the final focused run also
+adds a ten-definition input to exercise all clusters of the two-digit marker.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_line_projection --locked -- --nocapture
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote_line_registry --locked -- --nocapture
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked -- --nocapture
+```
+Original full-book, Harano, complete dynamic reference/footnote convergence, public
+writer/manifest and both-host acceptance gates remain outstanding.
+
+Production regression: **100 passed, 0 failed, 1 explicitly ignored** in
+**294.14 s**, including both selected 5,000-resource PDF cases. Log:
+`/private/tmp/typaxis-footnote-registry-regression.log`. The additional multi-digit
+test was added after that regression binary was built; the final focused registry
+run covers both repeated and multi-digit references: **2 passed** in **0.16 s**,
+log `/private/tmp/typaxis-footnote-registry-final.log`. No production implementation
+changed after the regression began. All launched tests are terminal. No branch
+was pushed and no new full-book/public PDF result is claimed.

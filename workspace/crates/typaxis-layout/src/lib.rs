@@ -15,6 +15,8 @@ mod semantic_container;
 pub use production_inline::{
     layout_production_body_inline_lines, layout_production_inline_lines,
     prepare_production_inline_items, production_selected_line_contexts,
+    prepare_production_footnote_lines, ProductionFootnoteDefinitionLines,
+    ProductionFootnoteLineReference, ProductionFootnoteLines, ProductionFootnoteReferencePosition,
     with_converged_production_body_lines, ProductionBodyInlineFrames, ProductionBodyReshapeError,
     ProductionConvergedBodyLines, ProductionInlineAnchorPosition, ProductionInlineFrame,
     ProductionInlineLineLayout, ProductionInlineParagraphLineLayout,

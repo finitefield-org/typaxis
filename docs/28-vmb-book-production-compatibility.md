@@ -1458,3 +1458,26 @@ vector languageは重複加算しない。生成分と合わせた上限のち�
 内部algorithmはinline準備`/5`、inline行配置`/4`、本文display`/6`となる。
 次の必須接続は脚注定義領域・参照ページと定義の対応・継続脚注の選択、その後の構造と
 公開PDFである。ページ参照/counterの汎用収束、全巻・原ノ味・両hostの受け入れも残る。
+
+
+### 14.19 脚注定義と選択済み参照位置の対応
+
+`prepare_production_footnote_lines` は、同じ共通flowの検証済みwireに残る脚注IDと、
+選択済み行の実generated clusterを結び付ける。`ProductionFootnoteLines`は実際の
+選択済み行を借用し、別の選択結果や別limitsへの付け替えを拒否する。
+定義ごとにID・owner・定義順番号・Begin/Endを含むevent範囲・paragraph範囲を保持する。
+参照ごとには定義index、参照元が脚注定義内かどうか、実配置の最初／最後のcluster位置を
+保持する。同じ脚注を複数回参照しても、参照ownerと配置は個別に残す。
+
+参照のgenerated key/buffer/rangeとflow所有の番号を照合し、先頭byteから末尾byteまで
+重複・欠落なく選択済みclusterで覆うことを要求する。複数clusterに分かれる「10」も
+最後のclusterまで記録する。定義の範囲は共通event列から取得し、本文へのspliceにしない。
+
+選択済み行のrecord chargeに、定義recordと参照record・検査用coverage recordを加え、
+確保前に同じmax_fragmentsを検査する。1定義・1参照では追加3 recordsとなり、
+必要数ちょうどで成功、1不足で拒否する。安定した行を渡すcallbackがこのregistryも所有し、
+共通PDF ownerはページ処理の前に同一性を照合する。
+
+これは参照ページへの割当・脚注領域の幅/高さへの適合・継続脚注の選択を完了するものでは
+ない。次のページownerはこの対応とrecord chargeを引き継ぎ、定義領域の選択と本文ページの
+決定を閉じる必要がある。現在の脚注pagination拒否と公開PDFの未完了状態は維持する。

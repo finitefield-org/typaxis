@@ -308,6 +308,7 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
         "kind":"text","node_id":8,"span":span,"text_span":{"text_id":1,"start_byte":0,"end_byte":1}
     }]}]}]);
     let bytes = serde_json::to_vec(&value).unwrap();
+    let mut required = 0;
     with_production_inline_context(
         &bytes,
         &config(),
@@ -318,6 +319,49 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
                     typaxis_layout::layout_production_inline_lines(prepared, &[width, width], 100)
                         .unwrap();
                 layout.verify(prepared).unwrap();
+                let footnotes =
+                    typaxis_layout::prepare_production_footnote_lines(&layout, limits).unwrap();
+                footnotes.verify(&layout, limits).unwrap();
+                assert_eq!(footnotes.definitions().len(), 1);
+                let definition = &footnotes.definitions()[0];
+                assert_eq!(definition.id(), "note");
+                assert_eq!(definition.owner().get(), 6);
+                assert_eq!(definition.number(), 1);
+                assert_eq!(definition.paragraph_range(), 1..2);
+                let events = &prepared.source_flow().events()[definition.event_range()];
+                assert!(
+                    matches!(events.first(), Some(typaxis_syntax::ProductionFlowEvent::Begin { owner, kind: typaxis_syntax::ProductionFlowRegionKind::Footnote }) if owner.get() == 6)
+                );
+                assert!(
+                    matches!(events.last(), Some(typaxis_syntax::ProductionFlowEvent::End { owner }) if owner.get() == 6)
+                );
+                assert_eq!(footnotes.references().len(), 1);
+                let reference = &footnotes.references()[0];
+                assert_eq!(reference.owner().get(), 4);
+                assert_eq!(reference.definition_index(), 0);
+                assert_eq!(reference.source_definition(), None);
+                assert_eq!(reference.first(), reference.last());
+                assert_eq!(reference.first().paragraph_index(), 0);
+                assert_eq!(
+                    reference.first().line_index(),
+                    if raw_width == 3_000_000 { 0 } else { 1 }
+                );
+                let position = reference.first();
+                let ProductionPlacedInline::Text(marker) =
+                    &layout.paragraphs()[position.paragraph_index()].lines()[position.line_index()]
+                        .items()[position.item_index()]
+                else {
+                    panic!()
+                };
+                assert_eq!(marker.run().owner().get(), 4);
+                assert_eq!(footnotes.record_charge(), layout.output_records() + 3);
+                if raw_width == 3_000_000 {
+                    required = footnotes.record_charge();
+                }
+                let other =
+                    typaxis_layout::layout_production_inline_lines(prepared, &[width, width], 100)
+                        .unwrap();
+                assert!(footnotes.verify(&other, limits).is_err());
                 let body = &layout.paragraphs()[0];
                 let mut text = String::new();
                 let mut markers = 0;
@@ -377,6 +421,8 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
                 |stable| {
                     calls += 1;
                     assert!(stable.passes().len() >= 2);
+                    stable.footnotes().verify(stable.lines(), limits).unwrap();
+                    assert_eq!(stable.footnotes().references()[0].definition_index(), 0);
                     let text: String = stable.lines().paragraphs()[0]
                         .lines()
                         .iter()
@@ -393,6 +439,27 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
             assert_eq!(calls, 1);
         },
     );
+    for maximum in [required, required - 1] {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: maximum,
+            ..ResourceLimits::default()
+        });
+        with_production_inline_context(&bytes, &cfg, |prepared, _, _, limits, _, _| {
+            let width = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
+            let lines =
+                typaxis_layout::layout_production_inline_lines(prepared, &[width, width], 100)
+                    .unwrap();
+            let footnotes = typaxis_layout::prepare_production_footnote_lines(&lines, limits);
+            if maximum == required {
+                assert_eq!(footnotes.unwrap().record_charge(), required);
+            } else {
+                assert_eq!(
+                    footnotes.err().unwrap().kind,
+                    typaxis_layout::ProductionInlinePreparationErrorKind::UnitLimit
+                );
+            }
+        });
+    }
     with_production_body_inputs(&value, &config(), |lines, blocks, limits| {
         let error = typaxis_pagination::paginate_stable_production_body(lines, blocks, limits)
             .err()
@@ -413,6 +480,145 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
             typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion("footnote")
         );
     });
+}
+
+#[test]
+fn production_footnote_line_registry_joins_repeated_references_to_exact_definitions() {
+    use serde_json::json;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A ", "B"], "Body")).unwrap();
+    let span = json!({"source_id":0,"start_byte":0,"end_byte":0});
+    let children = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    children[1]["node_id"] = 5.into();
+    children.insert(
+        1,
+        json!({"kind":"footnote_reference","node_id":4,"span":span,"footnote_id":"note-a"}),
+    );
+    children
+        .push(json!({"kind":"footnote_reference","node_id":6,"span":span,"footnote_id":"note-b"}));
+    children
+        .push(json!({"kind":"footnote_reference","node_id":7,"span":span,"footnote_id":"note-a"}));
+    value["document"]["footnotes"] = json!((0..2).map(|index| {
+        let owner = 8 + 3 * index;
+        json!({"node_id":owner,"span":span,"footnote_id":if index == 0 { "note-a" } else { "note-b" },
+            "blocks":[{"kind":"paragraph","node_id":owner+1,"span":span,"classes":[],"children":[{
+                "kind":"text","node_id":owner+2,"span":span,"text_span":{"text_id":1,"start_byte":0,"end_byte":1}
+            }]}]})
+    }).collect::<Vec<_>>());
+    with_production_inline_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, package, _, limits, _, _| {
+            let width = PositiveLength::new(Length::from_raw(5_000_000).unwrap()).unwrap();
+            let lines = typaxis_layout::layout_production_inline_lines(
+                prepared,
+                &[width, width, width],
+                100,
+            )
+            .unwrap();
+            let registry =
+                typaxis_layout::prepare_production_footnote_lines(&lines, limits).unwrap();
+            assert_eq!(registry.definitions().len(), 2);
+            assert_eq!(registry.record_charge(), lines.output_records() + 8);
+            let wire = package.checked_wire().unwrap();
+            for (index, definition) in registry.definitions().iter().enumerate() {
+                assert_eq!(
+                    definition.id().as_ptr(),
+                    wire.document().footnotes[index].footnote_id.as_ptr()
+                );
+                assert_eq!(definition.paragraph_range(), index + 1..index + 2);
+                assert_eq!(definition.number(), index as u32 + 1);
+            }
+            assert_eq!(
+                registry
+                    .references()
+                    .iter()
+                    .map(|r| (r.owner().get(), r.definition_index(), r.source_definition()))
+                    .collect::<Vec<_>>(),
+                [(4, 0, None), (6, 1, None), (7, 0, None)]
+            );
+            for (reference, text) in registry.references().iter().zip(["1", "2", "1"]) {
+                let position = reference.first();
+                let typaxis_layout::ProductionPlacedInline::Text(cluster) =
+                    &lines.paragraphs()[position.paragraph_index()].lines()[position.line_index()]
+                        .items()[position.item_index()]
+                else {
+                    panic!()
+                };
+                assert_eq!(cluster.run().owner(), reference.owner());
+                assert_eq!(cluster.utf8(), text);
+            }
+            assert_ne!(
+                registry.references()[0].first(),
+                registry.references()[2].first()
+            );
+            registry.verify(&lines, limits).unwrap();
+        },
+    );
+}
+
+#[test]
+fn production_footnote_line_registry_covers_every_cluster_of_multi_digit_markers() {
+    use serde_json::json;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A "], "Body")).unwrap();
+    let span = json!({"source_id":0,"start_byte":0,"end_byte":0});
+    let children = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    for index in 0..11 {
+        children.push(
+            json!({"kind":"footnote_reference","node_id":4+index,"span":span,
+            "footnote_id":format!("note-{:02}", index % 10)}),
+        );
+    }
+    value["document"]["footnotes"] = json!((0..10).map(|index| {
+        let owner = 15 + 3 * index;
+        json!({"node_id":owner,"span":span,"footnote_id":format!("note-{index:02}"),
+            "blocks":[{"kind":"paragraph","node_id":owner+1,"span":span,"classes":[],"children":[{
+                "kind":"text","node_id":owner+2,"span":span,"text_span":{"text_id":0,"start_byte":0,"end_byte":1}
+            }]}]})
+    }).collect::<Vec<_>>());
+    with_production_inline_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, _, _, limits, _, _| {
+            let width = PositiveLength::new(Length::from_raw(20_000_000).unwrap()).unwrap();
+            let lines =
+                typaxis_layout::layout_production_inline_lines(prepared, &vec![width; 11], 1000)
+                    .unwrap();
+            let registry =
+                typaxis_layout::prepare_production_footnote_lines(&lines, limits).unwrap();
+            assert_eq!(registry.record_charge(), lines.output_records() + 32);
+            assert_eq!(registry.definitions().len(), 10);
+            assert_eq!(registry.references().len(), 11);
+            let reference = &registry.references()[9];
+            assert_eq!(reference.owner().get(), 13);
+            assert_eq!(reference.definition_index(), 9);
+            assert_eq!(registry.definitions()[9].number(), 10);
+            let first = reference.first();
+            let last = reference.last();
+            assert_eq!(first.paragraph_index(), last.paragraph_index());
+            assert_eq!(first.line_index(), last.line_index());
+            assert!(first.item_index() < last.item_index());
+            let text: String = lines.paragraphs()[first.paragraph_index()].lines()
+                [first.line_index()]
+            .items()[first.item_index()..=last.item_index()]
+                .iter()
+                .map(|item| match item {
+                    typaxis_layout::ProductionPlacedInline::Text(cluster) => {
+                        assert_eq!(cluster.run().owner(), reference.owner());
+                        cluster.utf8()
+                    }
+                    _ => panic!(),
+                })
+                .collect();
+            assert_eq!(text, "10");
+            assert_eq!(registry.references()[10].definition_index(), 0);
+        },
+    );
 }
 
 #[test]
