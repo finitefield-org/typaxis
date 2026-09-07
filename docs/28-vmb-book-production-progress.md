@@ -5950,3 +5950,54 @@ vector-only math input therefore has no standard font in that old route. The
 adapter's public build failure remains unresolved; this metadata work does not
 replace the public writer, issue a publication receipt or close manifest,
 exporter, full-book, Harano or scale/host acceptance.
+
+## 2026-09-08 — Common tagged serializer and independent PDF/UA machine validation
+
+Implemented §14.81. `write_production_common_tagged_pdf` emits a new owned PDF
+from the actual common graph and returns `ProductionCommonTaggedPdf` with a
+non-Clone serializer receipt, final book/safe-vector closures, absolute object
+observations and source/profile/limits/structure/display identities. It verifies
+source-bound page labels before returning. A private metadata mode is used only
+by this validating entry point; diagnostic assembly still omits PDF/UA identity.
+The immutable registry's package, semantics, authorization, limits and canonical
+hash are bound to the call without allocating a duplicate document tree. Final
+serialized structure and metadata are rechecked against that registry/source.
+
+The 19 existing common fixtures now also exercise this writer, reject foreign
+book authorizations/semantics, compare every contributed object payload against
+the diagnostic emission and stream the actual owned receipt. Added cumulative
+record/spool exact/one-short tests. Local CLI production regression: **169 passed,
+1 ignored**, 12.39 seconds, excluding the two 5,000-image tests; log
+`/private/tmp/typaxis-common-tagged-final-regression.log`. PDF library regression:
+**85 passed, 1 ignored**, 0.38 seconds; log
+`/private/tmp/typaxis-common-tagged-pdf-regression.log`.
+
+Before the new writer was added, veraPDF reported only the intentionally missing
+PDF/UA identity for all 19 diagnostic PDFs, plus stderr warnings for CFF Top DICT
+ordering. The shared CID subset writer emitted ROS after other operators; this
+is corrected to put ROS first, as required by Adobe CFF specification §9
+(https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf).
+The font regression passed **46 tests, 8 ignored**. The explicit unchanged Harano
+selected-subset test initially failed its historical byte hash, then passed
+with the corrected ROS-first hash; size remains 5,052 bytes. FontTools 4.51.0
+independently matched 28 glyphs, 27 base mappings and 12 UVS pairs, with unchanged
+outline/mapping hash `6d9824bced9f9d8cd9ab905fa17e36cef5b3ac663b9eeb626ac90b630aed913f`.
+FreeType 2.14.3 passed all 112 unhinted bitmap/origin/advance comparisons. Logs:
+`/private/tmp/typaxis-cff-ros-harano-final.log`,
+`/private/tmp/typaxis-cff-ros-fonttools.json`,
+`/private/tmp/typaxis-cff-ros-freetype.log`. FontTools still notes the deliberate
+zero head timestamps; that is distinct from the resolved CFF warning.
+
+The 19 new tagged PDFs all pass **veraPDF 1.30.2 PDF/UA-1 machine validation**,
+with zero stderr bytes and no parser/encryption/memory/validator exceptions.
+The final source was used to regenerate the 19 PDFs; each is byte-identical to
+its validated artifact. The raw report and PDF hashes are checked in as
+`common-tagged-serializer-verapdf.{xml,json}` under the VMB book fixture directory.
+This is a serializer/fixture machine gate, not public CLI, human PDF/UA or
+full-book acceptance. Root build-manifest projection and public CLI routing are
+still required; the existing adapter's public build failure is not yet fixed.
+
+Final direct comparison of each contributed object payload (not only its hash)
+passed for all 19 cases: targeted test 1 passed, 6.45 seconds,
+`/private/tmp/typaxis-common-tagged-payload-regression.log`. The checked-in raw
+veraPDF report's SHA-256 matches its evidence JSON.

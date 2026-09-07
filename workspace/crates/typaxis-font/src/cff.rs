@@ -4480,6 +4480,12 @@ fn build_cid_top_dict(
     glyph_count: usize,
 ) -> Result<Vec<u8>, Cff1Error> {
     let mut output = Vec::new();
+    // CFF specification, Top DICT INDEX: ROS must be the first operator of a
+    // CIDFont so a consumer can identify it without walking the entire DICT.
+    for value in [391, 392, 0] {
+        encode_dict_integer(value, &mut output);
+    }
+    output.extend_from_slice(&[12, 30]);
     for value in bbox {
         encode_dict_integer(i32::from(value), &mut output);
     }
@@ -4496,10 +4502,6 @@ fn build_cid_top_dict(
     output.push(17);
     encode_dict_integer(2, &mut output);
     output.extend_from_slice(&[12, 6]);
-    for value in [391, 392, 0] {
-        encode_dict_integer(value, &mut output);
-    }
-    output.extend_from_slice(&[12, 30]);
     encode_dict_integer(0, &mut output);
     output.extend_from_slice(&[12, 33]);
     encode_dict_integer(
@@ -5245,6 +5247,14 @@ mod tests {
         assert_eq!(first.sha256(), second.sha256());
         assert_eq!(first.postscript_name(), "AAAAAA+Typaxis");
         assert_eq!(&first.bytes()[..4], b"OTTO");
+        let (_, offset, length) = table_location(first.bytes(), b"CFF ");
+        let cff = &first.bytes()[offset..offset + length];
+        let names = parse_cff_index(cff, usize::from(cff[2]), None).unwrap();
+        let top = parse_cff_index(cff, names.end, None).unwrap();
+        assert_eq!(top.objects.len(), 1);
+        // The first DICT operands are SIDs 391/392 and supplement 0, followed
+        // immediately by escaped ROS (12 30), before FontBBox or offsets.
+        assert!(top.objects[0].starts_with(&[248, 27, 248, 28, 139, 12, 30]));
     }
 
     #[test]

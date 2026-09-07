@@ -293,7 +293,7 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
                 navigation.metadata(),
                 navigation.languages().document_language(),
                 &engine,
-                false,
+                self.pdfua,
             )
         })
     }

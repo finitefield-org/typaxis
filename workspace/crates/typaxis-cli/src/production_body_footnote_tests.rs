@@ -3533,6 +3533,59 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     pdf.verify(&other_resources, admitted, limits),
                     Err(typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch)
                 );
+                if case_index == 0 {
+                    let mut foreign = value.clone();
+                    foreign["metadata"]["title"] = "A different book".into();
+                    let bytes = serde_json::to_vec(&foreign).unwrap();
+                    let (other_package, other_navigation, other_limits, _) = production_text_fixture(&bytes, &config());
+                    let other_semantics = typaxis_syntax::validate_staging_structure_semantics_v2(
+                        &other_package, &other_navigation, &other_limits,
+                    ).unwrap();
+                    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+                    let other_profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+                        &other_package, &other_navigation, &other_semantics, &other_limits, &identity,
+                    ).unwrap();
+                    assert_eq!(typaxis_pdf::write_production_common_tagged_pdf(
+                        &resource_objects, semantics, profile.authorization(),
+                        other_profile.base().authorization(), admitted, limits, config().fingerprint(),
+                    ).unwrap_err(), typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch);
+                    assert_eq!(typaxis_pdf::write_production_common_tagged_pdf(
+                        &resource_objects, &other_semantics, other_profile.authorization(),
+                        other_profile.base().authorization(), admitted, limits, config().fingerprint(),
+                    ).unwrap_err(), typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch);
+                }
+                let tagged = typaxis_pdf::write_production_common_tagged_pdf(
+                    &resource_objects, semantics, profile.authorization(),
+                    profile.base().authorization(), admitted, limits, config().fingerprint(),
+                ).unwrap();
+                assert_eq!(tagged.final_pdf().page_count(), pdf.page_count());
+                assert_eq!(tagged.final_pdf().object_count(), pdf.objects().len() as u32);
+                assert_eq!(tagged.final_pdf().footnote_display_sha256(), Some(display.fingerprint()));
+                assert_eq!(tagged.display_sha256(), display.fingerprint());
+                assert_eq!(tagged.structure_registry_sha256(), structure.registry().fingerprint());
+                assert_eq!(tagged.book_navigation().final_pdf_sha256(), tagged.final_pdf().content_hash());
+                assert_eq!(tagged.safe_vector().final_pdf_sha256(), tagged.final_pdf().content_hash());
+                assert_eq!(tagged.safe_vector().final_writer_observation_fingerprint(), tagged.vector_final_writer().fingerprint());
+                assert_eq!(tagged.final_pdf().config_fingerprint(), config().fingerprint());
+                assert_ne!(tagged.final_pdf().content_hash(), pdf.content_hash());
+                assert_eq!(tagged.final_pdf().content_hash(), sha256(tagged.final_pdf().bytes()));
+                assert!(tagged.final_pdf().bytes().windows(b"<pdfuaid:part>1</pdfuaid:part>".len())
+                    .any(|w| w == b"<pdfuaid:part>1</pdfuaid:part>"));
+                // Metadata and envelope offsets change; all contributed page,
+                // resource, structure and annotation payloads must stay exact.
+                for object in tagged.objects().iter().filter(|o| o.number() > 4) {
+                    let original = &pdf.objects()[object.number() as usize - 1];
+                    assert_eq!(object.sha256(), original.sha256());
+                    assert_eq!(object.byte_length(), original.byte_length());
+                    assert_eq!(tagged.object_bytes(object.number()), pdf.object_bytes(object.number()));
+                }
+                if let Some(root) = std::env::var_os("VMB_COMMON_TAGGED_PDF_PROBE_DIR") {
+                    let path = PathBuf::from(root).join(format!("{case_index:02}.pdf"));
+                    use std::io::Write;
+                    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(path).unwrap();
+                    tagged.final_pdf().write_streaming(&mut file).unwrap();
+                    file.flush().unwrap();
+                }
                 if let Some(root) = std::env::var_os("TYPAXIS_FOOTNOTE_PDF_PROBE_DIR") {
                     use std::io::Write;
                     let path = PathBuf::from(root).join(format!("{case_index:02}.pdf"));
@@ -4893,6 +4946,105 @@ fn production_footnote_book_pdf_observation_keeps_cumulative_budgets() {
                     profile.base().authorization(),
                     admitted,
                     limits,
+                );
+                if mode == 2 || mode == 4 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_pdf::ProductionBodyAssemblyError::RecordLimit
+                        } else {
+                            typaxis_pdf::ProductionBodyAssemblyError::SpoolLimit
+                        }
+                    );
+                } else {
+                    let result = result.unwrap();
+                    if mode == 0 {
+                        records = result.record_charge();
+                        spool = result.spool_charge();
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_common_tagged_pdf_keeps_cumulative_budgets() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_body_navigation_vmb_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+
+                let annotations =
+                    typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
+                        .unwrap();
+                let structure_objects = typaxis_pdf::build_production_footnote_structure_objects(
+                    &annotations,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let resources = typaxis_pdf::build_production_footnote_resource_objects(
+                    &structure_objects,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let result = typaxis_pdf::write_production_common_tagged_pdf(
+                    &resources, semantics, profile.authorization(),
+                    profile.base().authorization(), admitted, limits, cfg.fingerprint(),
                 );
                 if mode == 2 || mode == 4 {
                     assert_eq!(

@@ -363,7 +363,7 @@ mod tests {
         assert_eq!(subset.bytes().len(), 5052);
         assert_eq!(
             hex(&subset.sha256()),
-            "6557c69c765076c5872ce68e4e49ff91eaa1119d6fac36df4abfdf82231765ff"
+            "3b9ddbc2e0415a302c95f550113ddacfcc60d2f6fb219ad7f9296753f8823463"
         );
         let work = (session.operations_used(), session.outline_segments_used());
         let repeated = session.subset(&admission, closure).unwrap();

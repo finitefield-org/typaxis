@@ -2715,3 +2715,34 @@ MuPDFは12ページの2 annotationと別々のLink／OBJR、子Lbl／MCR、お�
 `/private/tmp/typaxis-footnote-navigation-index-regression.log`）、全プロセス終了済み。
 同じ診断入力のPDFは§14.80のPDFとcmpでbyte一致したため、同節の限定的な独立検査は維持する。
 公開writer／manifest・正式exporter・全巻受入がこの最適化で完了したとは扱わない。
+
+### 14.81 共通組版からのtagged PDF serializer（実装追補）
+
+`write_production_common_tagged_pdf`は、共通組版のresource object graphから
+PDFを生成し、package・profile・semantics・limitsへの構造registryの結び付け、
+実際の構造／MCR／OBJR／ParentTree／metadata、Page参照値、safe-vectorとbookの
+最終PDF照合を通した後、非Cloneの`ProductionCommonTaggedPdf`を返す。
+この値は単一の`VerifiedPdfBytesReceipt`と実出力のobject観測・hashを所有する。
+本文フォントは共通組版のfont planから使い、native mathの存在に依存しない。
+既存の診断用assemblyはPDF/UA識別を付けないまま維持し、新しいserializerに限って
+検証済みのgraphからPDF/UA-1識別を含むmetadataを生成する。callerがconformance
+flagや最終writerの観測値を渡す入口は設けない。
+
+19件の既存fixtureについて、veraPDF 1.30.2のPDF/UA-1機械検証が全件合格し、
+stderrも空である。対象はTTF／TTC／CFF、本文・SVG数式・番号、PNG／JPEG、
+通常リンク・目次、リスト、継続／反復脚注、language override等。
+[機械検証のhash一覧](../samples/machine-package/staging/production-book-1/vmb-book/common-tagged-serializer-verapdf.json)と
+[実際のveraPDF report](../samples/machine-package/staging/production-book-1/vmb-book/common-tagged-serializer-verapdf.xml)を保存した。
+異なる書籍のprofile／semanticsを拒否し、追加record／spoolのexact／one-shortを
+検証する。既存の診断PDFと新serializerでは、metadata以外のcontribution payloadが
+byte単位で一致することを比較した。
+
+独立検証で見つかったCID CFFのTop DICT順序も修正した。共通のsubset writerで
+ROSを先頭operatorへ移動し、veraPDFの警告を解消した。原ノ味の5,052-byte選択subsetの
+新SHA-256は`3b9ddbc2e0415a302c95f550113ddacfcc60d2f6fb219ad7f9296753f8823463`。
+FontToolsの輪郭／mapping比較とFreeTypeの112描画比較は維持された。
+
+この入口はまだ公開CLIの`build_production_book_pdf`やroot build manifestには
+接続されていない。共通組版のtagged manifest観測、収束driverからの最終serializer呼出しと
+累積予算引継ぎ、正式exporter、全allocation監査、元全巻・原ノ味全巻・規模・両host・
+人によるPDF/UA確認等の受入は未完であり、19件の機械検証をその代替にはしない。

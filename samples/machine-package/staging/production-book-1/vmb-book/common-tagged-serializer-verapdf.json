@@ -1,0 +1,148 @@
+{
+  "scope": "Machine validation of 19 common tagged serializer fixtures; not public CLI, full-book or human PDF/UA acceptance.",
+  "test": "production_footnote_page_content_combines_draws_and_separator_artifacts",
+  "validator": "veraPDF",
+  "releases": {
+    "core": "1.30.2",
+    "validation-model": "1.30.2",
+    "apps": "1.30.2"
+  },
+  "profile": "PDF/UA-1 validation profile",
+  "report_sha256": "8573fbc75be9bbc2291cd72887dd75420909e688fcb433b46bc61cc5357748cd",
+  "stderr_bytes": 0,
+  "cases": [
+    {
+      "case_index": 0,
+      "byte_length": 5613,
+      "sha256": "7062a87350e0a153398d1cda3be91967b7d29af12e73eb29278c6d3813a880c0",
+      "passed_rules": 106,
+      "passed_checks": 86
+    },
+    {
+      "case_index": 1,
+      "byte_length": 5613,
+      "sha256": "78023d70b9fb181d8e31ed1afc898a52bc63a9d7e11596dd6dd00beef546f154",
+      "passed_rules": 106,
+      "passed_checks": 86
+    },
+    {
+      "case_index": 2,
+      "byte_length": 6008,
+      "sha256": "9b5fb0fb5f11c887b1d4f6d53dee93affcfceca257ecd3a1968d62e1701f7354",
+      "passed_rules": 106,
+      "passed_checks": 86
+    },
+    {
+      "case_index": 3,
+      "byte_length": 27734,
+      "sha256": "f889b71245c4600684a40c0a9ba5e0ad02d0ef76a22a40d18cf52e999b4d6d57",
+      "passed_rules": 106,
+      "passed_checks": 246
+    },
+    {
+      "case_index": 4,
+      "byte_length": 8036,
+      "sha256": "3f9f3c236006671bad82e48d8b0ad192ff73a784c30cd9eb76451ae4c0259d32",
+      "passed_rules": 106,
+      "passed_checks": 152
+    },
+    {
+      "case_index": 5,
+      "byte_length": 36293,
+      "sha256": "72e0fef63bbf0eccfcb673343135c882a2db0a5bc1704c32fd04e0caba8fae08",
+      "passed_rules": 106,
+      "passed_checks": 813
+    },
+    {
+      "case_index": 6,
+      "byte_length": 26078,
+      "sha256": "64ab4ab361db0b0fa004bc1491914c9d94ad27fc1bedf3b5ed458dd0a5d87bc2",
+      "passed_rules": 106,
+      "passed_checks": 742
+    },
+    {
+      "case_index": 7,
+      "byte_length": 35095,
+      "sha256": "0b7b462406179a4e7385dbee916fe0761b6313282378b28a198b3dd54e4a0aa0",
+      "passed_rules": 106,
+      "passed_checks": 785
+    },
+    {
+      "case_index": 8,
+      "byte_length": 33406,
+      "sha256": "6dcf9d6de446144555877d699cf14ed5d3923c26514ccb76e99d9bab6f7c948d",
+      "passed_rules": 106,
+      "passed_checks": 1467
+    },
+    {
+      "case_index": 9,
+      "byte_length": 78175,
+      "sha256": "d464e27f0859b2e65fcfb725b9a2cb72c9c25ec5a08f2a8d0b9dfa1726670b83",
+      "passed_rules": 106,
+      "passed_checks": 382
+    },
+    {
+      "case_index": 10,
+      "byte_length": 35075,
+      "sha256": "f8cbabb8bd53a2c717a7e9fa7824a6e2c3f12877eae617945443e2ed2039afdf",
+      "passed_rules": 106,
+      "passed_checks": 785
+    },
+    {
+      "case_index": 11,
+      "byte_length": 28921,
+      "sha256": "1d5a3f5ecdbb6c236fc0499b1ace62d770bb64386096c155d26702d624e4530a",
+      "passed_rules": 106,
+      "passed_checks": 356
+    },
+    {
+      "case_index": 12,
+      "byte_length": 21129,
+      "sha256": "079748e8b8695c42a10e1aceb8aad450af55e854b56066fd8f5d98c0399cf4a0",
+      "passed_rules": 106,
+      "passed_checks": 871
+    },
+    {
+      "case_index": 13,
+      "byte_length": 22606,
+      "sha256": "626473c83882b2fe512d2b0eb79f172a5cebaaff0b9b1ca3eb1ae481b5184100",
+      "passed_rules": 106,
+      "passed_checks": 450
+    },
+    {
+      "case_index": 14,
+      "byte_length": 76078,
+      "sha256": "92b2d5afd2b34c162c474b3f03a70fa0a67f113592e78b78c556f471e11afa09",
+      "passed_rules": 106,
+      "passed_checks": 271
+    },
+    {
+      "case_index": 15,
+      "byte_length": 25641,
+      "sha256": "43727197175f86f9bdea16498c0ff93938f5270afc776d5465865b7987435ce2",
+      "passed_rules": 106,
+      "passed_checks": 270
+    },
+    {
+      "case_index": 16,
+      "byte_length": 34883,
+      "sha256": "3f1f7ce41fa76557983013e57c7240f4ebf5391c5e91cc341aa22d0f7966d214",
+      "passed_rules": 106,
+      "passed_checks": 785
+    },
+    {
+      "case_index": 17,
+      "byte_length": 28861,
+      "sha256": "0a12c09559fbc59eac56a62bd901a04054abcc3e6cbc26b316ee54d3d90808b7",
+      "passed_rules": 106,
+      "passed_checks": 356
+    },
+    {
+      "case_index": 18,
+      "byte_length": 36055,
+      "sha256": "304571a1cd5e4a8140444520e621409b92816cdec60d2fe33556982213e38dbf",
+      "passed_rules": 106,
+      "passed_checks": 833
+    }
+  ]
+}

@@ -156,6 +156,7 @@ pub fn assemble_production_body_pdf<'o, 'm, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         navigation,
         !source.navigation().destinations().is_empty(),
         !source.navigation().outline().is_empty(),
+        false,
         |p| source.navigation().page_links(p),
         source.record_charge(),
         source.spool_charge(),
@@ -190,6 +191,7 @@ fn project_pdf_assembly<'s>(
     navigation: &typaxis_syntax::ValidatedStagingBookNavigationV2,
     has_destinations: bool,
     has_outline: bool,
+    pdfua: bool,
     page_links: impl Fn(u32) -> Option<std::ops::Range<usize>>,
     record_base: u64,
     spool_base: u64,
@@ -277,7 +279,7 @@ fn project_pdf_assembly<'s>(
         navigation.metadata(),
         navigation.languages().document_language(),
         &engine,
-        false,
+        pdfua,
     );
     budget.temporary(xmp.len())?;
     let mut metadata = Vec::new();
@@ -418,6 +420,7 @@ pub struct ProductionFootnotePdfAssembly<
         'p,
         'a,
     >,
+    pdfua: bool,
     vector_final_writer: crate::StagingSafeVectorPdfFinalWriterObservationV2,
     numbers: BTreeMap<ProductionBodyObjectRole, u32>,
     observations: Vec<ProductionBodyAssemblyObject>,
@@ -615,6 +618,51 @@ pub fn assemble_production_footnote_pdf<
     ProductionFootnotePdfAssembly<'o, 'r, 'z, 'm, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
     E,
 > {
+    assemble_production_footnote_pdf_with_metadata(source, admitted, limits, false)
+}
+
+fn assemble_production_footnote_pdf_with_metadata<
+    'o,
+    'r,
+    'z,
+    'm,
+    'c,
+    'e,
+    't,
+    'v,
+    'd,
+    'g,
+    'q,
+    'b,
+    'f,
+    's,
+    'p,
+    'a,
+>(
+    source: &'o crate::ProductionFootnoteResourceObjects<
+        'r,
+        'z,
+        'm,
+        'c,
+        'e,
+        't,
+        'v,
+        'd,
+        'g,
+        'q,
+        'b,
+        'f,
+        's,
+        'p,
+        'a,
+    >,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    pdfua: bool,
+) -> Result<
+    ProductionFootnotePdfAssembly<'o, 'r, 'z, 'm, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    E,
+> {
     source
         .verify(source.structure_objects(), admitted, limits)
         .map_err(|_| E::ReceiptMismatch)?;
@@ -641,6 +689,7 @@ pub fn assemble_production_footnote_pdf<
         display.source().line_layout().source_flow().navigation(),
         !navigation.destinations().is_empty(),
         !navigation.outline().is_empty(),
+        pdfua,
         |p| annotations.page_annotations(p),
         source.record_charge(),
         source.spool_charge(),
@@ -650,6 +699,7 @@ pub fn assemble_production_footnote_pdf<
         project_vector_final_writer(&mut projected, marked.content().vectors(), limits)?;
     Ok(ProductionFootnotePdfAssembly {
         source,
+        pdfua,
         vector_final_writer,
         numbers: projected.numbers,
         observations: projected.observations,
@@ -763,4 +813,10 @@ mod production_parent_tree;
 mod production_page_reference_closure;
 pub use production_page_reference_closure::{
     seal_production_page_reference_pdf, ProductionPageReferencePdfClosure,
+};
+
+#[path = "production_common_tagged_pdf.rs"]
+mod production_common_tagged_pdf;
+pub use production_common_tagged_pdf::{
+    write_production_common_tagged_pdf, ProductionCommonTaggedPdf,
 };
