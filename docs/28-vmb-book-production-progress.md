@@ -3318,3 +3318,58 @@ of all findings, CLI adapter and ArtifactSink publication are outstanding. It
 neither proves build/PDF success nor replaces the chapter, full-book, distinct/
 alias scale and both-host gates. All launched processes reached terminal state;
 no public profile was changed or branch pushed.
+
+### 2026-09-07: VMB table and footnote body traversal
+
+Companion VMB commits **`5f707a80`** (tables) and **`ef965c51`** (footnotes)
+extend the actual `LowerBookBody` traversal. Tables receive explicit fixed/fraction
+column sizing, normalize cells to declared column order, retain headers and use
+the common body/math source projection inside cells. Unknown/duplicate/missing
+columns, unresolved widths and unhandled fields are rejected with source context.
+Right/center alignment still requires style binding; table captions/numbering
+remain unimplemented and are rejected instead of dropped.
+
+Footnote definitions encountered in sections, lists and table cells are queued,
+ordered by the resolved VMB number and emitted after the body in wire preorder.
+Definition IDs and contiguous numbering are validated, as are reference targets,
+resolved numbers and supported presentation. Source text contains no provisional
+marker digits. References and definitions have separate spans; inline math in a
+footnote keeps its real source and receives the final footnote package pointer.
+Unsupported nested notes/references and populated fields fail without partial
+output. Child-array checks preserve parent source context.
+
+Verification used original source-bound VMB math, reversed table cell input,
+reversed footnote definition encounter order, list-contained definitions, exact
+node ceilings and ceilings minus one. Eight table and eleven footnote negative
+cases passed. All rendertypaxis tests, including four explicitly enabled public
+`check-package` cases, passed in **22.150 seconds**. Prior body/math/table public
+hashes remained identical after the footnote changes.
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis/... -count=1 -v
+```
+
+Both new public cases have **1 image, 1 formula occurrence and 58 projection
+bytes**, with empty diagnostics. Binary SHA-256 remains
+`2fe9e0cc5c233561ee3d29385e45b867c896d58ff6d753b383a1e5488f48677f`.
+Table package/source SHA-256:
+`56ed751c26efe6fe89694d949fa766005785634a7dfce3288434da990cd65ad1` /
+`a41d4efc4e838ca5b842b9492335a844900c38f9180d4335934345db0f448ba7`.
+Footnote package/source SHA-256:
+`daa074cc6bbac502a4f52f1cf17666ae262b8655d4daaa025f388af8fad064aa` /
+`53b188431dd987fc768c957aad8ee20749105bf328ed89049cc579fa18f6531e`.
+Logs: `/private/tmp/vmb-typaxis-table-regression.log`,
+`/private/tmp/vmb-typaxis-table-public.log`,
+`/private/tmp/vmb-typaxis-footnote-public.log`,
+`/private/tmp/vmb-typaxis-footnote-regression.log`.
+
+The public tests still combine real body contributions with a known test envelope;
+these are not complete package export or build/PDF receipts. Full metadata/font/
+style/page/outline/resource assembly, cross-reference and semantic container/figure
+coverage, CLI/ArtifactSink integration, public common-flow closure, original
+Harano and chapter/full-book/scale/both-host acceptance remain required. No public
+profile was changed. All launched tests reached terminal state; no branch was
+pushed in this work.
