@@ -1879,3 +1879,23 @@ fingerprint用bufferは作らない。1回の描画生成ではterminalまでの
 これは実描画データの生成であり、区切り線のPDF命令化・artifact分類、脚注の構造tag、リンク、
 font usage／PDF content／object／manifestの公開接続は引き続き必要である。動的参照の収束、
 元全巻・原ノ味・規模・両hostの完了条件を緩和しない。
+
+### 14.39 本文・脚注描画の構造グループ（実装追補）
+
+`build_production_footnote_structure`は認証済みの本文・脚注displayを借用し、同じnavigation／
+accessibility authorizationと既存のstructure registry v2を使う。通常本文も共通の
+`project_structure`へ接続し、実draw列からページ内のdense MCID、nodeごとのMCR順序、
+vector usageを構築する。要求されたpaint nodeの未描画、描画の欠落・ページ順違反、registryに
+ない描画は拒否する。生成番号を既存の`FootnoteLabel`へ結び付け、親の`Note`／`Reference`
+や定義本文の構造は元のregistryの関係を維持する。
+
+生成文字はslotを区別し、ListLabelなら実list item、FootnoteLabelなら実flowの脚注番号の
+生成key・canonical textを使って照合する。文字範囲と実draw文字列を検証し、番号全体の範囲が
+先頭から末尾まで欠落・重複なく連続することを要求する。リスト番号と脚注定義番号は1group、
+参照番号は必要なら同一ページ内の複数groupへ分かれることを許す。別ページへの番号分割は
+認可しない。区切り線は`separator_artifacts`として保持し、MCID／ParentTreeには含めない。
+
+この結果は実displayへの結び付きを持つ構造グループである。新しい経路のPDF marked-content、
+ParentTree object、注釈・リンク、font usage／content／manifestへの接続はまだ必要である。
+registryの論理的な順序と実PDFの読み上げ順・抽出順は最終の独立検証対象として維持する。
+動的参照の収束、元全巻・原ノ味・規模・両hostのゲートを緩和しない。

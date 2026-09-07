@@ -4864,3 +4864,48 @@ commands/artifact classification, footnote structure and links, font usage/conte
 objects/manifest/public writer, complete pipeline budgets, dynamic-reference
 convergence, and original full-book/Harano/scale/both-host acceptance remain
 incomplete. No new public/full-book PDF or branch push is claimed.
+
+### Shared structure grouping for joint body/footnote display
+
+Implemented design §14.39. `build_production_footnote_structure` authenticates the
+joint display and existing navigation/accessibility authorizations, uses the
+existing v2 registry, and projects actual draws into dense page MCIDs and node MCR
+groups. Ordinary-body structure now uses the same projection. Footnote-generated
+labels resolve through the existing FootnoteLabel slot and actual generated key/
+canonical text, retaining Note/Reference parentage. Label coverage checks reject
+missing/duplicated/noncontiguous ranges; definition/list labels require one group,
+while reference labels may span groups only within one page. Separator records
+are exposed as artifacts and do not receive MCIDs.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-display-list --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_list --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_equation_numbers --locked
+```
+Check **5.52 s**. Focused structure tests **2 passed, 1.13 s**. Final footnote
+regression **46 passed, 0 failed, 5.78 s**,
+`/private/tmp/typaxis-joint-structure-verified.log`. Tests cover real formula/list/
+numbered-definition fixtures, continued notes, reversed demand order, multi-digit
+labels, Note/Reference parentage, complete draw coverage, dense MCIDs, artifact
+separators, exact/one-short cumulative record limits and rejection of another
+display instance. Common/list/equation regression logs:
+`/private/tmp/typaxis-joint-structure-{common,lists,numbers}.log`.
+All passed: common **2 passed, 1 explicitly ignored**; lists **11 passed**;
+equation numbers **3 passed**.
+
+No joint marked-content/ParentTree/PDF/annotation/manifest output is claimed.
+Those integrations, logical-versus-physical reading-order/extraction checks,
+complete pipeline accounting, dynamic references and original full-book/Harano/
+scale/both-host acceptance remain incomplete. No branch push is claimed.

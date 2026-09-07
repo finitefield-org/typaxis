@@ -1340,3 +1340,167 @@ fn production_footnote_display_retains_preceding_and_projection_record_charges()
         );
     }
 }
+
+#[test]
+fn production_footnote_structure_binds_actual_reference_and_definition_labels() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure, ProductionBodyDraw,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let mut continued = production_footnote_two_long_definitions();
+    continued["page_masters"]["masters"][0]["footnote"]["height"] = 2_000_000.into();
+    let mut reversed = production_footnote_flow_fixture();
+    let children = reversed["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    let count = children.len();
+    children.swap(count - 1, count - 2);
+    production_body_renumber(&mut reversed["document"], &mut 0);
+    let mut multi = production_footnote_multi_digit_fixture();
+    multi["page_masters"]["masters"][0]["footnote"]["height"] = 16_000_000.into();
+    multi["page_masters"]["masters"][0]["footnote"]["y"] = 3_000_000.into();
+    for value in [
+        production_footnote_flow_fixture(),
+        production_footnote_joint_geometry_fixture(),
+        production_footnote_numbered_definition_fixture(),
+        continued,
+        reversed,
+        multi,
+    ] {
+        with_production_footnote_structure_prepared(
+            &value,
+            &config(),
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                structure.verify(&display, admitted, limits).unwrap();
+                assert_eq!(structure.separator_artifacts(), display.separators());
+                assert_eq!(
+                    structure
+                        .registry()
+                        .nodes()
+                        .iter()
+                        .filter(|n| n.role() == typaxis_layout::StructureRole::Note)
+                        .count(),
+                    flow.footnotes().definitions().len()
+                );
+                let mut consumed = 0;
+                for page in 0..geometry.pages().len() {
+                    for (mcid, group) in structure
+                        .page_groups(page as u32)
+                        .unwrap()
+                        .iter()
+                        .enumerate()
+                    {
+                        assert_eq!(group.mcid() as usize, mcid);
+                        assert_eq!(group.draws().start, consumed);
+                        consumed = group.draws().end;
+                    }
+                }
+                assert_eq!(consumed, display.draws().len());
+                for node in structure.registry().nodes() {
+                    let indices = structure.node_groups(node.structure_node_id()).unwrap();
+                    if node.paint_required() {
+                        assert!(!indices.is_empty());
+                    }
+                    if node.role() == typaxis_layout::StructureRole::Label {
+                        let text = indices
+                            .iter()
+                            .flat_map(|i| &display.draws()[structure.groups()[*i].draws()])
+                            .map(|d| match d {
+                                ProductionBodyDraw::Text(t) => t.exact_text(),
+                                _ => panic!("label must be text"),
+                            })
+                            .collect::<String>();
+                        assert_eq!(Some(text.as_str()), node.actual_text());
+                        if let typaxis_layout::StructureOwner::Generated(key) = node.owner() {
+                            if key.slot() == typaxis_layout::GeneratedStructureSlot::FootnoteLabel {
+                                let parent =
+                                    structure.registry().node(node.parent().unwrap()).unwrap();
+                                assert!(matches!(
+                                    parent.role(),
+                                    typaxis_layout::StructureRole::Note
+                                        | typaxis_layout::StructureRole::Reference
+                                ));
+                            }
+                        }
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_structure_keeps_shared_record_budget_and_display_identity() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+        ProductionBodyStructureError as E,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    for mode in 0..3 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let result = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                );
+                if mode == 2 {
+                    assert_eq!(result.err().unwrap(), E::RecordLimit);
+                } else {
+                    let structure = result.unwrap();
+                    if mode == 0 {
+                        records = structure.record_charge();
+                    }
+                    let other =
+                        build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                    assert_eq!(
+                        structure.verify(&other, admitted, limits).err().unwrap(),
+                        E::ReceiptMismatch
+                    );
+                }
+            },
+        );
+    }
+}

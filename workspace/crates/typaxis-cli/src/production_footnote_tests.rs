@@ -308,10 +308,29 @@ fn with_production_footnote_display_prepared(
         &typaxis_resources::AdmittedResourceLedger,
     ),
 ) {
-    with_production_inline_context(
+    with_production_footnote_structure_prepared(
+        value,
+        cfg,
+        |flow, limits, math, admitted, _, _| check(flow, limits, math, admitted),
+    );
+}
+
+fn with_production_footnote_structure_prepared(
+    value: &serde_json::Value,
+    cfg: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_pagination::ProductionPreparedBodyFlow<'_, '_, '_, '_>,
+        &typaxis_core::M4EffectiveResourceLimits,
+        &typaxis_layout::StagingMathVectorFlowRegistry,
+        &typaxis_resources::AdmittedResourceLedger,
+        &typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+        &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+    ),
+) {
+    with_production_inline_tagged_context(
         &serde_json::to_vec(value).unwrap(),
         cfg,
-        |prepared, package, profile, limits, admitted, bindings| {
+        |prepared, package, profile, limits, admitted, bindings, semantics, tagged| {
             let math = typaxis_layout::prepare_staging_math_vector_flows(
                 package, profile, limits, admitted, bindings,
             )
@@ -332,7 +351,7 @@ fn with_production_footnote_display_prepared(
                 &lines, &blocks, &footnotes, limits,
             )
             .unwrap();
-            check(&flow, limits, &math, admitted);
+            check(&flow, limits, &math, admitted, semantics, tagged);
         },
     );
 }

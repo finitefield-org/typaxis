@@ -139,8 +139,52 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
     display
         .verify_resources(admitted, limits)
         .map_err(|_| E::ReceiptMismatch)?;
-    let flow = display.selected().line_layout().source_flow();
-    let epoch = display.selected().line_layout().binding_epoch();
+    let projection = project_structure(
+        display.selected().line_layout(),
+        display.draws(),
+        display.selected().pages().len(),
+        display.record_charge(),
+        display.fingerprint(),
+        semantics,
+        accessibility,
+        navigation,
+        limits,
+    )?;
+    Ok(ProductionBodyStructure {
+        display,
+        registry: projection.registry,
+        groups: projection.groups,
+        node_groups: projection.node_groups,
+        page_groups: projection.page_groups,
+        record_charge: projection.record_charge,
+        spool_charge: projection.spool_charge,
+        fingerprint: projection.fingerprint,
+    })
+}
+
+struct StructureProjection {
+    registry: StructureRegistryReceiptV2,
+    groups: Vec<ProductionBodyStructureGroup>,
+    node_groups: Vec<Vec<usize>>,
+    page_groups: Vec<Range<usize>>,
+    record_charge: u64,
+    spool_charge: u64,
+    fingerprint: [u8; 32],
+}
+fn project_structure(
+    lines: &typaxis_layout::ProductionInlineLineLayout<'_, '_>,
+    draws: &[ProductionBodyDraw<'_>],
+    page_count: usize,
+    prior_charge: u64,
+    display_fingerprint: [u8; 32],
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    accessibility: &StagingAccessibilityProfileAuthorizationV2,
+    navigation: &StagingBookNavigationProfileAuthorizationV2,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StructureProjection, ProductionBodyStructureError> {
+    use ProductionBodyStructureError as E;
+    let flow = lines.source_flow();
+    let epoch = lines.binding_epoch();
     navigation
         .authorizes(flow.package(), flow.navigation(), limits)
         .map_err(|_| E::ReceiptMismatch)?;
@@ -171,13 +215,10 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
     // separately enforces its source/generated node and derived-text budgets.
     let added = (registry.nodes().len() as u64)
         .checked_mul(3)
-        .and_then(|v| v.checked_add((display.draws().len() as u64).checked_mul(3)?))
-        .and_then(|v| v.checked_add(display.selected().pages().len() as u64))
+        .and_then(|v| v.checked_add((draws.len() as u64).checked_mul(3)?))
+        .and_then(|v| v.checked_add(page_count as u64))
         .ok_or(E::RecordLimit)?;
-    let record_charge = display
-        .record_charge()
-        .checked_add(added)
-        .ok_or(E::RecordLimit)?;
+    let record_charge = prior_charge.checked_add(added).ok_or(E::RecordLimit)?;
     if record_charge > limits.base().get().max_fragments {
         return Err(E::RecordLimit);
     }
@@ -192,7 +233,11 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
             source_nodes.insert(source, node.structure_node_id());
         }
         if let StructureOwner::Generated(key) = node.owner() {
-            if key.slot() == typaxis_layout::GeneratedStructureSlot::ListLabel && key.ordinal() == 0
+            if matches!(
+                key.slot(),
+                typaxis_layout::GeneratedStructureSlot::ListLabel
+                    | typaxis_layout::GeneratedStructureSlot::FootnoteLabel
+            ) && key.ordinal() == 0
             {
                 label_nodes.insert(key.owner_node_id(), node.structure_node_id());
             }
@@ -201,19 +246,19 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
     }
     let mut groups: Vec<ProductionBodyStructureGroup> = Vec::new();
     groups
-        .try_reserve_exact(display.draws().len())
+        .try_reserve_exact(draws.len())
         .map_err(|_| E::AllocationFailure)?;
     let mut page_groups = Vec::new();
     page_groups
-        .try_reserve_exact(display.selected().pages().len())
+        .try_reserve_exact(page_count)
         .map_err(|_| E::AllocationFailure)?;
     let mut draw_index = 0usize;
     let mut vector_usage = 0u32;
-    for page in 0..display.selected().pages().len() {
+    for page in 0..page_count {
         let page_index = u32::try_from(page).map_err(|_| E::RecordLimit)?;
         let page_start = groups.len();
         let mut previous_fragment = None;
-        while let Some(draw) = display.draws().get(draw_index) {
+        while let Some(draw) = draws.get(draw_index) {
             let (source, draw_page, fragment) = match draw {
                 ProductionBodyDraw::Text(t) => (t.owner(), t.page_index(), t.fragment_index()),
                 ProductionBodyDraw::Raster(r) => (r.owner(), r.page_index(), r.fragment_index()),
@@ -275,15 +320,19 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
                         None if node.role() != StructureRole::Span => return Err(E::InvalidPaint),
                         None => (),
                         Some(provenance) => {
-                            let index = flow
-                                .list_items()
-                                .binary_search_by_key(&source, |i| i.owner())
-                                .map_err(|_| E::InvalidPaint)?;
-                            let item = &flow.list_items()[index];
-                            let text = flow.list_marker_text(index).ok_or(E::InvalidPaint)?;
+                            let (expected_key, text) = match node.owner() {
+                                StructureOwner::Generated(key) if key.slot() == typaxis_layout::GeneratedStructureSlot::ListLabel => {
+                                    let index = flow.list_items().binary_search_by_key(&source, |i| i.owner()).map_err(|_| E::InvalidPaint)?;
+                                    (flow.list_items()[index].key(), flow.list_marker_text(index).ok_or(E::InvalidPaint)?)
+                                }
+                                StructureOwner::Generated(key) if key.slot() == typaxis_layout::GeneratedStructureSlot::FootnoteLabel => {
+                                    (flow.footnote_marker_provenance(source).ok_or(E::InvalidPaint)?.buffer_key(), flow.footnote_marker_text(source).ok_or(E::InvalidPaint)?)
+                                }
+                                _ => return Err(E::InvalidPaint),
+                            };
                             let range = provenance.text_span().range();
                             if node.role() != StructureRole::Label
-                                || provenance.buffer_key() != item.key()
+                                || provenance.buffer_key() != expected_key
                                 || node.actual_text() != Some(text)
                                 || text.get(
                                     range.start_byte().get() as usize
@@ -342,7 +391,7 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
         }
         page_groups.push(page_start..groups.len());
     }
-    if draw_index != display.draws().len() {
+    if draw_index != draws.len() {
         return Err(E::InvalidPaint);
     }
     for node in registry.nodes() {
@@ -352,20 +401,31 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
         }
         if node.role() == StructureRole::Label {
             let owned = &node_groups[node.structure_node_id().get() as usize];
-            if owned.len() != 1 {
+            let is_list = matches!(node.owner(), StructureOwner::Generated(key) if key.slot() == typaxis_layout::GeneratedStructureSlot::ListLabel);
+            let is_definition = node
+                .parent()
+                .and_then(|id| registry.node(id))
+                .is_some_and(|p| p.role() == StructureRole::Note);
+            if owned.is_empty() || ((is_list || is_definition) && owned.len() != 1) {
                 return Err(E::InvalidPaint);
             }
             let mut end = 0;
-            for draw in &display.draws()[groups[owned[0]].draws()] {
-                let ProductionBodyDraw::Text(t) = draw else {
-                    return Err(E::InvalidPaint);
-                };
-                let provenance = t.generated_provenance().ok_or(E::InvalidPaint)?;
-                let range = provenance.text_span().range();
-                if range.start_byte().get() != end {
+            let page = groups[owned[0]].page_index();
+            for group in owned {
+                if groups[*group].page_index() != page {
                     return Err(E::InvalidPaint);
                 }
-                end = range.end_byte().get();
+                for draw in &draws[groups[*group].draws()] {
+                    let ProductionBodyDraw::Text(t) = draw else {
+                        return Err(E::InvalidPaint);
+                    };
+                    let provenance = t.generated_provenance().ok_or(E::InvalidPaint)?;
+                    let range = provenance.text_span().range();
+                    if range.start_byte().get() != end {
+                        return Err(E::InvalidPaint);
+                    }
+                    end = range.end_byte().get();
+                }
             }
             if end as usize != node.actual_text().ok_or(E::InvalidPaint)?.len() {
                 return Err(E::InvalidPaint);
@@ -375,10 +435,9 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
     // All derived records are deterministic projections of these sealed owners.
     let mut digest = [0u8; 96];
     digest[..32].copy_from_slice(&sha256(PRODUCTION_BODY_STRUCTURE_ALGORITHM.as_bytes()));
-    digest[32..64].copy_from_slice(&display.fingerprint());
+    digest[32..64].copy_from_slice(&display_fingerprint);
     digest[64..].copy_from_slice(&registry.fingerprint());
-    Ok(ProductionBodyStructure {
-        display,
+    Ok(StructureProjection {
         registry,
         groups,
         node_groups,
@@ -386,5 +445,98 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
         record_charge,
         spool_charge,
         fingerprint: sha256(&digest),
+    })
+}
+
+pub struct ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    display: &'v crate::ProductionBodyFootnoteDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    projection: StructureProjection,
+}
+impl<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+{
+    pub fn display(
+        &self,
+    ) -> &'v crate::ProductionBodyFootnoteDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+        self.display
+    }
+    pub fn registry(&self) -> &StructureRegistryReceiptV2 {
+        &self.projection.registry
+    }
+    pub fn groups(&self) -> &[ProductionBodyStructureGroup] {
+        &self.projection.groups
+    }
+    pub fn node_groups(&self, node: StructureNodeId) -> Option<&[usize]> {
+        self.projection
+            .node_groups
+            .get(node.get() as usize)
+            .map(Vec::as_slice)
+    }
+    pub fn page_groups(&self, page: u32) -> Option<&[ProductionBodyStructureGroup]> {
+        self.projection
+            .page_groups
+            .get(page as usize)
+            .map(|r| &self.projection.groups[r.clone()])
+    }
+    pub fn group_actual_text(&self, index: usize) -> Option<&str> {
+        let group = self.projection.groups.get(index)?;
+        group.vector_usage_id?;
+        self.projection.registry.node(group.node)?.actual_text()
+    }
+    /// Separator paint is artifact content, excluded from MCIDs and ParentTree.
+    pub fn separator_artifacts(&self) -> &[crate::ProductionFootnoteSeparatorDraw] {
+        self.display.separators()
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.projection.record_charge
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.projection.spool_charge
+    }
+    pub fn fingerprint(&self) -> [u8; 32] {
+        self.projection.fingerprint
+    }
+    pub fn verify(
+        &self,
+        display: &crate::ProductionBodyFootnoteDisplay<'_, '_, '_, '_, '_, '_, '_, '_>,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), ProductionBodyStructureError> {
+        if !std::ptr::eq(self.display, display) {
+            return Err(ProductionBodyStructureError::ReceiptMismatch);
+        }
+        display
+            .verify_resources(admitted, limits)
+            .map_err(|_| ProductionBodyStructureError::ReceiptMismatch)
+    }
+}
+pub fn build_production_footnote_structure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+    display: &'v crate::ProductionBodyFootnoteDisplay<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    accessibility: &StagingAccessibilityProfileAuthorizationV2,
+    navigation: &StagingBookNavigationProfileAuthorizationV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<
+    ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    ProductionBodyStructureError,
+> {
+    display
+        .verify_resources(admitted, limits)
+        .map_err(|_| ProductionBodyStructureError::ReceiptMismatch)?;
+    let projection = project_structure(
+        display.source().line_layout(),
+        display.draws(),
+        display.source().geometry().pages().len(),
+        display.record_charge(),
+        display.fingerprint(),
+        semantics,
+        accessibility,
+        navigation,
+        limits,
+    )?;
+    Ok(ProductionFootnoteStructure {
+        display,
+        projection,
     })
 }
