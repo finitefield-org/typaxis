@@ -4426,3 +4426,46 @@ Common-driver regression: **2 passed, 0 failed, 1 explicitly ignored** in
 **0.65 s**. The saved-job diagnostic remains an explicit opt-in test. No
 functional edits followed final verification. All launched commands are terminal;
 no branch push or new public/full-book PDF result is claimed.
+
+### Branchable footnote demand state and measured region selection
+
+A demand search now shares the existing content search's cumulative record/work
+budget. Immutable snapshots retain unreferenced/pending/complete definitions,
+first reference owners and first-demand queue order. Repeated or completed targets
+are not queued again. Actual selected nested occurrences update the next state;
+cycles terminate through already-seen status and finite content cursors. The
+current tagged-profile rejection of nested references remains explicitly tested.
+
+Selections bind their issuing search and source snapshot. Cross-owner, cross-branch
+and stale-position reuse is rejected. Re-evaluation from an earlier snapshot is
+allowed without changing it or refunding records/work. Snapshot copies, queue
+retention/moves, occurrence visits and binary-search comparison upper bounds join
+the same budget. Owner/state IDs are in-process guards, not artifact content.
+
+Region selection consumes pending definitions in order, with actual marker-inclusive
+heights and inter-definition after/before spacing. It records region-relative
+offsets and the next demand state. Overflow/forced breaks end the region; leading
+empty forced fragments advance once, and a trailing forced break retains its owner
+even when all demanded content is complete. Partial selection keeps unmet demands
+visible instead of declaring the associated body candidate acceptable.
+
+Final focused regression: **23 passed, 0 failed, 1.29 s**;
+`/private/tmp/typaxis-footnote-demand-final.log`. Six new tests cover deduplication
+and demand order, branch/owner/stale-selection rejection, failed/dropped attempts,
+forced boundaries and complete continuation coverage, nested cycles, actual
+inter-definition spacing, exact capacity / one-unit shortage and exact shared
+record/work budgets / one-unit shortage (including region selection).
+
+Command:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+```
+The earlier 17-test baseline, four state tests and six state/region tests also
+finished successfully. No functional changes followed final verification.
+These states and regions still do not prove body-boundary legality, same-page
+first-reference fit, collision freedom, final placement or public paint. Joint
+body/footnote page selection and all original full-book/Harano/scale/both-host
+acceptance requirements remain open. No public/full-book PDF result or branch
+push is claimed.

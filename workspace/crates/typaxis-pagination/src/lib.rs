@@ -7,6 +7,9 @@ mod atomic_vector;
 mod production_body;
 
 pub use production_body::{
+    prepare_production_footnote_demand_search, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
+    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
     prepare_production_body_flow, ProductionPreparedBodyFlow, ProductionBodyFlowItem,
     prepare_production_footnote_search, ProductionFootnoteBreakSearch,
     ProductionFootnoteCursor, ProductionFootnoteFragmentSelection, ProductionFootnoteMarkerBinding,

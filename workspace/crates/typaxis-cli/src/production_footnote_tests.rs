@@ -1174,8 +1174,7 @@ fn production_footnote_flow_references_bind_repeated_multi_digit_occurrences_to_
     });
 }
 
-#[test]
-fn production_footnote_flow_references_keep_definition_scopes_and_selected_occurrences() {
+fn production_footnote_nested_reference_fixture() -> serde_json::Value {
     let mut value = production_footnote_flow_fixture();
     for (definition, targets) in [(0, vec!["second", "second"]), (1, vec!["first"])] {
         let paragraph = if definition == 0 {
@@ -1203,6 +1202,12 @@ fn production_footnote_flow_references_keep_definition_scopes_and_selected_occur
     blocks.insert(1, second_break);
     blocks.insert(0, first_break);
     production_body_renumber(&mut value["document"], &mut 0);
+    value
+}
+
+#[test]
+fn production_footnote_flow_references_keep_definition_scopes_and_selected_occurrences() {
+    let value = production_footnote_nested_reference_fixture();
     with_production_footnote_untagged_prepared(&value, &config(), |flow, limits| {
         assert_eq!(flow.references().len(), 5);
         assert_eq!(

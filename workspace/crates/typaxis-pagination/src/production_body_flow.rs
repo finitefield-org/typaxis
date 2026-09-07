@@ -4,8 +4,11 @@ use super::*;
 #[path = "production_footnote_breaks.rs"]
 mod footnote_breaks;
 pub use footnote_breaks::{
-    prepare_production_footnote_search, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
-    ProductionFootnoteFragmentSelection,
+    prepare_production_footnote_demand_search, prepare_production_footnote_search,
+    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteFragmentSelection,
+    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
 };
 
 #[path = "production_footnote_references.rs"]

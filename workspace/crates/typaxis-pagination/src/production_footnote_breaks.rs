@@ -2,6 +2,15 @@
 use super::*;
 use std::collections::BTreeSet;
 
+#[path = "production_footnote_demand.rs"]
+mod demand;
+pub use demand::{
+    prepare_production_footnote_demand_search, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteRegionFragment,
+    ProductionFootnoteRegionSelection,
+};
+
 #[derive(Clone, Copy)]
 pub struct ProductionFootnoteCursor<'b, 'f, 's, 'p, 'a> {
     flow: &'b ProductionPreparedBodyFlow<'f, 's, 'p, 'a>,
