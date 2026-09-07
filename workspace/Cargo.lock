@@ -642,6 +642,7 @@ dependencies = [
  "typaxis-layout",
  "typaxis-pagination",
  "typaxis-resource-admission",
+ "typaxis-shaping",
  "typaxis-style",
  "typaxis-syntax",
  "typaxis-text",

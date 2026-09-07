@@ -3111,3 +3111,60 @@ Final explicit-original verification: **10 passed** (font 8, shaping 2), no
 failures. Log: `/private/tmp/typaxis-cff-shape-original-final.log`. Every process
 launched for this checkpoint reached a terminal state. No public profile
 registry, public PDF, or branch push occurred.
+
+### CFF /2 sealed font plans and direct PDF objects (2026-09-07)
+
+Added `FrozenPdfCff1PlanV2` independently of the /1 encoder receipt. The owner
+closes every instance before Type2 evaluation, evaluates sorted face unions in
+one session, and emits instance-sorted plans. It retains original cluster text,
+source provenance and explicit ActualText requirements. Parsed buffer/range and
+generated owner/kind/ordinal participate in plan identity. Conservative escaped
+JSON capacity is charged before serialization. This is local font accounting;
+the cumulative document allocation owner remains necessary.
+
+The PDF consumer writes six objects directly from the sealed /2 plan, preserving
+FontFile3/OpenType, CIDFontType0, dense widths and CIDSet. Existing ToUnicode and
+CIDSet serialization helpers are shared with /1 without converting new plans
+into old receipts. Output contains offsets and the source plan fingerprint;
+object reservation/collision checks and publication belong to the document owner.
+
+Validation:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-shaping -p typaxis-resources -p typaxis-pdf --locked
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resources cff_v2 --locked
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+TYPAXIS_CFF_V2_PDF_OUTPUT=/private/tmp/typaxis-cff-v2-font-objects.pdf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-resources -p typaxis-pdf cff_v2 --locked -- --ignored
+pdftotext -enc UTF-8 -raw /private/tmp/typaxis-cff-v2-font-objects.pdf \
+  /private/tmp/typaxis-cff-v2-font-objects-extracted.txt
+pdffonts /private/tmp/typaxis-cff-v2-font-objects.pdf
+mutool draw -q -F txt -o /private/tmp/typaxis-cff-v2-font-objects-mupdf.txt \
+  /private/tmp/typaxis-cff-v2-font-objects.pdf
+```
+
+Ordinary regression: **183 unit tests + 2 doc tests passed**, 12 explicit-original
+tests ignored. The subsequently added generated-provenance test passes in the
+**3-test** targeted resource run (two overlap the regression). Original-font
+resource and PDF tests: **2 passed**. Tests cover source identity, generated
+namespace identity, same-GID base/IVS extraction, deterministic bytes, shared-face
+instances, duplicate/mismatched inputs, object range and limits identity.
+
+Poppler **26.08.0** and MuPDF **1.28.2** both extract exactly `A一一󠄀日本語`
+after removing only trailing reader-added newline/form-feed characters, compared
+with the original `.pdf.txt` artifact. Poppler reports `CID Type 0C (OT)`,
+Identity-H, embedded/subset/Unicode all yes. The PDF is a diagnostic one-page
+assembly of the real font contribution, **not** a public PDF receipt or full-book
+evidence. Logs: `/private/tmp/typaxis-cff-v2-pdf-regression.log`,
+`/private/tmp/typaxis-cff-pdf-plan-generated-tests.log`,
+`/private/tmp/typaxis-cff-v2-pdf-original-final.log`.
+
+Public profile/manifest union, package font selection, selected-layout paint
+closure, formal exporter, full-book/scale and both-host gates remain mandatory.
+No public profile was activated by this checkpoint.

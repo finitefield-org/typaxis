@@ -40,11 +40,15 @@ impl std::fmt::Display for Cff1ShapeErrorV2 {
 impl std::error::Error for Cff1ShapeErrorV2 {}
 #[derive(Debug)]
 pub struct Cff1ShapedRunV2<'a> {
+    font_size: PositiveLength,
     admission: &'a Cff1AdmissionV2,
     utf8: &'a str,
     run: GlyphRun,
 }
 impl Cff1ShapedRunV2<'_> {
+    pub fn font_size(&self) -> PositiveLength {
+        self.font_size
+    }
     pub fn admission(&self) -> &Cff1AdmissionV2 {
         self.admission
     }
@@ -154,6 +158,7 @@ pub fn shape_cff1_run_v2<'a>(
         return Err(Cff1ShapeErrorV2::OutputInvariant);
     }
     Ok(Cff1ShapedRunV2 {
+        font_size: input.font_size,
         admission,
         utf8: input.utf8,
         run,

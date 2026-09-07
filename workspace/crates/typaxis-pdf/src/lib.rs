@@ -17,6 +17,8 @@ mod advanced_content;
 mod advanced_float;
 mod advanced_header_footer;
 mod book_navigation;
+mod cff_v2;
+pub use cff_v2::{encode_cff1_pdf_objects_v2, Cff1PdfObjectsV2};
 mod cff;
 mod jpeg;
 mod math;
@@ -4679,6 +4681,9 @@ fn sha256_compress(state: &mut [u32; 8], chunk: &[u8]) {
 }
 
 fn to_unicode_cmap(plan: &FrozenPdfFontPlan, max_len: u64) -> Result<Vec<u8>, PdfError> {
+    to_unicode_bindings(&plan.subset_plan().cids, max_len)
+}
+fn to_unicode_bindings(bindings: &[typaxis_font::CidBinding], max_len: u64) -> Result<Vec<u8>, PdfError> {
     let mut output = LimitedPdfBuffer::new(max_len);
     output.extend(
         b"/CIDInit /ProcSet findresource begin\n\
@@ -4691,9 +4696,7 @@ begincmap\n\
 <0000> <FFFF>\n\
 endcodespacerange\n",
     )?;
-    let mapping_count = plan
-        .subset_plan()
-        .cids
+    let mapping_count = bindings
         .iter()
         .filter(|binding| !binding.unicode.is_empty())
         .count();
@@ -4710,8 +4713,7 @@ endcodespacerange\n",
         .try_reserve_exact(mapping_count)
         .map_err(|_| PdfError::OutputTooLarge)?;
     mappings.extend(
-        plan.subset_plan()
-            .cids
+        bindings
             .iter()
             .filter(|binding| !binding.unicode.is_empty()),
     );
@@ -4795,6 +4797,9 @@ fn cid_set(plan: &FrozenPdfFontPlan, max_len: u64) -> Result<Vec<u8>, PdfError> 
         .ok_or(PdfError::ResourcePlanMismatch)?
         .dense_widths_1000()
         .len();
+    dense_cid_set(glyph_count, max_len)
+}
+fn dense_cid_set(glyph_count: usize, max_len: u64) -> Result<Vec<u8>, PdfError> {
     let byte_len = glyph_count
         .checked_add(7)
         .map(|count| count / 8)

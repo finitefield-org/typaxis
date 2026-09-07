@@ -43,6 +43,11 @@ pub use vector_content::{
 };
 
 use core::num::NonZeroU32;
+mod cff_v2;
+pub use cff_v2::{
+    freeze_cff1_pdf_fonts_v2, Cff1PdfFontInputV2, Cff1PdfPlanErrorV2,
+    FrozenPdfCff1PlanV2, FrozenPdfCff1ClusterV2,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use typaxis_core::{

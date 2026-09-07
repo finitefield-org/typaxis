@@ -615,6 +615,35 @@ FreeTypeでは58,696件のunhinted raster・位置・advance比較が一致し�
 §9.1に従うprivate stagingのprofile別resource/shaping/PDF/manifest union接続と、
 正式exporter・共通layout・公開CLI・両OSの全巻検証は必須残件である。
 
+### 7.13 CFF /2のresource planとPDF font object接続
+
+`freeze_cff1_pdf_fonts_v2`はsealed admissionと実`Cff1ShapedRunV2`を受け取り、
+全instanceの選択集合を閉じてからface/GID順のunionを単一CFF sessionで評価する。
+結果は旧`FrozenPdfFontPlan`から独立した`FrozenPdfCff1PlanV2`となる。
+異なるadmission・実効予算・instance・font size、重複run/instanceを拒否する。
+
+planはsubset、dense widths、CID bindings、clusterの元文字列・出典・ActualText要否を
+保持する。Unicode候補が競合するGIDや複数scalar/glyphのclusterを単一scalarへ潰さない。
+CIDのToUnicodeを連結して元文字列と一致しないclusterではActualTextを要求する。
+識別子はparsed/generated namespace、buffer ID・byte範囲に加え、生成文のowner・
+generation kind・owner-local ordinalも含む。canonical JSONはescape後の保守的上限を
+spool予算へ事前課金する。この局所予算は文書全工程の累積allocation予算を代替しない。
+
+`encode_cff1_pdf_objects_v2`はこのplanを直接消費し、Type0、CIDFontType0、descriptor、
+FontFile3/OpenType、ToUnicode、CIDSetの6 objectを生成する。旧receiptへのcastは行わない。
+旧profileと共通のToUnicode/CIDSet serializerを使用し、object範囲と実効予算の同一性を
+検証する。戻り値は相対offsetを持つfont contributionであり、文書assemblerのobject予約・
+衝突検査・paint/terminal/manifest照合や`VerifiedPdfBytesReceipt`を認可しない。
+
+元原ノ味の基底文字と同一GIDへ対応するIVSを実shapeし、font contributionを診断用1 pageへ
+組み込んだ。Poppler 26.08.0とMuPDF 1.28.2の双方が`A一一󠄀日本語`を二scalarのIVSも
+含めて正確に抽出した。Popplerは埋め込みfontを`CID Type 0C (OT)`と認識する。
+元文字列が同じでも出典bufferが変わればplan fingerprintが変わり、subset bytesは同じである
+ことも検証した。生成文のbuffer ID・範囲が同じでも生成owner/kindは区別する。
+
+これはfont単位のprivate-staging接続である。公開profile/manifest union、packageのfont選択、
+共通layoutからのpaint照合、正式exporter、全巻・scale・両OSの検証は引き続き必須である。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成
