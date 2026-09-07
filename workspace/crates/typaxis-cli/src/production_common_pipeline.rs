@@ -244,25 +244,27 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
                 stable.footnotes(),
                 limits,
             )
-            .map_err(map_production_input_error)?;
+            .map_err(map_common_pagination_error)?;
             let remaining_steps = max_candidate_steps
                 .checked_sub(stable.candidate_steps())
-                .ok_or_else(|| Failure::input("common footnote candidate budget exhausted"))?;
+                .ok_or_else(|| {
+                    Failure::limit("L5110: common footnote candidate budget exhausted")
+                })?;
             let mut search = typaxis_pagination::prepare_production_footnote_demand_search(
                 &prepared,
                 limits,
                 remaining_steps,
             )
-            .map_err(map_production_input_error)?;
+            .map_err(map_common_pagination_error)?;
             let pages = search
                 .select_stable_pages()
-                .map_err(map_production_input_error)?;
+                .map_err(map_common_pagination_error)?;
             let geometry = search
                 .place_pages_content(pages.sequence())
-                .map_err(map_production_input_error)?;
+                .map_err(map_common_pagination_error)?;
             let terminals = search
                 .finalize_page_math(&pages, &geometry, &math, limits)
-                .map_err(map_production_internal_error)?;
+                .map_err(map_common_pagination_error)?;
             terminals
                 .terminals()
                 .verify(&math)
@@ -403,4 +405,39 @@ fn map_common_marked_error(error: typaxis_pdf::ProductionBodyMarkedError) -> Fai
         E::ReceiptMismatch => None,
     };
     common_pdf_failure("marked content", code, error)
+}
+
+fn map_common_pagination_error(
+    error: typaxis_pagination::ProductionBodyPaginationError,
+) -> Failure {
+    use typaxis_pagination::ProductionBodyPaginationErrorKind as E;
+    match error.kind {
+        E::PageLimit
+        | E::PagePassLimit
+        | E::FootnoteSearchLimit
+        | E::PageBreakLookbackLimit { .. }
+        | E::FragmentLimit
+        | E::AllocationFailure => Failure::limit(format!("L5110: {error}")),
+        E::SpoolLimit => Failure::limit(format!("D8101: {error}")),
+        E::JointPageNoFit | E::Oversize | E::InvalidFootnoteCapacity | E::KeepAcrossForcedBreak => {
+            Failure::input(format!("L5100: {error}"))
+        }
+        E::ReceiptMismatch | E::WidthMismatch | E::ArithmeticOverflow => {
+            Failure::internal(format!("I9190: {error}"))
+        }
+        E::MathTerminal(cause) => {
+            let mut failure = map_production_internal_error(cause);
+            failure
+                .message
+                .push_str(&format!("; pagination node {}", error.owner.get()));
+            failure
+        }
+        E::PendingRegion(_)
+        | E::PendingNamedPage
+        | E::PendingEquationNumber
+        | E::EmptyListItem
+        | E::EmptyFootnote
+        | E::PendingContainerIndent
+        | E::EmptyParagraph => Failure::input(error.to_string()),
+    }
 }

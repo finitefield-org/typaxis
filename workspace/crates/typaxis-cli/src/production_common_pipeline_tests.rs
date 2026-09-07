@@ -228,6 +228,11 @@ fn production_common_footnote_driver_closes_actual_source_to_pdf() {
                     Ok(())
                 },
             );
+            if budget == used_steps - 1 {
+                let error = result.as_ref().unwrap_err();
+                assert_eq!(error.kind, FailureKind::Limit, "{error:?}");
+                assert!(error.message.starts_with("L5110:"), "{error:?}");
+            }
             assert_eq!(
                 result.is_ok(),
                 budget == used_steps,
@@ -283,7 +288,18 @@ fn production_common_footnote_driver_never_exposes_partial_pages() {
         )
         .unwrap_err();
         assert!(!called);
-        assert_eq!(error.kind, FailureKind::Input);
+        assert_eq!(
+            error.kind,
+            if no_fit {
+                FailureKind::Input
+            } else {
+                FailureKind::Limit
+            }
+        );
+        assert!(error
+            .message
+            .starts_with(if no_fit { "L5100:" } else { "L5110:" }));
+        assert!(error.message.contains("node "));
         assert!(
             error.message.contains(if no_fit {
                 "JointPageNoFit"

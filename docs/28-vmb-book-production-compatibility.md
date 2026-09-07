@@ -2383,3 +2383,21 @@ Limit分類・診断prefix・未完成PDFをcallbackへ渡さないことを確�
 成功。追加テストの記録数診断の期待値をD8101からL5110へ修正後、`cargo test -p typaxis-cli
 --bin typaxis production_common_footnote_pdf_limits`が成功（1.10秒）。変更後の4予算境界と
 callback非公開を確認した。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.65 共通本文・脚注driverの配置失敗診断（実装追補）
+
+共通driverのprepared flow、脚注demand search、安定ページ選択、実配置、数式terminal確定から
+返るProductionBodyPaginationErrorを型で分類する。ページ数・ページpass・探索work・lookback・
+fragment・allocation上限はL5110／Limit、spoolはD8101／Limitとする。JointPageNoFit、oversize、
+不正な脚注容量、強制改ページを越えるkeepはL5100／Input、receipt／幅の不一致・算術overflowは
+I9190／Internalとして区別する。元errorのkindとowner node番号を保持し、数式terminalの内側の
+診断分類も引き継ぐ。本文行探索後に共有candidate残量が不足する場合もLimitを返す。
+
+実source-to-PDF testは探索workの1不足、max_pages=1、脚注領域が小さすぎる入力を使い、
+それぞれLimit／Limit／Inputとprefix、途中PDFをcallbackへ渡さないことを検証する。
+未実装regionや内容の空要素は入力エラーとして維持する。他stageの診断、公開writer／manifest・
+CLIへの接続と全巻受入ゲートは引き続き必要である。
+
+ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_common_footnote`は3件成功。
+`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は164件成功・1件ignored
+（14.81秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
