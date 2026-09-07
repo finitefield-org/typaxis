@@ -38,6 +38,20 @@ fn production_text_fixture_at(
     typaxis_core::M4EffectiveResourceLimits,
     AdmittedResourceLedger,
 ) {
+    production_text_fixture_at_with_accessibility_check(bytes, config, job, true)
+}
+
+fn production_text_fixture_at_with_accessibility_check(
+    bytes: &[u8],
+    config: &EffectiveConfig,
+    job: &Path,
+    require_tagged: bool,
+) -> (
+    typaxis_syntax::ValidatedStagingSemanticPackage,
+    typaxis_syntax::ValidatedStagingBookNavigationV2,
+    typaxis_core::M4EffectiveResourceLimits,
+    AdmittedResourceLedger,
+) {
     let decoded = wire::StagingSemanticDocumentPackageDecoder::new()
         .decode(
             bytes,
@@ -54,14 +68,15 @@ fn production_text_fixture_at(
         typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
             .unwrap();
     let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
-    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
-        &package,
-        &navigation,
-        &semantics,
-        &limits,
-        &identity,
-    )
-    .unwrap();
+    let profile_fingerprint = if require_tagged {
+        typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package, &navigation, &semantics, &limits, &identity,
+        ).unwrap().base().base().authorization().profile_receipt_fingerprint()
+    } else {
+        typaxis_machine_profile::preflight_staging_book_navigation_profile_v2(
+            &package, &navigation, &limits, &identity,
+        ).unwrap().base().authorization().profile_receipt_fingerprint()
+    };
     let base = typaxis_resources::staging_declared_base_catalog(package.resources()).unwrap();
     let root = MachineFixtureRoot::new("production-body-text");
     let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
@@ -110,11 +125,7 @@ fn production_text_fixture_at(
     let mut resolver = AdmittedResourceResolver::new_with_declared_roots_and_m4_limits(
         &base,
         &limits,
-        profile
-            .base()
-            .base()
-            .authorization()
-            .profile_receipt_fingerprint(),
+        profile_fingerprint,
         session.roots(),
     )
     .unwrap();
@@ -695,8 +706,7 @@ fn production_footnote_line_registry_joins_repeated_references_to_exact_definiti
     );
 }
 
-#[test]
-fn production_footnote_line_registry_covers_every_cluster_of_multi_digit_markers() {
+fn production_footnote_multi_digit_fixture() -> serde_json::Value {
     use serde_json::json;
     let mut value: serde_json::Value =
         serde_json::from_slice(&production_text_single_paragraph(&["A "], "Body")).unwrap();
@@ -717,6 +727,12 @@ fn production_footnote_line_registry_covers_every_cluster_of_multi_digit_markers
                 "kind":"text","node_id":owner+2,"span":span,"text_span":{"text_id":0,"start_byte":0,"end_byte":1}
             }]}]})
     }).collect::<Vec<_>>());
+    value
+}
+
+#[test]
+fn production_footnote_line_registry_covers_every_cluster_of_multi_digit_markers() {
+    let value = production_footnote_multi_digit_fixture();
     with_production_inline_context(
         &serde_json::to_vec(&value).unwrap(),
         &config(),

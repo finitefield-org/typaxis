@@ -136,7 +136,7 @@ fn production_footnote_flow_collects_real_blocks_and_lists_without_body_splicing
                     flow.footnotes().record_charge() + blocks.blocks().len() as u64;
                 assert_eq!(
                     flow.record_charge(),
-                    records_before_collection + 2 + count as u64 + 4 + 2
+                    records_before_collection + 2 + count as u64 + 4 + 2 + 2
                 );
                 required = flow.record_charge();
                 let other = typaxis_layout::layout_production_body_inline_lines(
@@ -1093,4 +1093,264 @@ fn production_footnote_marker_rejects_definition_without_a_paint_anchor() {
             );
         },
     );
+}
+
+#[test]
+fn production_footnote_flow_references_bind_repeated_multi_digit_occurrences_to_real_items() {
+    let mut value = production_footnote_multi_digit_fixture();
+    let children = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    let mut space = children[0].clone();
+    space["text_span"]["start_byte"] = 1.into();
+    space["text_span"]["end_byte"] = 2.into();
+    for index in (1..children.len()).rev() {
+        children.insert(index, space.clone());
+    }
+    let span = value["document"]["blocks"][0]["span"].clone();
+    value["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .insert(
+            0,
+            serde_json::json!({"kind":"page_break","node_id":0,"span":span,"classes":[]}),
+        );
+    value["page_masters"]["masters"][0]["body"]["width"] = 1_500_000.into();
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_footnote_prepared(&value, &config(), |flow, _| {
+        let references = flow.references();
+        assert_eq!(references.len(), 11);
+        assert!(references.last().unwrap().first_item_index() > references[0].first_item_index());
+        for (reference, source) in references.iter().zip(flow.footnotes().references()) {
+            assert!(std::ptr::eq(reference.source(), source));
+            assert_eq!(source.source_definition(), None);
+            for (index, position) in [
+                (reference.first_item_index(), source.first()),
+                (reference.last_item_index(), source.last()),
+            ] {
+                assert!(index > 0); // The actual leading forced break occupies item 0.
+                assert_eq!(
+                    flow.body_items()[index].source(),
+                    Some(
+                        typaxis_pagination::ProductionBodyFragmentSource::ParagraphLine {
+                            paragraph_index: position.paragraph_index() as u32,
+                            line_index: position.line_index() as u32,
+                        }
+                    )
+                );
+            }
+        }
+        for start in 0..=flow.body_items().len() {
+            for end in start..=flow.body_items().len() {
+                let actual = flow.references_in_items(None, start..end);
+                let expected = references
+                    .iter()
+                    .filter(|r| {
+                        start < end && r.first_item_index() < end && r.last_item_index() >= start
+                    })
+                    .map(|r| r.source().owner())
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    actual
+                        .iter()
+                        .map(|r| r.source().owner())
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+            }
+        }
+        assert!(flow.references_in_items(Some(99), 0..usize::MAX).is_empty());
+        let ten = &references[9];
+        assert_eq!(ten.source().definition_index(), 9);
+        assert!(ten.source().last().item_index() > ten.source().first().item_index());
+        assert_eq!(
+            references[0].source().definition_index(),
+            references[10].source().definition_index()
+        );
+        assert_ne!(
+            references[0].source().owner(),
+            references[10].source().owner()
+        );
+    });
+}
+
+#[test]
+fn production_footnote_flow_references_keep_definition_scopes_and_selected_occurrences() {
+    let mut value = production_footnote_flow_fixture();
+    for (definition, targets) in [(0, vec!["second", "second"]), (1, vec!["first"])] {
+        let paragraph = if definition == 0 {
+            &mut value["document"]["footnotes"][0]["blocks"][1]["items"][0]["blocks"][0]
+        } else {
+            &mut value["document"]["footnotes"][1]["blocks"][0]
+        };
+        let span = paragraph["span"].clone();
+        for target in targets {
+            paragraph["children"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "kind":"footnote_reference","node_id":0,"span":span,"footnote_id":target
+                }));
+        }
+    }
+    let vector_span = value["document"]["footnotes"][0]["blocks"][0]["span"].clone();
+    let point = |position: &serde_json::Value| serde_json::json!({"source_id":0,"start_byte":position,"end_byte":position});
+    let first_break = serde_json::json!({"kind":"page_break","node_id":0,"span":point(&vector_span["start_byte"]),"classes":[]});
+    let second_break = serde_json::json!({"kind":"page_break","node_id":0,"span":point(&vector_span["end_byte"]),"classes":[]});
+    let blocks = value["document"]["footnotes"][0]["blocks"]
+        .as_array_mut()
+        .unwrap();
+    blocks.insert(1, second_break);
+    blocks.insert(0, first_break);
+    production_body_renumber(&mut value["document"], &mut 0);
+    with_production_footnote_untagged_prepared(&value, &config(), |flow, limits| {
+        assert_eq!(flow.references().len(), 5);
+        assert_eq!(
+            flow.references()
+                .iter()
+                .map(|r| r.source().source_definition())
+                .collect::<Vec<_>>(),
+            [None, None, Some(0), Some(0), Some(1)]
+        );
+        for reference in flow.references() {
+            let items = match reference.source().source_definition() {
+                None => flow.body_items(),
+                Some(index) => flow.definition_items(index).unwrap(),
+            };
+            assert_eq!(
+                items[reference.first_item_index()].source(),
+                Some(
+                    typaxis_pagination::ProductionBodyFragmentSource::ParagraphLine {
+                        paragraph_index: reference.source().first().paragraph_index() as u32,
+                        line_index: reference.source().first().line_index() as u32,
+                    }
+                )
+            );
+        }
+        assert_eq!(flow.references()[2].first_item_index(), 3);
+        let mut search =
+            typaxis_pagination::prepare_production_footnote_search(flow, limits, 100_000).unwrap();
+        for definition in 0..2 {
+            let mut cursor = search.begin(definition).unwrap();
+            let mut owners = Vec::new();
+            loop {
+                let selection = search
+                    .evaluate(&cursor, flow.footnote_region().unwrap().height().get())
+                    .unwrap()
+                    .unwrap();
+                for reference in selection.references() {
+                    assert_eq!(reference.source().source_definition(), Some(definition));
+                    assert!(selection
+                        .consumed_range()
+                        .contains(&reference.first_item_index()));
+                    owners.push(reference.source().owner());
+                }
+                if selection.items().is_empty() {
+                    assert_eq!(selection.references().count(), 0);
+                }
+                let Some(next) = selection.continuation() else {
+                    break;
+                };
+                cursor = next;
+            }
+            assert_eq!(
+                owners,
+                flow.references()
+                    .iter()
+                    .filter(|r| r.source().source_definition() == Some(definition))
+                    .map(|r| r.source().owner())
+                    .collect::<Vec<_>>()
+            );
+        }
+    });
+}
+
+// Exercise source retention below the tagged-profile gate. Nested references
+// remain explicitly rejected by that gate; this is not a public PDF fixture.
+fn with_production_footnote_untagged_prepared(
+    value: &serde_json::Value,
+    cfg: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_pagination::ProductionPreparedBodyFlow<'_, '_, '_, '_>,
+        &typaxis_core::M4EffectiveResourceLimits,
+    ),
+) {
+    let job = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../samples/machine-package/profiles/production-book-1/combined/job");
+    let (package, navigation, limits, admitted) =
+        production_text_fixture_at_with_accessibility_check(
+            &serde_json::to_vec(value).unwrap(),
+            cfg,
+            &job,
+            false,
+        );
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    assert_eq!(
+        typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity
+        )
+        .err()
+        .unwrap(),
+        typaxis_machine_profile::StagingTaggedPdfProfileError::UnsupportedSemantic
+    );
+    let navigation_profile = typaxis_machine_profile::preflight_staging_book_navigation_profile_v2(
+        &package,
+        &navigation,
+        &limits,
+        &identity,
+    )
+    .unwrap();
+    let profile = navigation_profile.base().authorization();
+    let bindings =
+        typaxis_layout::bind_staging_precomposed_vectors(&package, profile, &limits, &admitted)
+            .unwrap();
+    let source =
+        typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+    let shaped = typaxis_shaping::shape_production_authored_text(
+        &package,
+        &navigation,
+        &source,
+        &admitted,
+        &limits,
+        bindings.epoch().fingerprint(),
+    )
+    .unwrap();
+    let prepared = typaxis_layout::prepare_production_inline_items(
+        &package,
+        &navigation,
+        profile,
+        &limits,
+        &admitted,
+        &source,
+        &shaped,
+        &bindings,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+    )
+    .unwrap();
+    let math = typaxis_layout::prepare_staging_math_vector_flows(
+        &package, profile, &limits, &admitted, &bindings,
+    )
+    .unwrap();
+    let blocks = typaxis_layout::prepare_staging_precomposed_vector_blocks(
+        &package, profile, &limits, &admitted, &bindings, &math,
+    )
+    .unwrap();
+    let lines = typaxis_layout::layout_production_body_inline_lines(
+        &prepared,
+        profile.page_geometry().body(),
+        100_000,
+    )
+    .unwrap();
+    let registry = typaxis_layout::prepare_production_footnote_lines(&lines, &limits).unwrap();
+    let flow =
+        typaxis_pagination::prepare_production_body_flow(&lines, &blocks, &registry, &limits)
+            .unwrap();
+    check(&flow, &limits);
 }

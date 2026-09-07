@@ -38,6 +38,7 @@ pub use body_flow::{
     prepare_production_body_flow, prepare_production_footnote_search,
     ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteFragmentSelection,
     ProductionFootnoteMarkerBinding, ProductionPreparedBodyFlow,
+    ProductionFootnoteFlowReference,
 };
 
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";

@@ -52,6 +52,17 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteFragmentSelection<'b, 'f, 's, 'p, 'a>
                 (self.cursor.next_item..self.content_end).contains(&marker.item_index())
             })
     }
+    /// References whose actual glyph-bearing lines intersect this selection.
+    /// These are occurrences, not a deduplicated reservation or page assignment.
+    pub fn references(&self) -> impl Iterator<Item = &ProductionFootnoteFlowReference<'f>> {
+        self.cursor
+            .flow
+            .references_in_items(
+                Some(self.cursor.definition_index),
+                self.cursor.next_item..self.content_end,
+            )
+            .iter()
+    }
     /// Local definition indices, including a consumed forced break if present.
     pub fn consumed_range(&self) -> std::ops::Range<usize> {
         self.cursor.next_item..self.consumed_end

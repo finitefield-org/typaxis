@@ -4381,3 +4381,48 @@ List regression: **11 passed, 0 failed, 2.76 s**, including nested-label height
 sharing, continuation pages, real vector/raster baselines, PDF assembly and
 independent PDF probes. No functional changes followed these test runs. All
 launched test commands are terminal; no branch push is claimed.
+
+### Footnote references bind to actual measured item ranges
+
+Prepared body flow retains one source-borrowing reference binding per actual
+occurrence. Both endpoint clusters are checked against their selected paragraph
+lines and mapped to local body/definition item indices, including preceding forced
+breaks and vector/list content. Repeated targets retain distinct occurrence owners.
+The join advances through actual items once and needs no per-paragraph scratch
+table. One retained record per occurrence joins the existing exact/one-short
+resource-budget tests.
+
+Verified monotonic scope and endpoint ordering supports binary searches for
+references intersecting an item range. The query returns a borrowed slice and
+grants no page-selection permission. Footnote selections expose occurrences only
+from their actual selected range, including none for empty forced-break fragments.
+
+Focused verification: **17 passed, 0 failed, 1.27 s**;
+`/private/tmp/typaxis-footnote-reference-items-closure.log`. Coverage includes
+wrapped body text with multi-digit "10", repeated targets, every local range in
+the multi-line fixture, leading/intermediate forced breaks, definition scopes,
+real vector/list offsets and selection occurrence preservation. The nested-reference
+fixture also asserts that the current tagged profile rejects it with
+`UnsupportedSemantic`; its common-flow test uses the actual lower navigation
+profile, host font/vector admission, shaping and selection. Existing tagged test
+helpers retain their mandatory accessibility check. The first nested fixture was
+corrected to use zero-width source spans at actual forced-break boundaries.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+```
+Common-driver regression log: `/private/tmp/typaxis-footnote-reference-items-common.log`.
+Deduplicated reservations, reference dependency/page state, joint body/footnote
+selection, placement, public PDF and original full-book/Harano/scale/both-host
+acceptance remain incomplete. No public/full-book PDF result is claimed.
+
+Common-driver regression: **2 passed, 0 failed, 1 explicitly ignored** in
+**0.65 s**. The saved-job diagnostic remains an explicit opt-in test. No
+functional edits followed final verification. All launched commands are terminal;
+no branch push or new public/full-book PDF result is claimed.

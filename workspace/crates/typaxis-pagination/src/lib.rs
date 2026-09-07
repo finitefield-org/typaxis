@@ -10,6 +10,7 @@ pub use production_body::{
     prepare_production_body_flow, ProductionPreparedBodyFlow, ProductionBodyFlowItem,
     prepare_production_footnote_search, ProductionFootnoteBreakSearch,
     ProductionFootnoteCursor, ProductionFootnoteFragmentSelection, ProductionFootnoteMarkerBinding,
+    ProductionFootnoteFlowReference,
     finalize_production_body_math_terminals, paginate_production_body,
     paginate_stable_production_body,
     ProductionBodyPagePass, ProductionBodyPageStability, ProductionStableBodyPages,

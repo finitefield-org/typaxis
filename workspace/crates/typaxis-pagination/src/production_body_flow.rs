@@ -8,6 +8,10 @@ pub use footnote_breaks::{
     ProductionFootnoteFragmentSelection,
 };
 
+#[path = "production_footnote_references.rs"]
+mod footnote_references;
+pub use footnote_references::ProductionFootnoteFlowReference;
+
 impl ProductionBodyFlowItem {
     pub const fn owner(&self) -> NodeId {
         self.owner
@@ -83,6 +87,7 @@ pub struct ProductionPreparedBodyFlow<'f, 's, 'p, 'a> {
     footnotes: &'f typaxis_layout::ProductionFootnoteLines<'s, 'p, 'a>,
     collected: CollectedItems,
     definition_markers: Vec<ProductionFootnoteMarkerBinding>,
+    references: Vec<ProductionFootnoteFlowReference<'f>>,
     record_charge: u64,
     limits_fingerprint: [u8; 32],
 }
@@ -101,6 +106,30 @@ impl<'f, 's, 'p, 'a> ProductionPreparedBodyFlow<'f, 's, 'p, 'a> {
         definition_index: usize,
     ) -> Option<&ProductionFootnoteMarkerBinding> {
         self.definition_markers.get(definition_index)
+    }
+    pub fn references(&self) -> &[ProductionFootnoteFlowReference<'f>] {
+        &self.references
+    }
+    /// Actual occurrences intersecting a local item range. This read-only query
+    /// does not authorize the supplied range as a page or fragment selection.
+    pub fn references_in_items(
+        &self,
+        source_definition: Option<usize>,
+        range: std::ops::Range<usize>,
+    ) -> &[ProductionFootnoteFlowReference<'f>] {
+        if range.start >= range.end {
+            return &[];
+        }
+        let start = self.references.partition_point(|r| {
+            r.source().source_definition() < source_definition
+                || (r.source().source_definition() == source_definition
+                    && r.last_item_index() < range.start)
+        });
+        let remaining = &self.references[start..];
+        let end = remaining.partition_point(|r| {
+            r.source().source_definition() == source_definition && r.first_item_index() < range.end
+        });
+        &remaining[..end]
     }
     pub fn footnotes(&self) -> &typaxis_layout::ProductionFootnoteLines<'s, 'p, 'a> {
         self.footnotes
@@ -200,6 +229,8 @@ pub fn prepare_production_body_flow<'f, 's, 'p, 'a>(
             baseline,
         });
     }
+    let references =
+        footnote_references::prepare_references(footnotes.references(), &collected, &mut charge)?;
     let record_charge = limits.base().get().max_fragments - charge.remaining;
     Ok(ProductionPreparedBodyFlow {
         lines,
@@ -207,6 +238,7 @@ pub fn prepare_production_body_flow<'f, 's, 'p, 'a>(
         footnotes,
         collected,
         definition_markers,
+        references,
         record_charge,
         limits_fingerprint: limits.fingerprint(),
     })
