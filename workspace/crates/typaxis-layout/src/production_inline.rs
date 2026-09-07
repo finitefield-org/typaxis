@@ -44,7 +44,7 @@ pub use list_frames::{
     ProductionListFrame,
 };
 
-pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/4";
+pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/5";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProductionInlinePreparationErrorKind {
     ReceiptMismatch,
@@ -246,7 +246,9 @@ pub fn prepare_production_inline_items<'a>(
         for (site_index, site) in p.items().iter().enumerate() {
             let owner = site.owner();
             match site.content() {
-                ProductionInlineContent::Text { span, utf8 } => {
+                ProductionInlineContent::Text { .. }
+                | ProductionInlineContent::FootnoteReference => {
+                    let (span, utf8) = inline_shape_text(flow, site)?;
                     if utf8.is_empty() {
                         continue;
                     }
@@ -259,7 +261,7 @@ pub fn prepare_production_inline_items<'a>(
                         .checked_sub(font.descender())
                         .and_then(NonNegativeLength::new)
                         .ok_or_else(|| error(owner, E::InvalidHorizontalMetrics))?;
-                    let mut covered = span.start_byte().get();
+                    let mut covered = 0;
                     while let Some(run) = shape
                         .runs()
                         .get(run_cursor)
@@ -270,21 +272,14 @@ pub fn prepare_production_inline_items<'a>(
                             return Err(error(owner, E::PendingBidiLineSelection));
                         }
                         for (cluster_index, cluster) in raw.clusters.iter().enumerate() {
-                            let ShapeSourceSpan::Parsed(source) = cluster.source_span else {
-                                return Err(error(owner, E::ReceiptMismatch));
-                            };
-                            if source.text_id() != span.text_id()
-                                || source.start_byte().get() != covered
-                                || source.end_byte() > span.end_byte()
-                            {
+                            let (source_start, source_end) =
+                                relative_shape_range(cluster.source_span, span)
+                                    .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                            if source_start != covered {
                                 return Err(error(owner, E::ReceiptMismatch));
                             }
                             let text = utf8
-                                .get(
-                                    (source.start_byte().get() - span.start_byte().get()) as usize
-                                        ..(source.end_byte().get() - span.start_byte().get())
-                                            as usize,
-                                )
+                                .get(source_start as usize..source_end as usize)
                                 .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
                             let mut advance = Length::ZERO;
                             for glyph in &raw.glyphs
@@ -341,11 +336,11 @@ pub fn prepare_production_inline_items<'a>(
                                 start_unit: start,
                                 end_unit: end,
                             });
-                            covered = source.end_byte().get();
+                            covered = source_end;
                         }
                         run_cursor += 1;
                     }
-                    if covered != span.end_byte().get() {
+                    if covered as usize != utf8.len() {
                         return Err(error(owner, E::ReceiptMismatch));
                     }
                 }
@@ -493,4 +488,122 @@ pub fn prepare_production_inline_items<'a>(
         figures,
         fingerprint: sha256(&b),
     })
+}
+
+// Return only source-owned bytes. Generated and parsed spans never alias.
+fn inline_shape_text<'a>(
+    flow: &'a ProductionTextFlow<'a>,
+    site: &typaxis_syntax::ProductionInlineSite<'a>,
+) -> Result<(ShapeSourceSpan, &'a str), ProductionInlinePreparationError> {
+    let mismatch = || {
+        error(
+            site.owner(),
+            ProductionInlinePreparationErrorKind::ReceiptMismatch,
+        )
+    };
+    match site.content() {
+        ProductionInlineContent::Text { span, utf8 } => Ok((ShapeSourceSpan::Parsed(span), utf8)),
+        ProductionInlineContent::FootnoteReference => Ok((
+            ShapeSourceSpan::Generated(
+                flow.footnote_marker_provenance(site.owner())
+                    .ok_or_else(mismatch)?,
+            ),
+            flow.footnote_marker_text(site.owner())
+                .ok_or_else(mismatch)?,
+        )),
+        _ => Err(mismatch()),
+    }
+}
+
+fn relative_shape_range(part: ShapeSourceSpan, whole: ShapeSourceSpan) -> Option<(u32, u32)> {
+    let (start, end, base, limit) = match (part, whole) {
+        (ShapeSourceSpan::Parsed(p), ShapeSourceSpan::Parsed(w)) if p.text_id() == w.text_id() => (
+            p.start_byte().get(),
+            p.end_byte().get(),
+            w.start_byte().get(),
+            w.end_byte().get(),
+        ),
+        (ShapeSourceSpan::Generated(p), ShapeSourceSpan::Generated(w))
+            if p.buffer_key() == w.buffer_key()
+                && p.text_span().text_id() == w.text_span().text_id() =>
+        {
+            let p = p.text_span().range();
+            let w = w.text_span().range();
+            (
+                p.start_byte().get(),
+                p.end_byte().get(),
+                w.start_byte().get(),
+                w.end_byte().get(),
+            )
+        }
+        _ => return None,
+    };
+    if start < base || end > limit || start > end {
+        return None;
+    }
+    Some((start - base, end - base))
+}
+
+#[cfg(test)]
+mod generated_range_tests {
+    use super::*;
+    use typaxis_core::{
+        GeneratedBufferKey, GenerationKind, ResourceLimits, TextBufferId, TextSpan, Utf8ByteOffset,
+        ValidatedResourceLimits,
+    };
+    #[test]
+    fn generated_ranges_cannot_alias_parsed_buffers_or_another_owner() {
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let key =
+            |owner| GeneratedBufferKey::new(NodeId::new(owner), GenerationKind::FootnoteMarker, 0);
+        let overlay = typaxis_text::GeneratedTextOverlay::new(
+            vec![(key(1), "123".into()), (key(2), "123".into())],
+            &limits,
+            0,
+        )
+        .unwrap();
+        let generated = |owner, start, end| {
+            ShapeSourceSpan::Generated(
+                overlay
+                    .provenance(
+                        key(owner),
+                        Utf8ByteOffset::new(start),
+                        Utf8ByteOffset::new(end),
+                    )
+                    .unwrap(),
+            )
+        };
+        let parsed = |start, end| {
+            ShapeSourceSpan::Parsed(
+                TextSpan::new(
+                    TextBufferId::new(0),
+                    Utf8ByteOffset::new(start),
+                    Utf8ByteOffset::new(end),
+                )
+                .unwrap(),
+            )
+        };
+        assert_eq!(
+            relative_shape_range(generated(1, 1, 2), generated(1, 0, 3)),
+            Some((1, 2))
+        );
+        assert_eq!(
+            relative_shape_range(parsed(6, 7), parsed(5, 8)),
+            Some((1, 2))
+        );
+        assert_eq!(relative_shape_range(generated(1, 0, 3), parsed(0, 3)), None);
+        assert_eq!(relative_shape_range(parsed(0, 3), generated(1, 0, 3)), None);
+        assert_eq!(
+            relative_shape_range(generated(2, 0, 3), generated(1, 0, 3)),
+            None
+        );
+        assert_eq!(
+            relative_shape_range(generated(1, 0, 3), generated(1, 1, 3)),
+            None
+        );
+        assert_eq!(
+            relative_shape_range(generated(1, 1, 3), generated(1, 0, 2)),
+            None
+        );
+    }
 }

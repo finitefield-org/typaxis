@@ -1433,3 +1433,28 @@ vector languageは重複加算しない。生成分と合わせた上限のち�
 `typaxis.production-text-flow/6`と`typaxis.production-authored-text-shape/4`へ更新する。
 公開contract/profileと旧writerは変更しない。ページ参照の生成・収束、脚注領域への
 共通配置、全pipelineの累積allocation、公開PDFの接続と全巻受け入れは残る。
+
+
+### 14.18 生成された脚注参照の行配置
+
+共通inline準備と選択済みclusterのsourceは、parsed `TextSpan`とgenerated provenanceを
+区別する`ShapeSourceSpan`を保持する。脚注参照はflow所有の番号文字列と生成範囲を使い、
+実shapeのclusterを本文と同じlogical unit、幅、baseline、改行探索へ接続する。
+部分範囲の検査ではparsed buffer ID、またはgenerated keyとbuffer IDの一致を要求し、
+範囲外・別owner・parsed/generatedの取り違えを拒否する。既存の非0開始parsed spanも
+相対byte範囲へ変換してから照合する。
+
+選択した行から作る次のshape contextには生成番号の実UTF-8長を含める。
+脚注参照を含む段落について実際の選択→再shape→再改行の安定callbackまで検査する。
+本文displayも型を保持し、生成bufferのdisplay IDはparsed buffer数にgenerated IDを
+加え、`generated_provenance`を残す。parsed buffer数の検証は必要時に一度だけ行う。
+これは脚注の最終構造・PDF許可を発行する変更ではない。
+
+`A 1B`の1行／2行選択、同じbaseline、実glyph、生成範囲、選択contextの長さ、
+別namespaceと別ownerの拒否を検査する。定義を本文へ連結することは許可せず、
+単一pass paginationは脚注定義ownerで`PendingRegion("footnote")`、静的page proofは
+参照ownerで`PendingRegion("generated_page_feedback")`を返すことも検査する。
+
+内部algorithmはinline準備`/5`、inline行配置`/4`、本文display`/6`となる。
+次の必須接続は脚注定義領域・参照ページと定義の対応・継続脚注の選択、その後の構造と
+公開PDFである。ページ参照/counterの汎用収束、全巻・原ノ味・両hostの受け入れも残る。

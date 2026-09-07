@@ -1,7 +1,6 @@
 //! Line-local projection of the sealed authored shape and SVG bindings.
 //! Pagination, final-line reshaping and PDF paint authorization are later stages.
 use super::*;
-use typaxis_core::TextSpan;
 use typaxis_layout_contract::SelectedPrecomposedVectorInlineGeometry;
 use typaxis_linebreak::{
     break_production_inline, AtomicVectorLineOccurrence, ProductionInlineBreak,
@@ -9,7 +8,7 @@ use typaxis_linebreak::{
 };
 use typaxis_shaping::{ProductionBodyFont, ProductionBodyTextRun, ShapedGlyph};
 
-pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/3";
+pub const PRODUCTION_INLINE_LINE_LAYOUT_ALGORITHM: &str = "typaxis.production-inline-line-layout/4";
 
 /// Original glyph plus a line-local origin in the top-left, Y-down system.
 /// The shaper's positive Y offset is subtracted from the shared line baseline.
@@ -42,7 +41,7 @@ pub struct ProductionPlacedTextCluster<'p, 'a> {
     run_index: u32,
     cluster_index: u32,
     run: &'p ProductionBodyTextRun<'a>,
-    source_span: TextSpan,
+    source_span: ShapeSourceSpan,
     utf8: &'a str,
     pen_x: Length,
     glyphs: Vec<ProductionPlacedGlyph<'p>>,
@@ -57,7 +56,7 @@ impl<'p, 'a> ProductionPlacedTextCluster<'p, 'a> {
     pub const fn run(&self) -> &'p ProductionBodyTextRun<'a> {
         self.run
     }
-    pub const fn source_span(&self) -> TextSpan {
+    pub const fn source_span(&self) -> ShapeSourceSpan {
         self.source_span
     }
     pub const fn utf8(&self) -> &'a str {
@@ -370,22 +369,14 @@ pub(super) fn layout_with_record_base<'p, 'a>(
                             }
                             let run = &shape.runs()[map.run_index as usize];
                             let cluster = &run.glyph_run().clusters[map.cluster_index as usize];
-                            let ShapeSourceSpan::Parsed(source_span) = cluster.source_span else {
-                                return Err(error(run.owner(), E::ReceiptMismatch));
-                            };
+                            let source_span = cluster.source_span;
                             let site = &prepared.flow.paragraphs()[index].items()
                                 [run.site_index() as usize];
-                            let ProductionInlineContent::Text { span, utf8 } = site.content()
-                            else {
-                                return Err(error(run.owner(), E::ReceiptMismatch));
-                            };
-                            let utf8 = utf8
-                                .get(
-                                    (source_span.start_byte().get() - span.start_byte().get())
-                                        as usize
-                                        ..(source_span.end_byte().get() - span.start_byte().get())
-                                            as usize,
-                                )
+                            let (whole, text) = inline_shape_text(prepared.flow, site)?;
+                            let (start, end) = relative_shape_range(source_span, whole)
+                                .ok_or_else(|| error(run.owner(), E::ReceiptMismatch))?;
+                            let utf8 = text
+                                .get(start as usize..end as usize)
                                 .ok_or_else(|| error(run.owner(), E::ReceiptMismatch))?;
                             let pen_x = shifted_pen(line, unit, run.owner())?;
                             let mut pen = pen_x;

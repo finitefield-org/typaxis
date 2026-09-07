@@ -288,6 +288,134 @@ fn production_inline_vmb_fixture(surrounding_text: bool) -> Vec<u8> {
 }
 
 #[test]
+fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace() {
+    use serde_json::json;
+    use typaxis_layout::ProductionPlacedInline;
+    use typaxis_shaping::ShapeSourceSpan;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A ", "B"], "Body")).unwrap();
+    let span = json!({"source_id":0,"start_byte":0,"end_byte":0});
+    let children = value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap();
+    children[1]["node_id"] = 5.into();
+    children.insert(
+        1,
+        json!({"kind":"footnote_reference","node_id":4,"span":span,"footnote_id":"note"}),
+    );
+    value["document"]["footnotes"] = json!([{"node_id":6,"span":span,"footnote_id":"note",
+    "blocks":[{"kind":"paragraph","node_id":7,"span":span,"classes":[],"children":[{
+        "kind":"text","node_id":8,"span":span,"text_span":{"text_id":1,"start_byte":0,"end_byte":1}
+    }]}]}]);
+    let bytes = serde_json::to_vec(&value).unwrap();
+    with_production_inline_context(
+        &bytes,
+        &config(),
+        |prepared, package, profile, limits, admitted, bindings| {
+            for raw_width in [3_000_000, 1_000_000] {
+                let width = PositiveLength::new(Length::from_raw(raw_width).unwrap()).unwrap();
+                let layout =
+                    typaxis_layout::layout_production_inline_lines(prepared, &[width, width], 100)
+                        .unwrap();
+                layout.verify(prepared).unwrap();
+                let body = &layout.paragraphs()[0];
+                let mut text = String::new();
+                let mut markers = 0;
+                for line in body.lines() {
+                    for item in line.items() {
+                        let ProductionPlacedInline::Text(cluster) = item else {
+                            panic!()
+                        };
+                        text.push_str(cluster.utf8());
+                        if cluster.run().owner().get() == 4 {
+                            markers += 1;
+                            assert_eq!(cluster.utf8(), "1");
+                            let ShapeSourceSpan::Generated(source) = cluster.source_span() else {
+                                panic!()
+                            };
+                            assert_eq!(source.buffer_key().owner().get(), 4);
+                            assert_eq!(
+                                source.buffer_key().generation_kind(),
+                                typaxis_core::GenerationKind::FootnoteMarker
+                            );
+                            assert_eq!(source.text_span().range().start_byte().get(), 0);
+                            assert_eq!(source.text_span().range().end_byte().get(), 1);
+                            assert!(!cluster.glyphs().is_empty());
+                            for glyph in cluster.glyphs() {
+                                assert_ne!(glyph.glyph().original_gid.get(), 0);
+                                assert_eq!(glyph.y(), line.baseline());
+                            }
+                        } else {
+                            assert!(matches!(cluster.source_span(), ShapeSourceSpan::Parsed(_)));
+                        }
+                    }
+                }
+                assert_eq!(text, "A 1B");
+                assert_eq!(markers, 1);
+                assert_eq!(
+                    body.lines().len(),
+                    if raw_width == 3_000_000 { 1 } else { 2 }
+                );
+                let contexts = typaxis_layout::production_selected_line_contexts(&layout).unwrap();
+                assert_eq!(contexts.paragraphs()[0].ends().last(), Some(&4));
+            }
+            let width = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
+            let height = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
+            let flow = prepared.source_flow();
+            let mut calls = 0;
+            typaxis_layout::with_converged_production_body_lines(
+                package,
+                flow.navigation(),
+                profile,
+                limits,
+                admitted,
+                flow,
+                bindings,
+                typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                typaxis_core::Rect::new(Length::ZERO, Length::ZERO, width, height),
+                1000,
+                |stable| {
+                    calls += 1;
+                    assert!(stable.passes().len() >= 2);
+                    let text: String = stable.lines().paragraphs()[0]
+                        .lines()
+                        .iter()
+                        .flat_map(|line| line.items())
+                        .map(|item| match item {
+                            ProductionPlacedInline::Text(cluster) => cluster.utf8(),
+                            _ => "",
+                        })
+                        .collect();
+                    assert_eq!(text, "A 1B");
+                },
+            )
+            .unwrap();
+            assert_eq!(calls, 1);
+        },
+    );
+    with_production_body_inputs(&value, &config(), |lines, blocks, limits| {
+        let error = typaxis_pagination::paginate_stable_production_body(lines, blocks, limits)
+            .err()
+            .unwrap();
+        assert_eq!(error.owner.get(), 4);
+        assert_eq!(
+            error.kind,
+            typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion(
+                "generated_page_feedback"
+            )
+        );
+        let error = typaxis_pagination::paginate_production_body(lines, blocks, limits)
+            .err()
+            .unwrap();
+        assert_eq!(error.owner.get(), 6);
+        assert_eq!(
+            error.kind,
+            typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion("footnote")
+        );
+    });
+}
+
+#[test]
 fn production_line_projection_keeps_real_vmb_body_glyphs_and_formula_on_one_baseline() {
     use typaxis_layout::ProductionPlacedInline as P;
     let width = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
@@ -321,8 +449,9 @@ fn production_line_projection_keeps_real_vmb_body_glyphs_and_formula_on_one_base
                         glyph.glyph(),
                         &cluster.run().glyph_run().glyphs[glyph.glyph_index() as usize]
                     ));
+                    let typaxis_shaping::ShapeSourceSpan::Parsed(span) = cluster.source_span() else { panic!() };
                     assert_eq!(
-                        cluster.source_span().text_id().get(),
+                        span.text_id().get(),
                         if index == 3 { 1 } else { 0 }
                     );
                 }

@@ -4012,3 +4012,55 @@ Log: `/private/tmp/typaxis-footnote-generated-regression.log`. The ignored saved
 job was not requested by this run. All launched test processes are terminal;
 subsequent edits only formatted the new test and clarified comments/documentation.
 No branch was pushed and no full-book/public PDF success is claimed.
+
+
+### 2026-09-07: Generated footnote glyphs through selected inline lines
+
+Common inline preparation now consumes canonical footnote glyph clusters along
+with parsed body clusters. Selected clusters retain `ShapeSourceSpan`, preserving
+the generated key, buffer ID and byte range instead of forging a parsed TextSpan.
+The shared range check rejects crossed namespaces, foreign owners and out-of-range
+subspans. Existing parsed spans with nonzero starts use relative offsets correctly.
+
+The line-context projection counts the actual generated label bytes. A real
+footnote fixture exercises 1-line and 2-line selection of `A 1B`, the actual selected
+font/glyph/baseline, and a true select/reshape/rebreak stable callback. Page selection
+still refuses unsupported footnote placement: the ordinary paginator rejects the
+definition at node 6 and the static stability owner rejects its reference at node 4.
+No footnote definition is flattened into ordinary body placement.
+
+The body display projection can retain generated provenance and uses the same
+parsed-buffer-count offset convention as generated list labels. Its checked parsed
+buffer count is cached on first use, avoiding per-cluster package revalidation.
+This branch does not issue footnote structure or PDF authority; complete footnote
+page/structure ownership remains outstanding. Internal identities become inline
+preparation `/5`, selected inline layout `/4`, and body display `/6`.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-layout \
+  generated_ranges --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_line_projection --locked -- --nocapture
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked -- --nocapture
+```
+Range negative test: **1 passed**. Focused projection tests: **7 passed** in
+**0.24 s**. Logs `/private/tmp/typaxis-footnote-ranges-tests.log` and
+`/private/tmp/typaxis-footnote-lines-tests.log`.
+
+The initial preparation edit exposed a source-byte versus logical-unit offset
+shadowing error; the source-end variable was separated and the existing mixed
+text/vector and explicit-break cases passed after correction. The convergence
+fixture uses a valid body frame; separately supplied direct line widths exercise
+its one- and two-line cases. Neither fixture proves footnote-region pagination.
+
+Production regression completed: **99 passed, 0 failed, 1 explicitly ignored**
+in **263.44 s**, including both selected 5,000-resource PDF cases. Log:
+`/private/tmp/typaxis-footnote-lines-regression.log`. All launched tests are
+terminal. The explicit saved-VMB job was not run in this regression. No branch
+was pushed. Footnote page/structure closure, dynamic page/counter convergence,
+public writer/manifest, original full-book, Harano and both-host acceptance remain.

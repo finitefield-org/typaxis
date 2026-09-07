@@ -20,7 +20,7 @@ mod equation_numbers;
 #[path = "production_list.rs"]
 mod list;
 
-pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/5";
+pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/6";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyDisplayErrorKind {
     ReceiptMismatch,
@@ -326,6 +326,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
     let mut draws = Vec::new();
     let mut inline_anchors = Vec::new();
     let mut marker_cursor = 0;
+    let mut parsed_buffer_count = None;
     for (fragment_index, fragment) in selected.fragments().iter().enumerate() {
         let index =
             u32::try_from(fragment_index).map_err(|_| error(fragment.owner(), E::RecordLimit))?;
@@ -453,7 +454,46 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                             } else {
                                 None
                             };
-                            let span = cluster.source_span();
+                            let (buffer, start, end, generated_provenance) = match cluster
+                                .source_span()
+                            {
+                                typaxis_shaping::ShapeSourceSpan::Parsed(span) => (
+                                    span.text_id().get(),
+                                    span.start_byte(),
+                                    span.end_byte(),
+                                    None,
+                                ),
+                                typaxis_shaping::ShapeSourceSpan::Generated(provenance) => {
+                                    let parsed_count = match parsed_buffer_count {
+                                        Some(count) => count,
+                                        None => {
+                                            let parsed_count = u32::try_from(
+                                                selected
+                                                    .line_layout()
+                                                    .source_flow()
+                                                    .package()
+                                                    .checked_wire()
+                                                    .map_err(|_| error(owner, E::ReceiptMismatch))?
+                                                    .text_buffers()
+                                                    .len(),
+                                            )
+                                            .map_err(|_| error(owner, E::RecordLimit))?;
+                                            parsed_buffer_count = Some(parsed_count);
+                                            parsed_count
+                                        }
+                                    };
+                                    let span = provenance.text_span();
+                                    let buffer = parsed_count
+                                        .checked_add(span.text_id().get())
+                                        .ok_or_else(|| error(owner, E::RecordLimit))?;
+                                    (
+                                        buffer,
+                                        span.range().start_byte(),
+                                        span.range().end_byte(),
+                                        Some(provenance),
+                                    )
+                                }
+                            };
                             ProductionBodyDraw::Text(ProductionBodyTextDraw {
                                 owner,
                                 page_index: fragment.page_index(),
@@ -463,13 +503,13 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                                 face_index: font.face_index(),
                                 font_size: font.size(),
                                 text_span: DisplayTextSpan::new(
-                                    DisplayTextBufferId::new(span.text_id().get()),
-                                    span.start_byte(),
-                                    span.end_byte(),
+                                    DisplayTextBufferId::new(buffer),
+                                    start,
+                                    end,
                                 )
                                 .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
                                 exact_text: cluster.utf8(),
-                                generated_provenance: None,
+                                generated_provenance,
                                 equation_number: None,
                                 logical_bounds,
                                 glyphs,

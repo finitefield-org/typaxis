@@ -540,7 +540,8 @@ fn production_body_display_and_pdf_text_use_selected_page_coordinates_and_fonts(
                 .find_map(|item| match item {
                     typaxis_layout::ProductionPlacedInline::Text(c)
                         if c.run().owner() == draw.owner()
-                            && c.source_span().start_byte() == draw.text_span().range().start_byte() =>
+                            && matches!(c.source_span(), typaxis_shaping::ShapeSourceSpan::Parsed(span)
+                                if span.start_byte() == draw.text_span().range().start_byte()) =>
                     {
                         Some(c)
                     }
