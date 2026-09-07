@@ -1029,3 +1029,24 @@ checked演算し、整数除算はゼロ方向へ丸める。line heightがfont 
 加算する。内部displayは`typaxis.production-body-display/5`、structureは
 `typaxis.production-body-structure/4`で識別する。これらは診断用PDFの組立てまで接続済みだが、
 public writerの認可とmanifestへの接続、正式VMB全巻出力と独立全巻検査は必須残件である。
+
+### 14.12 実エンジン5,000式の公開admissionと行頭overhangの再現
+
+VMB生成器の`-corpus distinct-5000`は§8.5の数式templateを実engineへ渡す。
+Typaxis側の`tools/prepare_vmb_distinct_probe.py`は5,000件のTeX/speech、raw/derived hash、
+path形状のdistinct数、engine artifact、11ptと既存decimal6（最近接・tie-to-even）寸法を照合する。
+このhelperは試験packageのauthoring harnessであり、正式RenderBook exporterではない。
+
+同helperはdistinct 5,000、4,952 SVG＋48 PNG、5,000 alias宣言＋8,000配置を複数containerの
+一packageとして作る。全宣言を実配置する。3ケースとも公開checkが既定の画像/vector予算で
+成功したが、distinctの公開buildは最初のinline式でL5100となり、PDFを発行しなかった。
+当該式はadvance 1,918,708、viewport幅2,008,820、origin_x -45,056（すべてraw固定小数点）。
+本文幅28,689,280に対する横幅超過ではなく、旧atomic line測定の`visual_left >= 0`条件が
+負のoriginを拒否する。1式だけに絞った同じ入力でも再現する。
+
+式のoutline、metrics、spacingを変更したり、inlineをblockに変更したりして受け入れ結果を
+作らない。共通の行配置で実際のparagraph/frameと視覚範囲を扱い、公開出力へ接続する必要がある。
+既存の凍結行選択器にはoverhang拒否のテストがあるため、その期待値を単に緩めて済ませない。
+`tools/verify_vmb_scale_pdf.py`は各宣言の実使用、source順のFormula/Figure、Do、共有Form、
+BBox、MCID/ParentTreeと二つのextractorを検査するために追加したが、このscale PDFはまだ
+生成できておらず、同verifierのscale PDF成功は未検証である。詳細は実装台帳を参照する。

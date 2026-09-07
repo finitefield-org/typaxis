@@ -2450,3 +2450,99 @@ covered by rerunning the three focused number tests with regenerated PDF output;
 the guard rejects invalid horizontal ascender/descender signs just as body text
 preparation does. No previously filtered large-corpus test or ignored external
 validator is claimed as rerun here.
+
+## 2026-09-07: 5,000 actual engine expressions and public scale admission
+
+The preceding equation-number implementation changed code and passed regression
+and independent probes, so it was progress. This turn generates the required
+actual numeric expressions rather than relying on the earlier paint-color
+cardinality corpus. The full objective and all public/full-book gates remain.
+
+VMB commit `76b63a1a` adds `-corpus distinct-5000` to the existing fixture generator.
+It renders `x_{i}=\frac{i}{i+1}` for i=1..5000 at 11pt, alternating inline/block,
+with numeric template speech and genuine engine artifact identities. SVG files
+are streamed; the index is written only after all rendering and engine Close
+succeed. Existing outputs are refused. Both Go test packages passed. Generation
+finished in 14.19 seconds with maximum RSS 184,041,472 bytes (not Typaxis runtime).
+
+Corpus path: `/private/tmp/vmb-typaxis-distinct-5000-20260907`.
+Index SHA-256: `486ae77ec68cc1ea462f0e107a44c48fcb9f6fd564ac08f1aed35a9f227f65af`.
+Independent Python checks found 5,000 distinct raw hashes, derived hashes and
+path geometry hashes, 71,682 paths and 1,521,172 source geometry segments. Those
+segment counts are not admission replay/work charges. The checker verifies the
+existing six-decimal tie-to-even export rule; an initial exact-rational comparison
+was incorrect because the SVG serializes decimal6, and no exporter tolerance or
+rounding rule was relaxed.
+
+`tools/prepare_vmb_distinct_probe.py` creates a test-authored multi-container
+package with exact source spans and per-occurrence semantics. It is not the
+formal RenderBook exporter. It creates all 5,000 declarations and places every
+one; alias mode places 8,000 occurrences from 5,000 declarations/100 contents.
+Mixed mode has expressions 1..4952 and 48 distinct 2x2 RGB PNGs. Pillow independently
+decoded all 48 images and verified distinct pixels.
+
+Public CLI arguments (each job contains document-package.json and resources):
+
+```sh
+/private/tmp/typaxis-vmb-book-build/debug/typaxis check-package JOB/document-package.json \
+  --package-root JOB --resource-root JOB \
+  --profile typaxis.machine-pdf/production-book-1 --emit-diagnostics JOB/check-diagnostics.json
+/private/tmp/typaxis-vmb-book-build/debug/typaxis build-package JOB/document-package.json \
+  -o JOB/book.pdf --package-root JOB --resource-root JOB \
+  --profile typaxis.machine-pdf/production-book-1 --no-compress \
+  --emit-build-manifest JOB/build-manifest.json --emit-diagnostics JOB/build-diagnostics.json
+```
+
+No image/vector limit override or config override was supplied. Public check
+results measured with `/usr/bin/time -l` outside the sandbox:
+
+| Job suffix under `/private/tmp/typaxis-real-` | Declarations / occurrences | check result | seconds | maximum RSS bytes |
+| --- | --- | --- | --- | --- |
+| `distinct-5000-v2` | 5,000 / 5,000 | exit 0, empty diagnostics | 129.72 | 644,939,776 |
+| `mixed-5000-v2` | 5,000 / 5,000 | exit 0, empty diagnostics | 123.20 | 637,435,904 |
+| `alias-5000-v2` | 5,000 / 8,000 | exit 0, empty diagnostics | 151.38 | 606,470,144 |
+
+Final package SHA-256 values, respectively:
+
+- `ed0194b9895697bfc5685fe26955f778294766c8624059d01380ac6d06fb8ccd`
+- `b234766f60cb608bd2fe7f89e1ec6ec30edf8f9a81ed35f8065e505b9b282874`
+- `cf76265b0a124b068f6e7ef66a6a87b1b95cb87b633f81b0be6dcc4ad7f1f4c0`
+
+Distinct check's successful log/diagnostics use `check2.log` and
+`check2-diagnostics.json`. Earlier attempts are retained separately: the first
+prototype omitted semantic_container anchor_id; v2 initially omitted the explicit
+resource-root and failed opening font 0. The final invocations above correct
+those authoring/host conditions without changing admission rules.
+
+Distinct public build **failed** with `L5100: inline vector 3 exceeds an empty
+line`, taking 194.78 seconds and maximum RSS 1,034,027,008 bytes. Its manifest has
+`status=failed`, and `book.pdf` does not exist. Mixed check overlapped this build;
+these observations are exploratory per-process timings, not a 1k/2.5k/5k scaling
+baseline or the full performance gate. Mixed/alias builds were not redundantly
+run against the same known first-inline failure.
+
+The minimal unchanged first-expression reproduction is stored at
+`/private/tmp/typaxis-real-overhang-repro`. It fails identically. The actual raw
+metrics are advance 1,918,708, viewport width 2,008,820 and origin_x -45,056, while
+the body width is 28,689,280. The old atomic line fit rejects visual_left < 0,
+independently of total available width. The public pipeline still uses that
+staging inline path. Connecting real paragraph/frame visual bounds and the
+shared production path remains necessary; do not rewrite this corpus to avoid
+the failing inline geometry or relax frozen old tests.
+
+Added a scale PDF verifier for source-order occurrence/Do/structure/ActualText,
+per-declaration use, Form sharing/BBox and full Poppler/MuPDF extraction. It has
+**not** passed against the requested scale PDF, because that PDF is not yet
+produced. Three harness tests passed: unused declarations cannot pass its gate,
+PNG pixels are independently distinct, and existing output is not overwritten.
+Command:
+
+```sh
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  -m unittest discover -s tools -p test_vmb_scale_probe.py -v
+```
+
+Every process started in this turn has completed. This is genuine scale admission
+and an actionable public-build failure, not scale PDF success. The formal
+exporter, unchanged Harano, shared public convergence/paint/manifest and full-book
+acceptance requirements remain open.
