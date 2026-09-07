@@ -3690,3 +3690,28 @@ Command and CLI hash are recorded in companion design §15.34. This remains a
 test-envelope check of actual metadata/outline contributions, not the complete
 assembler, resolved PDF navigation or full-book/Harano/scale/both-host acceptance.
 All launched tests reached terminal state; no public profile changed or branch pushed.
+
+
+### 2026-09-07: Resolved paper and explicit page regions
+
+Companion **`3357fc78`** adds `EncodeBookPages`. Resolved A4/A5/ISO B5/Letter/6x9in
+and custom paper dimensions become one horizontal LTR page master. Margins and
+footnote height are explicit policy because RenderBook's resolved page has no
+margin fields. Millimetres use exact 360/127 pt conversion and nearest/tie-to-even
+rounding. A4 landscape is **55,174,088 × 39,011,981 raw units**; 54pt margins are
+3,538,944 raw each. Invalid or exhausted regions fail without changing content size.
+
+The new public check combines actual footnote body, metadata, outline and the
+unmodified generated A4 landscape page master. **1 image, 1 formula occurrence,
+58 projection bytes**, empty diagnostics. Package SHA-256:
+`c4071cf626838dd4d67fb2a1e92a5a1e98ea5b389b5c6ecf6360aba411b77d05`.
+Source SHA-256: `53b188431dd987fc768c957aad8ee20749105bf328ed89049cc579fa18f6531e`.
+An initial test constant typo was corrected using independent Python Fraction
+calculation; its log remains at `/private/tmp/vmb-pages-tests.log`. All package
+regression tests, including **10 public admission cases**, then passed in
+**56.601 s** (`/private/tmp/vmb-pages-regression.log`; command in companion §15.35).
+
+This is page-master generation and admission. Font/style integration, actual-frame
+math fit checks, named pages and generated page regions, complete assembler, public
+PDF and original-book/Harano/scale/both-host gates remain required. All launched
+tests are terminal; no public profile changed or branch was pushed.
