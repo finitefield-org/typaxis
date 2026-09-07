@@ -1159,86 +1159,111 @@ pub(crate) fn encode_book_xmp_with_conformance(
     engine: &EngineIdentity,
     pdfua: bool,
 ) -> String {
+    let mut output = String::new();
+    write_book_xmp(&mut output, metadata, language, engine, pdfua)
+        .expect("writing XMP to String cannot fail");
+    output
+}
+
+// The same encoder can compare final bytes without retaining another metadata
+// string. Escaping and keyword joining stream directly into the caller's sink.
+pub(crate) fn write_book_xmp(
+    output: &mut impl std::fmt::Write,
+    metadata: &typaxis_syntax::DocumentMetadataReceipt,
+    language: &str,
+    engine: &EngineIdentity,
+    pdfua: bool,
+) -> std::fmt::Result {
     let metadata = metadata.metadata();
-    let producer = format!("{} {}", engine.name(), engine.version());
-    let mut properties = String::new();
+    output.write_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\">")?;
     if let Some(title) = &metadata.title {
-        push_xmp_alt(&mut properties, "dc:title", title, language);
+        write_xmp_alt(output, "dc:title", title, language)?;
     }
     if let Some(author) = &metadata.author {
-        properties.push_str("<dc:creator><rdf:Seq><rdf:li>");
-        properties.push_str(&xml_text(author));
-        properties.push_str("</rdf:li></rdf:Seq></dc:creator>");
+        output.write_str("<dc:creator><rdf:Seq><rdf:li>")?;
+        write_xml(output, author, false)?;
+        output.write_str("</rdf:li></rdf:Seq></dc:creator>")?;
     }
     if let Some(subject) = &metadata.subject {
-        push_xmp_alt(&mut properties, "dc:description", subject, language);
+        write_xmp_alt(output, "dc:description", subject, language)?;
     }
     if !metadata.keywords.is_empty() {
-        properties.push_str("<dc:subject><rdf:Bag>");
+        output.write_str("<dc:subject><rdf:Bag>")?;
         for keyword in &metadata.keywords {
-            properties.push_str("<rdf:li>");
-            properties.push_str(&xml_text(keyword));
-            properties.push_str("</rdf:li>");
+            output.write_str("<rdf:li>")?;
+            write_xml(output, keyword, false)?;
+            output.write_str("</rdf:li>")?;
         }
-        properties.push_str("</rdf:Bag></dc:subject><pdf:Keywords>");
-        properties.push_str(&xml_text(&metadata.keywords.join("; ")));
-        properties.push_str("</pdf:Keywords>");
+        output.write_str("</rdf:Bag></dc:subject><pdf:Keywords>")?;
+        for (index, keyword) in metadata.keywords.iter().enumerate() {
+            if index != 0 {
+                output.write_str("; ")?;
+            }
+            write_xml(output, keyword, false)?;
+        }
+        output.write_str("</pdf:Keywords>")?;
     }
     if let Some(identifier) = &metadata.identifier {
-        properties.push_str("<dc:identifier>");
-        properties.push_str(&xml_text(identifier));
-        properties.push_str("</dc:identifier>");
+        output.write_str("<dc:identifier>")?;
+        write_xml(output, identifier, false)?;
+        output.write_str("</dc:identifier>")?;
     }
     if let Some(created) = &metadata.created {
-        properties.push_str("<xmp:CreateDate>");
-        properties.push_str(created);
-        properties.push_str("</xmp:CreateDate>");
+        output.write_str("<xmp:CreateDate>")?;
+        output.write_str(created)?;
+        output.write_str("</xmp:CreateDate>")?;
     }
     if let Some(modified) = &metadata.modified {
-        properties.push_str("<xmp:ModifyDate>");
-        properties.push_str(modified);
-        properties.push_str("</xmp:ModifyDate>");
+        output.write_str("<xmp:ModifyDate>")?;
+        output.write_str(modified)?;
+        output.write_str("</xmp:ModifyDate>")?;
     }
-    properties.push_str("<dc:language><rdf:Bag><rdf:li>");
-    properties.push_str(&xml_text(language));
-    properties.push_str("</rdf:li></rdf:Bag></dc:language><pdf:Producer>");
-    properties.push_str(&xml_text(&producer));
-    properties.push_str("</pdf:Producer>");
+    output.write_str("<dc:language><rdf:Bag><rdf:li>")?;
+    write_xml(output, language, false)?;
+    output.write_str("</rdf:li></rdf:Bag></dc:language><pdf:Producer>")?;
+    write_xml(output, engine.name(), false)?;
+    output.write_str(" ")?;
+    write_xml(output, engine.version(), false)?;
+    output.write_str("</pdf:Producer>")?;
     if pdfua {
-        properties.push_str("<pdfuaid:part>1</pdfuaid:part>");
+        output.write_str("<pdfuaid:part>1</pdfuaid:part>")?;
     }
-    format!(
-        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\">{properties}</rdf:Description></rdf:RDF></x:xmpmeta>"
-    )
+    output.write_str("</rdf:Description></rdf:RDF></x:xmpmeta>")
 }
 
-fn push_xmp_alt(output: &mut String, property: &str, value: &str, language: &str) {
-    output.push('<');
-    output.push_str(property);
-    output.push_str("><rdf:Alt><rdf:li xml:lang=\"x-default\">");
-    output.push_str(&xml_text(value));
-    output.push_str("</rdf:li>");
+fn write_xmp_alt(
+    output: &mut impl std::fmt::Write,
+    property: &str,
+    value: &str,
+    language: &str,
+) -> std::fmt::Result {
+    write!(
+        output,
+        "<{property}><rdf:Alt><rdf:li xml:lang=\"x-default\">"
+    )?;
+    write_xml(output, value, false)?;
+    output.write_str("</rdf:li>")?;
     if language != "x-default" {
-        output.push_str("<rdf:li xml:lang=\"");
-        output.push_str(&xml_attribute(language));
-        output.push_str("\">");
-        output.push_str(&xml_text(value));
-        output.push_str("</rdf:li>");
+        output.write_str("<rdf:li xml:lang=\"")?;
+        write_xml(output, language, true)?;
+        output.write_str("\">")?;
+        write_xml(output, value, false)?;
+        output.write_str("</rdf:li>")?;
     }
-    output.push_str("</rdf:Alt></");
-    output.push_str(property);
-    output.push('>');
+    write!(output, "</rdf:Alt></{property}>")
 }
 
-fn xml_text(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn xml_attribute(value: &str) -> String {
-    xml_text(value).replace('"', "&quot;")
+fn write_xml(output: &mut impl std::fmt::Write, value: &str, attribute: bool) -> std::fmt::Result {
+    for character in value.chars() {
+        match character {
+            '&' => output.write_str("&amp;")?,
+            '<' => output.write_str("&lt;")?,
+            '>' => output.write_str("&gt;")?,
+            '"' if attribute => output.write_str("&quot;")?,
+            other => output.write_char(other)?,
+        }
+    }
+    Ok(())
 }
 
 fn push_pdf_view(

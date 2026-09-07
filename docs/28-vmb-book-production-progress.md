@@ -5913,3 +5913,40 @@ not counted as acceptance. Final exporter regression passed in 52.344 s
 Strict artifact/diagnostic validation, output-directory closure, source diagnostic
 mapping, ArtifactSink and renderer registration remain. Public common writer/manifest
 integration, the I9190 failure and full-book/Harano/scale/host gates remain open.
+
+## 2026-09-08 — Source-bound Info and XMP verification in common PDF
+
+The common footnote PDF assembly now compares final Info and XMP objects with
+its retained, validated source metadata and compiled engine identity. This check
+runs through `verify`, including safe-vector sealing and book observation. Info
+comparison covers UTF-16 strings, keyword separators, dates and Producer. XMP
+comparison covers its exact stream framing/byte length and source-derived XML;
+the diagnostic assembly continues to require absence of the PDF/UA declaration.
+The XMP encoder now supports a formatting sink, so verification does not allocate
+another metadata document or escaped/joined copies of source strings.
+
+A byte mutation/truncation test rejects altered stream framing and content;
+correctly reframed replacement metadata and an added PDF/UA declaration are also
+rejected. An additional source-to-PDF case covers Japanese, XML metacharacters,
+non-BMP characters, multiple keywords and distinct timestamps. Its first run
+rejected an incorrectly ordered keyword fixture at `/metadata/keywords/1`; the
+fixture was corrected to satisfy the existing strict byte-order contract.
+
+Local verification (`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build`,
+`--manifest-path workspace/Cargo.toml`):
+
+- `cargo test ... -p typaxis-cli --bin typaxis production_ -- --skip 5000`:
+  168 passed, 1 ignored, 13.86 seconds; log
+  `/private/tmp/typaxis-common-metadata-final-regression.log`.
+- `cargo test ... -p typaxis-pdf --lib`: 85 passed, 1 ignored, 0.37 seconds;
+  log `/private/tmp/typaxis-common-metadata-pdf-regression.log`.
+- The existing footnote/Page-reference diagnostic PDF was regenerated and
+  compared with `cmp`: byte-identical, SHA-256
+  `ad1f09dddaa188cdb421091aba1263b725e6092b441d3c56961d7d43a2f94e0e`.
+
+Inspection of the public writer found that its standard body font is taken from
+`native_math_fonts`, which is populated solely from native-math draws. A
+vector-only math input therefore has no standard font in that old route. The
+adapter's public build failure remains unresolved; this metadata work does not
+replace the public writer, issue a publication receipt or close manifest,
+exporter, full-book, Harano or scale/host acceptance.

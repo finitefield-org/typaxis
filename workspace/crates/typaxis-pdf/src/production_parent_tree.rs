@@ -96,6 +96,102 @@ fn verify_pdf_envelope(
     Ok(())
 }
 
+// Require canonical stream framing and compare the full source-derived XMP.
+// No second copy of the metadata or escaped source strings is retained.
+fn verify_metadata_stream(
+    bytes: &[u8],
+    emit: impl FnOnce(&mut ExactBytes<'_>) -> fmt::Result,
+) -> Result<(), E> {
+    let start = bytes
+        .windows(8)
+        .position(|w| w == b"\nstream\n")
+        .and_then(|n| n.checked_add(8))
+        .ok_or(E::ReceiptMismatch)?;
+    let content = bytes
+        .get(start..)
+        .and_then(|b| b.strip_suffix(b"\nendstream"))
+        .ok_or(E::ReceiptMismatch)?;
+    compare_payload(bytes, |sink| {
+        write!(
+            sink,
+            "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n",
+            content.len()
+        )?;
+        emit(sink)?;
+        sink.write_str("\nendstream")
+    })
+}
+
+fn verify_metadata_info(
+    bytes: &[u8],
+    metadata: &typaxis_syntax::DocumentMetadataReceipt,
+    engine: &EngineIdentity,
+) -> Result<(), E> {
+    let metadata = metadata.metadata();
+    compare_payload(bytes, |sink| {
+        sink.write_str("<< ")?;
+        if let Some(author) = &metadata.author {
+            sink.write_str("/Author ")?;
+            sink.text(author)?;
+            sink.write_str(" ")?;
+        }
+        if let Some(created) = &metadata.created {
+            sink.write_str("/CreationDate ")?;
+            write_metadata_date(sink, created)?;
+            sink.write_str(" ")?;
+        }
+        if !metadata.keywords.is_empty() {
+            sink.write_str("/Keywords <FEFF")?;
+            for (index, keyword) in metadata.keywords.iter().enumerate() {
+                if index != 0 {
+                    sink.write_str("003B0020")?;
+                }
+                for unit in keyword.encode_utf16() {
+                    write!(sink, "{unit:04X}")?;
+                }
+            }
+            sink.write_str("> ")?;
+        }
+        if let Some(modified) = &metadata.modified {
+            sink.write_str("/ModDate ")?;
+            write_metadata_date(sink, modified)?;
+            sink.write_str(" ")?;
+        }
+        sink.write_str("/Producer <FEFF")?;
+        for unit in engine
+            .name()
+            .encode_utf16()
+            .chain(std::iter::once(0x20))
+            .chain(engine.version().encode_utf16())
+        {
+            write!(sink, "{unit:04X}")?;
+        }
+        sink.write_str(">")?;
+        if let Some(subject) = &metadata.subject {
+            sink.write_str(" /Subject ")?;
+            sink.text(subject)?;
+        }
+        if let Some(title) = &metadata.title {
+            sink.write_str(" /Title ")?;
+            sink.text(title)?;
+        }
+        sink.write_str(" >>")
+    })
+}
+
+fn write_metadata_date(sink: &mut ExactBytes<'_>, value: &str) -> fmt::Result {
+    // Receipt validation has already checked the UTC timestamp. Use checked
+    // slicing here so malformed inputs cannot turn verification into a panic.
+    if value.len() != 20 {
+        return Err(fmt::Error);
+    }
+    sink.write_str("(D:")?;
+    for range in [0..4, 5..7, 8..10, 11..13, 14..16, 17..19] {
+        sink.write_str(value.get(range).ok_or(fmt::Error)?)?;
+    }
+    sink.write_str("Z)")
+}
+
 fn verify_object_chunks(
     bytes: &[u8],
     chunks: &[ProductionBodyObjectChunk],
@@ -173,6 +269,34 @@ fn verify_id_tree<'a>(
 }
 
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub(super) fn verify_metadata(&self) -> Result<(), E> {
+        let navigation = self
+            .source
+            .structure_objects()
+            .annotations()
+            .marked()
+            .structure()
+            .display()
+            .source()
+            .line_layout()
+            .source_flow()
+            .navigation();
+        let engine = EngineIdentity::compiled();
+        verify_metadata_info(
+            self.object_bytes(3).ok_or(E::ReceiptMismatch)?,
+            navigation.metadata(),
+            &engine,
+        )?;
+        verify_metadata_stream(self.object_bytes(4).ok_or(E::ReceiptMismatch)?, |sink| {
+            crate::tagged_pdf::write_book_xmp(
+                sink,
+                navigation.metadata(),
+                navigation.languages().document_language(),
+                &engine,
+                false,
+            )
+        })
+    }
     pub(super) fn verify_catalog(&self) -> Result<(), E> {
         let annotations = self.source.structure_objects().annotations();
         let navigation = annotations.navigation();
@@ -539,6 +663,34 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_metadata_stream_requires_exact_source_and_framing() {
+        let xmp = "<title>日本語 &amp; α</title>";
+        let bytes = format!(
+            "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{xmp}\nendstream",
+            xmp.len()
+        )
+        .into_bytes();
+        let verify = |bytes: &[u8]| verify_metadata_stream(bytes, |sink| sink.write_str(xmp));
+        assert_eq!(verify(&bytes), Ok(()));
+        for index in 0..bytes.len() {
+            let mut changed = bytes.clone();
+            changed[index] ^= 1;
+            assert_eq!(verify(&changed), Err(E::ReceiptMismatch));
+            assert_eq!(verify(&bytes[..index]), Err(E::ReceiptMismatch));
+        }
+        for content in [
+            format!("{xmp}<pdfuaid:part>1</pdfuaid:part>"),
+            "<title>Other</title>".to_owned(),
+        ] {
+            let changed = format!(
+                "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{content}\nendstream",
+                content.len()
+            );
+            assert_eq!(verify(changed.as_bytes()), Err(E::ReceiptMismatch));
+        }
+    }
 
     #[test]
     fn production_pdf_envelope_checks_offsets_lengths_hashes_and_xref() {

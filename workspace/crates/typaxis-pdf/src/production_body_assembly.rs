@@ -570,7 +570,8 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
         self.verify_page_graph()?;
         self.verify_contribution_objects()?;
         self.verify_envelope()?;
-        self.verify_catalog()
+        self.verify_catalog()?;
+        self.verify_metadata()
     }
 }
 pub fn assemble_production_footnote_pdf<

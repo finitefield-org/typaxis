@@ -152,7 +152,18 @@ fn production_common_driver_saved_vmb_job() {
 
 #[test]
 fn production_common_footnote_driver_closes_actual_source_to_pdf() {
+    let mut escaped_metadata = production_body_navigation_vmb_fixture();
+    escaped_metadata["metadata"] = serde_json::json!({
+        "author": "著者 & <共同> \"A\"",
+        "created": "2026-09-08T01:02:03Z",
+        "identifier": "urn:typaxis:metadata:source",
+        "keywords": ["<数学> 😀", "日本語 & α"],
+        "modified": "2026-09-08T04:05:06Z",
+        "subject": "主題 > 補足",
+        "title": "書籍 < & > \" 😀"
+    });
     for value in [
+        escaped_metadata,
         production_body_navigation_vmb_fixture(),
         production_footnote_flow_fixture(),
         production_footnote_numbered_definition_fixture(),
