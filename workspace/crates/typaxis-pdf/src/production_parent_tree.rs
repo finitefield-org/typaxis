@@ -14,6 +14,23 @@ impl ExactBytes<'_> {
         self.0 = self.0.strip_prefix(bytes).ok_or(fmt::Error)?;
         Ok(())
     }
+    fn fixed(&mut self, raw: i64) -> fmt::Result {
+        let magnitude = raw.unsigned_abs();
+        if raw < 0 {
+            self.write_str("-")?;
+        }
+        write!(self, "{}", magnitude / 65_536)?;
+        let mut fraction = (magnitude % 65_536) * 152_587_890_625;
+        if fraction != 0 {
+            let mut width = 16;
+            while fraction % 10 == 0 {
+                fraction /= 10;
+                width -= 1;
+            }
+            write!(self, ".{fraction:0width$}")?;
+        }
+        Ok(())
+    }
     fn text(&mut self, text: &str) -> fmt::Result {
         self.write_str("<FEFF")?;
         for unit in text.encode_utf16() {
@@ -94,6 +111,76 @@ fn verify_id_tree<'a>(
 }
 
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub(super) fn verify_page_graph(&self) -> Result<(), E> {
+        let annotations = self.source.structure_objects().annotations();
+        let geometry = annotations
+            .marked()
+            .structure()
+            .display()
+            .source()
+            .block_layout()
+            .page_geometry();
+        let reference = |role| self.object_number(role).ok_or(fmt::Error);
+        compare_payload(self.object_bytes(2).ok_or(E::ReceiptMismatch)?, |sink| {
+            write!(sink, "<< /Type /Pages /Count {} /Kids [", self.page_count())?;
+            for page in 0..self.page_count() {
+                write!(sink, "{} 0 R ", reference(R::Page(page))?)?;
+            }
+            sink.write_str("] >>")
+        })?;
+        let mut annotation_cursor = 0;
+        for page in 0..self.page_count() {
+            let object = self
+                .object_number(R::Page(page))
+                .ok_or(E::ReceiptMismatch)?;
+            let links = annotations
+                .page_annotations(page)
+                .ok_or(E::ReceiptMismatch)?;
+            if links.start != annotation_cursor
+                || links.start > links.end
+                || links.end > annotations.bindings().len()
+            {
+                return Err(E::ReceiptMismatch);
+            }
+            annotation_cursor = links.end;
+            compare_payload(
+                self.object_bytes(object).ok_or(E::ReceiptMismatch)?,
+                |sink| {
+                    sink.write_str("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ")?;
+                    sink.fixed(geometry.page_width().get().raw())?;
+                    sink.write_str(" ")?;
+                    sink.fixed(geometry.page_height().get().raw())?;
+                    write!(
+                        sink,
+                        "] /Resources {} 0 R /Contents {} 0 R /StructParents {page} /Tabs /S",
+                        reference(R::PageResources(page))?,
+                        reference(R::PageContent(page))?
+                    )?;
+                    if !links.is_empty() {
+                        sink.write_str(" /Annots [")?;
+                        for index in links {
+                            if annotations.bindings()[index].page_index() != page {
+                                return Err(fmt::Error);
+                            }
+                            write!(
+                                sink,
+                                "{} 0 R ",
+                                reference(R::LinkAnnotation(
+                                    u32::try_from(index).map_err(|_| fmt::Error)?
+                                ))?
+                            )?;
+                        }
+                        sink.write_str("]")?;
+                    }
+                    sink.write_str(" >>")
+                },
+            )?;
+        }
+        if annotation_cursor != annotations.bindings().len() {
+            return Err(E::ReceiptMismatch);
+        }
+        Ok(())
+    }
     pub(super) fn verify_marked_streams(&self) -> Result<(), E> {
         let marked = self.source.structure_objects().annotations().marked();
         if marked.pages().len() != self.page_count() as usize {
@@ -319,6 +406,42 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_page_dimensions_match_exact_fixed_point_writer() {
+        for raw in [
+            i64::MIN,
+            i64::MAX,
+            -65537,
+            -65536,
+            -32768,
+            -1,
+            0,
+            1,
+            2,
+            32768,
+            65535,
+            65536,
+            65537,
+        ] {
+            let expected = crate::tagged_pdf_v2::pdf_number_v2(raw);
+            assert_eq!(
+                compare_payload(expected.as_bytes(), |sink| sink.fixed(raw)),
+                Ok(())
+            );
+        }
+        for (raw, expected) in [
+            (1, "0.0000152587890625"),
+            (-32768, "-0.5"),
+            (65536, "1"),
+            (0, "0"),
+        ] {
+            assert_eq!(
+                compare_payload(expected.as_bytes(), |sink| sink.fixed(raw)),
+                Ok(())
+            );
+        }
+    }
 
     #[test]
     fn production_marked_stream_requires_exact_length_content_and_framing() {

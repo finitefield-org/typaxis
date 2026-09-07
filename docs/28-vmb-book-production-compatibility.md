@@ -2300,3 +2300,19 @@ resource参照の検証、公開writer・CLIと全巻等の受入ゲートは引
 ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
 は4件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
 1件ignored（34.53秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.60 実ページツリーとContent・Resources・注釈参照の検証（実装追補）
+
+本文・脚注assemblyの`verify`は実Pages objectのCount・Kids順序と、各Page object全体を
+照合する。親Pages、実MediaBox、PageResources／PageContentの絶対参照、StructParentsキー、
+Tabs設定、Annots列をsource geometryと注釈bindingに結び付ける。注釈rangeがページ順で連続し、
+逆転せず、全bindingを一度ずつ覆うことと、各注釈の所属ページも検証する。
+
+寸法は固定小数点整数をstack上で十進表現にし、既存writerと同じ正確な値を直接比較する。
+負値・整数・小数最小単位・i64両端について旧writerとの一致を確認し、代表値には明示した
+期待文字列も使う。検証用の新規文字列／配列を作らない。Resources dictionary内の全参照、
+公開receipt／manifest・writer／CLIへの接続と全巻等の受入ゲートは引き続き未完了である。
+
+ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
+は5件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
+1件ignored（53.72秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
