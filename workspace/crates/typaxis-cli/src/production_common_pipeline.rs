@@ -5,6 +5,8 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ProductionCommonBodyObservation {
     pub line_reshape_passes: usize,
+    pub page_passes: usize,
+    pub page_record_charge: u64,
     pub candidate_steps: u64,
     pub selected_layout_sha256: [u8; 32],
     pub flow_registry_sha256: [u8; 32],
@@ -25,6 +27,7 @@ pub(crate) fn with_production_common_body_pdf<R>(
     max_candidate_steps: u64,
     inspect: impl FnOnce(
         &typaxis_pdf::ProductionBodyPdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_>,
+        &typaxis_pagination::ProductionBodyPageStability<'_, '_, '_>,
         ProductionCommonBodyObservation,
     ) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
@@ -63,13 +66,22 @@ pub(crate) fn with_production_common_body_pdf<R>(
         blocks.page_geometry().body(),
         max_candidate_steps,
         |stable| {
-            let selected =
-                typaxis_pagination::paginate_production_body(stable.lines(), &blocks, limits)
-                    .map_err(map_production_input_error)?;
+            let stable_pages = typaxis_pagination::paginate_stable_production_body(
+                stable.lines(),
+                &blocks,
+                limits,
+            )
+            .map_err(map_production_input_error)?;
+            let page_passes = stable_pages.passes().len();
+            let page_record_charge = stable_pages.selected().record_charge();
+            let (selected, page_stability) = stable_pages.into_parts();
             let selected = typaxis_pagination::finalize_production_body_math_terminals(
                 selected, &math, limits,
             )
             .map_err(map_production_internal_error)?;
+            page_stability
+                .verify(&selected, limits)
+                .map_err(map_production_internal_error)?;
             let terminals = selected.math_terminals().ok_or_else(|| {
                 Failure::internal("common body is missing completed math terminals")
             })?;
@@ -79,6 +91,8 @@ pub(crate) fn with_production_common_body_pdf<R>(
                 .map_err(map_production_internal_error)?;
             let observation = ProductionCommonBodyObservation {
                 line_reshape_passes: stable.passes().len(),
+                page_passes,
+                page_record_charge,
                 candidate_steps: stable.candidate_steps(),
                 selected_layout_sha256: selected.fingerprint(),
                 flow_registry_sha256: math.receipt().fingerprint(),
@@ -114,7 +128,10 @@ pub(crate) fn with_production_common_body_pdf<R>(
             pdf.verify(&objects, admitted, limits).map_err(|error| {
                 Failure::internal(format!("common body assembly identity: {error:?}"))
             })?;
-            inspect(&pdf, observation)
+            page_stability
+                .verify(&selected, limits)
+                .map_err(map_production_internal_error)?;
+            inspect(&pdf, &page_stability, observation)
         },
     )
     .map_err(map_production_input_error)?

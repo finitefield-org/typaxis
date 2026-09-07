@@ -18,11 +18,14 @@ fn production_common_driver_closes_stable_lines_and_actual_block_terminals() {
                     limits,
                     typaxis_linebreak::JapaneseLineBreakMode::Normal,
                     100_000,
-                    |pdf, observation| {
+                    |pdf, page_stability, observation| {
+                        assert_eq!(page_stability.passes().len(), observation.page_passes);
                         assert!(pdf.bytes().starts_with(b"%PDF-1.7"));
                         assert!(pdf.page_count() > 0);
                         assert!(!pdf.objects().is_empty());
                         assert!(observation.line_reshape_passes >= 2);
+                        assert_eq!(observation.page_passes, 2);
+                        assert!(observation.page_record_charge > 0);
                         assert_eq!(observation.block_math_terminals, 1);
                         assert!(observation.candidate_steps > 0);
                         Ok((pdf.content_hash(), observation))
@@ -38,7 +41,8 @@ fn production_common_driver_closes_stable_lines_and_actual_block_terminals() {
                     limits,
                     typaxis_linebreak::JapaneseLineBreakMode::Normal,
                     100_000,
-                    |pdf, repeated| {
+                    |pdf, page_stability, repeated| {
+                        assert_eq!(page_stability.passes().len(), repeated.page_passes);
                         assert_eq!(repeated, observation);
                         Ok(pdf.content_hash())
                     },
@@ -67,7 +71,7 @@ fn production_common_driver_never_exposes_incomplete_selection() {
                 limits,
                 typaxis_linebreak::JapaneseLineBreakMode::Normal,
                 0,
-                |_, _| {
+                |_, _, _| {
                     inspected = true;
                     Ok(())
                 },
@@ -125,7 +129,8 @@ fn production_common_driver_saved_vmb_job() {
         &limits,
         typaxis_linebreak::JapaneseLineBreakMode::Normal,
         1_000_000,
-        |pdf, observation| {
+        |pdf, page_stability, observation| {
+            assert_eq!(page_stability.passes().len(), observation.page_passes);
             use std::io::Write;
             let mut file = fs::OpenOptions::new()
                 .write(true)

@@ -3862,3 +3862,56 @@ The common diagnostic success must not be relabeled as public build success.
 Original whole-book, Harano, real distinct/alias scale, both-host and public PDF/
 manifest gates remain mandatory. All launched builds/tests are terminal. No public
 profile was changed, no font/PDF binary was committed, and no branch was pushed.
+
+
+### 2026-09-07: Static page stability and cumulative pass records
+
+`paginate_stable_production_body` now compares at least two actual page searches
+from the same immutable selected lines and blocks. It compares full selection
+fingerprints, including placements and break decisions, and honors
+`max_layout_passes`. Each pass's ordinary input/output record charges plus one
+observation are conservatively accumulated against the same `max_fragments`.
+Earlier work is not refunded. The existing single-pass API retains its behavior.
+
+`ProductionBodyPageStability` is a non-constructible external proof bound to the
+exact borrowed line/block preparations. It rejects another preparation and a
+single-pass selection with matching placement bytes but missing cumulative work.
+It verifies the original placement fingerprint after block math terminals are
+attached. The common PDF owner retains it, verifies after terminal completion and
+after assembly, and passes the same typed proof to its callback. It remains a
+static-body proof, not generated-reference or complete global convergence.
+Dynamic reference/footnote-reference sites are rejected at their source owners.
+
+Tests demonstrate 40 records for the existing single pass, 82 for two passes plus
+observations, success at 82 and rejection at 81/41, pass-limit rejection at 1 and
+success at 2, foreign preparation rejection and verification after terminals.
+Final focused page tests: **3 passed** in **0.58 s**; common-owner tests: **2 passed,
+1 explicitly ignored** in **0.65 s**. Logs:
+`/private/tmp/typaxis-page-feedback-final.log`,
+`/private/tmp/typaxis-page-feedback-common-final.log`.
+
+The saved real-font VMB job from the previous entry was explicitly rerun through
+the final callback API: **2 line reshapes, 2 page passes, 266 cumulative page
+records, 84 line candidate steps, 1 block terminal, 1 page**. The new diagnostic
+PDF `/private/tmp/vmb-common-page-feedback-diagnostic.pdf` is byte-for-byte equal
+to the prior independently extracted/rendered PDF, SHA-256
+`d534fdbacb4eecea2ae70f0a19173138217eb24e9f49a07f2e4a58eac7bd267a`.
+Log `/private/tmp/typaxis-page-feedback-real-job.log`; explicit job test **1 passed**
+in **1.44 s**. This exact-byte comparison preserves the earlier limited extraction
+and rendering evidence; it does not expand that evidence to whole-book acceptance.
+
+Page/generated text convergence, named pages, complete subflows, final bidi, all
+pipeline allocation and public terminal/paint/writer/manifest closure remain.
+The existing public I9190 failure is not repaired or hidden by this static stage.
+
+The production regression also completed: **97 passed, 0 failed, 1 ignored** in
+**271.19 s**, including both 5,000-resource cases. Command:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked -- --nocapture
+```
+Log: `/private/tmp/typaxis-page-feedback-regression.log`. The subsequent callback
+proof exposure/source-owner refinement was covered by the focused and explicit
+real-job checks above. All launched processes are terminal. No public profile
+changed or branch was pushed.

@@ -25,6 +25,13 @@ pub use terminals::{
     ProductionBodyMathTerminals, PRODUCTION_BODY_TERMINAL_ALGORITHM,
 };
 
+#[path = "production_page_feedback.rs"]
+mod page_feedback;
+pub use page_feedback::{
+    paginate_stable_production_body, ProductionBodyPagePass, ProductionBodyPageStability,
+    ProductionStableBodyPages,
+};
+
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,6 +47,7 @@ pub enum ProductionBodyPaginationErrorKind {
     KeepAcrossForcedBreak,
     Oversize,
     PageLimit,
+    PagePassLimit,
     PageBreakLookbackLimit { limit: u16, observed: u32 },
     FragmentLimit,
     SpoolLimit,
@@ -276,6 +284,15 @@ pub fn paginate_production_body<'s, 'p, 'a>(
     blocks: &'s StagingPrecomposedVectorBlockLayout,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<ProductionBodySelectedLayout<'s, 'p, 'a>, ProductionBodyPaginationError> {
+    paginate_production_body_with_prior_charge(lines, blocks, limits, 0)
+}
+
+fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
+    lines: &'s ProductionInlineLineLayout<'p, 'a>,
+    blocks: &'s StagingPrecomposedVectorBlockLayout,
+    limits: &M4EffectiveResourceLimits,
+    prior_charge: u64,
+) -> Result<ProductionBodySelectedLayout<'s, 'p, 'a>, ProductionBodyPaginationError> {
     let root = NodeId::new(0);
     let epoch = lines.binding_epoch();
     let receipt = blocks.receipt();
@@ -295,6 +312,8 @@ pub fn paginate_production_body<'s, 'p, 'a>(
             .base()
             .get()
             .max_fragments
+            .checked_sub(prior_charge)
+            .ok_or_else(|| error(root, E::FragmentLimit))?
             .checked_sub(
                 lines
                     .output_records()

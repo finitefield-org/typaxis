@@ -1361,3 +1361,31 @@ ActualTextと一致し、両rendererで日本語と2式の可視描画を確認�
 math fontの先頭を標準本文描画へ使う経路が残るが、I9190の特定return siteまで断定しない。
 実fontへの暗黙置換やdummy native mathでこの公開経路を成功扱いにはしない。
 詳細hash、保存job、検査PDFとlogは実装台帳とVMB設計§15.38を参照。
+
+
+### 14.15 静的本文のページ配置一致と累積pass予算
+
+`paginate_stable_production_body` は同じ選択済み行・block準備を使うページ探索を
+最低2回実行し、ページ数だけでなく配置・改ページdecision・list marker等を含む
+既存の選択fingerprintを比較する。`max_layout_passes < 2` では成功を返さない。
+各passのrecord費用と観測recordを、同じ`max_fragments`から累積して差し引く。
+現在の保守的課金は各passの通常input chargeも再加算し、保持していない前passの
+作業を予算から消さない。従来の単一pass APIの配置と予算は変更しない。
+
+一致した結果は`ProductionStableBodyPages`と、実際の行/block準備への借用を持つ
+`ProductionBodyPageStability`として渡す。別の準備、同じ配置でも前pass費用を
+含まない選択は拒否する。block math terminalの付与後は、その元placement
+fingerprintを照合するため、完了処理でfingerprintが変わっても確認できる。
+共通PDF ownerはterminal後とPDF組み立て後に照合し、同じproofを後段callbackへ渡す。
+
+これは動的参照のない本文についての静的ページ選択の一致であり、汎用の文書全体
+収束receiptではない。reference/footnote referenceは元ownerで明示拒否する。
+page/generated-reference・named page・table/footnote/native mathを含む全flow収束、
+全pipeline allocation、公開terminal/paint/writer/manifestの接続は残件である。
+2回同じ入力を組んだ結果を、まだ生成していない参照文字列の収束証明にはしない。
+
+40レコードの単一pass fixtureでは、新ownerの2passと観測が82レコードとなり、
+82で成功、81および41で失敗する。pass上限1では拒否、2で成功する。別準備の
+拒否とterminal後の照合も検査する。実VMB小規模jobでは2 line reshapes /
+2 page passes / 266 page records / 84 line candidate steps / 1 block terminal。
+検査用PDFは§14.14のPDFとバイト単位で一致し、描画や抽出を変更していない。

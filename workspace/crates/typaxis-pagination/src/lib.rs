@@ -8,6 +8,8 @@ mod production_body;
 
 pub use production_body::{
     finalize_production_body_math_terminals, paginate_production_body,
+    paginate_stable_production_body,
+    ProductionBodyPagePass, ProductionBodyPageStability, ProductionStableBodyPages,
     ProductionBodyBreakCandidate, ProductionBodyBreakDecision, ProductionBodyBreakReason,
     ProductionBodyEquationNumber, ProductionBodyFragment, ProductionBodyFragmentSource,
     ProductionBodyListMarker, ProductionBodyMathTerminals, ProductionBodyPage,

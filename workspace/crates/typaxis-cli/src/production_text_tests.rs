@@ -1378,3 +1378,5 @@ include!("production_terminal_tests.rs");
 include!("production_reshape_tests.rs");
 
 include!("production_common_pipeline_tests.rs");
+
+include!("production_page_feedback_tests.rs");
