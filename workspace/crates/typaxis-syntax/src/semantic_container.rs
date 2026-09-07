@@ -3,8 +3,9 @@ mod production_flow;
 pub use production_flow::{
     prepare_production_text_flow, ProductionFigure, ProductionFlowError, ProductionFlowErrorKind,
     ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent,
-    ProductionInlineLinkTarget, ProductionInlineSite, ProductionList, ProductionListItem,
-    ProductionTextFlow, ProductionTextParagraph, PRODUCTION_TEXT_FLOW_ALGORITHM,
+    ProductionInlineLinkTarget, ProductionInlineReference, ProductionInlineSite, ProductionList,
+    ProductionListItem, ProductionReferenceFormat, ProductionTextFlow, ProductionTextParagraph,
+    PRODUCTION_TEXT_FLOW_ALGORITHM,
 };
 
 use super::*;

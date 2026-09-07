@@ -3915,3 +3915,36 @@ Log: `/private/tmp/typaxis-page-feedback-regression.log`. The subsequent callbac
 proof exposure/source-owner refinement was covered by the focused and explicit
 real-job checks above. All launched processes are terminal. No public profile
 changed or branch was pushed.
+
+
+### 2026-09-07: Borrowed reference identity in the common body flow
+
+Added `ProductionInlineReference` and `ProductionReferenceFormat` to the common
+syntax flow. Ordinary references retain the actual target spelling, requested
+text/page/number format and target owner from the same validated navigation
+registry (binary search over its sorted anchor list). Footnote references retain
+the actual borrowed footnote ID. Non-reference sites and synthetic container ends
+carry no reference payload. No generated label, counter value or page is guessed.
+
+The flow's private fields and reconstruction-based verification reject changed
+targets, target owners, formats, reference kinds and footnote IDs. The existing
+fingerprint already binds the entire package SHA and navigation-derived state;
+this deterministic source projection does not change the algorithm identifier.
+The existing unresolved-reference refusal remains in downstream layout stages.
+This change does not implement generated-text shaping or page/reference convergence.
+
+Validation:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-syntax --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked -- --nocapture
+```
+Syntax: **67 passed** in **0.97 s**, plus **6 doc-tests passed** in **1.16 s**.
+Common owner: **2 passed, 1 explicitly ignored** in **0.75 s**. Logs:
+`/private/tmp/typaxis-reference-carrier-syntax.log` and
+`/private/tmp/typaxis-reference-carrier-common.log`. The explicit saved-VMB job
+was not rerun for this source-identity-only addition. All launched tests completed.
+No public profile, PDF writer or VMB exporter behavior changed. Original full-book,
+Harano, scale, independent PDF and both-host acceptance gates remain outstanding.

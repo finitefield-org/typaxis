@@ -1389,3 +1389,21 @@ page/generated-reference・named page・table/footnote/native mathを含む全fl
 拒否とterminal後の照合も検査する。実VMB小規模jobでは2 line reshapes /
 2 page passes / 266 page records / 84 line candidate steps / 1 block terminal。
 検査用PDFは§14.14のPDFとバイト単位で一致し、描画や抽出を変更していない。
+
+
+### 14.16 共通本文の参照元情報
+
+`ProductionInlineSite::reference()` は、通常参照の元target・要求format
+（text/page/number）と、同じ検証済みnavigationのanchor所有ノードを保持する。
+脚注参照は元footnote IDを保持する。文字列はpackageから借用し、参照先や番号を
+本文文字列へ置き換えない。通常文字・link・container終端には参照情報を付けない。
+anchorの検索はnavigationの整列済みregistryで行い、不一致時は参照元ownerで拒否する。
+
+flow検証は元package/navigationの同一性と再構築した全paragraphの一致を確認するため、
+target・target owner・format・参照種別・脚注IDの改変を拒否する。既存fingerprintは
+全package SHAを含み、新情報も同じpackage/navigationから決定されるため、この追加で
+algorithm識別子や公開contract/profileを変更しない。
+
+これは生成前の参照情報の接続である。ページ番号・counter・脚注番号の解決、生成文字の
+shapeと行選択、ページ再配置を含む収束、公開writerの接続は別途必要である。
+既存の未解決参照の拒否を解除せず、参照を空文字としてPDF成功に扱わない。

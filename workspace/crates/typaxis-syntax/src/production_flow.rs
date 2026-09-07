@@ -2,6 +2,7 @@
 //! syntax product, not a selected layout and not an authorization to paint.
 use super::*;
 use crate::ValidatedStagingBookNavigationV2;
+use typaxis_document_package::WireStagingM4ReferenceFormat;
 
 pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/5";
 
@@ -142,7 +143,30 @@ pub struct ProductionInlineSite<'a> {
     language: &'a str,
     content: ProductionInlineContent<'a>,
     link_target: Option<ProductionInlineLinkTarget<'a>>,
+    reference: Option<ProductionInlineReference<'a>>,
 }
+/// The requested format is retained independently of any future generated label.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProductionReferenceFormat {
+    Text,
+    Page,
+    Number,
+}
+
+/// Borrowed source identity. Anchor owners are resolved from the same validated
+/// navigation registry. Footnote numbering remains the footnote owner's job.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProductionInlineReference<'a> {
+    Anchor {
+        target: &'a str,
+        target_owner: NodeId,
+        format: ProductionReferenceFormat,
+    },
+    Footnote {
+        footnote_id: &'a str,
+    },
+}
+
 /// Borrowed from the already validated package. URI spelling is preserved;
 /// navigation must not reinterpret it as an internal anchor or visible text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -162,6 +186,9 @@ impl<'a> ProductionInlineSite<'a> {
     }
     pub const fn content(&self) -> ProductionInlineContent<'a> {
         self.content
+    }
+    pub const fn reference(&self) -> Option<ProductionInlineReference<'a>> {
+        self.reference
     }
     pub const fn link_target(&self) -> Option<ProductionInlineLinkTarget<'a>> {
         self.link_target
@@ -807,6 +834,32 @@ impl<'a> Collector<'a> {
                 source_span,
                 language,
                 content,
+                reference: match inline {
+                    WireStagingM4Inline::Reference { target, format, .. } => {
+                        let anchors = self.navigation.anchors();
+                        let index = anchors
+                            .binary_search_by(|(anchor, _)| anchor.as_str().cmp(target.as_str()))
+                            .map_err(|_| {
+                                failure(ProductionFlowErrorKind::ReceiptMismatch, owner)
+                            })?;
+                        let format = match format {
+                            WireStagingM4ReferenceFormat::Text => ProductionReferenceFormat::Text,
+                            WireStagingM4ReferenceFormat::Page => ProductionReferenceFormat::Page,
+                            WireStagingM4ReferenceFormat::Number => {
+                                ProductionReferenceFormat::Number
+                            }
+                        };
+                        Some(ProductionInlineReference::Anchor {
+                            target,
+                            target_owner: anchors[index].1,
+                            format,
+                        })
+                    }
+                    WireStagingM4Inline::FootnoteReference { footnote_id, .. } => {
+                        Some(ProductionInlineReference::Footnote { footnote_id })
+                    }
+                    _ => None,
+                },
                 link_target: match inline {
                     WireStagingM4Inline::Link {
                         target: WireStagingM4LinkTarget::Internal { anchor_id },
@@ -834,6 +887,7 @@ impl<'a> Collector<'a> {
                 output.push(ProductionInlineSite {
                     content: ProductionInlineContent::EndContainer,
                     link_target: None,
+                    reference: None,
                     ..site
                 });
             }
@@ -1127,6 +1181,142 @@ mod tests {
                 .fingerprint()
         );
     }
+    #[test]
+    fn production_flow_retains_reference_identity_and_rejects_tampering() {
+        for (wire_format, expected_format) in [
+            (
+                WireStagingM4ReferenceFormat::Page,
+                ProductionReferenceFormat::Page,
+            ),
+            (
+                WireStagingM4ReferenceFormat::Text,
+                ProductionReferenceFormat::Text,
+            ),
+            (
+                WireStagingM4ReferenceFormat::Number,
+                ProductionReferenceFormat::Number,
+            ),
+        ] {
+            let original = parse(COMBINED);
+            let mut wire = original.checked_wire().unwrap().clone();
+            let mut document = wire.document().clone();
+            let mut changed = false;
+            for block in &mut document.blocks {
+                if let WireStagingM4Block::Paragraph { children, .. } = block {
+                    for inline in children {
+                        if let WireStagingM4Inline::Reference { format, .. } = inline {
+                            *format = wire_format;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            assert!(changed);
+            wire.replace_typed_regions(document, wire.resources().clone());
+            let encoded = StagingSemanticDocumentPackageEncoder::new()
+                .encode(&wire)
+                .unwrap();
+            let package = parse(encoded.as_bytes());
+            let (limits, navigation) = navigation(&package);
+            let mut flow = prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+            let target_owner = navigation
+                .anchors()
+                .iter()
+                .find(|(id, _)| id.as_str() == "top")
+                .unwrap()
+                .1;
+            let expected = ProductionInlineReference::Anchor {
+                target: "top",
+                target_owner,
+                format: expected_format,
+            };
+            let site = flow
+                .paragraphs()
+                .iter()
+                .flat_map(|p| p.items())
+                .find(|site| site.owner().get() == 7)
+                .unwrap();
+            assert_eq!(site.reference(), Some(expected));
+            assert_eq!(site.content(), ProductionInlineContent::Reference);
+            assert_eq!(site.link_target(), None);
+            for site in flow.paragraphs().iter().flat_map(|p| p.items()) {
+                match site.content() {
+                    ProductionInlineContent::Reference => {
+                        assert_eq!(site.reference(), Some(expected))
+                    }
+                    ProductionInlineContent::FootnoteReference => assert_eq!(
+                        site.reference(),
+                        Some(ProductionInlineReference::Footnote {
+                            footnote_id: "note-1"
+                        })
+                    ),
+                    _ => assert_eq!(site.reference(), None),
+                }
+            }
+            flow.verify(&package, &navigation, &limits).unwrap();
+            for replacement in [
+                None,
+                Some(ProductionInlineReference::Anchor {
+                    target: "links",
+                    target_owner,
+                    format: expected_format,
+                }),
+                Some(ProductionInlineReference::Anchor {
+                    target: "top",
+                    target_owner: NodeId::new(6),
+                    format: expected_format,
+                }),
+                Some(ProductionInlineReference::Anchor {
+                    target: "top",
+                    target_owner,
+                    format: if expected_format == ProductionReferenceFormat::Page {
+                        ProductionReferenceFormat::Text
+                    } else {
+                        ProductionReferenceFormat::Page
+                    },
+                }),
+                Some(ProductionInlineReference::Footnote {
+                    footnote_id: "note-1",
+                }),
+            ] {
+                let site = flow
+                    .paragraphs
+                    .iter_mut()
+                    .flat_map(|p| &mut p.items)
+                    .find(|site| site.owner().get() == 7)
+                    .unwrap();
+                site.reference = replacement;
+                assert_eq!(
+                    flow.verify(&package, &navigation, &limits)
+                        .unwrap_err()
+                        .kind,
+                    ProductionFlowErrorKind::ReceiptMismatch
+                );
+            }
+            flow.paragraphs
+                .iter_mut()
+                .flat_map(|p| &mut p.items)
+                .find(|site| site.owner().get() == 7)
+                .unwrap()
+                .reference = Some(expected);
+            flow.verify(&package, &navigation, &limits).unwrap();
+            flow.paragraphs
+                .iter_mut()
+                .flat_map(|p| &mut p.items)
+                .find(|site| site.owner().get() == 11)
+                .unwrap()
+                .reference = Some(ProductionInlineReference::Footnote {
+                footnote_id: "other-note",
+            });
+            assert_eq!(
+                flow.verify(&package, &navigation, &limits)
+                    .unwrap_err()
+                    .kind,
+                ProductionFlowErrorKind::ReceiptMismatch
+            );
+        }
+    }
+
     #[test]
     fn production_flow_borrows_exact_multibyte_text_and_rejects_receipt_tampering() {
         // Same 14 UTF-8 bytes as the fixture heading; its inserted-text mapping
