@@ -53,6 +53,49 @@ fn compare_payload(
     }
 }
 
+fn verify_pdf_envelope(
+    bytes: &[u8],
+    objects: &[ProductionBodyAssemblyObject],
+    expected_hash: [u8; 32],
+) -> Result<(), E> {
+    let size = u32::try_from(objects.len())
+        .ok()
+        .and_then(|n| n.checked_add(1))
+        .ok_or(E::ReceiptMismatch)?;
+    compare_payload(bytes, |sink| {
+        sink.bytes(b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n")?;
+        for (index, object) in objects.iter().enumerate() {
+            if object.number() as usize != index + 1
+                || object.offset() != (bytes.len() - sink.0.len()) as u64
+                || object.offset() > 9_999_999_999
+            {
+                return Err(fmt::Error);
+            }
+            write!(sink, "{} 0 obj\n", object.number())?;
+            let length = usize::try_from(object.byte_length()).map_err(|_| fmt::Error)?;
+            let payload = sink.0.get(..length).ok_or(fmt::Error)?;
+            if sha256(payload) != object.sha256() {
+                return Err(fmt::Error);
+            }
+            sink.0 = sink.0.get(length..).ok_or(fmt::Error)?;
+            sink.write_str("\nendobj\n")?;
+        }
+        let xref = bytes.len() - sink.0.len();
+        write!(sink, "xref\n0 {size}\n0000000000 65535 f \n")?;
+        for object in objects {
+            write!(sink, "{:010} 00000 n \n", object.offset())?;
+        }
+        write!(
+            sink,
+            "trailer\n<< /Size {size} /Root 1 0 R /Info 3 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+        )
+    })?;
+    if sha256(bytes) != expected_hash {
+        return Err(E::ReceiptMismatch);
+    }
+    Ok(())
+}
+
 fn verify_object_chunks(
     bytes: &[u8],
     chunks: &[ProductionBodyObjectChunk],
@@ -130,6 +173,9 @@ fn verify_id_tree<'a>(
 }
 
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub(super) fn verify_envelope(&self) -> Result<(), E> {
+        verify_pdf_envelope(self.bytes(), self.objects(), self.content_hash())
+    }
     pub(super) fn verify_contribution_objects(&self) -> Result<(), E> {
         let structure = self.source.structure_objects();
         let annotations = structure.annotations();
@@ -462,6 +508,72 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_pdf_envelope_checks_offsets_lengths_hashes_and_xref() {
+        // Minimal framing fixture; source/page/structure checks are separate.
+        let bytes = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n1 0 obj\n<<>>\nendobj\nxref\n0 2\n0000000000 65535 f \n0000000015 00000 n \ntrailer\n<< /Size 2 /Root 1 0 R /Info 3 0 R >>\nstartxref\n35\n%%EOF\n";
+        let object = ProductionBodyAssemblyObject {
+            number: 1,
+            role: A::Catalog,
+            sha256: sha256(b"<<>>"),
+            byte_length: 4,
+            offset: 15,
+        };
+        let expected = sha256(bytes);
+        assert_eq!(verify_pdf_envelope(bytes, &[object], expected), Ok(()));
+        // Recompute the outer hash after mutation: it cannot mask damage to
+        // object payloads, framing, xref or trailer.
+        for index in 0..bytes.len() {
+            let mut changed = bytes.to_vec();
+            changed[index] ^= 1;
+            assert_eq!(
+                verify_pdf_envelope(&changed, &[object], sha256(&changed)),
+                Err(E::ReceiptMismatch)
+            );
+            assert_eq!(
+                verify_pdf_envelope(&bytes[..index], &[object], sha256(&bytes[..index])),
+                Err(E::ReceiptMismatch)
+            );
+        }
+        for changed in [
+            ProductionBodyAssemblyObject {
+                offset: 16,
+                ..object
+            },
+            ProductionBodyAssemblyObject {
+                byte_length: 5,
+                ..object
+            },
+            ProductionBodyAssemblyObject {
+                number: 2,
+                ..object
+            },
+            ProductionBodyAssemblyObject {
+                sha256: [0; 32],
+                ..object
+            },
+        ] {
+            assert_eq!(
+                verify_pdf_envelope(bytes, &[changed], expected),
+                Err(E::ReceiptMismatch)
+            );
+        }
+        assert_eq!(
+            verify_pdf_envelope(bytes, &[object], [0; 32]),
+            Err(E::ReceiptMismatch)
+        );
+        assert_eq!(
+            verify_pdf_envelope(bytes, &[], expected),
+            Err(E::ReceiptMismatch)
+        );
+        let mut extra = bytes.to_vec();
+        extra.push(b' ');
+        assert_eq!(
+            verify_pdf_envelope(&extra, &[object], sha256(&extra)),
+            Err(E::ReceiptMismatch)
+        );
+    }
 
     #[test]
     fn production_object_chunks_resolve_only_typed_references() {

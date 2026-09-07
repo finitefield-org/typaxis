@@ -487,7 +487,8 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
         self.verify_structure_nodes()?;
         self.verify_marked_streams()?;
         self.verify_page_graph()?;
-        self.verify_contribution_objects()
+        self.verify_contribution_objects()?;
+        self.verify_envelope()
     }
 }
 pub fn assemble_production_footnote_pdf<

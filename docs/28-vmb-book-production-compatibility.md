@@ -2334,3 +2334,20 @@ page geometry、marked contentに対する個別検証も維持する。新た�
 ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
 は6件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
 1件ignored（56.43秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.62 最終PDF envelope・xref・hashの検証（実装追補）
+
+本文・脚注assemblyの`verify`は、実PDF全体のheader、連番objectの開始位置・長さ・終了形式、
+各payloadのSHA-256、traditional xrefの全offsetとgeneration、trailerのSize／Root／Info、
+startxref、EOFを実bytesと照合する。最後に全体SHA-256を再計算し、保持済みの最終hashと一致
+させる。xref offsetは10桁の範囲を要求し、余分な末尾も拒否する。source object照合と併用し、
+観測だけが整合した別のbytesを受け入れない。
+
+PDF全体を複製せず借用sliceを順に消費する。unit testは全byte変更・全位置切り詰めに対して
+改変後の全体hashを与えても拒否すること、offset／長さ／番号／payload hash／全体hashの変更、
+object欠落・末尾追加を検証する。fixtureはenvelopeのみを検証するもので適合PDFの受入証拠には
+しない。公開receipt／manifest・writer／CLIへの接続と元全巻等の受入ゲートは引き続き未完了である。
+
+ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
+は7件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
+1件ignored（36.40秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
