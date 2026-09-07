@@ -5507,3 +5507,46 @@ The final allocation-free link ordering was rechecked by the integrated
 (`/private/tmp/typaxis-book-inputs-order-test.log`). The unchanged 5,000-SVG tests
 were excluded and the saved-job probe remains ignored. All processes started
 for this implementation step are terminal. No public receipt or push.
+
+## 2026-09-08 — Seal actual joint book selection
+
+Implemented §14.54. The seal consumes actual book inputs, moves their rows into
+the existing selected `/2` canonical projection, resolves outline entries through
+the actual destination registry, and binds a new outer owner to joint navigation
+and profile/limits. Selected fragment count is the actual placed-fragment sum;
+layout/display fingerprints come from the actual joint display. Equation-child
+language paints remain retained separately. The common driver now returns the
+sealed book owner with its PDF and stable pages.
+
+Outline rows/strings and destination validation maps/sets are charged before
+allocation. Shared emitters preserve existing encoding behavior while a counting
+sink determines the exact size before each bounded JSON allocation. All seven
+JSON emissions, including temporary hash inputs, count toward cumulative spool.
+The existing String encoder APIs remain available for the old path and verifier.
+
+Tests verify sealed content with the existing `/2` validator, match outline
+owner/frame/page/XYZ to actual destinations, check fragment count and hashes,
+reject foreign owners, and cover exact/one-short records/spool. Encoding tests
+compare JCS escaping against the core encoder using Unicode, quotes, backslashes
+and all control characters, and test the exact/one-short spool boundary.
+
+Successful checks so far use workspace manifest, `--locked`, target
+`/private/tmp/typaxis-vmb-book-build`: display-list check **22.34 s**
+(`/private/tmp/typaxis-book-seal-check-2.log`); footnote tests **63 passed,
+0 failed, 7.01 s** (`/private/tmp/typaxis-book-seal-footnote-tests.log`);
+book navigation unit tests **5 passed, 0 failed, 0.13 s**
+(`/private/tmp/typaxis-book-seal-navigation-tests.log`).
+
+The new source-bound wrapper is the stronger verifier for joint display; the
+legacy Display verifier is not fed a synthetic object. Sealed book selection
+alone is not a public PDF receipt or complete book/tagged manifest. Public
+writer/CLI, dynamic references, allocation/retry lifetimes and original-book/
+Harano/scale/both-host acceptance remain required.
+
+Final regression: CLI `--bin typaxis production_ -- --skip
+production_body_page_content_places_5000` passed **162 tests, 0 failed,
+1 explicitly ignored, 12.86 s** (`/private/tmp/typaxis-book-seal-final.log`).
+The final foreign-profile rejection checks and all 18 integrated fixtures passed
+**1/1, 4.01 s** (`/private/tmp/typaxis-book-seal-profile-test.log`).
+Unchanged 5,000-SVG tests were excluded and the saved-job probe remains ignored.
+All processes from this step are terminal. No public PDF receipt or push.

@@ -2190,3 +2190,23 @@ vectorの被覆を確認する。旧Display receiptを仮生成しない。
 これは既存book receipt／PDF観測／manifestへ実情報を渡す入力境界であり、それらの封印や
 公開出力はまだ完了していない。動的参照、全allocation寿命、元全巻・原ノ味・規模・両hostの
 必須ゲートを維持する。
+
+### 14.54 実book選択receiptと容量付きcanonical化（実装追補）
+
+`seal_production_footnote_book_navigation`は§14.53の入力を消費し、検証したsource navigationと
+profile・limitsに結び付いた`ProductionFootnoteBookNavigation`を作る。内部の
+`BookNavigationSelectedReceiptV2`は既存のcanonical形式を保持する。ページ・destination・
+リンク・通常／vector言語の行を複製せず移動し、outlineは既存resolverで実destinationへ解決する。
+selected fragment数は実配置fragmentの合計、layout／display hashは実joint displayから得る。
+式番号の子言語paintは外側のownerで保持し、通常の言語ownerへ偽装しない。
+
+入力までのrecordsにoutlineの保持行・文字列とdestination検証map／setを追加する。
+outlineが複製する文字列も事前にspoolへ加える。destination registry、outline entries、
+通常言語、内部リンク、ページ、vector言語および選択全体のJSONは、共通emitterを計数sinkと
+文字列sinkで実行する。各必要長を確保前に検査し、hash用の一時JSONも累積spoolへ計上する。
+旧選択経路のエンコードも同じemitterを使い、JCSの文字escaping・field順・hash形式を維持する。
+
+共通source-to-PDF driverはこのreceiptまで生成し、PDF・安定ページと同じcallback寿命で渡す。
+別navigationや別profileは拒否する。旧Displayの強い検証を代用せず、新しいwrapperのsource
+検証と既存のsealed内容検証を区別する。これで公開PDF receiptやbook／tagged manifestが
+成立したとは扱わない。公開writer／CLI、動的参照、全allocation寿命と元全巻等のゲートを残す。

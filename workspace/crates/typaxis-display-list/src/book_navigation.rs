@@ -1352,15 +1352,23 @@ fn validate_links_v2(
 }
 
 fn encode_destination_registry(destinations: &[BookNavigationDestinationBinding]) -> String {
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, BOOK_DESTINATION_REGISTRY_ALGORITHM);
+    let mut output = String::new();
+    write_destination_registry(&mut output, destinations);
+    output
+}
+fn write_destination_registry(
+    output: &mut dyn BookCanonicalSink,
+    destinations: &[BookNavigationDestinationBinding],
+) {
+    output.push_str("{\"algorithm\":");
+    push_book_string(output, BOOK_DESTINATION_REGISTRY_ALGORITHM);
     output.push_str(",\"destinations\":[");
     for (index, binding) in destinations.iter().enumerate() {
         if index != 0 {
             output.push(',');
         }
         output.push_str("{\"anchor_id\":");
-        push_jcs_string(&mut output, binding.destination.anchor_id.as_str());
+        push_book_string(output, binding.destination.anchor_id.as_str());
         output.push_str(",\"frame_id\":");
         output.push_str(&binding.frame_id.to_string());
         output.push_str(",\"page_index\":");
@@ -1368,11 +1376,10 @@ fn encode_destination_registry(destinations: &[BookNavigationDestinationBinding]
         output.push_str(",\"source_node_id\":");
         output.push_str(&binding.source_node_id.get().to_string());
         output.push_str(",\"view\":");
-        push_view(&mut output, &binding.destination.view);
+        push_view(output, &binding.destination.view);
         output.push('}');
     }
     output.push_str("]}");
-    output
 }
 
 fn encode_selected(value: &BookNavigationSelectedReceipt) -> String {
@@ -1479,57 +1486,62 @@ fn encode_selected(value: &BookNavigationSelectedReceipt) -> String {
 }
 
 fn encode_selected_v2(value: &BookNavigationSelectedReceiptV2) -> String {
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, BOOK_NAVIGATION_SELECTED_ALGORITHM_V2);
-    output.push_str(",\"destination_registry_sha256\":");
-    push_hash(&mut output, value.destination_registry_sha256);
-    output.push_str(",\"entries_sha256\":");
-    push_hash(
-        &mut output,
+    let hashes = [
         sha256(encode_entries_v2(&value.entries).as_bytes()),
-    );
-    output.push_str(",\"language_paints_sha256\":");
-    push_hash(
-        &mut output,
         sha256(encode_language_paints_v2(&value.language_paints).as_bytes()),
-    );
-    output.push_str(",\"language_sha256\":");
-    push_hash(&mut output, value.language_sha256);
-    output.push_str(",\"limits_sha256\":");
-    push_hash(&mut output, value.limits_sha256);
-    output.push_str(",\"links_sha256\":");
-    push_hash(
-        &mut output,
         sha256(encode_links_v2(&value.links).as_bytes()),
-    );
-    output.push_str(",\"metadata_sha256\":");
-    push_hash(&mut output, value.metadata_sha256);
-    output.push_str(",\"outline_sha256\":");
-    push_hash(&mut output, value.outline_sha256);
-    output.push_str(",\"pages_sha256\":");
-    push_hash(
-        &mut output,
         sha256(encode_pages_v2(&value.pages).as_bytes()),
-    );
+        sha256(encode_vector_paints_v2(&value.vector_paints).as_bytes()),
+    ];
+    let mut output = String::new();
+    write_selected_v2(&mut output, value, &hashes);
+    output
+}
+fn write_selected_v2(
+    output: &mut dyn BookCanonicalSink,
+    value: &BookNavigationSelectedReceiptV2,
+    hashes: &[[u8; 32]; 5],
+) {
+    output.push_str("{\"algorithm\":");
+    push_book_string(output, BOOK_NAVIGATION_SELECTED_ALGORITHM_V2);
+    output.push_str(",\"destination_registry_sha256\":");
+    push_hash(output, value.destination_registry_sha256);
+    output.push_str(",\"entries_sha256\":");
+    push_hash(output, hashes[0]);
+    output.push_str(",\"language_paints_sha256\":");
+    push_hash(output, hashes[1]);
+    output.push_str(",\"language_sha256\":");
+    push_hash(output, value.language_sha256);
+    output.push_str(",\"limits_sha256\":");
+    push_hash(output, value.limits_sha256);
+    output.push_str(",\"links_sha256\":");
+    push_hash(output, hashes[2]);
+    output.push_str(",\"metadata_sha256\":");
+    push_hash(output, value.metadata_sha256);
+    output.push_str(",\"outline_sha256\":");
+    push_hash(output, value.outline_sha256);
+    output.push_str(",\"pages_sha256\":");
+    push_hash(output, hashes[3]);
     output.push_str(",\"profile_sha256\":");
-    push_hash(&mut output, value.profile_sha256);
+    push_hash(output, value.profile_sha256);
     output.push_str(",\"selected_layout_fragment_count\":");
     output.push_str(&value.selected_layout_fragment_count.to_string());
     output.push_str(",\"selected_layout_sha256\":");
-    push_hash(&mut output, value.selected_layout_sha256);
+    push_hash(output, value.selected_layout_sha256);
     output.push_str(",\"vector_display_sha256\":");
-    push_hash(&mut output, value.vector_display_sha256);
+    push_hash(output, value.vector_display_sha256);
     output.push_str(",\"vector_paints_sha256\":");
-    push_hash(
-        &mut output,
-        sha256(encode_vector_paints_v2(&value.vector_paints).as_bytes()),
-    );
+    push_hash(output, hashes[4]);
     output.push('}');
-    output
 }
 
 fn encode_pages_v2(values: &[BookNavigationSelectedPage]) -> String {
-    let mut output = String::from("[");
+    let mut output = String::new();
+    write_pages_v2(&mut output, values);
+    output
+}
+fn write_pages_v2(output: &mut dyn BookCanonicalSink, values: &[BookNavigationSelectedPage]) {
+    output.push_str("[");
     for (index, page) in values.iter().enumerate() {
         if index != 0 {
             output.push(',');
@@ -1543,21 +1555,25 @@ fn encode_pages_v2(values: &[BookNavigationSelectedPage]) -> String {
         output.push('}');
     }
     output.push(']');
-    output
 }
 
 fn encode_entries_v2(values: &[BookNavigationSelectedEntry]) -> String {
-    let mut output = String::from("[");
+    let mut output = String::new();
+    write_entries_v2(&mut output, values);
+    output
+}
+fn write_entries_v2(output: &mut dyn BookCanonicalSink, values: &[BookNavigationSelectedEntry]) {
+    output.push_str("[");
     for (index, entry) in values.iter().enumerate() {
         if index != 0 {
             output.push(',');
         }
         output.push_str("{\"destination\":");
-        push_jcs_string(&mut output, entry.destination.anchor_id.as_str());
+        push_book_string(output, entry.destination.anchor_id.as_str());
         output.push_str(",\"frame_id\":");
         output.push_str(&entry.frame_id.to_string());
         output.push_str(",\"label\":");
-        push_jcs_string(&mut output, &entry.label);
+        push_book_string(output, &entry.label);
         output.push_str(",\"level\":");
         output.push_str(&entry.level.to_string());
         output.push_str(",\"outline_id\":");
@@ -1571,27 +1587,31 @@ fn encode_entries_v2(values: &[BookNavigationSelectedEntry]) -> String {
             output.push_str("null");
         }
         output.push_str(",\"source_language\":");
-        push_jcs_string(&mut output, &entry.source_language);
+        push_book_string(output, &entry.source_language);
         output.push_str(",\"source_node_id\":");
         output.push_str(&entry.source_node_id.get().to_string());
         output.push_str(",\"view\":");
-        push_view(&mut output, &entry.destination.view);
+        push_view(output, &entry.destination.view);
         output.push('}');
     }
     output.push(']');
-    output
 }
 
 fn encode_language_paints_v2(values: &[BookLanguagePaintV2]) -> String {
-    let mut output = String::from("[");
+    let mut output = String::new();
+    write_language_paints_v2(&mut output, values);
+    output
+}
+fn write_language_paints_v2(output: &mut dyn BookCanonicalSink, values: &[BookLanguagePaintV2]) {
+    output.push_str("[");
     for (index, paint) in values.iter().enumerate() {
         if index != 0 {
             output.push(',');
         }
         output.push_str("{\"language\":");
-        push_jcs_string(&mut output, &paint.language);
+        push_book_string(output, &paint.language);
         output.push_str(",\"language_record_fingerprint\":");
-        push_hash(&mut output, paint.language_record_fingerprint);
+        push_hash(output, paint.language_record_fingerprint);
         output.push_str(",\"occurrence\":");
         output.push_str(&paint.occurrence.to_string());
         output.push_str(",\"owner_node_id\":");
@@ -1603,23 +1623,30 @@ fn encode_language_paints_v2(values: &[BookLanguagePaintV2]) -> String {
         output.push('}');
     }
     output.push(']');
-    output
 }
 
 fn encode_vector_paints_v2(values: &[BookVectorLanguagePaintV2]) -> String {
-    let mut output = String::from("[");
+    let mut output = String::new();
+    write_vector_paints_v2(&mut output, values);
+    output
+}
+fn write_vector_paints_v2(
+    output: &mut dyn BookCanonicalSink,
+    values: &[BookVectorLanguagePaintV2],
+) {
+    output.push_str("[");
     for (index, paint) in values.iter().enumerate() {
         if index != 0 {
             output.push(',');
         }
         output.push_str("{\"display_command_fingerprint\":");
-        push_hash(&mut output, paint.display_command_fingerprint);
+        push_hash(output, paint.display_command_fingerprint);
         output.push_str(",\"kind\":");
-        push_jcs_string(&mut output, paint.kind.as_str());
+        push_book_string(output, paint.kind.as_str());
         output.push_str(",\"language\":");
-        push_jcs_string(&mut output, &paint.language);
+        push_book_string(output, &paint.language);
         output.push_str(",\"language_record_fingerprint\":");
-        push_hash(&mut output, paint.language_record_fingerprint);
+        push_hash(output, paint.language_record_fingerprint);
         output.push_str(",\"owner_node_id\":");
         output.push_str(&paint.owner_node_id.get().to_string());
         output.push_str(",\"page_index\":");
@@ -1639,17 +1666,21 @@ fn encode_vector_paints_v2(values: &[BookVectorLanguagePaintV2]) -> String {
         output.push('}');
     }
     output.push(']');
-    output
 }
 
 fn encode_links_v2(values: &[BookInternalLink]) -> String {
-    let mut output = String::from("[");
+    let mut output = String::new();
+    write_links_v2(&mut output, values);
+    output
+}
+fn write_links_v2(output: &mut dyn BookCanonicalSink, values: &[BookInternalLink]) {
+    output.push_str("[");
     for (index, link) in values.iter().enumerate() {
         if index != 0 {
             output.push(',');
         }
         output.push_str("{\"destination\":");
-        push_jcs_string(&mut output, link.destination.as_str());
+        push_book_string(output, link.destination.as_str());
         output.push_str(",\"height_raw\":");
         output.push_str(&link.height_raw.to_string());
         output.push_str(",\"owner_node_id\":");
@@ -1665,10 +1696,9 @@ fn encode_links_v2(values: &[BookInternalLink]) -> String {
         output.push('}');
     }
     output.push(']');
-    output
 }
 
-fn push_view(output: &mut String, view: &DestinationView) {
+fn push_view(output: &mut dyn BookCanonicalSink, view: &DestinationView) {
     match view {
         DestinationView::Xyz { point } => {
             output.push_str("{\"kind\":\"xyz\",\"x\":");
@@ -1690,7 +1720,7 @@ fn push_view(output: &mut String, view: &DestinationView) {
     }
 }
 
-fn push_hash(output: &mut String, value: [u8; 32]) {
+fn push_hash(output: &mut dyn BookCanonicalSink, value: [u8; 32]) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     output.push('"');
     for byte in value {
@@ -2067,5 +2097,94 @@ mod tests {
 #[path = "production_book_navigation.rs"]
 mod production_book_navigation;
 pub use production_book_navigation::{
-    project_production_footnote_book_navigation, ProductionFootnoteBookNavigationInputs,
+    project_production_footnote_book_navigation, seal_production_footnote_book_navigation,
+    ProductionFootnoteBookNavigation, ProductionFootnoteBookNavigationInputs,
 };
+
+trait BookCanonicalSink {
+    fn push_str(&mut self, value: &str);
+    fn push(&mut self, value: char);
+}
+impl BookCanonicalSink for String {
+    fn push_str(&mut self, value: &str) {
+        String::push_str(self, value);
+    }
+    fn push(&mut self, value: char) {
+        String::push(self, value);
+    }
+}
+fn push_book_string(output: &mut dyn BookCanonicalSink, value: &str) {
+    output.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{09}' => output.push_str("\\t"),
+            '\u{0a}' => output.push_str("\\n"),
+            '\u{0c}' => output.push_str("\\f"),
+            '\u{0d}' => output.push_str("\\r"),
+            character if character <= '\u{1f}' => {
+                output.push_str(&format!("\\u{:04x}", u32::from(character)));
+            }
+            character => output.push(character),
+        }
+    }
+    output.push('"');
+}
+
+fn encode_book_bounded(
+    spool: &mut u64,
+    limits: &M4EffectiveResourceLimits,
+    emit: impl Fn(&mut dyn BookCanonicalSink),
+) -> Result<String, BookNavigationSelectedError> {
+    struct Count(Option<usize>);
+    impl BookCanonicalSink for Count {
+        fn push_str(&mut self, value: &str) {
+            self.0 = self.0.and_then(|n| n.checked_add(value.len()));
+        }
+        fn push(&mut self, value: char) {
+            self.0 = self.0.and_then(|n| n.checked_add(value.len_utf8()));
+        }
+    }
+    let mut count = Count(Some(0));
+    emit(&mut count);
+    let length = count.0.ok_or(BookNavigationSelectedError::SpoolLimit)?;
+    *spool = spool
+        .checked_add(length as u64)
+        .ok_or(BookNavigationSelectedError::SpoolLimit)?;
+    if *spool > limits.base().get().max_spool_bytes {
+        return Err(BookNavigationSelectedError::SpoolLimit);
+    }
+    let mut result = String::new();
+    result
+        .try_reserve_exact(length)
+        .map_err(|_| BookNavigationSelectedError::AllocationFailure)?;
+    emit(&mut result);
+    Ok(result)
+}
+
+#[test]
+fn book_navigation_counted_encoding_preserves_jcs_escaping_and_spool_boundary() {
+    let limits = M4EffectiveResourceLimits::new(
+        ValidatedResourceLimits::new(typaxis_core::ResourceLimits::default()).unwrap(),
+        typaxis_core::M4ResourceLimits::default(),
+    )
+    .unwrap();
+    let mut text = String::from("漢字💠\"\\");
+    text.extend((0..=31).map(|n| char::from_u32(n).unwrap()));
+    let mut expected = String::new();
+    push_jcs_string(&mut expected, &text);
+    let cap = limits.base().get().max_spool_bytes;
+    let mut exact = cap - expected.len() as u64;
+    assert_eq!(
+        encode_book_bounded(&mut exact, &limits, |out| push_book_string(out, &text)).unwrap(),
+        expected
+    );
+    assert_eq!(exact, cap);
+    let mut short = cap - expected.len() as u64 + 1;
+    assert_eq!(
+        encode_book_bounded(&mut short, &limits, |out| push_book_string(out, &text)).unwrap_err(),
+        BookNavigationSelectedError::SpoolLimit
+    );
+}

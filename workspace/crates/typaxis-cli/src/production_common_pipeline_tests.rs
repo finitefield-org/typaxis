@@ -193,7 +193,10 @@ fn production_common_footnote_driver_closes_actual_source_to_pdf() {
                     assert_eq!(observation.record_charge, book_inputs.record_charge());
                     assert_eq!(observation.spool_charge, book_inputs.spool_charge());
                     assert!(observation.record_charge > pdf.record_charge());
-                    assert_eq!(book_inputs.pages().len(), pdf.page_count() as usize);
+                    assert_eq!(
+                        book_inputs.selected().pages().len(),
+                        pdf.page_count() as usize
+                    );
                     assert!(observation.page_work_steps >= stable.work_steps());
                     assert!(observation.line_candidate_steps > 0);
                     used_steps = observation.line_candidate_steps + observation.page_work_steps;

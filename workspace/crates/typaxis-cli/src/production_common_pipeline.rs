@@ -186,7 +186,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             '_,
         >,
         &typaxis_pagination::ProductionBodyFootnoteStablePages<'_, '_, '_, '_, '_>,
-        &typaxis_display_list::ProductionFootnoteBookNavigationInputs<
+        &typaxis_display_list::ProductionFootnoteBookNavigation<
             '_,
             '_,
             '_,
@@ -321,6 +321,21 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             .map_err(map_production_input_error)?;
             book_inputs
                 .verify(annotations.navigation(), admitted, limits)
+                .map_err(map_production_internal_error)?;
+            let book_inputs = typaxis_display_list::seal_production_footnote_book_navigation(
+                book_inputs,
+                profile.base().authorization(),
+                admitted,
+                limits,
+            )
+            .map_err(map_production_input_error)?;
+            book_inputs
+                .verify(
+                    annotations.navigation(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
                 .map_err(map_production_internal_error)?;
             let observation = ProductionCommonFootnoteObservation {
                 line_reshape_passes: stable.passes().len(),

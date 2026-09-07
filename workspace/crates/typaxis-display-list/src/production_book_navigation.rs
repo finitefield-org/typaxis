@@ -293,3 +293,170 @@ pub fn project_production_footnote_book_navigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, '
         spool_charge,
     })
 }
+
+/// Selected book facts remain bound to the actual joint navigation. The legacy
+/// Display verifier is not used to authorize this alternative source owner.
+pub struct ProductionFootnoteBookNavigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    source: &'i crate::ProductionFootnoteNavigation<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    selected: BookNavigationSelectedReceiptV2,
+    child_language_paints: Vec<BookLanguagePaintV2>,
+    record_charge: u64,
+    spool_charge: u64,
+}
+impl ProductionFootnoteBookNavigation<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub fn selected(&self) -> &BookNavigationSelectedReceiptV2 {
+        &self.selected
+    }
+    pub fn child_language_paints(&self) -> &[BookLanguagePaintV2] {
+        &self.child_language_paints
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.spool_charge
+    }
+    pub fn verify(
+        &self,
+        source: &crate::ProductionFootnoteNavigation<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+        profile: &StagingBookNavigationProfileAuthorizationV2,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), BookNavigationSelectedError> {
+        if !std::ptr::eq(self.source, source)
+            || self.selected.profile_sha256 != profile.profile_receipt_fingerprint()
+            || self.selected.limits_sha256 != limits.fingerprint()
+        {
+            return Err(BookNavigationSelectedError::ReceiptMismatch);
+        }
+        source
+            .structure()
+            .verify(source.structure().display(), admitted, limits)
+            .map_err(|_| BookNavigationSelectedError::ReceiptMismatch)
+    }
+}
+
+pub fn seal_production_footnote_book_navigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+    inputs: ProductionFootnoteBookNavigationInputs<'i, 'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    profile: &StagingBookNavigationProfileAuthorizationV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<
+    ProductionFootnoteBookNavigation<'i, 'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    BookNavigationSelectedError,
+> {
+    use BookNavigationSelectedError as E;
+    inputs.verify(inputs.source, admitted, limits)?;
+    let display = inputs.source.structure().display();
+    let navigation = display.source().line_layout().source_flow().navigation();
+    if navigation.limits() != limits
+        || profile.metadata_sha256() != navigation.metadata().fingerprint()
+        || profile.language_sha256() != navigation.languages().fingerprint()
+        || profile.outline_sha256() != navigation.outline().fingerprint()
+        || profile.limits_sha256() != limits.fingerprint()
+    {
+        return Err(E::ProfileMismatch);
+    }
+    let record_charge = inputs
+        .record_charge
+        .checked_add(
+            (navigation.outline().entries().len() as u64)
+                .checked_mul(4)
+                .ok_or(E::FragmentLimit)?,
+        )
+        .and_then(|n| n.checked_add((inputs.destinations.len() as u64).checked_mul(2)?))
+        .and_then(|n| n.checked_add(8))
+        .ok_or(E::FragmentLimit)?;
+    if record_charge > limits.base().get().max_fragments {
+        return Err(E::FragmentLimit);
+    }
+    let mut spool_charge = inputs.spool_charge;
+    for entry in navigation.outline().entries() {
+        for value in [
+            entry.label.as_str(),
+            entry.destination.as_str(),
+            entry.source.computed_language.as_str(),
+        ] {
+            spool_charge = spool_charge
+                .checked_add(value.len() as u64)
+                .ok_or(E::SpoolLimit)?;
+            if spool_charge > limits.base().get().max_spool_bytes {
+                return Err(E::SpoolLimit);
+            }
+        }
+    }
+    let fragment_count = display
+        .source()
+        .geometry()
+        .pages()
+        .iter()
+        .try_fold(0u64, |n, p| n.checked_add(p.fragments().len() as u64))
+        .ok_or(E::FragmentLimit)?;
+    let registry = validate_destinations_v2(navigation, &inputs.destinations, &inputs.pages)?;
+    let entries = resolve_entries_v2(navigation, &registry, fragment_count, limits.base())?;
+    let destinations = encode_book_bounded(&mut spool_charge, limits, |out| {
+        write_destination_registry(out, &inputs.destinations)
+    })?;
+    let mut selected = BookNavigationSelectedReceiptV2 {
+        metadata_sha256: navigation.metadata().fingerprint(),
+        language_sha256: navigation.languages().fingerprint(),
+        outline_sha256: navigation.outline().fingerprint(),
+        profile_sha256: profile.profile_receipt_fingerprint(),
+        limits_sha256: limits.fingerprint(),
+        selected_layout_sha256: display.fingerprint(),
+        selected_layout_fragment_count: fragment_count,
+        destination_registry_sha256: sha256(destinations.as_bytes()),
+        vector_display_sha256: display.fingerprint(),
+        pages: inputs.pages,
+        destinations: inputs.destinations,
+        entries,
+        language_paints: inputs.language_paints,
+        vector_paints: inputs.vector_paints,
+        links: inputs.links,
+        canonical_jcs: String::new(),
+        fingerprint: [0; 32],
+    };
+    let hashes = [
+        sha256(
+            encode_book_bounded(&mut spool_charge, limits, |out| {
+                write_entries_v2(out, &selected.entries)
+            })?
+            .as_bytes(),
+        ),
+        sha256(
+            encode_book_bounded(&mut spool_charge, limits, |out| {
+                write_language_paints_v2(out, &selected.language_paints)
+            })?
+            .as_bytes(),
+        ),
+        sha256(
+            encode_book_bounded(&mut spool_charge, limits, |out| {
+                write_links_v2(out, &selected.links)
+            })?
+            .as_bytes(),
+        ),
+        sha256(
+            encode_book_bounded(&mut spool_charge, limits, |out| {
+                write_pages_v2(out, &selected.pages)
+            })?
+            .as_bytes(),
+        ),
+        sha256(
+            encode_book_bounded(&mut spool_charge, limits, |out| {
+                write_vector_paints_v2(out, &selected.vector_paints)
+            })?
+            .as_bytes(),
+        ),
+    ];
+    selected.canonical_jcs = encode_book_bounded(&mut spool_charge, limits, |out| {
+        write_selected_v2(out, &selected, &hashes)
+    })?;
+    selected.fingerprint = sha256(selected.canonical_jcs.as_bytes());
+    Ok(ProductionFootnoteBookNavigation {
+        source: inputs.source,
+        selected,
+        child_language_paints: inputs.child_language_paints,
+        record_charge,
+        spool_charge,
+    })
+}
