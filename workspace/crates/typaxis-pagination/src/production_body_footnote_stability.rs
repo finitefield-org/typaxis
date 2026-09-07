@@ -29,13 +29,24 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         &mut self,
     ) -> Result<ProductionBodyFootnoteStablePages<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
     {
+        self.select_stable_pages_with_pass_limit(self.maximum_passes)
+    }
+
+    /// A nested convergence owner can supply its remaining pass allowance.
+    /// The document ceiling still applies and cannot be increased by a caller.
+    pub fn select_stable_pages_with_pass_limit(
+        &mut self,
+        remaining_passes: u16,
+    ) -> Result<ProductionBodyFootnoteStablePages<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
+    {
+        let maximum_passes = self.maximum_passes.min(remaining_passes);
         let root = NodeId::new(0);
-        if self.maximum_passes < 2 {
+        if maximum_passes < 2 {
             return Err(error(root, E::PagePassLimit));
         }
         self.content.charge.take(1, root)?;
         let mut previous = self.select_pages()?;
-        for pass in 2..=self.maximum_passes {
+        for pass in 2..=maximum_passes {
             self.content.charge.take(1, root)?;
             let current = self.select_pages()?;
             let before = self.place_pages_content(&previous)?;

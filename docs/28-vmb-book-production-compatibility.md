@@ -2508,3 +2508,26 @@ Text／Number形式、公開writer／manifest・CLIおよび元全巻等の受�
 は165件成功・1件ignored（12.85秒）。targetは`/private/tmp/typaxis-vmb-book-build`、
 最終ログは`/private/tmp/typaxis-page-reference-final-regression.log`。5,000画像と実全巻の
 検証は今回のテストに含まれない。
+
+### 14.72 実ページ参照の再生成と共通driverの収束（実装追補）
+
+共通本文・脚注driverはPage-format参照を検出し、初期候補1から実destinationのページ値へ
+更新してsource flow・shaping・行・ページ・PDFを再構築する。全参照のowner集合を保持し、
+実ページ値と候補値が一致した完成結果について、display・book selection・PDFのfingerprintが
+連続2回一致した場合だけconsumerを呼ぶ。誤った候補を描画できたことだけでは結果を返さない。
+Text／Number形式や公開writerの認可へは拡張していない。
+
+行探索とページ探索のworkは全再試行を通した残量を渡す。ページpassも同じmax_layout_passesから
+減算し、内側のselect_stable_pages_with_pass_limitへ残量を渡す。このAPIは文書上限を増やせず、
+残量2未満では配置開始前に拒否する。候補配列はsource順へ整列するための3配列分を確保前に
+記録予算へ計上する。完成した各passのrecord／spool費用を累積し、上限超過でconsumerを呼ばない。
+この完成pass費用の照合は全stageの一時allocationに対する事前課金の代替ではなく、その統合は
+引き続き未完である。各passの借用graphは次の再試行前に破棄し、PDF全体のコピーは保持しない。
+
+1／2／12ページへの参照で、正しい初期候補は2回、不一致の初期候補は更新と2回の一致確認を
+合わせた3回で完了することを実PDFで検証した。共通driverの自動初期化でも同じPDFとなる。
+探索work・完成pass records／spoolの必要量ちょうどと1不足、ページpass上限5／6を検証し、
+不足時にconsumerを呼ばないことを確認した。関連CLI回帰は166件成功・1件ignored（12.61秒）、
+ログは`/private/tmp/typaxis-page-reference-auto-regression.log`。コマンド・targetは前節と同じ。
+桁数によって実改行・改ページが変わる書籍規模の検証、最終bidi、全allocation寿命管理、公開
+writer／manifest・CLI、正式exporter、元全巻・原ノ味・規模・両hostゲートは引き続き必要である。

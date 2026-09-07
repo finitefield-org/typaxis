@@ -5610,3 +5610,26 @@ CLI production regressions passed 165 tests, with 1 ignored and unchanged
 `/private/tmp/typaxis-page-reference-final-regression.log`.
 Automatic reference convergence and cumulative retry budgets, public writer/
 manifest/CLI integration and the full book/Harano/scale/host gates remain open.
+
+## 2026-09-08 — Actual page-reference feedback in the common driver
+
+Implemented design §14.72. The common driver initializes Page references,
+rebuilds their generated text from actual destination pages, and returns only
+after all labels agree and two completed display/book/PDF selections match.
+The retry owner shares line/page search work and page-pass limits. Completed-pass
+record/spool charges accumulate without refunds; full intermediate allocation
+admission remains required before public integration.
+
+Actual PDF tests cover matching and mismatching seeds on pages 1/2/12,
+automatic common-driver routing, exact/one-short work/record/spool limits and
+page-pass limits 5/6. CLI production regression: 166 passed, 1 ignored, 12.61 s;
+unchanged 5,000-image tests excluded. Log:
+`/private/tmp/typaxis-page-reference-auto-regression.log`.
+Public CLI/writer/manifest, Text/Number references, reflow-changing book fixtures,
+full allocation accounting, exporter and original-book/Harano/scale/host gates
+remain incomplete. No public receipt or release approval is implied.
+
+The nested page-pass admission tests also passed (2 tests, 0.85 s;
+`/private/tmp/typaxis-page-reference-pass-admission.log`), including no work or
+record consumption for remaining allowance 1 and refusal to raise a document
+ceiling of 1 with a caller allowance of u16::MAX. All test processes are terminal.

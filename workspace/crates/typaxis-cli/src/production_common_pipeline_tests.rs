@@ -382,30 +382,35 @@ fn production_common_footnote_pdf_limits_keep_limit_exit_and_hide_partial_output
     }
 }
 
+fn production_page_reference_fixture(blank_pages: u32) -> (serde_json::Value, NodeId) {
+    use serde_json::json;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
+    value["document"]["blocks"][0]["anchor_id"] = "target".into();
+    let paragraph = &mut value["document"]["blocks"][0]["blocks"][0];
+    let span = paragraph["span"].clone();
+    paragraph["children"].as_array_mut().unwrap().push(json!({
+        "kind":"reference", "node_id":4, "span":span, "target":"target", "format":"page"
+    }));
+    for _ in 0..blank_pages {
+        value["document"]["blocks"].as_array_mut().unwrap().insert(
+            0,
+            json!({"kind":"page_break", "node_id":0, "classes":[], "span":span}),
+        );
+    }
+    production_body_renumber(&mut value["document"], &mut 0);
+    let reference_owner = NodeId::new(
+        value["document"]["blocks"][blank_pages as usize]["blocks"][0]["children"][1]["node_id"]
+            .as_u64()
+            .unwrap() as u32,
+    );
+    (value, reference_owner)
+}
+
 #[test]
 fn production_page_reference_candidates_shape_and_select_real_generated_digits() {
-    use serde_json::json;
     for blank_pages in [0u32, 1, 11] {
-        let mut value: serde_json::Value =
-            serde_json::from_slice(&production_text_single_paragraph(&["A"], "Body")).unwrap();
-        value["document"]["blocks"][0]["anchor_id"] = "target".into();
-        let paragraph = &mut value["document"]["blocks"][0]["blocks"][0];
-        let span = paragraph["span"].clone();
-        paragraph["children"].as_array_mut().unwrap().push(json!({
-            "kind":"reference", "node_id":4, "span":span, "target":"target", "format":"page"
-        }));
-        for _ in 0..blank_pages {
-            value["document"]["blocks"].as_array_mut().unwrap().insert(
-                0,
-                json!({"kind":"page_break", "node_id":0, "classes":[], "span":span}),
-            );
-        }
-        production_body_renumber(&mut value["document"], &mut 0);
-        let reference_owner = NodeId::new(
-            value["document"]["blocks"][blank_pages as usize]["blocks"][0]["children"][1]["node_id"]
-                .as_u64()
-                .unwrap() as u32,
-        );
+        let (value, reference_owner) = production_page_reference_fixture(blank_pages);
         let actual_page = blank_pages + 1;
         let bytes = serde_json::to_vec(&value).unwrap();
         let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());
@@ -482,6 +487,7 @@ fn production_page_reference_candidates_shape_and_select_real_generated_digits()
                 typaxis_linebreak::JapaneseLineBreakMode::Normal,
                 100_000,
                 Some(&[(reference_owner, page)]),
+                limits.base().get().max_layout_passes,
                 |pdf, _, book, _, observed| {
                     assert!(observed.line_reshape_passes >= 2);
                     assert!(observed.page_passes >= 2);
@@ -513,6 +519,173 @@ fn production_page_reference_candidates_shape_and_select_real_generated_digits()
             )
             .unwrap();
         }
+        for seed in [1, 12] {
+            let (expected_hash, convergence) = with_converged_production_page_reference_pdf(
+                &package,
+                &navigation,
+                &semantics,
+                &profile,
+                &admitted,
+                &limits,
+                typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                100_000,
+                &[(reference_owner, seed)],
+                |pdf, _, book, _, _, convergence| {
+                    assert_eq!(pdf.page_count(), actual_page);
+                    assert_eq!(
+                        book.resolved_page_references()
+                            .collect::<Result<Vec<_>, _>>()
+                            .unwrap(),
+                        vec![(reference_owner, actual_page)]
+                    );
+                    let label = format!(
+                        "/ActualText <FEFF{}>",
+                        actual_page
+                            .to_string()
+                            .encode_utf16()
+                            .map(|unit| format!("{unit:04X}"))
+                            .collect::<String>()
+                    );
+                    assert!(pdf
+                        .bytes()
+                        .windows(label.len())
+                        .any(|bytes| bytes == label.as_bytes()));
+                    assert_eq!(convergence.passes, if seed == actual_page { 2 } else { 3 });
+                    assert_eq!(convergence.page_passes, convergence.passes * 2);
+                    Ok((pdf.content_hash(), convergence))
+                },
+            )
+            .unwrap();
+            if seed == 1 {
+                with_production_common_footnote_pdf(
+                    &package,
+                    &navigation,
+                    &semantics,
+                    &profile,
+                    &admitted,
+                    &limits,
+                    typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                    100_000,
+                    |pdf, _, _, _, observed| {
+                        assert_eq!(pdf.content_hash(), expected_hash);
+                        assert_eq!(observed.page_passes, convergence.page_passes);
+                        assert_eq!(
+                            observed.line_reshape_passes,
+                            convergence.line_reshape_passes
+                        );
+                        assert_eq!(
+                            observed.line_candidate_steps,
+                            convergence.line_candidate_steps
+                        );
+                        assert_eq!(observed.page_work_steps, convergence.page_work_steps);
+                        assert_eq!(observed.record_charge, convergence.record_charge);
+                        assert_eq!(observed.spool_charge, convergence.spool_charge);
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            }
+            let work = convergence.line_candidate_steps + convergence.page_work_steps;
+            for budget in [work - 1, work] {
+                let mut inspected = false;
+                let result = with_converged_production_page_reference_pdf(
+                    &package,
+                    &navigation,
+                    &semantics,
+                    &profile,
+                    &admitted,
+                    &limits,
+                    typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                    budget,
+                    &[(reference_owner, seed)],
+                    |pdf, _, _, _, _, repeated| {
+                        inspected = true;
+                        assert_eq!(pdf.content_hash(), expected_hash);
+                        assert_eq!(repeated, convergence);
+                        Ok(())
+                    },
+                );
+                assert_eq!(inspected, budget == work);
+                if budget == work {
+                    result.unwrap();
+                } else {
+                    let error = result.unwrap_err();
+                    assert_eq!(error.kind, FailureKind::Limit);
+                    assert!(error.message.starts_with("L5110:"), "{error:?}");
+                }
+            }
+        }
         assert_ne!(fingerprints[0], fingerprints[1]);
+    }
+}
+
+#[test]
+fn production_page_reference_convergence_enforces_cumulative_limits() {
+    let (value, owner) = production_page_reference_fixture(0);
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let mut records = 0;
+    let mut spool = 0;
+    for mode in 0..5 {
+        let mut caps = ResourceLimits::default();
+        match mode {
+            1 => caps.max_layout_passes = 5,
+            2 => caps.max_fragments = records - 1,
+            3 => caps.max_spool_bytes = spool - 1,
+            4 => {
+                caps.max_layout_passes = 6;
+                caps.max_fragments = records;
+                caps.max_spool_bytes = spool;
+            }
+            _ => {}
+        }
+        let (package, navigation, limits, admitted) =
+            production_text_fixture(&bytes, &config_with_limits(caps));
+        let semantics =
+            typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+                .unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity,
+        )
+        .unwrap();
+        let mut inspected = false;
+        let result = with_converged_production_page_reference_pdf(
+            &package,
+            &navigation,
+            &semantics,
+            &profile,
+            &admitted,
+            &limits,
+            typaxis_linebreak::JapaneseLineBreakMode::Normal,
+            100_000,
+            &[(owner, 12)],
+            |_, _, _, _, _, observation| {
+                inspected = true;
+                assert_eq!(observation.passes, 3);
+                assert_eq!(observation.page_passes, 6);
+                if mode == 0 {
+                    records = observation.record_charge;
+                    spool = observation.spool_charge;
+                }
+                Ok(())
+            },
+        );
+        assert_eq!(inspected, mode == 0 || mode == 4);
+        if inspected {
+            result.unwrap();
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(error.kind, FailureKind::Limit, "mode {mode}: {error:?}");
+            assert!(
+                error
+                    .message
+                    .starts_with(if mode == 3 { "D8101:" } else { "L5110:" }),
+                "{error:?}"
+            );
+        }
     }
 }

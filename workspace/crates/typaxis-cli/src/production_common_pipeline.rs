@@ -203,6 +203,67 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
         ProductionCommonFootnoteObservation,
     ) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
+    let initial_values = {
+        let flow = typaxis_syntax::prepare_production_text_flow(package, navigation, limits)
+            .map_err(map_production_input_error)?;
+        let owners = || {
+            flow.paragraphs()
+                .iter()
+                .flat_map(|p| p.items())
+                .filter_map(|site| {
+                    matches!(
+                        site.reference(),
+                        Some(typaxis_syntax::ProductionInlineReference::Anchor {
+                            format: typaxis_syntax::ProductionReferenceFormat::Page,
+                            ..
+                        })
+                    )
+                    .then_some(site.owner())
+                })
+        };
+        let count = owners().count();
+        if count == 0 {
+            None
+        } else {
+            if (count as u64)
+                .checked_mul(3)
+                .is_none_or(|n| n > limits.base().get().max_fragments)
+            {
+                return Err(Failure::limit("L5110: page reference initial records"));
+            }
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(count)
+                .map_err(|_| Failure::limit("L5110: page reference initial allocation"))?;
+            // Page 1 is only an initial candidate. No consumer sees it until
+            // actual destinations and repeated completed selections agree.
+            values.extend(owners().map(|owner| (owner, 1)));
+            values.sort_unstable_by_key(|value| value.0);
+            Some(values)
+        }
+    };
+    if let Some(values) = initial_values {
+        return with_converged_production_page_reference_pdf(
+            package,
+            navigation,
+            semantics,
+            profile,
+            admitted,
+            limits,
+            japanese_mode,
+            max_candidate_steps,
+            &values,
+            |pdf, pages, book, book_pdf, mut observation, total| {
+                observation.line_reshape_passes = total.line_reshape_passes;
+                observation.page_passes = total.page_passes;
+                observation.line_candidate_steps = total.line_candidate_steps;
+                observation.page_work_steps = total.page_work_steps;
+                observation.record_charge = total.record_charge;
+                observation.spool_charge = total.spool_charge;
+                inspect(pdf, pages, book, book_pdf, observation)
+            },
+        );
+    }
     with_production_common_footnote_pdf_candidates(
         package,
         navigation,
@@ -213,6 +274,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
         japanese_mode,
         max_candidate_steps,
         None,
+        limits.base().get().max_layout_passes,
         inspect,
     )
 }
@@ -229,6 +291,7 @@ pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
     japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
     max_candidate_steps: u64,
     page_values: Option<&[(NodeId, u32)]>,
+    remaining_page_passes: u16,
     inspect: impl FnOnce(
         &typaxis_pdf::ProductionFootnotePdfAssembly<
             '_,
@@ -325,7 +388,7 @@ pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
             )
             .map_err(map_common_pagination_error)?;
             let pages = search
-                .select_stable_pages()
+                .select_stable_pages_with_pass_limit(remaining_page_passes)
                 .map_err(map_common_pagination_error)?;
             let geometry = search
                 .place_pages_content(pages.sequence())
@@ -428,6 +491,207 @@ pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
         },
     )
     .map_err(map_common_reshape_error)?
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ProductionPageReferenceConvergenceObservation {
+    pub passes: u16,
+    pub line_reshape_passes: usize,
+    pub page_passes: u16,
+    pub line_candidate_steps: u64,
+    pub page_work_steps: u64,
+    pub record_charge: u64,
+    pub spool_charge: u64,
+}
+
+// This diagnostic owner updates page labels from actual destination placements
+// and requires two identical completed PDF selections. It does not issue public
+// publication receipts. Stage-local allocation admission remains in each stage;
+// aggregate completed-pass charges below do not replace pre-allocation admission
+// across all intermediate allocations, which is still a separate integration.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn with_converged_production_page_reference_pdf<R>(
+    package: &typaxis_syntax::ValidatedStagingSemanticPackage,
+    navigation: &typaxis_syntax::ValidatedStagingBookNavigationV2,
+    semantics: &typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+    profile: &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &typaxis_core::M4EffectiveResourceLimits,
+    japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
+    max_candidate_steps: u64,
+    initial_values: &[(NodeId, u32)],
+    inspect: impl FnOnce(
+        &typaxis_pdf::ProductionFootnotePdfAssembly<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        &typaxis_pagination::ProductionBodyFootnoteStablePages<'_, '_, '_, '_, '_>,
+        &typaxis_display_list::ProductionFootnoteBookNavigation<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        &typaxis_pdf::ProductionBookPdfObservation,
+        ProductionCommonFootnoteObservation,
+        ProductionPageReferenceConvergenceObservation,
+    ) -> Result<R, Failure>,
+) -> Result<R, Failure> {
+    let caps = limits.base().get();
+    let row_charge = (initial_values.len() as u64)
+        .checked_mul(3)
+        .ok_or_else(|| Failure::limit("L5110: page reference feedback records"))?;
+    if row_charge > caps.max_fragments {
+        return Err(Failure::limit("L5110: page reference feedback records"));
+    }
+    let mut values = Vec::new();
+    let mut next = Vec::new();
+    values
+        .try_reserve_exact(initial_values.len())
+        .map_err(|_| Failure::limit("L5110: page reference feedback allocation"))?;
+    next.try_reserve_exact(initial_values.len())
+        .map_err(|_| Failure::limit("L5110: page reference feedback allocation"))?;
+    values.extend_from_slice(initial_values);
+    let mut total = ProductionPageReferenceConvergenceObservation {
+        passes: 0,
+        line_reshape_passes: 0,
+        page_passes: 0,
+        line_candidate_steps: 0,
+        page_work_steps: 0,
+        record_charge: row_charge,
+        spool_charge: 0,
+    };
+    let mut previous = None;
+    let mut inspect = Some(inspect);
+    loop {
+        // Every invocation needs at least two actual page-selection passes.
+        // All calls share the work and pass ceilings; no retry refunds work.
+        if caps.max_layout_passes.saturating_sub(total.page_passes) < 2 {
+            return Err(Failure::limit(
+                "L5110: page reference convergence pass limit",
+            ));
+        }
+        let remaining = max_candidate_steps
+            .checked_sub(total.line_candidate_steps)
+            .and_then(|n| n.checked_sub(total.page_work_steps))
+            .ok_or_else(|| Failure::limit("L5110: page reference convergence work limit"))?;
+        next.clear();
+        let result = with_production_common_footnote_pdf_candidates(
+            package,
+            navigation,
+            semantics,
+            profile,
+            admitted,
+            limits,
+            japanese_mode,
+            remaining,
+            Some(&values),
+            caps.max_layout_passes - total.page_passes,
+            |pdf, pages, book, book_pdf, observation| {
+                total.passes = total
+                    .passes
+                    .checked_add(1)
+                    .ok_or_else(|| Failure::limit("L5110: page reference pass overflow"))?;
+                total.line_reshape_passes = total
+                    .line_reshape_passes
+                    .checked_add(observation.line_reshape_passes)
+                    .ok_or_else(|| Failure::limit("L5110: page reference reshape pass overflow"))?;
+                total.page_passes = total
+                    .page_passes
+                    .checked_add(observation.page_passes)
+                    .filter(|n| *n <= caps.max_layout_passes)
+                    .ok_or_else(|| {
+                        Failure::limit("L5110: page reference convergence pass limit")
+                    })?;
+                total.line_candidate_steps = total
+                    .line_candidate_steps
+                    .checked_add(observation.line_candidate_steps)
+                    .ok_or_else(|| {
+                        Failure::limit("L5110: page reference convergence work limit")
+                    })?;
+                total.page_work_steps = total
+                    .page_work_steps
+                    .checked_add(observation.page_work_steps)
+                    .ok_or_else(|| {
+                        Failure::limit("L5110: page reference convergence work limit")
+                    })?;
+                if total
+                    .line_candidate_steps
+                    .checked_add(total.page_work_steps)
+                    .is_none_or(|n| n > max_candidate_steps)
+                {
+                    return Err(Failure::limit(
+                        "L5110: page reference convergence work limit",
+                    ));
+                }
+                total.record_charge = total
+                    .record_charge
+                    .checked_add(observation.record_charge)
+                    .filter(|n| *n <= caps.max_fragments)
+                    .ok_or_else(|| {
+                        Failure::limit("L5110: page reference completed-pass records")
+                    })?;
+                total.spool_charge = total
+                    .spool_charge
+                    .checked_add(observation.spool_charge)
+                    .filter(|n| *n <= caps.max_spool_bytes)
+                    .ok_or_else(|| Failure::limit("D8101: page reference completed-pass spool"))?;
+                for resolved in book.resolved_page_references() {
+                    if next.len() == initial_values.len() {
+                        return Err(Failure::internal(
+                            "page reference feedback source count mismatch",
+                        ));
+                    }
+                    next.push(resolved.map_err(map_production_internal_error)?);
+                }
+                next.sort_unstable_by_key(|value| value.0);
+                if next.len() != values.len() || next.iter().zip(&values).any(|(a, b)| a.0 != b.0) {
+                    return Err(Failure::internal(
+                        "page reference feedback source identity mismatch",
+                    ));
+                }
+                let state = (
+                    observation.display_sha256,
+                    book.selected().fingerprint(),
+                    pdf.content_hash(),
+                );
+                let labels_match = next == values;
+                if labels_match && previous == Some(state) {
+                    let inspect = inspect
+                        .take()
+                        .ok_or_else(|| Failure::internal("page reference consumer reused"))?;
+                    return inspect(pdf, pages, book, book_pdf, observation, total).map(Some);
+                }
+                previous = if labels_match { Some(state) } else { None };
+                Ok(None)
+            },
+        )?;
+        if let Some(result) = result {
+            return Ok(result);
+        }
+        std::mem::swap(&mut values, &mut next);
+    }
 }
 
 fn common_pdf_failure(stage: &str, code: Option<&str>, error: impl std::fmt::Debug) -> Failure {

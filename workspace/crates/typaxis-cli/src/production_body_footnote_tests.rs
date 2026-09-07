@@ -875,6 +875,12 @@ fn production_footnote_stability_repeats_complete_search_and_physical_placement(
         with_production_footnote_prepared(&value, &config(), |flow, limits| {
             let mut search =
                 prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            let before = (search.record_charge(), search.work_steps());
+            assert_eq!(
+                search.select_stable_pages_with_pass_limit(1).err().unwrap().kind,
+                E::PagePassLimit
+            );
+            assert_eq!((search.record_charge(), search.work_steps()), before);
             let stable = search.select_stable_pages().unwrap();
             assert_eq!(stable.passes(), 2);
             assert_eq!(stable.record_charge(), search.record_charge());
@@ -915,7 +921,11 @@ fn production_footnote_stability_repeats_complete_search_and_physical_placement(
             let mut search =
                 prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
             assert_eq!(
-                search.select_stable_pages().err().unwrap().kind,
+                search
+                    .select_stable_pages_with_pass_limit(u16::MAX)
+                    .err()
+                    .unwrap()
+                    .kind,
                 E::PagePassLimit
             );
         },
