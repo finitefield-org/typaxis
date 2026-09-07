@@ -5817,3 +5817,24 @@ by cmp to §14.80's independently inspected PDF; log
 `/private/tmp/typaxis-footnote-index-probe.log`.
 The full objective remains incomplete: public writer/manifest, formal exporter,
 full allocation accounting and original-book/Harano/scale/host gates remain open.
+
+
+## 2026-09-08 — Bound formal exporter's Typaxis subprocess execution
+
+VMB commit `576e0ec4` adds the process runner described in exporter §15.41.
+It uses an absolute executable and argv without a shell, a fixed environment,
+positive timeout, and a shared bounded stdout/stderr budget. On macOS/Linux,
+cancellation and post-Wait cleanup stop the process group. A retained descendant
+pipe is bounded by WaitDelay; descendants that close their pipes are also cleaned
+up after normal parent exit. Unsupported hosts reject before process start.
+
+Real subprocess tests cover literal arguments, inherited environment exclusion,
+exact/one-short output limits, exit failure, timeout/cancellation and three child
+lifecycle cases. Final `go test -C vmb-core ./internal/rendertypaxis -count=1`
+passed in 51.859 s; `/private/tmp/vmb-typaxis-process-regression.log`, process exited.
+Typaxis runtime was unchanged and its regression was not repeated.
+
+The runner is not yet the formal adapter: capability validation, canonical config,
+same-input check/build sequencing, strict artifact validation and ArtifactSink
+publication remain. Public common writer/manifest and full-book/Harano/scale/host
+gates also remain incomplete. A zero process exit is not PDF acceptance.
