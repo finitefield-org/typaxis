@@ -5,10 +5,10 @@ use std::collections::BTreeSet;
 #[path = "production_footnote_demand.rs"]
 mod demand;
 pub use demand::{
-    prepare_production_footnote_demand_search, ProductionFootnoteDemandSearch,
-    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
-    ProductionFootnoteDemandStatus, ProductionFootnoteRegionFragment,
-    ProductionFootnoteRegionSelection,
+    prepare_production_footnote_demand_search, ProductionBodyFootnoteCandidate,
+    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
+    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
+    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
 };
 
 #[derive(Clone, Copy)]

@@ -4469,3 +4469,60 @@ first-reference fit, collision freedom, final placement or public paint. Joint
 body/footnote page selection and all original full-book/Harano/scale/both-host
 acceptance requirements remain open. No public/full-book PDF result or branch
 push is claimed.
+
+### Minimum-preserving footnote allocation and simultaneous body fit
+
+The existing footnote policy requires each pending definition's minimum legal
+fragment before distributing extra capacity. A new required-region selector now
+implements that rule over real measured boundaries and authored inter-definition
+spacing. It reserves suffix minima, filters candidates to preserve later starts,
+and recomputes their costs for each actual remaining capacity. Multiple definitions
+can continue independently in queue order. A hard forced boundary cannot precede
+another selected definition in the same region. The prior partial-region selector
+remains distinct and does not claim all requirements fit.
+
+The shared boundary kernel has an internal mode that retains earlier legal cuts
+even when the terminal boundary fits. Ordinary body/footnote behavior is unchanged.
+All attempted candidate records and visited work retain the same cumulative budget.
+
+A body-footnote candidate now measures an actual local body range, checks keep and
+forced boundaries and complete reference ranges, derives collision-free capacity
+from the declared rectangles, and reserves the existing **1 pt separator band**.
+Positive footnote content is bottom-aligned in its declared maximum region;
+horizontally disjoint/above-body regions remain independent. The result binds its
+source snapshot, body range/height, actual reservation, content selection and next
+demand state. Newly encountered nested demands that have not started cause a
+non-fit; the tagged-profile nested-reference gate remains unchanged.
+
+Final footnote regression: **27 passed, 0 failed, 1.76 s**;
+`/private/tmp/typaxis-footnote-joint-verified.log`. New coverage includes two long
+definitions both starting before extras, exact minimum capacity / one-unit shortage,
+independent continuations, separator-inclusive exact geometry, two-body-line
+collision versus a fitting one-line cut, disjoint x ranges, above-body regions, keep cuts, forced
+obstructions and exact joint record/work budgets / one-unit shortage. Review also
+corrected retained candidate capacity/cost consistency after suffix reservation.
+
+Shared boundary regression: **7 passed, 0 failed, 0.01 s**;
+`/private/tmp/typaxis-footnote-joint-boundary-regression.log`.
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-pagination \
+  production_body::page_breaks --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+```
+Common-driver log: `/private/tmp/typaxis-footnote-joint-common-regression.log`.
+This local fit does not certify a sequence of body pages or rank body alternatives.
+Page/reflow limits, stable global page closure, complete fragment placement, public
+paint and all original full-book/Harano/scale/both-host gates remain incomplete.
+No public/full-book PDF result or branch push is claimed.
+
+Common-driver regression: **2 passed, 0 failed, 1 explicitly ignored** in
+**0.82 s**. All launched commands are terminal. No implementation changes
+followed final verification; the last added fixture exercised the above-body
+geometry branch. No branch push or new public/full-book PDF result is claimed.

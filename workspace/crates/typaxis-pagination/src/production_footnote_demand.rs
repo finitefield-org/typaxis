@@ -2,6 +2,12 @@
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[path = "production_body_footnote_candidate.rs"]
+mod body_candidate;
+#[path = "production_footnote_required_region.rs"]
+mod required_region;
+pub use body_candidate::ProductionBodyFootnoteCandidate;
+
 static NEXT_SEARCH: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -260,12 +266,21 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         selected: &ProductionFootnoteDemandSelection<'b, 'f, 's, 'p, 'a>,
     ) -> Result<ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
     {
+        self.advance_at(state, selected, 0)
+    }
+    fn advance_at(
+        &mut self,
+        state: &ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>,
+        selected: &ProductionFootnoteDemandSelection<'b, 'f, 's, 'p, 'a>,
+        pending_position: usize,
+    ) -> Result<ProductionFootnoteDemandState<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
+    {
         self.verify_state(state)?;
         let fragment = &selected.fragment;
         fragment.verify(self.content.flow)?;
         if selected.owner_id != self.owner_id
             || selected.state_id != state.state_id
-            || state.pending.first() != Some(&fragment.definition_index())
+            || state.pending.get(pending_position) != Some(&fragment.definition_index())
         {
             return Err(error(NodeId::new(0), E::ReceiptMismatch));
         }
@@ -294,10 +309,10 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         } else {
             result.definitions[index] = Demand::Complete { first_reference };
             // Charge the records shifted by removal as work, not new retention.
-            for pending in result.pending.iter().skip(1) {
+            for pending in result.pending.iter().skip(pending_position + 1) {
                 self.step(state.flow.footnotes.definitions()[*pending].owner())?;
             }
-            result.pending.remove(0);
+            result.pending.remove(pending_position);
         }
         self.require(&mut result, references)?;
         Ok(result)

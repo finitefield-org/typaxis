@@ -38,6 +38,7 @@ pub use body_flow::{
     prepare_production_footnote_demand_search, ProductionFootnoteDemandSearch,
     ProductionFootnoteDemandSelection, ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
     ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
+    ProductionBodyFootnoteCandidate,
     prepare_production_body_flow, prepare_production_footnote_search,
     ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteFragmentSelection,
     ProductionFootnoteMarkerBinding, ProductionPreparedBodyFlow,

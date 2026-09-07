@@ -68,7 +68,7 @@ impl ProductionBodyBreakDecision {
     }
 }
 
-fn candidate(
+pub(super) fn candidate(
     items: &[Item],
     start: usize,
     end: usize,
@@ -188,7 +188,54 @@ pub(super) fn select_boundary(
     headings: &BTreeSet<NodeId>,
     maximum: u16,
     charge: &mut Charge,
+    visit: impl FnMut(NodeId) -> Result<(), ProductionBodyPaginationError>,
+) -> Result<BoundarySelection, ProductionBodyPaginationError> {
+    select_boundary_mode(
+        items,
+        start,
+        height,
+        paragraph_lengths,
+        headings,
+        maximum,
+        charge,
+        visit,
+        false,
+    )
+}
+
+pub(super) fn all_boundaries(
+    items: &[Item],
+    start: usize,
+    height: Length,
+    paragraph_lengths: &[usize],
+    headings: &BTreeSet<NodeId>,
+    maximum: u16,
+    charge: &mut Charge,
+    visit: impl FnMut(NodeId) -> Result<(), ProductionBodyPaginationError>,
+) -> Result<BoundarySelection, ProductionBodyPaginationError> {
+    select_boundary_mode(
+        items,
+        start,
+        height,
+        paragraph_lengths,
+        headings,
+        maximum,
+        charge,
+        visit,
+        true,
+    )
+}
+
+fn select_boundary_mode(
+    items: &[Item],
+    start: usize,
+    height: Length,
+    paragraph_lengths: &[usize],
+    headings: &BTreeSet<NodeId>,
+    maximum: u16,
+    charge: &mut Charge,
     mut visit: impl FnMut(NodeId) -> Result<(), ProductionBodyPaginationError>,
+    alternatives_at_terminal: bool,
 ) -> Result<BoundarySelection, ProductionBodyPaginationError> {
     let owner = items[start].owner;
     let mut used = Length::ZERO;
@@ -222,7 +269,7 @@ pub(super) fn select_boundary(
         ProductionBodyBreakReason::Overflow
     };
     let mut candidates = Vec::new();
-    if reason != ProductionBodyBreakReason::Overflow {
+    if reason != ProductionBodyBreakReason::Overflow && !alternatives_at_terminal {
         // A mandatory boundary that already fits has no alternative cut search.
         charge.take(1, owner)?;
         candidates
@@ -244,7 +291,7 @@ pub(super) fn select_boundary(
         while boundary > start {
             let item = &items[boundary - 1];
             visit(item.owner)?;
-            if !item.keep {
+            if !item.keep || (boundary == end && reason == ProductionBodyBreakReason::End) {
                 let observed = candidates.len() as u32 + 1;
                 if observed > u32::from(maximum) {
                     return Err(error(
@@ -267,7 +314,7 @@ pub(super) fn select_boundary(
                     height,
                     paragraph_lengths,
                     headings,
-                    false,
+                    boundary == end && reason != ProductionBodyBreakReason::Overflow,
                 )?);
             }
             height_at_boundary = height_at_boundary

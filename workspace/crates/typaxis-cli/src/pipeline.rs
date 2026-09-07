@@ -5365,6 +5365,7 @@ pub(crate) mod tests {
     include!("production_text_tests.rs");
     include!("production_footnote_tests.rs");
     include!("production_footnote_demand_tests.rs");
+    include!("production_body_footnote_tests.rs");
     use super::*;
     use std::cell::Cell;
     use std::fs;
