@@ -541,6 +541,25 @@ coverageなしとする。この問い合わせは文字置換ではなく、元
 全巻ゲートは必須残件である。name-keyed入力の `/2` 共通経路への接続も残る。
 この内部admissionの成功だけではcontract 1.5 / production-book-2を有効にしない。
 
+### 7.10 選択closureとsourceを固定した評価cache
+
+`Cff1SubsetSessionV2::close_instance_selection`は全選択GIDの範囲とinstanceのCID上限を
+評価前に検査する。既存 `/1` と同じく上限は非zero GID数へ適用し、`.notdef`を一度だけ
+先頭へ加える。残りはsource GID昇順で、`Cff1GlyphClosureV2::subset_gid`はその順位を
+dense subset GIDとして返す。closureはadmission fingerprint、source hash、face ID、
+instance ID、選択順序を `/2` identityへ結ぶ。
+
+sessionはadmissionと同じ実効予算だけを受け付け、元hmtxのadvanceで選択glyphを評価する。
+現在のownerはprofile `/2`、standalone face index 0に固定されるため、cacheの可変keyは
+source SHA-256とGIDである。異なるinstance/face IDのaliasでも同じsource/GIDは一回だけ
+課金し、異なるsourceは輪郭が同じでも共有しない。失敗までに消費したworkは維持し、
+成功したglyphだけをcacheへ格納する。
+
+`prepare_face`は渡された全GIDを先に検査してから`.notdef`と昇順GIDを実行する。
+複数instanceを扱う上位ownerは、全instanceのclosureを先に作り、faceごとのunionを
+FontFaceId順に準備する必要がある。現時点のsessionは選択評価を所有するが、subset bytesの
+生成とreceipt、上位resource ownerへの接続、公開PDFはまだ実装完了とは扱わない。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成

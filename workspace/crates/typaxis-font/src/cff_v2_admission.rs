@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Debug)]
 pub struct Cff1AdmissionV2 {
+    effective_limits: M4EffectiveResourceLimits,
     source: Arc<[u8]>,
     source_sha256: [u8; 32],
     fingerprint: [u8; 32],
@@ -18,6 +19,9 @@ pub struct Cff1AdmissionV2 {
     program: CffProgramInspectionV2,
 }
 impl Cff1AdmissionV2 {
+    pub(super) fn effective_limits(&self) -> &M4EffectiveResourceLimits {
+        &self.effective_limits
+    }
     pub fn source(&self) -> &[u8] {
         &self.source
     }
@@ -211,6 +215,7 @@ pub fn admit_sfnt_cff1_v2(
     identity.push('}');
     let units_per_em = head.units_per_em;
     Ok(Cff1AdmissionV2 {
+        effective_limits: limits.clone(),
         source,
         source_sha256,
         fingerprint: sha256(identity.as_bytes()),

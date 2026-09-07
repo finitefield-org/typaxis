@@ -17,7 +17,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases and 5,000 synthetic distinct-paint Forms pass selected placement/structure/object tests; required engine-generated distinct formulas, mixed PNG and public check/build gates remain pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
-| CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure, FD-bound Type2 and internal whole-sfnt /2 admission verified on unchanged original Harano; selected cache/closure, name-keyed /2, resource registry and subset/PDF integration pending (checkpoint below) |
+| CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure, FD-bound Type2 and internal whole-sfnt /2 admission verified on unchanged original Harano; selected closure and source-bound cache verified internally; name-keyed /2, aggregate resource owner and subset/PDF integration pending (checkpoint below) |
 | Vertical tables, cmap 14, IVS shaping/extraction | Vertical/format-14 validators and combined base/UVS coverage are connected to internal /2 admission; independent all-original-entry hashes passed; actual IVS shaping/extraction pending (checkpoint below) |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
@@ -2891,3 +2891,56 @@ produced in this checkpoint.
 Final explicit-original run: **6 passed**, no failures. Log:
 `/private/tmp/typaxis-cff-sfnt-harano-final.log`. All verification processes for
 this checkpoint reached terminal states; no public PDF or branch push occurred.
+
+
+## 2026-09-07 checkpoint: source-bound selected CFF evaluation and closure
+
+Added `Cff1GlyphClosureV2` and `Cff1SubsetSessionV2`. Selection validates the
+complete GID set and the existing nonzero-CID count ceiling before execution,
+adds .notdef once and assigns dense subset GIDs in ascending original GID order.
+The sealed closure identity binds admission, source, face ID, instance ID and
+selection. A closure from another source or effective budget cannot be prepared.
+
+The session shares a single Type2 operation/outline budget. The fixed profile
+is /2 and standalone source face index is 0; variable cache keys are source
+SHA-256/GID. Identical source aliases across font instances and face IDs reuse
+work. Each actual evaluation reads advance from the admission's hmtx, never from
+caller-supplied width or the CFF PostScript width. Invalid requested GIDs fail
+before any evaluation. Successful results are cached; failed work is not reset.
+
+The explicit-original test selects GIDs 0, 151 and 233 from unchanged Harano.
+It proves dense mapping, exact N/N-1 selected-count limits, no execution for an
+invalid set, no evaluation of an unselected GID, repeated/alias cache reuse,
+correct hmtx for the known CFF-width disagreements, foreign closure/budget
+rejection and exact operation/segment N/N-1 boundaries. A separate checksum-correct
+source with allowed PreviewAndPrint fsType and otherwise identical outlines
+proves source isolation: its original closure is rejected and preparing its own
+closure doubles work and cache entries. This source-isolation copy is not used
+as the unchanged-original support gate.
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-resource-admission -p typaxis-resources \
+  -p typaxis-shaping --lib --locked
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font cff_v2_ --locked -- --ignored
+```
+
+Regression: **166 passed** (font 52, resource-admission 62, resources 28, shaping
+24), no failures; seven original-font tests ignored in the regular run. Logs:
+`/private/tmp/typaxis-cff-selection-regression.log` and the focused original test
+`/private/tmp/typaxis-cff-selection-harano.log` (one passed).
+
+The next step remains real subset bytes/receipt generation. This session has not
+yet generated an OpenType subset or authorized a PDF. Aggregate owners still
+must close all instance selections, prepare per-face unions in FontFaceId order,
+then bind subset/ToUnicode/manifest output. IVS shaping, public profile activation,
+all full-book gates and the remaining common-layout/public-writer work are still
+mandatory. No public profile registry was enabled in this checkpoint.
+
+Final explicit-original verification: **7 passed**, no failures. Log:
+`/private/tmp/typaxis-cff-selection-original-final.log`. All checks launched for
+this checkpoint reached terminal states. No public PDF or branch push occurred.

@@ -693,3 +693,7 @@ pub use cmap::{validate_cff_cmap_v2, CffCmapFailureV2, CffCmapV2};
 #[path = "cff_v2_admission.rs"]
 mod admission;
 pub use admission::{admit_sfnt_cff1_v2, Cff1AdmissionV2, Cff1FailureKindV2, Cff1FailureV2};
+
+#[path = "cff_v2_selection.rs"]
+mod selection;
+pub use selection::{Cff1GlyphClosureV2, Cff1SubsetSessionV2, CffSelectionFailureV2};
