@@ -134,6 +134,7 @@ pub fn build_production_footnote_structure_objects<
         }
     }
     let mut b = Builder {
+        object_base: annotations.objects().len(),
         objects: Vec::new(),
         roles: BTreeSet::new(),
         records: annotations.record_charge(),

@@ -2097,6 +2097,13 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
     children.extend(references);
     production_body_renumber(&mut navigation_note["document"], &mut 0);
     for value in [
+        serde_json::from_slice(&production_text_single_paragraph(&["A B"], "Body")).unwrap(),
+        serde_json::from_slice(&production_text_single_paragraph(&["A B"], "Collection")).unwrap(),
+        serde_json::from_slice(&production_text_single_paragraph(
+            &["A B"],
+            "Typaxis CFF Fixture",
+        ))
+        .unwrap(),
         production_body_navigation_vmb_fixture(),
         production_body_navigation_multiline_fixture(),
         navigation_note,
@@ -2914,6 +2921,209 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     assert_eq!(objr_count, annotations.objects().len());
                     assert!(!dictionary(parent).contains("Artifact"));
                 }
+
+                let resource_objects = typaxis_pdf::build_production_footnote_resource_objects(
+                    &structure_objects,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                resource_objects
+                    .verify(&structure_objects, admitted, limits)
+                    .unwrap();
+                assert_eq!(
+                    resource_objects.retained_object_count(),
+                    annotations.objects().len()
+                        + structure_objects.objects().len()
+                        + resource_objects.objects().len()
+                );
+                {
+                    use typaxis_pdf::{
+                        ProductionBodyFontObjectPart as Part, ProductionBodyObjectRole as Role,
+                    };
+                    let objects = resource_objects.objects();
+                    let get = |role| objects.iter().find(|o| o.role() == role).unwrap();
+                    let roles: std::collections::BTreeSet<_> =
+                        objects.iter().map(|o| o.role()).collect();
+                    assert_eq!(roles.len(), objects.len());
+                    for object in objects {
+                        assert!(production_object_references(object).iter().all(|r| roles.contains(r)
+                            || matches!(r, Role::Page(p) if (*p as usize) < marked.pages().len())));
+                    }
+                    let navigation = annotations.navigation();
+                    if !navigation.destinations().is_empty() {
+                        let object = get(Role::Destinations);
+                        let bytes = String::from_utf8(production_object_bytes(object)).unwrap();
+                        let mut destinations: Vec<_> = navigation
+                            .destinations()
+                            .iter()
+                            .map(|d| {
+                                (
+                                    navigation
+                                        .destination_name(d.anchor_index())
+                                        .unwrap()
+                                        .as_str(),
+                                    d,
+                                )
+                            })
+                            .collect();
+                        destinations.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+                        assert_eq!(
+                            production_object_references(object),
+                            destinations
+                                .iter()
+                                .map(|(_, d)| Role::Page(d.page_index()))
+                                .collect::<Vec<_>>()
+                        );
+                        let mut offset = 0;
+                        for (name, _) in destinations {
+                            let hex: String =
+                                name.encode_utf16().map(|c| format!("{c:04X}")).collect();
+                            let name = format!("<FEFF{hex}>");
+                            offset += bytes[offset..].find(&name).unwrap() + name.len();
+                        }
+                    } else {
+                        assert!(!roles.contains(&Role::Destinations));
+                    }
+                    if !navigation.outline().is_empty() {
+                        let root = navigation.outline_root();
+                        let refs = production_object_references(get(Role::Outlines));
+                        assert_eq!(
+                            refs,
+                            vec![
+                                Role::Outline(root.first().unwrap()),
+                                Role::Outline(root.last().unwrap())
+                            ]
+                        );
+                        for (entry, topology) in navigation
+                            .outline_entries()
+                            .iter()
+                            .zip(navigation.outline())
+                        {
+                            let object = get(Role::Outline(entry.outline_id));
+                            let mut expected =
+                                vec![topology.parent().map_or(Role::Outlines, Role::Outline)];
+                            expected.extend(
+                                [
+                                    topology.previous(),
+                                    topology.next(),
+                                    topology.first(),
+                                    topology.last(),
+                                ]
+                                .into_iter()
+                                .flatten()
+                                .map(Role::Outline),
+                            );
+                            assert_eq!(production_object_references(object), expected);
+                            let bytes = String::from_utf8(production_object_bytes(object)).unwrap();
+                            let hex: String = entry
+                                .destination
+                                .as_str()
+                                .encode_utf16()
+                                .map(|u| format!("{u:04X}"))
+                                .collect();
+                            assert!(bytes.contains(&format!("/Dest <FEFF{hex}>")));
+                        }
+                    } else {
+                        assert!(!roles.contains(&Role::Outlines));
+                    }
+                    for font in fonts.fonts() {
+                        let font = font.pdf_font();
+                        let role = |part| Role::Font {
+                            instance: font.font_instance_id(),
+                            part,
+                        };
+                        assert_eq!(
+                            production_object_references(get(role(Part::Type0))),
+                            vec![role(Part::CidFont), role(Part::ToUnicode)]
+                        );
+                        let program = production_object_bytes(get(role(Part::Program)));
+                        assert!(program
+                            .windows(font.subset_bytes().len())
+                            .any(|w| w == font.subset_bytes()));
+                        assert!(String::from_utf8(production_object_bytes(get(role(
+                            Part::ToUnicode
+                        ))))
+                        .unwrap()
+                        .contains("begincmap"));
+                    }
+                    for (i, raster) in content.rasters().plans().iter().enumerate() {
+                        let image = production_object_bytes(get(Role::Raster(i as u32)));
+                        assert!(image
+                            .windows(raster.encoded_bytes().len())
+                            .any(|w| w == raster.encoded_bytes()));
+                        if let Some(mask) = raster.alpha_mask() {
+                            assert!(production_object_references(get(Role::Raster(i as u32)))
+                                .contains(&Role::RasterMask(i as u32)));
+                            let bytes = production_object_bytes(get(Role::RasterMask(i as u32)));
+                            assert!(bytes
+                                .windows(mask.encoded_bytes().len())
+                                .any(|w| w == mask.encoded_bytes()));
+                        }
+                    }
+                    for (page_index, page) in marked.pages().iter().enumerate() {
+                        let bytes =
+                            production_object_bytes(get(Role::PageContent(page_index as u32)));
+                        assert!(bytes
+                            .windows(page.content().len())
+                            .any(|w| w == page.content()));
+                        let mut expected = std::collections::BTreeSet::new();
+                        if marked
+                            .anchors()
+                            .iter()
+                            .any(|a| a.page_index() == page_index as u32)
+                        {
+                            expected.insert(Role::SemanticAnchorFont);
+                        }
+                        for draw in content.pages()[page_index].draws() {
+                            match draw.source() {
+                                typaxis_pdf::ProductionBodyPageDrawSource::Text { paint_index } => {
+                                    expected.insert(Role::Font {
+                                        instance: content.text().paints()[paint_index]
+                                            .font_instance_id(),
+                                        part: Part::Type0,
+                                    });
+                                }
+                                typaxis_pdf::ProductionBodyPageDrawSource::Raster {
+                                    plan_index,
+                                } => {
+                                    expected.insert(Role::Raster(plan_index as u32));
+                                }
+                                _ => {}
+                            }
+                        }
+                        expected.extend(
+                            content.vectors().pages()[page_index]
+                                .resources()
+                                .iter()
+                                .map(|r| Role::Vector(r.form_relative_object_role())),
+                        );
+                        let actual = production_object_references(get(Role::PageResources(
+                            page_index as u32,
+                        )));
+                        assert_eq!(actual.len(), expected.len());
+                        assert_eq!(
+                            actual
+                                .into_iter()
+                                .collect::<std::collections::BTreeSet<_>>(),
+                            expected
+                        );
+                    }
+                }
+                let other_structure_objects =
+                    typaxis_pdf::build_production_footnote_structure_objects(
+                        &annotations,
+                        admitted,
+                        limits,
+                    )
+                    .unwrap();
+                assert_eq!(
+                    resource_objects
+                        .verify(&other_structure_objects, admitted, limits)
+                        .err()
+                        .unwrap(),
+                    typaxis_pdf::ProductionBodyObjectError::ReceiptMismatch
+                );
                 let other_annotations =
                     typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
                         .unwrap();
@@ -3461,6 +3671,108 @@ fn production_footnote_structure_objects_keep_cumulative_object_record_and_spool
                         records = projected.record_charge();
                         spool = projected.spool_charge();
                         objects = (projected.objects().len() + annotations.objects().len()) as u32;
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_resource_objects_keep_cumulative_object_record_and_spool_limits() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_body_navigation_vmb_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+    let mut objects = 0;
+    for mode in 0..7 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            max_pdf_objects: match mode {
+                5 => objects,
+                6 => objects - 1,
+                _ => ResourceLimits::default().max_pdf_objects,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+
+                let annotations =
+                    typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
+                        .unwrap();
+                let structure_objects = typaxis_pdf::build_production_footnote_structure_objects(
+                    &annotations,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let result = typaxis_pdf::build_production_footnote_resource_objects(
+                    &structure_objects,
+                    admitted,
+                    limits,
+                );
+                if mode == 2 || mode == 4 || mode == 6 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_pdf::ProductionBodyObjectError::RecordLimit
+                        } else if mode == 6 {
+                            typaxis_pdf::ProductionBodyObjectError::ObjectLimit
+                        } else {
+                            typaxis_pdf::ProductionBodyObjectError::SpoolLimit
+                        }
+                    );
+                } else {
+                    let projected = result.unwrap();
+                    if mode == 0 {
+                        records = projected.record_charge();
+                        spool = projected.spool_charge();
+                        objects = projected.retained_object_count() as u32;
                     }
                 }
             },

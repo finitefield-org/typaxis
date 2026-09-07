@@ -127,6 +127,7 @@ use ProductionBodyObjectError as E;
 use ProductionBodyObjectRole as R;
 
 struct Builder<'a> {
+    object_base: usize,
     objects: Vec<ProductionBodyObject>,
     roles: BTreeSet<R>,
     records: u64,
@@ -167,7 +168,9 @@ impl Builder<'_> {
         Ok(())
     }
     fn start(&mut self, role: R) -> Result<(), E> {
-        if self.objects.len() as u64 >= u64::from(self.limits.base().get().max_pdf_objects) {
+        if self.objects.len().checked_add(self.object_base).ok_or(E::ObjectLimit)? as u64
+            >= u64::from(self.limits.base().get().max_pdf_objects)
+        {
             return Err(E::ObjectLimit);
         }
         self.record(2)?;
@@ -260,6 +263,7 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
     )
     .map_err(E::Navigation)?;
     let mut b = Builder {
+        object_base: 0,
         objects: Vec::new(),
         roles: BTreeSet::new(),
         records: marked.record_charge(),
@@ -267,104 +271,9 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         limits,
     };
     b.record(navigation.additional_records())?;
-    for font in marked.content().plans().fonts().fonts() {
-        font_objects(&mut b, font.pdf_font())?;
-    }
-    if !marked.anchors().is_empty() {
-        b.start(R::SemanticAnchorFont)?;
-        b.bytes("<< /Type /Font /Subtype /Type3 /Name /PBA /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /anchor ")?;
-        b.reference(R::SemanticAnchorGlyph)?;
-        b.bytes(" >> /Encoding << /Type /Encoding /Differences [0 /anchor] >> /FirstChar 0 /LastChar 0 /Widths [1000] /Resources << >> /ToUnicode ")?;
-        b.reference(R::SemanticAnchorToUnicode)?;
-        b.bytes(" >>")?;
-        b.start(R::SemanticAnchorGlyph)?;
-        // A declared bounding box/advance with no paint operator. Tr=3 gives a
-        // second, independent guarantee that this usage cannot add visible ink.
-        b.stream("", b"1000 0 0 0 1000 1000 d1\n")?;
-        b.start(R::SemanticAnchorToUnicode)?;
-        b.stream("", b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Typaxis) /Ordering (SemanticAnchor) /Supplement 0 >> def\n/CMapName /TypaxisSemanticAnchor def\n/CMapType 2 def\n1 begincodespacerange\n<00> <00>\nendcodespacerange\n1 beginbfchar\n<00> <FFFC>\nendbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")?;
-    }
-    for ext in marked.content().vectors().ext_g_states() {
-        b.start(R::Vector(ext.relative_object_role()))?;
-        b.bytes(ext.dictionary())?;
-    }
-    for form in marked.content().vectors().forms() {
-        b.start(R::Vector(form.relative_object_role()))?;
-        let bbox = form.bbox();
-        b.bytes(format!("<< /Type /XObject /Subtype /Form /FormType 1 /BBox [{} {} {} {}] /Resources << /ExtGState <<",
-            number(bbox[0]), number(bbox[1]), number(bbox[2]), number(bbox[3])))?;
-        for (name, role) in form.ext_g_state_roles() {
-            b.bytes(format!(" /{name} "))?;
-            b.reference(R::Vector(*role))?;
-        }
-        b.bytes(format!(
-            " >> >> /Length {} >>\nstream\n",
-            form.content_stream().len()
-        ))?;
-        b.bytes(form.content_stream())?;
-        b.bytes("\nendstream")?;
-    }
-    for (index, plan) in marked.content().rasters().plans().iter().enumerate() {
-        raster_objects(
-            &mut b,
-            u32::try_from(index).map_err(|_| E::ObjectLimit)?,
-            plan,
-        )?;
-    }
-    let mut anchor_cursor = marked.anchors().iter().peekable();
-    for page in marked.pages() {
-        b.start(R::PageContent(page.page_index()))?;
-        b.stream("", page.content())?;
-        b.start(R::PageResources(page.page_index()))?;
-        b.bytes("<< /Font <<")?;
-        if anchor_cursor
-            .peek()
-            .is_some_and(|a| a.page_index() == page.page_index())
-        {
-            b.bytes(" /PBA ")?;
-            b.reference(R::SemanticAnchorFont)?;
-            while anchor_cursor
-                .peek()
-                .is_some_and(|a| a.page_index() == page.page_index())
-            {
-                anchor_cursor.next();
-            }
-        }
-        let mut fonts = BTreeSet::new();
-        for draw in marked.content().pages()[page.page_index() as usize].draws() {
-            if let ProductionBodyPageDrawSource::Text { paint_index } = draw.source() {
-                let id = marked.content().text().paints()[paint_index].font_instance_id();
-                if !fonts.contains(&id) {
-                    b.record(1)?;
-                    fonts.insert(id);
-                    b.bytes(format!(" /PB{} ", id.get()))?;
-                    b.reference(R::Font {
-                        instance: id,
-                        part: ProductionBodyFontObjectPart::Type0,
-                    })?;
-                }
-            }
-        }
-        b.bytes(" >> /XObject <<")?;
-        for resource in marked.content().vectors().pages()[page.page_index() as usize].resources() {
-            b.bytes(format!(" /{} ", resource.resource_name()))?;
-            b.reference(R::Vector(resource.form_relative_object_role()))?;
-        }
-        let mut rasters = BTreeSet::new();
-        for draw in marked.content().pages()[page.page_index() as usize].draws() {
-            if let ProductionBodyPageDrawSource::Raster { plan_index } = draw.source() {
-                if !rasters.contains(&plan_index) {
-                    b.record(1)?;
-                    rasters.insert(plan_index);
-                    b.bytes(format!(" /PBR{plan_index} "))?;
-                    b.reference(R::Raster(
-                        u32::try_from(plan_index).map_err(|_| E::ObjectLimit)?,
-                    ))?;
-                }
-            }
-        }
-        b.bytes(" >> >>")?;
-    }
+    project_resource_objects(&mut b, marked.content().plans().fonts().fonts(),
+        marked.content().vectors(), marked.content().rasters().plans(), marked.pages(),
+        marked.content().pages(), marked.content().text().paints(), marked.anchors())?;
     navigation_objects(&mut b, &navigation)?;
     structure_objects(&mut b, marked, &navigation)?;
     for object in &b.objects {
@@ -386,6 +295,119 @@ pub fn build_production_body_objects<'m, 'c, 'f, 'v, 'd, 's, 'p, 'a>(
         spool_charge: b.spool,
     })
 }
+fn project_resource_objects(
+    b: &mut Builder<'_>,
+    fonts: &[typaxis_resources::FrozenStagingPdfTextFontPlan],
+    vectors: &crate::StagingSafeVectorPdfContributionV2,
+    rasters: &[FrozenPdfImagePlan],
+    pages: &[crate::ProductionBodyMarkedPage],
+    source_pages: &[crate::ProductionBodyPage],
+    text_paints: &[crate::ProductionBodyTextPaint],
+    anchors: &[crate::ProductionBodySemanticAnchor],
+) -> Result<(), E> {
+    if pages.len() != source_pages.len() || pages.len() != vectors.pages().len() {
+        return Err(E::ReceiptMismatch);
+    }
+    for font in fonts {
+        font_objects(b, font.pdf_font())?;
+    }
+    if !anchors.is_empty() {
+        b.start(R::SemanticAnchorFont)?;
+        b.bytes("<< /Type /Font /Subtype /Type3 /Name /PBA /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /anchor ")?;
+        b.reference(R::SemanticAnchorGlyph)?;
+        b.bytes(" >> /Encoding << /Type /Encoding /Differences [0 /anchor] >> /FirstChar 0 /LastChar 0 /Widths [1000] /Resources << >> /ToUnicode ")?;
+        b.reference(R::SemanticAnchorToUnicode)?;
+        b.bytes(" >>")?;
+        b.start(R::SemanticAnchorGlyph)?;
+        // A declared bounding box/advance with no paint operator. Tr=3 gives a
+        // second, independent guarantee that this usage cannot add visible ink.
+        b.stream("", b"1000 0 0 0 1000 1000 d1\n")?;
+        b.start(R::SemanticAnchorToUnicode)?;
+        b.stream("", b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Typaxis) /Ordering (SemanticAnchor) /Supplement 0 >> def\n/CMapName /TypaxisSemanticAnchor def\n/CMapType 2 def\n1 begincodespacerange\n<00> <00>\nendcodespacerange\n1 beginbfchar\n<00> <FFFC>\nendbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")?;
+    }
+    for ext in vectors.ext_g_states() {
+        b.start(R::Vector(ext.relative_object_role()))?;
+        b.bytes(ext.dictionary())?;
+    }
+    for form in vectors.forms() {
+        b.start(R::Vector(form.relative_object_role()))?;
+        let bbox = form.bbox();
+        b.bytes(format!("<< /Type /XObject /Subtype /Form /FormType 1 /BBox [{} {} {} {}] /Resources << /ExtGState <<",
+            number(bbox[0]), number(bbox[1]), number(bbox[2]), number(bbox[3])))?;
+        for (name, role) in form.ext_g_state_roles() {
+            b.bytes(format!(" /{name} "))?;
+            b.reference(R::Vector(*role))?;
+        }
+        b.bytes(format!(
+            " >> >> /Length {} >>\nstream\n",
+            form.content_stream().len()
+        ))?;
+        b.bytes(form.content_stream())?;
+        b.bytes("\nendstream")?;
+    }
+    for (index, plan) in rasters.iter().enumerate() {
+        raster_objects(b, u32::try_from(index).map_err(|_| E::ObjectLimit)?, plan)?;
+    }
+    let mut anchor_cursor = anchors.iter().peekable();
+    for page in pages {
+        b.start(R::PageContent(page.page_index()))?;
+        b.stream("", page.content())?;
+        b.start(R::PageResources(page.page_index()))?;
+        b.bytes("<< /Font <<")?;
+        if anchor_cursor
+            .peek()
+            .is_some_and(|a| a.page_index() == page.page_index())
+        {
+            b.bytes(" /PBA ")?;
+            b.reference(R::SemanticAnchorFont)?;
+            while anchor_cursor
+                .peek()
+                .is_some_and(|a| a.page_index() == page.page_index())
+            {
+                anchor_cursor.next();
+            }
+        }
+        let mut fonts = BTreeSet::new();
+        for draw in source_pages[page.page_index() as usize].draws() {
+            if let ProductionBodyPageDrawSource::Text { paint_index } = draw.source() {
+                let id = text_paints[paint_index].font_instance_id();
+                if !fonts.contains(&id) {
+                    b.record(1)?;
+                    fonts.insert(id);
+                    b.bytes(format!(" /PB{} ", id.get()))?;
+                    b.reference(R::Font {
+                        instance: id,
+                        part: ProductionBodyFontObjectPart::Type0,
+                    })?;
+                }
+            }
+        }
+        b.bytes(" >> /XObject <<")?;
+        for resource in vectors.pages()[page.page_index() as usize].resources() {
+            b.bytes(format!(" /{} ", resource.resource_name()))?;
+            b.reference(R::Vector(resource.form_relative_object_role()))?;
+        }
+        let mut rasters = BTreeSet::new();
+        for draw in source_pages[page.page_index() as usize].draws() {
+            if let ProductionBodyPageDrawSource::Raster { plan_index } = draw.source() {
+                if !rasters.contains(&plan_index) {
+                    b.record(1)?;
+                    rasters.insert(plan_index);
+                    b.bytes(format!(" /PBR{plan_index} "))?;
+                    b.reference(R::Raster(
+                        u32::try_from(plan_index).map_err(|_| E::ObjectLimit)?,
+                    ))?;
+                }
+            }
+        }
+        b.bytes(" >> >>")?;
+    }
+    if anchor_cursor.next().is_some() {
+        return Err(E::ReceiptMismatch);
+    }
+    Ok(())
+}
+
 fn number(raw: i64) -> String {
     crate::tagged_pdf_v2::pdf_number_v2(raw)
 }
@@ -706,78 +728,18 @@ fn navigation_objects(
     let structure = navigation.structure();
     let selected = structure.display().selected();
     let height = selected.page_geometry().page_height().get();
-    if !navigation.destinations().is_empty() {
-        b.record(navigation.destinations().len() as u64)?;
-        let mut order = Vec::new();
-        order
-            .try_reserve_exact(navigation.destinations().len())
-            .map_err(|_| E::AllocationFailure)?;
-        for destination in navigation.destinations() {
-            let name = navigation
-                .destination_name(destination.anchor_index())
-                .ok_or(E::ReceiptMismatch)?;
-            order.push((name.as_str(), destination));
-        }
-        // PDF name-tree keys compare encoded bytes. UTF-16BE code-unit order
-        // differs from Rust's UTF-8 string order for non-BMP names.
-        order.sort_unstable_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
-        b.start(R::Destinations)?;
-        b.bytes("<< /Names [")?;
-        for (name, destination) in order {
-            let y = height
-                .checked_sub(destination.y())
-                .ok_or(E::ReceiptMismatch)?;
-            b.text(name)?;
-            b.bytes(" [")?;
-            b.reference(R::Page(destination.page_index()))?;
-            b.bytes(format!(
-                " /XYZ {} {} null] ",
-                number(destination.x().raw()),
-                number(y.raw())
-            ))?;
-        }
-        b.bytes("] >>")?;
-    }
-    if !navigation.outline().is_empty() {
-        let root = navigation.outline_root();
-        b.start(R::Outlines)?;
-        b.bytes(format!(
-            "<< /Type /Outlines /Count {} /First ",
-            root.descendants()
-        ))?;
-        b.reference(R::Outline(root.first().ok_or(E::ReceiptMismatch)?))?;
-        b.bytes(" /Last ")?;
-        b.reference(R::Outline(root.last().ok_or(E::ReceiptMismatch)?))?;
-        b.bytes(" >>")?;
-        for (entry, topology) in navigation
+    project_navigation_targets(
+        b,
+        height,
+        navigation.destinations(),
+        |i| navigation.destination_name(i).map(|n| n.as_str()),
+        navigation
             .outline_entries()
             .iter()
-            .zip(navigation.outline())
-        {
-            b.start(R::Outline(entry.outline_id))?;
-            b.bytes("<< /Title ")?;
-            b.text(&entry.label)?;
-            b.bytes(" /Parent ")?;
-            b.reference(topology.parent().map_or(R::Outlines, R::Outline))?;
-            for (name, index) in [
-                ("Prev", topology.previous()),
-                ("Next", topology.next()),
-                ("First", topology.first()),
-                ("Last", topology.last()),
-            ] {
-                if let Some(index) = index {
-                    b.bytes(format!(" /{name} "))?;
-                    b.reference(R::Outline(index))?;
-                }
-            }
-            if topology.descendants() > 0 {
-                b.bytes(format!(" /Count {}", topology.descendants()))?;
-            }
-            b.bytes(" /Dest ")?;
-            b.text(entry.destination.as_str())?;
-            b.bytes(" >>")?;
-        }
-    }
+            .map(|e| (e.outline_id, e.label.as_str(), e.destination.as_str())),
+        navigation.outline(),
+        navigation.outline_root(),
+    )?;
     for (index, link) in navigation.links().iter().enumerate() {
         let index32 = u32::try_from(index).map_err(|_| E::ObjectLimit)?;
         let bounds = link.bounds();
@@ -825,6 +787,84 @@ fn navigation_objects(
     Ok(())
 }
 
+fn project_navigation_targets<'s>(
+    b: &mut Builder<'_>,
+    height: typaxis_core::Length,
+    destinations: &[typaxis_display_list::ProductionBodyDestination],
+    destination_name: impl Fn(u32) -> Option<&'s str>,
+    entries: impl Iterator<Item = (u32, &'s str, &'s str)>,
+    outline: &[typaxis_display_list::ProductionBodyOutlineTopology],
+    outline_root: &typaxis_display_list::ProductionBodyOutlineTopology,
+) -> Result<(), E> {
+    if !destinations.is_empty() {
+        b.record(destinations.len() as u64)?;
+        let mut order = Vec::new();
+        order
+            .try_reserve_exact(destinations.len())
+            .map_err(|_| E::AllocationFailure)?;
+        for destination in destinations {
+            let name = destination_name(destination.anchor_index()).ok_or(E::ReceiptMismatch)?;
+            order.push((name, destination));
+        }
+        // PDF name-tree keys compare encoded bytes. UTF-16BE code-unit order
+        // differs from Rust's UTF-8 string order for non-BMP names.
+        order.sort_unstable_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+        b.start(R::Destinations)?;
+        b.bytes("<< /Names [")?;
+        for (name, destination) in order {
+            let y = height
+                .checked_sub(destination.y())
+                .ok_or(E::ReceiptMismatch)?;
+            b.text(name)?;
+            b.bytes(" [")?;
+            b.reference(R::Page(destination.page_index()))?;
+            b.bytes(format!(
+                " /XYZ {} {} null] ",
+                number(destination.x().raw()),
+                number(y.raw())
+            ))?;
+        }
+        b.bytes("] >>")?;
+    }
+    if !outline.is_empty() {
+        let root = outline_root;
+        b.start(R::Outlines)?;
+        b.bytes(format!(
+            "<< /Type /Outlines /Count {} /First ",
+            root.descendants()
+        ))?;
+        b.reference(R::Outline(root.first().ok_or(E::ReceiptMismatch)?))?;
+        b.bytes(" /Last ")?;
+        b.reference(R::Outline(root.last().ok_or(E::ReceiptMismatch)?))?;
+        b.bytes(" >>")?;
+        for ((outline_id, label, destination), topology) in entries.zip(outline) {
+            b.start(R::Outline(outline_id))?;
+            b.bytes("<< /Title ")?;
+            b.text(label)?;
+            b.bytes(" /Parent ")?;
+            b.reference(topology.parent().map_or(R::Outlines, R::Outline))?;
+            for (name, index) in [
+                ("Prev", topology.previous()),
+                ("Next", topology.next()),
+                ("First", topology.first()),
+                ("Last", topology.last()),
+            ] {
+                if let Some(index) = index {
+                    b.bytes(format!(" /{name} "))?;
+                    b.reference(R::Outline(index))?;
+                }
+            }
+            if topology.descendants() > 0 {
+                b.bytes(format!(" /Count {}", topology.descendants()))?;
+            }
+            b.bytes(" /Dest ")?;
+            b.text(destination)?;
+            b.bytes(" >>")?;
+        }
+    }
+    Ok(())
+}
+
 #[path = "production_footnote_annotations.rs"]
 mod production_footnote_annotations;
 pub use production_footnote_annotations::{
@@ -837,4 +877,11 @@ pub use production_footnote_annotations::{
 mod production_footnote_structure_objects;
 pub use production_footnote_structure_objects::{
     build_production_footnote_structure_objects, ProductionFootnoteStructureObjects,
+};
+
+
+#[path = "production_footnote_resource_objects.rs"]
+mod production_footnote_resource_objects;
+pub use production_footnote_resource_objects::{
+    build_production_footnote_resource_objects, ProductionFootnoteResourceObjects,
 };

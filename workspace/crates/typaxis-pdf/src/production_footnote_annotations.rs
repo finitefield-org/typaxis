@@ -105,6 +105,7 @@ pub fn build_production_footnote_annotations<'m, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b,
     )
     .map_err(E::Navigation)?;
     let mut b = Builder {
+        object_base: 0,
         objects: Vec::new(),
         roles: BTreeSet::new(),
         records: marked.record_charge(),

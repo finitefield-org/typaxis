@@ -2088,3 +2088,25 @@ records／spoolも注釈結果までの保持量を引き継ぐ。生成結果�
 vector・content object、通常destination／outlineと全object番号の統合、必要な戻りリンク、
 manifest・公開writerへの接続はまだ必要である。完成PDFの独立検証、動的参照、
 全allocation寿命管理、元全巻・原ノ味・規模・両hostのゲートを維持する。
+
+### 14.49 本文・脚注のfont／media／ページresourceとnavigation object（実装追補）
+
+`build_production_footnote_resource_objects`は§14.48の構造object結果を検証して借用し、
+通常本文と共通のresource生成処理へ接続する。確定済みfont program・ToUnicode・CID対応、
+数式の非描画anchor font、vector Form／ExtGState、raster／mask、構造付きPageContentと
+各ページのPageResourcesを生成する。実ページで使ったfont／vector／rasterだけをそのページの
+辞書へ結び付け、空ページを落とさない。選択済みfontや画像を代用品へ置換しない。
+
+通常destinationとoutlineも共通のobject生成処理を使う。destination名はPDFのUTF-16BE
+name-tree順に並べ、実ページと座標を参照する。outlineの親子・兄弟roleと元のdestination名を
+維持する。resource内参照とoutline内参照はこのcontribution内で閉じることを確認し、
+Page参照は範囲を検証して最終page-tree ownerへ残す。
+
+Builderは先行object数を保持し、新しいobjectを追加するたびに注釈・構造・resourceの合計で
+上限を検査する。records／spoolも構造object結果までの値を引き継ぐ。すべての保持object数を
+結果から参照でき、既存contributionのobjectsを複製せずに次の統合段階へ渡せる。
+
+これはPageResourcesと各contributionの確定であり、最終PageのAnnots／StructParents、
+page tree・catalog・metadata、絶対object番号・xref、manifest・公開writerの統合はまだ必要である。
+既存TT／TTC／CFF1の小fixture検証を原ノ味・次期CFF profileの受入証拠に読み替えない。
+動的参照、全allocation寿命管理、元全巻・原ノ味・規模・両hostのゲートを維持する。

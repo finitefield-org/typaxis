@@ -5279,3 +5279,57 @@ ordinary destinations/outlines, complete numbering/manifest/public writer,
 needed return links, dynamic references and full allocation/retry budgets
 remain open, as do original full-book/Harano/scale/both-host acceptance.
 No completed public PDF or push is claimed.
+
+## Joint font/media/page resource and navigation objects
+
+Implemented §14.49. The exact structure-object contribution now feeds the
+shared font, semantic-anchor, vector/ExtGState, raster/mask, marked PageContent
+and PageResources projector. Per-page dictionaries reference actual selected
+font/vector/raster plans; programs and image payloads are retained unchanged.
+Source pages and semantic anchors must be fully consumed.
+
+The same contribution also emits ordinary destination name trees and outline
+objects through the shared navigation-target projector. Name-tree order follows
+UTF-16 code units; actual page/XYZ positions and outline parent/sibling roles are
+preserved. Every local reference must resolve within this contribution, while
+checked Page references remain for final assembly.
+
+The object Builder now includes an explicit prior-object count when admitting
+each new object. The joint structure path supplies retained annotation count;
+the resource path supplies annotation plus structure counts. Records/spool
+continue from the structure result. The new result exposes the complete
+retained annotation/structure/resource object count without copying old objects.
+
+Verification completed before final regression:
+- PDF resource check **1.22 s**; navigation-target check **2.73 s**.
+- Resource footnote suite **60 passed, 0 failed, 6.70 s**,
+  `/private/tmp/typaxis-joint-resource-objects-tests.log`.
+- After navigation-target integration, footnotes **60 passed, 0 failed, 8.00 s**,
+  `/private/tmp/typaxis-joint-resource-targets-tests.log`.
+
+All commands use `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build`,
+`--manifest-path workspace/Cargo.toml` and `--locked`:
+```sh
+cargo check --manifest-path workspace/Cargo.toml -p typaxis-pdf --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_ --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000
+```
+
+Tests inspect actual TT/TTC/CFF1 program bytes and Type0 references, ToUnicode,
+PNG/JPEG and mask payloads, marked streams, exact per-page resource reference
+sets, local reference closure, destination ordering and outline roles. They
+exercise exact/one-short cumulative object, record and spool limits and reject
+another structure-object owner. The CFF case is the existing small fixture,
+not original Harano or the next public CFF profile.
+
+Final Page Annots/StructParents, page tree/catalog/metadata, absolute numbering/
+xref, manifest/public writer, needed return links, dynamic references and
+complete allocation/retry budgets remain pending, together with original
+full-book/Harano/scale/both-host acceptance. No public receipt or push.
+
+Final regression (terminal): **157 passed, 0 failed, 1 explicitly ignored,
+22.48 s**, `/private/tmp/typaxis-joint-resource-objects-final.log`.
+Existing ordinary font/object/structure/navigation/assembly and cumulative
+budget regressions pass. The unchanged 5,000-SVG unmarked-content tests were
+explicitly excluded; the saved-job test remains explicitly ignored. All
+processes from this implementation step are terminal.
