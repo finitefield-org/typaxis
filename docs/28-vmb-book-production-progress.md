@@ -3715,3 +3715,38 @@ This is page-master generation and admission. Font/style integration, actual-fra
 math fit checks, named pages and generated page regions, complete assembler, public
 PDF and original-book/Harano/scale/both-host gates remain required. All launched
 tests are terminal; no public profile changed or branch was pushed.
+
+
+### 2026-09-07: Explicit font selection and exact snapshot staging
+
+Companion **`f90e1b19`** adds `ReadBookFont` and `SelectedBookFont.Stage`. Absolute
+path, family, published profile and a positive byte ceiling are explicit. A
+bounded regular file is read twice through the same descriptor, compared byte for
+byte, and checked against the initial/current file identity, size and mtime.
+Optional expected SHA-256 is checked before classification. Nonblocking open
+avoids waiting on a replaced FIFO. This observation is not an OS snapshot against
+a malicious concurrent writer; saved artifacts use only the owned snapshot.
+
+TT/TTC/name-keyed CFF container and table-directory classification is separate from
+authoritative Typaxis font admission. TTC requires an explicit index even for
+zero. CFF ROS detection respects operand boundaries and rejects the original
+Harano CID font under current book-1. No alternate font/profile is substituted.
+Full tables/checksums, embedding rights, glyph coverage and rendering remain
+Typaxis admission/build responsibilities. Content-addressed font files are saved
+exclusively and rehashed; the assembler owns failed-job cleanup.
+
+All regression tests passed in **56.568 s**, including 11 initial public admission
+cases. The font public test was then expanded to TT, TTC and name-keyed CFF; all
+three passed in **1.440 s**. Each has 2 images, 2 math occurrences, 88 projection
+bytes and empty diagnostics. Package SHA-256:
+
+- TT: `eeeab65567cc00a71c8816e52169d19138463933b2fac684511950c54e93df59`
+- TTC: `87c10b8711a34783a39db2922baaa3e18d8e2c19c051141e37bfe4918875f197`
+- CFF: `4f7fa794f0fa1d70783fad8ea81d6d37d2d7ec77ce90f8940156fdbbcd4d7cce`
+
+Logs: `/private/tmp/vmb-font-tests.log`, `/private/tmp/vmb-font-regression.log`,
+`/private/tmp/vmb-font-public-final.log`; commands in companion §15.36. Tests also
+cover limits, hash/path/face/profile errors, malformed directories, FIFO, cancel,
+CFF operand boundaries and snapshot preservation after host-file replacement.
+All runs are terminal. Complete style/config/package assembly, public PDF and
+original-book/Harano/scale/both-host gates remain. No profile changed or push ran.
