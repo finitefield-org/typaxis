@@ -689,3 +689,146 @@ fn production_page_reference_convergence_enforces_cumulative_limits() {
         }
     }
 }
+
+#[test]
+fn production_page_reference_reflow_moves_the_target_and_converges() {
+    use serde_json::json;
+    let (mut value, _) = production_page_reference_fixture(10);
+    // The metrics-only fixture has empty ASCII outlines. Use the matching
+    // diagnostic digit outlines so independent renderers can verify reference ink.
+    value["resources"]["font_faces"][0]["uri"] = "body-list-visible.ttf".into();
+    value["resources"]["font_faces"][0]["expected_sha256"] =
+        "17857592837017395c9f22614b712f41d2ad6175a5b3a39c4d8aa879c99044c6".into();
+    value["text_buffers"][0]["utf8"] = "A ".into();
+    value["text_buffers"][0]["mappings"][0]["text_range"]["end_byte"] = 2.into();
+    let root = &mut value["document"]["blocks"][10];
+    root["anchor_id"] = serde_json::Value::Null;
+    root["blocks"][0]["children"][0]["text_span"]["end_byte"] = 2.into();
+    let mut target = root.clone();
+    target["anchor_id"] = "target".into();
+    target["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    value["document"]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .push(target);
+    let master = &mut value["page_masters"]["masters"][0];
+    // A + space + one digit fits; two digits move to a second line.
+    // One body line fits per page, so this moves the following anchor as well.
+    master["body"]["width"] = json!(1_600_000);
+    master["body"]["height"] = json!(1_100_000);
+    master["footnote"] = serde_json::Value::Null;
+    production_body_renumber(&mut value["document"], &mut 0);
+    let owner = NodeId::new(
+        value["document"]["blocks"][10]["blocks"][0]["children"][1]["node_id"]
+            .as_u64()
+            .unwrap() as u32,
+    );
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+        &package,
+        &navigation,
+        &semantics,
+        &limits,
+        &identity,
+    )
+    .unwrap();
+    for (candidate, expected_page) in [(1, 12), (12, 13), (13, 13)] {
+        with_production_common_footnote_pdf_candidates(
+            &package,
+            &navigation,
+            &semantics,
+            &profile,
+            &admitted,
+            &limits,
+            typaxis_linebreak::JapaneseLineBreakMode::Normal,
+            100_000,
+            Some(&[(owner, candidate)]),
+            limits.base().get().max_layout_passes,
+            |pdf, _, book, _, _| {
+                assert_eq!(pdf.page_count(), expected_page, "candidate {candidate}");
+                assert_eq!(
+                    book.resolved_page_references()
+                        .collect::<Result<Vec<_>, _>>()
+                        .unwrap(),
+                    vec![(owner, expected_page)]
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+    }
+    with_production_common_footnote_pdf(
+        &package,
+        &navigation,
+        &semantics,
+        &profile,
+        &admitted,
+        &limits,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+        100_000,
+        |pdf, _, book, _, observation| {
+            assert_eq!(pdf.page_count(), 13);
+            assert_eq!(
+                book.resolved_page_references()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap(),
+                vec![(owner, 13)]
+            );
+            assert_eq!(observation.page_passes, 8);
+            if let Some(path) = std::env::var_os("VMB_PAGE_REFERENCE_PDF_PROBE") {
+                std::fs::write(path, pdf.bytes()).unwrap();
+            }
+            assert!(pdf
+                .bytes()
+                .windows(b"/ActualText <FEFF00310033>".len())
+                .any(|bytes| bytes == b"/ActualText <FEFF00310033>"));
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    let cfg = config_with_limits(ResourceLimits {
+        max_layout_passes: 7,
+        ..ResourceLimits::default()
+    });
+    let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+        &package,
+        &navigation,
+        &semantics,
+        &limits,
+        &identity,
+    )
+    .unwrap();
+    let mut inspected = false;
+    let error = with_production_common_footnote_pdf(
+        &package,
+        &navigation,
+        &semantics,
+        &profile,
+        &admitted,
+        &limits,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+        100_000,
+        |_, _, _, _, _| {
+            inspected = true;
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert!(!inspected);
+    assert_eq!(error.kind, FailureKind::Limit);
+    assert!(error.message.starts_with("L5110:"), "{error:?}");
+}

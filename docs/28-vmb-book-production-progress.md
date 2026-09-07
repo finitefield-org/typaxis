@@ -5633,3 +5633,27 @@ The nested page-pass admission tests also passed (2 tests, 0.85 s;
 `/private/tmp/typaxis-page-reference-pass-admission.log`), including no work or
 record consumption for remaining allowance 1 and refusal to raise a document
 ceiling of 1 with a caller allowance of u16::MAX. All test processes are terminal.
+
+## 2026-09-08 — Page-reference reflow and independent PDF evidence
+
+Added design §14.73's fixture: a one-digit reference fits one line and targets
+page 12; changing to 12 wraps it, moves the target to page 13, and requires a
+further update plus repeated agreement. The common driver converges in four
+rebuilds/eight page passes and rejects an allowance of seven without exposing
+partial output. The fixture uses the existing visible diagnostic digit font;
+its empty body A outline is not evidence of visible body typography.
+
+Full CLI production regression, including both 5,000-image cases: 169 passed,
+1 ignored, 260.02 s (`/private/tmp/typaxis-page-reference-full-production.log`).
+The final visible-font and seven-pass boundary test passed separately in 0.57 s
+(`/private/tmp/typaxis-page-reference-visible.log`). An earlier probe environment
+variable collided with CLI configuration validation; it was renamed to
+VMB_PAGE_REFERENCE_PDF_PROBE rather than weakening validation.
+
+Poppler and MuPDF extraction agree on pages 11=A, 12=13, 13=A. pdfinfo -dests
+resolves target to page 13, and the diagnostic digit outlines visibly render.
+PDF: `/private/tmp/typaxis-page-reference-reflow-visible.pdf`, SHA-256
+`dc6e2cf2d5d6415697babbfb6e1fce828ed5757cc9380f20d53df611095140e1`.
+All processes from this step are terminal. This does not complete public
+CLI/writer/manifest, full allocation accounting, exporter or the original-book,
+Japanese-font/Harano, scale and both-host acceptance gates.

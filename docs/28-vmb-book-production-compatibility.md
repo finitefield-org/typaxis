@@ -2531,3 +2531,29 @@ Text／Number形式や公開writerの認可へは拡張していない。
 ログは`/private/tmp/typaxis-page-reference-auto-regression.log`。コマンド・targetは前節と同じ。
 桁数によって実改行・改ページが変わる書籍規模の検証、最終bidi、全allocation寿命管理、公開
 writer／manifest・CLI、正式exporter、元全巻・原ノ味・規模・両hostゲートは引き続き必要である。
+
+### 14.73 桁数による改行・参照先移動の収束検証（実装追補）
+
+前節の収束処理について、候補値の桁数で実改行・改ページが変わる入力を追加した。
+先頭10空白ページの後に「A 」とPage-referenceを置き、その次の段落を参照先にする。
+本文幅1,600,000 raw、本文高さ1,100,000 rawでは1桁の候補は1行、2桁は2行となり、
+候補1の参照先12ページが、候補12への更新後に13ページへ移る。候補13への更新と2回の
+完成結果一致によって、計4回の再構築／8 page passesで確定する。上限7では結果を返さない。
+
+このfixtureは数字の可視輪郭を持つ既存body-list-visible.ttfを使う。元のmetrics-only
+フォントの空のASCII輪郭を描画成功の証拠にしない。検査用PDFの任意保存にはCLIの設定名と
+衝突しないVMB_PAGE_REFERENCE_PDF_PROBEを使う。これは小規模なgenerated referenceの
+描画／抽出／配置検証であり、日本語全巻・原ノ味・公開check/buildの受入証拠ではない。
+
+ローカル検証: `cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis
+production_`は5,000 distinct／alias画像を含む169件成功・1件ignored（260.02秒、
+`/private/tmp/typaxis-page-reference-full-production.log`）。その後の可視フォントと上限7の
+追加検証は`production_page_reference_reflow`で成功（0.57秒、
+`/private/tmp/typaxis-page-reference-visible.log`）。targetは前節と同じ。
+
+独立検査用PDFは`/private/tmp/typaxis-page-reference-reflow-visible.pdf`、SHA-256は
+`dc6e2cf2d5d6415697babbfb6e1fce828ed5757cc9380f20d53df611095140e1`。
+Poppler／MuPDF抽出で11ページ=A、12ページ=13、13ページ=Aを照合し、pdfinfo -destsで
+targetが13ページのXYZ destinationであることを確認した。数字の可視輪郭はMuPDFとPopplerで
+描画した。本文Aの輪郭はこの診断fontでは空であり、本文可視性の検証には含めない。
+全プロセスは終了済みである。
