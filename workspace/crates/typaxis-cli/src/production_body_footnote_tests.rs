@@ -3533,6 +3533,10 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     pdf.verify(&other_resources, admitted, limits),
                     Err(typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch)
                 );
+                let tagged = typaxis_pdf::write_production_common_tagged_pdf(
+                    &resource_objects, semantics, profile.authorization(),
+                    profile.base().authorization(), admitted, limits, config().fingerprint(),
+                ).unwrap();
                 if case_index == 0 {
                     let mut foreign = value.clone();
                     foreign["metadata"]["title"] = "A different book".into();
@@ -3553,11 +3557,25 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                         &resource_objects, &other_semantics, other_profile.authorization(),
                         other_profile.base().authorization(), admitted, limits, config().fingerprint(),
                     ).unwrap_err(), typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch);
+                    assert_eq!(typaxis_manifest::build_production_book_navigation_manifest(
+                        &other_package, &other_navigation, other_profile.base().authorization(),
+                        &tagged, &other_limits,
+                    ).unwrap_err(), typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch);
                 }
-                let tagged = typaxis_pdf::write_production_common_tagged_pdf(
-                    &resource_objects, semantics, profile.authorization(),
-                    profile.base().authorization(), admitted, limits, config().fingerprint(),
+                let source_flow = display.source().line_layout().source_flow();
+                let book_manifest = typaxis_manifest::build_production_book_navigation_manifest(
+                    source_flow.package(), source_flow.navigation(), profile.base().authorization(), &tagged, limits,
                 ).unwrap();
+                let manifest = book_manifest.manifest();
+                assert_eq!(manifest.final_pdf_sha256(), tagged.final_pdf().content_hash());
+                assert_eq!(manifest.selected_sha256(), tagged.book_navigation().selected_sha256());
+                assert_eq!(manifest.pdf_observation_sha256(), tagged.book_navigation().fingerprint());
+                assert_eq!(manifest.fingerprint(), sha256(manifest.canonical_jcs().as_bytes()));
+                let record: serde_json::Value = serde_json::from_str(manifest.canonical_jcs()).unwrap();
+                assert_eq!(record["algorithm"], "typaxis.book-navigation-manifest/2");
+                assert_eq!(record["object_numbers"]["catalog"], tagged.book_navigation().catalog_object());
+                assert_eq!(record["object_numbers"]["metadata"], tagged.book_navigation().metadata_object());
+                assert_eq!(record["language_paint_count"], tagged.book_navigation().language_paint_count());
                 assert_eq!(tagged.final_pdf().page_count(), pdf.page_count());
                 assert_eq!(tagged.final_pdf().object_count(), pdf.objects().len() as u32);
                 assert_eq!(tagged.final_pdf().footnote_display_sha256(), Some(display.fingerprint()));
@@ -5046,6 +5064,110 @@ fn production_common_tagged_pdf_keeps_cumulative_budgets() {
                     &resources, semantics, profile.authorization(),
                     profile.base().authorization(), admitted, limits, cfg.fingerprint(),
                 );
+                if mode == 2 || mode == 4 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_pdf::ProductionBodyAssemblyError::RecordLimit
+                        } else {
+                            typaxis_pdf::ProductionBodyAssemblyError::SpoolLimit
+                        }
+                    );
+                } else {
+                    let result = result.unwrap();
+                    if mode == 0 {
+                        records = result.record_charge();
+                        spool = result.spool_charge();
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_common_book_manifest_keeps_cumulative_budgets() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_body_navigation_vmb_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+
+                let annotations =
+                    typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
+                        .unwrap();
+                let structure_objects = typaxis_pdf::build_production_footnote_structure_objects(
+                    &annotations,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let resources = typaxis_pdf::build_production_footnote_resource_objects(
+                    &structure_objects,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let result = typaxis_pdf::write_production_common_tagged_pdf(
+                    &resources, semantics, profile.authorization(),
+                    profile.base().authorization(), admitted, limits, cfg.fingerprint(),
+                ).and_then(|pdf| {
+                    let source_flow = display.source().line_layout().source_flow();
+                    typaxis_manifest::build_production_book_navigation_manifest(
+                        source_flow.package(), source_flow.navigation(), profile.base().authorization(), &pdf, limits,
+                    )
+                });
                 if mode == 2 || mode == 4 {
                     assert_eq!(
                         result.err().unwrap(),

@@ -6001,3 +6001,35 @@ Final direct comparison of each contributed object payload (not only its hash)
 passed for all 19 cases: targeted test 1 passed, 6.45 seconds,
 `/private/tmp/typaxis-common-tagged-payload-regression.log`. The checked-in raw
 veraPDF report's SHA-256 matches its evidence JSON.
+
+## 2026-09-08 — Book manifest from the common serializer receipt
+
+Added `build_production_book_navigation_manifest`. It consumes the common
+serializer's owned, validated PDF observation rather than requiring the legacy
+vector display/selected-layout recipe. It binds package, limits, metadata,
+language, outline, profile and final PDF identity, and emits the existing
+`typaxis.book-navigation-manifest/2` record from the actual selected/destination
+and object observations. Engine identity comes from the compiled engine.
+`ProductionBookNavigationManifest` retains the manifest and cumulative record/
+spool charges; the encoding bound is checked before allocating its canonical
+record. The legacy builder uses the same encoder after its existing equality
+checks, preserving its record format.
+
+All 19 common serializer fixtures now exercise this projection, including its
+canonical hash, selected/PDF-observation identities and actual object numbers.
+A foreign book/profile is rejected. A separate end-to-end fixture checks exact
+and one-short cumulative record/spool limits through the serializer and manifest.
+Local verification, using `/private/tmp/typaxis-vmb-book-build`:
+
+- CLI `production_ -- --skip 5000`: **170 passed, 1 ignored**, 12.48 seconds;
+  `/private/tmp/typaxis-common-book-manifest-regression.log`.
+- Manifest library tests: **38 passed**, 0.35 seconds;
+  `/private/tmp/typaxis-common-book-manifest-library.log`.
+- Final 19-case/foreign-receipt test: **1 passed**, 4.95 seconds;
+  `/private/tmp/typaxis-common-book-manifest-foreign.log`.
+
+This connects the book member of the root manifest. Common safe-vector, math
+and tagged-structure manifest projection, cumulative convergence-driver handoff
+and public CLI routing remain. Public build/full-book/exporter/Harano/scale/host
+acceptance is still incomplete; this change does not resolve the adapter's old
+public-writer failure by itself.

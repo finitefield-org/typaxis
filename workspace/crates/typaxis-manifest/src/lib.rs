@@ -30,6 +30,7 @@ pub use book_navigation::{
 };
 pub use book_navigation_v2::{
     build_staging_book_navigation_manifest_v2, StagingBookNavigationManifestV2,
+    build_production_book_navigation_manifest, ProductionBookNavigationManifest,
     StagingBookNavigationManifestV2Error, STAGING_BOOK_NAVIGATION_MANIFEST_V2_ALGORITHM,
 };
 pub use cff::{
