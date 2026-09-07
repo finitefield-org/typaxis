@@ -5390,3 +5390,39 @@ Final strengthened budget fixture uses actual footnotes across multiple pages:
 `production_footnote_assembly_keeps_complete_graph_and_byte_budgets` passed
 1/1, 2.02 s, `/private/tmp/typaxis-joint-assembly-footnote-budget.log`.
 All processes from this step are terminal.
+
+## 2026-09-08 — Joint source-to-PDF lifetime owner
+
+Implemented §14.51: `with_production_common_footnote_pdf` starts from validated
+package/navigation/semantics/profile and admitted resources, constructs source
+flow/vector bindings/math/block layout, converges actual lines, prepares the
+body and footnote streams, selects and physically stabilizes every page, verifies
+actual math terminals, then owns the display-to-PDF chain through the callback.
+No prepared test layout or placeholder geometry is accepted by this driver.
+
+The line candidate steps are subtracted before constructing the demand/page
+search, so both searches share the supplied work ceiling. Observations record
+actual line/page passes, separate consumed work, final records, display and math
+registry hashes, and block terminal count. Tests start directly from admitted
+fixture bytes (without the prepared-layout helper), compare repeated PDF bytes
+and observations, accept exact total work and reject one-short/zero budgets.
+No-fit and partial page-limit inputs return errors without entering the callback.
+
+Checks used `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build`, workspace
+manifest and `--locked`:
+- CLI check: pass, 11.27 s, `/private/tmp/typaxis-joint-driver-check.log`.
+- New full-path driver test: 1 passed, 3.36 s,
+  `/private/tmp/typaxis-joint-driver-tests.log`.
+- Common-driver regressions: 4 passed, 0 failed, 1 explicitly ignored, 3.14 s,
+  `/private/tmp/typaxis-joint-driver-common-tests.log`.
+
+This is the source-to-assembly lifetime owner needed for public integration, not
+a new CLI output branch or a VerifiedPdfBytesReceipt. Public terminal/manifest
+closure and diagnostic-code mapping, dynamic references, complete allocation/
+retry ownership, original full-book/Harano/scale/both-host acceptance remain.
+
+Final regression: CLI `--bin typaxis production_ -- --skip
+production_body_page_content_places_5000`, **160 passed, 0 failed, 1 explicitly
+ignored, 23.84 s**, `/private/tmp/typaxis-joint-driver-final.log`.
+The unchanged 5,000-SVG tests were excluded; the saved-job probe remains ignored.
+All commands from this implementation step are terminal. No public receipt or push.

@@ -2129,3 +2129,23 @@ byte一致を検証する。records・spool・全object数・出力bytesは境�
 これは独立PDFツールで検査できる診断assemblyであり、`VerifiedPdfBytesReceipt`や公開可能性の
 証明ではない。manifest・公開writer・CLIへの接続、必要な戻りリンク、動的参照、全allocation／
 retry管理、元全巻・原ノ味・規模・両host受入は引き続き必須である。
+
+### 14.51 実入力から本文・脚注PDFまでの共通owner（実装追補）
+
+`with_production_common_footnote_pdf`は検証済みpackage・navigation・semantics・profile・
+resource ledgerからsource flow、vector binding、数式flow、block layoutを用意し、共通の
+行再形成を安定化させる。その実結果の本文行と脚注行でPreparedBodyFlowを作り、本文・脚注の
+全ページ選択と配置の一致を確認する。確定した実ページに対して数式terminalを発行・検証し、
+§14.38–14.50のdisplay、structure、font、content、marked content、注釈、構造object、
+resource、PDF assemblyを同じ所有寿命の中で接続する。テスト用の既成layoutを引数に受け取らない。
+
+行の候補探索で消費したstepsを呼出し全体の探索予算から差し引き、残りだけを脚注需要・
+ページ選択と配置へ渡す。観測値は実行した行／ページpass数、両探索の消費量、最終records、
+displayと数式registryのhash、実block数式terminal数を返す。完全に成功した場合だけ
+借用PDFと安定ページ結果をcallbackへ渡す。予算不足、ページ数超過、配置不能ではcallbackを
+呼ばず、部分PDFを成功として返さない。
+
+通常navigation、脚注内数式・式番号、複数ページ継続脚注で再生成bytesと観測値の一致を検証する。
+探索予算の境界値と1不足、ページ上限・配置不能を実入力から検証する。このownerの追加だけでは
+公開writerのreceipt／manifestやCLIの診断code体系は閉じない。動的ページ参照と行の再帰的な
+収束、全allocation／retry寿命、元全巻・原ノ味・規模・両hostの受入要件を残す。

@@ -149,3 +149,143 @@ fn production_common_driver_saved_vmb_job() {
     )
     .unwrap();
 }
+
+#[test]
+fn production_common_footnote_driver_closes_actual_source_to_pdf() {
+    for value in [
+        production_body_navigation_vmb_fixture(),
+        production_footnote_flow_fixture(),
+        production_footnote_numbered_definition_fixture(),
+        production_footnote_two_long_definitions(),
+    ] {
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());
+        let semantics =
+            typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+                .unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity,
+        )
+        .unwrap();
+        let mut previous = None;
+        let mut used_steps = 0;
+        for _ in 0..2 {
+            let result = with_production_common_footnote_pdf(
+                &package,
+                &navigation,
+                &semantics,
+                &profile,
+                &admitted,
+                &limits,
+                typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                100_000,
+                |pdf, stable, observation| {
+                    assert!(pdf.bytes().starts_with(b"%PDF-1.7"));
+                    assert_eq!(pdf.page_count() as usize, stable.sequence().pages().len());
+                    assert!(observation.line_reshape_passes >= 2);
+                    assert_eq!(observation.page_passes, stable.passes());
+                    assert!(observation.page_passes >= 2);
+                    assert_eq!(observation.record_charge, pdf.record_charge());
+                    assert!(observation.page_work_steps >= stable.work_steps());
+                    assert!(observation.line_candidate_steps > 0);
+                    used_steps = observation.line_candidate_steps + observation.page_work_steps;
+                    assert!(used_steps <= 100_000);
+                    Ok((pdf.bytes().to_vec(), observation))
+                },
+            )
+            .unwrap();
+            if let Some(previous) = &previous {
+                assert_eq!(&result, previous);
+            }
+            previous = Some(result);
+        }
+        for budget in [0, used_steps - 1, used_steps] {
+            let mut called = false;
+            let result = with_production_common_footnote_pdf(
+                &package,
+                &navigation,
+                &semantics,
+                &profile,
+                &admitted,
+                &limits,
+                typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                budget,
+                |pdf, _, observation| {
+                    called = true;
+                    assert_eq!(pdf.bytes(), previous.as_ref().unwrap().0);
+                    assert_eq!(observation, previous.as_ref().unwrap().1);
+                    Ok(())
+                },
+            );
+            assert_eq!(
+                result.is_ok(),
+                budget == used_steps,
+                "budget={budget}, error={:?}",
+                result.err()
+            );
+            assert_eq!(called, budget == used_steps);
+        }
+    }
+}
+
+#[test]
+fn production_common_footnote_driver_never_exposes_partial_pages() {
+    for no_fit in [false, true] {
+        let mut value = production_footnote_joint_geometry_fixture();
+        let cfg = if no_fit {
+            value["page_masters"]["masters"][0]["footnote"]["height"] = 1.into();
+            config()
+        } else {
+            config_with_limits(ResourceLimits {
+                max_pages: 1,
+                ..ResourceLimits::default()
+            })
+        };
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+        let semantics =
+            typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+                .unwrap();
+        let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+        let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+            &package,
+            &navigation,
+            &semantics,
+            &limits,
+            &identity,
+        )
+        .unwrap();
+        let mut called = false;
+        let error = with_production_common_footnote_pdf(
+            &package,
+            &navigation,
+            &semantics,
+            &profile,
+            &admitted,
+            &limits,
+            typaxis_linebreak::JapaneseLineBreakMode::Normal,
+            100_000,
+            |_, _, _| {
+                called = true;
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert!(!called);
+        assert_eq!(error.kind, FailureKind::Input);
+        assert!(
+            error.message.contains(if no_fit {
+                "JointPageNoFit"
+            } else {
+                "PageLimit"
+            }),
+            "{}",
+            error.message
+        );
+    }
+}
