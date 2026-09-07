@@ -632,3 +632,14 @@ fn charset(
 #[cfg(test)]
 #[path = "cff_v2_tests.rs"]
 mod tests;
+
+#[path = "cff_v2_evaluate.rs"]
+mod evaluate;
+pub use evaluate::{
+    CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2, CffOutlineCommandV2,
+    CffProgramEvaluationSessionV2,
+};
+
+#[cfg(test)]
+#[path = "cff_v2_evaluate_tests.rs"]
+mod evaluate_tests;

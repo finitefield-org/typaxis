@@ -422,7 +422,7 @@ struct CffProgramV2 {
 
 FDArrayは1〜256。FDSelect format 0はglyph数分、format 3はfirst=0・strictly increasing ranges・sentinel=glyph_count・各FD<FDArray.lenを検証して一回だけdense fd_by_gidへ展開する。CID charsetは形式0/1/2のGID→CIDとして解析し、SID/string INDEXを引かない。glyph 0、重複CID、overflow、CharStrings数とmaxp数の不一致はtyped failureとする。
 
-新しい`evaluate_glyph_v2`は最初にfd_by_gid[gid]を取り、評価終了までFDを保持する。`ProgramKindV2::Local { fd, index }`と`Global { index }`を区別し、global→local callでもそのglyphのFDを利用する。widthは選択FDのdefault/nominalで解決し、hmtxとの整合を検証する。operator/stack/call-depth/stem/operation/outline予算はV1と同じ上限を継承する。
+新しい`evaluate_glyph_v2`は最初にfd_by_gid[gid]を取り、評価終了までFDを保持する。`ProgramKindV2::Local { fd, index }`と`Global { index }`を区別し、global→local callでもそのglyphのFDを利用する。widthは選択FDのdefault/nominalで解決してCFF source widthとして保持する。OpenTypeの組版advanceはhmtxを使用し、source CFF widthとの一致をadmission条件にしない（§7.7の実測・仕様訂正）。subsetのCFF幅・hmtx・PDF Widthsは選択されたhmtx advanceから一貫して生成する。operator/stack/call-depth/stem/operation/outline予算はV1と同じ上限を継承する。
 
 subroutine上限はglobal数 + 全FDのlocal数のchecked合計に一回適用する。同じrangeを複数FDで参照する場合も宣言ごとに数え、local INDEX数だけで許容量を増やさない。採番・評価順はFontFaceId→GIDの昇順。cache keyは`(profile_id, source_sha256, face_index, gid)`で、異なるFDやprofileの結果を流用しない。
 
@@ -469,6 +469,33 @@ hash一致した。構造規則の参照元は[Adobe CFF仕様 §18–19](https:
 この入口はCFF programの構造inspectionであり、sfnt admission、embedding permission、
 Type2実行、cmap/IVS、subset/PDF認可を発行しない。既存CFF `/1`を変更せず、公開の
 contract 1.5 / production-book-2 / resource profile `/2`の有効化は本設計の後続ゲートまで行わない。
+
+### 7.7 FDを固定したType2実行とOpenType幅の訂正
+
+`CffProgramEvaluationSessionV2`は構造検査済みprogramのGIDからFDを一度選択し、
+local呼出しを`Local { fd, index }`として解決する。global→localでもglyphのFDは変えない。
+operand/call-depth/stem/mask/outlineの実行機構は既存評価器と共有するが、CFF `/1`の
+既存方針は維持する。`/2`はsubroutine中のendcharによるglyph終了を認める。
+これは[Adobe Type2仕様 §4.2 Note 6](https://adobe-type-tools.github.io/font-tech-notes/pdfs/5177.Type2.pdf)
+に従い、元原ノ味の.notdefにも実際に使われる。
+
+本実装時に、元原ノ味の310 glyphでCFF source widthとhmtx advanceが異なることを確認した。
+例はGID 151で346対1000、GID 233で1000対500である。
+[OpenType hmtx仕様](https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx)では、
+CFF内の幅はPostScript向けであり、OpenType組版はhmtxを使う。したがって本設計の
+「hmtxとの整合」は元の二値の一致を要求するものではなく、admitted hmtxをshaping・
+subset hmtx・subset CFF幅・PDF Widthsへ一貫して伝えることとする。
+CFF幅のoperand/default/nominalはchecked 16.16演算で解決し、別のsource widthとして保持する。
+fontを編集したり、文字のadvanceをCFF幅へ置き換えたりしない。
+
+無変更の原ノ味23,060 glyphを一つの既定budgetで実行し、8,376,159 operations・
+1,572,638 outline segmentsで成功した。FontToolsによる独立実行と全輪郭のcommand/座標列、
+全CFF幅のhashが一致する。これは全glyph実行を用いた検証であり、最終admissionの通常経路が
+全glyphを事前実行するという意味ではない。通常は選択GIDだけを実行する。
+
+このsessionはまだinspection ownerである。admitted source/face/profileへ結んだcache・
+selected-glyph closure・subset receipt、sfnt/cmap14/IVS、公開PDFと全巻ゲートは引き続き必要。
+既存CFF `/1`のprogram型とresource/manifest identity、および公開profile registryは変更しない。
 
 ## 8. 実VMB結合テスト
 

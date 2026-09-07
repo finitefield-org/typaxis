@@ -17,7 +17,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases and 5,000 synthetic distinct-paint Forms pass selected placement/structure/object tests; required engine-generated distinct formulas, mixed PNG and public check/build gates remain pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
-| CID CFF /2, FD-aware evaluator, subset / PDF integration | Separate CID program structure parser verified against original Harano full FD/CID maps; sfnt /2 admission, FD-aware evaluator, subset/PDF integration pending (checkpoint below) |
+| CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure and FD-bound Type2 inspection verified against all original Harano glyphs and independent outline/width hashes; sfnt /2 admission, selected cache/closure, subset/PDF integration pending (checkpoint below) |
 | Vertical tables, cmap 14, IVS shaping/extraction | Pending |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
@@ -2689,3 +2689,88 @@ Full /2 sfnt admission, vertical tables/cmap14/IVS, FD-aware Type2 execution and
 width/hmtx consistency, selected-glyph subset/PDF integration, versioned registry
 publication and original full-book rendering/extraction remain mandatory pending
 work. Structural inspection success does not fulfill the Harano support gate.
+
+## 2026-09-07: FD-bound Type2 execution, all original Harano outlines
+
+Added a separate /2 inspection-work session and immutable glyph FD context.
+Global→local calls retain that glyph's FD, with local/global biases derived from
+the correct INDEX counts. The existing Type2 path, curve, flex, mask and budget
+mechanics are shared through private access/budget traits. V1 retains its original
+program, width policy, terminal policy, receipts and algorithm identities.
+V2 diagnostics retain GID, FD, original table offset and single/escaped operator.
+
+Two actual-input findings corrected the initial implementation:
+
+- Original .notdef ends in a global subroutine. Type2 permits endchar inside a
+  subroutine (Adobe Type2 §4.2 Note 6). /2 now finishes the glyph in that case;
+  the frozen /1 restriction is unchanged. A nested global→local→endchar test
+  exercises the new policy directly.
+- The unchanged original has 310 glyphs whose CFF/PostScript width differs from
+  hmtx, including GID 151 (346 versus 1000). FontTools independently confirms
+  these differences. OpenType explicitly uses hmtx advance rather than CFF width.
+  Design §7.4/7.7 now states this correctly: validate and preserve CFF source
+  width arithmetic, use admitted hmtx for shaping and output widths, and produce
+  consistent subset CFF/hmtx/PDF widths from hmtx. Original-value equality is not
+  an admission condition. No source font was altered and no layout advance was
+  changed to the CFF width. The inspection result retains both widths.
+
+Independent execution:
+
+```sh
+python3 tools/inspect_harano_cff_outlines.py \
+  /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf
+```
+
+The tool checks the unchanged full-file SHA-256, executes each original
+CharString through FontTools 4.51.0's RecordingPen, records Move/Line/Cubic/Close
+and signed 16.16 coordinates, and incorporates GID/hmtx advance into a chained
+SHA-256. It separately hashes every decoded CFF source width. It does not subset
+or rewrite the font. Output: `/private/tmp/typaxis-harano-outline-facts.json`.
+
+All **23,060 glyphs** passed the Rust evaluator under one **default** work budget:
+**8,376,159 operations** and **1,572,638 outline segments**. No operation/outline
+limit override was used. The complete outline/advance state hash equals the
+independent result:
+`f3a7b806eb38a37c56ec76eac5b80dd21a1bfe1f17a71650c971b3c399bace38`.
+The complete decoded source-width hash also matches:
+`feb4b1cdc05ab3b6ef6b3a8ead1167be85068ecac3cdfda03cc7f8d97f39113d`.
+The Rust test asserts both hashes and the 310 distinct-width count. This covers
+all original outlines, not only selected Latin or sample Japanese glyphs.
+
+Broader verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-resource-admission -p typaxis-resources \
+  -p typaxis-shaping --lib --locked
+```
+
+Result: font **37 passed, 2 ignored**; resource-admission **62 passed**;
+resources **28 passed**; shaping **24 passed** — **151 passed**, no failures.
+The seven new execution tests cover cross-FD global/local selection, distinct
+PostScript/OpenType widths, width overflow location, cumulative exact N/N-1
+operation/segment budgets, nested endchar, invalid local index, missing mask,
+operand overflow, escaped-op diagnostics and recursive-call depth. Original /1
+admission/subset/budget and detailed-diagnostic regressions passed in this run.
+Log: `/private/tmp/typaxis-cff-execution-regression.log`.
+
+The two explicit original-font tests are run separately on the final code:
+
+```sh
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font cff_v2 --locked -- --ignored --nocapture
+```
+
+This is still not the public Harano gate. The next /2 owners must connect sfnt
+admission/vertical/cmap14/IVS, source/face/profile-bound selected-GID caching and
+subset receipts, then PDF/manifest publication and the unchanged full-book
+render/extract tests. The all-glyph execution above is a test; production still
+must evaluate only selected glyphs. No contract/profile registry was enabled.
+
+Final original-font run: **2 passed**, no failures, including the complete
+independent outline/width hash assertions. Log:
+`/private/tmp/typaxis-cff-execution-harano-final.log`. Verification started for
+this checkpoint reached terminal states; no branch push or public PDF occurred.

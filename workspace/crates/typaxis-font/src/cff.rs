@@ -23,7 +23,9 @@ pub use diagnostics::{
 #[path = "cff_v2.rs"]
 mod v2;
 pub use v2::{
-    inspect_cff1_program_v2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramInspectionV2,
+    inspect_cff1_program_v2, CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2,
+    CffOutlineCommandV2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
+    CffProgramInspectionV2,
 };
 
 pub const CFF1_RESOURCE_PROFILE_ID: &str = "typaxis.resource-profile/sfnt-cff1/1";
@@ -3242,6 +3244,43 @@ struct Type2State {
     bbox: Option<[i32; 4]>,
 }
 
+// Shared execution mechanics; /1 keeps its original program and width policy.
+trait Type2ProgramAccess {
+    fn accepts_subroutine_endchar(&self) -> bool {
+        false
+    }
+    fn observe(&self, _kind: ProgramKind, _position: usize, _operator: u16) {}
+    fn program_bytes(&self, kind: ProgramKind) -> Result<&[u8], Cff1Error>;
+    fn local_subroutine_count(&self) -> usize;
+    fn global_subroutine_count(&self) -> usize;
+    fn validate_width(&self, operand: Option<i32>) -> Result<(), Cff1Error>;
+}
+trait Type2WorkBudget {
+    fn charge_operation(&mut self) -> Result<(), Cff1Error>;
+    fn charge_segment(&mut self) -> Result<(), Cff1Error>;
+}
+impl Type2WorkBudget for Cff1SubsetSession {
+    fn charge_operation(&mut self) -> Result<(), Cff1Error> {
+        Cff1SubsetSession::charge_operation(self)
+    }
+    fn charge_segment(&mut self) -> Result<(), Cff1Error> {
+        Cff1SubsetSession::charge_segment(self)
+    }
+}
+impl Type2ProgramAccess for Cff1Admission {
+    fn program_bytes(&self, kind: ProgramKind) -> Result<&[u8], Cff1Error> {
+        program_bytes(&self.program, kind)
+    }
+    fn local_subroutine_count(&self) -> usize {
+        self.program.local_subrs.len()
+    }
+    fn global_subroutine_count(&self) -> usize {
+        self.program.global_subrs.len()
+    }
+    fn validate_width(&self, operand: Option<i32>) -> Result<(), Cff1Error> {
+        validate_source_width(self, operand)
+    }
+}
 fn evaluate_glyph(
     admission: &Cff1Admission,
     gid: u16,
@@ -3250,6 +3289,13 @@ fn evaluate_glyph(
     if usize::from(gid) >= admission.program.charstrings.len() {
         return Err(Cff1Error::InvalidSelectedGlyph);
     }
+    evaluate_type2(admission, gid, budget)
+}
+fn evaluate_type2(
+    admission: &impl Type2ProgramAccess,
+    gid: u16,
+    budget: &mut impl Type2WorkBudget,
+) -> Result<EvaluatedGlyph, Cff1Error> {
     let mut stack = Vec::new();
     stack
         .try_reserve_exact(TYPE2_OPERAND_STACK_LIMIT)
@@ -3277,10 +3323,11 @@ fn evaluate_glyph(
     while !state.frames.is_empty() {
         let frame_index = state.frames.len() - 1;
         let frame = state.frames[frame_index];
-        let program = program_bytes(&admission.program, frame.kind)?;
+        let program = admission.program_bytes(frame.kind)?;
         let byte = *program
             .get(frame.position)
             .ok_or(Cff1Error::InvalidCharstring)?;
+        admission.observe(frame.kind, frame.position, u16::from(byte));
         if byte == 28 || byte >= 32 {
             budget.charge_operation()?;
             let (value, consumed) = parse_type2_number(program, frame.position)?;
@@ -3357,9 +3404,9 @@ fn evaluate_glyph(
                 let index = subroutine_index(
                     operand,
                     if byte == 10 {
-                        admission.program.local_subrs.len()
+                        admission.local_subroutine_count()
                     } else {
-                        admission.program.global_subrs.len()
+                        admission.global_subroutine_count()
                     },
                 )?;
                 if state.frames.len() > TYPE2_CALL_DEPTH_LIMIT {
@@ -3389,16 +3436,19 @@ fn evaluate_glyph(
             12 => {
                 let frame_index = state.frames.len() - 1;
                 let frame = state.frames[frame_index];
-                let program = program_bytes(&admission.program, frame.kind)?;
+                let program = admission.program_bytes(frame.kind)?;
                 let escaped = *program
                     .get(frame.position)
                     .ok_or(Cff1Error::InvalidCharstring)?;
+                admission.observe(frame.kind, frame.position - 1, 0x0c00 | u16::from(escaped));
                 state.frames[frame_index].position = frame.position + 1;
                 evaluate_flex(escaped, &mut state, budget)?;
             }
             14 => {
                 consume_width_for_endchar(admission, &mut state)?;
-                if !state.stack.is_empty() || state.frames.len() != 1 {
+                if !state.stack.is_empty()
+                    || (state.frames.len() != 1 && !admission.accepts_subroutine_endchar())
+                {
                     return Err(Cff1Error::InvalidCharstring);
                 }
                 budget.charge_operation()?;
@@ -3412,7 +3462,7 @@ fn evaluate_glyph(
                     .map_err(|_| Cff1Error::InvalidCharstring)?;
                 let frame_index = state.frames.len() - 1;
                 let frame = state.frames[frame_index];
-                let program = program_bytes(&admission.program, frame.kind)?;
+                let program = admission.program_bytes(frame.kind)?;
                 let end = frame
                     .position
                     .checked_add(mask_bytes)
@@ -3564,7 +3614,7 @@ fn validate_source_width(admission: &Cff1Admission, operand: Option<i32>) -> Res
 }
 
 fn consume_width_for_path(
-    admission: &Cff1Admission,
+    admission: &impl Type2ProgramAccess,
     state: &mut Type2State,
     expected_arguments: usize,
 ) -> Result<(), Cff1Error> {
@@ -3580,14 +3630,14 @@ fn consume_width_for_path(
         } else {
             return Err(Cff1Error::InvalidCharstring);
         };
-        validate_source_width(admission, width)?;
+        admission.validate_width(width)?;
         state.width_seen = true;
     }
     Ok(())
 }
 
 fn consume_width_for_endchar(
-    admission: &Cff1Admission,
+    admission: &impl Type2ProgramAccess,
     state: &mut Type2State,
 ) -> Result<(), Cff1Error> {
     if !state.width_seen {
@@ -3597,16 +3647,16 @@ fn consume_width_for_endchar(
             4 | 5 => return Err(Cff1Error::InvalidCharstring),
             _ => return Err(Cff1Error::InvalidCharstring),
         };
-        validate_source_width(admission, width)?;
+        admission.validate_width(width)?;
         state.width_seen = true;
     }
     Ok(())
 }
 
 fn consume_stems(
-    admission: &Cff1Admission,
+    admission: &impl Type2ProgramAccess,
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     if !state.width_seen {
         let width = if state.stack.len() % 2 == 1 {
@@ -3614,7 +3664,7 @@ fn consume_stems(
         } else {
             None
         };
-        validate_source_width(admission, width)?;
+        admission.validate_width(width)?;
         state.width_seen = true;
     }
     if state.stack.len() % 2 != 0 {
@@ -3679,7 +3729,7 @@ fn update_bbox(bbox: &mut Option<[i32; 4]>, x: i32, y: i32) {
 
 fn emit_move(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     x: i32,
     y: i32,
 ) -> Result<(), Cff1Error> {
@@ -3692,7 +3742,7 @@ fn emit_move(
 
 fn emit_current_move(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     let (x, y) = (state.x, state.y);
     emit_move(state, budget, x, y)
@@ -3700,7 +3750,7 @@ fn emit_current_move(
 
 fn emit_line(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     x: i32,
     y: i32,
 ) -> Result<(), Cff1Error> {
@@ -3715,7 +3765,7 @@ fn emit_line(
 
 fn emit_current_line(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     let (x, y) = (state.x, state.y);
     emit_line(state, budget, x, y)
@@ -3723,7 +3773,7 @@ fn emit_current_line(
 
 fn emit_cubic(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     points: [i32; 6],
 ) -> Result<(), Cff1Error> {
     if !state.contour_open {
@@ -3741,7 +3791,10 @@ fn emit_cubic(
     Ok(())
 }
 
-fn close_contour(state: &mut Type2State, budget: &mut Cff1SubsetSession) -> Result<(), Cff1Error> {
+fn close_contour(
+    state: &mut Type2State,
+    budget: &mut impl Type2WorkBudget,
+) -> Result<(), Cff1Error> {
     if state.contour_open {
         reserve_segment(state, budget)?;
         state.segments.push(OutlineSegment::Close);
@@ -3752,7 +3805,7 @@ fn close_contour(state: &mut Type2State, budget: &mut Cff1SubsetSession) -> Resu
 
 fn reserve_segment(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     // The inclusive work limit wins before allocation or append. A host
     // allocation refusal stays in the same bounded outline-output domain and
@@ -3766,7 +3819,7 @@ fn reserve_segment(
 
 fn relative_cubic(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
     deltas: &[i32],
 ) -> Result<(), Cff1Error> {
     let values = exactly(deltas, 6)?;
@@ -3781,7 +3834,7 @@ fn relative_cubic(
 
 fn evaluate_vvcurveto(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
     let values = std::mem::take(&mut state.stack);
@@ -3812,7 +3865,7 @@ fn evaluate_vvcurveto(
 
 fn evaluate_hhcurveto(
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
     let values = std::mem::take(&mut state.stack);
@@ -3843,7 +3896,7 @@ fn evaluate_hhcurveto(
 fn evaluate_alternating_curves(
     horizontal_first: bool,
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
     let values = std::mem::take(&mut state.stack);
@@ -3893,7 +3946,7 @@ fn evaluate_alternating_curves(
 fn evaluate_flex(
     operator: u8,
     state: &mut Type2State,
-    budget: &mut Cff1SubsetSession,
+    budget: &mut impl Type2WorkBudget,
 ) -> Result<(), Cff1Error> {
     require_width_seen(state)?;
     let values = std::mem::take(&mut state.stack);
