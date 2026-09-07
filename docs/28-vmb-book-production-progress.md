@@ -5426,3 +5426,43 @@ production_body_page_content_places_5000`, **160 passed, 0 failed, 1 explicitly
 ignored, 23.84 s**, `/private/tmp/typaxis-joint-driver-final.log`.
 The unchanged 5,000-SVG tests were excluded; the saved-job probe remains ignored.
 All commands from this implementation step are terminal. No public receipt or push.
+
+## 2026-09-08 — Final vector object/use observations from joint PDF
+
+Implemented §14.52. The joint assembler now derives the existing typed
+`StagingSafeVectorPdfFinalWriterObservationV2` from the actual absolute role map:
+all vector objects and every usage's Page, PageContent and Form, with original
+IDs, paint ordinals and contribution hashes. Missing roles fail; the existing
+contribution validator checks counts, uniqueness and usage/page mapping.
+
+Rows plus validation maps/sets are charged before allocation (four records per
+object/use plus one). A bounded internal constructor runs the same canonical
+encoder first through a counting sink, checks remaining spool, reserves that
+exact length, and emits the JSON. Its actual length joins cumulative spool.
+The original public constructor and canonical schema remain compatible.
+
+The integrated 16-fixture test checks every observation against actual assembly
+numbers and contribution rows, compares the existing constructor, and hashes
+the canonical bytes. Existing full-assembly exact/one-short limits now include
+these extra records and JSON. The vector unit fixture separately checks exact
+canonical length and one-short rejection.
+
+Validation so far (workspace manifest, `--locked`, target
+`/private/tmp/typaxis-vmb-book-build`): PDF check passed in 2.83 s
+(`/private/tmp/typaxis-joint-vector-observation-check.log`); PDF
+`safe_vector_v2` tests passed 7/7 in 0.15 s
+(`/private/tmp/typaxis-final-vector-encoder-tests.log`).
+
+This supplies actual final numbering for vector closure integration. It does
+not mint a VerifiedPdfBytesReceipt or satisfy book/tagged manifests by itself.
+Public writer/manifest/CLI integration, dynamic references, full allocation/
+retry management and original-book/Harano/scale/both-host gates remain mandatory.
+
+Final checks: CLI `--bin typaxis production_ -- --skip
+production_body_page_content_places_5000` passed **160 tests, 0 failed,
+1 explicitly ignored, 11.96 s**
+(`/private/tmp/typaxis-vector-final-writer-production-tests.log`).
+Existing manifest `safe_vector_manifest_v2` tests passed **2/2, 0.30 s**
+(`/private/tmp/typaxis-vector-observation-manifest-tests.log`). The unchanged
+5,000-SVG tests were excluded and the saved-job probe remains ignored.
+All processes from this step are terminal; no public receipt or push.

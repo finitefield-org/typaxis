@@ -2149,3 +2149,21 @@ displayと数式registryのhash、実block数式terminal数を返す。完全に
 探索予算の境界値と1不足、ページ上限・配置不能を実入力から検証する。このownerの追加だけでは
 公開writerのreceipt／manifestやCLIの診断code体系は閉じない。動的ページ参照と行の再帰的な
 収束、全allocation／retry寿命、元全巻・原ノ味・規模・両hostの受入要件を残す。
+
+### 14.52 統合PDFのvector最終writer観測値（実装追補）
+
+本文・脚注のPDF assemblyは、実際に割り当てたobject番号表から既存の
+`StagingSafeVectorPdfFinalWriterObservationV2`を生成する。relative vector roleの絶対番号、
+各usageのPage／PageContent／Form番号、元のusage ID・page・paint ordinal・contribution
+fingerprintを保持する。番号を別の予測表で作らず、未解決roleがあればassemblyを拒否する。
+既存contribution検証器でobjectとusageの過不足、番号衝突、ページ対応も検査する。
+
+行の保持と検証用map／setの記録数はassemblyまでの累積recordsに追加し、確保前に上限検査する。
+観測JSONは同一のエンコーダーを計数sinkで一度実行し、残spool以内と確認してから正確な長さを
+予約して生成する。その実長を累積spoolへ加える。既存の公開constructorとJSON形式は維持し、
+新しい内部constructorは使用可能spoolを受け取る。
+
+16種の統合fixtureでcontributionとの各行対応、実PDF番号、描画fingerprint、既存constructor
+との観測値一致を検証する。既存のassembly境界テストはこの追加records／JSONも含める。
+これはvector closureへ接続するための最終番号観測であり、PDF receipt・book／tagged
+manifest全体の成立や公開writerの置換を証明するものではない。元全巻等の受入ゲートを維持する。

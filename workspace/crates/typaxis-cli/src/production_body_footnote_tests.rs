@@ -3121,6 +3121,61 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                 )
                 .unwrap();
                 pdf.verify(&resource_objects, admitted, limits).unwrap();
+                let writer = pdf.vector_final_writer();
+                assert_eq!(
+                    writer.contribution_fingerprint(),
+                    content.vectors().fingerprint()
+                );
+                assert_eq!(
+                    writer.object_table().len(),
+                    content.vectors().relative_objects().len()
+                );
+                assert_eq!(writer.usages().len(), content.vectors().usages().len());
+                for (row, original) in writer
+                    .object_table()
+                    .iter()
+                    .zip(content.vectors().relative_objects())
+                {
+                    assert_eq!(
+                        Some(row.absolute_object_number()),
+                        pdf.object_number(Role::Vector(original.relative_object_role()))
+                    );
+                    assert_eq!(
+                        row.object_contribution_fingerprint(),
+                        original.object_contribution_fingerprint()
+                    );
+                }
+                for (row, original) in writer.usages().iter().zip(content.vectors().usages()) {
+                    assert_eq!(row.usage_id(), original.usage_id());
+                    assert_eq!(row.page_index(), original.page_index());
+                    assert_eq!(row.paint_ordinal(), original.paint_ordinal());
+                    assert_eq!(row.content_fingerprint(), original.content_fingerprint());
+                    assert_eq!(
+                        Some(row.page_object_number()),
+                        pdf.object_number(Role::Page(original.page_index()))
+                    );
+                    assert_eq!(
+                        Some(row.page_content_object_number()),
+                        pdf.object_number(Role::PageContent(original.page_index()))
+                    );
+                    assert_eq!(
+                        Some(row.form_absolute_object_number()),
+                        pdf.object_number(Role::Vector(original.form_relative_object_role()))
+                    );
+                }
+                let reconstructed =
+                    typaxis_pdf::StagingSafeVectorPdfFinalWriterObservationV2::from_final_writer(
+                        content.vectors(),
+                        writer.object_table().to_vec(),
+                        writer.usages().to_vec(),
+                    )
+                    .unwrap();
+                assert_eq!(writer, &reconstructed);
+                assert_eq!(
+                    writer.fingerprint(),
+                    sha256(writer.canonical_jcs().as_bytes())
+                );
+
                 assert_eq!(pdf.content_hash(), sha256(pdf.bytes()));
                 assert_eq!(pdf.page_count() as usize, marked.pages().len());
                 assert_eq!(

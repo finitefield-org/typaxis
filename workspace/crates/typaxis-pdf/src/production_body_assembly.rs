@@ -415,6 +415,7 @@ pub struct ProductionFootnotePdfAssembly<
         'p,
         'a,
     >,
+    vector_final_writer: crate::StagingSafeVectorPdfFinalWriterObservationV2,
     numbers: BTreeMap<ProductionBodyObjectRole, u32>,
     observations: Vec<ProductionBodyAssemblyObject>,
     bytes: Vec<u8>,
@@ -424,6 +425,9 @@ pub struct ProductionFootnotePdfAssembly<
     spool_charge: u64,
 }
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub fn vector_final_writer(&self) -> &crate::StagingSafeVectorPdfFinalWriterObservationV2 {
+        &self.vector_final_writer
+    }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -533,7 +537,7 @@ pub fn assemble_production_footnote_pdf<
         .chain(structure.objects())
         .chain(source.objects());
     let geometry = display.source().block_layout().page_geometry();
-    let projected = project_pdf_assembly(
+    let mut projected = project_pdf_assembly(
         objects,
         source.retained_object_count(),
         marked.pages().len(),
@@ -547,8 +551,11 @@ pub fn assemble_production_footnote_pdf<
         source.spool_charge(),
         limits,
     )?;
+    let vector_final_writer =
+        project_vector_final_writer(&mut projected, marked.content().vectors(), limits)?;
     Ok(ProductionFootnotePdfAssembly {
         source,
+        vector_final_writer,
         numbers: projected.numbers,
         observations: projected.observations,
         bytes: projected.bytes,
@@ -557,4 +564,76 @@ pub fn assemble_production_footnote_pdf<
         record_charge: projected.record_charge,
         spool_charge: projected.spool_charge,
     })
+}
+
+fn project_vector_final_writer(
+    pdf: &mut AssemblyProjection,
+    vector: &crate::StagingSafeVectorPdfContributionV2,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<crate::StagingSafeVectorPdfFinalWriterObservationV2, E> {
+    // Retained rows plus the constructor's validation maps/sets. Charge before
+    // allocating either the rows or its canonical observation record.
+    let rows = vector
+        .relative_objects()
+        .len()
+        .checked_add(vector.usages().len())
+        .ok_or(E::RecordLimit)?;
+    pdf.record_charge = pdf
+        .record_charge
+        .checked_add((rows as u64).checked_mul(4).ok_or(E::RecordLimit)?)
+        .and_then(|n| n.checked_add(1))
+        .ok_or(E::RecordLimit)?;
+    if pdf.record_charge > limits.base().get().max_fragments {
+        return Err(E::RecordLimit);
+    }
+    let number = |role| pdf.numbers.get(&role).copied().ok_or(E::ReceiptMismatch);
+    let mut objects = Vec::new();
+    objects
+        .try_reserve_exact(vector.relative_objects().len())
+        .map_err(|_| E::AllocationFailure)?;
+    for object in vector.relative_objects() {
+        objects.push(
+            crate::StagingSafeVectorPdfFinalObjectObservationV2::from_final_writer(
+                object.relative_object_role(),
+                number(R::Vector(object.relative_object_role()))?,
+                object.object_contribution_fingerprint(),
+            ),
+        );
+    }
+    let mut usages = Vec::new();
+    usages
+        .try_reserve_exact(vector.usages().len())
+        .map_err(|_| E::AllocationFailure)?;
+    for usage in vector.usages() {
+        usages.push(
+            crate::StagingSafeVectorPdfFinalUsageObservationV2::from_final_writer(
+                usage.usage_id(),
+                usage.page_index(),
+                usage.paint_ordinal(),
+                number(R::Page(usage.page_index()))?,
+                number(R::PageContent(usage.page_index()))?,
+                number(R::Vector(usage.form_relative_object_role()))?,
+                usage.content_fingerprint(),
+            ),
+        );
+    }
+    let available = limits
+        .base()
+        .get()
+        .max_spool_bytes
+        .checked_sub(pdf.spool_charge)
+        .ok_or(E::SpoolLimit)?;
+    let result = crate::StagingSafeVectorPdfFinalWriterObservationV2::from_final_writer_bounded(
+        vector, objects, usages, available,
+    )
+    .map_err(|error| match error {
+        crate::StagingSafeVectorPdfV2Error::SpoolLimit => E::SpoolLimit,
+        crate::StagingSafeVectorPdfV2Error::AllocationFailure => E::AllocationFailure,
+        _ => E::ReceiptMismatch,
+    })?;
+    pdf.spool_charge = pdf
+        .spool_charge
+        .checked_add(result.canonical_jcs().len() as u64)
+        .ok_or(E::SpoolLimit)?;
+    Ok(result)
 }

@@ -2123,9 +2123,45 @@ impl StagingSafeVectorPdfFinalWriterObservationV2 {
         object_table: Vec<StagingSafeVectorPdfFinalObjectObservationV2>,
         usages: Vec<StagingSafeVectorPdfFinalUsageObservationV2>,
     ) -> Result<Self, StagingSafeVectorPdfV2Error> {
+        Self::from_final_writer_bounded(contribution, object_table, usages, u64::MAX)
+    }
+
+    pub(crate) fn from_final_writer_bounded(
+        contribution: &StagingSafeVectorPdfContributionV2,
+        object_table: Vec<StagingSafeVectorPdfFinalObjectObservationV2>,
+        usages: Vec<StagingSafeVectorPdfFinalUsageObservationV2>,
+        available_spool: u64,
+    ) -> Result<Self, StagingSafeVectorPdfV2Error> {
         validate_final_writer_rows(contribution, &object_table, &usages)?;
-        let canonical_jcs =
-            encode_final_writer_observation(contribution.fingerprint(), &object_table, &usages);
+        struct Counter(usize);
+        impl std::fmt::Write for Counter {
+            fn write_str(&mut self, value: &str) -> std::fmt::Result {
+                self.0 = self.0.checked_add(value.len()).ok_or(std::fmt::Error)?;
+                Ok(())
+            }
+        }
+        let mut counter = Counter(0);
+        write_final_writer_observation(
+            &mut counter,
+            contribution.fingerprint(),
+            &object_table,
+            &usages,
+        )
+        .map_err(|_| StagingSafeVectorPdfV2Error::SpoolLimit)?;
+        if counter.0 as u64 > available_spool {
+            return Err(StagingSafeVectorPdfV2Error::SpoolLimit);
+        }
+        let mut canonical_jcs = String::new();
+        canonical_jcs
+            .try_reserve_exact(counter.0)
+            .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
+        write_final_writer_observation(
+            &mut canonical_jcs,
+            contribution.fingerprint(),
+            &object_table,
+            &usages,
+        )
+        .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
         Ok(Self {
             contribution_fingerprint: contribution.fingerprint(),
             object_table,
@@ -2337,44 +2373,62 @@ fn encode_final_writer_observation(
     object_table: &[StagingSafeVectorPdfFinalObjectObservationV2],
     usages: &[StagingSafeVectorPdfFinalUsageObservationV2],
 ) -> String {
-    let mut output = String::from("{\"contribution_fingerprint\":");
-    push_hash(&mut output, contribution_fingerprint);
-    output.push_str(",\"object_table\":[");
+    let mut output = String::new();
+    write_final_writer_observation(&mut output, contribution_fingerprint, object_table, usages)
+        .expect("writing into String cannot fail");
+    output
+}
+fn write_final_writer_observation(
+    output: &mut impl std::fmt::Write,
+    contribution_fingerprint: [u8; 32],
+    object_table: &[StagingSafeVectorPdfFinalObjectObservationV2],
+    usages: &[StagingSafeVectorPdfFinalUsageObservationV2],
+) -> std::fmt::Result {
+    fn write_hash(output: &mut impl std::fmt::Write, hash: [u8; 32]) -> std::fmt::Result {
+        output.write_char('"')?;
+        for byte in hash {
+            write!(output, "{byte:02x}")?;
+        }
+        output.write_char('"')
+    }
+    output.write_str("{\"contribution_fingerprint\":")?;
+    write_hash(output, contribution_fingerprint)?;
+    output.write_str(",\"object_table\":[")?;
     for (index, object) in object_table.iter().enumerate() {
         if index > 0 {
-            output.push(',');
+            output.write_char(',')?;
         }
-        output.push_str("{\"absolute_object_number\":");
-        output.push_str(&object.absolute_object_number.to_string());
-        output.push_str(",\"object_contribution_fingerprint\":");
-        push_hash(&mut output, object.object_contribution_fingerprint);
-        output.push_str(",\"relative_object_role\":");
-        output.push_str(&object.relative_object_role.to_string());
-        output.push('}');
+        output.write_str("{\"absolute_object_number\":")?;
+        output.write_str(&object.absolute_object_number.to_string())?;
+        output.write_str(",\"object_contribution_fingerprint\":")?;
+        write_hash(output, object.object_contribution_fingerprint)?;
+        output.write_str(",\"relative_object_role\":")?;
+        output.write_str(&object.relative_object_role.to_string())?;
+        output.write_char('}')?;
     }
-    output.push_str("],\"usages\":[");
+    output.write_str("],\"usages\":[")?;
     for (index, usage) in usages.iter().enumerate() {
         if index > 0 {
-            output.push(',');
+            output.write_char(',')?;
         }
-        output.push_str("{\"content_fingerprint\":");
-        push_hash(&mut output, usage.content_fingerprint);
-        output.push_str(",\"form_absolute_object_number\":");
-        output.push_str(&usage.form_absolute_object_number.to_string());
-        output.push_str(",\"page_content_object_number\":");
-        output.push_str(&usage.page_content_object_number.to_string());
-        output.push_str(",\"page_index\":");
-        output.push_str(&usage.page_index.to_string());
-        output.push_str(",\"page_object_number\":");
-        output.push_str(&usage.page_object_number.to_string());
-        output.push_str(",\"paint_ordinal\":");
-        output.push_str(&usage.paint_ordinal.to_string());
-        output.push_str(",\"usage_id\":");
-        output.push_str(&usage.usage_id.to_string());
-        output.push('}');
+        output.write_str("{\"content_fingerprint\":")?;
+        write_hash(output, usage.content_fingerprint)?;
+        output.write_str(",\"form_absolute_object_number\":")?;
+        output.write_str(&usage.form_absolute_object_number.to_string())?;
+        output.write_str(",\"page_content_object_number\":")?;
+        output.write_str(&usage.page_content_object_number.to_string())?;
+        output.write_str(",\"page_index\":")?;
+        output.write_str(&usage.page_index.to_string())?;
+        output.write_str(",\"page_object_number\":")?;
+        output.write_str(&usage.page_object_number.to_string())?;
+        output.write_str(",\"paint_ordinal\":")?;
+        output.write_str(&usage.paint_ordinal.to_string())?;
+        output.write_str(",\"usage_id\":")?;
+        output.write_str(&usage.usage_id.to_string())?;
+        output.write_char('}')?;
     }
-    output.push_str("]}");
-    output
+    output.write_str("]}")?;
+    Ok(())
 }
 
 fn encode_pdf_closure(
@@ -2989,6 +3043,27 @@ mod tests {
             isolated.usages.clone(),
         )
         .unwrap();
+        let exact = final_writer.canonical_jcs().len() as u64;
+        assert_eq!(
+            StagingSafeVectorPdfFinalWriterObservationV2::from_final_writer_bounded(
+                &contribution,
+                isolated.object_table.clone(),
+                isolated.usages.clone(),
+                exact,
+            )
+            .unwrap(),
+            final_writer
+        );
+        assert_eq!(
+            StagingSafeVectorPdfFinalWriterObservationV2::from_final_writer_bounded(
+                &contribution,
+                isolated.object_table.clone(),
+                isolated.usages.clone(),
+                exact - 1,
+            )
+            .unwrap_err(),
+            StagingSafeVectorPdfV2Error::SpoolLimit
+        );
         let final_pdf = VerifiedPdfBytesReceipt {
             sha256: sha256(&isolated.bytes),
             bytes: isolated.bytes,
