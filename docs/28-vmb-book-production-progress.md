@@ -3373,3 +3373,48 @@ coverage, CLI/ArtifactSink integration, public common-flow closure, original
 Harano and chapter/full-book/scale/both-host acceptance remain required. No public
 profile was changed. All launched tests reached terminal state; no branch was
 pushed in this work.
+
+### 2026-09-07: VMB rich labels and deferred page references
+
+Companion commit **`c087095e`** adds `package_reference.go`. Custom/title labels
+retain rich inline content, math and language. Linked labels point to an emitted
+internal anchor or resolved external URI; unlinked labels expand without a
+fabricated emphasis/link wrapper. Copied title labels and locale-generated text
+carry generated provenance. The sole `{page}` placeholder in the locale page
+reference template becomes a wire page-reference node with an empty source span;
+prefix/suffix text is retained without inserting guessed page digits. External
+references already degraded by Prepare keep the resolved label and link state.
+
+The exporter registers actual heading anchors and validates forward/internal
+references after the full body and footnotes. Missing emitted targets, unresolved
+page state, bad templates and unsupported payloads fail without partial output.
+Recursive unlinked labels are bounded even when they create no wrapper nodes.
+Number-only/label-and-number references still require genuine VMB/Typaxis counter
+binding and fail explicitly; table/equation targets without emitted anchors also
+remain unsupported. These are required remaining work, not optional exclusions.
+
+Real source-bound VMB math in an unlinked label, rich linked text, forward links,
+external fallback, generated provenance, exact node ceilings and fifteen negative
+cases passed. Full rendertypaxis regression, including **five explicit public
+check-package gates**, passed in **32.024 seconds**:
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis/... -count=1 -v
+```
+
+The reference case has **1 image, 1 math occurrence, 71 projection bytes**, empty
+diagnostics, package SHA-256
+`26aa548aea5edfe2f19e0836ce99404808e3ca112e7774f39f7397b2b5114596`, source SHA-256
+`f1fe322d13f5606f98eea14cd6390d908592569be7da8730139787181ebff02d`.
+Binary SHA-256 remains
+`2fe9e0cc5c233561ee3d29385e45b867c896d58ff6d753b383a1e5488f48677f`.
+Prior four package/source hashes are unchanged. Logs:
+`/private/tmp/vmb-reference-public.log`, `/private/tmp/vmb-reference-regression.log`.
+
+This verifies a body contribution in the known test envelope, not final page
+reference convergence, PDF links, formal complete package export or public build.
+All previously recorded full-goal gates remain mandatory. All test processes
+reached terminal state; no public profile was changed or branch pushed.
