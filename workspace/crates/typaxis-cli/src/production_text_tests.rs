@@ -512,7 +512,7 @@ fn production_footnote_frames_use_declared_width_and_restore_definition_frames()
     for x in [955_360, 355_360] {
         for height in [6_000_000, 5_000_000] {
             value["page_masters"]["masters"][0]["footnote"] =
-                json!({"x":x,"y":13_000_000,"width":1_500_000,"height":height});
+                json!({"x":x,"y":13_000_000,"width":3_000_000,"height":height});
             let bytes = serde_json::to_vec(&value).unwrap();
             with_production_inline_context(
                 &bytes,
@@ -527,15 +527,19 @@ fn production_footnote_frames_use_declared_width_and_restore_definition_frames()
                     assert_eq!(region.x().raw(), x);
                     assert_eq!(region.height().get().raw(), height);
                     let definition = frames.region(typaxis_core::NodeId::new(6)).unwrap();
-                    assert_eq!(definition.start().raw(), x - body.x().raw());
-                    assert_eq!(definition.width().get().raw(), 1_500_000);
+                    let column = &frames.footnotes()[0];
+                    let reserve = column.marker_width().get().raw() + column.marker_gap().get().raw();
+                    assert_eq!(column.marker_start().raw(), x - body.x().raw());
+                    assert_eq!(column.content(), definition);
+                    assert_eq!(definition.start().raw(), x - body.x().raw() + reserve);
+                    assert_eq!(definition.width().get().raw(), 3_000_000 - reserve);
                     assert_eq!(
                         frames.paragraphs()[1].start().raw(),
                         definition.start().raw() + 65_536
                     );
                     assert_eq!(
                         frames.paragraphs()[1].width().get().raw(),
-                        1_500_000 - 2 * 65_536
+                        3_000_000 - reserve - 2 * 65_536
                     );
                     assert_eq!(lines.paragraphs()[0].lines().len(), 1);
                     assert!(lines.paragraphs()[1].lines().len() > 1);
@@ -716,13 +720,26 @@ fn production_footnote_line_registry_covers_every_cluster_of_multi_digit_markers
     with_production_inline_context(
         &serde_json::to_vec(&value).unwrap(),
         &config(),
-        |prepared, _, _, limits, _, _| {
+        |prepared, _, profile, limits, _, _| {
             let markers = prepared.footnote_markers();
             assert_eq!(markers.len(), 10);
             assert_eq!(markers[9].utf8(), "10");
             assert_eq!(markers[9].source().owner().get(), 42);
             assert_eq!(markers[9].glyph_run().clusters.len(), 2);
             assert!(markers[9].advance().get() > markers[0].advance().get());
+            let framed = typaxis_layout::layout_production_body_inline_lines(
+                prepared,
+                profile.page_geometry().body(),
+                1000,
+            )
+            .unwrap();
+            let columns = framed.frames().unwrap().footnotes();
+            assert_eq!(columns.len(), 10);
+            for column in columns {
+                assert_eq!(column.marker_width(), markers[9].advance());
+                assert_eq!(column.marker_gap(), markers[0].font().size());
+                assert_eq!(column.content(), columns[0].content());
+            }
             let width = PositiveLength::new(Length::from_raw(20_000_000).unwrap()).unwrap();
             let lines =
                 typaxis_layout::layout_production_inline_lines(prepared, &vec![width; 11], 1000)

@@ -269,7 +269,7 @@ fn production_footnote_break_fixture() -> serde_json::Value {
         "kind":"text","node_id":7,"span":span,"text_span":{"text_id":1,"start_byte":0,"end_byte":text.len()}
     }]}]}]);
     value["page_masters"]["masters"][0]["footnote"] =
-        json!({"x":655360,"y":13000000,"width":1500000,"height":6000000});
+        json!({"x":655360,"y":13000000,"width":3000000,"height":6000000});
     value
 }
 
@@ -800,4 +800,73 @@ fn production_footnote_marker_shape_budget_is_shared_and_missing_coverage_report
         failure.kind,
         typaxis_shaping::ProductionTextShapeErrorKind::MissingDeclaredFontCoverage
     );
+}
+
+#[test]
+fn production_footnote_columns_share_actual_marker_extents_and_reject_exhaustion() {
+    let mut value = production_footnote_flow_fixture();
+    production_footnote_marker_style(&mut value, "Body", 32 * 65_536);
+    value["document"]["footnotes"][1]["blocks"][0]["classes"] = serde_json::json!(["note"]);
+    let mut reserved = 0;
+    with_production_inline_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, _, profile, _, _, _| {
+            let markers = prepared.footnote_markers();
+            assert_ne!(markers[0].font().size(), markers[1].font().size());
+            let width = markers.iter().map(|m| m.advance().get()).max().unwrap();
+            let gap = markers.iter().map(|m| m.font().size().get()).max().unwrap();
+            reserved = width.raw() + gap.raw();
+            let lines = typaxis_layout::layout_production_body_inline_lines(
+                prepared,
+                profile.page_geometry().body(),
+                100_000,
+            )
+            .unwrap();
+            let frames = lines.frames().unwrap();
+            let region = frames.footnote_region().unwrap();
+            for (index, column) in frames.footnotes().iter().enumerate() {
+                assert_eq!(column.owner(), markers[index].source().owner());
+                assert_eq!(column.marker_width().get(), width);
+                assert_eq!(column.marker_gap().get(), gap);
+                assert_eq!(
+                    column.content().width().get().raw(),
+                    region.width().get().raw() - reserved
+                );
+                assert_eq!(
+                    column.content().start().raw(),
+                    region.x().raw() - frames.body().x().raw() + reserved
+                );
+                assert_eq!(frames.region(column.owner()), Some(column.content()));
+            }
+            assert_eq!(
+                frames.footnotes()[0].content(),
+                frames.footnotes()[1].content()
+            );
+        },
+    );
+    for width in [reserved, reserved - 1] {
+        value["page_masters"]["masters"][0]["footnote"]["width"] = width.into();
+        with_production_inline_context(
+            &serde_json::to_vec(&value).unwrap(),
+            &config(),
+            |prepared, _, profile, _, _, _| {
+                let failure = typaxis_layout::layout_production_body_inline_lines(
+                    prepared,
+                    profile.page_geometry().body(),
+                    100_000,
+                )
+                .err()
+                .unwrap();
+                assert_eq!(
+                    failure.owner,
+                    prepared.footnote_markers()[0].source().owner()
+                );
+                assert_eq!(
+                    failure.kind,
+                    typaxis_layout::ProductionInlinePreparationErrorKind::FootnoteFrameExhausted
+                );
+            },
+        );
+    }
 }

@@ -4297,3 +4297,42 @@ Final production regression: **111 passed, 0 failed, 1 explicitly ignored** in
 No production implementation changed after the regression began. All launched
 commands are terminal. No branch push or new public/full-book PDF acceptance
 result is claimed.
+
+### Footnote number columns reserve actual content width
+
+Declared footnote frames now reserve a shared number column using the maximum
+actual shaped definition-marker advance, plus a gap equal to the maximum marker
+font size (one em). Each definition column binds its source owner; paragraphs,
+vector blocks and nested lists inherit the reduced content frame. Each definition
+restores the preceding frame. A nonpositive remaining width reports
+`FootnoteFrameExhausted` at the definition owner. Column records are charged once
+and their geometry is fingerprinted; internal body frames advance to **/3**.
+
+Focused verification: **13 passed, 0 failed, 1.53 s**;
+`/private/tmp/typaxis-footnote-column-verified.log`. Coverage includes actual
+multi-digit advances, mixed definition font sizes, shared alignment, both region
+x offsets, descendant indents, definition restoration, exact exhaustion and
+one-unit shortage. Narrow fragmentation fixtures now explicitly include room
+for the number column; their keep, continuation and budget assertions still pass.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked -- --nocapture
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked
+```
+Production regression log: `/private/tmp/typaxis-footnote-column-regression.log`.
+
+Marker baseline/vertical extents and paint placement remain to be connected to
+the measured items. Reference-page coupling, public PDF, original full-book,
+Harano, scale and both-host gates remain incomplete. No public/full-book PDF
+acceptance result is claimed.
+
+Final production regression: **112 passed, 0 failed, 1 explicitly ignored** in
+**528.96 s**, including both selected 5,000-resource PDF cases. The regression
+ran against the final behavior; subsequent source edits only wrapped/reordered
+exports and formatted the new test call. All launched commands are terminal.
+No branch push or new public/full-book PDF acceptance result is claimed.

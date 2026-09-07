@@ -42,6 +42,31 @@ impl ProductionListFrame {
         self.content
     }
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProductionFootnoteFrame {
+    owner: NodeId,
+    marker_start: Length,
+    marker_width: PositiveLength,
+    marker_gap: PositiveLength,
+    content: ProductionInlineFrame,
+}
+impl ProductionFootnoteFrame {
+    pub const fn owner(&self) -> NodeId {
+        self.owner
+    }
+    pub const fn marker_start(&self) -> Length {
+        self.marker_start
+    }
+    pub const fn marker_width(&self) -> PositiveLength {
+        self.marker_width
+    }
+    pub const fn marker_gap(&self) -> PositiveLength {
+        self.marker_gap
+    }
+    pub const fn content(&self) -> ProductionInlineFrame {
+        self.content
+    }
+}
 pub struct ProductionBodyInlineFrames<'p, 'a> {
     prepared: &'p ProductionPreparedInlines<'a>,
     body: Rect,
@@ -49,6 +74,7 @@ pub struct ProductionBodyInlineFrames<'p, 'a> {
     regions: BTreeMap<NodeId, ProductionInlineFrame>,
     paragraphs: Vec<ProductionInlineFrame>,
     lists: Vec<ProductionListFrame>,
+    footnotes: Vec<ProductionFootnoteFrame>,
     record_charge: u64,
     fingerprint: [u8; 32],
 }
@@ -68,6 +94,9 @@ impl<'p, 'a> ProductionBodyInlineFrames<'p, 'a> {
     }
     pub fn lists(&self) -> &[ProductionListFrame] {
         &self.lists
+    }
+    pub fn footnotes(&self) -> &[ProductionFootnoteFrame] {
+        &self.footnotes
     }
     pub const fn record_charge(&self) -> u64 {
         self.record_charge
@@ -105,6 +134,7 @@ pub(super) fn prepare_frames<'p, 'a>(
         .and_then(|n| n.checked_add(flow.paragraphs().len() as u64 * 2))
         .and_then(|n| n.checked_add(flow.lists().len() as u64 * 3))
         .and_then(|n| n.checked_add(u64::from(footnote_region.is_some())))
+        .and_then(|n| n.checked_add(prepared.footnote_markers().len() as u64))
         .ok_or_else(|| error(root, E::UnitLimit))?;
     let record_charge = prepared
         .shaped
@@ -140,6 +170,22 @@ pub(super) fn prepare_frames<'p, 'a>(
     lists
         .try_reserve_exact(flow.lists().len())
         .map_err(|_| error(root, E::AllocationFailure))?;
+    let mut footnotes = Vec::new();
+    footnotes
+        .try_reserve_exact(prepared.footnote_markers().len())
+        .map_err(|_| error(root, E::AllocationFailure))?;
+    let marker_width = prepared
+        .footnote_markers()
+        .iter()
+        .map(|m| m.advance().get())
+        .max()
+        .and_then(PositiveLength::new);
+    let marker_gap = prepared
+        .footnote_markers()
+        .iter()
+        .map(|m| m.font().size().get())
+        .max()
+        .and_then(PositiveLength::new);
     let mut current = ProductionInlineFrame {
         start: Length::ZERO,
         width: body.width(),
@@ -158,13 +204,39 @@ pub(super) fn prepare_frames<'p, 'a>(
                 if kind == Region::Footnote {
                     let region =
                         footnote_region.ok_or_else(|| error(owner, E::MissingFootnoteRegion))?;
+                    let marker = prepared
+                        .footnote_markers()
+                        .get(footnotes.len())
+                        .filter(|m| m.source().owner() == owner)
+                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                    let marker_width =
+                        marker_width.ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                    let marker_gap = marker_gap.ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                    let marker_start = region
+                        .x()
+                        .checked_sub(body.x())
+                        .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
                     current = ProductionInlineFrame {
-                        start: region
-                            .x()
-                            .checked_sub(body.x())
-                            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
-                        width: region.width(),
+                        start: add(
+                            add(marker_start, marker_width.get(), owner)?,
+                            marker_gap.get(),
+                            owner,
+                        )?,
+                        width: region
+                            .width()
+                            .get()
+                            .checked_sub(marker_width.get())
+                            .and_then(|w| w.checked_sub(marker_gap.get()))
+                            .and_then(PositiveLength::new)
+                            .ok_or_else(|| error(owner, E::FootnoteFrameExhausted))?,
                     };
+                    footnotes.push(ProductionFootnoteFrame {
+                        owner: marker.source().owner(),
+                        marker_start,
+                        marker_width,
+                        marker_gap,
+                        content: current,
+                    });
                 }
                 regions.insert(owner, current);
                 if kind == Region::SemanticContainer {
@@ -254,6 +326,7 @@ pub(super) fn prepare_frames<'p, 'a>(
     if !stack.is_empty()
         || paragraphs.len() != flow.paragraphs().len()
         || lists.len() != flow.lists().len()
+        || footnotes.len() != prepared.footnote_markers().len()
     {
         return Err(error(root, E::ReceiptMismatch));
     }
@@ -267,13 +340,19 @@ pub(super) fn prepare_frames<'p, 'a>(
                 .and_then(|m| n.checked_add(m))
         })
         .and_then(|n| lists.len().checked_mul(44).and_then(|m| n.checked_add(m)))
+        .and_then(|n| {
+            footnotes
+                .len()
+                .checked_mul(44)
+                .and_then(|m| n.checked_add(m))
+        })
         .and_then(|n| n.checked_add(192))
         .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
     let mut digest = Vec::new();
     digest
         .try_reserve_exact(capacity)
         .map_err(|_| error(root, E::AllocationFailure))?;
-    digest.extend_from_slice(&sha256(b"typaxis.production-body-frames/2"));
+    digest.extend_from_slice(&sha256(b"typaxis.production-body-frames/3"));
     digest.extend_from_slice(&prepared.fingerprint());
     for n in [body.x(), body.y(), body.width().get(), body.height().get()] {
         digest.extend_from_slice(&n.raw().to_be_bytes());
@@ -312,6 +391,18 @@ pub(super) fn prepare_frames<'p, 'a>(
             digest.extend_from_slice(&n.raw().to_be_bytes());
         }
     }
+    for frame in &footnotes {
+        digest.extend_from_slice(&frame.owner.get().to_be_bytes());
+        for n in [
+            frame.marker_start,
+            frame.marker_width.get(),
+            frame.marker_gap.get(),
+            frame.content.start,
+            frame.content.width.get(),
+        ] {
+            digest.extend_from_slice(&n.raw().to_be_bytes());
+        }
+    }
     Ok(ProductionBodyInlineFrames {
         prepared,
         body,
@@ -319,6 +410,7 @@ pub(super) fn prepare_frames<'p, 'a>(
         regions,
         paragraphs,
         lists,
+        footnotes,
         record_charge,
         fingerprint: sha256(&digest),
     })

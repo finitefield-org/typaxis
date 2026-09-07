@@ -47,8 +47,8 @@ pub use raster::ProductionPreparedRasterFigure;
 #[path = "production_list_frames.rs"]
 mod list_frames;
 pub use list_frames::{
-    layout_production_body_inline_lines, ProductionBodyInlineFrames, ProductionInlineFrame,
-    ProductionListFrame,
+    layout_production_body_inline_lines, ProductionBodyInlineFrames, ProductionFootnoteFrame,
+    ProductionInlineFrame, ProductionListFrame,
 };
 
 pub const PRODUCTION_INLINE_PREPARATION_ALGORITHM: &str = "typaxis.production-inline-preparation/5";
@@ -68,6 +68,7 @@ pub enum ProductionInlinePreparationErrorKind {
     InvalidListMarker,
     ListFrameExhausted,
     ContainerFrameExhausted,
+    FootnoteFrameExhausted,
     MissingFootnoteRegion,
     InvalidFootnoteGeometry,
     PendingFootnoteMaster,
