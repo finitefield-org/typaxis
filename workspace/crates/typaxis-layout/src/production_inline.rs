@@ -261,7 +261,11 @@ pub fn prepare_production_inline_items<'a>(
             let owner = site.owner();
             match site.content() {
                 ProductionInlineContent::Text { .. }
-                | ProductionInlineContent::FootnoteReference => {
+                | ProductionInlineContent::FootnoteReference
+                | ProductionInlineContent::Reference
+                    if !matches!(site.content(), ProductionInlineContent::Reference)
+                        || flow.page_reference_text(owner).is_some() =>
+                {
                     let (span, utf8) = inline_shape_text(flow, site)?;
                     if utf8.is_empty() {
                         continue;
@@ -517,6 +521,14 @@ fn inline_shape_text<'a>(
     };
     match site.content() {
         ProductionInlineContent::Text { span, utf8 } => Ok((ShapeSourceSpan::Parsed(span), utf8)),
+        ProductionInlineContent::Reference => Ok((
+            ShapeSourceSpan::Generated(
+                flow.page_reference_provenance(site.owner())
+                    .ok_or_else(mismatch)?,
+            ),
+            flow.page_reference_text(site.owner())
+                .ok_or_else(mismatch)?,
+        )),
         ProductionInlineContent::FootnoteReference => Ok((
             ShapeSourceSpan::Generated(
                 flow.footnote_marker_provenance(site.owner())

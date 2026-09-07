@@ -1,7 +1,7 @@
 #[path = "production_flow.rs"]
 mod production_flow;
 pub use production_flow::{
-    prepare_production_text_flow, ProductionFigure, ProductionFlowError, ProductionFlowErrorKind,
+    prepare_production_text_flow, prepare_production_text_flow_with_page_references, ProductionFigure, ProductionFlowError, ProductionFlowErrorKind,
     ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent,
     ProductionInlineLinkTarget, ProductionInlineReference, ProductionInlineSite, ProductionList,
     ProductionListItem, ProductionFootnoteDefinition, ProductionReferenceFormat, ProductionTextFlow, ProductionTextParagraph,

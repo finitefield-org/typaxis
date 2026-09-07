@@ -352,6 +352,7 @@ pub struct ProductionTextFlow<'a> {
     footnote_definitions: Vec<ProductionFootnoteDefinition<'a>>,
     footnote_base_style: Option<SemanticContainerInheritanceStyle>,
     generated: typaxis_text::GeneratedTextOverlay,
+    page_reference_values: Option<Vec<(NodeId, u32)>>,
     text_bytes: u64,
     fingerprint: [u8; 32],
 }
@@ -415,6 +416,28 @@ impl<'a> ProductionTextFlow<'a> {
             )
             .ok()
     }
+    /// Candidate page labels, not evidence of final placement.
+    pub fn page_reference_values(&self) -> Option<&[(NodeId, u32)]> {
+        self.page_reference_values.as_deref()
+    }
+    pub fn page_reference_text(&self, owner: NodeId) -> Option<&str> {
+        self.generated
+            .buffer(page_reference_key(owner))
+            .map(|b| b.utf8())
+    }
+    pub fn page_reference_provenance(
+        &self,
+        owner: NodeId,
+    ) -> Option<typaxis_text::GeneratedProvenance> {
+        let text = self.page_reference_text(owner)?;
+        self.generated
+            .provenance(
+                page_reference_key(owner),
+                Utf8ByteOffset::new(0),
+                Utf8ByteOffset::new(u32::try_from(text.len()).ok()?),
+            )
+            .ok()
+    }
     pub const fn generated_text_bytes(&self) -> u64 {
         self.generated.generated_bytes()
     }
@@ -463,7 +486,12 @@ impl<'a> ProductionTextFlow<'a> {
         if !std::ptr::eq(self.package, package) || !std::ptr::eq(self.navigation, navigation) {
             return Err(failure(ProductionFlowErrorKind::ReceiptMismatch, owner));
         }
-        let observed = prepare_production_text_flow(package, navigation, limits)?;
+        let observed = prepare_production_text_flow_inner(
+            package,
+            navigation,
+            limits,
+            self.page_reference_values.as_deref(),
+        )?;
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
             || self.figures != observed.figures
@@ -488,6 +516,26 @@ pub fn prepare_production_text_flow<'a>(
     package: &'a ValidatedStagingSemanticPackage,
     navigation: &'a ValidatedStagingBookNavigationV2,
     limits: &M4EffectiveResourceLimits,
+) -> Result<ProductionTextFlow<'a>, ProductionFlowError> {
+    prepare_production_text_flow_inner(package, navigation, limits, None)
+}
+
+/// Supply all Page-format reference labels in strictly increasing source-owner
+/// order. Values are one-based candidate pages; pagination must later prove them.
+pub fn prepare_production_text_flow_with_page_references<'a>(
+    package: &'a ValidatedStagingSemanticPackage,
+    navigation: &'a ValidatedStagingBookNavigationV2,
+    limits: &M4EffectiveResourceLimits,
+    values: &[(NodeId, u32)],
+) -> Result<ProductionTextFlow<'a>, ProductionFlowError> {
+    prepare_production_text_flow_inner(package, navigation, limits, Some(values))
+}
+
+fn prepare_production_text_flow_inner<'a>(
+    package: &'a ValidatedStagingSemanticPackage,
+    navigation: &'a ValidatedStagingBookNavigationV2,
+    limits: &M4EffectiveResourceLimits,
+    values: Option<&[(NodeId, u32)]>,
 ) -> Result<ProductionTextFlow<'a>, ProductionFlowError> {
     let root = NodeId::new(0);
     navigation
@@ -570,6 +618,7 @@ pub fn prepare_production_text_flow<'a>(
         });
         collector.end(owner)?;
     }
+    let page_reference_values = add_page_reference_values(&mut collector, values, limits)?;
     let generated = typaxis_text::GeneratedTextOverlay::new(
         collector.generated_records,
         limits.base(),
@@ -586,6 +635,7 @@ pub fn prepare_production_text_flow<'a>(
         list_items: collector.list_items,
         footnote_definitions,
         footnote_base_style,
+        page_reference_values,
         generated,
         text_bytes: collector.text_bytes,
         fingerprint: [0; 32],
@@ -1581,6 +1631,70 @@ mod tests {
             let package = parse(encoded.as_bytes());
             let (limits, navigation) = navigation(&package);
             let mut flow = prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+            if expected_format == ProductionReferenceFormat::Page {
+                let mut values = flow
+                    .paragraphs()
+                    .iter()
+                    .flat_map(|p| p.items())
+                    .filter(|site| {
+                        matches!(
+                            site.reference(),
+                            Some(ProductionInlineReference::Anchor {
+                                format: ProductionReferenceFormat::Page,
+                                ..
+                            })
+                        )
+                    })
+                    .map(|site| (site.owner(), 12))
+                    .collect::<Vec<_>>();
+                values.sort_unstable_by_key(|v| v.0);
+                assert!(!values.is_empty());
+                let mut resolved = prepare_production_text_flow_with_page_references(
+                    &package,
+                    &navigation,
+                    &limits,
+                    &values,
+                )
+                .unwrap();
+                resolved.verify(&package, &navigation, &limits).unwrap();
+                assert_ne!(flow.fingerprint(), resolved.fingerprint());
+                assert_eq!(resolved.page_reference_values(), Some(values.as_slice()));
+                for &(owner, _) in &values {
+                    assert_eq!(resolved.page_reference_text(owner), Some("12"));
+                    assert!(resolved.page_reference_provenance(owner).is_some());
+                    assert_eq!(flow.page_reference_text(owner), None);
+                }
+                let mut duplicate = values.clone();
+                duplicate.insert(0, values[0]);
+                let mut zero = values.clone();
+                zero[0].1 = 0;
+                let mut out_of_range = values.clone();
+                out_of_range[0].1 = u32::MAX;
+                let mut unknown = values.clone();
+                unknown.push((NodeId::new(u32::MAX), 1));
+                for invalid in [Vec::new(), duplicate, zero, out_of_range, unknown] {
+                    assert_eq!(
+                        prepare_production_text_flow_with_page_references(
+                            &package,
+                            &navigation,
+                            &limits,
+                            &invalid
+                        )
+                        .err()
+                        .unwrap()
+                        .kind,
+                        ProductionFlowErrorKind::ReceiptMismatch
+                    );
+                }
+                resolved.page_reference_values.as_mut().unwrap()[0].1 = 13;
+                assert_eq!(
+                    resolved
+                        .verify(&package, &navigation, &limits)
+                        .unwrap_err()
+                        .kind,
+                    ProductionFlowErrorKind::ReceiptMismatch
+                );
+            }
             let target_owner = navigation
                 .anchors()
                 .iter()
@@ -1794,3 +1908,7 @@ mod tests {
         );
     }
 }
+
+#[path = "production_page_references.rs"]
+mod production_page_references;
+use production_page_references::{add_page_reference_values, page_reference_key};

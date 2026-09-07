@@ -2465,3 +2465,25 @@ manifest・CLIへの接続と元全巻・原ノ味等の受入ゲートは引き
 ローカル検証: direct dependency追加後、`cargo test -p typaxis-cli --bin typaxis production_
 -- --skip 5000`は164件成功・1件ignored（11.79秒）。
 `--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.70 ページ参照候補のgenerated text・shaping・行選択（実装追補）
+
+`prepare_production_text_flow_with_page_references`は全Page-format参照について、source owner順の
+明示した1始まりページ値を受け取る。sourceの参照集合を完全に覆うこと、ownerの厳密な昇順、
+重複・未知owner・値0・max_pages超過がないことを検証し、記録数とgenerated text予算を確保前に
+検査する。PageReference namespaceのgenerated buffer／provenanceを生成し、flowの検証も同じ
+候補値から再構築して照合する。既存の引数なし経路は通常参照を未解決のまま保持する。
+
+shapingとinline準備は、この明示したページ文字列を通常本文と同じ実フォント・文脈・cluster・
+行選択へ渡す。shaping fingerprintではPageReferenceをFootnoteMarkerと別の種別として記録し、
+既存脚注spanのエンコードを維持する。原文TextSpanや脚注markerへの偽装は行わない。
+
+syntax testは完全被覆・重複・欠落・未知owner・値境界・候補改変を検証する。実CLI部品testは
+候補1／12をshapingして2／3個の本文と参照のglyph clusterを確認し、行選択の強い検証と
+flow fingerprintの変化を確認する。これらの候補値は実配置済みページの証明ではない。
+実anchorからの値更新・ページと行の再帰的な収束・最終値の照合、Text／Number形式、公開
+writer／manifest・CLI接続および全巻等の受入ゲートは引き続き必要である。
+
+ローカル検証: syntax `production_flow_`は7件成功、ページ参照の実shaping／行選択testは1件成功。
+`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は165件成功・1件ignored
+（13.58秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

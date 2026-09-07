@@ -628,6 +628,10 @@ fn site_text<'a>(
 ) -> Option<(ShapeSourceSpan, &'a str)> {
     match site.content() {
         ProductionInlineContent::Text { span, utf8 } => Some((ShapeSourceSpan::Parsed(span), utf8)),
+        ProductionInlineContent::Reference => Some((
+            ShapeSourceSpan::Generated(flow.page_reference_provenance(site.owner())?),
+            flow.page_reference_text(site.owner())?,
+        )),
         ProductionInlineContent::FootnoteReference => Some((
             ShapeSourceSpan::Generated(flow.footnote_marker_provenance(site.owner())?),
             flow.footnote_marker_text(site.owner())?,
@@ -765,10 +769,11 @@ fn paragraph_fingerprint(
                 }
                 ShapeSourceSpan::Generated(provenance) => {
                     let key = provenance.buffer_key();
-                    if key.generation_kind() != typaxis_core::GenerationKind::FootnoteMarker {
-                        return Err(error(r.owner, E::ReceiptMismatch));
-                    }
-                    b.push(1);
+                    b.push(match key.generation_kind() {
+                        typaxis_core::GenerationKind::FootnoteMarker => 1,
+                        typaxis_core::GenerationKind::PageReference => 2,
+                        _ => return Err(error(r.owner, E::ReceiptMismatch)),
+                    });
                     b.extend_from_slice(&key.owner().get().to_be_bytes());
                     b.extend_from_slice(&key.owner_local_ordinal().to_be_bytes());
                     let span = provenance.text_span();
