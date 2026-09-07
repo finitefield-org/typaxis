@@ -4115,3 +4115,40 @@ run covers both repeated and multi-digit references: **2 passed** in **0.16 s**,
 log `/private/tmp/typaxis-footnote-registry-final.log`. No production implementation
 changed after the regression began. All launched tests are terminal. No branch
 was pushed and no new full-book/public PDF result is claimed.
+
+### Declared footnote geometry in common inline frames
+
+The common frame owner now binds definitions to the actual single default master
+and its page-contained footnote rectangle. An unrelated caller body, missing
+footnote region or unselected master policy fails explicitly. A definition starts
+from the declared width and body-relative x, then applies ordinary paragraph and
+nested frame indents. Leaving the definition restores the previous frame.
+The retained optional maximum rectangle is charged and hashed under internal
+`typaxis.production-body-frames/2`; it is not a selected page/height receipt.
+
+Focused verification covers a narrower definition wrapping while body remains on
+one line, offsets to both sides of the body origin, changed maximum height,
+independent successive definition frames, actual reshape convergence, and missing
+region / mismatched caller body rejection. The existing selected-line projection
+suite passed **7 tests** in **0.31 s**; initial region test passed **1 test** in
+**0.43 s**, before adding the successive-definition case.
+
+Command for final regression:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked
+```
+Log: `/private/tmp/typaxis-footnote-frame-regression.log`.
+Page assignment, collision/reservation/continuation, definition-marker paint,
+public writer and all original full-book/Harano/both-host gates remain open.
+
+Final regression terminated in **274.61 s**: **101 passed, 1 failed, 1 ignored**.
+Both 5,000-resource cases passed. The sole failure was the newly added fixture's
+unreferenced second definition, rejected at semantic admission before layout.
+Adding its actual source reference and renumbering source owners fixes the input;
+no production implementation changed after the broad run began. The corrected
+focused test passed **1 test** in **0.48 s**, including two successive definitions,
+log `/private/tmp/typaxis-footnote-frame-final.log`. The broad run is recorded as
+failed rather than rewritten as a clean run. All test processes are terminal.
+No new public/full-book PDF or branch push is claimed.

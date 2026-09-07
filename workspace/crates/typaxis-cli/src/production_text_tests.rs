@@ -403,8 +403,6 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
                 let contexts = typaxis_layout::production_selected_line_contexts(&layout).unwrap();
                 assert_eq!(contexts.paragraphs()[0].ends().last(), Some(&4));
             }
-            let width = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
-            let height = PositiveLength::new(Length::from_raw(3_000_000).unwrap()).unwrap();
             let flow = prepared.source_flow();
             let mut calls = 0;
             typaxis_layout::with_converged_production_body_lines(
@@ -416,7 +414,7 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
                 flow,
                 bindings,
                 typaxis_linebreak::JapaneseLineBreakMode::Normal,
-                typaxis_core::Rect::new(Length::ZERO, Length::ZERO, width, height),
+                profile.page_geometry().body(),
                 1000,
                 |stable| {
                     calls += 1;
@@ -480,6 +478,140 @@ fn production_line_projection_keeps_footnote_glyphs_in_the_generated_namespace()
             typaxis_pagination::ProductionBodyPaginationErrorKind::PendingRegion("footnote")
         );
     });
+}
+
+#[test]
+fn production_footnote_frames_use_declared_width_and_restore_definition_frames() {
+    use serde_json::json;
+    let mut value: serde_json::Value = serde_json::from_slice(&production_text_single_paragraph(
+        &["A ", "A B A B"],
+        "Body",
+    ))
+    .unwrap();
+    let span = json!({"source_id":0,"start_byte":0,"end_byte":0});
+    value["document"]["blocks"][0]["blocks"][0]["children"][1] =
+        json!({"kind":"footnote_reference","node_id":4,"span":span,"footnote_id":"note"});
+    value["document"]["footnotes"] = json!([{"node_id":6,"span":span,"footnote_id":"note",
+    "blocks":[{"kind":"paragraph","node_id":7,"span":span,"classes":[],"children":[{
+        "kind":"text","node_id":8,"span":span,"text_span":{"text_id":1,"start_byte":0,"end_byte":7}
+    }]}]}]);
+    value["document"]["blocks"][0]["blocks"][0]["children"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"kind":"footnote_reference","node_id":5,"span":span,"footnote_id":"note-2"}));
+    let mut second = value["document"]["footnotes"][0].clone();
+    second["node_id"] = 9.into();
+    second["footnote_id"] = "note-2".into();
+    second["blocks"][0]["node_id"] = 10.into();
+    second["blocks"][0]["children"][0]["node_id"] = 11.into();
+    value["document"]["footnotes"]
+        .as_array_mut()
+        .unwrap()
+        .push(second);
+    let mut fingerprints = Vec::new();
+    for x in [955_360, 355_360] {
+        for height in [6_000_000, 5_000_000] {
+            value["page_masters"]["masters"][0]["footnote"] =
+                json!({"x":x,"y":13_000_000,"width":1_500_000,"height":height});
+            let bytes = serde_json::to_vec(&value).unwrap();
+            with_production_inline_context(
+                &bytes,
+                &config(),
+                |prepared, package, profile, limits, admitted, bindings| {
+                    let body = profile.page_geometry().body();
+                    let lines =
+                        typaxis_layout::layout_production_body_inline_lines(prepared, body, 10_000)
+                            .unwrap();
+                    let frames = lines.frames().unwrap();
+                    let region = frames.footnote_region().unwrap();
+                    assert_eq!(region.x().raw(), x);
+                    assert_eq!(region.height().get().raw(), height);
+                    let definition = frames.region(typaxis_core::NodeId::new(6)).unwrap();
+                    assert_eq!(definition.start().raw(), x - body.x().raw());
+                    assert_eq!(definition.width().get().raw(), 1_500_000);
+                    assert_eq!(
+                        frames.paragraphs()[1].start().raw(),
+                        definition.start().raw() + 65_536
+                    );
+                    assert_eq!(
+                        frames.paragraphs()[1].width().get().raw(),
+                        1_500_000 - 2 * 65_536
+                    );
+                    assert_eq!(lines.paragraphs()[0].lines().len(), 1);
+                    assert!(lines.paragraphs()[1].lines().len() > 1);
+                    assert!(
+                        frames.paragraphs()[0].width().get() > frames.paragraphs()[1].width().get()
+                    );
+                    assert_eq!(frames.paragraphs()[1], frames.paragraphs()[2]);
+                    assert_eq!(
+                        frames.region(typaxis_core::NodeId::new(9)),
+                        Some(definition)
+                    );
+                    assert_eq!(
+                        lines.paragraphs()[1].lines().len(),
+                        lines.paragraphs()[2].lines().len()
+                    );
+                    fingerprints.push(frames.fingerprint());
+                    let wrong_body =
+                        typaxis_core::Rect::new(body.x(), body.y(), region.width(), body.height());
+                    let err = typaxis_layout::layout_production_body_inline_lines(
+                        prepared, wrong_body, 10_000,
+                    )
+                    .err()
+                    .unwrap();
+                    assert_eq!(err.owner.get(), 6);
+                    assert_eq!(
+                        err.kind,
+                        typaxis_layout::ProductionInlinePreparationErrorKind::ReceiptMismatch
+                    );
+                    let flow = prepared.source_flow();
+                    typaxis_layout::with_converged_production_body_lines(
+                        package,
+                        flow.navigation(),
+                        profile,
+                        limits,
+                        admitted,
+                        flow,
+                        bindings,
+                        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                        body,
+                        10_000,
+                        |stable| {
+                            assert!(stable.passes().len() >= 2);
+                            assert_eq!(
+                                stable.lines().frames().unwrap().footnote_region(),
+                                Some(region)
+                            );
+                            assert!(stable.lines().paragraphs()[1].lines().len() > 1);
+                        },
+                    )
+                    .unwrap();
+                },
+            );
+        }
+    }
+    for (i, fingerprint) in fingerprints.iter().enumerate() {
+        assert!(!fingerprints[..i].contains(fingerprint));
+    }
+    value["page_masters"]["masters"][0]["footnote"] = serde_json::Value::Null;
+    with_production_inline_context(
+        &serde_json::to_vec(&value).unwrap(),
+        &config(),
+        |prepared, _, profile, _, _, _| {
+            let err = typaxis_layout::layout_production_body_inline_lines(
+                prepared,
+                profile.page_geometry().body(),
+                10_000,
+            )
+            .err()
+            .unwrap();
+            assert_eq!(err.owner.get(), 6);
+            assert_eq!(
+                err.kind,
+                typaxis_layout::ProductionInlinePreparationErrorKind::MissingFootnoteRegion
+            );
+        },
+    );
 }
 
 #[test]

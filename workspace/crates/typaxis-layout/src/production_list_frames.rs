@@ -45,6 +45,7 @@ impl ProductionListFrame {
 pub struct ProductionBodyInlineFrames<'p, 'a> {
     prepared: &'p ProductionPreparedInlines<'a>,
     body: Rect,
+    footnote_region: Option<Rect>,
     regions: BTreeMap<NodeId, ProductionInlineFrame>,
     paragraphs: Vec<ProductionInlineFrame>,
     lists: Vec<ProductionListFrame>,
@@ -54,6 +55,10 @@ pub struct ProductionBodyInlineFrames<'p, 'a> {
 impl<'p, 'a> ProductionBodyInlineFrames<'p, 'a> {
     pub const fn body(&self) -> Rect {
         self.body
+    }
+    /// Declared maximum region, not selected height or page assignment.
+    pub const fn footnote_region(&self) -> Option<Rect> {
+        self.footnote_region
     }
     pub fn region(&self, owner: NodeId) -> Option<ProductionInlineFrame> {
         self.regions.get(&owner).copied()
@@ -92,12 +97,14 @@ pub(super) fn prepare_frames<'p, 'a>(
     use ProductionInlinePreparationErrorKind as E;
     let flow = prepared.source_flow();
     let root = NodeId::new(0);
+    let footnote_region = declared_footnote_region(prepared, body)?;
     // Region lookup, traversal stack, list-column summaries and temporary widths
     // are all bounded before allocation. The selected-line stage retains this base.
     let record_charge = (flow.events().len() as u64)
         .checked_mul(3)
         .and_then(|n| n.checked_add(flow.paragraphs().len() as u64 * 2))
         .and_then(|n| n.checked_add(flow.lists().len() as u64 * 3))
+        .and_then(|n| n.checked_add(u64::from(footnote_region.is_some())))
         .ok_or_else(|| error(root, E::UnitLimit))?;
     let record_charge = prepared
         .shaped
@@ -144,11 +151,22 @@ pub(super) fn prepare_frames<'p, 'a>(
     for event in flow.events() {
         match *event {
             Event::Begin { owner, kind } => {
-                regions.insert(owner, current);
                 stack
                     .try_reserve(1)
                     .map_err(|_| error(owner, E::AllocationFailure))?;
                 stack.push((owner, current));
+                if kind == Region::Footnote {
+                    let region =
+                        footnote_region.ok_or_else(|| error(owner, E::MissingFootnoteRegion))?;
+                    current = ProductionInlineFrame {
+                        start: region
+                            .x()
+                            .checked_sub(body.x())
+                            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?,
+                        width: region.width(),
+                    };
+                }
+                regions.insert(owner, current);
                 if kind == Region::SemanticContainer {
                     let style = flow
                         .semantic_container_style(owner)
@@ -249,16 +267,27 @@ pub(super) fn prepare_frames<'p, 'a>(
                 .and_then(|m| n.checked_add(m))
         })
         .and_then(|n| lists.len().checked_mul(44).and_then(|m| n.checked_add(m)))
-        .and_then(|n| n.checked_add(128))
+        .and_then(|n| n.checked_add(192))
         .ok_or_else(|| error(root, E::ArithmeticOverflow))?;
     let mut digest = Vec::new();
     digest
         .try_reserve_exact(capacity)
         .map_err(|_| error(root, E::AllocationFailure))?;
-    digest.extend_from_slice(&sha256(b"typaxis.production-body-frames/1"));
+    digest.extend_from_slice(&sha256(b"typaxis.production-body-frames/2"));
     digest.extend_from_slice(&prepared.fingerprint());
     for n in [body.x(), body.y(), body.width().get(), body.height().get()] {
         digest.extend_from_slice(&n.raw().to_be_bytes());
+    }
+    digest.push(u8::from(footnote_region.is_some()));
+    if let Some(region) = footnote_region {
+        for n in [
+            region.x(),
+            region.y(),
+            region.width().get(),
+            region.height().get(),
+        ] {
+            digest.extend_from_slice(&n.raw().to_be_bytes());
+        }
     }
     for (owner, frame) in &regions {
         digest.extend_from_slice(&owner.get().to_be_bytes());
@@ -286,6 +315,7 @@ pub(super) fn prepare_frames<'p, 'a>(
     Ok(ProductionBodyInlineFrames {
         prepared,
         body,
+        footnote_region,
         regions,
         paragraphs,
         lists,
@@ -322,4 +352,76 @@ pub fn layout_production_body_inline_lines<'p, 'a>(
     lines.fingerprint = sha256(&digest);
     lines.frames = Some(frames);
     Ok(lines)
+}
+
+// The common owner currently selects one explicit master. Resolve its actual
+// region before shaping definitions; a caller-supplied body is not a substitute.
+fn declared_footnote_region(
+    prepared: &ProductionPreparedInlines<'_>,
+    body: Rect,
+) -> Result<Option<Rect>, ProductionInlinePreparationError> {
+    use ProductionInlinePreparationErrorKind as E;
+    let package = prepared.source_flow().package();
+    let Some(first) = package.document().footnotes.first() else {
+        return Ok(None);
+    };
+    let owner = first.node_id;
+    let wire = package
+        .checked_wire()
+        .map_err(|_| error(owner, E::ReceiptMismatch))?;
+    let masters = wire.page_masters();
+    let [master] = masters.masters.as_slice() else {
+        return Err(error(owner, E::PendingFootnoteMaster));
+    };
+    if masters.default_master_id != master.master_id || !masters.selection_rules.is_empty() {
+        return Err(error(owner, E::PendingFootnoteMaster));
+    }
+    let invalid = || error(owner, E::InvalidFootnoteGeometry);
+    let page_width = Length::from_raw(master.width)
+        .filter(|v| *v > Length::ZERO)
+        .ok_or_else(invalid)?;
+    let page_height = Length::from_raw(master.height)
+        .filter(|v| *v > Length::ZERO)
+        .ok_or_else(invalid)?;
+    let rectangle = |x, y, width, height| -> Result<Rect, ProductionInlinePreparationError> {
+        let x = Length::from_raw(x)
+            .filter(|v| *v >= Length::ZERO)
+            .ok_or_else(invalid)?;
+        let y = Length::from_raw(y)
+            .filter(|v| *v >= Length::ZERO)
+            .ok_or_else(invalid)?;
+        let width = Length::from_raw(width)
+            .and_then(PositiveLength::new)
+            .ok_or_else(invalid)?;
+        let height = Length::from_raw(height)
+            .and_then(PositiveLength::new)
+            .ok_or_else(invalid)?;
+        if x.checked_add(width.get())
+            .map_or(true, |right| right > page_width)
+            || y.checked_add(height.get())
+                .map_or(true, |bottom| bottom > page_height)
+        {
+            return Err(invalid());
+        }
+        Ok(Rect::new(x, y, width, height))
+    };
+    if rectangle(
+        master.body.x,
+        master.body.y,
+        master.body.width,
+        master.body.height,
+    )? != body
+    {
+        return Err(error(owner, E::ReceiptMismatch));
+    }
+    let region = master
+        .footnote
+        .as_ref()
+        .ok_or_else(|| error(owner, E::MissingFootnoteRegion))?;
+    Ok(Some(rectangle(
+        region.x,
+        region.y,
+        region.width,
+        region.height,
+    )?))
 }
