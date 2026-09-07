@@ -2325,3 +2325,48 @@ large resource/glyph tests were exercised in earlier checkpoints; this container
 change does not claim a new execution of them or of ignored external validators.
 All verification commands for this checkpoint completed. No full-book success
 or new public capability is asserted.
+
+## 2026-09-07: actual common-body block math terminal closure
+
+Added a consuming finalization stage from actual common-body fragments to the
+existing `StagingMathVectorTerminalLedger`. It verifies the block preparation's
+registry and layout epoch, selected limits and fragment geometry, consumes each
+block math flow once and requires the ledger to finish without missing flows.
+The original placement and genuine terminal-set fingerprints are bound under
+`typaxis.production-body-terminal/1`; a second finalization is rejected. A
+prepared equation number does not establish selected/painted number completion,
+so numbered blocks remain explicitly pending at this gate.
+
+Ledger records use the cumulative fragment budget. A conservative preflight
+spool bound includes terminal and registry-integrity serialization; actual
+retained canonical JCS bytes carry into downstream font/content/object/PDF spool
+accounting. Underlying terminal errors retain their typed cause.
+
+Five focused CLI tests pass through real admission and preparation: actual
+terminal/placement/downstream binding, forced-page and empty-registry handling,
+foreign-registry rejection, exact cumulative record/spool boundaries, and
+rejection of a genuinely prepared but unselected equation number. Initial test
+fixtures omitted page-break classes or used an empty equation-number source
+span; those invalid fixtures were corrected without relaxing production checks.
+Log: `/private/tmp/typaxis-body-terminals.log`.
+
+This stage closes the common placement's block-math ledger only. It does not
+provide generic convergence, final reshaping, paint authorization, publication
+or a public manifest. The full-book, formal exporter, real-engine 5,000 distinct
+formulas/mixed PNG, unchanged Harano CID-CFF/IVS and independent acceptance gates
+remain open. The full implementation goal remains active.
+
+Broader local regression:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-layout -p typaxis-pagination -p typaxis-resources -p typaxis-cli \
+  --lib --bins --locked -- --skip places_5000 --skip more_than_65535
+```
+
+Result: CLI **242 passed, 3 ignored, 3 filtered**; layout **65 passed**;
+pagination **92 passed**; resources **28 passed** — **427 passed** total,
+0 failures. Log: `/private/tmp/typaxis-terminal-regression.log`. Large resource
+and glyph tests previously validated are explicitly filtered here; ignored
+external validators and full-book public acceptance were not run by this command.

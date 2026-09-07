@@ -84,6 +84,28 @@ fn with_production_body_structure_resources(
         &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
     ),
 ) {
+    with_production_body_math_resources(
+        value,
+        config,
+        |lines, blocks, limits, admitted, semantics, profile, _| {
+            check(lines, blocks, limits, admitted, semantics, profile)
+        },
+    );
+}
+
+fn with_production_body_math_resources(
+    value: &serde_json::Value,
+    config: &EffectiveConfig,
+    check: impl FnOnce(
+        &typaxis_layout::ProductionInlineLineLayout<'_, '_>,
+        &typaxis_layout::StagingPrecomposedVectorBlockLayout,
+        &typaxis_core::M4EffectiveResourceLimits,
+        &typaxis_resources::AdmittedResourceLedger,
+        &typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+        &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+        &typaxis_layout::StagingMathVectorFlowRegistry,
+    ),
+) {
     with_production_inline_tagged_context(
         &serde_json::to_vec(value).unwrap(),
         config,
@@ -128,7 +150,7 @@ fn with_production_body_structure_resources(
                     prepared, blocks.page_geometry().body(), 100_000,
                 ).unwrap()
             };
-            check(&lines, &blocks, limits, admitted, semantics, tagged);
+            check(&lines, &blocks, limits, admitted, semantics, tagged, &math);
         },
     );
 }

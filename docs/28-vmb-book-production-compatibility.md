@@ -982,3 +982,21 @@ package/configの新しい試験条件として記録する。失敗後の暗黙
 この実装は共通配置経路の幅伝播を閉じる。式番号付きblockのitem/container幅での
 再準備、named page、最終行reshapingと汎用収束、terminal/paint/manifest、公開全巻
 buildは別の必須残件であり、本節の試験でそれらの完了を代替しない。
+
+### 14.10 共通body fragmentに結び付けるblock数式の完了記録
+
+`finalize_production_body_math_terminals`は共通paginationの選択結果を消費し、
+そのblock準備で使用した真正な`StagingMathVectorFlowRegistry`のterminal ledgerを閉じる。
+別registry、別layout epoch、別予算、二度目のfinalizeは拒否する。各block数式の実fragmentの
+owner、flow identity、ページ、viewport、baselineとcontent heightを確認した後にterminal 1を
+一度消費し、registryに残る未消費flowがあれば成功しない。改ページ、caption、vector figureや
+inline数式をblock terminalとして数えない。式番号の準備だけでは完全な選択を意味しないため、
+番号の共通配置・描画が未接続の間は`PendingEquationNumber`を返す。
+
+ledgerの補助recordとreceiptは既存の累積fragment予算へ課金する。文字列の検証・生成に
+必要な保守的な上限をspool予算で事前検査し、生成後に保持するcanonical JCSの実byte数を
+font、content、object、PDF組立てへ引き継ぐ。元のplacement fingerprintとterminal setの
+fingerprintを`typaxis.production-body-terminal/1`で結ぶ。
+
+これはblock数式の配置完了stageであり、汎用収束のreceipt、paint認可、公開writerの
+`VerifiedPdfBytesReceipt`を発行しない。公開pipelineへの接続と§10の全巻検証は必須残件のままとする。

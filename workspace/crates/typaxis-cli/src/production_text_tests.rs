@@ -1358,3 +1358,5 @@ include!("production_raster_tests.rs");
 include!("production_list_tests.rs");
 
 include!("production_container_tests.rs");
+
+include!("production_terminal_tests.rs");

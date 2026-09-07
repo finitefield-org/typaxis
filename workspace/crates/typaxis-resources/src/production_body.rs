@@ -71,7 +71,10 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
     // Count all occurrences before copying text or allocating usage maps. The
     // conservative charge includes temporary glyph/CID/extraction copies.
     let mut record_charge = display.record_charge();
-    let mut copied_bytes = 0u64;
+    let mut copied_bytes = display.selected().spool_charge();
+    if copied_bytes > limits.base().get().max_spool_bytes {
+        return Err(ResourceError::ResourceLimit);
+    }
     let mut text_count = 0usize;
     for draw in display.draws() {
         record_charge = record_charge

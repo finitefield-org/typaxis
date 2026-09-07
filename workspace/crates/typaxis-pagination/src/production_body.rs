@@ -18,6 +18,13 @@ pub use page_breaks::{
     PRODUCTION_BODY_BREAK_POLICY,
 };
 
+#[path = "production_terminals.rs"]
+mod terminals;
+pub use terminals::{
+    finalize_production_body_math_terminals, ProductionBodyMathTerminals,
+    PRODUCTION_BODY_TERMINAL_ALGORITHM,
+};
+
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,11 +40,10 @@ pub enum ProductionBodyPaginationErrorKind {
     KeepAcrossForcedBreak,
     Oversize,
     PageLimit,
-    PageBreakLookbackLimit {
-        limit: u16,
-        observed: u32,
-    },
+    PageBreakLookbackLimit { limit: u16, observed: u32 },
     FragmentLimit,
+    SpoolLimit,
+    MathTerminal(typaxis_layout::StagingMathVectorTerminalError),
     AllocationFailure,
     ArithmeticOverflow,
 }
@@ -149,10 +155,18 @@ pub struct ProductionBodySelectedLayout<'s, 'p, 'a> {
     breaks: Vec<ProductionBodyPageBreak>,
     list_markers: Vec<ProductionBodyListMarker>,
     decisions: Vec<ProductionBodyBreakDecision>,
+    math_terminals: Option<ProductionBodyMathTerminals>,
     record_charge: u64,
     fingerprint: [u8; 32],
 }
 impl<'s, 'p, 'a> ProductionBodySelectedLayout<'s, 'p, 'a> {
+    pub fn math_terminals(&self) -> Option<&ProductionBodyMathTerminals> {
+        self.math_terminals.as_ref()
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.math_terminals.as_ref().map_or(0, |t| t.spool_charge())
+    }
+
     pub fn page_break_decisions(&self) -> &[ProductionBodyBreakDecision] {
         &self.decisions
     }
@@ -347,7 +361,8 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         let decision = decisions
             .get(decision_cursor)
             .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
-        if decision.start_item() as usize == index && decision.page_index() as usize == pages.len() {
+        if decision.start_item() as usize == index && decision.page_index() as usize == pages.len()
+        {
             new_page(&mut pages, fragments.len(), limits, &mut charge, item.owner)?;
             after = Length::ZERO;
         }
@@ -473,6 +488,7 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         breaks,
         list_markers,
         decisions,
+        math_terminals: None,
         record_charge: limits.base().get().max_fragments - charge.remaining,
         fingerprint: [0; 32],
     };
