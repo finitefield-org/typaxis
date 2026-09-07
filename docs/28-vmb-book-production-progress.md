@@ -3593,3 +3593,46 @@ admission/build of the new partial staging directory as a full package.
 Logs: `/private/tmp/vmb-sidecar-tests.log`, `/private/tmp/vmb-sidecar-regression.log`.
 All launched tests reached terminal state. No public profile was changed or branch
 pushed; full-book, Harano, scale, both-host and public PDF/manifest gates remain.
+
+### 2026-09-07: Bound math resource and sidecar staging
+
+Companion **`5082f510`** adds `StageWithMath`. The encoded body records the exact
+completed math-session fingerprint; staging accepts only the matching unchanged
+session. SVGs are written from that revalidated session without retaining another
+whole image-set copy, and each saved file is re-read and checked against its
+content hash. The session is revalidated at completion. Callers must not mutate it
+concurrently. Paths are the validated content-addressed resource URIs.
+
+`typaxis-math-export.json` is emitted record by record with the established DTO
+bytes, excluding SVG payloads and process-local authority. Its explicit byte limit
+is checked before writes. Failed writes, limit exhaustion or cancellation clean
+the owned staging directory. A decoded DTO or another body's completed session
+cannot be substituted. Font/ordinary-image resources and full package/config
+assembly are still required before this becomes a valid job.
+
+Tests exercised two shared SVG resources across three actual math occurrences,
+exact saved bytes and JSON, exact sidecar ceiling and ceiling minus one, cleanup,
+changed SVG/URI/occurrence data, foreign session, decoded DTO and cancellation.
+A new public check reads the staged document/source/SVG files back into the known
+test envelope. All regression tests, including **seven public admission cases**,
+passed in **54.418 s**:
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis/... -count=1 -v
+```
+
+New case: **2 images, 3 math occurrences, 131 projection bytes**, empty diagnostics.
+Package SHA-256: `c13feed60e551e7a2dc63c83605837d9b746c8d72ddd24d49105faaccd76dabc`.
+Source SHA-256: `99aa44bafc82398327482f730868976b7ad84915a22f8f3ec729e3ef81feb8c7`.
+Binary SHA-256 remains
+`2fe9e0cc5c233561ee3d29385e45b867c896d58ff6d753b383a1e5488f48677f`.
+Logs: `/private/tmp/vmb-math-staging-tests.log`,
+`/private/tmp/vmb-math-staging-regression.log`.
+This is private input staging plus a test-envelope check, not formal complete
+package assembly, public build/PDF or ArtifactSink publication. Full original-book,
+Harano, distinct/alias scale, both-host and public manifest gates remain mandatory.
+All launched tests reached terminal state; no public profile changed or branch
+was pushed.
