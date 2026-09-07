@@ -5715,3 +5715,21 @@ and hash-updated tampering. Final book-navigation tests: 5 passed, 0.25 s
 (`/private/tmp/typaxis-book-stream-final-regression.log`). All processes ended.
 Public writer/manifest and book/tagged closure, full allocation accounting,
 exporter and original-book/Harano/scale/host acceptance remain incomplete.
+
+## 2026-09-08 — Page references inside footnote text
+
+Added design §14.77's source-to-PDF regression. A footnote containing only a Page
+reference updates its seed 1 to actual page 12 and converges in six page passes.
+The ordinary footnote marker/definition label remains 1 and exactly one footnote
+link annotation exists, verifying that the page reference does not create an
+extra footnote demand or marker annotation.
+
+Poppler/MuPDF extract body A1 and footnote label 1 followed by reference 12;
+MuPDF renders the visible diagnostic digits, and pdfinfo resolves target to page
+12. PDF: `/private/tmp/typaxis-footnote-page-reference.pdf`, SHA-256
+`f648b5854739665379df8d20fc817714f65a79ec7630ae9124805b4eedd46893`.
+This diagnostic font does not prove body A or Japanese full-book typography.
+CLI production regression: 168 passed, 1 ignored, 12.57 s
+(`/private/tmp/typaxis-footnote-reference-regression.log`); unchanged 5,000-image
+cases excluded. All processes ended. Full objective and public integration,
+exporter, allocation and full-book/Harano/scale/host gates remain open.

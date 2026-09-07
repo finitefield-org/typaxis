@@ -926,3 +926,84 @@ fn production_page_reference_reflow_moves_the_target_and_converges() {
     assert_eq!(error.kind, FailureKind::Limit);
     assert!(error.message.starts_with("L5110:"), "{error:?}");
 }
+
+#[test]
+fn production_page_reference_inside_footnote_converges_without_marker_aliasing() {
+    use serde_json::json;
+    let (mut value, _) = production_page_reference_fixture(11);
+    let body = &mut value["document"]["blocks"][11]["blocks"][0];
+    let reference = body["children"].as_array_mut().unwrap().pop().unwrap();
+    let span = body["span"].clone();
+    body["children"].as_array_mut().unwrap().push(json!({
+        "kind":"footnote_reference", "node_id":0, "span":span, "footnote_id":"note"
+    }));
+    value["document"]["footnotes"] = json!([{
+        "node_id":0, "span":span, "footnote_id":"note", "blocks":[{
+            "kind":"paragraph", "node_id":0, "span":span, "classes":[], "children":[reference]
+        }]
+    }]);
+    value["resources"]["font_faces"][0]["uri"] = "body-list-visible.ttf".into();
+    value["resources"]["font_faces"][0]["expected_sha256"] =
+        "17857592837017395c9f22614b712f41d2ad6175a5b3a39c4d8aa879c99044c6".into();
+    production_body_renumber(&mut value["document"], &mut 0);
+    let owner = NodeId::new(
+        value["document"]["footnotes"][0]["blocks"][0]["children"][0]["node_id"]
+            .as_u64()
+            .unwrap() as u32,
+    );
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+        &package,
+        &navigation,
+        &semantics,
+        &limits,
+        &identity,
+    )
+    .unwrap();
+    with_production_common_footnote_pdf(
+        &package,
+        &navigation,
+        &semantics,
+        &profile,
+        &admitted,
+        &limits,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+        100_000,
+        |pdf, _, book, _, observed| {
+            assert_eq!(pdf.page_count(), 12);
+            assert_eq!(
+                pdf.objects()
+                    .iter()
+                    .filter(|object| matches!(
+                        object.role(),
+                        typaxis_pdf::ProductionBodyAssemblyRole::Body(
+                            typaxis_pdf::ProductionBodyObjectRole::LinkAnnotation(_)
+                        )
+                    ))
+                    .count(),
+                1
+            );
+            assert_eq!(observed.page_passes, 6);
+            assert_eq!(
+                book.resolved_page_references()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap(),
+                vec![(owner, 12)]
+            );
+            assert!(pdf
+                .bytes()
+                .windows(b"/ActualText <FEFF00310032>".len())
+                .any(|bytes| bytes == b"/ActualText <FEFF00310032>"));
+            if let Some(path) = std::env::var_os("VMB_FOOTNOTE_REFERENCE_PDF_PROBE") {
+                std::fs::write(path, pdf.bytes()).unwrap();
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+}

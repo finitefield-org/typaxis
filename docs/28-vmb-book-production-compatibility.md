@@ -2625,3 +2625,22 @@ PDF/UAなしXMPの拒否は維持し、未完成の共通PDFに公開適合宣�
 `/private/tmp/typaxis-vmb-book-build`を使用し、5,000画像は今回再実行していない。
 公開writer／manifest・book/tagged closure、全allocation管理、正式exporter、元全巻・原ノ味・
 規模・両hostゲートは引き続き必要である。
+
+### 14.77 脚注内ページ参照の収束検証（実装追補）
+
+脚注本文がPage-referenceだけで構成される入力を共通driverへ接続して検証した。先頭11空白
+ページを保持し、本文の脚注marker／定義labelは1、脚注中のページ参照は初期候補1から実値12へ
+更新する。3回の再構築／6 page passesで収束し、source ownerがPageReferenceとして保持される。
+脚注へのリンク注釈は1件だけで、ページ参照を追加の脚注markerや脚注配置要求として扱わない。
+
+可視数字用の既存診断fontを使い、MuPDFで本文marker、separator、脚注labelと参照値12の描画を
+確認した。Popplerは12ページに本文A1、脚注1／12を抽出し、MuPDFも同じ文字列を抽出する。
+pdfinfo -destsはtargetを12ページへ解決する。検査用PDFは
+`/private/tmp/typaxis-footnote-page-reference.pdf`、SHA-256は
+`f648b5854739665379df8d20fc817714f65a79ec7630ae9124805b4eedd46893`。
+診断fontの本文Aは空輪郭であり、日本語本文の可視性や全巻の受入証拠にはしない。
+
+ローカルCLI production回帰は168件成功・1件ignored（12.57秒、
+`/private/tmp/typaxis-footnote-reference-regression.log`）。workspace manifestと前節のtargetを
+使用し、5,000画像は今回再実行していない。Text／Number形式、公開writer／manifest、全工程の
+allocation管理、正式exporter、必要な戻りリンク、元全巻・原ノ味等の受入は引き続き未完である。
