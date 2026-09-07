@@ -4,7 +4,7 @@ use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 use typaxis_document_package::WireStagingM4ReferenceFormat;
 
-pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/5";
+pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/6";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
@@ -154,7 +154,8 @@ pub enum ProductionReferenceFormat {
 }
 
 /// Borrowed source identity. Anchor owners are resolved from the same validated
-/// navigation registry. Footnote numbering remains the footnote owner's job.
+/// navigation registry. Footnote IDs bind definition-order generated labels;
+/// neither carrier proves that the target has been placed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionInlineReference<'a> {
     Anchor {
@@ -356,6 +357,26 @@ impl<'a> ProductionTextFlow<'a> {
             )
             .ok()
     }
+    /// Canonical definition-order decimal label, in the generated namespace.
+    /// This is not proof that the referenced footnote has been placed.
+    pub fn footnote_marker_text(&self, owner: NodeId) -> Option<&str> {
+        self.generated
+            .buffer(footnote_marker_key(owner))
+            .map(|b| b.utf8())
+    }
+    pub fn footnote_marker_provenance(
+        &self,
+        owner: NodeId,
+    ) -> Option<typaxis_text::GeneratedProvenance> {
+        let text = self.footnote_marker_text(owner)?;
+        self.generated
+            .provenance(
+                footnote_marker_key(owner),
+                Utf8ByteOffset::new(0),
+                Utf8ByteOffset::new(u32::try_from(text.len()).ok()?),
+            )
+            .ok()
+    }
     pub const fn generated_text_bytes(&self) -> u64 {
         self.generated.generated_bytes()
     }
@@ -437,6 +458,26 @@ pub fn prepare_production_text_flow<'a>(
         .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, root))?;
     let rules = lower_semantic_style_rules(wire.style_sheet(), package.limits())
         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, root))?;
+    let mut footnote_ordinals = Vec::new();
+    if wire.document().footnotes.len() as u64 > limits.base().get().max_fragments {
+        return Err(failure(ProductionFlowErrorKind::NodeLimit, root));
+    }
+    footnote_ordinals
+        .try_reserve_exact(wire.document().footnotes.len())
+        .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
+    for (index, footnote) in wire.document().footnotes.iter().enumerate() {
+        let ordinal = u32::try_from(index)
+            .ok()
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| {
+                failure(
+                    ProductionFlowErrorKind::MarkerOverflow,
+                    NodeId::new(footnote.node_id),
+                )
+            })?;
+        footnote_ordinals.push((footnote.footnote_id.as_str(), ordinal));
+    }
+    footnote_ordinals.sort_unstable_by_key(|(id, _)| *id);
     let mut collector = Collector {
         package,
         navigation,
@@ -447,19 +488,17 @@ pub fn prepare_production_text_flow<'a>(
         figures: Vec::new(),
         lists: Vec::new(),
         list_items: Vec::new(),
+        footnote_ordinals,
         generated_records: Vec::new(),
         generated_bytes: 0,
-        parsed_bytes: wire
-            .text_buffers()
-            .iter()
-            .try_fold(0u64, |n, b| n.checked_add(b.utf8.len() as u64))
-            .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, root))?,
+        retained_text_bytes: retained_production_text_bytes(package, navigation)?,
         text_bytes: 0,
         node_charge: 0,
     };
     collector.blocks(&wire.document().blocks, None)?;
     for footnote in &wire.document().footnotes {
         let owner = NodeId::new(footnote.node_id);
+        collector.add_footnote_marker(owner, &footnote.footnote_id)?;
         collector.begin(owner, ProductionFlowRegionKind::Footnote)?;
         collector.blocks(&footnote.blocks, None)?;
         collector.end(owner)?;
@@ -467,7 +506,7 @@ pub fn prepare_production_text_flow<'a>(
     let generated = typaxis_text::GeneratedTextOverlay::new(
         collector.generated_records,
         limits.base(),
-        collector.parsed_bytes,
+        collector.retained_text_bytes,
     )
     .map_err(|_| failure(ProductionFlowErrorKind::TextLimit, root))?;
     let mut result = ProductionTextFlow {
@@ -496,13 +535,91 @@ struct Collector<'a> {
     figures: Vec<ProductionFigure<'a>>,
     lists: Vec<ProductionList>,
     list_items: Vec<ProductionListItem<'a>>,
+    footnote_ordinals: Vec<(&'a str, u32)>,
     generated_records: Vec<(typaxis_core::GeneratedBufferKey, String)>,
     generated_bytes: u64,
-    parsed_bytes: u64,
+    retained_text_bytes: u64,
     text_bytes: u64,
     node_charge: u64,
 }
+fn retained_production_text_bytes(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+) -> Result<u64, ProductionFlowError> {
+    let root = NodeId::new(0);
+    let wire = package
+        .checked_wire()
+        .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, root))?;
+    let languages = navigation.languages();
+    let extra_language = languages
+        .total_language_text_charge_bytes()
+        .checked_sub(languages.prevalidated_vector_language_charge_bytes())
+        .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, root))?;
+    let mut total = package
+        .retained_text_bytes()
+        .checked_add(extra_language)
+        .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, root))?;
+    let metadata = wire.metadata();
+    for value in [
+        metadata.author.as_deref(),
+        metadata.created.as_deref(),
+        metadata.identifier.as_deref(),
+        metadata.modified.as_deref(),
+        metadata.subject.as_deref(),
+        metadata.title.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(metadata.keywords.iter().map(String::as_str))
+    .chain(
+        wire.outline()
+            .entries
+            .iter()
+            .map(|entry| entry.label.as_str()),
+    ) {
+        total = total
+            .checked_add(value.len() as u64)
+            .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, root))?;
+    }
+    if total > package.limits().get().max_text_bytes {
+        return Err(failure(ProductionFlowErrorKind::TextLimit, root));
+    }
+    Ok(total)
+}
+
+fn footnote_marker_key(owner: NodeId) -> typaxis_core::GeneratedBufferKey {
+    typaxis_core::GeneratedBufferKey::new(owner, typaxis_core::GenerationKind::FootnoteMarker, 0)
+}
 impl<'a> Collector<'a> {
+    fn add_footnote_marker(&mut self, owner: NodeId, id: &str) -> Result<(), ProductionFlowError> {
+        let index = self
+            .footnote_ordinals
+            .binary_search_by_key(&id, |(id, _)| *id)
+            .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))?;
+        let ordinal = self.footnote_ordinals[index].1;
+        let bytes = u64::from(ordinal.ilog10()) + 1;
+        self.generated_bytes = self
+            .generated_bytes
+            .checked_add(bytes)
+            .filter(|n| {
+                bytes <= u64::from(self.package.limits().get().max_text_buffer_bytes)
+                    && self
+                        .retained_text_bytes
+                        .checked_add(*n)
+                        .is_some_and(|total| total <= self.package.limits().get().max_text_bytes)
+            })
+            .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, owner))?;
+        if self.generated_records.len() as u64 >= self.package.limits().get().max_fragments {
+            return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
+        }
+        self.generated_records
+            .try_reserve(1)
+            .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, owner))?;
+        self.generated_records
+            .push((footnote_marker_key(owner), ordinal.to_string()));
+        Ok(())
+    }
+
     fn charge(&mut self, owner: NodeId) -> Result<(), ProductionFlowError> {
         self.node_charge = self
             .node_charge
@@ -672,7 +789,7 @@ impl<'a> Collector<'a> {
                             .generated_bytes
                             .checked_add(size)
                             .filter(|n| {
-                                self.parsed_bytes.checked_add(*n).is_some_and(|n| {
+                                self.retained_text_bytes.checked_add(*n).is_some_and(|n| {
                                     n <= self.package.limits().get().max_text_bytes
                                 }) && size
                                     <= u64::from(self.package.limits().get().max_text_buffer_bytes)
@@ -683,6 +800,11 @@ impl<'a> Collector<'a> {
                         self.list_items.try_reserve(1).map_err(|_| {
                             failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
                         })?;
+                        if self.generated_records.len() as u64
+                            >= self.package.limits().get().max_fragments
+                        {
+                            return Err(failure(ProductionFlowErrorKind::NodeLimit, item_owner));
+                        }
                         self.generated_records.try_reserve(1).map_err(|_| {
                             failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
                         })?;
@@ -856,6 +978,7 @@ impl<'a> Collector<'a> {
                         })
                     }
                     WireStagingM4Inline::FootnoteReference { footnote_id, .. } => {
+                        self.add_footnote_marker(owner, footnote_id)?;
                         Some(ProductionInlineReference::Footnote { footnote_id })
                     }
                     _ => None,
@@ -1181,6 +1304,146 @@ mod tests {
                 .fingerprint()
         );
     }
+    #[test]
+    fn production_flow_charges_footnote_labels_with_all_retained_text() {
+        let original = parse(COMBINED);
+        let (original_limits, original_navigation) = navigation(&original);
+        let original_flow =
+            prepare_production_text_flow(&original, &original_navigation, &original_limits)
+                .unwrap();
+        let retained_text_bytes =
+            retained_production_text_bytes(&original, &original_navigation).unwrap();
+        assert!(
+            retained_text_bytes
+                > original
+                    .checked_wire()
+                    .unwrap()
+                    .text_buffers()
+                    .iter()
+                    .map(|b| b.utf8.len() as u64)
+                    .sum::<u64>()
+        );
+        let required = retained_text_bytes + original_flow.generated_text_bytes();
+        for maximum in [required, required - 1] {
+            let limits = ValidatedResourceLimits::new(ResourceLimits {
+                max_text_bytes: maximum,
+                max_text_buffer_bytes: maximum as u32,
+                max_shaping_context_bytes: maximum as u32,
+                ..ResourceLimits::default()
+            })
+            .unwrap();
+            let decoded = StagingSemanticDocumentPackageDecoder::new()
+                .decode(COMBINED, &DocumentPackageDecodePolicy::new(&limits))
+                .unwrap();
+            let package = StagingSemanticPackageParser::new()
+                .parse(decoded, &limits)
+                .unwrap();
+            let (limits, navigation) = navigation(&package);
+            let flow = prepare_production_text_flow(&package, &navigation, &limits);
+            if maximum == required {
+                assert_eq!(
+                    flow.unwrap().generated_text_bytes(),
+                    original_flow.generated_text_bytes()
+                );
+            } else {
+                assert_eq!(
+                    flow.err().unwrap(),
+                    ProductionFlowError {
+                        owner: NodeId::new(92),
+                        kind: ProductionFlowErrorKind::TextLimit,
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn production_flow_footnotes_use_definition_order_and_separate_generated_owners() {
+        let original = parse(COMBINED);
+        let mut wire = original.checked_wire().unwrap().clone();
+        let mut document = wire.document().clone();
+        let mut second = document.footnotes[0].clone();
+        second.footnote_id = "second".into();
+        second.node_id = 95;
+        let WireStagingM4Block::Paragraph {
+            node_id, children, ..
+        } = &mut second.blocks[0]
+        else {
+            panic!()
+        };
+        *node_id = 96;
+        let WireStagingM4Inline::Text { node_id, .. } = &mut children[0] else {
+            panic!()
+        };
+        *node_id = 97;
+        document.footnotes.push(second);
+        for block in &mut document.blocks {
+            if let WireStagingM4Block::Paragraph { children, .. } = block {
+                for inline in children {
+                    if let WireStagingM4Inline::Reference { node_id, span, .. } = inline {
+                        *inline = WireStagingM4Inline::FootnoteReference {
+                            node_id: *node_id,
+                            span: *span,
+                            footnote_id: "second".into(),
+                            language: None,
+                        };
+                    }
+                }
+            }
+        }
+        wire.replace_typed_regions(document, wire.resources().clone());
+        let encoded = StagingSemanticDocumentPackageEncoder::new()
+            .encode(&wire)
+            .unwrap();
+        let package = parse(encoded.as_bytes());
+        let (limits, navigation) = navigation(&package);
+        let mut flow = prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+        // The first encountered reference points to the second definition.
+        for (owner, label) in [(7, "2"), (11, "1"), (92, "1"), (95, "2")] {
+            let owner = NodeId::new(owner);
+            assert_eq!(flow.footnote_marker_text(owner), Some(label));
+            let provenance = flow.footnote_marker_provenance(owner).unwrap();
+            assert_eq!(provenance.buffer_key(), footnote_marker_key(owner));
+            assert_eq!(provenance.text_span().range().start_byte().get(), 0);
+            assert_eq!(provenance.text_span().range().end_byte().get(), 1);
+        }
+        assert_eq!(flow.footnote_marker_text(NodeId::new(10)), None);
+        assert_ne!(
+            flow.footnote_marker_provenance(NodeId::new(7))
+                .unwrap()
+                .text_span()
+                .text_id(),
+            flow.footnote_marker_provenance(NodeId::new(95))
+                .unwrap()
+                .text_span()
+                .text_id()
+        );
+        flow.verify(&package, &navigation, &limits).unwrap();
+        let records = flow
+            .generated
+            .buffers()
+            .iter()
+            .map(|buffer| {
+                (
+                    buffer.key(),
+                    if buffer.key() == footnote_marker_key(NodeId::new(7)) {
+                        "1".to_owned()
+                    } else {
+                        buffer.utf8().to_owned()
+                    },
+                )
+            })
+            .collect();
+        flow.generated =
+            typaxis_text::GeneratedTextOverlay::new(records, limits.base(), 0).unwrap();
+        assert_eq!(
+            flow.verify(&package, &navigation, &limits)
+                .unwrap_err()
+                .kind,
+            ProductionFlowErrorKind::ReceiptMismatch
+        );
+    }
+
     #[test]
     fn production_flow_retains_reference_identity_and_rejects_tampering() {
         for (wire_format, expected_format) in [

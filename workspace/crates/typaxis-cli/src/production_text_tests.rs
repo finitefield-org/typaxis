@@ -1050,6 +1050,195 @@ fn production_text_without_math_fonts() -> serde_json::Value {
 }
 
 #[test]
+fn production_authored_text_shapes_footnote_markers_with_generated_provenance() {
+    use typaxis_core::{GenerationKind, NodeId};
+    use typaxis_shaping::ShapeSourceSpan;
+    let mut value = production_text_without_math_fonts();
+    let template = value["document"]["footnotes"][0].clone();
+    for index in 1..10u32 {
+        let mut definition = template.clone();
+        definition["footnote_id"] = format!("second-{index:02}").into();
+        let owner = 95 + (index - 1) * 3;
+        definition["node_id"] = owner.into();
+        definition["blocks"][0]["node_id"] = (owner + 1).into();
+        definition["blocks"][0]["children"][0]["node_id"] = (owner + 2).into();
+        value["document"]["footnotes"]
+            .as_array_mut()
+            .unwrap()
+            .push(definition);
+    }
+    for block in value["document"]["blocks"].as_array_mut().unwrap() {
+        if let Some(children) = block
+            .get_mut("children")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for child in children {
+                if child["node_id"] == 7 {
+                    child["kind"] = "footnote_reference".into();
+                    child["footnote_id"] = "second-09".into();
+                    child.as_object_mut().unwrap().remove("target");
+                    child.as_object_mut().unwrap().remove("format");
+                }
+            }
+        }
+    }
+    fn shift_later_nodes(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(fields) => {
+                if let Some(id) = fields.get_mut("node_id") {
+                    let old = id.as_u64().unwrap();
+                    if old >= 12 {
+                        *id = (old + 8).into();
+                    }
+                }
+                for child in fields.values_mut() {
+                    shift_later_nodes(child);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for child in values {
+                    shift_later_nodes(child);
+                }
+            }
+            _ => (),
+        }
+    }
+    shift_later_nodes(&mut value["document"]);
+    for entry in value["outline"]["entries"].as_array_mut().unwrap() {
+        let source = entry["source_node_id"].as_u64().unwrap();
+        if source >= 12 {
+            entry["source_node_id"] = (source + 8).into();
+        }
+    }
+    let body = value["document"]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|b| b["node_id"] == 8)
+        .unwrap();
+    for index in 1..9u32 {
+        body["children"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "kind": "footnote_reference", "node_id": 11 + index,
+                "footnote_id": format!("second-{index:02}"),
+                "span": { "source_id": 0, "start_byte": 0, "end_byte": 0 }
+            }));
+    }
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());
+    let flow =
+        typaxis_syntax::prepare_production_text_flow(&package, &navigation, &limits).unwrap();
+    let epoch = sha256(b"generated-footnote-shape");
+    let shaped = typaxis_shaping::shape_production_authored_text(
+        &package,
+        &navigation,
+        &flow,
+        &admitted,
+        &limits,
+        epoch,
+    )
+    .unwrap();
+    let marker_only = shaped
+        .paragraphs()
+        .iter()
+        .find(|p| p.owner().get() == 5)
+        .unwrap();
+    assert!(marker_only.font().is_some());
+    assert_eq!(marker_only.pending_references(), &[NodeId::new(7)]);
+    assert_eq!(flow.footnote_marker_text(NodeId::new(7)), Some("10"));
+    let run = marker_only.runs().first().unwrap();
+    let ShapeSourceSpan::Generated(provenance) = run.glyph_run().source_span else {
+        panic!()
+    };
+    assert_eq!(
+        provenance,
+        flow.footnote_marker_provenance(NodeId::new(7)).unwrap()
+    );
+    assert_eq!(
+        provenance.buffer_key().generation_kind(),
+        GenerationKind::FootnoteMarker
+    );
+    assert_eq!(provenance.text_span().range().end_byte().get(), 2);
+    assert!(run
+        .glyph_run()
+        .glyphs
+        .iter()
+        .all(|g| g.original_gid.get() != 0));
+    assert_eq!(marker_only.runs().len(), 1);
+    // Explicit final line contexts split the two-digit marker, exercising
+    // generated subspans rather than fabricated parsed text spans.
+    let ends: Vec<Vec<u32>> = flow
+        .paragraphs()
+        .iter()
+        .map(|p| {
+            if p.owner().get() == 5 {
+                return vec![1, 2];
+            }
+            let len: usize = p
+                .items()
+                .iter()
+                .map(|site| {
+                    use typaxis_syntax::ProductionInlineContent as C;
+                    match site.content() {
+                        C::Text { utf8, .. } => utf8.len(),
+                        C::FootnoteReference => {
+                            flow.footnote_marker_text(site.owner()).unwrap().len()
+                        }
+                        C::Reference
+                        | C::NativeMath
+                        | C::InlineVector
+                        | C::MathVector
+                        | C::HardBreak => 3,
+                        _ => 0,
+                    }
+                })
+                .sum();
+            vec![len as u32]
+        })
+        .collect();
+    let contexts: Vec<_> = flow
+        .paragraphs()
+        .iter()
+        .zip(&ends)
+        .map(
+            |(p, ends)| typaxis_shaping::ProductionParagraphLineContext {
+                owner: p.owner(),
+                ends,
+            },
+        )
+        .collect();
+    let reshaped = typaxis_shaping::reshape_production_authored_text(
+        &package,
+        &navigation,
+        &flow,
+        &admitted,
+        &limits,
+        epoch,
+        &contexts,
+    )
+    .unwrap();
+    let paragraph = reshaped
+        .paragraphs()
+        .iter()
+        .find(|p| p.owner().get() == 5)
+        .unwrap();
+    assert_eq!(paragraph.runs().len(), 2);
+    for (index, run) in paragraph.runs().iter().enumerate() {
+        let ShapeSourceSpan::Generated(part) = run.glyph_run().source_span else {
+            panic!()
+        };
+        assert_eq!(part.buffer_key(), provenance.buffer_key());
+        assert_eq!(part.text_span().text_id(), provenance.text_span().text_id());
+        assert_eq!(part.text_span().range().start_byte().get(), index as u32);
+        assert_eq!(part.text_span().range().end_byte().get(), index as u32 + 1);
+    }
+    reshaped.verify(&flow, &admitted, &limits, epoch).unwrap();
+    assert_ne!(shaped.fingerprint(), reshaped.fingerprint());
+}
+
+#[test]
 fn production_authored_text_shapes_real_body_ttc_and_keeps_pending_objects() {
     let bytes = serde_json::to_vec(&production_text_without_math_fonts()).unwrap();
     let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &config());

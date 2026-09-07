@@ -617,6 +617,7 @@ impl std::error::Error for StagingSemanticSyntaxError {}
 #[derive(Debug)]
 pub struct ValidatedStagingSemanticPackage {
     wire: WireStagingM4DocumentPackage,
+    retained_text_bytes: u64,
     limits: ValidatedResourceLimits,
     precomposed_vector_session: PrecomposedVectorSyntaxSessionIdentity,
     precomposed_vector_metrics: Vec<ValidatedPrecomposedVectorMetrics>,
@@ -2348,6 +2349,10 @@ fn push_profile_limits(output: &mut String, limits: &ValidatedResourceLimits) {
 }
 
 impl ValidatedStagingSemanticPackage {
+    /// Validated text buffers plus native speech and charged vector alternatives.
+    pub const fn retained_text_bytes(&self) -> u64 {
+        self.retained_text_bytes
+    }
     pub const fn document(&self) -> &StagingM4Document {
         &self.document
     }
@@ -2809,6 +2814,7 @@ impl StagingSemanticPackageParser {
         };
         validator.node(wire.document().node_id, None, 1)?;
         let document = lower_document(wire.document(), &mut validator)?;
+        let retained_text_bytes = validator.admitted_text_and_math_speech_bytes;
         let pending_math = std::mem::take(&mut validator.math_nodes);
         let precomposed_vector_metrics = std::mem::take(&mut validator.precomposed_vector_metrics);
         let resources = lower_resources(wire.resources())?;
@@ -2876,6 +2882,7 @@ impl StagingSemanticPackageParser {
         );
         Ok(ValidatedStagingSemanticPackage {
             wire,
+            retained_text_bytes,
             limits: limits.clone(),
             precomposed_vector_session,
             precomposed_vector_metrics,

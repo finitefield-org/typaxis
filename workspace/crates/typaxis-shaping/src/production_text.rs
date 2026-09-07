@@ -1,7 +1,8 @@
 //! Authored body text shaping, before reference resolution and line selection.
 //! The sealed result borrows its syntax/admission owners. It cannot authorize PDF
 //! paint: atomic math and all line/page positions are separate downstream owners.
-//! Canonical list labels are shaped here in the generated text namespace.
+//! Canonical list and footnote labels use the generated text namespace.
+//! Footnote placement remains pending even after its inline marker is shaped.
 use super::*;
 use typaxis_core::M4EffectiveResourceLimits;
 use typaxis_syntax::{
@@ -13,7 +14,7 @@ use typaxis_syntax::{
 mod list_markers;
 pub use list_markers::ProductionListMarkerShape;
 pub const PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM: &str =
-    "typaxis.production-authored-text-shape/3";
+    "typaxis.production-authored-text-shape/4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionTextShapeErrorKind {
@@ -127,8 +128,9 @@ impl<'a> ProductionBodyParagraphShape<'a> {
     pub const fn owner(&self) -> NodeId {
         self.owner
     }
-    /// None for a paragraph without authored text. Math-only paragraphs need no
-    /// invented body font; their atomic metrics have a separate owner.
+    /// None for a paragraph without authored text or a canonical inline label.
+    /// Math-only paragraphs need no invented body font; their atomic metrics
+    /// have a separate owner.
     pub const fn font(&self) -> Option<&ProductionBodyFont> {
         self.font.as_ref()
     }
@@ -138,7 +140,8 @@ impl<'a> ProductionBodyParagraphShape<'a> {
     pub fn runs(&self) -> &[ProductionBodyTextRun<'a>] {
         &self.runs
     }
-    /// Resolving these labels changes paragraph context and requires reshaping.
+    /// Ordinary references still require label resolution. Footnote markers are
+    /// shaped, but their definitions still require placement and a page owner.
     pub fn pending_references(&self) -> &[NodeId] {
         &self.pending_references
     }
@@ -303,6 +306,7 @@ fn shape_authored_text<'a>(
         .map_err(|_| error(root, E::AllocationFailure))?;
     for (index, paragraph) in flow.paragraphs().iter().enumerate() {
         paragraphs.push(shape_paragraph(
+            flow,
             paragraph,
             admitted,
             limits,
@@ -360,6 +364,7 @@ fn shape_authored_text<'a>(
 }
 
 fn shape_paragraph<'a>(
+    flow: &'a ProductionTextFlow<'a>,
     paragraph: &ProductionTextParagraph<'a>,
     admitted: &AdmittedResourceLedger,
     limits: &M4EffectiveResourceLimits,
@@ -369,7 +374,7 @@ fn shape_paragraph<'a>(
     use ProductionTextShapeErrorKind as E;
     let owner = paragraph.owner();
     let maximum = limits.base().get().max_shaping_context_bytes;
-    let (context, ranges) = paragraph_context(paragraph, maximum)?;
+    let (context, ranges) = paragraph_context(flow, paragraph, maximum)?;
     if let Some(ends) = line_ends {
         if ends.last().copied().unwrap_or(0) as usize != context.len()
             || (context.len() > 0 && ends.is_empty())
@@ -399,7 +404,8 @@ fn shape_paragraph<'a>(
     for site in paragraph.items() {
         match site.content() {
             ProductionInlineContent::Reference | ProductionInlineContent::FootnoteReference => {
-                pending_references.push(site.owner())
+                pending_references.push(site.owner());
+                has_text |= site_text(flow, site).is_some_and(|(_, text)| !text.is_empty());
             }
             ProductionInlineContent::Text { utf8, .. } => has_text |= !utf8.is_empty(),
             _ => (),
@@ -455,7 +461,7 @@ fn shape_paragraph<'a>(
         // itemized runs again for every source site in a long paragraph.
         let mut cursor = 0;
         for (index, (site, &(start, end))) in paragraph.items().iter().zip(&ranges).enumerate() {
-            let ProductionInlineContent::Text { span, utf8 } = site.content() else {
+            let Some((site_source, utf8)) = site_text(flow, site) else {
                 continue;
             };
             if utf8.is_empty() {
@@ -509,7 +515,7 @@ fn shape_paragraph<'a>(
                         return Err(error(site.owner(), E::ContextLimit));
                     }
                     let source = source_subspan(
-                        ShapeSourceSpan::Parsed(span),
+                        site_source,
                         (run_start - start) as u32,
                         (run_end - start) as u32,
                     )
@@ -592,7 +598,7 @@ fn validate_body_glyph_coverage(run: &GlyphRun) -> Result<(), ProductionTextShap
             continue;
         }
         let ShapeSourceSpan::Parsed(span) = cluster.source_span else {
-            return Err(E::ReceiptMismatch);
+            return Err(E::MissingGeneratedGlyph);
         };
         // Zero advance does not prove that glyph 0 has no ink. Until selected
         // layout has an explicit suppressed-cluster owner, do not authorize a
@@ -602,26 +608,48 @@ fn validate_body_glyph_coverage(run: &GlyphRun) -> Result<(), ProductionTextShap
     Ok(())
 }
 
-fn paragraph_context(
-    paragraph: &ProductionTextParagraph<'_>,
+fn site_text<'a>(
+    flow: &'a ProductionTextFlow<'a>,
+    site: &typaxis_syntax::ProductionInlineSite<'a>,
+) -> Option<(ShapeSourceSpan, &'a str)> {
+    match site.content() {
+        ProductionInlineContent::Text { span, utf8 } => Some((ShapeSourceSpan::Parsed(span), utf8)),
+        ProductionInlineContent::FootnoteReference => Some((
+            ShapeSourceSpan::Generated(flow.footnote_marker_provenance(site.owner())?),
+            flow.footnote_marker_text(site.owner())?,
+        )),
+        _ => None,
+    }
+}
+
+fn paragraph_context<'a>(
+    flow: &'a ProductionTextFlow<'a>,
+    paragraph: &ProductionTextParagraph<'a>,
     maximum: u32,
 ) -> Result<(String, Vec<(usize, usize)>), ProductionTextShapeError> {
     use ProductionInlineContent as C;
     use ProductionTextShapeErrorKind as E;
-    let value = |content| match content {
-        C::Text { utf8, .. } => utf8,
-        C::NativeMath | C::InlineVector | C::MathVector | C::Reference | C::FootnoteReference => {
-            "\u{fffc}"
+    let value = |site: &typaxis_syntax::ProductionInlineSite<'a>| {
+        if let Some((_, text)) = site_text(flow, site) {
+            return text;
         }
-        // An explicit soft break is a zero-width opportunity (docs/07), not
-        // an authored/generated space. It contributes no shaping scalar.
-        C::SoftBreak => "",
-        C::HardBreak => "\u{2028}",
-        _ => "",
+        match site.content() {
+            C::Text { utf8, .. } => utf8,
+            C::NativeMath
+            | C::InlineVector
+            | C::MathVector
+            | C::Reference
+            | C::FootnoteReference => "\u{fffc}",
+            // An explicit soft break is a zero-width opportunity (docs/07), not
+            // an authored/generated space. It contributes no shaping scalar.
+            C::SoftBreak => "",
+            C::HardBreak => "\u{2028}",
+            _ => "",
+        }
     };
     let owner = paragraph.owner();
     let len = paragraph.items().iter().try_fold(0usize, |n, site| {
-        n.checked_add(value(site.content()).len())
+        n.checked_add(value(site).len())
             .filter(|n| *n <= maximum as usize)
             .ok_or_else(|| error(site.owner(), E::ContextLimit))
     })?;
@@ -635,7 +663,7 @@ fn paragraph_context(
         .map_err(|_| error(owner, E::AllocationFailure))?;
     for site in paragraph.items() {
         let start = context.len();
-        context.push_str(value(site.content()));
+        context.push_str(value(site));
         ranges.push((start, context.len()));
     }
     // Linear merge instead of scanning all graphemes per site. Zero-width syntax
@@ -677,7 +705,7 @@ fn paragraph_fingerprint(
             .glyphs
             .len()
             .checked_mul(36)
-            .and_then(|n| n.checked_add(run.run.clusters.len().checked_mul(20)?))
+            .and_then(|n| n.checked_add(run.run.clusters.len().checked_mul(40)?))
             .and_then(|n| n.checked_add(records))
             .ok_or_else(|| error(p.owner, E::ArithmeticOverflow))?;
     }
@@ -713,15 +741,31 @@ fn paragraph_fingerprint(
         b.extend_from_slice(&r.run.run_id.get().to_be_bytes());
         b.extend_from_slice(&r.run.font.get().to_be_bytes());
         b.push(r.run.bidi_level.get());
-        let span_bytes = |b: &mut Vec<u8>, source| {
-            let ShapeSourceSpan::Parsed(span) = source else {
-                unreachable!("authored text only")
-            };
-            b.extend_from_slice(&span.text_id().get().to_be_bytes());
-            b.extend_from_slice(&span.start_byte().get().to_be_bytes());
-            b.extend_from_slice(&span.end_byte().get().to_be_bytes());
+        let span_bytes = |b: &mut Vec<u8>, source| -> Result<(), ProductionTextShapeError> {
+            match source {
+                ShapeSourceSpan::Parsed(span) => {
+                    b.push(0);
+                    b.extend_from_slice(&span.text_id().get().to_be_bytes());
+                    b.extend_from_slice(&span.start_byte().get().to_be_bytes());
+                    b.extend_from_slice(&span.end_byte().get().to_be_bytes());
+                }
+                ShapeSourceSpan::Generated(provenance) => {
+                    let key = provenance.buffer_key();
+                    if key.generation_kind() != typaxis_core::GenerationKind::FootnoteMarker {
+                        return Err(error(r.owner, E::ReceiptMismatch));
+                    }
+                    b.push(1);
+                    b.extend_from_slice(&key.owner().get().to_be_bytes());
+                    b.extend_from_slice(&key.owner_local_ordinal().to_be_bytes());
+                    let span = provenance.text_span();
+                    b.extend_from_slice(&span.text_id().get().to_be_bytes());
+                    b.extend_from_slice(&span.range().start_byte().get().to_be_bytes());
+                    b.extend_from_slice(&span.range().end_byte().get().to_be_bytes());
+                }
+            }
+            Ok(())
         };
-        span_bytes(&mut b, r.run.source_span);
+        span_bytes(&mut b, r.run.source_span)?;
         b.extend_from_slice(&(r.run.glyphs.len() as u64).to_be_bytes());
         for g in &r.run.glyphs {
             b.extend_from_slice(&g.original_gid.get().to_be_bytes());
@@ -731,7 +775,7 @@ fn paragraph_fingerprint(
         }
         b.extend_from_slice(&(r.run.clusters.len() as u64).to_be_bytes());
         for c in &r.run.clusters {
-            span_bytes(&mut b, c.source_span);
+            span_bytes(&mut b, c.source_span)?;
             b.extend_from_slice(&c.glyph_start.to_be_bytes());
             b.extend_from_slice(&c.glyph_end.to_be_bytes());
         }

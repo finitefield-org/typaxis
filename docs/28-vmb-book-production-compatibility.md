@@ -1407,3 +1407,29 @@ algorithm識別子や公開contract/profileを変更しない。
 これは生成前の参照情報の接続である。ページ番号・counter・脚注番号の解決、生成文字の
 shapeと行選択、ページ再配置を含む収束、公開writerの接続は別途必要である。
 既存の未解決参照の拒否を解除せず、参照を空文字としてPDF成功に扱わない。
+
+
+### 14.17 脚注番号の生成namespaceと共通段落shape
+
+共通本文flowは検証済みの脚注定義順から1-based decimal番号を作り、各参照ノードと
+定義ノードそれぞれの`FootnoteMarker` keyへ保持する。同じ脚注を参照しても生成bufferの
+ownerは別であり、本文text bufferのIDへ置き換えない。参照の出現順から採番しない。
+生成文字とprovenanceはflowの再構築検証に含め、番号の改変を拒否する。
+
+本文shaperは脚注参照の実生成文字を段落コンテキストへ入れ、他の本文と同じitemization・
+選択font・language・行コンテキストでshapeする。番号だけの段落もfontとglyphを持つ。
+再shapeで分割されたrun/clusterは生成namespaceの正しい部分範囲を保持する。
+通常参照は引き続き未解決であり、脚注も定義領域・参照と定義の配置が未完了なので
+pendingとして残す。ここで得たglyphは、脚注付きPDFの完成や公開paint許可ではない。
+
+生成番号の文字列確保前に、list labelと同じ文書の生成テキスト予算へ課金する。
+この境界の検査で、従来の共通flowが本文text bufferだけを保持量としていたことが判明した。
+parserで計上した本文・native math speech・vector代替テキスト等の実保持量を引き継ぎ、
+metadata・outline label・navigationの言語chargeも加える。既にparserで計上した
+vector languageは重複加算しない。生成分と合わせた上限のちょうど内側／1 byte不足を
+検査し、後者は最後の脚注定義ownerで`TextLimit`を返す。
+
+生成内容とshapeのsource encodingが変わるため、内部algorithmは
+`typaxis.production-text-flow/6`と`typaxis.production-authored-text-shape/4`へ更新する。
+公開contract/profileと旧writerは変更しない。ページ参照の生成・収束、脚注領域への
+共通配置、全pipelineの累積allocation、公開PDFの接続と全巻受け入れは残る。
