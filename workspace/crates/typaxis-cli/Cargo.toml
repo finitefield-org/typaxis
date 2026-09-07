@@ -16,6 +16,7 @@ path = "src/main.rs"
 rustix = { version = "=1.1.4", features = ["fs"] }
 toml = { version = "=0.8.23", default-features = false, features = ["parse"] }
 typaxis-core = { path = "../typaxis-core" }
+typaxis-font = { path = "../typaxis-font" }
 typaxis-diagnostics = { path = "../typaxis-diagnostics" }
 typaxis-document = { path = "../typaxis-document" }
 typaxis-document-package = { path = "../typaxis-document-package" }

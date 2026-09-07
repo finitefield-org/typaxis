@@ -2449,3 +2449,19 @@ font内部の精密診断、公開writer／manifest・CLIへの接続と全巻�
 ローカル検証: 追加assertionの挿入位置を修正した後、`cargo test -p typaxis-cli --bin typaxis
 production_ -- --skip 5000`は164件成功・1件ignored（16.63秒）。
 `--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.69 共通font確定の予算・入力・整合性診断（実装追補）
+
+共通本文・脚注driverのfont確定ではResourceLimitをG6100／Limitにし、一律Inputへ変換しない。
+CFFのtable・glyph・subroutine・charstring operation・outline segment・selected glyph・subset bytesの
+上限は元CFF診断コードを保ったLimitとする。CFFのglyph closure／receipt不一致はInternal、
+その他のCFF入力不正はInputに分類する。resourceのepoch・font instance・plan等の不一致は
+I9190／Internalとする。型を直接分類するためCLIにローカルtypaxis-font依存を追加した。
+
+実脚注font確定の記録数／spool必要量ちょうど・1不足でLimitとexit 5を確認し、別structureとの
+不一致がInternalとなることも検証する。CFFの詳細なsource／phase情報の追加、公開writer／
+manifest・CLIへの接続と元全巻・原ノ味等の受入ゲートは引き続き必要である。
+
+ローカル検証: direct dependency追加後、`cargo test -p typaxis-cli --bin typaxis production_
+-- --skip 5000`は164件成功・1件ignored（11.79秒）。
+`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

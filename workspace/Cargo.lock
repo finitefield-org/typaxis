@@ -419,6 +419,7 @@ dependencies = [
  "typaxis-display-list",
  "typaxis-document",
  "typaxis-document-package",
+ "typaxis-font",
  "typaxis-layout",
  "typaxis-linebreak",
  "typaxis-machine-input",

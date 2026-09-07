@@ -284,7 +284,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             .map_err(map_common_structure_error)?;
             let fonts =
                 typaxis_resources::finalize_production_footnote_fonts(&structure, admitted, limits)
-                    .map_err(|e| Failure::input(format!("common footnote fonts: {e:?}")))?;
+                    .map_err(map_common_font_error)?;
             let content =
                 typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
                     .map_err(map_common_content_error)?;
@@ -553,4 +553,39 @@ fn map_common_content_error(error: typaxis_pdf::ProductionBodyPageError) -> Fail
         E::Rasters(_) => None,
     };
     common_pdf_failure("content", code, error)
+}
+
+fn map_common_font_error(error: typaxis_resources::ResourceError) -> Failure {
+    use typaxis_font::Cff1Error as C;
+    use typaxis_resources::ResourceError as E;
+    match error {
+        E::ResourceLimit => Failure::limit(format!("G6100: common footnote fonts: {error:?}")),
+        E::Cff1(cause) => {
+            let message = format!("{cause}; common footnote fonts");
+            match cause {
+                C::TableLimit
+                | C::GlyphLimit
+                | C::SubroutineLimit
+                | C::CharstringOperationLimit
+                | C::OutlineSegmentLimit
+                | C::SelectedGlyphLimit
+                | C::SubsetByteLimit => Failure::limit(message),
+                C::InvalidGlyphClosure | C::ReceiptMismatch => Failure::internal(message),
+                _ => Failure::input(message),
+            }
+        }
+        E::MissingLogicalResource
+        | E::ConflictingLogicalResource
+        | E::DuplicateFontInstance
+        | E::FontInstanceHashMismatch
+        | E::InvalidFontPlan
+        | E::DuplicatePlanKey
+        | E::InvalidImagePlan
+        | E::IncompleteUsagePlan
+        | E::UnexpectedLogicalResource
+        | E::NonCanonicalFontInstanceKey
+        | E::AdmittedLedgerEpochMismatch => {
+            Failure::internal(format!("I9190: common footnote fonts: {error:?}"))
+        }
+    }
 }

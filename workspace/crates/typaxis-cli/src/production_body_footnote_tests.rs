@@ -1679,10 +1679,11 @@ fn production_footnote_fonts_bind_selected_glyphs_and_generated_unicode() {
                     limits,
                 )
                 .unwrap();
-                assert_eq!(
-                    fonts.verify(&other, admitted, limits).err().unwrap(),
-                    typaxis_resources::ResourceError::AdmittedLedgerEpochMismatch
-                );
+                let error = fonts.verify(&other, admitted, limits).err().unwrap();
+                assert_eq!(error, typaxis_resources::ResourceError::AdmittedLedgerEpochMismatch);
+                let failure = map_common_font_error(error);
+                assert_eq!(failure.kind, FailureKind::Internal);
+                assert!(failure.message.starts_with("I9190:"));
             },
         );
     }
@@ -1737,10 +1738,12 @@ fn production_footnote_fonts_account_for_prior_structure_records_and_spool() {
                     &structure, admitted, limits,
                 );
                 if mode == 2 || mode == 4 {
-                    assert_eq!(
-                        result.err().unwrap(),
-                        typaxis_resources::ResourceError::ResourceLimit
-                    );
+                    let error = result.err().unwrap();
+                    assert_eq!(error, typaxis_resources::ResourceError::ResourceLimit);
+                    let failure = map_common_font_error(error);
+                    assert_eq!(failure.kind, FailureKind::Limit);
+                    assert_eq!(failure.kind.exit_code(), 5);
+                    assert!(failure.message.starts_with("G6100:"));
                 } else {
                     let fonts = result.unwrap();
                     if mode == 0 {
