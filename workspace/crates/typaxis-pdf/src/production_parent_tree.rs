@@ -53,6 +53,25 @@ fn compare_payload(
     }
 }
 
+fn verify_object_chunks(
+    bytes: &[u8],
+    chunks: &[ProductionBodyObjectChunk],
+    resolve: impl Fn(R) -> Option<u32>,
+) -> Result<(), E> {
+    compare_payload(bytes, |sink| {
+        for chunk in chunks {
+            match chunk {
+                ProductionBodyObjectChunk::Bytes(raw) => sink.bytes(raw)?,
+                ProductionBodyObjectChunk::Reference(role) => {
+                    let number = resolve(*role).filter(|&n| n != 0).ok_or(fmt::Error)?;
+                    write!(sink, "{number} 0 R")?;
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
 // This writer uses uncompressed, direct-length page streams. Compare their
 // framing as well as their bytes; scanning for PDF keywords is not a parser.
 fn verify_marked_stream(bytes: &[u8], content: &[u8]) -> Result<(), E> {
@@ -111,6 +130,43 @@ fn verify_id_tree<'a>(
 }
 
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub(super) fn verify_contribution_objects(&self) -> Result<(), E> {
+        let structure = self.source.structure_objects();
+        let annotations = structure.annotations();
+        let objects = annotations
+            .objects()
+            .iter()
+            .chain(structure.objects())
+            .chain(self.source.objects());
+        let first = 4usize
+            .checked_add(self.page_count() as usize)
+            .ok_or(E::ReceiptMismatch)?;
+        let mut count = first;
+        for object in objects {
+            let observed = self.objects().get(count).ok_or(E::ReceiptMismatch)?;
+            count = count.checked_add(1).ok_or(E::ReceiptMismatch)?;
+            let number = u32::try_from(count).map_err(|_| E::ReceiptMismatch)?;
+            if observed.number() != number
+                || observed.role() != A::Body(object.role())
+                || self.object_number(object.role()) != Some(number)
+            {
+                return Err(E::ReceiptMismatch);
+            }
+            verify_object_chunks(
+                self.object_bytes(number).ok_or(E::ReceiptMismatch)?,
+                object.chunks(),
+                |role| {
+                    let number = self.object_number(role)?;
+                    let target = self.objects().get(number.checked_sub(1)? as usize)?;
+                    (target.number() == number && target.role() == A::Body(role)).then_some(number)
+                },
+            )?;
+        }
+        if count != self.objects().len() || count - first != self.source.retained_object_count() {
+            return Err(E::ReceiptMismatch);
+        }
+        Ok(())
+    }
     pub(super) fn verify_page_graph(&self) -> Result<(), E> {
         let annotations = self.source.structure_objects().annotations();
         let geometry = annotations
@@ -406,6 +462,55 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn production_object_chunks_resolve_only_typed_references() {
+        use ProductionBodyObjectChunk::{Bytes, Reference};
+        let chunks = [
+            Bytes(b"<< /Raw (99 0 R) /A ".to_vec()),
+            Reference(R::Page(0)),
+            Bytes(b" /B ".to_vec()),
+            Reference(R::PageResources(0)),
+            Bytes(b" >>\x00\xff".to_vec()),
+        ];
+        let bytes = b"<< /Raw (99 0 R) /A 5 0 R /B 12 0 R >>\x00\xff";
+        let resolve = |role| match role {
+            R::Page(0) => Some(5),
+            R::PageResources(0) => Some(12),
+            _ => None,
+        };
+        assert_eq!(verify_object_chunks(bytes, &chunks, resolve), Ok(()));
+        assert_eq!(
+            verify_object_chunks(bytes, &chunks, |_| None),
+            Err(E::ReceiptMismatch)
+        );
+        assert_eq!(
+            verify_object_chunks(bytes, &chunks, |_| Some(0)),
+            Err(E::ReceiptMismatch)
+        );
+        assert_eq!(
+            verify_object_chunks(bytes, &chunks, |_| Some(5)),
+            Err(E::ReceiptMismatch)
+        );
+        for index in 0..bytes.len() {
+            let mut changed = bytes.to_vec();
+            changed[index] ^= 1;
+            assert_eq!(
+                verify_object_chunks(&changed, &chunks, resolve),
+                Err(E::ReceiptMismatch)
+            );
+            assert_eq!(
+                verify_object_chunks(&bytes[..index], &chunks, resolve),
+                Err(E::ReceiptMismatch)
+            );
+        }
+        let mut trailing = bytes.to_vec();
+        trailing.push(b' ');
+        assert_eq!(
+            verify_object_chunks(&trailing, &chunks, resolve),
+            Err(E::ReceiptMismatch)
+        );
+    }
 
     #[test]
     fn production_page_dimensions_match_exact_fixed_point_writer() {

@@ -2316,3 +2316,21 @@ Tabs設定、Annots列をsource geometryと注釈bindingに結び付ける。注
 ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
 は5件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
 1件ignored（53.72秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.61 全contribution objectと実参照の一致検証（実装追補）
+
+本文・脚注assemblyの`verify`は注釈・構造・resourceの全contributionを元の割り当て順にたどり、
+実object観測の番号・role、role番号map、実payloadを照合する。Bytes chunkはそのまま比較し、
+Reference chunkだけを絶対番号へ解決する。参照先の実object観測にも同じroleと番号があることを
+要求する。検証後のobject総数とretained contribution数も一致させ、欠落・余分なobjectを拒否する。
+
+この経路でPageResources内のfont／image／Form参照、font program／ToUnicode、vector／raster、
+注釈・destination・outline等の出力bytesをsource chainの保持内容と照合する。既存の構造registry、
+page geometry、marked contentに対する個別検証も維持する。新たなobject graphや複製文字列は
+確保しない。unit testは型付き参照のみの置換、参照不在・0・誤番号、raw bytes中の参照に似た文字列、
+非UTF-8、全byte変更・全位置切り詰め・末尾追加を検証する。これは公開適合性の発行ではなく、
+公開receipt／manifest・writer／CLIと元全巻等の受入ゲートは引き続き未完了である。
+
+ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
+は6件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
+1件ignored（56.43秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
