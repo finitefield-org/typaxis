@@ -364,7 +364,8 @@ fn project_navigation<'a>(
         && !registry
             .nodes()
             .iter()
-            .any(|n| n.role() == StructureRole::Link)
+            .any(|n| n.role() == StructureRole::Link && !matches!(n.owner(),
+                StructureOwner::Generated(key) if key.slot() == typaxis_layout::GeneratedStructureSlot::FootnoteLink))
     {
         return Ok(result);
     }

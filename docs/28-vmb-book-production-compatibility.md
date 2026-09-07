@@ -2706,3 +2706,12 @@ MuPDFは12ページの2 annotationと別々のLink／OBJR、子Lbl／MCR、お�
 本文Aは空輪郭であり、日本語本文や全巻受入の証拠ではない。共通PDFには引き続きPDF/UAの
 適合宣言を付けず、公開writer／manifest、正式exporter、全allocation予算、元全巻・原ノ味・
 規模・両hostの受入は未完のままである。
+
+
+§14.80の追加検証: 生成FootnoteLinkしかない場合は、通常navigationの文書全体の索引を
+構築しない。脚注リンクの実処理は専用navigationで継続する。本文／脚注にauthored Linkが
+ある場合は従来どおり索引を確保する。前者の通常navigation追加recordが0であることと、後者の
+リンク・費用の保持を19-fixture試験へ追加した。回帰は168件成功・1件ignored（14.55秒、
+`/private/tmp/typaxis-footnote-navigation-index-regression.log`）、全プロセス終了済み。
+同じ診断入力のPDFは§14.80のPDFとcmpでbyte一致したため、同節の限定的な独立検査は維持する。
+公開writer／manifest・正式exporter・全巻受入がこの最適化で完了したとは扱わない。

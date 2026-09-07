@@ -2677,6 +2677,18 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                 assert_eq!(combined.footnote_references().links(), nav.links());
                 let ordinary_charge =
                     combined.footnote_references().record_base() - marked.record_charge();
+                if case_index == 10 {
+                    // A book with footnote links alone does not need an
+                    // additional document-wide ordinary-navigation index.
+                    assert_eq!(ordinary_charge, 0);
+                    assert!(!combined.footnote_references().links().is_empty());
+                    assert!(combined.links().is_empty());
+                } else if case_index == 5 {
+                    // Authored links in body and footnotes still use their
+                    // ordinary navigation projection and retain its budget.
+                    assert!(ordinary_charge > 0);
+                    assert!(!combined.links().is_empty());
+                }
                 assert_eq!(
                     combined.additional_records(),
                     ordinary_charge + combined.footnote_references().additional_records()

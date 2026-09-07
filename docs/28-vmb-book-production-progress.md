@@ -5799,3 +5799,21 @@ Poppler extracts body A1 and footnote 1 / page reference 12; MuPDF renders the
 visible diagnostic digits and separator. The diagnostic font's A has no outline.
 These bytes remain diagnostic: public writer/manifest integration, formal exporter,
 complete allocation accounting and original-book/Harano/scale/host gates are open.
+
+
+## 2026-09-08 — Avoid duplicate ordinary navigation indexing for footnotes
+
+Fixed an allocation regression introduced by generated footnote Link elements:
+when there are no ordinary anchors, links or outlines, skip the document-wide
+ordinary-navigation projection. Dedicated footnote navigation still builds the
+forward and return targets. The integrated fixture asserts zero ordinary-index
+record charge for a footnote-only case and preserved indexing for authored body
+and footnote links.
+
+CLI production regression passed: 168 passed, 1 ignored, 14.55 s
+(`/private/tmp/typaxis-footnote-navigation-index-regression.log`), 5,000-image cases
+excluded. All processes ended. The regenerated diagnostic PDF is byte-identical
+by cmp to §14.80's independently inspected PDF; log
+`/private/tmp/typaxis-footnote-index-probe.log`.
+The full objective remains incomplete: public writer/manifest, formal exporter,
+full allocation accounting and original-book/Harano/scale/host gates remain open.
