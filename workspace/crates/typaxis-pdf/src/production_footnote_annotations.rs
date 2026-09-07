@@ -7,6 +7,7 @@ use typaxis_display_list::{build_production_footnote_navigation, ProductionFootn
 pub enum ProductionFootnoteAnnotationSource {
     Ordinary(usize),
     Footnote(usize),
+    FootnoteReturn(usize),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductionFootnoteAnnotationBinding {
@@ -117,6 +118,16 @@ pub fn build_production_footnote_annotations<'m, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b,
         .links()
         .len()
         .checked_add(navigation.footnote_references().links().len())
+        .and_then(|n| {
+            n.checked_add(
+                navigation
+                    .footnote_references()
+                    .destinations()
+                    .iter()
+                    .filter(|d| d.return_link_index().is_some())
+                    .count(),
+            )
+        })
         .ok_or(E::RecordLimit)?;
     let registry = marked.structure().registry();
     let pages = marked.pages().len();
@@ -171,6 +182,21 @@ pub fn build_production_footnote_annotations<'m, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b,
             ProductionFootnoteAnnotationSource::Footnote(i),
         ));
     }
+    for (i, destination) in navigation
+        .footnote_references()
+        .destinations()
+        .iter()
+        .enumerate()
+    {
+        if destination.return_link_index().is_some() {
+            order.push((
+                destination.page_index(),
+                destination.fragment_index(),
+                destination.owner(),
+                ProductionFootnoteAnnotationSource::FootnoteReturn(i),
+            ));
+        }
+    }
     order.sort_unstable();
     let mut bindings = Vec::new();
     bindings
@@ -212,7 +238,19 @@ pub fn build_production_footnote_annotations<'m, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b,
                     .source_flow()
                     .footnote_marker_text(owner)
                     .ok_or(E::InvalidStructure)?;
-                (link.node(), link.bounds(), label)
+                (link.annotation_node(), link.bounds(), label)
+            }
+            ProductionFootnoteAnnotationSource::FootnoteReturn(i) => {
+                let destination = &navigation.footnote_references().destinations()[i];
+                let label = registry
+                    .node(destination.annotation_node())
+                    .and_then(|node| node.accessible_name())
+                    .ok_or(E::InvalidStructure)?;
+                (
+                    destination.annotation_node(),
+                    destination.label_bounds(),
+                    label,
+                )
             }
         };
         let right = bounds
@@ -254,6 +292,24 @@ pub fn build_production_footnote_annotations<'m, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b,
                     .footnote_references()
                     .destinations()
                     .get(navigation.footnote_references().links()[i].definition_index())
+                    .ok_or(E::ReceiptMismatch)?;
+                let y = height
+                    .checked_sub(target.bounds().y())
+                    .ok_or(E::ReceiptMismatch)?;
+                b.bytes(" /Dest [")?;
+                b.reference(R::Page(target.page_index()))?;
+                b.bytes(format!(
+                    " /XYZ {} {} null]",
+                    number(target.bounds().x().raw()),
+                    number(y.raw())
+                ))?;
+            }
+            ProductionFootnoteAnnotationSource::FootnoteReturn(i) => {
+                let destination = &navigation.footnote_references().destinations()[i];
+                let target = navigation
+                    .footnote_references()
+                    .links()
+                    .get(destination.return_link_index().ok_or(E::ReceiptMismatch)?)
                     .ok_or(E::ReceiptMismatch)?;
                 let y = height
                     .checked_sub(target.bounds().y())

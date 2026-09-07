@@ -5769,3 +5769,33 @@ excluded. Log: `/private/tmp/typaxis-footnote-return-regression.log`; process ex
 Return annotation/Link structure emission is still required. This change does not
 publish common PDF bytes or close public writer/manifest, exporter, allocation or
 original-book/Harano/scale/host acceptance. The complete objective remains open.
+
+
+## 2026-09-08 — Emit forward and return footnote links in common PDF
+
+Implemented design §14.80. A common registry constructor inserts generated Link
+nodes between each source Note/Reference and its generated Label, keeping the
+legacy registry constructor unchanged. Both constructors reverify against the
+source/profile/limits. Ordinary navigation excludes the generated footnote links
+from its authored-link lookup; dedicated annotations own those nodes.
+
+Forward annotations now belong to the reference's Link. Each definition number
+also receives a return annotation targeting the first source reference's selected
+position. Existing PDF object/record/spool budgets include the extra annotations;
+the ParentTree, Link OBJRs and nested Label MCRs pass final graph/byte verification.
+The 19-fixture test checks exact annotation rectangles, destinations and owners,
+including repeated references and math/figure-first definitions.
+
+CLI production regression: 168 passed, 1 ignored, 12.18 s
+(`/private/tmp/typaxis-footnote-backlinks-regression.log`), 5,000-image cases excluded.
+Additional registry revalidation: 1 passed, 1.29 s
+(`/private/tmp/typaxis-footnote-link-registry.log`). Layout-contract tagged tests:
+2 passed, 0.06 s (`/private/tmp/typaxis-footnote-link-contract.log`). All processes exited.
+
+MuPDF independently reads two annotation destinations and distinct Link/OBJR/
+Label/MCR relationships in `/private/tmp/typaxis-footnote-backlinks.pdf`, SHA-256
+`ad1f09dddaa188cdb421091aba1263b725e6092b441d3c56961d7d43a2f94e0e`.
+Poppler extracts body A1 and footnote 1 / page reference 12; MuPDF renders the
+visible diagnostic digits and separator. The diagnostic font's A has no outline.
+These bytes remain diagnostic: public writer/manifest integration, formal exporter,
+complete allocation accounting and original-book/Harano/scale/host gates are open.

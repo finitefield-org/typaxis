@@ -438,7 +438,9 @@ fn project_navigation<'a>(
         if let StructureOwner::Source(owner) = node.owner() {
             nodes.insert(owner, index);
         }
-        let link = if node.role() == StructureRole::Link {
+        let generated_footnote = matches!(node.owner(), StructureOwner::Generated(key)
+            if key.slot() == typaxis_layout::GeneratedStructureSlot::FootnoteLink);
+        let link = if node.role() == StructureRole::Link && !generated_footnote {
             let StructureOwner::Source(owner) = node.owner() else {
                 return Err(error(root, E::ReceiptMismatch));
             };
@@ -568,7 +570,8 @@ fn project_navigation<'a>(
     for node in registry
         .nodes()
         .iter()
-        .filter(|n| n.role() == StructureRole::Link)
+        .filter(|n| n.role() == StructureRole::Link && !matches!(n.owner(),
+            StructureOwner::Generated(key) if key.slot() == typaxis_layout::GeneratedStructureSlot::FootnoteLink))
     {
         if result.node_links[node.structure_node_id().get() as usize].is_empty() {
             let StructureOwner::Source(owner) = node.owner() else {

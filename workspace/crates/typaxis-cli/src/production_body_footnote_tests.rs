@@ -1406,6 +1406,20 @@ fn production_footnote_structure_binds_actual_reference_and_definition_labels() 
                 )
                 .unwrap();
                 structure.verify(&display, admitted, limits).unwrap();
+                let source_flow = terminals.line_layout().source_flow();
+                structure.registry().verify(source_flow.package(), source_flow.navigation(),
+                    semantics, profile.authorization(), limits).unwrap();
+                let legacy_registry = typaxis_layout::build_structure_registry_v2(
+                    source_flow.package(), source_flow.navigation(), semantics,
+                    profile.authorization(), limits).unwrap();
+                legacy_registry.verify(source_flow.package(), source_flow.navigation(),
+                    semantics, profile.authorization(), limits).unwrap();
+                assert!(!legacy_registry.nodes().iter().any(|node| matches!(node.owner(),
+                    typaxis_layout::StructureOwner::Generated(key)
+                        if key.slot() == typaxis_layout::GeneratedStructureSlot::FootnoteLink)));
+                assert_eq!(structure.registry().nodes().len(), legacy_registry.nodes().len()
+                    + flow.footnotes().definitions().len() + flow.footnotes().references().len());
+                assert_ne!(structure.registry().fingerprint(), legacy_registry.fingerprint());
                 assert_eq!(structure.separator_artifacts(), display.separators());
                 assert_eq!(
                     structure
@@ -1447,8 +1461,10 @@ fn production_footnote_structure_binds_actual_reference_and_definition_labels() 
                         assert_eq!(Some(text.as_str()), node.actual_text());
                         if let typaxis_layout::StructureOwner::Generated(key) = node.owner() {
                             if key.slot() == typaxis_layout::GeneratedStructureSlot::FootnoteLabel {
-                                let parent =
-                                    structure.registry().node(node.parent().unwrap()).unwrap();
+                                let link = structure.registry().node(node.parent().unwrap()).unwrap();
+                                assert_eq!(link.role(), typaxis_layout::StructureRole::Link);
+                                assert_eq!(link.accessible_name(), node.marker());
+                                let parent = structure.registry().node(link.parent().unwrap()).unwrap();
                                 assert!(matches!(
                                     parent.role(),
                                     typaxis_layout::StructureRole::Note
@@ -2464,7 +2480,10 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     );
                     let label = structure.registry().node(destination.label_node()).unwrap();
                     assert_eq!(label.role(), typaxis_display_list::StructureRole::Label);
-                    assert_eq!(label.parent(), Some(destination.node()));
+                    assert_eq!(label.parent(), Some(destination.annotation_node()));
+                    let link_node = structure.registry().node(destination.annotation_node()).unwrap();
+                    assert_eq!(link_node.role(), typaxis_display_list::StructureRole::Link);
+                    assert_eq!(link_node.parent(), Some(destination.node()));
                     let mut label_rects = structure.groups().iter()
                         .filter(|g| g.node() == destination.label_node())
                         .flat_map(|g| g.draws())
@@ -2725,6 +2744,8 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                 assert_eq!(
                     annotations.objects().len(),
                     combined.links().len() + combined.footnote_references().links().len()
+                        + combined.footnote_references().destinations().iter()
+                            .filter(|d| d.return_link_index().is_some()).count()
                 );
                 assert_eq!(annotations.bindings().len(), annotations.objects().len());
                 let height = terminals
@@ -2745,6 +2766,8 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                         ProductionFootnoteAnnotationSource as Source,
                     };
                     assert_eq!(object.role(), Role::LinkAnnotation(index as u32));
+                    assert_eq!(structure.registry().node(binding.node()).unwrap().role(),
+                        typaxis_display_list::StructureRole::Link);
                     assert_eq!(
                         binding.parent_key(),
                         geometry.pages().len() as u32 + index as u32
@@ -2809,7 +2832,7 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                             let link = &combined.footnote_references().links()[i];
                             let target = &combined.footnote_references().destinations()
                                 [link.definition_index()];
-                            assert_eq!(binding.node(), link.node());
+                            assert_eq!(binding.node(), link.annotation_node());
                             assert_eq!(
                                 references,
                                 vec![
@@ -2842,6 +2865,21 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                                 label.encode_utf16().map(|u| format!("{u:04X}")).collect();
                             assert!(dictionary.contains(&format!("/Contents <FEFF{hex}>")));
                             (link.owner(), link.fragment_index(), link.bounds())
+                        }
+                        Source::FootnoteReturn(i) => {
+                            let destination = &combined.footnote_references().destinations()[i];
+                            let target = &combined.footnote_references().links()[destination.return_link_index().unwrap()];
+                            assert_eq!(binding.node(), destination.annotation_node());
+                            assert_eq!(references, vec![Role::Page(destination.page_index()), Role::Page(target.page_index())]);
+                            let xyz: Vec<f64> = dictionary.split("/XYZ ").nth(1).unwrap()
+                                .split_whitespace().take(2).map(|v| v.parse().unwrap()).collect();
+                            assert_eq!(xyz[0] * 65536.0, target.bounds().x().raw() as f64);
+                            assert_eq!(xyz[1] * 65536.0, (height - target.bounds().y().raw()) as f64);
+                            let label = terminals.line_layout().source_flow()
+                                .footnote_marker_text(destination.owner()).unwrap();
+                            let hex: String = label.encode_utf16().map(|u| format!("{u:04X}")).collect();
+                            assert!(dictionary.contains(&format!("/Contents <FEFF{hex}>")));
+                            (destination.owner(), destination.fragment_index(), destination.label_bounds())
                         }
                     };
                     let key = (binding.page_index(), fragment, owner, binding.source());

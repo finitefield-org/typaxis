@@ -2674,3 +2674,35 @@ forward linkはそれぞれ保持する。viewerの履歴に応じて直前のcl
 この変更は戻り先と番号領域の計画までで、戻りリンクのPDF annotation・対応するLink構造は
 まだ生成しない。公開writer／manifestへの共通組版接続、正式exporter、全allocation予算、
 元全巻・原ノ味・規模・両hostの受入とともに必要な残件として維持する。
+
+
+### 14.80 共通PDFの脚注往復リンク（実装追補）
+
+共通組版のregistry生成は専用入口build_structure_registry_v2_with_footnote_linksを使い、
+source Note／Referenceと生成Lblの間に、それぞれ生成FootnoteLink（PDF role Link）を置く。
+Linkは番号のaccessible nameと継承languageを持つ。従来のregistry生成APIの構造は変更しない。
+再検証は保持された生成slotから同じ構造を再構築し、source／authorization／limitsとの一致を
+確認する。追加node・深さ・文字列は既存registryの上限検査へ含める。
+
+共通annotation生成は本文の参照番号から定義へのforward linkを新Linkへ所属させ、定義番号の
+狭い領域から§14.79の最初の参照へ戻るannotationも生成する。通常のsource Linkの探索では
+生成FootnoteLinkを専用navigationへ委ね、重複する通常リンクを作らない。ParentTreeの
+StructParent、LinkのOBJR、子LblのMCRを既存の共通structure object生成・完成PDF検証へ通す。
+戻り注釈もobject／record／spoolの計数と確保前上限確認へ含める。
+
+19種類の共通fixtureで実annotationのRect／XYZ／Contents／構造nodeを検証し、複数参照では
+forward linkを各参照に残して、定義番号から最初の参照へ戻すことを確認した。最終CLI production
+回帰は168件成功・1件ignored（12.18秒、`/private/tmp/typaxis-footnote-backlinks-regression.log`）。
+旧／新registryの個別再検証は1件成功（1.29秒、`/private/tmp/typaxis-footnote-link-registry.log`）、
+layout-contractのtagged_structureテストは2件成功（0.06秒、
+`/private/tmp/typaxis-footnote-link-contract.log`）。全プロセス終了済み。workspace manifestと
+前節のtargetを使用し、5,000画像は再実行していない。
+
+独立検査用PDF `/private/tmp/typaxis-footnote-backlinks.pdf` のSHA-256は
+`ad1f09dddaa188cdb421091aba1263b725e6092b441d3c56961d7d43a2f94e0e`。
+MuPDFは12ページの2 annotationと別々のLink／OBJR、子Lbl／MCR、およびParentTreeの対応を
+読み出した。forwardのXYZは定義行、returnのXYZは本文参照番号の実位置を指す。Popplerは
+本文A1と脚注1／ページ参照12を抽出し、MuPDF描画で番号・separatorを確認した。診断fontの
+本文Aは空輪郭であり、日本語本文や全巻受入の証拠ではない。共通PDFには引き続きPDF/UAの
+適合宣言を付けず、公開writer／manifest、正式exporter、全allocation予算、元全巻・原ノ味・
+規模・両hostの受入は未完のままである。

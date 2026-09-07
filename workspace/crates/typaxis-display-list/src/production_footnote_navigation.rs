@@ -8,6 +8,7 @@ pub struct ProductionFootnoteDestination {
     definition_index: usize,
     owner: NodeId,
     node: StructureNodeId,
+    annotation_node: StructureNodeId,
     page_index: u32,
     fragment_index: u32,
     bounds: Rect,
@@ -37,6 +38,9 @@ impl ProductionFootnoteDestination {
     pub fn owner(&self) -> NodeId {
         self.owner
     }
+    pub fn annotation_node(&self) -> StructureNodeId {
+        self.annotation_node
+    }
     pub fn node(&self) -> StructureNodeId {
         self.node
     }
@@ -54,6 +58,7 @@ impl ProductionFootnoteDestination {
 pub struct ProductionFootnoteReferenceLink {
     owner: NodeId,
     node: StructureNodeId,
+    annotation_node: StructureNodeId,
     definition_index: usize,
     page_index: u32,
     fragment_index: u32,
@@ -62,6 +67,9 @@ pub struct ProductionFootnoteReferenceLink {
 impl ProductionFootnoteReferenceLink {
     pub fn owner(&self) -> NodeId {
         self.owner
+    }
+    pub fn annotation_node(&self) -> StructureNodeId {
+        self.annotation_node
     }
     pub fn node(&self) -> StructureNodeId {
         self.node
@@ -233,7 +241,18 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
         if key.slot() != GeneratedStructureSlot::FootnoteLabel {
             continue;
         }
-        let parent = label
+        let link_node = label
+            .parent()
+            .and_then(|id| structure.registry().node(id))
+            .ok_or_else(|| error(root, E::ReceiptMismatch))?;
+        if link_node.role() != StructureRole::Link
+            || !matches!(link_node.owner(), StructureOwner::Generated(link_key)
+                if link_key.slot() == GeneratedStructureSlot::FootnoteLink
+                    && link_key.owner_node_id() == key.owner_node_id())
+        {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        let parent = link_node
             .parent()
             .and_then(|id| structure.registry().node(id))
             .ok_or_else(|| error(root, E::ReceiptMismatch))?;
@@ -282,6 +301,7 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
                         definition_index: index,
                         owner,
                         node: parent.structure_node_id(),
+                        annotation_node: link_node.structure_node_id(),
                         page_index: group.page_index(),
                         fragment_index,
                         bounds,
@@ -317,6 +337,7 @@ pub fn build_production_footnote_reference_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f
                     links.push(ProductionFootnoteReferenceLink {
                         owner,
                         node: parent.structure_node_id(),
+                        annotation_node: link_node.structure_node_id(),
                         definition_index: *definition_index,
                         page_index: group.page_index(),
                         fragment_index,

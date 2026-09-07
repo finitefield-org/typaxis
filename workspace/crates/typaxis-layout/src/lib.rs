@@ -132,7 +132,8 @@ use typaxis_document::{
     TableCell, TableColumn, TableRow, ValidatedDocumentNodeIndex,
 };
 pub use typaxis_layout_contract::{
-    build_structure_registry, build_structure_registry_v2, select_structure_bindings,
+    build_structure_registry, build_structure_registry_v2,
+    build_structure_registry_v2_with_footnote_links, select_structure_bindings,
     select_structure_bindings_v2, GeneratedStructureKey, GeneratedStructureSlot,
     SelectedEquationNumberPaintBindingV2, SelectedStructureAnnotation,
     SelectedStructureAnnotationInput, SelectedStructureBindingError,

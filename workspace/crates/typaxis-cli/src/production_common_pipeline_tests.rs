@@ -986,7 +986,7 @@ fn production_page_reference_inside_footnote_converges_without_marker_aliasing()
                         )
                     ))
                     .count(),
-                1
+                2
             );
             assert_eq!(observed.page_passes, 6);
             assert_eq!(

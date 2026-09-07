@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use typaxis_core::{sha256, M4EffectiveResourceLimits, NodeId};
 use typaxis_layout::{
-    build_structure_registry_v2, StructureNodeId, StructureOwner, StructureRegistryReceiptV2,
-    StructureRole,
+    build_structure_registry_v2_with_footnote_links, StructureNodeId, StructureOwner,
+    StructureRegistryReceiptV2, StructureRole,
 };
 use typaxis_resource_admission::AdmittedResourceLedger;
 use typaxis_syntax::{
@@ -197,7 +197,7 @@ fn project_structure(
     {
         return Err(E::ReceiptMismatch);
     }
-    let registry = build_structure_registry_v2(
+    let registry = build_structure_registry_v2_with_footnote_links(
         flow.package(),
         flow.navigation(),
         semantics,
@@ -449,6 +449,8 @@ fn project_structure(
             let is_list = matches!(node.owner(), StructureOwner::Generated(key) if key.slot() == typaxis_layout::GeneratedStructureSlot::ListLabel);
             let is_definition = node
                 .parent()
+                .and_then(|id| registry.node(id))
+                .and_then(|link| link.parent())
                 .and_then(|id| registry.node(id))
                 .is_some_and(|p| p.role() == StructureRole::Note);
             if owned.is_empty() || ((is_list || is_definition) && owned.len() != 1) {

@@ -39,6 +39,7 @@ pub enum GeneratedStructureSlot {
     TableBody,
     FigureCaption,
     FootnoteLabel,
+    FootnoteLink,
 }
 
 impl GeneratedStructureSlot {
@@ -50,6 +51,7 @@ impl GeneratedStructureSlot {
             Self::TableBody => "table_body",
             Self::FigureCaption => "figure_caption",
             Self::FootnoteLabel => "footnote_label",
+            Self::FootnoteLink => "footnote_link",
         }
     }
 }
@@ -561,8 +563,18 @@ impl StructureRegistryReceiptV2 {
         authorization: &StagingAccessibilityProfileAuthorizationV2,
         limits: &M4EffectiveResourceLimits,
     ) -> Result<(), StructureRegistryError> {
-        let observed =
-            build_structure_registry_v2(package, navigation, semantics, authorization, limits)?;
+        let footnote_links = self.nodes.iter().any(|n| {
+            matches!(n.owner(),
+            StructureOwner::Generated(key) if key.slot() == GeneratedStructureSlot::FootnoteLink)
+        });
+        let observed = build_structure_registry_v2_mode(
+            package,
+            navigation,
+            semantics,
+            authorization,
+            limits,
+            footnote_links,
+        )?;
         if self != &observed {
             return Err(StructureRegistryError::ReceiptMismatch);
         }
@@ -668,6 +680,7 @@ impl<'a> StructureSemanticsRef<'a> {
 }
 
 struct RegistryBuilder<'a> {
+    footnote_links: bool,
     semantics: StructureSemanticsRef<'a>,
     limits: &'a ValidatedResourceLimits,
     nodes: Vec<StructureNodeRecord>,
@@ -694,6 +707,7 @@ pub fn build_structure_registry(
     }
     let mut builder = RegistryBuilder {
         semantics: StructureSemanticsRef::V1(semantics),
+        footnote_links: false,
         limits,
         nodes: Vec::new(),
         source_to_structure: BTreeMap::new(),
@@ -747,6 +761,29 @@ pub fn build_structure_registry_v2(
     authorization: &StagingAccessibilityProfileAuthorizationV2,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<StructureRegistryReceiptV2, StructureRegistryError> {
+    build_structure_registry_v2_mode(package, navigation, semantics, authorization, limits, false)
+}
+
+/// Common text layout gives footnote annotations their own Link elements while
+/// retaining the source Note/Reference and the generated label beneath each link.
+pub fn build_structure_registry_v2_with_footnote_links(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    authorization: &StagingAccessibilityProfileAuthorizationV2,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StructureRegistryReceiptV2, StructureRegistryError> {
+    build_structure_registry_v2_mode(package, navigation, semantics, authorization, limits, true)
+}
+
+fn build_structure_registry_v2_mode(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    authorization: &StagingAccessibilityProfileAuthorizationV2,
+    limits: &M4EffectiveResourceLimits,
+    footnote_links: bool,
+) -> Result<StructureRegistryReceiptV2, StructureRegistryError> {
     if package.limits() != limits.base()
         || authorization
             .authorizes(package, navigation, semantics, limits)
@@ -757,6 +794,7 @@ pub fn build_structure_registry_v2(
     }
     let mut builder = RegistryBuilder {
         semantics: StructureSemanticsRef::V2(semantics),
+        footnote_links,
         limits: limits.base(),
         nodes: Vec::new(),
         source_to_structure: BTreeMap::new(),
@@ -1047,35 +1085,51 @@ impl RegistryBuilder<'_> {
                 self.nodes[caption.get() as usize].children = caption_children;
                 vec![caption]
             }
-            StagingStructureSemanticKind::FootnoteDefinition { marker, .. } => {
+            StagingStructureSemanticKind::FootnoteDefinition { marker, .. }
+            | StagingStructureSemanticKind::FootnoteReference { marker, .. } => {
+                let (parent, label_depth) = if self.footnote_links {
+                    let link = self.allocate_generated(
+                        source,
+                        GeneratedStructureSlot::FootnoteLink,
+                        StructureRole::Link,
+                        id,
+                        record.language(),
+                        false,
+                        Some(marker.clone()),
+                        None,
+                        depth + 1,
+                    )?;
+                    let node = &mut self.nodes[link.get() as usize];
+                    // allocate_generated already charged this string.
+                    node.accessible_name = node.actual_text.take();
+                    (link, depth + 2)
+                } else {
+                    (id, depth + 1)
+                };
                 let label = self.allocate_generated(
                     source,
                     GeneratedStructureSlot::FootnoteLabel,
                     StructureRole::Label,
-                    id,
+                    parent,
                     record.language(),
                     true,
                     Some(marker.clone()),
                     Some(marker.clone()),
-                    depth + 1,
+                    label_depth,
                 )?;
-                let mut children = vec![label];
-                children.extend(self.visit_direct_children(source, id, depth + 1)?);
+                let mut children = if parent != id {
+                    self.nodes[parent.get() as usize].children = vec![label];
+                    vec![parent]
+                } else {
+                    vec![label]
+                };
+                if matches!(
+                    record.kind(),
+                    StagingStructureSemanticKind::FootnoteDefinition { .. }
+                ) {
+                    children.extend(self.visit_direct_children(source, id, depth + 1)?);
+                }
                 children
-            }
-            StagingStructureSemanticKind::FootnoteReference { marker, .. } => {
-                let label = self.allocate_generated(
-                    source,
-                    GeneratedStructureSlot::FootnoteLabel,
-                    StructureRole::Label,
-                    id,
-                    record.language(),
-                    true,
-                    Some(marker.clone()),
-                    Some(marker.clone()),
-                    depth + 1,
-                )?;
-                vec![label]
             }
             _ => self.visit_direct_children(source, id, depth + 1)?,
         };
