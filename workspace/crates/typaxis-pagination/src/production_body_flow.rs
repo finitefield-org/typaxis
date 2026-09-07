@@ -6,11 +6,12 @@ mod footnote_breaks;
 pub use footnote_breaks::{
     prepare_production_footnote_demand_search, prepare_production_footnote_search,
     ProductionBodyFootnoteCandidate, ProductionBodyFootnotePageSelection,
-    ProductionBodyFootnotePageState, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
-    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
-    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
-    ProductionFootnoteFragmentSelection, ProductionFootnoteRegionFragment,
-    ProductionFootnoteRegionSelection,
+    ProductionBodyFootnotePageState, ProductionBodyFootnotePlacedFragment,
+    ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
+    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteFragmentSelection,
+    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
 };
 
 #[path = "production_footnote_references.rs"]

@@ -4563,3 +4563,54 @@ No public/full-book PDF or branch push is claimed. This is local page selection
 using existing body boundary costs, not a complete global pagination policy or
 stability/paint receipt. Physical placement, convergence, public writer, original
 full-book, Harano, scale and both-host acceptance gates remain incomplete.
+
+### Selected joint page content and marker placement
+
+Implemented design §14.32. `place_page_content` accepts the same search's actual
+page selection and returns borrowed-selection geometry retaining definition-local
+versus body-local item indices. Footnote origins include the actual reservation's
+separator band and selected fragment offsets. Exact consumed heights are checked.
+Ordinary body and joint placement now share `place_flow_item` for paragraph
+baselines, vector viewports/baselines and raster bounds.
+
+List markers use existing measured bindings and placement, locating their original
+stream item with a charged binary search (the preparation pass validates ordering).
+Footnote definition markers use actual shape advance, shared marker column and
+font ascender/descender, and are placed only when their bound first paint item is
+selected. Continuation pages do not repeat them. Result records and work consume
+the same cumulative search budget; retries never refund charges.
+
+Verification commands (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-pagination --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_raster --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_list --locked
+```
+Final footnote regression: **33 passed, 0 failed, 1.90 s**,
+`/private/tmp/typaxis-joint-placement-verified.log`. Tests cover real body/definition
+origins, scopes, item spacing, source/owner identity, list/definition marker
+placement, continuation marker suppression, wrong-search rejection, repeat
+placement, and exact/one-short cumulative work/record budgets including markers.
+
+Shared geometry regression: common driver **2 passed, 1 explicitly ignored,
+0.65 s**, raster **3 passed, 1.02 s**, lists **11 passed, 0.77 s**. Logs are
+`/private/tmp/typaxis-joint-placement-{common,raster,lists}.log`. These regressions
+ran after the shared helper extraction; subsequent edits added only joint marker
+placement/tests. Marker check passed in 1.41 s. No public/full-book PDF or branch
+push is claimed.
+
+Still required: stable complete page sequence, math terminal binding, separator
+paint and complete display/tag/navigation/manifest/public writer integration,
+plus original full-book, Harano, scale and both-host acceptance. Physical fragment
+coordinates alone do not satisfy those gates.

@@ -6,6 +6,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 mod body_candidate;
 #[path = "production_body_footnote_pages.rs"]
 mod pages;
+#[path = "production_body_footnote_placement.rs"]
+mod placement;
+pub use placement::{
+    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
+    ProductionBodyFootnotePlacedPage,
+};
 #[path = "production_footnote_required_region.rs"]
 mod required_region;
 pub use body_candidate::ProductionBodyFootnoteCandidate;

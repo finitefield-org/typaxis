@@ -38,9 +38,10 @@ pub use body_flow::{
     prepare_production_body_flow, prepare_production_footnote_demand_search,
     prepare_production_footnote_search, ProductionBodyFootnoteCandidate,
     ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageState,
-    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
-    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
-    ProductionFootnoteDemandStatus, ProductionFootnoteFlowReference,
+    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
+    ProductionBodyFootnotePlacedPage, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
+    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
+    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus, ProductionFootnoteFlowReference,
     ProductionFootnoteFragmentSelection, ProductionFootnoteMarkerBinding,
     ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
     ProductionPreparedBodyFlow,
@@ -379,7 +380,7 @@ fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
     new_page(&mut pages, 0, limits, &mut charge, root)?;
     let mut after = Length::ZERO;
     for (index, item) in items.iter().enumerate() {
-        let Some(source) = item.source else {
+        let Some(_) = item.source else {
             new_page(&mut pages, fragments.len(), limits, &mut charge, item.owner)?;
             charge.take(1, item.owner)?;
             breaks
@@ -422,39 +423,6 @@ fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
             item.leading,
             item.owner,
         )?;
-        let height = PositiveLength::new(item.height)
-            .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
-        let (baseline, viewport) = match source {
-            ProductionBodyFragmentSource::RasterFigure { .. } => {
-                (None, Some(Rect::new(item.x, top, item.width, height)))
-            }
-            ProductionBodyFragmentSource::ParagraphLine {
-                paragraph_index,
-                line_index,
-            } => {
-                let local =
-                    &lines.paragraphs()[paragraph_index as usize].lines()[line_index as usize];
-                (Some(add(top, local.baseline(), item.owner)?), None)
-            }
-            ProductionBodyFragmentSource::VectorBlock { block_index } => {
-                let block = &blocks.blocks()[block_index as usize];
-                let y = add(top, block.viewport_top_offset().get(), item.owner)?;
-                let baseline = block
-                    .baseline()
-                    .map(|b| add(y, b.get(), item.owner))
-                    .transpose()?;
-                (
-                    baseline,
-                    Some(Rect::new(
-                        item.viewport_left
-                            .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?,
-                        y,
-                        block.viewport_width(),
-                        block.viewport_height(),
-                    )),
-                )
-            }
-        };
         if fragments.len() >= u32::MAX as usize {
             return Err(error(item.owner, E::FragmentLimit));
         }
@@ -484,15 +452,9 @@ fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
             )?);
             marker_cursor += 1;
         }
-        fragments.push(ProductionBodyFragment {
-            owner: item.owner,
-            page_index,
-            source,
-            bounds: Rect::new(item.x, top, item.width, height),
-            baseline,
-            viewport,
-            effective_space_before: before,
-        });
+        fragments.push(place_flow_item(
+            lines, blocks, item, page_index, top, before,
+        )?);
         page.fragment_count = next_fragment_count;
         page.used_height = add(
             add(page.used_height, before, item.owner)?,
@@ -530,6 +492,61 @@ fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
     };
     result.fingerprint = fingerprint(&result)?;
     Ok(result)
+}
+
+/// Shared physical geometry for both ordinary and joint body/footnote pages.
+fn place_flow_item(
+    lines: &ProductionInlineLineLayout<'_, '_>,
+    blocks: &StagingPrecomposedVectorBlockLayout,
+    item: &Item,
+    page_index: u32,
+    top: Length,
+    before: Length,
+) -> Result<ProductionBodyFragment, ProductionBodyPaginationError> {
+    let source = item
+        .source
+        .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
+    let height =
+        PositiveLength::new(item.height).ok_or_else(|| error(item.owner, E::ReceiptMismatch))?;
+    let (baseline, viewport) = match source {
+        ProductionBodyFragmentSource::RasterFigure { .. } => {
+            (None, Some(Rect::new(item.x, top, item.width, height)))
+        }
+        ProductionBodyFragmentSource::ParagraphLine {
+            paragraph_index,
+            line_index,
+        } => {
+            let local = &lines.paragraphs()[paragraph_index as usize].lines()[line_index as usize];
+            (Some(add(top, local.baseline(), item.owner)?), None)
+        }
+        ProductionBodyFragmentSource::VectorBlock { block_index } => {
+            let block = &blocks.blocks()[block_index as usize];
+            let y = add(top, block.viewport_top_offset().get(), item.owner)?;
+            let baseline = block
+                .baseline()
+                .map(|b| add(y, b.get(), item.owner))
+                .transpose()?;
+            (
+                baseline,
+                Some(Rect::new(
+                    item.viewport_left
+                        .ok_or_else(|| error(item.owner, E::ReceiptMismatch))?,
+                    y,
+                    block.viewport_width(),
+                    block.viewport_height(),
+                )),
+            )
+        }
+    };
+    Ok(ProductionBodyFragment {
+        owner: item.owner,
+        page_index,
+        source,
+        bounds: Rect::new(item.x, top, item.width, height),
+        baseline,
+        viewport,
+        effective_space_before: before,
+    })
 }
 
 fn new_page(

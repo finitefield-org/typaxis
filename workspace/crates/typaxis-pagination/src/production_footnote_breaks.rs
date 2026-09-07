@@ -7,9 +7,11 @@ mod demand;
 pub use demand::{
     prepare_production_footnote_demand_search, ProductionBodyFootnoteCandidate,
     ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageState,
-    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
-    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
-    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
+    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
+    ProductionBodyFootnotePlacedPage, ProductionFootnoteDemandSearch,
+    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
+    ProductionFootnoteDemandStatus, ProductionFootnoteRegionFragment,
+    ProductionFootnoteRegionSelection,
 };
 
 #[derive(Clone, Copy)]

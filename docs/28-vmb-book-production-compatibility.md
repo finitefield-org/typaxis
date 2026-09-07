@@ -1745,3 +1745,23 @@ keepと強制改ページの矛盾は開始時に拒否する。
 この選択は本文境界costに基づく決定的な局所ページ探索であり、全ページを通じた最適性や
 脚注分割costの最終policyを認可するものではない。全fragmentの物理配置、ページ列の安定性、
 最終receipt、公開writerへの接続、および元全巻・原ノ味・規模・両hostの受け入れは引き続き必要。
+
+### 14.32 選択ページの内容・記号の実座標（実装追補）
+
+`place_page_content`は§14.31の同じ探索が発行したページ選択だけを受け取り、選択結果を
+借用する`ProductionBodyFootnotePlacedPage`を生成する。本文と各脚注定義のlocal item番号を
+区別し、ページ番号・source・ownerを保持した実fragmentを作る。本文の原点はbody.y、
+脚注の原点は実予約矩形.y＋区切り帯＋選択した定義断片のoffsetとする。断片先頭の余白を
+抑制し、項目間余白とmarkerによるleading/trailingを保持し、最終消費高を選択時と照合する。
+
+段落baseline、vectorのviewport offset・baseline、raster矩形は通常本文と同じ
+`place_flow_item`を使う。独立した数式cursorや推定高さは導入しない。リスト記号は既存の
+実shape・frameとmarker bindingから配置する。定義の要求順がsource順と異なっていても、
+検証済みの元stream順bindingを二分探索して対応させ、探索workを課金する。脚注番号は
+定義の最初の実paint itemの選択時だけ配置し、共有列内で実advanceを右揃えする。基準線と
+高さは実フォントのascender/descenderと計測済みbindingを使う。継続ページでは繰り返さない。
+
+配置結果・記号・探索workは同じ累積予算へ課金する。失敗・再配置でも払い戻さない。
+これはページ選択に結び付いた内容・記号の物理座標であり、ページ列全体の安定性、数式の
+最終terminal、完全なタグ・リンク、区切り帯のpaint、公開writer／manifestの認可ではない。
+元全巻・原ノ味・規模・両hostの完了条件は引き続き維持する。

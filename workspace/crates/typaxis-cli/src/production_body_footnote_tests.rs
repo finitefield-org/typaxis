@@ -360,9 +360,23 @@ fn production_footnote_pages_continue_notes_after_body_end() {
         let start = search.begin_pages().unwrap();
         let mut page = search.select_page(&start).unwrap().unwrap();
         assert_eq!(page.candidate().body_range().end, flow.body_items().len());
+        assert_eq!(
+            search
+                .place_page_content(&page)
+                .unwrap()
+                .footnote_markers()
+                .len(),
+            2
+        );
         let mut continuations = 0;
         while !page.next_state().is_complete() {
             let next = search.select_page(page.next_state()).unwrap().unwrap();
+            let geometry = search.place_page_content(&next).unwrap();
+            assert!(geometry.footnote_markers().is_empty());
+            assert!(geometry
+                .fragments()
+                .iter()
+                .all(|f| f.definition_index().is_some()));
             assert!(next.candidate().body_range().is_empty());
             assert!(
                 next.candidate().footnotes().unwrap().used_height() > typaxis_core::Length::ZERO
@@ -464,6 +478,179 @@ fn production_footnote_pages_charge_selected_snapshot_and_discarded_alternatives
                 if mode == 1 || mode == 3 {
                     assert_eq!(
                         search.select_page(&start).err().unwrap().kind,
+                        if mode == 1 {
+                            E::FragmentLimit
+                        } else {
+                            E::FootnoteSearchLimit
+                        }
+                    );
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn production_footnote_page_content_uses_selected_origins_and_source_scopes() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    for value in [
+        production_footnote_joint_geometry_fixture(),
+        production_footnote_flow_fixture(),
+    ] {
+        with_production_footnote_prepared(&value, &config(), |flow, limits| {
+            let mut search =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            let start = search.begin_pages().unwrap();
+            let selected = search.select_page(&start).unwrap().unwrap();
+            let placed = search.place_page_content(&selected).unwrap();
+            assert!(std::ptr::eq(placed.selection(), &selected));
+            let body = selected.candidate().body_range();
+            assert_eq!(
+                placed
+                    .fragments()
+                    .iter()
+                    .filter(|f| f.definition_index().is_none())
+                    .count(),
+                body.len()
+            );
+            let region = selected.candidate().footnotes().unwrap();
+            assert_eq!(
+                placed.footnote_markers().len(),
+                region
+                    .fragments()
+                    .iter()
+                    .filter(|f| f.fragment().marker().is_some())
+                    .count()
+            );
+            for marker in placed.footnote_markers() {
+                let fragment = placed.fragments()[marker.fragment_index() as usize];
+                assert_eq!(fragment.definition_index(), Some(marker.definition_index()));
+                let binding = flow.definition_marker(marker.definition_index()).unwrap();
+                assert_eq!(fragment.item_index(), binding.item_index());
+                assert_eq!(
+                    marker.baseline().raw(),
+                    fragment.fragment().bounds().y().raw() + binding.baseline().raw()
+                );
+                assert!(
+                    marker.bounds().x().raw() + marker.bounds().width().get().raw()
+                        <= fragment.fragment().bounds().x().raw()
+                );
+            }
+            if flow.list_marker_count() > 0 {
+                assert!(!placed.list_markers().is_empty());
+            }
+            for marker in placed.list_markers() {
+                let fragment = placed.fragments()[marker.fragment_index() as usize].fragment();
+                assert_eq!(marker.page_index(), fragment.page_index());
+                assert!(
+                    marker.bounds().x().raw() + marker.bounds().width().get().raw()
+                        <= fragment.bounds().x().raw()
+                );
+            }
+            let origin = selected.candidate().footnote_bounds().unwrap().y().raw()
+                + typaxis_layout::FOOTNOTE_SEPARATOR_BAND_RAW;
+            for definition in region.fragments() {
+                let part = definition.fragment();
+                let mut top = origin + definition.offset().raw();
+                let mut after = 0;
+                for (offset, item) in part.items().iter().enumerate() {
+                    let index = part.consumed_range().start + offset;
+                    let actual = placed
+                        .fragments()
+                        .iter()
+                        .find(|p| {
+                            p.definition_index() == Some(part.definition_index())
+                                && p.item_index() == index
+                        })
+                        .unwrap()
+                        .fragment();
+                    let gap = if offset == 0 {
+                        0
+                    } else {
+                        after + item.space_before().raw()
+                    };
+                    assert_eq!(actual.page_index(), selected.page_index());
+                    assert_eq!(actual.source(), item.source().unwrap());
+                    assert_eq!(actual.owner(), item.owner());
+                    assert_eq!(actual.bounds().x(), item.x());
+                    assert_eq!(actual.bounds().y().raw(), top + gap + item.leading().raw());
+                    assert_eq!(actual.bounds().height().get(), item.height());
+                    assert_eq!(actual.effective_space_before().raw(), gap);
+                    top += gap + item.consumed_height().unwrap().raw();
+                    after = item.space_after().raw();
+                }
+                assert_eq!(
+                    top,
+                    origin + definition.offset().raw() + part.used_height().raw()
+                );
+            }
+            let count = search.record_charge();
+            assert_eq!(
+                search.place_page_content(&selected).unwrap().fragments(),
+                placed.fragments()
+            );
+            assert!(search.record_charge() > count);
+            let mut other =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            assert_eq!(
+                other.place_page_content(&selected).err().unwrap().kind,
+                E::ReceiptMismatch
+            );
+        });
+    }
+}
+
+#[test]
+fn production_footnote_page_content_charges_geometry_without_refunds() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    let value = production_footnote_joint_geometry_fixture();
+    let mut records = 0;
+    let mut work = 0;
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_prepared(&value, &cfg, |flow, limits| {
+            let mut search = prepare_production_footnote_demand_search(
+                flow,
+                limits,
+                match mode {
+                    3 => work,
+                    4 => work - 1,
+                    _ => 100_000,
+                },
+            )
+            .unwrap();
+            let start = search.begin_pages().unwrap();
+            let page = search.select_page(&start).unwrap().unwrap();
+            let placed = search.place_page_content(&page);
+            if mode == 2 || mode == 4 {
+                assert_eq!(
+                    placed.err().unwrap().kind,
+                    if mode == 2 {
+                        E::FragmentLimit
+                    } else {
+                        E::FootnoteSearchLimit
+                    }
+                );
+            } else {
+                assert_eq!(placed.unwrap().fragments().len(), 3);
+                if mode == 0 {
+                    records = search.record_charge();
+                    work = search.work_steps();
+                }
+                if mode == 1 || mode == 3 {
+                    assert_eq!(
+                        search.place_page_content(&page).err().unwrap().kind,
                         if mode == 1 {
                             E::FragmentLimit
                         } else {
