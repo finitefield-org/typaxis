@@ -23,11 +23,13 @@ pub use diagnostics::{
 #[path = "cff_v2.rs"]
 mod v2;
 pub use v2::{
-    inspect_cff1_program_v2, validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2,
-    CffEvaluatedGlyphV2, CffGlyphFailureReasonV2, CffGlyphFailureV2, CffOutlineCommandV2,
-    CffProgramErrorKindV2, CffProgramErrorV2, CffProgramEvaluationSessionV2,
-    CffProgramInspectionV2, CffTableFailureKindV2, CffTableFailureV2, CffVariationSequencesV2,
-    CffVerticalMetricsV2, VariationCoverage,
+    admit_sfnt_cff1_v2, inspect_cff1_program_v2, validate_cff_cmap_v2,
+    validate_cff_variation_sequences_v2, validate_cff_vertical_metrics_v2, Cff1AdmissionV2,
+    Cff1FailureKindV2, Cff1FailureV2, CffCmapFailureV2, CffCmapV2, CffEvaluatedGlyphV2,
+    CffGlyphFailureReasonV2, CffGlyphFailureV2, CffOutlineCommandV2, CffProgramErrorKindV2,
+    CffProgramErrorV2, CffProgramEvaluationSessionV2, CffProgramInspectionV2,
+    CffTableFailureKindV2, CffTableFailureV2, CffVariationSequencesV2, CffVerticalMetricsV2,
+    VariationCoverage,
 };
 
 pub const CFF1_RESOURCE_PROFILE_ID: &str = "typaxis.resource-profile/sfnt-cff1/1";
@@ -667,6 +669,15 @@ fn preflight_sfnt(
     limits: M4ResourceLimits,
     context: &mut FontFailureContext,
 ) -> Result<Vec<TableRecord>, Cff1Error> {
+    preflight_sfnt_with_vertical(source, limits, context, false)
+}
+
+fn preflight_sfnt_with_vertical(
+    source: &[u8],
+    limits: M4ResourceLimits,
+    context: &mut FontFailureContext,
+    allow_vertical: bool,
+) -> Result<Vec<TableRecord>, Cff1Error> {
     context.directory(None, Some(0), FontFailureReason::MalformedFont);
     if source.get(..4) != Some(b"OTTO") {
         return Err(Cff1Error::InvalidSfnt);
@@ -729,7 +740,10 @@ fn preflight_sfnt(
             return Err(Cff1Error::InvalidSfnt);
         }
         previous_tag = Some(tag);
-        if !REQUIRED_TABLES.contains(&tag) && !OPTIONAL_TABLES.contains(&tag) {
+        if !REQUIRED_TABLES.contains(&tag)
+            && !OPTIONAL_TABLES.contains(&tag)
+            && !(allow_vertical && [*b"VORG", *b"vhea", *b"vmtx"].contains(&tag))
+        {
             context.reason = FontFailureReason::UnsupportedTable;
             return Err(Cff1Error::UnsupportedTable);
         }
@@ -2104,6 +2118,17 @@ fn parse_cmap(
     glyph_count: u16,
     context: &mut FontFailureContext,
 ) -> Result<BTreeMap<u32, u16>, Cff1Error> {
+    parse_base_cmap(bytes, glyph_count, context, false)
+}
+
+// The /2 caller must validate the supplemental table before allowing it here.
+// Format 14 never contributes mappings to the base Unicode map.
+fn parse_base_cmap(
+    bytes: &[u8],
+    glyph_count: u16,
+    context: &mut FontFailureContext,
+    validated_variations: bool,
+) -> Result<BTreeMap<u32, u16>, Cff1Error> {
     context.field(0);
     if read_u16(bytes, 0, Cff1Error::InvalidCmap)? != 0 {
         return Err(Cff1Error::InvalidCmap);
@@ -2138,6 +2163,9 @@ fn parse_cmap(
         context.field(offset);
         let format = read_u16(bytes, offset, Cff1Error::InvalidCmap)?;
         context.cmap_format = Some(format);
+        if validated_variations && (platform, encoding, format) == (0, 5, 14) {
+            continue;
+        }
         let mappings = match format {
             4 if platform == 0 || (platform == 3 && encoding == 1) => {
                 context.at(offset);

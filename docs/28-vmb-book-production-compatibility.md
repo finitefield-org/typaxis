@@ -517,6 +517,30 @@ selector上限256、展開相当値数上限1,000,000はpayload走査前およ�
 FontToolsの独立取得と照合した。再現用toolは`tools/inspect_harano_cff_tables.py`。
 ここまでで正式sfnt admission、subset、公開PDF、IVS抽出の対応完了とは扱わない。
 
+### 7.9 CID CFF /2のsfnt admissionと基底/異体字coverage
+
+`admit_sfnt_cff1_v2`は無変更のsfnt bytesを所有する`Cff1AdmissionV2`を返す。
+face 0、source bytes予算、directoryの順序・範囲・checksum、必須table、既存の任意table、
+OS/2埋め込み権限、縦table、基底/補助cmap、CID programを同じ入力へ接続する。
+CFF Name INDEXとsfnt PostScript名、Top FontBBoxとhead bboxも一回のprogram検査内で
+照合する。glyph数とhmtxはそのadmissionが保持し、source hash・face・実効予算のfingerprint・
+`typaxis.sfnt-cff1-admission/2`・resource profile `/2`をidentityへ結び付ける。
+この経路では未選択glyphのType2実行を行わない。
+
+`CffCmapV2`は既存format 4/12の検証・整合性照合で作る基底mapと、検証済みformat 14を
+所有する。format 14を基底mapへ混ぜない。`glyph_for_sequence`はdefaultなら基底map、
+non-defaultなら指定GIDを返し、未対応pair・孤立selector・欠けたdefault基底・GID 0は
+coverageなしとする。この問い合わせは文字置換ではなく、元二scalarをshaperへ渡す前の検査に使う。
+
+原ノ味の全sfnt admission、15,815基底対応と14,780異体字の解決GIDを独立FontTools結果と
+照合した。権限制限とVORG/vhea破損はchecksumを修正した負例で検査し、元fontの成功とは
+区別する。公開CLIのresource registryはまだこのownerへ接続していない。旧 `/1` は
+従来どおりVORGをunsupportedとして拒否する。
+
+選択GIDのcache/closure/subset、IVSの実shaping/source cluster/ToUnicode、公開manifestと
+全巻ゲートは必須残件である。name-keyed入力の `/2` 共通経路への接続も残る。
+この内部admissionの成功だけではcontract 1.5 / production-book-2を有効にしない。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成

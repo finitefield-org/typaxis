@@ -292,6 +292,15 @@ pub fn inspect_cff1_program_v2(
     units_per_em: u16,
     max_subroutines: u32,
 ) -> Result<CffProgramInspectionV2, CffProgramErrorV2> {
+    inspect_cff1_program_v2_with_metadata(source, glyph_count, units_per_em, max_subroutines, None)
+}
+fn inspect_cff1_program_v2_with_metadata(
+    source: Arc<[u8]>,
+    glyph_count: u16,
+    units_per_em: u16,
+    max_subroutines: u32,
+    metadata: Option<(&str, [i16; 4])>,
+) -> Result<CffProgramInspectionV2, CffProgramErrorV2> {
     let b: &[u8] = &source;
     if glyph_count == 0 {
         return Err(fail(K::GlyphLimit, 0));
@@ -302,6 +311,9 @@ pub fn inspect_cff1_program_v2(
     let names = index(b, usize::from(b[2]), 1, K::InvalidStructure)?;
     if names.objects.len() != 1 || names.objects[0].bytes(b).is_empty() {
         return Err(fail(K::InvalidStructure, names.span.start));
+    }
+    if metadata.is_some_and(|(name, _)| names.objects[0].bytes(b) != name.as_bytes()) {
+        return Err(fail(K::InvalidStructure, names.objects[0].start));
     }
     let top_index = index(b, names.span.end, 1, K::InvalidStructure)?;
     if top_index.objects.len() != 1 {
@@ -359,6 +371,23 @@ pub fn inspect_cff1_program_v2(
             return Err(CffProgramErrorV2 {
                 operator: Some(e.operator),
                 ..fail(K::InvalidStructure, e.operator_offset)
+            });
+        }
+    }
+    if let Some((_, bbox)) = metadata {
+        let entry = top.iter().find(|e| e.operator == 5);
+        if !entry.is_some_and(|e| {
+            e.operands
+                .iter()
+                .zip(bbox)
+                .all(|(n, v)| dict_operand_equals_integer(n, i32::from(v)))
+        }) {
+            return Err(CffProgramErrorV2 {
+                operator: Some(5),
+                ..fail(
+                    K::InvalidStructure,
+                    entry.map_or(top_span.start, |e| e.operator_offset),
+                )
             });
         }
     }
@@ -656,3 +685,11 @@ mod variations;
 pub use variations::{
     validate_cff_variation_sequences_v2, CffVariationSequencesV2, VariationCoverage,
 };
+
+#[path = "cff_v2_cmap.rs"]
+mod cmap;
+pub use cmap::{validate_cff_cmap_v2, CffCmapFailureV2, CffCmapV2};
+
+#[path = "cff_v2_admission.rs"]
+mod admission;
+pub use admission::{admit_sfnt_cff1_v2, Cff1AdmissionV2, Cff1FailureKindV2, Cff1FailureV2};

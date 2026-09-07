@@ -335,3 +335,27 @@ fn cff_v2_cannot_alias_charstrings_with_font_dict_index() {
     assert_eq!(e.kind, K::OverlappingStructures);
     assert_eq!(e.table_offset, fd_offset);
 }
+
+#[test]
+fn cff_v2_sfnt_metadata_requires_matching_name_and_explicit_bbox() {
+    let source: Arc<[u8]> = cid_fixture(false).bytes.into();
+    let e = inspect_cff1_program_v2_with_metadata(
+        source.clone(),
+        3,
+        1000,
+        5,
+        Some(("AnotherName", [0, 0, 1000, 1000])),
+    )
+    .unwrap_err();
+    assert_eq!(e.kind, K::InvalidStructure);
+    assert_eq!(e.operator, None);
+    let e = inspect_cff1_program_v2_with_metadata(
+        source,
+        3,
+        1000,
+        5,
+        Some(("TypaxisCIDTest", [0, 0, 1000, 1000])),
+    )
+    .unwrap_err();
+    assert_eq!((e.kind, e.operator), (K::InvalidStructure, Some(5)));
+}

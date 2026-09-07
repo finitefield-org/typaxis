@@ -17,8 +17,8 @@ Harano support is claimed until the corresponding gates have evidence.
 | 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases and 5,000 synthetic distinct-paint Forms pass selected placement/structure/object tests; required engine-generated distinct formulas, mixed PNG and public check/build gates remain pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
-| CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure and FD-bound Type2 inspection verified against all original Harano glyphs and independent outline/width hashes; sfnt /2 admission, selected cache/closure, subset/PDF integration pending (checkpoint below) |
-| Vertical tables, cmap 14, IVS shaping/extraction | Borrowed vertical/format-14 structural validators and all-original-entry independent hashes passed; base cmap /2 admission, IVS shaping/extraction pending (checkpoint below) |
+| CID CFF /2, FD-aware evaluator, subset / PDF integration | CID structure, FD-bound Type2 and internal whole-sfnt /2 admission verified on unchanged original Harano; selected cache/closure, name-keyed /2, resource registry and subset/PDF integration pending (checkpoint below) |
+| Vertical tables, cmap 14, IVS shaping/extraction | Vertical/format-14 validators and combined base/UVS coverage are connected to internal /2 admission; independent all-original-entry hashes passed; actual IVS shaping/extraction pending (checkpoint below) |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
@@ -2831,3 +2831,63 @@ Unicode surrogate crossings, UVS category intersections, absent offsets,
 selector/value limits and charged shared payloads. Public /1 behavior and
 profile/contract registry remain unchanged. No public Harano/full-book gate or
 IVS shaping/extraction success is claimed; those remain required work.
+
+
+## 2026-09-07 checkpoint: original CID sfnt admission and resolved UVS coverage
+
+`admit_sfnt_cff1_v2` now returns a private-field `Cff1AdmissionV2` owning the exact
+original source, source hash, glyph/horizontal metrics, base+UVS coverage and
+validated CID program. It checks standalone face 0, source-byte ceiling, the
+shared sfnt directory/order/range/checksum logic, required and existing optional
+tables, embedding permission, vertical tables, combined cmap and program.
+CFF name/FontBBox must match sfnt PostScript name/head bbox; this is checked in
+the same program pass, without reparsing with infallible allocation assumptions.
+The identity includes source hash, face 0, effective-limits fingerprint and the
+/2 admission/resource-profile identifiers. Admission does not execute glyphs.
+The old /1 entry point still rejects the unchanged original font at VORG.
+
+The cmap owner validates format 14 first, then uses the same format 4/12 base
+validation and cross-map consistency checks as /1, with the supplemental record
+excluded from the base map. Coverage does not drop selectors. Non-default
+mappings may have no base-cmap entry; default entries require one at lookup time.
+Unsupported pairs, isolated selectors and GID 0 do not produce covered glyphs.
+Actual two-scalar shaping, source-cluster preservation and PDF extraction remain
+required; this owner alone does not establish those properties.
+
+Independent `tools/inspect_harano_cff_tables.py` now also hashes every base
+mapping (big-endian scalar u32/GID u16) and every resolved UVS (selector u32,
+base u32, GID u16). The unchanged original has **15,815 base mappings**, hash
+`95df78a2d881b8387c208f4f9540bf86a292855a0a6beb4d1b7fa17fad2baecf`;
+all **14,780 resolved UVS** hash to
+`825b70e8ec61dc7e6b9b6909910cdbb30a23e25f203b1f1f7b1aa2c429132214`.
+The Rust test asserts both independently obtained hashes.
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-resource-admission -p typaxis-resources \
+  -p typaxis-shaping --lib --locked
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font cff_v2_ --locked -- --ignored
+```
+
+Regression: **166 passed** (font 52, resource-admission 62, resources 28, shaping
+24), no failures, six explicit-original tests ignored. Log:
+`/private/tmp/typaxis-cff-sfnt-regression.log`.
+Whole-sfnt original test also checks deterministic admission identity, authoritative
+hmtx for the known differing-width glyphs, /1 rejection, exact maxp lower-limit
+diagnostics, and checksum-correct negative copies for restricted fsType,
+VORG version and vhea reserved fields. These copies are negative cases only.
+No original bytes were edited to obtain positive admission.
+
+This is internal CID admission, not public Harano support. The resource registry,
+name-keyed /2 path, source/face/profile-bound selected cache and closure, subset,
+shaping/ToUnicode, PDF/manifest and all full-book gates remain required. No public
+profile or contract registry was enabled and no public scale/full-book PDF was
+produced in this checkpoint.
+
+Final explicit-original run: **6 passed**, no failures. Log:
+`/private/tmp/typaxis-cff-sfnt-harano-final.log`. All verification processes for
+this checkpoint reached terminal states; no public PDF or branch push occurred.

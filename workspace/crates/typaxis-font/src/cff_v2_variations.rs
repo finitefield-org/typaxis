@@ -49,7 +49,34 @@ pub struct CffVariationSequencesV2<'a> {
     records: usize,
     values: u64,
 }
+#[derive(Debug)]
+pub(super) struct OwnedCffVariationSequencesV2 {
+    bytes: Vec<u8>,
+    records: usize,
+    values: u64,
+}
+impl OwnedCffVariationSequencesV2 {
+    pub(super) fn view(&self) -> CffVariationSequencesV2<'_> {
+        CffVariationSequencesV2 {
+            table: &self.bytes,
+            records: self.records,
+            values: self.values,
+        }
+    }
+}
 impl CffVariationSequencesV2<'_> {
+    pub(super) fn into_owned(self) -> Result<OwnedCffVariationSequencesV2, CffTableFailureV2> {
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(self.table.len())
+            .map_err(|_| fail(0, K::AllocationFailure))?;
+        bytes.extend_from_slice(self.table);
+        Ok(OwnedCffVariationSequencesV2 {
+            bytes,
+            records: self.records,
+            values: self.values,
+        })
+    }
     pub const fn selector_count(&self) -> usize {
         self.records
     }

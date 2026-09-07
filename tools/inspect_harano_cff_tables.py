@@ -30,7 +30,13 @@ def main():
         tables = [t for t in font["cmap"].tables if t.format == 14]
         assert len(tables) == 1
         sequences = tables[0].uvsDict
+        base_map = font.getBestCmap()
+        base_bytes = bytearray()
+        for scalar, name in sorted(base_map.items()):
+            base_bytes.extend(scalar.to_bytes(4, "big"))
+            base_bytes.extend(font.getGlyphID(name).to_bytes(2, "big"))
         coverage = bytearray()
+        resolved = bytearray()
         count = 0
         for selector, values in sorted(sequences.items()):
             for base, name in sorted(values):
@@ -38,6 +44,9 @@ def main():
                 coverage.extend(base.to_bytes(4, "big"))
                 coverage.append(int(name is not None))
                 coverage.extend((0 if name is None else font.getGlyphID(name)).to_bytes(2, "big"))
+                resolved.extend(selector.to_bytes(4, "big"))
+                resolved.extend(base.to_bytes(4, "big"))
+                resolved.extend(font.getGlyphID(base_map[base] if name is None else name).to_bytes(2, "big"))
                 count += 1
         facts = {
             "algorithm": "typaxis.harano-cff-table-facts/1",
@@ -50,6 +59,9 @@ def main():
             "variation_selectors": len(sequences),
             "variation_values": count,
             "variation_coverage_sha256": hashlib.sha256(coverage).hexdigest(),
+            "base_mapping_count": len(base_map),
+            "base_mapping_sha256": hashlib.sha256(base_bytes).hexdigest(),
+            "resolved_variation_sha256": hashlib.sha256(resolved).hexdigest(),
         }
     print(json.dumps(facts, sort_keys=True, indent=2))
 
