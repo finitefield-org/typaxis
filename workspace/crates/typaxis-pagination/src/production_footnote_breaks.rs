@@ -9,10 +9,10 @@ pub use demand::{
     ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageSequence,
     ProductionBodyFootnotePageState, ProductionBodyFootnotePlacedFragment,
     ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
-    ProductionBodyFootnotePlacedSequence, ProductionFootnoteDemandSearch,
-    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
-    ProductionFootnoteDemandStatus, ProductionFootnoteRegionFragment,
-    ProductionFootnoteRegionSelection,
+    ProductionBodyFootnotePlacedSequence, ProductionBodyFootnoteStablePages,
+    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
+    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
+    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
 };
 
 #[derive(Clone, Copy)]

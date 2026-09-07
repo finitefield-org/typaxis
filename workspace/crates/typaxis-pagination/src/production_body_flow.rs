@@ -9,10 +9,11 @@ pub use footnote_breaks::{
     ProductionBodyFootnotePageSequence, ProductionBodyFootnotePageState,
     ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
     ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,
-    ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
-    ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
-    ProductionFootnoteDemandStatus, ProductionFootnoteFragmentSelection,
-    ProductionFootnoteRegionFragment, ProductionFootnoteRegionSelection,
+    ProductionBodyFootnoteStablePages, ProductionFootnoteBreakSearch, ProductionFootnoteCursor,
+    ProductionFootnoteDemandSearch, ProductionFootnoteDemandSelection,
+    ProductionFootnoteDemandState, ProductionFootnoteDemandStatus,
+    ProductionFootnoteFragmentSelection, ProductionFootnoteRegionFragment,
+    ProductionFootnoteRegionSelection,
 };
 
 #[path = "production_footnote_references.rs"]

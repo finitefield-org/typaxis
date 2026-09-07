@@ -4653,3 +4653,43 @@ Common-driver regression **2 passed, 0 failed, 1 explicitly ignored**;
 push is claimed. Page-sequence stability, dynamic-reference convergence, terminal
 binding, separator paint, complete display/tag/navigation/manifest/public writer,
 and original full-book/Harano/scale/both-host acceptance remain incomplete.
+
+### Repeated joint page selection and physical-placement equality
+
+Implemented design §14.34. `select_stable_pages` performs at least two complete
+page searches from the same immutable measured flow and physically places both
+results. It issues an owned `ProductionBodyFootnoteStablePages` only after exact
+comparison of body ranges/heights, reservation geometry, forced breaks, next body
+positions, demanded-definition order/status/first-reference/continuation cursors,
+footnote fragment boundaries/capacities/cost choices, and all content/list/footnote
+marker geometry. Snapshot identities are excluded from content equality, while
+both source sequences are authenticated to the same owner/flow first. Every
+comparison record consumes work; every pass/search/placement shares the existing
+cumulative budget. No partial result is exposed on any failure.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-pagination --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+```
+Check passed **3.95 s**. Focused stability tests **2 passed, 0 failed, 0.90 s**,
+`/private/tmp/typaxis-joint-stability-tests.log`. Final footnote regression
+**39 passed, 0 failed, 2.53 s**, `/private/tmp/typaxis-joint-stability-final.log`.
+Tests exercise actual joint/long-definition/vector-list fixtures, repeated complete
+search and placement, a minimum of two passes, exact/one-short record/work budgets
+including comparison, cumulative retries, foreign-owner rejection, and forced
+blank pages. No-fit/page-limit cases also reject stable-result issuance.
+Common driver **2 passed, 0 failed, 1 explicitly ignored**;
+`/private/tmp/typaxis-joint-stability-common.log`.
+
+This proves repeated page equality only for one already measured immutable flow.
+It is not dynamic reference/line convergence, final math terminal or separator
+paint closure, complete display/tag/navigation/public writer/manifest, or any
+original full-book/Harano/scale/both-host acceptance result. Those gates remain
+incomplete. No public/full-book PDF or branch push is claimed.

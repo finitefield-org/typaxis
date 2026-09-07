@@ -1785,3 +1785,23 @@ tagged-profile admissionは現状`UnsupportedSemantic`であり、低位のnavig
 この結果は終端までの選択・物理配置を認可するが、複数パス間のページ列安定性や動的参照の
 収束、最終math terminal／区切り帯paint／タグ・リンク／公開writer・manifestを認可しない。
 元全巻・原ノ味・規模・両hostの受け入れは引き続き必要である。
+
+### 14.34 計測済みflowに対する本文・脚注ページ列の反復一致（実装追補）
+
+`select_stable_pages`は同じ不変の実行・block・脚注計測結果から完全なページ列を2回以上
+探索し、両方を実座標へ配置して比較する。一致した場合だけ、最終の所有ページ列とpass数、
+発行時の累積record/workを持つ`ProductionBodyFootnoteStablePages`を返す。`max_layout_passes`
+が2未満なら拒否する。上限まで一致しなければ`PagePassLimit`であり、未適合・ページ上限・
+予算不足も部分結果を発行せず伝播する。各探索・配置・比較で同じ予算を使い続ける。
+
+比較はページ数だけでなく、各ページの本文範囲・実高さ、脚注予約矩形、強制改ページ、
+次の本文位置と終端状態、要求順・最初の参照owner・定義ごとの未参照／継続／完了状態と
+continuation item位置を含む。脚注の各断片について定義番号・消費範囲・内容数・offset・
+容量・高さ・理由・強制改ページowner・候補選択とcostを照合する。実fragmentのsource・
+owner・座標・baseline・viewport・余白、リスト記号と脚注番号の実配置も完全一致を要求する。
+比較するレコードにもworkを課金する。process内の探索idやsnapshot idは内容の比較対象と
+せず、両系列が同じ探索とflowから発行されたことは先に検証する。
+
+これは計測済みの不変flowに対するページ選択・配置の反復一致である。動的なページ番号や
+参照文字列を再生成して行を再整形する収束、最終math terminal、区切り帯paint、完全なタグ・
+リンク、公開writer／manifest、および元全巻・原ノ味・規模・両hostの完了は別途必要である。

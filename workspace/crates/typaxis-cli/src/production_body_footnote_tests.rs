@@ -425,6 +425,9 @@ fn production_footnote_pages_preserve_consecutive_and_trailing_forced_breaks() {
         assert!(fifth.next_state().is_complete());
         let sequence = search.select_pages().unwrap();
         assert_eq!(sequence.pages().len(), 5);
+        let stable = search.select_stable_pages().unwrap();
+        assert_eq!(stable.passes(), 2);
+        assert_eq!(stable.sequence().pages().len(), 5);
         let geometry = search.place_pages_content(&sequence).unwrap();
         for index in [0, 1, 4] {
             assert!(geometry.pages()[index].fragments().is_empty());
@@ -736,11 +739,19 @@ fn production_footnote_sequence_rejects_nonfit_and_partial_page_limit() {
     with_production_footnote_prepared(&value, &cfg, |flow, limits| {
         let mut search = prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
         assert_eq!(search.select_pages().err().unwrap().kind, E::PageLimit);
+        assert_eq!(
+            search.select_stable_pages().err().unwrap().kind,
+            E::PageLimit
+        );
     });
     value["page_masters"]["masters"][0]["footnote"]["height"] = 1.into();
     with_production_footnote_prepared(&value, &config(), |flow, limits| {
         let mut search = prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
         assert_eq!(search.select_pages().err().unwrap().kind, E::JointPageNoFit);
+        assert_eq!(
+            search.select_stable_pages().err().unwrap().kind,
+            E::JointPageNoFit
+        );
     });
 }
 
@@ -834,4 +845,124 @@ fn production_footnote_sequence_does_not_place_unreferenced_definitions() {
             .flat_map(|p| p.fragments())
             .all(|f| f.definition_index() != Some(2)));
     });
+}
+
+#[test]
+fn production_footnote_stability_repeats_complete_search_and_physical_placement() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    for value in [
+        production_footnote_joint_geometry_fixture(),
+        production_footnote_two_long_definitions(),
+        production_footnote_flow_fixture(),
+    ] {
+        with_production_footnote_prepared(&value, &config(), |flow, limits| {
+            let mut search =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            let stable = search.select_stable_pages().unwrap();
+            assert_eq!(stable.passes(), 2);
+            assert_eq!(stable.record_charge(), search.record_charge());
+            assert_eq!(stable.work_steps(), search.work_steps());
+            assert!(stable
+                .sequence()
+                .pages()
+                .last()
+                .unwrap()
+                .next_state()
+                .is_complete());
+            let geometry = search.place_pages_content(stable.sequence()).unwrap();
+            assert_eq!(geometry.pages().len(), stable.sequence().pages().len());
+            let mut other =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            assert_eq!(
+                other
+                    .place_pages_content(stable.sequence())
+                    .err()
+                    .unwrap()
+                    .kind,
+                E::ReceiptMismatch
+            );
+            let before = search.record_charge();
+            let again = search.select_stable_pages().unwrap();
+            assert_eq!(again.passes(), 2);
+            assert!(again.record_charge() > before);
+        });
+    }
+    let cfg = config_with_limits(ResourceLimits {
+        max_layout_passes: 1,
+        ..ResourceLimits::default()
+    });
+    with_production_footnote_prepared(
+        &production_footnote_joint_geometry_fixture(),
+        &cfg,
+        |flow, limits| {
+            let mut search =
+                prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+            assert_eq!(
+                search.select_stable_pages().err().unwrap().kind,
+                E::PagePassLimit
+            );
+        },
+    );
+}
+
+#[test]
+fn production_footnote_stability_charges_both_passes_and_exact_comparison() {
+    use typaxis_pagination::{
+        prepare_production_footnote_demand_search, ProductionBodyPaginationErrorKind as E,
+    };
+    let value = production_footnote_joint_geometry_fixture();
+    let mut records = 0;
+    let mut work = 0;
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_prepared(&value, &cfg, |flow, limits| {
+            let mut search = prepare_production_footnote_demand_search(
+                flow,
+                limits,
+                match mode {
+                    3 => work,
+                    4 => work - 1,
+                    _ => 100_000,
+                },
+            )
+            .unwrap();
+            let result = search.select_stable_pages();
+            if mode == 2 || mode == 4 {
+                assert_eq!(
+                    result.err().unwrap().kind,
+                    if mode == 2 {
+                        E::FragmentLimit
+                    } else {
+                        E::FootnoteSearchLimit
+                    }
+                );
+            } else {
+                let stable = result.unwrap();
+                assert_eq!(stable.passes(), 2);
+                if mode == 0 {
+                    records = search.record_charge();
+                    work = search.work_steps();
+                }
+                if mode == 1 || mode == 3 {
+                    assert_eq!(
+                        search.select_stable_pages().err().unwrap().kind,
+                        if mode == 1 {
+                            E::FragmentLimit
+                        } else {
+                            E::FootnoteSearchLimit
+                        }
+                    );
+                }
+            }
+        });
+    }
 }

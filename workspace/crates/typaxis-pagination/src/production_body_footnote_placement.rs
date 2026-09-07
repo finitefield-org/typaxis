@@ -1,5 +1,8 @@
 //! Source-bound physical content and marker geometry before final paint closure.
 use super::*;
+#[path = "production_body_footnote_stability.rs"]
+mod stability;
+pub use stability::ProductionBodyFootnoteStablePages;
 
 /// Definition-local indices remain distinct from body-local indices.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
