@@ -482,7 +482,8 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
         }
         source
             .verify(source.structure_objects(), admitted, limits)
-            .map_err(|_| ProductionBodyAssemblyError::ReceiptMismatch)
+            .map_err(|_| ProductionBodyAssemblyError::ReceiptMismatch)?;
+        self.verify_parent_tree()
     }
 }
 pub fn assemble_production_footnote_pdf<
@@ -666,3 +667,6 @@ mod production_book_observation;
 pub use production_book_observation::{
     observe_production_footnote_book_pdf, ProductionBookPdfObservation,
 };
+
+#[path = "production_parent_tree.rs"]
+mod production_parent_tree;

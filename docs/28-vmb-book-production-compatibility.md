@@ -2228,3 +2228,21 @@ PDF全体やobject本体を複製しない。Info・outline・言語の保持行
 この観測は公開権限を発行しない。XMPは実assemblyの適合宣言なしのbytesを記録する。
 公開book closureが要求する適合宣言付きXMPとは異なり、その検証は引き続き拒否する。
 PDF receipt、公開book／tagged manifestとwriter／CLI、全巻等の受入は未完了である。
+
+### 14.56 実ParentTree payloadの検証（実装追補）
+
+本文・脚注PDF assemblyの`verify`はsource chainの照合に加え、確定したParentTree objectの
+実payloadを構造groupと注釈bindingに照合する。各ページのMCIDが0始まりの連番であること、
+groupのページ、各MCIDの実StructElem番号、ページ数に続く注釈キー、注釈の所属ページと
+実StructElem番号を確認する。空ページと同じ構造要素を参照する複数MCIDも保持する。
+
+計数値をstack上でformatしながら借用sliceの先頭と比較するため、検証用の対応表や文字列を
+新たに確保しない。欠落・変更・余分な末尾をすべて拒否する。この検証はbook最終writer観測が
+assemblyを検証する経路でも実行される。公開tagged観測・PDF/UA適合性・release receiptの
+成立を意味せず、構造dictionary全体・MCID stream・OBJRの最終closureは引き続き必要である。
+
+ローカル検証: `cargo test -p typaxis-pdf production_parent_tree --lib`は1件成功。
+`cargo test -p typaxis-cli production_footnote_page_content_combines_draws_and_separator_artifacts`
+は18種の実PDFを含む1件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`
+は163件成功・1件ignored（13.02秒）。いずれも`workspace/Cargo.toml`と
+`CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build`を使用した。
