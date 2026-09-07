@@ -293,14 +293,61 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
     if retained_record_charge > limits.base().get().max_fragments {
         return Err(error(root, E::RecordLimit));
     }
-    let flow = display.selected().line_layout().source_flow();
+    let projection = project_navigation(
+        display.selected().line_layout().source_flow(),
+        structure.registry(),
+        structure.fingerprint(),
+        structure.groups(),
+        display.draws(),
+        display.inline_anchors(),
+        display.selected().fragments().iter().copied(),
+        display.selected().pages().len(),
+        limits,
+        retained_record_charge,
+    )?;
+    Ok(ProductionBodyNavigation {
+        structure,
+        destinations: projection.destinations,
+        links: projection.links,
+        node_links: projection.node_links,
+        page_links: projection.page_links,
+        outline: projection.outline,
+        outline_root: projection.outline_root,
+        additional_records: projection.additional_records,
+        record_base: projection.record_base,
+        fingerprint: projection.fingerprint,
+    })
+}
+
+struct NavigationProjection<'a> {
+    destinations: Vec<ProductionBodyDestination>,
+    links: Vec<ProductionBodyLink<'a>>,
+    node_links: Vec<Vec<u32>>,
+    page_links: Vec<Range<usize>>,
+    outline: Vec<ProductionBodyOutlineTopology>,
+    outline_root: ProductionBodyOutlineTopology,
+    additional_records: u64,
+    record_base: u64,
+    fingerprint: [u8; 32],
+}
+fn project_navigation<'a>(
+    flow: &'a typaxis_syntax::ProductionTextFlow<'a>,
+    registry: &typaxis_layout::StructureRegistryReceiptV2,
+    structure_fingerprint: [u8; 32],
+    groups: &[crate::ProductionBodyStructureGroup],
+    draws: &[ProductionBodyDraw<'_>],
+    inline_anchors: &[crate::ProductionBodyInlineAnchor<'_>],
+    fragments: impl Iterator<Item = typaxis_pagination::ProductionBodyFragment>,
+    page_count: usize,
+    limits: &M4EffectiveResourceLimits,
+    retained_record_charge: u64,
+) -> Result<NavigationProjection<'a>, ProductionBodyNavigationError> {
+    let root = NodeId::new(0);
     let source = flow.navigation();
-    let registry = structure.registry();
     let mut digest = [0u8; 64];
     digest[..32].copy_from_slice(&sha256(PRODUCTION_BODY_NAVIGATION_ALGORITHM.as_bytes()));
-    digest[32..].copy_from_slice(&structure.fingerprint());
-    let mut result = ProductionBodyNavigation {
-        structure,
+    digest[32..].copy_from_slice(&structure_fingerprint);
+    let mut result = NavigationProjection {
         destinations: Vec::new(),
         links: Vec::new(),
         node_links: Vec::new(),
@@ -324,12 +371,12 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
     let base = retained_record_charge;
     let max = limits.base().get().max_fragments;
     let n = registry.nodes().len();
-    let pages = display.selected().pages().len();
+    let pages = page_count;
     let fixed = (n as u64)
         .checked_mul(4)
         .and_then(|v| v.checked_add(pages as u64))
         .and_then(|v| v.checked_add((source.anchors().len() as u64).checked_mul(2)?))
-        .and_then(|v| v.checked_add(display.inline_anchors().len() as u64))
+        .and_then(|v| v.checked_add(inline_anchors.len() as u64))
         .and_then(|v| {
             v.checked_add(
                 flow.paragraphs()
@@ -407,7 +454,7 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
         };
         nearest_link.push(link);
     }
-    for (index, fragment) in display.selected().fragments().iter().enumerate() {
+    for (index, fragment) in fragments.enumerate() {
         let node = *nodes
             .get(&fragment.owner())
             .ok_or_else(|| error(fragment.owner(), E::ReceiptMismatch))?;
@@ -433,7 +480,7 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
         }
     }
     let mut inline = BTreeMap::new();
-    for anchor in display.inline_anchors() {
+    for anchor in inline_anchors {
         let owner = anchor.source().source().owner();
         if inline
             .insert(
@@ -466,7 +513,7 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
             y: point.y,
         });
     }
-    for group in structure.groups() {
+    for group in groups {
         let Some(node) = nearest_link[group.node().get() as usize] else {
             continue;
         };
@@ -480,9 +527,11 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
         let target = *targets
             .get(&owner)
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        for draw in &display.draws()[group.draws()] {
+        for draw in &draws[group.draws()] {
             let (bounds, page, fragment) = match draw {
-                ProductionBodyDraw::Raster(r) => (Some(r.viewport()),r.page_index(),r.fragment_index()),
+                ProductionBodyDraw::Raster(r) => {
+                    (Some(r.viewport()), r.page_index(), r.fragment_index())
+                }
                 ProductionBodyDraw::Text(t) => {
                     (t.logical_bounds(), t.page_index(), t.fragment_index())
                 }
@@ -588,10 +637,167 @@ pub fn build_production_body_navigation<'n, 'v, 'd, 's, 'p, 'a>(
     Ok(result)
 }
 
-
 #[path = "production_footnote_navigation.rs"]
 mod production_footnote_navigation;
 pub use production_footnote_navigation::{
     build_production_footnote_reference_navigation, ProductionFootnoteDestination,
     ProductionFootnoteReferenceLink, ProductionFootnoteReferenceNavigation,
 };
+
+pub struct ProductionFootnoteNavigation<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    structure: &'n crate::ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    projection: NavigationProjection<'a>,
+    footnotes: ProductionFootnoteReferenceNavigation<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    additional_records: u64,
+    fingerprint: [u8; 32],
+}
+impl<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    ProductionFootnoteNavigation<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+{
+    pub const fn structure(
+        &self,
+    ) -> &'n crate::ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+        self.structure
+    }
+    pub fn footnote_references(
+        &self,
+    ) -> &ProductionFootnoteReferenceNavigation<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+        &self.footnotes
+    }
+    pub fn destinations(&self) -> &[ProductionBodyDestination] {
+        &self.projection.destinations
+    }
+    pub fn destination_name(&self, index: u32) -> Option<&AnchorId> {
+        self.projection.destinations.get(index as usize)?;
+        self.structure
+            .display()
+            .source()
+            .line_layout()
+            .source_flow()
+            .navigation()
+            .anchors()
+            .get(index as usize)
+            .map(|a| &a.0)
+    }
+    pub fn links(&self) -> &[ProductionBodyLink<'a>] {
+        &self.projection.links
+    }
+    pub fn node_links(&self, id: StructureNodeId) -> Option<&[u32]> {
+        self.structure.registry().node(id)?;
+        Some(
+            self.projection
+                .node_links
+                .get(id.get() as usize)
+                .map_or(&[], Vec::as_slice),
+        )
+    }
+    pub fn page_links(&self, page: u32) -> Option<Range<usize>> {
+        self.structure
+            .display()
+            .source()
+            .geometry()
+            .pages()
+            .get(page as usize)?;
+        Some(
+            self.projection
+                .page_links
+                .get(page as usize)
+                .cloned()
+                .unwrap_or(0..0),
+        )
+    }
+    pub fn outline_entries(&self) -> &[StagingOutlineEntry] {
+        self.structure
+            .display()
+            .source()
+            .line_layout()
+            .source_flow()
+            .navigation()
+            .outline()
+            .entries()
+    }
+    pub fn outline(&self) -> &[ProductionBodyOutlineTopology] {
+        &self.projection.outline
+    }
+    pub const fn outline_root(&self) -> &ProductionBodyOutlineTopology {
+        &self.projection.outline_root
+    }
+    /// Includes bounded temporary indexing work; add once to the shared marked
+    /// content charge, not a second copy of its structure/display ancestors.
+    pub const fn additional_records(&self) -> u64 {
+        self.additional_records
+    }
+    pub const fn record_base(&self) -> u64 {
+        self.projection.record_base
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+    pub fn verify(
+        &self,
+        structure: &crate::ProductionFootnoteStructure<'_, '_, '_, '_, '_, '_, '_, '_, '_>,
+    ) -> Result<(), ProductionBodyNavigationError> {
+        if !std::ptr::eq(self.structure, structure) {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        Ok(())
+    }
+}
+pub fn build_production_footnote_navigation<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+    structure: &'n crate::ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    retained_record_charge: u64,
+) -> Result<
+    ProductionFootnoteNavigation<'n, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    ProductionBodyNavigationError,
+> {
+    let root = NodeId::new(0);
+    let display = structure.display();
+    structure
+        .verify(display, admitted, limits)
+        .map_err(|_| error(root, E::ReceiptMismatch))?;
+    if retained_record_charge < structure.record_charge() {
+        return Err(error(root, E::ReceiptMismatch));
+    }
+    if retained_record_charge > limits.base().get().max_fragments {
+        return Err(error(root, E::RecordLimit));
+    }
+    let projection = project_navigation(
+        display.source().line_layout().source_flow(),
+        structure.registry(),
+        structure.fingerprint(),
+        structure.groups(),
+        display.draws(),
+        display.inline_anchors(),
+        display
+            .source()
+            .geometry()
+            .pages()
+            .iter()
+            .flat_map(|p| p.fragments().iter().map(|f| f.fragment())),
+        display.source().geometry().pages().len(),
+        limits,
+        retained_record_charge,
+    )?;
+    let next_base = retained_record_charge
+        .checked_add(projection.additional_records)
+        .ok_or_else(|| error(root, E::RecordLimit))?;
+    let footnotes =
+        build_production_footnote_reference_navigation(structure, admitted, limits, next_base)?;
+    let additional_records = projection
+        .additional_records
+        .checked_add(footnotes.additional_records())
+        .ok_or_else(|| error(root, E::RecordLimit))?;
+    let mut digest = [0u8; 96];
+    digest[..32].copy_from_slice(&sha256(b"typaxis.production-footnote-navigation/1"));
+    digest[32..64].copy_from_slice(&projection.fingerprint);
+    digest[64..].copy_from_slice(&footnotes.fingerprint());
+    Ok(ProductionFootnoteNavigation {
+        structure,
+        projection,
+        footnotes,
+        additional_records,
+        fingerprint: sha256(&digest),
+    })
+}

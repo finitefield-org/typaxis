@@ -5145,3 +5145,47 @@ not complete joint navigation: ordinary anchors/URI/outline, PDF annotation
 objects/StructParent, destination serialization and needed return links still
 require integration. No public PDF receipt, original-book/Harano/both-host
 acceptance or push is claimed.
+
+## Joint ordinary and footnote navigation
+
+Implemented §14.46. The ordinary anchor/internal-link/URI/outline projection
+now accepts actual selected draws, inline anchors and a fragment iterator.
+The ordinary body path retains its existing projection; the joint path supplies
+the complete body/footnote geometry without allocating another fragment copy.
+Ancestor anchor positions, per-node and per-page link indices, physical link
+rectangles and outline topology use the same source-grounded algorithm.
+
+The joint owner retains ordinary navigation plus the separately typed footnote
+reference plan. It adds ordinary navigation records before constructing the
+footnote plan and exposes the combined additional charge. Both branches bind
+to the same structure, and the combined fingerprint includes both fingerprints.
+Ordinary anchor indices and footnote definition indices remain distinct.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-display-list --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_ --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000
+```
+Check **3.62 s**. Initial footnote suite **56 passed, 0 failed, 7.72 s**,
+`/private/tmp/typaxis-joint-navigation-tests.log`. Final regression after adding
+an internal body link targeting an anchor inside a footnote:
+**153 passed, 0 failed, 1 explicitly ignored, 15.54 s**,
+`/private/tmp/typaxis-joint-navigation-final.log`.
+
+Coverage includes body-to-footnote internal navigation, a URI link inside the
+definition, multi-page ordinary links, source anchor names/owners, physical
+inline-anchor coordinates, outline topology, node/page link indices, inherited
+record charges, exact/one-short combined budgets and foreign structure identity.
+Existing ordinary navigation/object/assembly tests pass. The two unchanged
+5,000-SVG unmarked-content cases were explicitly excluded; the saved-job test
+remains explicitly ignored.
+
+This is a navigation plan, not PDF annotations or a public PDF receipt.
+Merging annotation order and StructParent ownership, serializing destinations
+and outlines, needed return links, final objects/manifest/public writer,
+dynamic references and full allocation/retry accounting remain open, along
+with original full-book/Harano/scale/both-host acceptance. No push.

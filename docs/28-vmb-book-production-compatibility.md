@@ -2019,3 +2019,25 @@ NoteまたはReferenceとして照合し、通常のsource anchorやURIとは区
 これは脚注専用の幾何・参照先計画である。通常anchor／URI／outlineを含むjoint navigation、
 注釈object・StructParent、定義destinationのPDF化、必要な戻りリンクと最終writerへの統合は
 引き続き必要である。元全巻・原ノ味・両hostを含む完成PDFの受入条件を緩和しない。
+
+### 14.46 通常navigationと脚注参照計画の共用入口（実装追補）
+
+`build_production_footnote_navigation`は同じ構造結果の実draw、inline anchor、全ページの
+fragment列から通常anchor・internal／URI link・outlineを確定する。通常本文も共通の
+`project_navigation`を使い、source宣言・構造nodeとの照合、Linkの継承と矩形結合、
+anchorの最初の実配置、outlineの親子・兄弟関係を維持する。脚注内のanchorと通常リンクも
+実脚注fragmentから位置を得る。URI文字列を作り直したり、sourceの参照先を置換したりしない。
+
+全ページのfragmentを描画順のiteratorで渡し、通常navigationのためだけの全fragmentコピーは
+作らない。既存のページ内link範囲、nodeごとのlink index、source anchor名とoutline entryを
+新しい結果からも参照できる。
+
+通常navigationのrecordsを先行保持量へ加算してから§14.45の脚注参照計画を確定する。
+共通の構造・displayを二重計上せず、両計画を保持した追加recordsと元の基準値を公開する。
+両計画は同じ構造結果に結び付き、統合fingerprintはそれぞれの結果のfingerprintを含む。
+通常anchorのindexと脚注定義indexを混同しないよう、脚注参照計画は型を分けて保持する。
+
+これはnavigation計画の統合である。両種のリンクをPDF注釈順へ統合する処理、
+StructParent・destination・outline objectの最終構築、必要な戻りリンク、公開writerへの接続は
+引き続き必要である。完成PDFの独立検証、動的参照の収束、全allocation寿命管理、
+元全巻・原ノ味・規模・両hostのゲートを維持する。

@@ -2080,7 +2080,26 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
         .unwrap()
         .remove(0);
     production_body_renumber(&mut list_note["document"], &mut 0);
+    let mut navigation_note = production_footnote_flow_fixture();
+    let paragraph = &mut navigation_note["document"]["footnotes"][1]["blocks"][0];
+    let children = paragraph["children"].clone();
+    paragraph["children"] = serde_json::json!([
+        {"kind":"anchor","node_id":0,"span":paragraph["span"],"anchor_id":"foot-target"},
+        {"kind":"link","node_id":0,"span":paragraph["span"],"target":{"kind":"uri","uri":"https://example.com/footnote"},"children":children}
+    ]);
+    let body = &mut navigation_note["document"]["blocks"][0]["blocks"][0];
+    let span = body["span"].clone();
+    let children = body["children"].as_array_mut().unwrap();
+    let references = children.split_off(children.len() - 2);
+    let linked = serde_json::Value::Array(std::mem::take(children));
+    *children = vec![serde_json::json!({"kind":"link","node_id":0,"span":span,
+        "target":{"kind":"internal","anchor_id":"foot-target"},"children":linked})];
+    children.extend(references);
+    production_body_renumber(&mut navigation_note["document"], &mut 0);
     for value in [
+        production_body_navigation_vmb_fixture(),
+        production_body_navigation_multiline_fixture(),
+        navigation_note,
         list_note,
         reversed,
         multi,
@@ -2534,6 +2553,81 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                     .kind,
                     typaxis_display_list::ProductionBodyNavigationErrorKind::ReceiptMismatch
                 );
+
+                let combined = typaxis_display_list::build_production_footnote_navigation(
+                    &structure,
+                    admitted,
+                    limits,
+                    marked.record_charge(),
+                )
+                .unwrap();
+                combined.verify(&structure).unwrap();
+                assert_eq!(
+                    combined.footnote_references().destinations(),
+                    nav.destinations()
+                );
+                assert_eq!(combined.footnote_references().links(), nav.links());
+                let ordinary_charge =
+                    combined.footnote_references().record_base() - marked.record_charge();
+                assert_eq!(
+                    combined.additional_records(),
+                    ordinary_charge + combined.footnote_references().additional_records()
+                );
+                let source = terminals.line_layout().source_flow().navigation();
+                assert_eq!(combined.destinations().len(), source.anchors().len());
+                for (index, destination) in combined.destinations().iter().enumerate() {
+                    let (name, owner) = &source.anchors()[index];
+                    assert_eq!(combined.destination_name(index as u32), Some(name));
+                    assert_eq!(destination.owner(), *owner);
+                    if let Some(anchor) = display
+                        .inline_anchors()
+                        .iter()
+                        .find(|a| a.source().source().owner() == *owner)
+                    {
+                        assert_eq!(destination.page_index(), anchor.page_index());
+                        assert_eq!(destination.fragment_index(), anchor.fragment_index());
+                        assert_eq!(destination.x(), anchor.x());
+                        assert_eq!(destination.y(), anchor.baseline());
+                    }
+                }
+                assert_eq!(combined.outline_entries(), source.outline().entries());
+                assert_eq!(combined.outline().len(), source.outline().entries().len());
+                assert_eq!(
+                    combined.outline_root().descendants() as usize,
+                    source.outline().entries().len()
+                );
+                let mut next_link = 0;
+                for page in 0..geometry.pages().len() {
+                    let range = combined.page_links(page as u32).unwrap();
+                    assert_eq!(range.start, next_link);
+                    assert!(combined.links()[range.clone()]
+                        .iter()
+                        .all(|l| l.page_index() == page as u32));
+                    next_link = range.end;
+                }
+                assert_eq!(next_link, combined.links().len());
+                for (index, link) in combined.links().iter().enumerate() {
+                    assert!(combined
+                        .node_links(link.node())
+                        .unwrap()
+                        .contains(&(index as u32)));
+                    assert_eq!(
+                        structure.registry().node(link.node()).unwrap().role(),
+                        typaxis_display_list::StructureRole::Link
+                    );
+                    match link.target() {
+                        typaxis_display_list::ProductionBodyLinkTarget::Internal(target) => {
+                            assert!(combined.destinations().get(target as usize).is_some())
+                        }
+                        typaxis_display_list::ProductionBodyLinkTarget::Uri(uri) => {
+                            assert_eq!(uri, "https://example.com/footnote")
+                        }
+                    }
+                }
+                assert_eq!(
+                    combined.verify(&other_structure).err().unwrap().kind,
+                    typaxis_display_list::ProductionBodyNavigationErrorKind::ReceiptMismatch
+                );
                 let other_content =
                     typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
                         .unwrap();
@@ -2783,6 +2877,79 @@ fn production_footnote_reference_navigation_keeps_retained_record_budget() {
                 )
                 .unwrap();
                 let result = typaxis_display_list::build_production_footnote_reference_navigation(
+                    &structure,
+                    admitted,
+                    limits,
+                    marked.record_charge(),
+                );
+                if mode == 2 {
+                    assert_eq!(
+                        result.err().unwrap().kind,
+                        typaxis_display_list::ProductionBodyNavigationErrorKind::RecordLimit
+                    );
+                } else {
+                    let nav = result.unwrap();
+                    if mode == 0 {
+                        records = nav.record_base() + nav.additional_records();
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_navigation_keeps_combined_retained_record_budget() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_body_navigation_vmb_fixture();
+    let mut records = 0;
+    for mode in 0..3 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+                let result = typaxis_display_list::build_production_footnote_navigation(
                     &structure,
                     admitted,
                     limits,
