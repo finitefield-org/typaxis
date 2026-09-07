@@ -5189,3 +5189,51 @@ Merging annotation order and StructParent ownership, serializing destinations
 and outlines, needed return links, final objects/manifest/public writer,
 dynamic references and full allocation/retry accounting remain open, along
 with original full-book/Harano/scale/both-host acceptance. No push.
+
+## Joint PDF annotation objects and binding indices
+
+Implemented §14.47. The marked-content owner now produces actual typed
+LinkAnnotation objects for both ordinary links and footnote references.
+Annotations are ordered by selected page/fragment/source owner, with retained
+source-kind/index, structure node, page and StructParent key. Per-page ranges
+and per-node annotation indices are available for the later Annots/ParentTree/
+OBJR owner.
+
+Rect and direct footnote XYZ destinations use actual PDF-coordinate conversion.
+Ordinary named destinations keep their source names, URI actions keep original
+validated bytes, and footnote destinations directly reference their definition
+page without inventing names in the ordinary anchor namespace. Contents comes
+from the ordinary accessible name or source footnote number. Objects retain
+unresolved typed Page references. Records and spool include prior marked/
+navigation state, sorting/index records and the shared object's dictionary/
+chunk accounting.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-pdf --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_ --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000
+```
+Check **9.29 s**. Initial footnote tests **57 passed, 0 failed, 5.28 s**,
+`/private/tmp/typaxis-footnote-annotations-tests.log`.
+Final regression **155 passed, 0 failed, 1 explicitly ignored, 11.39 s**,
+`/private/tmp/typaxis-footnote-annotations-verified.log`.
+
+Tests inspect actual dictionary bytes and typed references: exact rectangle and
+XYZ coordinates, URI/name/Contents encodings, annotation order, source mapping,
+page references, dense StructParent keys, node/page indices, foreign marked
+owners and exact/one-short record/spool limits. A conflicting enclosing Link
+test initially attempted to reach annotations, but the existing tagged-profile
+preflight correctly rejected it as UnsupportedSemantic; the final test verifies
+that earlier boundary. The defensive annotation guard uses a single
+parent-before-child pass with charged temporary storage.
+
+The two unchanged 5,000-SVG cases were explicitly excluded; the saved-job test
+remains explicitly ignored. This contribution still needs integration with
+ParentTree/OBJR/page Annots and all final objects, named destinations/outlines,
+needed return links, manifest and public writer. Full object-budget closure,
+dynamic references, allocation/retry lifetimes and original full-book/Harano/
+scale/both-host acceptance remain open. No public PDF receipt or push.

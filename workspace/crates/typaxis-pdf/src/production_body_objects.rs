@@ -807,3 +807,10 @@ fn navigation_objects(
     }
     Ok(())
 }
+
+#[path = "production_footnote_annotations.rs"]
+mod production_footnote_annotations;
+pub use production_footnote_annotations::{
+    build_production_footnote_annotations, ProductionFootnoteAnnotations,
+    ProductionFootnoteAnnotationBinding, ProductionFootnoteAnnotationSource,
+};

@@ -2041,3 +2041,29 @@ anchorの最初の実配置、outlineの親子・兄弟関係を維持する。�
 StructParent・destination・outline objectの最終構築、必要な戻りリンク、公開writerへの接続は
 引き続き必要である。完成PDFの独立検証、動的参照の収束、全allocation寿命管理、
 元全巻・原ノ味・規模・両hostのゲートを維持する。
+
+### 14.47 通常リンク・脚注リンクのPDF注釈object（実装追補）
+
+`build_production_footnote_annotations`は構造付きページ結果を検証し、同じ結果から
+navigationを確定する。通常リンクと脚注参照を実ページ、fragment、source owner、種別内indexの
+順に統合し、連続したLinkAnnotation roleを割り当てる。各注釈は元の種別・index、
+構造node、ページ、StructParent keyを保持し、ページごとの範囲とnodeごとの注釈indexを作る。
+
+Rectは選択されたlogical boundsをページのPDF座標へ変換する。通常内部リンクは元の
+anchor名をUTF-16BEで使い、URI actionは検証済みURIの元バイトを保持する。脚注リンクは
+実定義ページと最初の内容領域への直接XYZ destinationを使い、通常anchor名のnamespaceへ
+合成名を混入しない。Contentsは通常Linkのaccessible nameまたはsourceの脚注番号を使う。
+
+StructParentはページ数に注釈indexを加えたkeyとし、ページMCID用のkeyと分離する。
+この段階は未解決Page参照を含むobject contributionであり、ParentTree・OBJR・ページAnnotsを
+実際に発行する最終ownerが同じbindingを使う必要がある。注釈だけのobject上限に加え、
+全objectを統合した最終上限検証も維持する。
+
+先行marked-contentとnavigationのrecords／spoolに、一時整列列、親Linkの索引、
+保持binding、node・page索引、object/chunkとdictionary bytesを加算する。親Linkの検査は
+parent-before-childの構造列を一度たどる。脚注番号が既存Link内にあり異なるdestinationの
+注釈が重なる意味構造は既存tagged-profileが拒否し、注釈側でも防御的に拒否する。
+
+ParentTree・最終ページ／font／image object、通常destination／outline、必要な戻りリンク、
+manifest・公開writerへの統合はまだ必要である。完成PDFの独立検証、動的参照、
+全allocation寿命管理、元全巻・原ノ味・規模・両hostのゲートを維持する。

@@ -5,7 +5,8 @@ mod production_body_assembly;
 pub use production_body_assembly::{assemble_production_body_pdf, ProductionBodyPdfAssembly,
     ProductionBodyAssemblyError, ProductionBodyAssemblyObject, ProductionBodyAssemblyRole};
 mod production_body_objects;
-pub use production_body_objects::{build_production_body_objects, ProductionBodyObjectContribution,
+pub use production_body_objects::{build_production_footnote_annotations, ProductionFootnoteAnnotations,
+    ProductionFootnoteAnnotationBinding, ProductionFootnoteAnnotationSource, build_production_body_objects, ProductionBodyObjectContribution,
     ProductionBodyObject, ProductionBodyObjectChunk, ProductionBodyObjectRole,
     ProductionBodyFontObjectPart, ProductionBodyObjectError};
 mod production_body_marked;
