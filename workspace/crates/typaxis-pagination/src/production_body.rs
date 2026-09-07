@@ -32,6 +32,10 @@ pub use page_feedback::{
     ProductionStableBodyPages,
 };
 
+#[path = "production_body_flow.rs"]
+mod body_flow;
+pub use body_flow::{prepare_production_body_flow, ProductionPreparedBodyFlow};
+
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -229,7 +233,7 @@ impl<'s, 'p, 'a> ProductionBodySelectedLayout<'s, 'p, 'a> {
     }
 }
 
-struct Item {
+pub struct ProductionBodyFlowItem {
     owner: NodeId,
     source: Option<ProductionBodyFragmentSource>,
     x: Length,
@@ -242,6 +246,7 @@ struct Item {
     trailing: Length,
     viewport_left: Option<Length>,
 }
+type Item = ProductionBodyFlowItem;
 impl Item {
     fn consumed(&self) -> Result<Length, ProductionBodyPaginationError> {
         add(
@@ -293,20 +298,8 @@ fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
     limits: &M4EffectiveResourceLimits,
     prior_charge: u64,
 ) -> Result<ProductionBodySelectedLayout<'s, 'p, 'a>, ProductionBodyPaginationError> {
+    verify_flow_inputs(lines, blocks, limits)?;
     let root = NodeId::new(0);
-    let epoch = lines.binding_epoch();
-    let receipt = blocks.receipt();
-    if !blocks.integrity_matches()
-        || receipt.package_sha256() != lines.source_flow().package_sha256()
-        || receipt.binding_set_fingerprint() != lines.binding_set_fingerprint()
-        || receipt.layout_epoch_fingerprint() != epoch.fingerprint()
-        || receipt.profile_fingerprint() != epoch.profile_authorization_fingerprint()
-        || receipt.admitted_fingerprint() != epoch.admitted_fingerprint()
-        || receipt.limits_fingerprint() != limits.fingerprint()
-        || epoch.limits_fingerprint() != limits.fingerprint()
-    {
-        return Err(error(root, E::ReceiptMismatch));
-    }
     let mut charge = Charge {
         remaining: limits
             .base()
@@ -323,10 +316,11 @@ fn paginate_production_body_with_prior_charge<'s, 'p, 'a>(
             .ok_or_else(|| error(root, E::FragmentLimit))?,
     };
     let body = blocks.page_geometry().body();
-    if lines.frames().is_some_and(|f| f.body() != body) {
-        return Err(error(root, E::ReceiptMismatch));
-    }
-    let (mut items, mut marker_bindings) = collect_items(lines, blocks, &mut charge)?;
+    let CollectedItems {
+        mut items,
+        mut marker_bindings,
+        ..
+    } = collect_items(lines, blocks, None, &mut charge)?;
     list::prepare_metrics(lines, blocks, &mut items, &mut marker_bindings)?;
     // Suffix keep extents are measured from real selected lines/caption lines.
     // Validate hard keep chains before examining soft page-end candidates.
@@ -548,11 +542,56 @@ fn new_page(
     Ok(())
 }
 
+fn verify_flow_inputs(
+    lines: &ProductionInlineLineLayout<'_, '_>,
+    blocks: &StagingPrecomposedVectorBlockLayout,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<(), ProductionBodyPaginationError> {
+    let root = NodeId::new(0);
+    let epoch = lines.binding_epoch();
+    let receipt = blocks.receipt();
+    if !blocks.integrity_matches()
+        || receipt.package_sha256() != lines.source_flow().package_sha256()
+        || receipt.binding_set_fingerprint() != lines.binding_set_fingerprint()
+        || receipt.layout_epoch_fingerprint() != epoch.fingerprint()
+        || receipt.profile_fingerprint() != epoch.profile_authorization_fingerprint()
+        || receipt.admitted_fingerprint() != epoch.admitted_fingerprint()
+        || receipt.limits_fingerprint() != limits.fingerprint()
+        || epoch.limits_fingerprint() != limits.fingerprint()
+    {
+        return Err(error(root, E::ReceiptMismatch));
+    }
+    if lines
+        .frames()
+        .is_some_and(|f| f.body() != blocks.page_geometry().body())
+    {
+        return Err(error(root, E::ReceiptMismatch));
+    }
+    Ok(())
+}
+
+struct CollectedItems {
+    items: Vec<Item>,
+    marker_bindings: Vec<list::MarkerBinding>,
+    body_end: usize,
+    definitions: Vec<std::ops::Range<usize>>,
+}
+
 fn collect_items(
     lines: &ProductionInlineLineLayout<'_, '_>,
     blocks: &StagingPrecomposedVectorBlockLayout,
+    definitions: Option<&[typaxis_layout::ProductionFootnoteDefinitionLines<'_>]>,
     charge: &mut Charge,
-) -> Result<(Vec<Item>, Vec<list::MarkerBinding>), ProductionBodyPaginationError> {
+) -> Result<CollectedItems, ProductionBodyPaginationError> {
+    let mut definition_ranges = Vec::new();
+    let mut definition_start = None;
+    let mut body_end = None;
+    if let Some(definitions) = definitions {
+        charge.take(definitions.len(), NodeId::new(0))?;
+        definition_ranges
+            .try_reserve_exact(definitions.len())
+            .map_err(|_| error(NodeId::new(0), E::AllocationFailure))?;
+    }
     let flow = lines.source_flow();
     let body = blocks.page_geometry().body();
     let mut items: Vec<Item> = Vec::new();
@@ -573,7 +612,7 @@ fn collect_items(
         items.push(item);
         Ok(())
     };
-    for event in flow.events() {
+    for (event_index, event) in flow.events().iter().enumerate() {
         match *event {
             Event::Begin { owner, kind } => {
                 let mut frame = Frame {
@@ -585,6 +624,21 @@ fn collect_items(
                     marker: None,
                 };
                 match kind {
+                    Region::Footnote => {
+                        let definition = definitions
+                            .ok_or_else(|| error(owner, E::PendingRegion("footnote")))?
+                            .get(definition_ranges.len())
+                            .filter(|d| d.owner() == owner && d.event_range().start == event_index)
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        if !stack.is_empty()
+                            || definition_start.is_some()
+                            || definition.event_range().end <= event_index
+                        {
+                            return Err(error(owner, E::ReceiptMismatch));
+                        }
+                        body_end.get_or_insert(items.len());
+                        definition_start = Some(items.len());
+                    }
                     Region::Paragraph | Region::Heading => (),
                     Region::List => {
                         let frames = lines
@@ -833,6 +887,17 @@ fn collect_items(
                     .pop()
                     .filter(|f| f.owner == owner)
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                if let Some(definition) = definitions.and_then(|d| d.get(definition_ranges.len())) {
+                    if definition.owner() == owner {
+                        if !stack.is_empty() || definition.event_range().end != event_index + 1 {
+                            return Err(error(owner, E::ReceiptMismatch));
+                        }
+                        let start = definition_start
+                            .take()
+                            .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
+                        definition_ranges.push(start..items.len());
+                    }
+                }
                 if let Some(index) = frame.marker {
                     marker_bindings[index].item_index = Some(
                         (frame.start..items.len())
@@ -893,7 +958,15 @@ fn collect_items(
     {
         return Err(error(NodeId::new(0), E::ReceiptMismatch));
     }
-    Ok((items, marker_bindings))
+    if definition_start.is_some() || definition_ranges.len() != definitions.map_or(0, |d| d.len()) {
+        return Err(error(NodeId::new(0), E::ReceiptMismatch));
+    }
+    Ok(CollectedItems {
+        body_end: body_end.unwrap_or(items.len()),
+        items,
+        marker_bindings,
+        definitions: definition_ranges,
+    })
 }
 
 fn fingerprint(

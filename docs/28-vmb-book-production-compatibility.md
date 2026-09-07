@@ -1500,3 +1500,23 @@ vector languageは重複加算しない。生成分と合わせた上限のち�
 証明する値ではない。領域recordを確保前の予算に加え、内部frame識別子を
 `typaxis.production-body-frames/2`へ更新して横位置・縦位置・幅・高さをhashへ含める。
 脚注のページ配置と公開PDFは引き続き未完了である。
+
+
+### 14.21 本文と脚注定義の配置項目の分離
+
+`prepare_production_body_flow` は、実際の選択済み行・block準備・既存の脚注参照registryを
+借用し、同じpackage・binding・epoch・profile・admission・limitsに属することを照合する。
+registryを再構築せず、その保持量から配置項目と定義範囲・list marker bindingを追加課金する。
+脚注定義がある場合は、宣言脚注領域に結び付いたframeを要求する。
+
+従来の本文paginationと共通の収集処理を使い、行・数式block・raster・list・containerの
+実寸法、余白、keep規則、markerの上下追加量、明示改ページを保持する。registryの
+定義ownerとBegin/End event境界を照合し、本文と各定義を別のsliceとして公開する。
+定義を本文末尾へspliceしない。全体のsource indexは保持するため、行・block・markerは
+同じ選択結果へ戻れる。値の任意構築・書換えや他の選択への付け替えを許可しない。
+
+これはページ割当や脚注高さの適合判定ではない。高さ上限を超える複数項目でも収集できる。
+次のページ探索は、本文と各定義の境界を保って、参照ページ・予約高さ・本文との衝突・
+継続脚注・keepと改ページの規則を決定する必要がある。単一passの既存本文paginationは
+引き続き脚注定義を拒否し、静的page proofも生成ページfeedback未完了を拒否する。
+公開profile、PDF paint許可とmanifestの状態は変更しない。

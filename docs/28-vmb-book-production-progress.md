@@ -4152,3 +4152,47 @@ focused test passed **1 test** in **0.48 s**, including two successive definitio
 log `/private/tmp/typaxis-footnote-frame-final.log`. The broad run is recorded as
 failed rather than rewritten as a clean run. All test processes are terminal.
 No new public/full-book PDF or branch push is claimed.
+
+### Shared measured body and footnote-definition item collection
+
+`prepare_production_body_flow` borrows actual selected lines, vector-block
+preparation and the existing footnote-line registry. Shared admission/epoch/
+limits checks reject unrelated inputs, and definition collection requires actual
+footnote frames. It reuses the ordinary page collector and list metric expansion,
+retaining each definition's measured items separately from body items. The
+registry's exact owner/event ranges delimit the slices. Source indices, spacing,
+keep flags, forced breaks, real block metrics and tall marker extents survive.
+There is no page/height/continuation or paint receipt yet.
+
+Focused tests use a real VMB vector block plus a nested list in one definition,
+a second definition, actual source references and large list-marker glyphs.
+They verify source joins, no body splice, definition boundary isolation, marker
+height expansion, exact cumulative record budget / one-record shortage, foreign
+selected lines / block preparations / registries, missing footnote frames, and
+an explicit break retained through the real stable-line callback. Initial test
+inputs needed corrected reference source spans and sufficient declared width
+for the intentionally large nested markers; admission/frame rejection remained
+intact. Final focused run: **2 passed, 0 failed**, **2.54 s**.
+Log: `/private/tmp/typaxis-footnote-items-final2.log`.
+
+Commands:
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote_flow --locked -- --nocapture
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_ --locked
+```
+Regression log: `/private/tmp/typaxis-footnote-items-regression.log`.
+Footnote page assignment/reservation/continuations, public writer and full-book,
+Harano, scale and both-host acceptance remain required and incomplete.
+
+Final production regression: **104 passed, 0 failed, 1 explicitly ignored** in
+**701.63 s**, including both selected 5,000-resource PDF cases. The same process
+was retained through the longer run; CPU/progress observations and a short stack
+sample showed active PDF content/structure work, not a terminal timeout. The
+sample is `/private/tmp/typaxis-footnote-items-sample.txt`. All launched tests
+and sampling processes are terminal. Only API documentation comments changed
+after the regression binary was started. No branch push or new full-book/public
+PDF acceptance result is claimed.
