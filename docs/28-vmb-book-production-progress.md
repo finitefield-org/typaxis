@@ -4614,3 +4614,42 @@ Still required: stable complete page sequence, math terminal binding, separator
 paint and complete display/tag/navigation/manifest/public writer integration,
 plus original full-book, Harano, scale and both-host acceptance. Physical fragment
 coordinates alone do not satisfy those gates.
+
+### Complete joint page selection and placement sequences
+
+Implemented design §14.33. `select_pages` owns all pages from a fresh body start
+to body/demand/required-blank-page completion. Each page derives only from its
+predecessor's owned next state. The loop checks forward progress, page continuity
+and terminal completion; a non-fitting intermediate page returns `JointPageNoFit`
+instead of a partial completed sequence. Page, work, lookback and record limits
+remain cumulative. `place_pages_content` borrows a verified complete sequence and
+returns only after every page's content and markers have been placed successfully.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-pagination --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+```
+Check passed in **1.61 s**. Final footnote regression **37 passed, 0 failed,
+2.21 s**, `/private/tmp/typaxis-joint-sequence-verified.log`. New sequence tests
+cover body/definition continuity to each actual source end, markers exactly once,
+all-page borrowed geometry, foreign-owner rejection, no-fit and partial page-cap
+failure, exact/one-short cumulative record/work budgets, and preservation of
+leading/consecutive/trailing blank pages.
+
+The unreferenced-definition fixture initially failed the existing tagged-profile
+preflight with `UnsupportedSemantic`. Its low-level omission test now uses the
+existing navigation-profile helper, which also asserts that tagged preflight
+still rejects the fixture. This does not widen public tagged PDF support.
+
+Common-driver regression **2 passed, 0 failed, 1 explicitly ignored**;
+`/private/tmp/typaxis-joint-sequence-common.log`. No public/full-book PDF or branch
+push is claimed. Page-sequence stability, dynamic-reference convergence, terminal
+binding, separator paint, complete display/tag/navigation/manifest/public writer,
+and original full-book/Harano/scale/both-host acceptance remain incomplete.

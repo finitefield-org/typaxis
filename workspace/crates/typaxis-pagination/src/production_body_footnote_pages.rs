@@ -162,3 +162,83 @@ impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
         }))
     }
 }
+
+/// A complete, source-contiguous selection, issued only after all demanded
+/// continuations have ended. Unreferenced definitions are deliberately unplaced.
+pub struct ProductionBodyFootnotePageSequence<'b, 'f, 's, 'p, 'a> {
+    owner_id: u64,
+    pages: Vec<ProductionBodyFootnotePageSelection<'b, 'f, 's, 'p, 'a>>,
+}
+impl<'b, 'f, 's, 'p, 'a> ProductionBodyFootnotePageSequence<'b, 'f, 's, 'p, 'a> {
+    pub fn pages(&self) -> &[ProductionBodyFootnotePageSelection<'b, 'f, 's, 'p, 'a>] {
+        &self.pages
+    }
+}
+impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
+    pub fn select_pages(
+        &mut self,
+    ) -> Result<ProductionBodyFootnotePageSequence<'b, 'f, 's, 'p, 'a>, ProductionBodyPaginationError>
+    {
+        let root = NodeId::new(0);
+        self.content.charge.take(1, root)?;
+        let initial = self.begin_pages()?;
+        let mut pages: Vec<ProductionBodyFootnotePageSelection<'b, 'f, 's, 'p, 'a>> = Vec::new();
+        loop {
+            let state = pages.last().map_or(&initial, |page| page.next_state());
+            if state.is_complete() {
+                break;
+            }
+            self.step(root)?;
+            let selected = self
+                .select_page(state)?
+                .ok_or_else(|| error(root, E::JointPageNoFit))?;
+            let next = selected.next_state();
+            if next.body_start < state.body_start || next.page_index != state.page_index + 1 {
+                return Err(error(root, E::ReceiptMismatch));
+            }
+            let mut note_progress = false;
+            if let Some(region) = selected.candidate().footnotes() {
+                for fragment in region.fragments() {
+                    self.step(root)?;
+                    note_progress |= !fragment.fragment().consumed_range().is_empty();
+                }
+            }
+            if next.body_start == state.body_start
+                && !note_progress
+                && !(state.empty_page && next.is_complete())
+            {
+                return Err(error(root, E::ReceiptMismatch));
+            }
+            // The selection already paid for its record; retain it by move.
+            pages
+                .try_reserve(1)
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            pages.push(selected);
+        }
+        if pages.is_empty() {
+            return Err(error(root, E::ReceiptMismatch));
+        }
+        Ok(ProductionBodyFootnotePageSequence {
+            owner_id: self.owner_id,
+            pages,
+        })
+    }
+
+    pub(super) fn verify_sequence(
+        &self,
+        sequence: &ProductionBodyFootnotePageSequence<'_, '_, '_, '_, '_>,
+    ) -> Result<(), ProductionBodyPaginationError> {
+        if sequence.owner_id != self.owner_id {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        let last = sequence
+            .pages
+            .last()
+            .ok_or_else(|| error(NodeId::new(0), E::ReceiptMismatch))?;
+        self.verify_state(&last.next.demand)?;
+        if !last.next.is_complete() {
+            return Err(error(NodeId::new(0), E::ReceiptMismatch));
+        }
+        Ok(())
+    }
+}

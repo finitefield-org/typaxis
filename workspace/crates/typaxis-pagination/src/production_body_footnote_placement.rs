@@ -275,3 +275,41 @@ impl ProductionFootnoteDemandSearch<'_, '_, '_, '_, '_> {
         Ok((lists, notes))
     }
 }
+
+/// Complete geometry borrowing the source-contiguous selected sequence.
+/// This has no stable-page or public paint authority by itself.
+pub struct ProductionBodyFootnotePlacedSequence<'q, 'b, 'f, 's, 'p, 'a> {
+    sequence: &'q ProductionBodyFootnotePageSequence<'b, 'f, 's, 'p, 'a>,
+    pages: Vec<ProductionBodyFootnotePlacedPage<'q, 'b, 'f, 's, 'p, 'a>>,
+}
+impl<'q, 'b, 'f, 's, 'p, 'a> ProductionBodyFootnotePlacedSequence<'q, 'b, 'f, 's, 'p, 'a> {
+    pub fn sequence(&self) -> &'q ProductionBodyFootnotePageSequence<'b, 'f, 's, 'p, 'a> {
+        self.sequence
+    }
+    pub fn pages(&self) -> &[ProductionBodyFootnotePlacedPage<'q, 'b, 'f, 's, 'p, 'a>] {
+        &self.pages
+    }
+}
+impl<'b, 'f, 's, 'p, 'a> ProductionFootnoteDemandSearch<'b, 'f, 's, 'p, 'a> {
+    pub fn place_pages_content<'q>(
+        &mut self,
+        sequence: &'q ProductionBodyFootnotePageSequence<'b, 'f, 's, 'p, 'a>,
+    ) -> Result<
+        ProductionBodyFootnotePlacedSequence<'q, 'b, 'f, 's, 'p, 'a>,
+        ProductionBodyPaginationError,
+    > {
+        self.verify_sequence(sequence)?;
+        let root = NodeId::new(0);
+        self.content.charge.take(1, root)?;
+        let mut pages = Vec::new();
+        for selected in sequence.pages() {
+            self.step(root)?;
+            let page = self.place_page_content(selected)?;
+            pages
+                .try_reserve(1)
+                .map_err(|_| error(root, E::AllocationFailure))?;
+            pages.push(page);
+        }
+        Ok(ProductionBodyFootnotePlacedSequence { sequence, pages })
+    }
+}

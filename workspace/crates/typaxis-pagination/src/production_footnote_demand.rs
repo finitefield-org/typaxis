@@ -10,12 +10,15 @@ mod pages;
 mod placement;
 pub use placement::{
     ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
-    ProductionBodyFootnotePlacedPage,
+    ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,
 };
 #[path = "production_footnote_required_region.rs"]
 mod required_region;
 pub use body_candidate::ProductionBodyFootnoteCandidate;
-pub use pages::{ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageState};
+pub use pages::{
+    ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageSequence,
+    ProductionBodyFootnotePageState,
+};
 
 static NEXT_SEARCH: AtomicU64 = AtomicU64::new(1);
 

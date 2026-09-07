@@ -6,8 +6,9 @@ mod footnote_breaks;
 pub use footnote_breaks::{
     prepare_production_footnote_demand_search, prepare_production_footnote_search,
     ProductionBodyFootnoteCandidate, ProductionBodyFootnotePageSelection,
-    ProductionBodyFootnotePageState, ProductionBodyFootnotePlacedFragment,
-    ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
+    ProductionBodyFootnotePageSequence, ProductionBodyFootnotePageState,
+    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
+    ProductionBodyFootnotePlacedPage, ProductionBodyFootnotePlacedSequence,
     ProductionFootnoteBreakSearch, ProductionFootnoteCursor, ProductionFootnoteDemandSearch,
     ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
     ProductionFootnoteDemandStatus, ProductionFootnoteFragmentSelection,

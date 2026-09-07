@@ -6,9 +6,10 @@ use std::collections::BTreeSet;
 mod demand;
 pub use demand::{
     prepare_production_footnote_demand_search, ProductionBodyFootnoteCandidate,
-    ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageState,
-    ProductionBodyFootnotePlacedFragment, ProductionBodyFootnotePlacedMarker,
-    ProductionBodyFootnotePlacedPage, ProductionFootnoteDemandSearch,
+    ProductionBodyFootnotePageSelection, ProductionBodyFootnotePageSequence,
+    ProductionBodyFootnotePageState, ProductionBodyFootnotePlacedFragment,
+    ProductionBodyFootnotePlacedMarker, ProductionBodyFootnotePlacedPage,
+    ProductionBodyFootnotePlacedSequence, ProductionFootnoteDemandSearch,
     ProductionFootnoteDemandSelection, ProductionFootnoteDemandState,
     ProductionFootnoteDemandStatus, ProductionFootnoteRegionFragment,
     ProductionFootnoteRegionSelection,
