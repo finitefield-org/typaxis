@@ -3507,3 +3507,47 @@ by the audit. Logs: `/private/tmp/vmb-original-prepared-inventory.log`,
 `/private/tmp/vmb-book-audit-tests.log` (unit test passed in 0.481 s). All launched
 processes reached terminal state. Independent implementation work remains; the
 goal is not blocked or complete, and no branch was pushed.
+
+### 2026-09-07: Source-bound teaching metadata and speech-input trace
+
+Companion **`16e96546`** retains concepts/prerequisites, proof methods and exercise
+answer type/mode/difficulty/estimated minutes in `BookBody.Annotations`. Each
+record binds original ID/type to its actual node ID, package pointer and source
+origin, and owns its retained strings/arrays. Metadata is not inserted as invented
+visible text. The final source-sidecar publisher must preserve these records;
+that publisher is still outstanding.
+
+Annotation limits bound retained UTF-8 payload (64 MiB by default, including source
+identity) and records plus array elements (1,000,000 default). Checks precede
+allocation, including empty-string arrays. Negative minutes, invalid UTF-8 and
+exhausted limits fail without partial body/annotations. This is a component budget,
+not closure of the still-pending global pipeline allocation budget. Actual
+proof/result/exercise metadata passed source binding, input-mutation independence,
+wire invariance, exact byte/item ceiling and ceiling-minus-one tests.
+
+```sh
+cd /Users/kazuyoshitoshiya/v/vmb-container/vmb-core
+VMB_TYPAXIS_CLI=/private/tmp/typaxis-vmb-book-build/debug/typaxis \
+VMB_TYPAXIS_FIXTURE_ROOT=/Users/kazuyoshitoshiya/t/typaxis/samples/machine-package/profiles/production-book-1/combined/job \
+  go test ./internal/rendertypaxis/... -count=1 -v
+```
+
+All regression tests, including six explicit public admission cases, passed in
+**42.399 s**. The semantic public case now includes metadata and retains the prior
+package/source hashes from the container checkpoint. These public checks validate
+wire admission, not publication of the metadata sidecar. Logs:
+`/private/tmp/vmb-annotation-tests.log`, `/private/tmp/vmb-annotation-regression.log`.
+
+Source tracing also found **7,739 raw mathInline declarations** across the current
+project's listed topic files, with **zero speechUnit or semanticRef assignments**.
+`render/inline.go` directly resolves the slot SpeechUnit and copies SemanticRef;
+these missing direct assignments were not discarded during preparation. Block
+math has separate authored speech units. Raw declarations, the prepared profile's
+6,343 inline occurrences and the saved package's 8,149 formula occurrences remain
+distinct quantities. No generic speech, TeX fallback or unverified association to
+another semantic record was introduced.
+
+Assumptions/formal verification, remaining exercise content, section/root metadata,
+formal package/sidecar/CLI publication and all original PDF/full-book/Harano/scale/
+both-host gates remain required. All launched tests reached terminal state; no
+public profile changed or branch was pushed.
