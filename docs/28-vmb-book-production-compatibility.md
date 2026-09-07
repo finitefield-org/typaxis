@@ -2801,3 +2801,26 @@ veraPDF合格証拠と全件一致した。PDF library 85件（1件ignored）、
 CLI production回帰173件（1件ignored）が成功した。これは公開CLIを切り替えた証拠ではない。
 収束driverからの最終serializer呼出し・累積予算引継ぎ、root側の保持／複製費用の接続、
 正式exporter、全allocation監査および全巻・原ノ味・規模・両host等の受入は未完である。
+
+
+### 14.84 収束driverから最終serializerへの予算引継ぎ（実装追補）
+
+`with_production_common_tagged_pdf`は既存の共通本文・脚注／Page参照収束driverを
+通した後、同じ診断assemblyのsource graphで最終tagged serializerを呼び出す。
+`write_production_common_tagged_pdf_after_assembly`は先行assemblyを再検証し、
+収束ownerから受け取った累積record／spoolを最終組み立ての開始値にする。
+source graphの費用へ戻して過去passを払い戻すことも、同じsource graphの費用を
+もう一度加算することもない。先行assembly自身の費用を下回る開始値は拒否する。
+累積値の集計はCLI収束ownerの責務であり、serializerが未知の過去passを推測する
+仕組みではない。最終closureの追加費用はその開始値から通常どおり加算する。
+
+callbackには所有された最終PDFと、同じ診断assemblyの読み取り専用source graphを渡す。
+これにより共通book／safe／math／tagged manifestを同じ選択から作成できる。
+複数passのPage参照fixtureで、直接serializerとのPDF byte一致と、両費用の差が
+「収束累積値 − source graph費用」に等しいことを検証した。参照あり／なしの入力で
+収束から全4 manifestまでのexact／one-short record／spool試験を追加した。
+CLI production回帰175件（1件ignored）、PDF library 85件（1件ignored）が成功した。
+
+公開`build_production_book_pdf`はまだ旧writerを使う。新driverからroot manifestとtraceを
+保持する費用の接続、および公開入口の切替を行ってから、正式exporter・全巻等の受入を
+検証する必要がある。この引継ぎの試験だけを公開build成功の証拠にはしない。

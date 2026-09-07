@@ -939,3 +939,69 @@ fn map_common_font_error(error: typaxis_resources::ResourceError) -> Failure {
         }
     }
 }
+
+/// Finish the common convergence owner with the actual tagged serializer.
+/// The callback can build manifests against this exact graph and consume the
+/// owned final PDF. Every completed diagnostic pass remains charged.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn with_production_common_tagged_pdf<R>(
+    package: &typaxis_syntax::ValidatedStagingSemanticPackage,
+    navigation: &typaxis_syntax::ValidatedStagingBookNavigationV2,
+    semantics: &typaxis_syntax::ValidatedStagingStructureSemanticsV2,
+    profile: &typaxis_machine_profile::StagingTaggedPdfProfileReceiptV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &typaxis_core::M4EffectiveResourceLimits,
+    japanese_mode: typaxis_linebreak::JapaneseLineBreakMode,
+    max_candidate_steps: u64,
+    config: typaxis_core::EffectiveConfigFingerprint,
+    inspect: impl FnOnce(
+        &typaxis_pdf::ProductionFootnotePdfAssembly<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        typaxis_pdf::ProductionCommonTaggedPdf,
+        ProductionCommonFootnoteObservation,
+    ) -> Result<R, Failure>,
+) -> Result<R, Failure> {
+    with_production_common_footnote_pdf(
+        package,
+        navigation,
+        semantics,
+        profile,
+        admitted,
+        limits,
+        japanese_mode,
+        max_candidate_steps,
+        |diagnostic, _, _, _, mut observation| {
+            let tagged = typaxis_pdf::write_production_common_tagged_pdf_after_assembly(
+                diagnostic,
+                semantics,
+                profile.authorization(),
+                profile.base().authorization(),
+                admitted,
+                limits,
+                config,
+                observation.record_charge,
+                observation.spool_charge,
+            )
+            .map_err(|e| map_common_assembly_error("final tagged serializer", e))?;
+            observation.record_charge = tagged.record_charge();
+            observation.spool_charge = tagged.spool_charge();
+            inspect(diagnostic, tagged, observation)
+        },
+    )
+}

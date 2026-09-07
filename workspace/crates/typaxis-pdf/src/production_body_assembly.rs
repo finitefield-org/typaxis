@@ -512,6 +512,27 @@ impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '
             spool_charge,
         })
     }
+    pub fn source(
+        &self,
+    ) -> &crate::ProductionFootnoteResourceObjects<
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+    > {
+        self.source
+    }
     pub fn vector_final_writer(&self) -> &crate::StagingSafeVectorPdfFinalWriterObservationV2 {
         &self.vector_final_writer
     }
@@ -618,7 +639,7 @@ pub fn assemble_production_footnote_pdf<
     ProductionFootnotePdfAssembly<'o, 'r, 'z, 'm, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
     E,
 > {
-    assemble_production_footnote_pdf_with_metadata(source, admitted, limits, false)
+    assemble_production_footnote_pdf_with_metadata(source, admitted, limits, false, None)
 }
 
 fn assemble_production_footnote_pdf_with_metadata<
@@ -659,6 +680,7 @@ fn assemble_production_footnote_pdf_with_metadata<
     admitted: &AdmittedResourceLedger,
     limits: &M4EffectiveResourceLimits,
     pdfua: bool,
+    prior_charges: Option<(u64, u64)>,
 ) -> Result<
     ProductionFootnotePdfAssembly<'o, 'r, 'z, 'm, 'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
     E,
@@ -666,6 +688,11 @@ fn assemble_production_footnote_pdf_with_metadata<
     source
         .verify(source.structure_objects(), admitted, limits)
         .map_err(|_| E::ReceiptMismatch)?;
+    let (record_base, spool_base) =
+        prior_charges.unwrap_or((source.record_charge(), source.spool_charge()));
+    if record_base < source.record_charge() || spool_base < source.spool_charge() {
+        return Err(E::ReceiptMismatch);
+    }
     let structure = source.structure_objects();
     let annotations = structure.annotations();
     let marked = annotations.marked();
@@ -691,8 +718,8 @@ fn assemble_production_footnote_pdf_with_metadata<
         !navigation.outline().is_empty(),
         pdfua,
         |p| annotations.page_annotations(p),
-        source.record_charge(),
-        source.spool_charge(),
+        record_base,
+        spool_base,
         limits,
     )?;
     let vector_final_writer =
@@ -818,6 +845,7 @@ pub use production_page_reference_closure::{
 #[path = "production_common_tagged_pdf.rs"]
 mod production_common_tagged_pdf;
 pub use production_common_tagged_pdf::{
-    write_production_common_tagged_pdf, ProductionCommonTaggedPdf,
-    ProductionCommonTaggedObservation, ProductionCommonVectorMarkedObservation,
+    write_production_common_tagged_pdf, write_production_common_tagged_pdf_after_assembly,
+    ProductionCommonTaggedObservation, ProductionCommonTaggedPdf,
+    ProductionCommonVectorMarkedObservation,
 };

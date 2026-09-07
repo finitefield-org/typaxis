@@ -1018,3 +1018,198 @@ fn production_page_reference_inside_footnote_converges_without_marker_aliasing()
     )
     .unwrap();
 }
+
+#[test]
+fn production_common_final_serializer_preserves_convergence_charges() {
+    let value = production_page_reference_fixture(11).0;
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let cfg = config();
+    let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+    let semantics =
+        typaxis_syntax::validate_staging_structure_semantics_v2(&package, &navigation, &limits)
+            .unwrap();
+    let identity = typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+    let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+        &package,
+        &navigation,
+        &semantics,
+        &limits,
+        &identity,
+    )
+    .unwrap();
+    with_production_common_footnote_pdf(
+        &package,
+        &navigation,
+        &semantics,
+        &profile,
+        &admitted,
+        &limits,
+        typaxis_linebreak::JapaneseLineBreakMode::Normal,
+        100_000,
+        |pdf, _, _, _, observed| {
+            assert!(observed.page_passes > 2);
+            let final_pdf = typaxis_pdf::write_production_common_tagged_pdf_after_assembly(
+                pdf,
+                &semantics,
+                profile.authorization(),
+                profile.base().authorization(),
+                &admitted,
+                &limits,
+                cfg.fingerprint(),
+                observed.record_charge,
+                observed.spool_charge,
+            )
+            .unwrap();
+            let direct = typaxis_pdf::write_production_common_tagged_pdf(
+                pdf.source(),
+                &semantics,
+                profile.authorization(),
+                profile.base().authorization(),
+                &admitted,
+                &limits,
+                cfg.fingerprint(),
+            )
+            .unwrap();
+            assert_eq!(final_pdf.final_pdf().bytes(), direct.final_pdf().bytes());
+            assert_eq!(
+                final_pdf.record_charge(),
+                direct.record_charge() + observed.record_charge - pdf.source().record_charge()
+            );
+            assert_eq!(
+                final_pdf.spool_charge(),
+                direct.spool_charge() + observed.spool_charge - pdf.source().spool_charge()
+            );
+            assert_eq!(final_pdf.final_pdf().page_count(), pdf.page_count());
+            for (records, spool) in [
+                (pdf.record_charge() - 1, observed.spool_charge),
+                (observed.record_charge, pdf.spool_charge() - 1),
+            ] {
+                assert_eq!(
+                    typaxis_pdf::write_production_common_tagged_pdf_after_assembly(
+                        pdf,
+                        &semantics,
+                        profile.authorization(),
+                        profile.base().authorization(),
+                        &admitted,
+                        &limits,
+                        cfg.fingerprint(),
+                        records,
+                        spool
+                    )
+                    .unwrap_err(),
+                    typaxis_pdf::ProductionBodyAssemblyError::ReceiptMismatch
+                );
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn production_common_final_driver_and_manifests_share_exact_budgets() {
+    for value in [
+        production_body_navigation_vmb_fixture(),
+        production_page_reference_fixture(11).0,
+    ] {
+        let bytes = serde_json::to_vec(&value).unwrap();
+        let mut records = 0;
+        let mut spool = 0;
+        for mode in 0..5 {
+            let cfg = config_with_limits(ResourceLimits {
+                max_fragments: match mode {
+                    1 => records,
+                    2 => records - 1,
+                    _ => ResourceLimits::default().max_fragments,
+                },
+                max_spool_bytes: match mode {
+                    3 => spool,
+                    4 => spool - 1,
+                    _ => ResourceLimits::default().max_spool_bytes,
+                },
+                ..ResourceLimits::default()
+            });
+            let (package, navigation, limits, admitted) = production_text_fixture(&bytes, &cfg);
+            let semantics = typaxis_syntax::validate_staging_structure_semantics_v2(
+                &package,
+                &navigation,
+                &limits,
+            )
+            .unwrap();
+            let identity =
+                typaxis_machine_profile::StagingSemanticContainerSessionIdentity::fresh();
+            let profile = typaxis_machine_profile::preflight_staging_tagged_pdf_profile_v2(
+                &package,
+                &navigation,
+                &semantics,
+                &limits,
+                &identity,
+            )
+            .unwrap();
+            let result = with_production_common_tagged_pdf(
+                &package,
+                &navigation,
+                &semantics,
+                &profile,
+                &admitted,
+                &limits,
+                typaxis_linebreak::JapaneseLineBreakMode::Normal,
+                100_000,
+                cfg.fingerprint(),
+                |diagnostic, pdf, observed| {
+                    assert_eq!(observed.record_charge, pdf.record_charge());
+                    assert_eq!(observed.spool_charge, pdf.spool_charge());
+                    assert_eq!(diagnostic.page_count(), pdf.final_pdf().page_count());
+                    let marked = diagnostic
+                        .source()
+                        .structure_objects()
+                        .annotations()
+                        .marked();
+                    let book = typaxis_manifest::build_production_book_navigation_manifest(
+                        &package,
+                        &navigation,
+                        profile.base().authorization(),
+                        &pdf,
+                        &limits,
+                    )
+                    .map_err(|e| map_common_assembly_error("book manifest", e))?;
+                    let safe = typaxis_manifest::build_production_safe_vector_manifest(
+                        marked.content(),
+                        profile.base().base().authorization(),
+                        &book,
+                        &pdf,
+                        &admitted,
+                        &limits,
+                    )
+                    .map_err(|e| map_common_assembly_error("safe manifest", e))?;
+                    let math = typaxis_manifest::build_production_math_vector_manifest(
+                        marked.structure().display(),
+                        &safe,
+                        &limits,
+                    )
+                    .map_err(|e| map_common_assembly_error("math manifest", e))?;
+                    let tagged = typaxis_manifest::build_production_tagged_manifest(
+                        marked.structure(),
+                        &pdf,
+                        &safe,
+                        &math,
+                        &limits,
+                    )
+                    .map_err(|e| map_common_assembly_error("tagged manifest", e))?;
+                    Ok((tagged.record_charge(), tagged.spool_charge()))
+                },
+            );
+            if mode == 2 || mode == 4 {
+                let error = result.unwrap_err();
+                assert_eq!(error.kind, FailureKind::Limit, "{}", error.message);
+            } else {
+                let charge = result.unwrap();
+                if mode == 0 {
+                    (records, spool) = charge;
+                } else {
+                    assert_eq!(charge, (records, spool));
+                }
+            }
+        }
+    }
+}

@@ -112,6 +112,91 @@ pub fn write_production_common_tagged_pdf(
     limits: &M4EffectiveResourceLimits,
     config: EffectiveConfigFingerprint,
 ) -> Result<ProductionCommonTaggedPdf, E> {
+    write_common_tagged_pdf_with_base(
+        source,
+        semantics,
+        accessibility,
+        book_profile,
+        admitted,
+        limits,
+        config,
+        (source.record_charge(), source.spool_charge()),
+    )
+}
+
+/// Continue from the exact diagnostic graph after page-reference convergence.
+/// The convergence owner supplies its cumulative charges, including every
+/// completed pass. They cannot be below the retained assembly's own charges.
+pub fn write_production_common_tagged_pdf_after_assembly(
+    previous: &ProductionFootnotePdfAssembly<
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+    >,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    accessibility: &StagingAccessibilityProfileAuthorizationV2,
+    book_profile: &StagingBookNavigationProfileAuthorizationV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    config: EffectiveConfigFingerprint,
+    prior_records: u64,
+    prior_spool: u64,
+) -> Result<ProductionCommonTaggedPdf, E> {
+    if prior_records < previous.record_charge() || prior_spool < previous.spool_charge() {
+        return Err(E::ReceiptMismatch);
+    }
+    previous.verify(previous.source, admitted, limits)?;
+    write_common_tagged_pdf_with_base(
+        previous.source,
+        semantics,
+        accessibility,
+        book_profile,
+        admitted,
+        limits,
+        config,
+        (prior_records, prior_spool),
+    )
+}
+
+fn write_common_tagged_pdf_with_base(
+    source: &crate::ProductionFootnoteResourceObjects<
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+    >,
+    semantics: &ValidatedStagingStructureSemanticsV2,
+    accessibility: &StagingAccessibilityProfileAuthorizationV2,
+    book_profile: &StagingBookNavigationProfileAuthorizationV2,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    config: EffectiveConfigFingerprint,
+    prior_charges: (u64, u64),
+) -> Result<ProductionCommonTaggedPdf, E> {
     source
         .verify(source.structure_objects(), admitted, limits)
         .map_err(|_| E::ReceiptMismatch)?;
@@ -147,7 +232,13 @@ pub fn write_production_common_tagged_pdf(
         return Err(E::ReceiptMismatch);
     }
 
-    let pdf = assemble_production_footnote_pdf_with_metadata(source, admitted, limits, true)?;
+    let pdf = assemble_production_footnote_pdf_with_metadata(
+        source,
+        admitted,
+        limits,
+        true,
+        Some(prior_charges),
+    )?;
     pdf.verify(source, admitted, limits)?;
     let safe = pdf.seal_safe_vector(admitted, limits, pdf.record_charge(), pdf.spool_charge())?;
     let book = typaxis_display_list::project_production_footnote_book_navigation(

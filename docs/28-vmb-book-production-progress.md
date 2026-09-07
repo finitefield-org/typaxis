@@ -6115,3 +6115,38 @@ manifest retention/copies need corresponding budget integration. Formal exporter
 whole-pipeline allocation, original/Harano full-book, scale, host and human PDF/UA
 acceptance remain incomplete. Neither this fixture nor the root member check
 substitutes for those gates.
+
+
+## Converged common driver to final tagged serializer (2026-09-08)
+
+Added `write_production_common_tagged_pdf_after_assembly`. It verifies the exact
+previous assembly and starts final assembly charges at the convergence owner's
+cumulative record/spool totals. The existing direct serializer still starts at
+its source graph charges. The common assembly helper rejects bases below that
+graph, and the handoff rejects totals below the retained diagnostic assembly.
+The serializer does not infer unknown prior passes; aggregation remains owned
+by the existing CLI convergence loop.
+
+Added `with_production_common_tagged_pdf`, which runs the existing convergence
+owner and passes its complete totals directly to this final serializer. Its
+callback receives the owned final tagged PDF and read-only access to the exact
+source graph for the four common manifests. Observation charges are updated to
+the final serializer totals without resetting work/pass counts.
+
+A multi-pass page-reference test compares direct and handed-off PDF bytes and
+checks that each charge difference equals convergence totals minus source graph
+charges. Below-assembly totals are rejected. Separate reference/no-reference
+fixtures exercise exact/one-short cumulative record and spool bounds from
+convergence through all four manifests.
+
+Local verification (all processes exited):
+
+- CLI `production_ -- --skip 5000`: **175 passed, 1 ignored**, 14.79 seconds;
+  `/private/tmp/typaxis-common-final-handoff-regression.log`.
+- PDF library: **85 passed, 1 ignored**, 0.77 seconds;
+  `/private/tmp/typaxis-common-final-handoff-pdf.log`.
+
+Public `build_production_book_pdf` still uses the legacy writer. Root manifest
+retention/copies and trace costs must be integrated before routing that public
+entry through the new driver. Formal exporter and original/Harano full-book,
+scale, host, allocation and human PDF/UA acceptance are not closed by this change.
