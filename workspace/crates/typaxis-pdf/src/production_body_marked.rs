@@ -112,7 +112,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
         .map_err(|_| E::ReceiptMismatch)?;
     // Combine branches without charging their common display twice. Neither
     // branch receives a fresh resource budget at this merge.
-    let mut record_charge = content
+    let record_base = content
         .record_charge()
         .checked_add(
             structure
@@ -120,15 +120,64 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 .checked_sub(display.record_charge())
                 .ok_or(E::RecordLimit)?,
         )
-        .and_then(|v| v.checked_add(content.pages().len() as u64))
+        .ok_or(E::RecordLimit)?;
+    let spool_base = content
+        .spool_charge()
+        .checked_add(structure.spool_charge())
+        .ok_or(E::OutputLimit)?;
+    let projected = project_marked_pages(
+        display.draws(),
+        content.pages(),
+        display.selected().page_geometry().page_height().get().raw(),
+        structure.registry(),
+        structure.groups().len(),
+        |p| structure.page_groups(p),
+        |i| structure.group_actual_text(i),
+        content.text().paints(),
+        |i| content.text().paint_commands(i),
+        |i| content.rasters().draw_plan(i),
+        record_base,
+        spool_base,
+        limits,
+    )?;
+    Ok(ProductionBodyMarkedContent {
+        content,
+        structure,
+        pages: projected.pages,
+        anchors: projected.anchors,
+        record_charge: projected.record_charge,
+        spool_charge: projected.spool_charge,
+    })
+}
+
+struct MarkedProjection {
+    pages: Vec<ProductionBodyMarkedPage>,
+    anchors: Vec<ProductionBodySemanticAnchor>,
+    record_charge: u64,
+    spool_charge: u64,
+}
+fn project_marked_pages<'s>(
+    draws: &[ProductionBodyDraw<'_>],
+    source_pages: &[crate::ProductionBodyPage],
+    page_height: i64,
+    registry: &typaxis_display_list::StructureRegistryReceiptV2,
+    group_count: usize,
+    page_groups: impl Fn(u32) -> Option<&'s [typaxis_display_list::ProductionBodyStructureGroup]>,
+    actual_text: impl Fn(usize) -> Option<&'s str>,
+    text_paints: &[crate::ProductionBodyTextPaint],
+    text_commands: impl Fn(usize) -> Option<&'s [u8]>,
+    raster_plan: impl Fn(usize) -> Option<usize>,
+    record_base: u64,
+    mut spool_charge: u64,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<MarkedProjection, ProductionBodyMarkedError> {
+    use ProductionBodyMarkedError as E;
+    let mut record_charge = record_base
+        .checked_add(source_pages.len() as u64)
         .ok_or(E::RecordLimit)?;
     if record_charge > limits.base().get().max_fragments {
         return Err(E::RecordLimit);
     }
-    let mut spool_charge = content
-        .spool_charge()
-        .checked_add(structure.spool_charge())
-        .ok_or(E::OutputLimit)?;
     if spool_charge > limits.base().get().max_spool_bytes {
         return Err(E::OutputLimit);
     }
@@ -152,31 +201,42 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
     };
     let root = format!(
         "q\n1 0 0 -1 0 {} cm\n",
-        crate::tagged_pdf_v2::pdf_number_v2(
-            display.selected().page_geometry().page_height().get().raw()
-        )
+        crate::tagged_pdf_v2::pdf_number_v2(page_height)
     );
     let mut pages = Vec::new();
     let mut anchors = Vec::new();
     pages
-        .try_reserve_exact(content.pages().len())
+        .try_reserve_exact(source_pages.len())
         .map_err(|_| E::AllocationFailure)?;
     let mut group_index = 0usize;
-    for source in content.pages() {
+    for source in source_pages {
         let mut page = ProductionBodyMarkedPage {
             page_index: source.page_index(),
             content: Vec::new(),
         };
         append(&mut page.content, root.as_bytes())?;
         let mut ordinal = 0usize;
-        for group in structure
-            .page_groups(source.page_index())
-            .ok_or(E::ReceiptMismatch)?
-        {
-            let node = structure
-                .registry()
-                .node(group.node())
-                .ok_or(E::ReceiptMismatch)?;
+        let mut artifact_index = 0usize;
+        for group in page_groups(source.page_index()).ok_or(E::ReceiptMismatch)? {
+            // A separator belongs between source groups, outside every MCID
+            // and ActualText scope. Reject an artifact that splits a group.
+            if let Some(artifact) = source.artifacts().get(artifact_index) {
+                if artifact.before_draw() < group.draws().start {
+                    return Err(E::ReceiptMismatch);
+                }
+                if artifact.before_draw() == group.draws().start {
+                    append(
+                        &mut page.content,
+                        source
+                            .artifact_content(artifact_index)
+                            .ok_or(E::ReceiptMismatch)?,
+                    )?;
+                    artifact_index += 1;
+                } else if artifact.before_draw() < group.draws().end {
+                    return Err(E::ReceiptMismatch);
+                }
+            }
+            let node = registry.node(group.node()).ok_or(E::ReceiptMismatch)?;
             append(
                 &mut page.content,
                 format!(
@@ -199,7 +259,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 // and guess their replacement from adjacent font geometry.
                 append(&mut page.content, b"/Span << /ActualText <FEFF")?;
                 for index in group.draws() {
-                    let Some(ProductionBodyDraw::Text(text)) = display.draws().get(index) else {
+                    let Some(ProductionBodyDraw::Text(text)) = draws.get(index) else {
                         return Err(E::ReceiptMismatch);
                     };
                     for unit in text.exact_text().encode_utf16() {
@@ -208,14 +268,14 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 }
                 append(&mut page.content, b"> >> BDC\n")?;
             }
-            if let Some(text) = structure.group_actual_text(group_index) {
+            if let Some(text) = actual_text(group_index) {
                 append(&mut page.content, b"q\n/Span << /ActualText <FEFF")?;
                 for unit in text.encode_utf16() {
                     append(&mut page.content, format!("{unit:04X}").as_bytes())?;
                 }
                 append(&mut page.content, b"> >> BDC\n")?;
             }
-            if structure.group_actual_text(group_index).is_some() {
+            if actual_text(group_index).is_some() {
                 // Give the extraction glyph the selected formula's physical
                 // width and height, at its selected baseline. A fixed 1 pt
                 // vertical scale changes extractor word-gap heuristics even
@@ -224,8 +284,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 if group.draws().len() != 1 {
                     return Err(E::ReceiptMismatch);
                 }
-                let Some(ProductionBodyDraw::Vector(vector)) =
-                    display.draws().get(group.draws().start)
+                let Some(ProductionBodyDraw::Vector(vector)) = draws.get(group.draws().start)
                 else {
                     return Err(E::ReceiptMismatch);
                 };
@@ -261,11 +320,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 }
                 match (draw.source(), group.vector_usage_id()) {
                     (ProductionBodyPageDrawSource::Text { paint_index }, None) if body_text => {
-                        let paint = content
-                            .text()
-                            .paints()
-                            .get(paint_index)
-                            .ok_or(E::ReceiptMismatch)?;
+                        let paint = text_paints.get(paint_index).ok_or(E::ReceiptMismatch)?;
                         if paint.draw_index() != draw_index || paint.page_index() != page.page_index
                         {
                             return Err(E::ReceiptMismatch);
@@ -273,10 +328,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                         append(&mut page.content, b"q\n")?;
                         append(
                             &mut page.content,
-                            content
-                                .text()
-                                .paint_commands(paint_index)
-                                .ok_or(E::ReceiptMismatch)?,
+                            text_commands(paint_index).ok_or(E::ReceiptMismatch)?,
                         )?;
                         if draw_index + 1 == group.draws().end {
                             // Flush ActualText with the last retained text
@@ -294,7 +346,7 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                         )?;
                     }
                     (ProductionBodyPageDrawSource::Raster { plan_index }, None) if !body_text => {
-                        if content.rasters().draw_plan(draw_index) != Some(plan_index) {
+                        if raster_plan(draw_index) != Some(plan_index) {
                             return Err(E::ReceiptMismatch);
                         }
                         append(
@@ -307,27 +359,112 @@ pub fn build_production_body_marked_content<'c, 'f, 'v, 'd, 's, 'p, 'a>(
                 append(&mut page.content, b"\n")?;
                 ordinal += 1;
             }
-            if structure.group_actual_text(group_index).is_some() {
+            if actual_text(group_index).is_some() {
                 append(&mut page.content, b"EMC\nQ\n")?;
             }
             append(&mut page.content, b"EMC\n")?;
             group_index += 1;
         }
-        if ordinal != source.draws().len() {
+        if ordinal != source.draws().len() || artifact_index != source.artifacts().len() {
             return Err(E::ReceiptMismatch);
         }
         append(&mut page.content, b"Q\n")?;
         pages.push(page);
     }
-    if group_index != structure.groups().len() {
+    if group_index != group_count {
         return Err(E::ReceiptMismatch);
     }
-    Ok(ProductionBodyMarkedContent {
-        content,
-        structure,
+    Ok(MarkedProjection {
         pages,
         anchors,
         record_charge,
         spool_charge,
+    })
+}
+
+/// Marked content remains bound to the same joint structure through its fonts.
+pub struct ProductionFootnoteMarkedContent<'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    content: &'c crate::ProductionFootnotePageContent<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    projection: MarkedProjection,
+}
+impl<'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    ProductionFootnoteMarkedContent<'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+{
+    pub fn content(
+        &self,
+    ) -> &'c crate::ProductionFootnotePageContent<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+        self.content
+    }
+    pub fn structure(
+        &self,
+    ) -> &'t typaxis_display_list::ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    {
+        self.content.plans().fonts().structure()
+    }
+    pub fn pages(&self) -> &[ProductionBodyMarkedPage] {
+        &self.projection.pages
+    }
+    pub fn anchors(&self) -> &[ProductionBodySemanticAnchor] {
+        &self.projection.anchors
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.projection.record_charge
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.projection.spool_charge
+    }
+    pub fn verify(
+        &self,
+        content: &crate::ProductionFootnotePageContent<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), ProductionBodyMarkedError> {
+        if !std::ptr::eq(self.content, content) {
+            return Err(ProductionBodyMarkedError::ReceiptMismatch);
+        }
+        content
+            .verify(content.plans().fonts(), admitted, limits)
+            .map_err(|_| ProductionBodyMarkedError::ReceiptMismatch)
+    }
+}
+pub fn build_production_footnote_marked_content<'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+    content: &'c crate::ProductionFootnotePageContent<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<
+    ProductionFootnoteMarkedContent<'c, 'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    ProductionBodyMarkedError,
+> {
+    content
+        .verify(content.plans().fonts(), admitted, limits)
+        .map_err(|_| ProductionBodyMarkedError::ReceiptMismatch)?;
+    let structure = content.plans().fonts().structure();
+    let display = structure.display();
+    // Structure precedes fonts on this path; its charges are already retained
+    // in page content. Do not add the ordinary-body parallel-branch merge.
+    let projection = project_marked_pages(
+        display.draws(),
+        content.pages(),
+        display
+            .source()
+            .block_layout()
+            .page_geometry()
+            .page_height()
+            .get()
+            .raw(),
+        structure.registry(),
+        structure.groups().len(),
+        |p| structure.page_groups(p),
+        |i| structure.group_actual_text(i),
+        content.text().paints(),
+        |i| content.text().paint_commands(i),
+        |i| content.rasters().draw_plan(i),
+        content.record_charge(),
+        content.spool_charge(),
+        limits,
+    )?;
+    Ok(ProductionFootnoteMarkedContent {
+        content,
+        projection,
     })
 }

@@ -1974,3 +1974,24 @@ Artifactのbyte範囲と挿入先draw番号を保持し、後続marked-content�
 この段階は統合ページcontentであり、構造groupからのmarked content、ParentTree・font／image
 objectの最終統合、注釈・リンク・manifest・公開writerの接続はまだ必要である。
 動的参照の収束、元全巻・原ノ味・規模・両hostの完了条件を緩和しない。
+
+### 14.44 本文・脚注の構造付きページ命令（実装追補）
+
+`build_production_footnote_marked_content`は§14.43のページcontentを検証して借用し、
+そのfont計画が保持する同一の構造結果を使う。通常本文と共通のmarked-content生成処理で、
+実groupごとのrole、ページ内MCID、Langを付ける。文字のActualTextは実groupに属する
+draw文字列だけを連結し、元source nodeの全文やcluster単位の置換を重ねない。
+数式の意味文字列は既存の非描画anchorを使い、実viewportとbaselineを保持する。
+
+区切り線Artifactは元ページのbyte範囲をそのまま、対象groupの直前かつ全MCID／ActualText
+scopeの外に取り込む。groupの途中を分断するArtifact、未消費のArtifact、draw順の不一致、
+未消費のgroupを拒否する。強制改ページで残った空ページも保持する。
+
+脚注経路では構造がfont確定より前にあるため、そのrecords／spoolはページcontentへすでに
+含まれる。通常本文の並列branchを合流する加算を再適用せず、ページ結果・数式anchorの
+recordsと新しいmarked bytesを加算する。生成結果は元contentとの同一性を検証できる。
+
+この段階はMCIDを含むページ命令であり、構造object／ParentTree、font・image object、
+脚注参照先を含む注釈・リンク、manifest・公開writerの最終接続は引き続き必要である。
+独立した完成PDFの抽出順・tag・navigation検証、および動的参照、全allocation寿命管理、
+元全巻・原ノ味・規模・両hostの完了条件を維持する。

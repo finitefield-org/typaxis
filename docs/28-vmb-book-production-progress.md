@@ -5059,3 +5059,44 @@ alongside common-driver, ordinary body/raster/object/Unicode/structure tests.
 The ignored saved-job test requires explicit input/output paths. These
 regressions do not replace original-book performance or independent full-PDF
 acceptance. All processes from this implementation step are terminal.
+
+## Joint body/footnote marked content
+
+Implemented §14.44. The authenticated joint page contribution feeds the shared
+marked-content projector. Each selected structure group receives its actual
+role, dense page MCID and language; text ActualText contains only the selected
+draw strings. Formula semantic anchors retain actual viewport/baseline values.
+Separators are copied from their exact source byte ranges outside all MCID and
+ActualText scopes, before the associated group. An artifact splitting a group
+or left unconsumed is rejected. Blank pages remain in the result.
+
+The result borrows its exact page-content owner and obtains the same structure
+through the existing font plan. The joint path already includes structure
+records/spool before font finalization, so marked-content construction starts
+from content charges without repeating the ordinary-body parallel-branch merge.
+Pages, nonpainting formula anchors and new marked bytes are then charged.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_ --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked -- --skip production_body_page_content_places_5000
+```
+Footnotes before the final multi-digit addition: **54 passed, 0 failed, 8.71 s**,
+`/private/tmp/typaxis-joint-marked-tests.log`.
+Final regression: **151 passed, 0 failed, 1 explicitly ignored, 16.32 s**,
+`/private/tmp/typaxis-joint-marked-final.log`. This covers the final multi-digit
+footnote case, actual reference/definition/equation text, scope balancing,
+artifact exclusion from structure scopes, exact ordered ActualText strings,
+formula anchor geometry, owner identity, and exact/one-short records/spool/output
+budgets. Existing common driver, structure, object/Unicode and assembly tests
+also pass. The two 5,000-SVG unmarked page-content cases were explicitly excluded
+from this run; their shared code was not changed in this step and their previous
+run remains recorded above. The saved-job test remains explicitly ignored.
+
+No completed public/full-book PDF is issued. Navigation including footnote
+destinations/annotations, final structure/ParentTree/font/image objects, manifest
+and the public writer remain to connect, together with dynamic references,
+complete allocation/retry budgeting and original full-book/Harano/scale/both-host
+acceptance. No push.

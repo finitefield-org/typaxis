@@ -2064,7 +2064,11 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
     raster_note["page_masters"]["masters"][0]["footnote"] =
         serde_json::json!({"x":655360,"y":13000000,"width":16000000,"height":6000000});
     production_body_renumber(&mut raster_note["document"], &mut 0);
+    let mut multi = production_footnote_multi_digit_fixture();
+    multi["page_masters"]["masters"][0]["footnote"]["height"] = 16_000_000.into();
+    multi["page_masters"]["masters"][0]["footnote"]["y"] = 3_000_000.into();
     for value in [
+        multi,
         raster_note,
         production_footnote_flow_fixture(),
         production_footnote_numbered_definition_fixture(),
@@ -2242,6 +2246,112 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                 }
                 assert_eq!(draw_index, display.draws().len());
                 assert_eq!(separator_index, display.separators().len());
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+                marked.verify(&content, admitted, limits).unwrap();
+                assert!(std::ptr::eq(marked.structure(), &structure));
+                assert!(std::ptr::eq(marked.content(), &content));
+                assert_eq!(marked.pages().len(), content.pages().len());
+                assert_eq!(
+                    marked.record_charge(),
+                    content.record_charge()
+                        + marked.pages().len() as u64
+                        + marked.anchors().len() as u64
+                );
+                let mut group_index = 0;
+                for (page_index, page) in marked.pages().iter().enumerate() {
+                    let commands = std::str::from_utf8(page.content()).unwrap();
+                    let groups = structure.page_groups(page_index as u32).unwrap();
+                    assert_eq!(commands.matches("/MCID ").count(), groups.len());
+                    let mut scope_depth = 0usize;
+                    let mut artifacts = 0;
+                    for line in commands.lines() {
+                        if line == "/Artifact BMC" {
+                            assert_eq!(scope_depth, 0, "artifact inside structural content");
+                            scope_depth += 1;
+                            artifacts += 1;
+                        } else if line.ends_with(" BDC") {
+                            scope_depth += 1;
+                        } else if line == "EMC" {
+                            scope_depth = scope_depth.checked_sub(1).expect("unbalanced EMC");
+                        }
+                    }
+                    assert_eq!(scope_depth, 0);
+                    assert_eq!(artifacts, content.pages()[page_index].artifacts().len());
+                    for ordinal in 0..artifacts {
+                        let artifact = std::str::from_utf8(
+                            content.pages()[page_index]
+                                .artifact_content(ordinal)
+                                .unwrap(),
+                        )
+                        .unwrap();
+                        assert!(commands.contains(artifact));
+                    }
+                    let actual: Vec<_> = commands
+                        .lines()
+                        .filter(|l| l.contains("/ActualText"))
+                        .map(str::to_owned)
+                        .collect();
+                    let mut expected = Vec::new();
+                    for (mcid, group) in groups.iter().enumerate() {
+                        let node = structure.registry().node(group.node()).unwrap();
+                        assert!(commands.contains(&format!(
+                            "/{} << /MCID {} /Lang",
+                            node.role().pdf_name(),
+                            mcid
+                        )));
+                        let actual_text = if group.is_text() {
+                            Some(
+                                group
+                                    .draws()
+                                    .map(|i| match &display.draws()[i] {
+                                        ProductionBodyDraw::Text(t) => t.exact_text(),
+                                        _ => panic!("non-text in text group"),
+                                    })
+                                    .collect::<String>(),
+                            )
+                        } else {
+                            structure.group_actual_text(group_index).map(str::to_owned)
+                        };
+                        if let Some(text) = actual_text {
+                            let hex: String =
+                                text.encode_utf16().map(|u| format!("{u:04X}")).collect();
+                            expected.push(format!("/Span << /ActualText <FEFF{hex}> >> BDC"));
+                        }
+                        group_index += 1;
+                    }
+                    assert_eq!(actual, expected);
+                }
+                assert_eq!(group_index, structure.groups().len());
+                assert_eq!(
+                    marked.anchors().len(),
+                    (0..structure.groups().len())
+                        .filter(|&i| structure.group_actual_text(i).is_some())
+                        .count()
+                );
+                for anchor in marked.anchors() {
+                    let group = &structure.groups()[anchor.group_index()];
+                    let ProductionBodyDraw::Vector(vector) = &display.draws()[group.draws().start]
+                    else {
+                        panic!("anchor without formula");
+                    };
+                    assert_eq!(anchor.viewport(), vector.viewport());
+                    assert_eq!(anchor.baseline(), vector.baseline().unwrap());
+                    assert_eq!(anchor.page_index(), vector.page_index());
+                }
+                let other_content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+                assert_eq!(
+                    marked
+                        .verify(&other_content, admitted, limits)
+                        .err()
+                        .unwrap(),
+                    typaxis_pdf::ProductionBodyMarkedError::ReceiptMismatch
+                );
                 let other = typaxis_resources::finalize_production_footnote_fonts(
                     &structure, admitted, limits,
                 )
@@ -2330,6 +2440,93 @@ fn production_footnote_page_content_accounts_for_prior_records_spool_and_output(
                         spool = encoded
                             .spool_charge()
                             .max(encoded.rasters().peak_spool_charge());
+                        output = encoded
+                            .pages()
+                            .iter()
+                            .map(|p| p.content().len() as u64)
+                            .sum();
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_marked_content_preserves_prior_records_spool_and_output() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+    let mut output = 0;
+    for mode in 0..7 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            max_output_bytes: match mode {
+                5 => output,
+                6 => output - 1,
+                _ => ResourceLimits::default().max_output_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+                let result = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                );
+                if mode == 2 || mode == 4 || mode == 6 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_pdf::ProductionBodyMarkedError::RecordLimit
+                        } else {
+                            typaxis_pdf::ProductionBodyMarkedError::OutputLimit
+                        }
+                    );
+                } else {
+                    let encoded = result.unwrap();
+                    if mode == 0 {
+                        records = encoded.record_charge();
+                        spool = encoded.spool_charge();
                         output = encoded
                             .pages()
                             .iter()
