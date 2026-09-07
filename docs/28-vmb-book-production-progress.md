@@ -17,7 +17,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases and 5,000 synthetic distinct-paint Forms pass selected placement/structure/object tests; required engine-generated distinct formulas, mixed PNG and public check/build gates remain pending |
 | 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
-| CID CFF /2, FD-aware evaluator, subset / PDF integration | Pending |
+| CID CFF /2, FD-aware evaluator, subset / PDF integration | Separate CID program structure parser verified against original Harano full FD/CID maps; sfnt /2 admission, FD-aware evaluator, subset/PDF integration pending (checkpoint below) |
 | Vertical tables, cmap 14, IVS shaping/extraction | Pending |
 | Contract 1.5 / production-book-2 / resource-set 3 and capabilities | Pending; publish atomically only after gates |
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
@@ -2617,3 +2617,75 @@ and the three ignored independent-PDF probes are not counted as passed here.
 Logs: `/private/tmp/typaxis-reshape-tests.log` and
 `/private/tmp/typaxis-reshape-regression.log`. All verification started for this
 checkpoint reached terminal states. No branch push or public PDF was performed.
+
+## 2026-09-07: original CID CFF program structure for /2
+
+Added `typaxis-font/src/cff_v2.rs` as a separate structural inspection stage.
+It retains one `Arc<[u8]>` of the unchanged CFF table and stores verified ranges
+for CharStrings/global/local programs. The existing CFF /1 admission, program,
+evaluator and resource registry have not been widened.
+
+The parser validates CID Top DICT/ROS, FontMatrix constraints, FDArray 1–256,
+FDSelect 0/3, CID charset 0/1/2, each FD's Private DICT and local INDEX. It checks
+INDEX counts before allocation and rejects the 49th DICT operand before retaining
+it. Global and all FD-local subroutine declarations share one checked limit.
+Identical Private/local INDEX ranges may be shared across FDs, with repeated
+per-FD charges; partial overlaps and aliases across different structure kinds
+are rejected. The result is explicitly an inspection, not font admission or an
+embedding/evaluation/subset/PDF receipt.
+
+Independent original-font command:
+
+```sh
+python3 tools/inspect_harano_cff_program.py \
+  /Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf
+```
+
+The tool requires the recorded original SHA-256 and uses FontTools 4.51.0 here.
+It reports 6,422,896 original bytes, 23,060 glyphs, 18 declared FDs, 1,600 global
+and 24,956 local subroutines (26,556 total). FD 12 contains 21,626 local Subrs.
+The complete dense FD map SHA-256 is
+`83ca997d6773a631791dad08bf2448ed15566a7f51b052d7776a8a364cc344e1`;
+the complete GID→CID map serialized as big-endian u16 hashes to
+`22a2721ffa80fc5fe1da53fe8a78f0a4a0c59a4f73a32ee62f30177f25ce04aa`.
+These independently obtained expectations are asserted by the Rust original-font
+probe. All 18 FDs are parsed and charged even though only 12 distinct FDs have
+referencing glyphs. The first probe incorrectly expected every declared FD to be
+used; FontTools confirmed the actual use set and full mapping hashes before that
+test expectation was corrected. No product input or parser rule was relaxed.
+
+```sh
+TYPAXIS_HARANO_FONT=/Users/kazuyoshitoshiya/v/vmb-container/vmb-core/third_party/rendermath/fonts/HaranoAjiMincho-Regular.otf \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font cff_v2_original_harano_program --locked -- --ignored --nocapture
+```
+
+Result: **1 passed**. The test checked the original full-file SHA-256, complete
+FD/CID maps, all charstring ranges, glyph/FD counts and selected FD width defaults.
+This test extracts the original table in memory; it does not strip or rewrite
+the font. Output: `/private/tmp/typaxis-cff-v2-harano.log`; independent facts:
+`/private/tmp/typaxis-harano-cff-program-facts.json`.
+
+Broader regression command:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-font -p typaxis-resources -p typaxis-resource-admission \
+  -p typaxis-shaping --lib --locked
+```
+
+Result: font **29 passed, 1 ignored**; resource-admission **62 passed**;
+resources **28 passed**; shaping **24 passed** — **143 passed**, no failures.
+The single original-font test is explicitly run separately above. A subsequent
+additional regression verifies that a FDArray cannot also serve as a CharStrings
+INDEX; it changes tests only. Final `-p typaxis-font cff_v2 --locked` result:
+**9 passed, 1 ignored**, no failures. Tests also cover count N/N+1, shared-local
+subroutine accounting, invalid FDSelect coverage/sentinel/FD values, CID
+range overflow/duplicates, partial Private overlap and FD matrix rejection.
+
+Full /2 sfnt admission, vertical tables/cmap14/IVS, FD-aware Type2 execution and
+width/hmtx consistency, selected-glyph subset/PDF integration, versioned registry
+publication and original full-book rendering/extraction remain mandatory pending
+work. Structural inspection success does not fulfill the Harano support gate.

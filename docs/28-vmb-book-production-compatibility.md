@@ -448,6 +448,28 @@ shape結果→selected GID→subset mapping→ToUnicodeのjoinをIVS fixtureで�
 
 `typaxis-cli/src/font.rs`の既存`inspect-font FONT`はJSONを返し、face_count/faces/face_indexを持つ。そのshape・最大4,096 faces/file等の既存上限は維持する。通常のresource failure noteには最大32個のface index、総face数とtruncatedを示し、全一覧の取得コマンドを案内する。outline type/admission statusは選択faceのresource診断で示す。TTC header破損では一覧なし、存在するがCFF/variable/color等で非対応のfaceは「存在する／非対応」と区別する。新profileもTTC内CFF、CFF2、可変・color fontは今回の対応範囲外とする。
 
+### 7.6 実装追補: CID CFF /2 programの構造検査
+
+`typaxis-font/src/cff_v2.rs`の`inspect_cff1_program_v2`は元CFF tableを
+`Arc<[u8]>`で一つ保持し、CharStrings・global/local Subrsは検証済みbyte rangeで参照する。
+Top/FD/Private DICTを区別し、ROS・CID charset 0/1/2・FDSelect 0/3・FDArray 1〜256を
+検査する。DICT operandは49個目の割当て前に拒否し、INDEX countもoffset表の割当て前に
+上限を検査する。global数と全FDのlocal数を一つのsubroutine上限へ加算する。
+
+完全に同一のPrivate DICTまたはlocal INDEXをFD間で共有することは認めるが、宣言ごとの
+課金は省略しない。構造の部分重複や、異なる種類の構造を同一範囲へ置く入力は拒否する。
+GID 0のCIDは0とし、残りのCIDの重複・範囲overflowを拒否する。CIDはSIDやUnicodeとして
+解釈しない。エラーはCFF table内offset・FD・operator・limit/observedを保持する。
+
+無変更の原ノ味明朝について、23,060 glyph、18 FD、1,600 globalと24,956 local Subrsを
+確認した。実際にglyphが参照するFDは12種類であり、未使用FDも構造検査と宣言数に含める。
+全GIDのFD/CID列は`tools/inspect_harano_cff_program.py`のFontToolsによる独立読取りと
+hash一致した。構造規則の参照元は[Adobe CFF仕様 §18–19](https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf)。
+
+この入口はCFF programの構造inspectionであり、sfnt admission、embedding permission、
+Type2実行、cmap/IVS、subset/PDF認可を発行しない。既存CFF `/1`を変更せず、公開の
+contract 1.5 / production-book-2 / resource profile `/2`の有効化は本設計の後続ゲートまで行わない。
+
 ## 8. 実VMB結合テスト
 
 ### 8.1 fixtureの構成

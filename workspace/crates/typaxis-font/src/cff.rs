@@ -20,6 +20,12 @@ pub use diagnostics::{
     FontFailurePhase, FontFailureReason,
 };
 
+#[path = "cff_v2.rs"]
+mod v2;
+pub use v2::{
+    inspect_cff1_program_v2, CffProgramErrorKindV2, CffProgramErrorV2, CffProgramInspectionV2,
+};
+
 pub const CFF1_RESOURCE_PROFILE_ID: &str = "typaxis.resource-profile/sfnt-cff1/1";
 pub const CFF1_ADMISSION_ID: &str = "typaxis.sfnt-cff1-admission/1";
 pub const CFF1_CHARSTRING_EVALUATOR_ID: &str = "typaxis.cff1-charstring-evaluator/1";
