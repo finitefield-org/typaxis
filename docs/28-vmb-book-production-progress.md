@@ -3669,3 +3669,24 @@ Logs: `/private/tmp/vmb-metadata-regression.log` (includes initial keyword failu
 and test-envelope admission, not the final assembler, source-record publication or
 PDF/full-book/Harano/scale/both-host acceptance. All launched tests are terminal;
 no public profile changed or branch was pushed.
+
+
+### 2026-09-07: Outline from actual body hierarchy and labels
+
+Companion **`9dc8d4c2`** adds `EncodeBookOutline`. It derives headings and explicitly
+selected semantic containers from the validated body tree, orders entries by their
+source node IDs and assigns dense outline IDs and exact parents. Labels retain
+source text and verified math ActualText. Missing hierarchy levels, destinations
+and unresolved dynamic labels fail without partial output. Entry and byte ceilings
+are enforced; returned bytes are owned copies.
+
+The complete rendertypaxis regression suite passed in **58.874 s**, including nine
+public admission cases. The new outline case has **2 images, 3 math occurrences,
+146 projection bytes** and empty diagnostics. Package SHA-256:
+`8ca1446049433289378a90429f9724bf11f172ed77ce622ecb65165b1f5654a3`.
+Source SHA-256: `965ef4bca1e805db4ffa22c9909ba35f25644d0d2e23153d74d21664e8e4f29e`.
+Logs: `/private/tmp/vmb-outline-tests.log`, `/private/tmp/vmb-outline-regression.log`.
+Command and CLI hash are recorded in companion design §15.34. This remains a
+test-envelope check of actual metadata/outline contributions, not the complete
+assembler, resolved PDF navigation or full-book/Harano/scale/both-host acceptance.
+All launched tests reached terminal state; no public profile changed or branch pushed.
