@@ -672,7 +672,7 @@ cargo test --manifest-path workspace/Cargo.toml \
 
 行内配置の追補（2026-09-06）: `typaxis-layout/src/production_selected_inline.rs`の`layout_production_inline_lines`は、prepared本文/SVG全段落と同数の幅を要求し、元の段落順で行を選択する。kernelが選択時に保持したunit penを本文にも使い、glyph originを`pen + offset_x`、`line baseline - offset_y`としてY-down座標へ投影する。SVGは同じline baselineとorigin補正を使う。source cluster・元run/glyph・font・改行ownerを保持し、内容を文字列から再構築しない。行組みの候補訪問数と配置record数は文書全体の一つの予算で制限する。これは行内の相対配置であり、page/frameの確定、行境界再shape、bidi、実ink bounds、justify、PDF描画を完了したreceiptではない。下記の共通cursorが選択したline topを本文/SVGの両方へ加える。semantic fragmentとPDFへの投影は引き続き実装する。
 
-共通cursorの追補（2026-09-06）: `typaxis-pagination/src/production_body.rs`の`paginate_production_body`は、source flowの段落行、block SVG、vector caption、明示改ページを同じcursorで配置する。行とblockのpackage/profile/limits/admission/binding epochを照合し、段落の実行高とblockの実content heightを消費する。paragraphのstart/end indent、start/center/end alignment、before/after spaceを使用する。semantic containerは縦余白と末尾keepを子の最初/最後の配置へ伝え、非ゼロのcontainer indentとnamed-page選択はowner付き保留とする。captionは実際の本文行を消費し、keep_caption=trueではblockからcaption末尾までの実高さを同じページに保つ。keep_with_nextは後続の実行高・余白を含めて判断し、groupが空ページにも収まらない場合はoversizeとする。明示改ページは先頭・連続・末尾を含めて1 nodeにつき必ず次ページを作る。keepと明示改ページの衝突は診断し、片方を黙って無視しない。
+共通cursorの追補（2026-09-06）: `typaxis-pagination/src/production_body.rs`の`paginate_production_body`は、source flowの段落行、block SVG、vector caption、明示改ページを同じcursorで配置する。行とblockのpackage/profile/limits/admission/binding epochを照合し、段落の実行高とblockの実content heightを消費する。paragraphのstart/end indent、start/center/end alignment、before/after spaceを使用する。semantic containerは縦余白と末尾keepを子の最初/最後の配置へ伝える。左右indentは共通body frameを使う場合に親の利用可能幅から差し引き、子の本文・数式・図版・listへ渡す。frameを持たない旧行組み結果での非ゼロindentとnamed-page選択はowner付き保留とする（2026-09-07追補）。captionは実際の本文行を消費し、keep_caption=trueではblockからcaption末尾までの実高さを同じページに保つ。keep_with_nextは後続の実行高・余白を含めて判断し、groupが空ページにも収まらない場合はoversizeとする。明示改ページは先頭・連続・末尾を含めて1 nodeにつき必ず次ページを作る。keepと明示改ページの衝突は診断し、片方を黙って無視しない。
 
 選択fragmentはparagraph/lineまたはblock index、page index、bounds、baseline、SVG viewportを持ち、本文glyphとinline SVGには同じline originを加える。page/fragment/work recordの有限予算を行・block preparationから継続し、既定の先頭blank pageもページ予算に数える。当初は実寸法に基づく前方配置だけだったが、§14.8の内部候補比較とwidow/orphan・heading costを接続した。汎用のpage-break trace/budget receipt、収束loop、table/footnote/native mathの共通配置とterminal/paint authorizationは未接続で、これらを全巻対応済みと扱わない。source flowが未接続領域に遭遇した場合は部分結果を返さず、所有nodeを診断する。最終publication前に既存のpage-break policy/trace/convergence契約へ統合する。
 
@@ -963,3 +963,22 @@ package/configの新しい試験条件として記録する。失敗後の暗黙
 公開runnerへ接続する際は同じ候補順・選択結果を汎用のflow boundary/epoch/traceへ結び、
 上限超過をG6xxx診断へ伝え、生成文字列の再計算と最低2passの収束検査を行う。この接続、
 最終line reshaping、terminal/paint/manifestと実全巻の公開check/buildは依然として必須残件である。
+
+
+### 14.9 入れ子のsemantic containerの実幅
+
+`layout_production_body_inline_lines`のframe走査は、semantic containerに入る前の
+親frameを保存し、解決済みstart/end indentを差し引いた正の幅を子へ渡す。
+コンテナの終端で親frameへ戻し、後続の兄弟を内側の幅で組まない。
+本文の改行と共通paginationは同じframeを用い、段落固有のindentはその後に一度だけ
+適用する。block SVGはその実幅で整列を再計算し、PNG/JPEG図版のwidthとcaptionの
+段落幅、list marker列とitem frameも同じ親frameを基準とする。
+
+幅を使い切るcontainerは`ContainerFrameExhausted`とそのownerで拒否する。
+任意幅で先に組んだ旧行結果を後から横へ移す接続は受理せず、非ゼロindentには
+測定済みbody frameを要求する。親・子のframe、復帰順序と元のprepared identityを
+`typaxis.production-body-frames/1`の内部fingerprintに結ぶ。公開profileは変更しない。
+
+この実装は共通配置経路の幅伝播を閉じる。式番号付きblockのitem/container幅での
+再準備、named page、最終行reshapingと汎用収束、terminal/paint/manifest、公開全巻
+buildは別の必須残件であり、本節の試験でそれらの完了を代替しない。

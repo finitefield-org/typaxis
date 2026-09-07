@@ -149,7 +149,21 @@ pub(super) fn prepare_frames<'p, 'a>(
                     .try_reserve(1)
                     .map_err(|_| error(owner, E::AllocationFailure))?;
                 stack.push((owner, current));
-                if kind == Region::List {
+                if kind == Region::SemanticContainer {
+                    let style = flow
+                        .semantic_container_style(owner)
+                        .ok_or_else(|| error(owner, E::ReceiptMismatch))?
+                        .block_style();
+                    let start = add(current.start, style.start_indent().get(), owner)?;
+                    let width = current
+                        .width
+                        .get()
+                        .checked_sub(style.start_indent().get())
+                        .and_then(|n| n.checked_sub(style.end_indent().get()))
+                        .and_then(PositiveLength::new)
+                        .ok_or_else(|| error(owner, E::ContainerFrameExhausted))?;
+                    current = ProductionInlineFrame { start, width };
+                } else if kind == Region::List {
                     let index = lists.len();
                     let source = flow
                         .lists()
@@ -241,6 +255,7 @@ pub(super) fn prepare_frames<'p, 'a>(
     digest
         .try_reserve_exact(capacity)
         .map_err(|_| error(root, E::AllocationFailure))?;
+    digest.extend_from_slice(&sha256(b"typaxis.production-body-frames/1"));
     digest.extend_from_slice(&prepared.fingerprint());
     for n in [body.x(), body.y(), body.width().get(), body.height().get()] {
         digest.extend_from_slice(&n.raw().to_be_bytes());

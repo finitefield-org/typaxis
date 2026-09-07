@@ -559,6 +559,7 @@ struct MarkupScanner<'a> {
     source: &'a str,
     cursor: usize,
     policy: MarkupLexicalPolicy,
+    current_element: Option<&'a str>,
 }
 
 impl<'a> MarkupScanner<'a> {
@@ -582,25 +583,33 @@ impl<'a> MarkupScanner<'a> {
             source,
             cursor: 0,
             policy,
+            current_element: None,
         })
     }
 
     fn next(&mut self) -> Result<Option<Tag<'a>>, ResourceAdmissionError> {
+        self.current_element = None;
         self.next_inner().map_err(|error| {
-            if self.policy != MarkupLexicalPolicy::SafeV2
-                || matches!(error, ResourceAdmissionError::SafeSvg2Detailed(_))
-            {
+            if self.policy != MarkupLexicalPolicy::SafeV2 {
                 return error;
             }
-            let reason = if self.cursor == self.source.len() {
-                SafeSvg2DetailReason::UnexpectedEndOfInput
-            } else {
-                SafeSvg2DetailReason::UnexpectedToken
+            let mut failure = match error {
+                ResourceAdmissionError::SafeSvg2Detailed(failure) => failure,
+                ResourceAdmissionError::InvalidSafeVector => {
+                    let reason = if self.cursor == self.source.len() {
+                        SafeSvg2DetailReason::UnexpectedEndOfInput
+                    } else {
+                        SafeSvg2DetailReason::UnexpectedToken
+                    };
+                    SafeSvg2Failure::new(reason)
+                        .at(self.cursor, (self.cursor + 1).min(self.source.len()))
+                }
+                _ => return error,
             };
-            ResourceAdmissionError::SafeSvg2Detailed(
-                SafeSvg2Failure::new(reason)
-                    .at(self.cursor, (self.cursor + 1).min(self.source.len())),
-            )
+            if let Some(name) = self.current_element {
+                failure.element = DiagnosticToken::new(name);
+            }
+            ResourceAdmissionError::SafeSvg2Detailed(failure)
         })
     }
 
@@ -620,6 +629,8 @@ impl<'a> MarkupScanner<'a> {
         if bytes.get(self.cursor) == Some(&b'/') {
             self.cursor += 1;
             let name = self.read_name()?;
+            // The opening element's preorder index is not owned by the scanner.
+            // Do not attach the next-start index to a malformed closing tag.
             if bytes.get(self.cursor) != Some(&b'>') {
                 return Err(ResourceAdmissionError::InvalidSafeVector);
             }
@@ -635,6 +646,7 @@ impl<'a> MarkupScanner<'a> {
             }));
         }
         let name = self.read_name()?;
+        self.current_element = Some(name);
         let mut attrs = Attrs::new();
         attrs.detailed = self.policy == MarkupLexicalPolicy::SafeV2;
         loop {
@@ -1734,26 +1746,17 @@ fn shape_path(name: &str, attrs: Attrs<'_>) -> Result<SafeVectorPath, ResourceAd
             }
         }
         "polyline" | "polygon" => {
-            let values = parse_unbounded_fixed_list(required("points")?)?;
-            let minimum = if name == "polygon" { 6 } else { 4 };
-            if values.len() < minimum || values.len() % 2 != 0 {
-                return Err(ResourceAdmissionError::InvalidSafeVector);
-            }
+            let count = visit_points(name, attrs, |_| Ok(()))?;
             let mut segments = Vec::new();
             segments
-                .try_reserve_exact(values.len() / 2 + usize::from(name == "polygon"))
+                .try_reserve_exact(
+                    usize::try_from(count).map_err(|_| ResourceAdmissionError::ResourceLimit)?,
+                )
                 .map_err(|_| ResourceAdmissionError::ResourceLimit)?;
-            for (index, pair) in values.chunks_exact(2).enumerate() {
-                let point = point(pair[0], pair[1]);
-                segments.push(if index == 0 {
-                    SafeVectorSegment::Move(point)
-                } else {
-                    SafeVectorSegment::Line(point)
-                });
-            }
-            if name == "polygon" {
-                segments.push(SafeVectorSegment::Close);
-            }
+            visit_points(name, attrs, |segment| {
+                segments.push(segment);
+                Ok(())
+            })?;
             SafeVectorPath { segments }
         }
         _ => return Err(ResourceAdmissionError::InvalidSafeVector),
@@ -1761,24 +1764,120 @@ fn shape_path(name: &str, attrs: Attrs<'_>) -> Result<SafeVectorPath, ResourceAd
     Ok(path)
 }
 
-fn parse_unbounded_fixed_list(value: &str) -> Result<Vec<i64>, ResourceAdmissionError> {
-    if value.is_empty()
-        || value.as_bytes().first().is_some_and(|byte| is_wsp(*byte))
-        || value.as_bytes().last().is_some_and(|byte| is_wsp(*byte))
-        || value.contains(',')
-    {
-        return Err(ResourceAdmissionError::InvalidSafeVector);
-    }
-    value
-        .split_ascii_whitespace()
-        .map(|token| {
-            if token.is_empty() {
-                Err(ResourceAdmissionError::InvalidSafeVector)
-            } else {
-                decimal_fixed(token)
-            }
+/// One allocation-free grammar for Count and IR construction. Locations refer
+/// to the original attribute bytes, including on geometry/budget callbacks.
+fn visit_points(
+    name: &str,
+    attrs: Attrs<'_>,
+    mut emit: impl FnMut(SafeVectorSegment) -> Result<(), ResourceAdmissionError>,
+) -> Result<u64, ResourceAdmissionError> {
+    let value = attrs
+        .get("points")
+        .ok_or(ResourceAdmissionError::InvalidSafeVector)?;
+    let base = attrs
+        .values
+        .iter()
+        .flatten()
+        .find(|a| a.name == "points")
+        .ok_or(ResourceAdmissionError::ReceiptIdentityMismatch)?
+        .value_span
+        .start;
+    let fail = |reason, offset: usize, token: &str| {
+        if !attrs.detailed {
+            return ResourceAdmissionError::InvalidSafeVector;
+        }
+        let mut failure = SafeSvg2Failure::new(reason).attribute("points", token);
+        failure.span = Some(ResourceByteSpan {
+            start: base + offset as u64,
+            end: base + (offset + token.len()) as u64,
+        });
+        ResourceAdmissionError::SafeSvg2Detailed(failure)
+    };
+    let mut tokens = PathTokenCursor::new(value).map_err(|_| {
+        let offset = if value.as_bytes().first().is_some_and(|b| is_wsp(*b)) {
+            0
+        } else if value.as_bytes().last().is_some_and(|b| is_wsp(*b)) {
+            value.len() - 1
+        } else {
+            value.find(',').unwrap_or(0)
+        };
+        fail(
+            SafeSvg2DetailReason::UnexpectedToken,
+            offset,
+            value.get(offset..offset + 1).unwrap_or(""),
+        )
+    })?;
+    let number = |token: &str, offset| {
+        decimal_fixed(token).map_err(|_| {
+            fail(
+                if decimal_syntax(token, false).is_err() {
+                    SafeSvg2DetailReason::InvalidNumber
+                } else {
+                    SafeSvg2DetailReason::CoordinateOutOfRange
+                },
+                offset,
+                token,
+            )
         })
-        .collect()
+    };
+    let mut count = 0u64;
+    let mut emit_at = |segment, index, offset, token: &str| {
+        emit(segment).map_err(|error| {
+            if !attrs.detailed {
+                return error;
+            }
+            let mut failure = match error {
+                ResourceAdmissionError::SafeSvg2Detailed(f) => f,
+                ResourceAdmissionError::InvalidSafeVector => {
+                    SafeSvg2Failure::new(SafeSvg2DetailReason::InvalidGeometry)
+                }
+                _ => return error,
+            };
+            failure.attribute = DiagnosticToken::new("points");
+            failure.token = DiagnosticToken::new(token);
+            failure.span = Some(ResourceByteSpan {
+                start: base + offset as u64,
+                end: base + (offset + token.len()) as u64,
+            });
+            failure.segment_index = Some(index);
+            ResourceAdmissionError::SafeSvg2Detailed(failure)
+        })
+    };
+    while let Some(x) = tokens.next() {
+        let start = tokens.token_start;
+        let y = tokens
+            .next()
+            .ok_or_else(|| fail(SafeSvg2DetailReason::WrongParameterCount, start, x))?;
+        let point = SafeVectorPoint {
+            x: number(x, start)?,
+            y: number(y, tokens.token_start)?,
+        };
+        let pair = &value[start..tokens.token_start + y.len()];
+        emit_at(
+            if count == 0 {
+                SafeVectorSegment::Move(point)
+            } else {
+                SafeVectorSegment::Line(point)
+            },
+            count,
+            start,
+            pair,
+        )?;
+        count = count
+            .checked_add(1)
+            .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
+    }
+    if count < if name == "polygon" { 3 } else { 2 } {
+        return Err(fail(SafeSvg2DetailReason::WrongParameterCount, 0, value));
+    }
+    if name == "polygon" {
+        // Closing is implicit: identify the attribute end, not a fictitious Z.
+        emit_at(SafeVectorSegment::Close, count, value.len(), "")?;
+        count = count
+            .checked_add(1)
+            .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
+    }
+    Ok(count)
 }
 
 fn ellipse_segments(
@@ -1955,14 +2054,12 @@ fn validate_shape_without_allocation(
             let y = optional("y")?;
             let width = attrs.number("width", true, false)?;
             let height = attrs.number("height", true, false)?;
-            let right = x
-                .checked_add(width)
-                .filter(|value| value.abs() <= MAX_COORDINATE)
-                .ok_or(ResourceAdmissionError::InvalidSafeVector)?;
-            let bottom = y
-                .checked_add(height)
-                .filter(|value| value.abs() <= MAX_COORDINATE)
-                .ok_or(ResourceAdmissionError::InvalidSafeVector)?;
+            let right = attrs.context("width", SafeSvg2DetailReason::CoordinateOutOfRange,
+                x.checked_add(width).filter(|value| value.abs() <= MAX_COORDINATE)
+                    .ok_or(ResourceAdmissionError::InvalidSafeVector))?;
+            let bottom = attrs.context("height", SafeSvg2DetailReason::CoordinateOutOfRange,
+                y.checked_add(height).filter(|value| value.abs() <= MAX_COORDINATE)
+                    .ok_or(ResourceAdmissionError::InvalidSafeVector))?;
             for segment in [
                 SafeVectorSegment::Move(SafeVectorPoint { x, y }),
                 SafeVectorSegment::Line(SafeVectorPoint { x: right, y }),
@@ -1989,7 +2086,11 @@ fn validate_shape_without_allocation(
                     attrs.number("ry", true, false)?,
                 )
             };
-            for segment in ellipse_segments(cx, cy, rx, ry)? {
+            let attribute = if name == "circle" { "r" }
+                else if cx.checked_add(rx).map_or(true, |n| n.abs() > MAX_COORDINATE)
+                    || cx.checked_sub(rx).map_or(true, |n| n.abs() > MAX_COORDINATE) { "rx" } else { "ry" };
+            for segment in attrs.context(attribute, SafeSvg2DetailReason::CoordinateOutOfRange,
+                ellipse_segments(cx, cy, rx, ry))? {
                 observe(segment)?;
             }
             6
@@ -2003,51 +2104,7 @@ fn validate_shape_without_allocation(
             observe(SafeVectorSegment::Line(SafeVectorPoint { x: x2, y: y2 }))?;
             2
         }
-        "polyline" | "polygon" => {
-            let value = required("points")?;
-            if value.is_empty()
-                || value.as_bytes().first().is_some_and(|byte| is_wsp(*byte))
-                || value.as_bytes().last().is_some_and(|byte| is_wsp(*byte))
-                || value.contains(',')
-            {
-                return Err(ResourceAdmissionError::InvalidSafeVector);
-            }
-            let mut tokens = value.split_ascii_whitespace();
-            let mut point_count = 0u64;
-            while let Some(x) = tokens.next() {
-                if x.is_empty() {
-                    return Err(ResourceAdmissionError::InvalidSafeVector);
-                }
-                let y = tokens
-                    .next()
-                    .filter(|token| !token.is_empty())
-                    .ok_or(ResourceAdmissionError::InvalidSafeVector)?;
-                let point = SafeVectorPoint {
-                    x: decimal_fixed(x)?,
-                    y: decimal_fixed(y)?,
-                };
-                observe(if point_count == 0 {
-                    SafeVectorSegment::Move(point)
-                } else {
-                    SafeVectorSegment::Line(point)
-                })?;
-                point_count = point_count
-                    .checked_add(1)
-                    .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?;
-            }
-            let minimum = if name == "polygon" { 3 } else { 2 };
-            if point_count < minimum {
-                return Err(ResourceAdmissionError::InvalidSafeVector);
-            }
-            if name == "polygon" {
-                observe(SafeVectorSegment::Close)?;
-                point_count
-                    .checked_add(1)
-                    .ok_or(ResourceAdmissionError::VectorPathSegmentLimit)?
-            } else {
-                point_count
-            }
-        }
+        "polyline" | "polygon" => visit_points(name, attrs, &mut observe)?,
         _ => return Err(ResourceAdmissionError::InvalidSafeVector),
     };
     if observed_segments != count
@@ -3516,6 +3573,7 @@ mod v2 {
         match source {
             ResourceAdmissionError::SafeSvg2Detailed(_)
             | ResourceAdmissionError::ReceiptIdentityMismatch
+            | ResourceAdmissionError::ResourceLimit
             | ResourceAdmissionError::VectorNodeLimit
             | ResourceAdmissionError::VectorPathSegmentLimit
             | ResourceAdmissionError::VectorNestingLimit
@@ -3537,18 +3595,43 @@ mod v2 {
                 ),
             )
         })?;
-        if source.starts_with('\u{feff}')
-            || bytes.iter().any(|byte| {
-                *byte == 0
-                    || *byte == b'\r'
-                    || (*byte < 0x20 && !matches!(*byte, b' ' | b'\t' | b'\n'))
-                    || (0x7f..=0x9f).contains(byte)
-            })
-        {
-            return Err(error(SafeVectorFailureReason::MalformedSvg));
+        let invalid = if source.starts_with('\u{feff}') {
+            Some((0, 3))
+        } else {
+            bytes
+                .iter()
+                .position(|byte| {
+                    *byte == 0
+                        || *byte == b'\r'
+                        || (*byte < 0x20 && !matches!(*byte, b' ' | b'\t' | b'\n'))
+                        || (0x7f..=0x9f).contains(byte)
+                })
+                .map(|start| (start, start + 1))
+        };
+        if let Some((start, end)) = invalid {
+            let mut failure =
+                SafeSvg2Failure::new(SafeSvg2DetailReason::UnexpectedToken).at(start, end);
+            // A forbidden byte may be inside valid UTF-8. Do not slice through
+            // that scalar or invent a token for a continuation byte.
+            if let Some(token) = source.get(start..end) {
+                failure.token = DiagnosticToken::new(token);
+            }
+            return Err(ResourceAdmissionError::SafeSvg2Detailed(failure));
         }
-        if source.contains("<!") || source.contains("<?") || source.contains('&') {
-            return Err(error(SafeVectorFailureReason::ForbiddenFeature));
+        if let Some(start) = source
+            .find("<!")
+            .into_iter()
+            .chain(source.find("<?"))
+            .chain(source.find('&'))
+            .min()
+        {
+            let end = start + if bytes[start] == b'&' { 1 } else { 2 };
+            let mut failure = SafeSvg2Failure::new(SafeSvg2DetailReason::Category(
+                SafeVectorFailureReason::ForbiddenFeature,
+            ))
+            .at(start, end);
+            failure.token = DiagnosticToken::new(&source[start..end]);
+            return Err(ResourceAdmissionError::SafeSvg2Detailed(failure));
         }
         MarkupScanner::new(bytes, MarkupLexicalPolicy::SafeV2).map_err(preserve_limit_or_malformed)
     }
@@ -3878,7 +3961,18 @@ mod v2 {
 
         let mut element_index = 0u32;
         let mut path_index = 0u32;
-        while let Some(tag) = scanner.next().map_err(preserve_limit_or_malformed)? {
+        while let Some(tag) = scanner.next().map_err(|error| {
+            let ResourceAdmissionError::SafeSvg2Detailed(mut failure) = error else {
+                return preserve_limit_or_malformed(error);
+            };
+            if !failure.element.is_empty() {
+                failure.element_index = Some(element_index);
+                if failure.element == DiagnosticToken::new("path") {
+                    failure.path_index = Some(path_index);
+                }
+            }
+            ResourceAdmissionError::SafeSvg2Detailed(failure)
+        })? {
             let result = (|| {
                 if root_closed {
                     return Err(error(SafeVectorFailureReason::MalformedSvg));
@@ -4340,6 +4434,14 @@ mod v2 {
                 Ok(())
             })();
             result.map_err(|error| {
+                if matches!(
+                    error,
+                    ResourceAdmissionError::ReceiptIdentityMismatch
+                        | ResourceAdmissionError::ResourceLimit
+                        | ResourceAdmissionError::DecodedImageLimit
+                ) {
+                    return error;
+                }
                 let mut failure = SafeSvg2Failure::from_error(error);
                 failure.span = failure.span.or(Some(tag.span));
                 failure.element_index = Some(element_index);
@@ -4816,6 +4918,129 @@ mod tests {
     }
 
     #[test]
+    fn safe_svg_2_incomplete_tags_keep_known_element_and_path_indexes() {
+        let limits = limits(M4ResourceLimits::default());
+        for (tag, reason) in [
+            (r#"<path d="M 0 0 L 1 1" d="M 1 1"/>"#, SafeSvg2DetailReason::DuplicateAttribute),
+            (r#"<path d="M 0 0 L 1 1" / >"#, SafeSvg2DetailReason::UnexpectedToken),
+            (r#"<path d="M 0 0 L 1 1""#, SafeSvg2DetailReason::UnexpectedEndOfInput),
+        ] {
+            let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10pt" height="10pt" viewBox="0 0 10 10"><g><rect width="1" height="1"/>
+{tag}"#);
+            let ResourceAdmissionError::SafeSvg2Detailed(failure) =
+                v2::decode_v2_with_work_budget(svg.as_bytes(), &limits, 100_000, 1_000_000).unwrap_err()
+                else { panic!("missing detail") };
+            assert_eq!(failure.reason, reason);
+            assert_eq!(failure.element.escaped(), "path");
+            assert_eq!(failure.element_index, Some(3));
+            assert_eq!(failure.path_index, Some(0));
+            assert_eq!(failure.line, Some(2));
+        }
+    }
+
+    #[test]
+    fn safe_svg_2_point_lists_keep_exact_failure_and_budget_positions() {
+        let limits = limits(M4ResourceLimits::default());
+        for (points, reason, token) in [
+            ("0 0 1 bad 2 0", SafeSvg2DetailReason::InvalidNumber, "bad"),
+            (
+                "0 0 1 1000001 2 0",
+                SafeSvg2DetailReason::CoordinateOutOfRange,
+                "1000001",
+            ),
+            ("0 0 1 1 2", SafeSvg2DetailReason::WrongParameterCount, "2"),
+            (
+                "0 0 1 1",
+                SafeSvg2DetailReason::WrongParameterCount,
+                "0 0 1 1",
+            ),
+            ("0,0 1 1 2 0", SafeSvg2DetailReason::UnexpectedToken, ","),
+            (" 0 0 1 1 2 0", SafeSvg2DetailReason::UnexpectedToken, " "),
+            ("0 0 1 1 2 0 ", SafeSvg2DetailReason::UnexpectedToken, " "),
+        ] {
+            let svg = format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="10pt" height="10pt" viewBox="0 0 10 10">
+    <polygon points="{points}"/></svg>"#
+            );
+            let ResourceAdmissionError::SafeSvg2Detailed(failure) =
+                v2::decode_v2_with_work_budget(svg.as_bytes(), &limits, 100_000, 1_000_000)
+                    .unwrap_err()
+            else {
+                panic!("missing detail")
+            };
+            assert_eq!(failure.reason, reason, "{points}");
+            assert_eq!(failure.attribute.escaped(), "points");
+            assert_eq!(failure.token.escaped(), token);
+            assert_eq!(failure.element_index, Some(1));
+            assert_eq!(failure.element.escaped(), "polygon");
+            assert_eq!(failure.path_index, None);
+            assert_eq!(failure.line, Some(2));
+            let span = failure.span.unwrap();
+            assert_eq!(&svg[span.start as usize..span.end as usize], token);
+        }
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10pt" height="10pt" viewBox="0 0 10 10"><polygon points="0 0 1 1 2 0"/></svg>"#;
+        for (budget, token, segment) in [(7, "2 0", 2), (8, "", 3)] {
+            let ResourceAdmissionError::SafeSvg2Detailed(failure) =
+                v2::decode_v2_with_work_budget(svg.as_bytes(), &limits, 100, budget).unwrap_err()
+            else {
+                panic!("missing budget detail")
+            };
+            assert_eq!(failure.reason, SafeSvg2DetailReason::BudgetExceeded);
+            assert_eq!(failure.attribute.escaped(), "points");
+            assert_eq!(failure.segment_index, Some(segment));
+            assert_eq!(failure.path_index, None);
+            let span = failure.span.unwrap();
+            assert_eq!(&svg[span.start as usize..span.end as usize], token);
+            let observed = failure.budget.unwrap();
+            assert_eq!(observed.limit, budget);
+            assert_eq!(observed.observed, budget + 1);
+        }
+        assert!(v2::decode_v2_with_work_budget(svg.as_bytes(), &limits, 100, 9).is_ok());
+    }
+
+    #[test]
+    fn safe_svg_2_lexical_preflight_keeps_original_byte_offsets() {
+        let limits = limits(M4ResourceLimits::default());
+        for (source, token, reason) in [
+            (
+                "\u{feff}<svg>",
+                "\u{feff}",
+                SafeSvg2DetailReason::UnexpectedToken,
+            ),
+            ("<svg>\n\r", "\r", SafeSvg2DetailReason::UnexpectedToken),
+            ("<svg>\n\0", "\0", SafeSvg2DetailReason::UnexpectedToken),
+            (
+                "<svg>\n<!-- x -->",
+                "<!",
+                SafeSvg2DetailReason::Category(SafeVectorFailureReason::ForbiddenFeature),
+            ),
+            (
+                "<svg>\n<?xml?>",
+                "<?",
+                SafeSvg2DetailReason::Category(SafeVectorFailureReason::ForbiddenFeature),
+            ),
+            (
+                "<svg>\n&amp;",
+                "&",
+                SafeSvg2DetailReason::Category(SafeVectorFailureReason::ForbiddenFeature),
+            ),
+        ] {
+            let ResourceAdmissionError::SafeSvg2Detailed(failure) =
+                v2::decode_v2_with_work_budget(source.as_bytes(), &limits, 100_000, 1_000_000)
+                    .unwrap_err()
+            else {
+                panic!("missing detail")
+            };
+            assert_eq!(failure.reason, reason);
+            let span = failure.span.unwrap();
+            assert_eq!(&source[span.start as usize..span.end as usize], token);
+            assert_eq!(failure.element_index, None);
+            assert_eq!(failure.path_index, None);
+            assert!(failure.line.is_some());
+        }
+    }
+
+    #[test]
     fn safe_svg_2_paint_transform_and_scalar_geometry_failures_identify_attributes() {
         let limits = limits(M4ResourceLimits::default());
         for (body, attribute, token, reason) in [
@@ -4909,6 +5134,11 @@ mod tests {
                 "0",
                 SafeSvg2DetailReason::InvalidGeometry,
             ),
+            (r#"<rect x="999999" width="2" height="2"/>"#, "width", "2", SafeSvg2DetailReason::CoordinateOutOfRange),
+            (r#"<rect y="999999" width="2" height="2"/>"#, "height", "2", SafeSvg2DetailReason::CoordinateOutOfRange),
+            (r#"<circle cx="999999" r="2"/>"#, "r", "2", SafeSvg2DetailReason::CoordinateOutOfRange),
+            (r#"<ellipse cx="-999999" rx="2" ry="1"/>"#, "rx", "2", SafeSvg2DetailReason::CoordinateOutOfRange),
+            (r#"<ellipse cy="999999" rx="1" ry="2"/>"#, "ry", "2", SafeSvg2DetailReason::CoordinateOutOfRange),
             (
                 r#"<line x1="0" y1="0" x2="1" y2="NaN"/>"#,
                 "y2",

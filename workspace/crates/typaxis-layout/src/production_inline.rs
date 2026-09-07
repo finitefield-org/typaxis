@@ -49,6 +49,7 @@ pub enum ProductionInlinePreparationErrorKind {
     PendingFigurePlacement,
     InvalidListMarker,
     ListFrameExhausted,
+    ContainerFrameExhausted,
     AllocationFailure,
     ArithmeticOverflow,
     Atomic(AtomicVectorInlineError),

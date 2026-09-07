@@ -910,6 +910,117 @@ fn machine_book_svg_failure_publishes_attribute_token_and_svg_position() {
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 #[test]
+fn machine_book_svg_points_and_lexical_notes_match_check_and_build() {
+    for (body, reason, attribute, token) in [
+        (
+            r#"<polygon points="0 0 1 bad 2 0"/>"#,
+            "invalid_number",
+            Some("points"),
+            "bad",
+        ),
+        (
+            r#"<polyline points="0 0 1 1000001" fill="none"/>"#,
+            "coordinate_out_of_range",
+            Some("points"),
+            "1000001",
+        ),
+        (
+            r#"<polygon points="0 0 1 1 2"/>"#,
+            "wrong_parameter_count",
+            Some("points"),
+            "2",
+        ),
+        ("<!-- forbidden -->", "forbidden_feature", None, "<!"),
+        ("\r", "unexpected_token", None, "\r"),
+    ] {
+        let (_tree, job, artifacts, expected) =
+            copy_fixture("profiles/production-book-1/combined", "book-svg-points");
+        let path = job.join("document-package.json");
+        let limits = ValidatedResourceLimits::new(ResourceLimits::default()).unwrap();
+        let raw = fs::read(&path).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let mut wire = decoded.wire().clone();
+        let mut resources = wire.resources().clone();
+        let image = resources
+            .images
+            .iter_mut()
+            .find(|image| {
+                image.media_type == typaxis_document_package::WireImageMediaType::SvgSafe2
+            })
+            .unwrap();
+        let svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\">\n{body}</svg>");
+        fs::write(job.join(&image.uri), &svg).unwrap();
+        image.expected_sha256 = Some(
+            typaxis_core::sha256(svg.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+        );
+        wire.replace_typed_regions(wire.document().clone(), resources);
+        fs::write(
+            &path,
+            typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+                .encode(&wire)
+                .unwrap(),
+        )
+        .unwrap();
+        let build = build_options(&job, &artifacts, &expected);
+        let check = run_check_package(CheckPackageOptions {
+            package: path,
+            package_root: Some(job.clone()),
+            profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(artifacts.join("check-diagnostics.json")),
+            common: build.common.clone(),
+        });
+        let built = run_build_package(build);
+        assert_eq!(failure_exit_code(&check), 1);
+        assert_eq!(failure_exit_code(&built), 1);
+        assert!(!artifacts.join("output.pdf").exists());
+        let checked = read_json(&artifacts.join("check-diagnostics.json"));
+        let built = read_json(&artifacts.join("diagnostics.json"));
+        let expected_offset = if token == "2" {
+            svg.find("2\"").unwrap()
+        } else {
+            svg.find(token).unwrap()
+        };
+        for diagnostic in [&checked["diagnostics"][0], &built["diagnostics"][0]] {
+            assert_eq!(diagnostic["code"], "R7100");
+            assert_eq!(
+                diagnostic["message"].as_str(),
+                Some(format!("svg_safe_2 {reason}").as_str())
+            );
+            assert_eq!(
+                diagnostic["location"]["json_pointer"],
+                "/resources/images/2"
+            );
+            assert!(diagnostic["location"]["byte_offset"].is_null());
+            let notes = diagnostic["notes"].as_array().unwrap();
+            assert_eq!(notes.len(), 2);
+            let context = notes[1]["message"].as_str().unwrap();
+            assert!(
+                context.contains(&format!("svg_byte={expected_offset}")),
+                "{context}"
+            );
+            assert!(context.contains("line=2"));
+            if let Some(attribute) = attribute {
+                assert!(context.contains(&format!("attribute={attribute}")));
+            }
+        }
+        assert_eq!(
+            checked["diagnostics"][0]["notes"],
+            built["diagnostics"][0]["notes"]
+        );
+        let manifest = read_json(&artifacts.join("manifest.json"));
+        assert_eq!(manifest["status"], "failed");
+        assert!(manifest["output"].is_null());
+        assert_eq!(manifest["images"].as_array().unwrap().len(), 2);
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
 fn machine_book_svg_document_budget_diagnostics_match_check_and_build() {
     for (limit_name, limit, code, context_markers, budget_note) in [
         ("max-vector-nodes", 2, "R7120", vec!["element=svg", "line=1"], "scope=document-total; charge=nodes; limit=2; observed=3; used_before_resource=2"),
@@ -1062,6 +1173,87 @@ fn machine_book_actual_vmb_engine_svg_corpus_is_admitted() {
     );
     // This test closes source/derived hash and resource admission. Placement,
     // text shaping, reading order and the full-book PDF have separate gates.
+}
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_image_count_exact_boundary_succeeds_in_check_and_build() {
+    // Count declarations, including aliases, without pretending they are distinct
+    // placed images. This is the positive half of the public N/N+1 boundary gate.
+    for (limit, explicit) in [(8192u32, false), (1024u32, true)] {
+        let (_tree, job, artifacts, expected) = copy_fixture(
+            "profiles/production-book-1/combined",
+            "book-image-count-exact",
+        );
+        let path = job.join("document-package.json");
+        let limits = ValidatedResourceLimits::new(ResourceLimits {
+            max_images: limit,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let raw = fs::read(&path).unwrap();
+        let decoded = StagingSemanticDocumentPackageDecoder::new()
+            .decode(&raw, &DocumentPackageDecodePolicy::new(&limits))
+            .unwrap();
+        let mut wire = decoded.wire().clone();
+        let mut resources = wire.resources().clone();
+        let image = resources
+            .images
+            .iter()
+            .find(|i| i.media_type == typaxis_document_package::WireImageMediaType::Png)
+            .unwrap()
+            .clone();
+        while resources.images.len() < limit as usize {
+            let mut alias = image.clone();
+            alias.image_id = resources.images.len() as u32;
+            resources.images.push(alias);
+        }
+        wire.replace_typed_regions(wire.document().clone(), resources);
+        fs::write(
+            &path,
+            typaxis_document_package::StagingSemanticDocumentPackageEncoder::new()
+                .encode(&wire)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::create_dir_all(&artifacts).unwrap();
+        let overrides = if explicit {
+            vec![("max_images".to_owned(), u64::from(limit))]
+        } else {
+            vec![]
+        };
+        let mut options = build_options(&job, &artifacts, &expected);
+        options.common.limits = overrides;
+        let check = run_check_package(CheckPackageOptions {
+            package: path,
+            package_root: Some(job.clone()),
+            profile: MachinePdfProfileId::ProductionBook1,
+            diagnostics: Some(artifacts.join("check-diagnostics.json")),
+            common: options.common.clone(),
+        });
+        assert!(
+            check.is_ok(),
+            "boundary {limit}: {:?}",
+            check.err().map(|e| e.message)
+        );
+        let build = run_build_package(options);
+        assert!(
+            build.is_ok(),
+            "boundary {limit}: {:?}",
+            build.err().map(|e| e.message)
+        );
+        assert!(fs::read(artifacts.join("output.pdf"))
+            .unwrap()
+            .starts_with(b"%PDF-"));
+        let manifest = read_json(&artifacts.join("manifest.json"));
+        assert_eq!(manifest["images"].as_array().unwrap().len(), limit as usize);
+        for name in ["check-diagnostics.json", "diagnostics.json"] {
+            assert!(read_json(&artifacts.join(name))["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty());
+        }
+    }
 }
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]

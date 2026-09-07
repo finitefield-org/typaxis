@@ -8,14 +8,14 @@ Harano support is claimed until the corresponding gates have evidence.
 | --- | --- |
 | ADR-0038 lexical exception | Implemented and covered by the 259-test run below |
 | Safe-SVG 2 whitespace, multiple paths, curves, subpaths | Implemented; detailed-error / unchanged real-SVG tests passed in the 259-test run |
-| SVG detailed reasons/spans/path/attribute/budget, JSON notes | In progress: command-level budget positions, clip replay, exhausted document budgets and paint/scalar/transform attributes now verified; remaining geometry/lexical detail cases below |
+| SVG detailed reasons/spans/path/attribute/budget, JSON notes | Command/points budget positions, clip replay, exhausted document budgets, paint/scalar/transform attributes, lexical preflight and incomplete start-tag positions verified; see 2026-09-07 checkpoint for scope |
 | Count/analyze/build internal mismatch diagnostic | Changed to receipt invariant / I9190; verification pending |
 | Profile defaults and override precedence | Implemented; config tests and CLI negative boundaries passed |
 | Original image/font count diagnostic pointer | Unit and both CLI runner boundary tests passed |
 | Resolver cursor and finalized dense image lookup | Existing aggregate/order/admission regressions passed; mixed/5,000 performance evidence pending |
 | Real VMB fixtures and provenance ledger | Unchanged chapter SVG plus 20 actual-engine conversions, original/derived hashes and font notices stored; original maximum-complexity book cases and full provenance runner still pending |
-| 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases admitted and placed through common page content below; distinct images, mixed PNG and public check/build gates pending |
-| 8,192 / 8,193 and explicit lower-limit CLI tests | 8,193 and explicit 1,025 rejection passed; 8,192 positive boundary pending |
+| 300–500 chapter and 5,000 placed distinct images / mixed aliases | 5,000 actual-SVG aliases and 5,000 synthetic distinct-paint Forms pass selected placement/structure/object tests; required engine-generated distinct formulas, mixed PNG and public check/build gates remain pending |
+| 8,192 / 8,193 and explicit lower-limit CLI tests | Both public check/build positive 8,192 and explicit 1,024 boundaries, and negative 8,193 / 1,025 boundaries passed; see 2026-09-07 record |
 | Detailed font diagnostics and TTC face list | Admission/table/permission and bounded container/face notes connected to both public runners; unchanged Harano negative gate passed below. Detailed selected-glyph/charstring/subset failures and all TrueType metadata stages remain pending. |
 | CID CFF /2, FD-aware evaluator, subset / PDF integration | Pending |
 | Vertical tables, cmap 14, IVS shaping/extraction | Pending |
@@ -2189,3 +2189,139 @@ The full traversal/package writer and formal VMB process/ArtifactSink renderer,
 Typaxis generic convergence/terminal/paint/manifest connection, unchanged Harano
 CID-CFF/IVS, 5,000 distinct mixed images, 8,192 positive boundary and actual
 full-book check/build/render/extract/structure gates remain required and open.
+
+## 2026-09-07: remaining SVG locations and positive image-count boundaries
+
+Safe-SVG 2 now retains the original `points` token and byte range for polygon/
+polyline invalid numbers, coordinate overflow and incomplete coordinate pairs.
+Count and IR construction use one allocation-free point visitor; construction
+counts before reserving its exact segment array. Segment-budget failures retain
+both the source pair and the generated segment ordinal. An implicit polygon
+close identifies the end of `points`, without inventing a source `Z` command or
+path index. Rectangle/ellipse derived extent failures retain the responsible
+width/height/radius attribute. Frozen SVG1 grammar and accepted IR are unchanged.
+
+Lexical preflight reports the original byte range for BOM, forbidden controls,
+declarations, processing instructions and entities. The scanner retains a known
+start-element name through duplicate attributes, invalid terminators and EOF,
+so the outer scanner can attach its actual preorder/path indexes. A malformed
+closing tag is not assigned the next opening element's index. Unknown owners
+remain absent. Allocation and receipt failures are preserved through the V2
+error adapter rather than relabeled as malformed input.
+
+Public check/build tests cover invalid point tokens, out-of-range coordinates,
+missing coordinates, comments and controls. Both commands report the same
+R7100 reason, original `/resources/images/2` pointer and resource-local notes;
+the package byte offset remains null. The failed manifest keeps the two earlier
+admitted images, has no output and publishes no PDF.
+
+The positive count boundary now runs both public commands at **8,192** image
+declarations with production defaults and **1,024** with an explicit override.
+Both build PDFs and retain all declaration records in their manifests. The
+existing matching **8,193 / 1,025** rejection tests also pass. These are alias
+**declaration-count** boundaries, not claims of 8,192 distinct placed images.
+
+The selected-body test helper now uses the resolved config's M4 limits instead
+of always substituting generic M4 defaults. Large SVG tests resolve the actual
+production profile with an explicitly empty environment and no overrides.
+A supplemental synthetic corpus keeps the actual engine fraction outlines and
+changes the fixed fill to 5,000 different RGB values. This creates different
+SVG hashes, IRs and Forms; it does not pad XML whitespace to defeat deduplication.
+The corpus is intentionally distinct from the required §8.5 template
+`x_i = i/(i+1)` generated by the engine, and cannot close that acceptance gate.
+
+Local verification uses `--manifest-path workspace/Cargo.toml`,
+`--target-dir /private/tmp/typaxis-vmb-book-build` and `--locked`:
+
+- `cargo test ... -p typaxis-resource-admission --lib`: 62 passed, including
+  original SVG1/V2 corpus, real VMB SVG, detailed positions and budget boundaries
+  (`/private/tmp/typaxis-vmb-svg-detail-final.log`).
+- `cargo test ... -p typaxis-cli --bin typaxis machine_book_svg`: 3 passed,
+  including the new public diagnostic matrix
+  (`/private/tmp/typaxis-vmb-public-svg.log`).
+- `cargo test ... -p typaxis-cli --bin typaxis machine_book_image_count`:
+  2 passed, 42.42 seconds (`/private/tmp/typaxis-vmb-image-boundary.log`).
+- `cargo test ... -p typaxis-cli --bin typaxis -- --skip places_5000`:
+  234 passed, 3 ignored, 2 filtered, 22.60 seconds
+  (`/private/tmp/typaxis-vmb-cli-regression.log`). The two large resource tests
+  run separately; ignored independent-tool tests are not counted as verified.
+
+Final focused verification after the closing-tag index review and sharing the
+exact same CommonOptions between the positive check/build boundary commands:
+`cargo test ... -p typaxis-cli --bin typaxis machine_book_` passed **8**, ignored
+**1**, in 19.36 seconds (`/private/tmp/typaxis-vmb-book-final.log`). The final
+resource-admission rerun passed all **62** tests in 0.52 seconds.
+
+The separate command
+`cargo test ... -p typaxis-cli --bin typaxis production_body_page_content_places_5000 -- --nocapture`
+passed **2** tests in **295.88 seconds**
+(`/private/tmp/typaxis-vmb-5000-resources.log`). Each case admits and places 5,000
+declarations with the resolved production defaults; alias case: 1 content hash /
+1 Form, synthetic paint variants: 5,000 hashes / 5,000 Forms. Both assert 5,000
+ordered usages, one Formula group and ActualText per occurrence, page-local MCIDs,
+ParentTree references, balanced marked content and source-ordered paint. These
+are selected page-content/object contributions, not public whole-book PDFs or
+independent rendering/extraction evidence.
+
+The external `/usr/bin/time -l` wrapper reports 314.22 seconds including compilation
+but exits 1 because its `sysctl kern.clockrate` query is denied in the sandbox;
+Cargo's own result is successful. No peak-RSS result was obtained. A read-only
+2-second sample of this task's test process found active SHA-256 work in
+navigation/structure receipt verification; it does not establish quadratic
+complexity or a scaling baseline. No release performance claim is made.
+
+The first added parser tests accidentally used the legacy broad-error test
+adapter and failed their detailed-variant assertions; they now call the real
+detailed work-budget entrypoint. An initial CLI assertion compared the custom
+TestJson value with String and did not compile; it now compares string views.
+No admission rule was relaxed to pass these tests.
+
+Full-book public convergence/terminal/paint/manifest integration, the formal VMB
+exporter, engine-generated 5,000 distinct formulas with mixed PNG, unchanged
+Harano CID-CFF/IVS and independent full-book render/extract/tag acceptance remain
+open. This checkpoint does not complete design 28.
+
+## 2026-09-07: nested semantic-container widths in common body placement
+
+The previous goal turn made implementation progress on SVG diagnostics and
+resource boundary evidence; its changes are still present in the current
+worktree. The full-book objective remains active and unchanged.
+
+The measured body frame traversal now propagates semantic-container start/end
+indents through nested content and restores the parent frame on exit. Paragraph
+line selection, block SVG alignment, raster width/caption and list marker/item
+frames use the same actual containing width. An exhausted container reports its
+owner with `ContainerFrameExhausted`. Pagination still rejects nonzero container
+indents when passed legacy arbitrary-width line results without measured frames.
+A `typaxis.production-body-frames/1` domain now binds the frame fingerprint;
+existing public profile/contract identities are unchanged.
+
+Four new regressions cover nested source-order restoration, actual line reflow
+with exact text preservation, block SVG centering in the nested width, tagged PDF
+object assembly, raster/caption/list frame inheritance, body-fitting but
+container-overflowing images, exhausted container width and rejection of
+unframed precomputed lines. The focused `container` filter also runs one existing
+semantic-container public regression: **5 passed**, 0 failed, 1.13 seconds
+(`/private/tmp/typaxis-container-final.log`).
+
+These are shared-placement and diagnostic-object tests, not an independent
+full-book PDF acceptance result. Numbered block math in reduced frames, named
+pages, final line reshaping/generic convergence and public terminal/paint/manifest
+closure, formal VMB export and unchanged Harano acceptance remain required.
+
+Broader local regression:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-layout -p typaxis-pagination -p typaxis-cli --lib --bins --locked \
+  -- --skip places_5000 --skip more_than_65535
+```
+
+Result: CLI **237 passed, 3 ignored, 3 filtered**; layout **65 passed**;
+pagination **92 passed** (394 passed total), no failures. Log:
+`/private/tmp/typaxis-container-regression.log`. The three explicitly filtered
+large resource/glyph tests were exercised in earlier checkpoints; this container
+change does not claim a new execution of them or of ignored external validators.
+All verification commands for this checkpoint completed. No full-book success
+or new public capability is asserted.

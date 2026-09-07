@@ -629,8 +629,9 @@ fn collect_items(
                         if style.page_name().is_some() {
                             return Err(error(owner, E::PendingNamedPage));
                         }
-                        if style.block_style().start_indent().get() != Length::ZERO
-                            || style.block_style().end_indent().get() != Length::ZERO
+                        if (style.block_style().start_indent().get() != Length::ZERO
+                            || style.block_style().end_indent().get() != Length::ZERO)
+                            && lines.frames().is_none()
                         {
                             return Err(error(owner, E::PendingContainerIndent));
                         }

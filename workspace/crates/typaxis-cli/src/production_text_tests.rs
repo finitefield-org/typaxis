@@ -1,3 +1,18 @@
+// Synthetic cardinality corpus derived from the unchanged engine outline.
+// Each fixed fill produces a distinct IR and PDF Form, not just different XML.
+fn production_distinct_vmb_svg(index: u32) -> Vec<u8> {
+    let svg = include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../../samples/machine-package/staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"));
+    assert!(index < 0x1000000);
+    assert_eq!(svg.matches("fill=\"currentColor\"").count(), 1);
+    svg.replacen(
+        "fill=\"currentColor\"",
+        &format!("fill=\"#{index:06x}\""),
+        1,
+    )
+    .into_bytes()
+}
+
 // Real host admission + syntax-owned body shaping; no synthetic math font.
 fn production_text_fixture(
     bytes: &[u8],
@@ -19,7 +34,7 @@ fn production_text_fixture(
     let package = typaxis_syntax::StagingSemanticPackageParser::new()
         .parse(decoded, config.limits())
         .unwrap();
-    let limits = typaxis_core::M4EffectiveResourceLimits::defaults_for(config.limits());
+    let limits = config.m4_limits().cloned().unwrap_or_else(|| typaxis_core::M4EffectiveResourceLimits::defaults_for(config.limits()));
     let navigation =
         typaxis_syntax::validate_staging_book_navigation_v2(&package, &limits).unwrap();
     let semantics =
@@ -48,6 +63,11 @@ fn production_text_fixture(
         // Alias declarations share a staged file; admission still opens and
         // validates every declaration below, including all 5,000 aliases.
         if !copied_paths.insert(uri) {
+            continue;
+        }
+        if let Some(index) = uri.strip_prefix("vmb-distinct-").and_then(|s| s.strip_suffix(".svg")) {
+            let index: u32 = index.parse().unwrap();
+            fs::write(root.path().join(uri), production_distinct_vmb_svg(index)).unwrap();
             continue;
         }
         let source = match uri {
@@ -1336,3 +1356,5 @@ include!("production_body_tests.rs");
 include!("production_object_tests.rs");
 include!("production_raster_tests.rs");
 include!("production_list_tests.rs");
+
+include!("production_container_tests.rs");

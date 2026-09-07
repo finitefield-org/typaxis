@@ -116,7 +116,12 @@ fn with_production_body_structure_resources(
                     .unwrap()
                 })
                 .collect::<Vec<_>>();
-            let lines = if prepared.source_flow().lists().is_empty() {
+            let needs_container_frames = prepared.source_flow().events().iter().any(|event| {
+                let typaxis_syntax::ProductionFlowEvent::Begin { owner, kind: typaxis_syntax::ProductionFlowRegionKind::SemanticContainer } = *event else { return false; };
+                let style = prepared.source_flow().semantic_container_style(owner).unwrap().block_style();
+                style.start_indent().get() != Length::ZERO || style.end_indent().get() != Length::ZERO
+            });
+            let lines = if prepared.source_flow().lists().is_empty() && !needs_container_frames {
                 typaxis_layout::layout_production_inline_lines(prepared, &widths, 100_000).unwrap()
             } else {
                 typaxis_layout::layout_production_body_inline_lines(
@@ -1135,6 +1140,15 @@ fn production_body_page_content_preserves_blank_pages_and_cumulative_limits() {
 
 #[test]
 fn production_body_page_content_places_5000_real_svg_aliases_with_one_shared_form() {
+    production_body_large_svg_content(false);
+}
+
+#[test]
+fn production_body_page_content_places_5000_distinct_svg_forms_with_profile_defaults() {
+    production_body_large_svg_content(true);
+}
+
+fn production_body_large_svg_content(distinct: bool) {
     use serde_json::json;
     let mut value: serde_json::Value =
         serde_json::from_slice(&production_inline_vmb_fixture(false)).unwrap();
@@ -1154,6 +1168,13 @@ fn production_body_page_content_places_5000_real_svg_aliases_with_one_shared_for
     for index in 0..5000 {
         let mut im = image.clone();
         im["image_id"] = json!(index);
+        if distinct {
+            im["uri"] = json!(format!("vmb-distinct-{index}.svg"));
+            im["expected_sha256"] = json!(sha256(&production_distinct_vmb_svg(index as u32))
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>());
+        }
         images.push(im);
         let span =
             json!({"source_id":0,"start_byte":index*tex.len(),"end_byte":(index+1)*tex.len()});
@@ -1178,93 +1199,184 @@ fn production_body_page_content_places_5000_real_svg_aliases_with_one_shared_for
         .map(|b| format!("{b:02x}"))
         .collect::<String>());
     production_body_renumber(&mut value["document"], &mut 0);
-    let config = config_with_limits(ResourceLimits {
-        max_images: 8192,
-        ..ResourceLimits::default()
-    });
-    with_production_body_structure_resources(&value, &config, |lines, blocks, limits, admitted, semantics, profile| {
-        assert_eq!(admitted.images().len(), 5000);
-        let selected = typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
-        let display =
-            typaxis_display_list::build_production_body_display(&selected, admitted, limits)
-                .unwrap();
-        let fonts =
-            typaxis_resources::finalize_production_body_fonts(&display, admitted, limits).unwrap();
-        assert!(fonts.fonts().is_empty());
-        let content =
-            typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
-        let structure = typaxis_display_list::build_production_body_structure(&display, semantics, profile.authorization(), profile.base().authorization(), admitted, limits).unwrap();
-        let marked = typaxis_pdf::build_production_body_marked_content(&content, &structure, admitted, limits).unwrap();
-        assert_eq!(structure.groups().len(), 5000);
-        let mut observed = 0;
-        for page in marked.pages() {
-            let groups = structure.page_groups(page.page_index()).unwrap();
-            for (mcid, group) in groups.iter().enumerate() {
-                assert_eq!(group.mcid(), mcid as u32);
-                assert_eq!(group.vector_usage_id(), Some(observed));
-                assert_eq!(group.semantic_fragment_ordinal(), 0);
-                let node = structure.registry().node(group.node()).unwrap();
-                assert_eq!(node.role(), typaxis_layout::StructureRole::Formula);
-                assert_eq!(structure.node_groups(group.node()).unwrap().len(), 1);
-                observed += 1;
+    let config = crate::config::load_for_profile(
+        typaxis_core::MachinePdfProfileId::ProductionBook1,
+        None,
+        Vec::<(&str, &str)>::new(),
+        &crate::config::ConfigOverrides::default(),
+    )
+    .unwrap();
+    assert_eq!(config.limits().get().max_images, 8192);
+    assert_eq!(
+        config
+            .m4_limits()
+            .unwrap()
+            .extension()
+            .get()
+            .max_vector_path_segments,
+        4_000_000
+    );
+    with_production_body_structure_resources(
+        &value,
+        &config,
+        |lines, blocks, limits, admitted, semantics, profile| {
+            assert_eq!(admitted.images().len(), 5000);
+            assert_eq!(
+                admitted
+                    .images()
+                    .iter()
+                    .map(|i| i.content_hash())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len(),
+                if distinct { 5000 } else { 1 }
+            );
+            let selected =
+                typaxis_pagination::paginate_production_body(lines, blocks, limits).unwrap();
+            let display =
+                typaxis_display_list::build_production_body_display(&selected, admitted, limits)
+                    .unwrap();
+            let fonts =
+                typaxis_resources::finalize_production_body_fonts(&display, admitted, limits)
+                    .unwrap();
+            assert!(fonts.fonts().is_empty());
+            let content =
+                typaxis_pdf::build_production_body_page_content(&fonts, admitted, limits).unwrap();
+            let structure = typaxis_display_list::build_production_body_structure(
+                &display,
+                semantics,
+                profile.authorization(),
+                profile.base().authorization(),
+                admitted,
+                limits,
+            )
+            .unwrap();
+            let marked = typaxis_pdf::build_production_body_marked_content(
+                &content, &structure, admitted, limits,
+            )
+            .unwrap();
+            assert_eq!(structure.groups().len(), 5000);
+            let mut observed = 0;
+            for page in marked.pages() {
+                let groups = structure.page_groups(page.page_index()).unwrap();
+                for (mcid, group) in groups.iter().enumerate() {
+                    assert_eq!(group.mcid(), mcid as u32);
+                    assert_eq!(group.vector_usage_id(), Some(observed));
+                    assert_eq!(group.semantic_fragment_ordinal(), 0);
+                    let node = structure.registry().node(group.node()).unwrap();
+                    assert_eq!(node.role(), typaxis_layout::StructureRole::Formula);
+                    assert_eq!(structure.node_groups(group.node()).unwrap().len(), 1);
+                    observed += 1;
+                }
+                let bytes = std::str::from_utf8(page.content()).unwrap();
+                assert_eq!(bytes.matches("/MCID ").count(), groups.len());
+                assert_eq!(bytes.matches("/ActualText ").count(), groups.len());
+                assert_eq!(bytes.matches(" Do").count(), groups.len());
+                assert_eq!(
+                    bytes.matches(" BDC\n").count(),
+                    bytes.matches("EMC\n").count()
+                );
             }
-            let bytes = std::str::from_utf8(page.content()).unwrap();
-            assert_eq!(bytes.matches("/MCID ").count(), groups.len());
-            assert_eq!(bytes.matches("/ActualText ").count(), groups.len());
-            assert_eq!(bytes.matches(" Do").count(), groups.len());
-            assert_eq!(bytes.matches(" BDC\n").count(), bytes.matches("EMC\n").count());
-        }
-        assert_eq!(observed, 5000);
-        let objects = typaxis_pdf::build_production_body_objects(&marked, admitted, limits).unwrap();
-        use typaxis_pdf::ProductionBodyObjectRole as R;
-        assert_eq!(objects.objects().iter().filter(|o| matches!(o.role(), R::Vector(_))).count(), content.vectors().relative_objects().len());
-        assert_eq!(objects.objects().iter().filter(|o| matches!(o.role(), R::StructureNode(_))).count(), structure.registry().nodes().len());
-        assert!(!objects.objects().iter().any(|o| matches!(o.role(), R::Font { .. })));
-        let parent = objects.objects().iter().find(|o| o.role() == R::ParentTree).unwrap();
-        assert_eq!(production_object_references(parent).len(), 5000);
-        for (reference, group) in production_object_references(parent).into_iter().zip(structure.groups()) {
-            assert_eq!(reference, R::StructureNode(group.node()));
-        }
-        assert_eq!(objects.objects().iter().filter(|o| matches!(o.role(), R::PageContent(_))).count(), content.pages().len());
-        assert_eq!(content.vectors().forms().len(), 1);
-        assert_eq!(content.vectors().usages().len(), 5000);
-        let plan = &content.plans().forms().plans()[0];
-        assert_eq!(plan.alias_usage_counts().len(), 5000);
-        assert!(plan
-            .alias_usage_counts()
-            .iter()
-            .all(|a| a.usage_count() == 1));
-        assert!(content.pages().len() > 1);
-        assert_eq!(
-            content
+            assert_eq!(observed, 5000);
+            let objects =
+                typaxis_pdf::build_production_body_objects(&marked, admitted, limits).unwrap();
+            use typaxis_pdf::ProductionBodyObjectRole as R;
+            assert_eq!(
+                objects
+                    .objects()
+                    .iter()
+                    .filter(|o| matches!(o.role(), R::Vector(_)))
+                    .count(),
+                content.vectors().relative_objects().len()
+            );
+            assert_eq!(
+                objects
+                    .objects()
+                    .iter()
+                    .filter(|o| matches!(o.role(), R::StructureNode(_)))
+                    .count(),
+                structure.registry().nodes().len()
+            );
+            assert!(!objects
+                .objects()
+                .iter()
+                .any(|o| matches!(o.role(), R::Font { .. })));
+            let parent = objects
+                .objects()
+                .iter()
+                .find(|o| o.role() == R::ParentTree)
+                .unwrap();
+            assert_eq!(production_object_references(parent).len(), 5000);
+            for (reference, group) in production_object_references(parent)
+                .into_iter()
+                .zip(structure.groups())
+            {
+                assert_eq!(reference, R::StructureNode(group.node()));
+            }
+            assert_eq!(
+                objects
+                    .objects()
+                    .iter()
+                    .filter(|o| matches!(o.role(), R::PageContent(_)))
+                    .count(),
+                content.pages().len()
+            );
+            assert_eq!(
+                content.vectors().forms().len(),
+                if distinct { 5000 } else { 1 }
+            );
+            assert_eq!(content.vectors().usages().len(), 5000);
+            assert_eq!(
+                content.plans().forms().plans().len(),
+                if distinct { 5000 } else { 1 }
+            );
+            assert_eq!(
+                content
+                    .plans()
+                    .forms()
+                    .plans()
+                    .iter()
+                    .map(|p| p.alias_usage_counts().len())
+                    .sum::<usize>(),
+                5000
+            );
+            assert!(content
+                .plans()
+                .forms()
+                .plans()
+                .iter()
+                .all(|p| p.alias_usage_counts().iter().all(|a| a.usage_count() == 1)));
+            assert!(content.pages().len() > 1);
+            assert_eq!(
+                content
+                    .pages()
+                    .iter()
+                    .map(|p| p.draws().len())
+                    .sum::<usize>(),
+                5000
+            );
+            assert_eq!(
+                content
+                    .pages()
+                    .iter()
+                    .map(|p| std::str::from_utf8(p.content())
+                        .unwrap()
+                        .matches(" Do")
+                        .count())
+                    .sum::<usize>(),
+                5000
+            );
+            assert!(content
                 .pages()
                 .iter()
-                .map(|p| p.draws().len())
-                .sum::<usize>(),
-            5000
-        );
-        assert_eq!(
-            content
-                .pages()
-                .iter()
-                .map(|p| std::str::from_utf8(p.content())
-                    .unwrap()
-                    .matches(" Do")
-                    .count())
-                .sum::<usize>(),
-            5000
-        );
-        assert!(content
-            .pages()
-            .iter()
-            .all(|p| !std::str::from_utf8(p.content()).unwrap().contains(" Tj")));
-        assert!(content
-            .vectors()
-            .usages()
-            .windows(2)
-            .all(|w| w[0].paint_ordinal() + 1 == w[1].paint_ordinal()
-                && w[0].page_index() <= w[1].page_index()));
-    });
+                .all(|p| !std::str::from_utf8(p.content()).unwrap().contains(" Tj")));
+            assert!(content
+                .vectors()
+                .usages()
+                .windows(2)
+                .all(|w| w[0].paint_ordinal() + 1 == w[1].paint_ordinal()
+                    && w[0].page_index() <= w[1].page_index()));
+        },
+    );
 }
 
 #[test]
