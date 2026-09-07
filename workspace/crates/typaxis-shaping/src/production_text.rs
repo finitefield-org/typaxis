@@ -24,6 +24,7 @@ pub enum ProductionTextShapeErrorKind {
     MissingShapedGlyph { span: TextSpan },
     MissingGeneratedGlyph,
     InvalidFontMetrics,
+    InvalidLineContext,
     ContextLimit,
     OutputLimit,
     AllocationFailure,
@@ -146,10 +147,20 @@ impl<'a> ProductionBodyParagraphShape<'a> {
     }
 }
 
+/// UTF-8 end offsets in the paragraph shaping context (including U+FFFC for
+/// atomic objects and U+2028 for hard breaks). Boundaries must partition it at
+/// grapheme boundaries. This input is not a convergence/publication permit.
+#[derive(Clone, Copy, Debug)]
+pub struct ProductionParagraphLineContext<'a> {
+    pub owner: NodeId,
+    pub ends: &'a [u32],
+}
+
 pub struct ProductionAuthoredTextShape<'a> {
     flow: &'a ProductionTextFlow<'a>,
     admitted: &'a AdmittedResourceLedger,
     limits_fingerprint: [u8; 32],
+    line_context_fingerprint: Option<[u8; 32]>,
     epoch: [u8; 32],
     paragraphs: Vec<ProductionBodyParagraphShape<'a>>,
     list_markers: Vec<ProductionListMarkerShape<'a>>,
@@ -157,6 +168,9 @@ pub struct ProductionAuthoredTextShape<'a> {
     fingerprint: [u8; 32],
 }
 impl<'a> ProductionAuthoredTextShape<'a> {
+    pub const fn line_context_fingerprint(&self) -> Option<[u8; 32]> {
+        self.line_context_fingerprint
+    }
     pub fn list_markers(&self) -> &[ProductionListMarkerShape<'a>] {
         &self.list_markers
     }
@@ -203,6 +217,42 @@ pub fn shape_production_authored_text<'a>(
     limits: &M4EffectiveResourceLimits,
     epoch: [u8; 32],
 ) -> Result<ProductionAuthoredTextShape<'a>, ProductionTextShapeError> {
+    shape_authored_text(package, navigation, flow, admitted, limits, epoch, None)
+}
+
+/// Re-shape against selected line contexts. The caller still owns the bounded
+/// compare/rebreak loop and must never treat this result as stable by itself.
+#[allow(clippy::too_many_arguments)]
+pub fn reshape_production_authored_text<'a>(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    flow: &'a ProductionTextFlow<'a>,
+    admitted: &'a AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: &[ProductionParagraphLineContext<'_>],
+) -> Result<ProductionAuthoredTextShape<'a>, ProductionTextShapeError> {
+    shape_authored_text(
+        package,
+        navigation,
+        flow,
+        admitted,
+        limits,
+        epoch,
+        Some(lines),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shape_authored_text<'a>(
+    package: &ValidatedStagingSemanticPackage,
+    navigation: &ValidatedStagingBookNavigationV2,
+    flow: &'a ProductionTextFlow<'a>,
+    admitted: &'a AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+) -> Result<ProductionAuthoredTextShape<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let root = NodeId::new(0);
     flow.verify(package, navigation, limits)
@@ -217,17 +267,47 @@ pub fn shape_production_authored_text<'a>(
     {
         return Err(error(root, E::ReceiptMismatch));
     }
+    let mut output_records = 0u64;
+    let mut line_context_fingerprint = None;
+    if let Some(contexts) = lines {
+        if contexts.len() != flow.paragraphs().len() {
+            return Err(error(root, E::InvalidLineContext));
+        }
+        let mut hash = sha256(b"typaxis.production-line-context/1");
+        for (context, paragraph) in contexts.iter().zip(flow.paragraphs()) {
+            if context.owner != paragraph.owner() {
+                return Err(error(paragraph.owner(), E::InvalidLineContext));
+            }
+            output_records = output_records
+                .checked_add(context.ends.len() as u64)
+                .and_then(|n| n.checked_add(1))
+                .filter(|n| *n <= limits.base().get().max_fragments)
+                .ok_or_else(|| error(context.owner, E::OutputLimit))?;
+            let mut record = [0u8; 44];
+            record[..32].copy_from_slice(&hash);
+            record[32..36].copy_from_slice(&context.owner.get().to_be_bytes());
+            record[36..].copy_from_slice(&(context.ends.len() as u64).to_be_bytes());
+            hash = sha256(&record);
+            for end in context.ends {
+                let mut record = [0u8; 36];
+                record[..32].copy_from_slice(&hash);
+                record[32..].copy_from_slice(&end.to_be_bytes());
+                hash = sha256(&record);
+            }
+        }
+        line_context_fingerprint = Some(hash);
+    }
     let mut paragraphs = Vec::new();
     paragraphs
         .try_reserve_exact(flow.paragraphs().len())
         .map_err(|_| error(root, E::AllocationFailure))?;
-    let mut output_records = 0;
-    for paragraph in flow.paragraphs() {
+    for (index, paragraph) in flow.paragraphs().iter().enumerate() {
         paragraphs.push(shape_paragraph(
             paragraph,
             admitted,
             limits,
             &mut output_records,
+            lines.map(|contexts| contexts[index].ends),
         )?);
     }
     let list_markers = list_markers::shape_markers(flow, admitted, limits, &mut output_records)?;
@@ -259,15 +339,23 @@ pub fn shape_production_authored_text<'a>(
     for marker in &list_markers {
         bytes.extend_from_slice(&marker.fingerprint());
     }
+    let mut fingerprint = sha256(&bytes);
+    if let Some(context) = line_context_fingerprint {
+        let mut record = [0u8; 64];
+        record[..32].copy_from_slice(&fingerprint);
+        record[32..].copy_from_slice(&context);
+        fingerprint = sha256(&record);
+    }
     Ok(ProductionAuthoredTextShape {
         flow,
         admitted,
         limits_fingerprint: limits.fingerprint(),
+        line_context_fingerprint,
         epoch,
         paragraphs,
         list_markers,
         output_records,
-        fingerprint: sha256(&bytes),
+        fingerprint,
     })
 }
 
@@ -276,11 +364,33 @@ fn shape_paragraph<'a>(
     admitted: &AdmittedResourceLedger,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
+    line_ends: Option<&[u32]>,
 ) -> Result<ProductionBodyParagraphShape<'a>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let owner = paragraph.owner();
     let maximum = limits.base().get().max_shaping_context_bytes;
     let (context, ranges) = paragraph_context(paragraph, maximum)?;
+    if let Some(ends) = line_ends {
+        if ends.last().copied().unwrap_or(0) as usize != context.len()
+            || (context.len() > 0 && ends.is_empty())
+            || ends.windows(2).any(|w| w[0] > w[1])
+        {
+            return Err(error(owner, E::InvalidLineContext));
+        }
+        let mut boundaries = UnicodeSegmentation::grapheme_indices(context.as_str(), true)
+            .map(|(i, _)| i)
+            .chain(std::iter::once(context.len()))
+            .peekable();
+        for end in ends {
+            let end = *end as usize;
+            while boundaries.peek().is_some_and(|v| *v < end) {
+                boundaries.next();
+            }
+            if boundaries.peek() != Some(&end) {
+                return Err(error(owner, E::InvalidLineContext));
+            }
+        }
+    }
     let mut pending_references = Vec::new();
     pending_references
         .try_reserve_exact(paragraph.items().len())
@@ -369,79 +479,104 @@ fn shape_paragraph<'a>(
                 .iter()
                 .take_while(|spec| (spec.start as usize) < end)
             {
-                let run_start = start.max(spec.start as usize);
-                let run_end = end.min(spec.end as usize);
-                let run_text = &context[run_start..run_end];
-                if linked_backend_record_bound(run_text)
-                    .map_err(|e| error(site.owner(), E::Backend(e)))?
-                    > maximum
-                {
-                    return Err(error(site.owner(), E::ContextLimit));
-                }
-                let source = source_subspan(
-                    ShapeSourceSpan::Parsed(span),
-                    (run_start - start) as u32,
-                    (run_end - start) as u32,
-                )
-                .map_err(|e| error(site.owner(), E::Backend(e)))?;
-                let run_id = GlyphRunId::new(
-                    u32::try_from(result.runs.len())
-                        .map_err(|_| error(site.owner(), E::ArithmeticOverflow))?,
-                );
-                let mut budget = ShapeOutputBudget::new(maximum);
-                let run = shape_linked(
-                    LinkedBackendInput {
+                let mut run_start = start.max(spec.start as usize);
+                let spec_end = end.min(spec.end as usize);
+                while run_start < spec_end {
+                    let (context_start, context_end) = match line_ends {
+                        None => (0, context.len()),
+                        Some(ends) => {
+                            let line = ends.partition_point(|end| *end as usize <= run_start);
+                            let end = *ends
+                                .get(line)
+                                .ok_or_else(|| error(owner, E::InvalidLineContext))?
+                                as usize;
+                            (
+                                if line == 0 {
+                                    0
+                                } else {
+                                    ends[line - 1] as usize
+                                },
+                                end,
+                            )
+                        }
+                    };
+                    let run_end = spec_end.min(context_end);
+                    let run_text = &context[run_start..run_end];
+                    if linked_backend_record_bound(run_text)
+                        .map_err(|e| error(site.owner(), E::Backend(e)))?
+                        > maximum
+                    {
+                        return Err(error(site.owner(), E::ContextLimit));
+                    }
+                    let source = source_subspan(
+                        ShapeSourceSpan::Parsed(span),
+                        (run_start - start) as u32,
+                        (run_end - start) as u32,
+                    )
+                    .map_err(|e| error(site.owner(), E::Backend(e)))?;
+                    let run_id = GlyphRunId::new(
+                        u32::try_from(result.runs.len())
+                            .map_err(|_| error(site.owner(), E::ArithmeticOverflow))?,
+                    );
+                    let mut budget = ShapeOutputBudget::new(maximum);
+                    let run = shape_linked(
+                        LinkedBackendInput {
+                            run_id,
+                            font: FontInstanceId::new(face_id.get()),
+                            source,
+                            utf8: run_text,
+                            font_bytes: font.bytes(),
+                            face_index: font.face_index(),
+                            admitted_units_per_em: font.metadata().units_per_em,
+                            admitted_glyph_count: font.metadata().glyph_count,
+                            font_size: size.get(),
+                            bidi_level: spec.bidi_level,
+                            script: spec.script,
+                            language: Some(site.language()),
+                            pre_context: (run_start > context_start)
+                                .then_some(&context[context_start..run_start]),
+                            post_context: (run_end < context_end)
+                                .then_some(&context[run_end..context_end]),
+                            max_output_records: maximum,
+                        },
+                        &mut budget,
+                    )
+                    .map_err(|e| error(site.owner(), E::Backend(e)))?;
+                    let expected = ExpectedGlyphRun {
                         run_id,
                         font: FontInstanceId::new(face_id.get()),
-                        source,
-                        utf8: run_text,
-                        font_bytes: font.bytes(),
-                        face_index: font.face_index(),
-                        admitted_units_per_em: font.metadata().units_per_em,
-                        admitted_glyph_count: font.metadata().glyph_count,
-                        font_size: size.get(),
                         bidi_level: spec.bidi_level,
-                        script: spec.script,
-                        language: Some(site.language()),
-                        pre_context: (run_start > 0).then_some(&context[..run_start]),
-                        post_context: (run_end < context.len()).then_some(&context[run_end..]),
+                        source,
+                        utf8_boundaries: utf8_boundaries(source, run_text)
+                            .ok_or_else(|| error(site.owner(), E::ReceiptMismatch))?,
+                        glyph_count: font.metadata().glyph_count,
                         max_output_records: maximum,
-                    },
-                    &mut budget,
-                )
-                .map_err(|e| error(site.owner(), E::Backend(e)))?;
-                let expected = ExpectedGlyphRun {
-                    run_id,
-                    font: FontInstanceId::new(face_id.get()),
-                    bidi_level: spec.bidi_level,
-                    source,
-                    utf8_boundaries: utf8_boundaries(source, run_text)
-                        .ok_or_else(|| error(site.owner(), E::ReceiptMismatch))?,
-                    glyph_count: font.metadata().glyph_count,
-                    max_output_records: maximum,
-                };
-                if !budget.matches_output(&run) || validate_glyph_run(&expected, &run).is_err() {
-                    return Err(error(site.owner(), E::ReceiptMismatch));
+                    };
+                    if !budget.matches_output(&run) || validate_glyph_run(&expected, &run).is_err()
+                    {
+                        return Err(error(site.owner(), E::ReceiptMismatch));
+                    }
+                    validate_body_glyph_coverage(&run).map_err(|kind| error(site.owner(), kind))?;
+                    // Bound retained output across the complete document, in addition
+                    // to the backend's per-request allocation ceiling.
+                    let charge = 1 + run.glyphs.len() as u64 + run.clusters.len() as u64;
+                    *output_records = output_records
+                        .checked_add(charge)
+                        .filter(|n| *n <= limits.base().get().max_fragments)
+                        .ok_or_else(|| error(site.owner(), E::OutputLimit))?;
+                    result
+                        .runs
+                        .try_reserve(1)
+                        .map_err(|_| error(site.owner(), E::AllocationFailure))?;
+                    result.runs.push(ProductionBodyTextRun {
+                        site_index: index as u32,
+                        owner: site.owner(),
+                        language: site.language(),
+                        script: spec.script,
+                        run,
+                    });
+                    run_start = run_end;
                 }
-                validate_body_glyph_coverage(&run).map_err(|kind| error(site.owner(), kind))?;
-                // Bound retained output across the complete document, in addition
-                // to the backend's per-request allocation ceiling.
-                let charge = 1 + run.glyphs.len() as u64 + run.clusters.len() as u64;
-                *output_records = output_records
-                    .checked_add(charge)
-                    .filter(|n| *n <= limits.base().get().max_fragments)
-                    .ok_or_else(|| error(site.owner(), E::OutputLimit))?;
-                result
-                    .runs
-                    .try_reserve(1)
-                    .map_err(|_| error(site.owner(), E::AllocationFailure))?;
-                result.runs.push(ProductionBodyTextRun {
-                    site_index: index as u32,
-                    owner: site.owner(),
-                    language: site.language(),
-                    script: spec.script,
-                    run,
-                });
             }
         }
     }

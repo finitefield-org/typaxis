@@ -20,9 +20,20 @@ use typaxis_syntax::{
     ValidatedStagingSemanticPackage,
 };
 
+#[path = "production_line_context.rs"]
+mod line_context;
 #[path = "production_selected_inline.rs"]
 mod selected;
+pub use line_context::{
+    production_selected_line_contexts, ProductionSelectedLineContexts,
+    ProductionSelectedParagraphContext,
+};
 pub use selected::*;
+#[path = "production_reshape.rs"]
+mod reshape;
+pub use reshape::{
+    with_converged_production_body_lines, ProductionBodyReshapeError, ProductionConvergedBodyLines,
+};
 #[path = "production_raster.rs"]
 mod raster;
 pub use raster::ProductionPreparedRasterFigure;

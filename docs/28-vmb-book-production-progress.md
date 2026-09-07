@@ -23,7 +23,7 @@ Harano support is claimed until the corresponding gates have evidence.
 | VMB exporter geometry / metrics / semantics / source mapping | Geometry lowering, source projection and production math-adapter→per-occurrence wire/resource/semantic binding implemented in VMB; a real prepared-example public check gate passed below. Full RenderBook traversal, raster integration and final package/sidecar publication remain pending |
 | VMB runner, explicit font/layout, environment isolation | Pending |
 | Production with no native math | Empty native authorization implemented and regression passed; PDF body-font independence is still pending |
-| Shared body/math flow and selected text placement | Authored shaping and LTR body/SVG line placement, measured paragraph/block/caption/raster/list placement, shared body fonts, Forms and selected PDF contributions verified below. Page-end candidate costs are now connected to the internal body cursor; final reshaping/bidi, generated references, remaining subflows and public convergence/terminal/paint/manifest connection remain pending. |
+| Shared body/math flow and selected text placement | Authored shaping and LTR body/SVG line placement, measured paragraph/block/caption/raster/list placement, shared body fonts, Forms and selected PDF contributions verified below. Page-end candidate costs are now connected to the internal body cursor; Selected-line LTR shaping now has an actual bounded shape/rebreak owner (checkpoint below); final bidi, cumulative allocation, generated references, remaining subflows and public convergence/terminal/paint/manifest connection remain pending. |
 | Measured body page-break candidates | Internal policy /1 enumerates all feasible non-keep boundaries, applies widow/orphan/heading/unused-space costs, retains candidates in pagination /4 fingerprints and rejects max+1 before evaluation. Generic trace/budget receipts and public runner integration remain pending. |
 | Selected production structure / MCID page contributions | Source registry binding, page-local MCIDs, per-occurrence Formula ActualText and cumulative budgets verified below, including 5,000 aliases; final structure objects/public PDF connection pending |
 | Selected production PDF object contributions | Frozen body fonts, shared Forms and structure objects verified below, including 5,000 aliases; diagnostic page/catalog/xref assembly and selected internal/URI links, destinations and outlines connected; public terminal/manifest closure pending |
@@ -2546,3 +2546,74 @@ Every process started in this turn has completed. This is genuine scale admissio
 and an actionable public-build failure, not scale PDF success. The formal
 exporter, unchanged Harano, shared public convergence/paint/manifest and full-book
 acceptance requirements remain open.
+
+## 2026-09-07: actual selected-line shaping and bounded body feedback
+
+The common production kernel already accounts for negative visual overhang by
+shifting glyphs and vectors together. The public scale failure recorded above
+belongs to the frozen old atomic kernel. No frozen expectation was relaxed, and
+no additional origin adjustment was added to the common kernel.
+
+Added genuine selected-line context derivation, owner/UTF-8/grapheme partition
+validation, and a linked-backend reshape API that clips pre/post context and
+splits runs at those actual boundaries. Initial shaping retains its existing
+fingerprint. Selected context contributes `typaxis.production-line-context/1`
+to the reshaped receipt; it is not an independently supplied stability claim.
+
+The new layout owner runs initial shaping and actual body-frame selection,
+consumes the existing one-shot `LineReshapeFeedback` permits before each reshape,
+and compares the complete selected-layout identity after each rebreak. A borrowed
+`ProductionConvergedBodyLines` reaches the caller only after a stable comparison.
+One candidate-work budget spans initial selection and all passes. The generic
+feedback record reserve is now fallible before a permit is returned.
+
+Authored test font `vmb-book/reshape/context.ttf` uses real OpenType calt to change
+A into wider C before space B. Initial full-context shape emits GID 4; constrained
+line context emits GID 2. Real width changes produce both stable two-pass output
+and a one-line/two-line oscillation that stops at the configured pass limit.
+The font was regenerated using Python 3.12 / FontTools 4.51.0 and its checked-in
+SHA-256 reproduced exactly:
+`abd89ef5ab470c02abf50090b7063114eae384387c36f339ae2cb85bfd7500d0`.
+Its README records authored provenance, licenses and deterministic generation.
+
+Focused command:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli --bin typaxis production_final_line_ --locked
+```
+
+Result: **7 passed**, no failures. In addition to genuine glyph/advance changes,
+these check rejected foreign/incomplete/nonmonotone contexts, combining-grapheme
+splits, exact object/hard/soft-break offsets, no consumer call on oscillation,
+and exact shared candidate budget N acceptance / N-1 rejection. An initial
+integration test omitted the paragraph's real horizontal indents from its body
+width; the test now derives those indents from the resolved block style. Product
+frame rules and font metrics were not changed to accommodate the test.
+
+This does not close final bidi L1/visual line selection, allocation accounting
+across all pipeline stages, page/generated-reference convergence, public writer
+receipt/manifest binding, or unchanged full-book/Harano gates. The existing
+per-stage fragment ceilings and finite reshape quota are retained. This owner
+is not yet the public book pipeline; the old public overhang failure remains a
+required connection task, not a passing PDF gate.
+
+Broader verification:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-cli -p typaxis-shaping -p typaxis-linebreak -p typaxis-layout \
+  -p typaxis-pagination -p typaxis-display-list -p typaxis-resources \
+  --lib --bins --locked -- --skip places_5000 --skip more_than_65535
+```
+
+Result: CLI **251 passed, 3 ignored, 3 filtered**; display-list **56 passed**;
+layout **65 passed**; linebreak **44 passed**; pagination **92 passed**;
+resources **28 passed**; shaping **24 passed** — **560 passed**, no failures.
+The previously recorded large placement probes were not rerun by this command,
+and the three ignored independent-PDF probes are not counted as passed here.
+Logs: `/private/tmp/typaxis-reshape-tests.log` and
+`/private/tmp/typaxis-reshape-regression.log`. All verification started for this
+checkpoint reached terminal states. No branch push or public PDF was performed.

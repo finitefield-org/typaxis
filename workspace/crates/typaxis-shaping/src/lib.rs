@@ -2,9 +2,10 @@
 
 mod production_text;
 pub use production_text::{
-    production_equation_number_font, shape_production_authored_text, ProductionAuthoredTextShape,
-    ProductionBodyFont, ProductionBodyParagraphShape, ProductionBodyTextRun,
-    ProductionListMarkerShape, ProductionTextShapeError, ProductionTextShapeErrorKind,
+    production_equation_number_font, reshape_production_authored_text,
+    shape_production_authored_text, ProductionAuthoredTextShape, ProductionBodyFont,
+    ProductionBodyParagraphShape, ProductionBodyTextRun, ProductionListMarkerShape,
+    ProductionParagraphLineContext, ProductionTextShapeError, ProductionTextShapeErrorKind,
     PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM,
 };
 

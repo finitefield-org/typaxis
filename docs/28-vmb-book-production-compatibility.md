@@ -1050,3 +1050,37 @@ path形状のdistinct数、engine artifact、11ptと既存decimal6（最近接�
 `tools/verify_vmb_scale_pdf.py`は各宣言の実使用、source順のFormula/Figure、Do、共有Form、
 BBox、MCID/ParentTreeと二つのextractorを検査するために追加したが、このscale PDFはまだ
 生成できておらず、同verifierのscale PDF成功は未検証である。詳細は実装台帳を参照する。
+
+### 14.13 選択済み行の実コンテキストによる再シェーピング
+
+`production_selected_line_contexts`は実際に選択したcluster、vectorと明示breakから
+段落ごとのUTF-8行末offsetを導出する。本文文字をそのまま数え、inline objectはU+FFFC、
+hard breakはU+2028、soft breakは空文字として、初期shaperと同じ段落コンテキストを用いる。
+owner、段落数、最終offset、単調性とgrapheme境界を再検証し、欠落・別owner・cluster途中の
+切断を拒否する。空行に必要な重複offsetは保持する。
+
+`reshape_production_authored_text`は選択行の境界で実shaping runを分割し、backendへ渡す
+pre/post contextもその行内へ制限する。実font、source span、script、段落のitemizationを
+保ち、字形やadvanceを後から書き換えない。選択境界は
+`typaxis.production-line-context/1`でshapeの内部identityへ結び付ける。
+初期paragraph shapingの既存identityは変更しない。
+
+`with_converged_production_body_lines`は初期shape/本文frameでの改行と、真正な
+`LineReshapeFeedback`のpermitを消費する再shape/再改行を所有する。
+比較には選択結果のfingerprint（shape、字形位置、改行、frameを含む）を用い、行数だけでは
+安定と判定しない。初期shapeは行境界identityを持たないため、成功には少なくとも2回の
+最終行reshapeが必要となる。候補探索のwork budgetは初回と全reshape passで共有する。
+同一状態を実際に再生成した場合だけ`ProductionConvergedBodyLines`をcallbackへ渡し、
+未収束・quota超過・shaping/layout失敗時にはconsumerを呼ばない。借用した選択結果を
+callback外へ持ち出すために再計算したり、自己参照ownerを偽造したりしない。
+
+原作fixtureのOpenType caltで、改行前後にA→Cの字形変更とadvance 600→900が発生する。
+狭い幅では制限contextで安定し、中間の幅では1行と2行を往復する。この実測振動で
+pass上限の停止を検証する。fixtureはHaranoAjiや全巻の代替ではない。
+
+本stageは共通LTR行選択のfeedbackを閉じる。最終bidi行規則、全stageをまたぐ累積allocation
+課金、page/generated-reference convergence、公開terminal/paint/manifestへの接続は別の
+必須残件である。各stageの既存fragment ceilingと有限pass数は維持しているが、それだけで
+全pipelineのallocation予算を閉じたとは扱わない。公開profile/contractは変更しない。
+§14.12の負originについては、共通行選択器は既にvisual範囲に応じてglyphとvectorの両方へ
+同じorigin shiftを適用する。公開旧行選択器の拒否を緩めず、この共通経路へ接続する。

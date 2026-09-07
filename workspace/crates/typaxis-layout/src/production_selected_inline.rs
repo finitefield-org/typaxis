@@ -177,10 +177,14 @@ pub struct ProductionInlineLineLayout<'p, 'a> {
     prepared: &'p ProductionPreparedInlines<'a>,
     paragraphs: Vec<ProductionInlineParagraphLineLayout<'p, 'a>>,
     output_records: u64,
+    candidate_steps: u64,
     pub(super) fingerprint: [u8; 32],
     pub(super) frames: Option<ProductionBodyInlineFrames<'p, 'a>>,
 }
 impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
+    pub(super) const fn prepared_limit(&self) -> u64 {
+        self.prepared.max_fragments
+    }
     pub fn frames(&self) -> Option<&ProductionBodyInlineFrames<'p, 'a>> {
         self.frames.as_ref()
     }
@@ -211,6 +215,9 @@ impl<'p, 'a> ProductionInlineLineLayout<'p, 'a> {
     }
     pub fn paragraphs(&self) -> &[ProductionInlineParagraphLineLayout<'p, 'a>] {
         &self.paragraphs
+    }
+    pub const fn candidate_steps(&self) -> u64 {
+        self.candidate_steps
     }
     pub const fn output_records(&self) -> u64 {
         self.output_records
@@ -526,6 +533,7 @@ pub(super) fn layout_with_record_base<'p, 'a>(
         prepared,
         paragraphs,
         output_records: prepared.max_fragments - remaining,
+        candidate_steps: max_candidate_steps - budget.remaining_steps(),
         fingerprint: sha256(&digests),
         frames: None,
     })

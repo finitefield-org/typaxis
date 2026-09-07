@@ -74,6 +74,7 @@ fn production_text_fixture(
             "body-list-no-math.ttf" | "collection-list-no-math.ttc" | "body-list-visible.ttf" => job.join("../../../../staging/production-book-1/vmb-book/list-fonts").join(uri),
             "book-venn.png" | "orientation-alpha.png" => job.join("../../../../staging/production-book-1/vmb-book/raster").join(uri),
             "vmb-block-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-block-720896.svg"),
+            "body-context.ttf" => job.join("../../../../staging/production-book-1/vmb-book/reshape/context.ttf"),
             "vmb-fraction.svg" => job.join("../../../../staging/production-book-1/vmb-book/engine-v2/fraction-inline-720896.svg"),
             "body-no-math.ttf" => job.join("../../../basic-document-1/combined/job/body.ttf"),
             "collection-no-math.ttc" => {
@@ -1360,3 +1361,5 @@ include!("production_list_tests.rs");
 include!("production_container_tests.rs");
 
 include!("production_terminal_tests.rs");
+
+include!("production_reshape_tests.rs");

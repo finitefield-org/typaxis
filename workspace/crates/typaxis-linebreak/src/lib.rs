@@ -2793,6 +2793,9 @@ impl LineReshapeFeedback {
                 .checked_add(1)
                 .ok_or(BreakError::ArithmeticOverflow)?;
         }
+        self.records
+            .try_reserve(1)
+            .map_err(|_| BreakError::AllocationFailure)?;
         self.pass_in_flight = true;
         Ok(LineReshapePassPermit {
             feedback: self,
