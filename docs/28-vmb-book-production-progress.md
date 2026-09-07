@@ -5884,3 +5884,32 @@ Effective hash: `d184cb5bb40770236ec79a7d710911f163d7d7dd6b7af1abde25ddb1dcce13d
 Small staged package admission passed; no build/full-book success is claimed.
 Same-input check/build adapter, strict output verification, ArtifactSink, public
 common writer/manifest and full-book/Harano/scale/host acceptance remain open.
+
+
+## 2026-09-08 — Guard and sequence real exporter commands
+
+VMB `2a73b29d` implements exporter §15.44. It derives required media from the
+actual `font_faces`/image declarations, snapshots bounded staged files, and stages
+fixed config plus exact engine bytes in a separate private run directory.
+Input/config/staged-engine hashes are rechecked before and after capabilities,
+check and build. Each command runs once; failure, cancellation or changed input
+stops the sequence. Check/build share the same input/profile/root/config argv,
+with distinct diagnostic paths and private build outputs. No retry or force is used.
+
+The result retains argv, process diagnostics and input/config/binary/capability
+identities for subsequent verification; it is not a PDF/publication receipt.
+Callers retain cleanup ownership even on error. Directory enumeration uses bounded
+batches and depth/count limits. These guards assume caller-owned private staging;
+they do not establish an OS write sandbox against transient hostile modification.
+
+Mock tests cover parity and failure stops, altered files/config/engine, cancellation,
+and replacement of the original host engine after staging. The real staged package
+reaches capabilities exit 0, check exit 0, then build exit 4 with
+`I9190: production tagged-PDF native math mismatch`. Transport test passed in
+2.754 s (`/private/tmp/vmb-book-command-public-final.log`); PDF build failed and is
+not counted as acceptance. Final exporter regression passed in 52.344 s
+(`/private/tmp/vmb-book-adapter-regression.log`); all processes exited.
+
+Strict artifact/diagnostic validation, output-directory closure, source diagnostic
+mapping, ArtifactSink and renderer registration remain. Public common writer/manifest
+integration, the I9190 failure and full-book/Harano/scale/host gates remain open.
