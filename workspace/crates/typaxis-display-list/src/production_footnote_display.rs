@@ -33,6 +33,12 @@ impl<'d, 'g, 'q, 'b, 'f, 's, 'p, 'a> ProductionBodyFootnoteDisplay<'d, 'g, 'q, '
     pub fn source(&self) -> &'d ProductionBodyFootnoteMathTerminals<'g, 'q, 'b, 'f, 's, 'p, 'a> {
         self.source
     }
+    pub fn resource_declarations(&self) -> &typaxis_document::StagingM4ResourceCatalog {
+        self.source
+            .line_layout()
+            .source_flow()
+            .resource_declarations()
+    }
     pub fn draws(&self) -> &[ProductionBodyDraw<'d>] {
         &self.draws
     }

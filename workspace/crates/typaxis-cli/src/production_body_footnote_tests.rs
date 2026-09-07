@@ -1812,3 +1812,532 @@ fn production_footnote_text_accounts_for_prior_fonts_records_and_spool() {
         );
     }
 }
+
+#[test]
+fn production_footnote_vectors_preserve_forms_occurrences_and_actual_pdf_placement() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure, ProductionBodyDraw,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    for value in [
+        production_footnote_flow_fixture(),
+        production_footnote_numbered_definition_fixture(),
+        production_footnote_two_long_definitions(),
+    ] {
+        with_production_footnote_structure_prepared(
+            &value,
+            &config(),
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let text =
+                    typaxis_pdf::encode_production_footnote_text(&fonts, admitted, limits).unwrap();
+                let plans = typaxis_resources::finalize_production_footnote_vectors(
+                    &fonts, admitted, limits,
+                )
+                .unwrap();
+                plans.verify(&fonts, admitted, limits).unwrap();
+                assert!(plans.record_charge() >= text.record_charge());
+                let pdf = typaxis_pdf::build_production_footnote_vector_contribution(
+                    &plans, &text, admitted, limits,
+                )
+                .unwrap();
+                assert_eq!(pdf.display_fingerprint(), display.fingerprint());
+                assert_eq!(pdf.form_plans_fingerprint(), plans.forms().fingerprint());
+                assert_eq!(
+                    pdf.candidate_registry_fingerprint(),
+                    plans.registry().receipt().fingerprint()
+                );
+                assert_eq!(pdf.limits_fingerprint(), limits.fingerprint());
+                assert_eq!(pdf.pages().len(), geometry.pages().len());
+                let vectors: Vec<_> = display
+                    .draws()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, d)| {
+                        if let ProductionBodyDraw::Vector(v) = d {
+                            Some((i, v))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let mut keys = std::collections::BTreeMap::new();
+                for (_, vector) in &vectors {
+                    *keys.entry(vector.content_key()).or_insert(0u32) += 1;
+                }
+                assert_eq!(pdf.forms().len(), keys.len());
+                assert_eq!(plans.forms().plans().len(), keys.len());
+                assert_eq!(pdf.usages().len(), vectors.len());
+                for plan in plans.forms().plans() {
+                    assert_eq!(plan.total_usage_count(), keys[plan.content_key()]);
+                    assert_eq!(plan.usages().len(), keys[plan.content_key()] as usize);
+                }
+                for (ordinal, (usage, (draw_index, vector))) in
+                    pdf.usages().iter().zip(vectors).enumerate()
+                {
+                    assert_eq!(usage.usage_id(), ordinal as u32);
+                    assert_eq!(usage.paint_ordinal(), draw_index as u32);
+                    assert_eq!(usage.page_index(), vector.page_index());
+                    assert_eq!(*usage.content_key(), vector.content_key());
+                    assert_eq!(usage.image_id(), vector.binding().resource().image_id());
+                    assert_eq!(usage.matrix(), vector.matrix());
+                    assert_eq!(
+                        usage.resolved_current_color(),
+                        vector.resolved_current_color()
+                    );
+                    assert_eq!(usage.semantic_hook().owner(), vector.binding().node_id());
+                    assert_eq!(
+                        usage.semantic_hook().display_command_fingerprint(),
+                        vector.fingerprint()
+                    );
+                    let commands = std::str::from_utf8(usage.content()).unwrap();
+                    assert_eq!(commands.matches(" Do").count(), 1);
+                    assert!(commands.contains(&format!("/{} Do", usage.form_resource_name())));
+                    assert!(!commands.contains("BDC"));
+                }
+                let again = typaxis_pdf::build_production_footnote_vector_contribution(
+                    &plans, &text, admitted, limits,
+                )
+                .unwrap();
+                assert_eq!(again.fingerprint(), pdf.fingerprint());
+                let other = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                assert_eq!(
+                    plans.verify(&other, admitted, limits).err().unwrap(),
+                    typaxis_resources::StagingSafeVectorResourceV2Error::ReceiptMismatch
+                );
+                let other_text =
+                    typaxis_pdf::encode_production_footnote_text(&other, admitted, limits).unwrap();
+                assert_eq!(
+                    typaxis_pdf::build_production_footnote_vector_contribution(
+                        &plans,
+                        &other_text,
+                        admitted,
+                        limits
+                    )
+                    .err()
+                    .unwrap(),
+                    typaxis_pdf::StagingSafeVectorPdfV2Error::DisplayMismatch
+                );
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_vectors_account_for_prior_records_and_text_spool() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+
+                let text =
+                    typaxis_pdf::encode_production_footnote_text(&fonts, admitted, limits).unwrap();
+                let result = typaxis_resources::finalize_production_footnote_vectors(
+                    &fonts, admitted, limits,
+                );
+                if mode == 2 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        typaxis_resources::StagingSafeVectorResourceV2Error::RecordLimit
+                    );
+                    return;
+                }
+                let plans = result.unwrap();
+                let result = typaxis_pdf::build_production_footnote_vector_contribution(
+                    &plans, &text, admitted, limits,
+                );
+                if mode == 4 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        typaxis_pdf::StagingSafeVectorPdfV2Error::SpoolLimit
+                    );
+                } else {
+                    let pdf = result.unwrap();
+                    if mode == 0 {
+                        records = plans.record_charge();
+                        spool = fonts.spool_charge() + text.byte_length() + pdf.spool_bytes();
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure, ProductionBodyDraw,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let mut blank = production_footnote_joint_geometry_fixture();
+    let blocks = blank["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap();
+    let point =
+        |n: &serde_json::Value| serde_json::json!({"source_id":0,"start_byte":n,"end_byte":n});
+    let leading = serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":point(&blocks[0]["span"]["start_byte"])});
+    let trailing = serde_json::json!({"kind":"page_break","node_id":0,"classes":[],"span":point(&blocks.last().unwrap()["span"]["end_byte"])});
+    blocks.insert(0, leading.clone());
+    blocks.insert(0, leading);
+    blocks.push(trailing);
+    production_body_renumber(&mut blank["document"], &mut 0);
+    let mut raster_note = production_raster_fixture("book-venn.png", 2_000_001, 6_000_000);
+    let mut wrapper = raster_note["document"]["blocks"][0].clone();
+    let figure = raster_note["document"]["blocks"][0]["blocks"]
+        .as_array_mut()
+        .unwrap()
+        .remove(2);
+    wrapper["blocks"] = serde_json::json!([figure]);
+    let end = raster_note["document"]["blocks"][0]["blocks"][0]["span"]["end_byte"].clone();
+    raster_note["document"]["blocks"][0]["blocks"][0]["children"].as_array_mut().unwrap()
+        .push(serde_json::json!({"kind":"footnote_reference","node_id":0,"span":point(&end),"footnote_id":"raster-note"}));
+    raster_note["document"]["footnotes"] = serde_json::json!([{
+        "node_id":0,"span":wrapper["span"],"footnote_id":"raster-note","blocks":[wrapper]
+    }]);
+    raster_note["page_masters"]["masters"][0]["footnote"] =
+        serde_json::json!({"x":655360,"y":13000000,"width":16000000,"height":6000000});
+    production_body_renumber(&mut raster_note["document"], &mut 0);
+    for value in [
+        raster_note,
+        production_footnote_flow_fixture(),
+        production_footnote_numbered_definition_fixture(),
+        production_footnote_two_long_definitions(),
+        blank,
+        production_raster_fixture("book-venn.png", 2_000_001, 6_000_000),
+        production_raster_fixture("color-2x1.jpg", 2_000_001, 6_000_000),
+    ] {
+        with_production_footnote_structure_prepared(
+            &value,
+            &config(),
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+                content.verify(&fonts, admitted, limits).unwrap();
+                assert_eq!(content.pages().len(), geometry.pages().len());
+                assert!(content.spool_charge() > fonts.spool_charge());
+                let mut draw_index = 0;
+                let mut separator_index = 0;
+                for (page_index, page) in content.pages().iter().enumerate() {
+                    assert_eq!(page.page_index(), page_index as u32);
+                    let bytes = std::str::from_utf8(page.content()).unwrap();
+                    let root_end = bytes.find(" cm\n").unwrap() + 4;
+                    assert!(bytes.starts_with("q\n1 0 0 -1 0 "));
+                    let root_tokens: Vec<_> =
+                        bytes.lines().nth(1).unwrap().split_whitespace().collect();
+                    assert_eq!(
+                        root_tokens[5].parse::<f64>().unwrap() * 65536.0,
+                        terminals
+                            .block_layout()
+                            .page_geometry()
+                            .page_height()
+                            .get()
+                            .raw() as f64
+                    );
+                    let mut expected = bytes[..root_end].to_owned();
+                    let mut artifact_index = 0;
+                    for (ordinal, draw) in page.draws().iter().enumerate() {
+                        assert_eq!(draw.draw_index(), draw_index);
+                        if let Some(artifact) = page.artifacts().get(artifact_index) {
+                            if artifact.before_draw() == draw_index {
+                                let separator = &display.separators()[separator_index];
+                                assert_eq!(separator.before_draw(), draw_index);
+                                assert_eq!(separator.page_index(), page_index as u32);
+                                let commands = std::str::from_utf8(
+                                    page.artifact_content(artifact_index).unwrap(),
+                                )
+                                .unwrap();
+                                assert!(commands
+                                    .starts_with("/Artifact BMC\nq\n0 G\n0.5 w 0 J [] 0 d\n"));
+                                assert!(commands.ends_with("Q\nEMC\n"));
+                                assert!(!commands.contains("MCID"));
+                                let line = commands.lines().find(|l| l.ends_with(" l S")).unwrap();
+                                let values: Vec<_> = line.split_whitespace().collect();
+                                let ink = separator.ink();
+                                assert_eq!(
+                                    values[0].parse::<f64>().unwrap() * 65536.0,
+                                    ink.x().raw() as f64
+                                );
+                                assert_eq!(
+                                    values[1].parse::<f64>().unwrap() * 65536.0,
+                                    (ink.y().raw() + 16384) as f64
+                                );
+                                assert_eq!(
+                                    values[3].parse::<f64>().unwrap() * 65536.0,
+                                    (ink.x().raw() + ink.width().get().raw()) as f64
+                                );
+                                assert_eq!(values[1], values[4]);
+                                expected.push_str(commands);
+                                artifact_index += 1;
+                                separator_index += 1;
+                            }
+                        }
+                        let commands = page.draw_content(ordinal).unwrap();
+                        match (&display.draws()[draw_index], draw.source()) {
+                            (
+                                ProductionBodyDraw::Text(t),
+                                typaxis_pdf::ProductionBodyPageDrawSource::Text { paint_index },
+                            ) => {
+                                assert_eq!(t.page_index(), page_index as u32);
+                                assert_eq!(
+                                    commands,
+                                    content.text().paint_bytes(paint_index).unwrap()
+                                );
+                            }
+                            (
+                                ProductionBodyDraw::Vector(v),
+                                typaxis_pdf::ProductionBodyPageDrawSource::Vector { usage_index },
+                            ) => {
+                                assert_eq!(v.page_index(), page_index as u32);
+                                assert_eq!(
+                                    commands,
+                                    content.vectors().usages()[usage_index].content()
+                                );
+                            }
+                            (
+                                ProductionBodyDraw::Raster(r),
+                                typaxis_pdf::ProductionBodyPageDrawSource::Raster { plan_index },
+                            ) => {
+                                assert_eq!(r.page_index(), page_index as u32);
+                                assert_eq!(
+                                    Some(plan_index),
+                                    content.rasters().draw_plan(draw_index)
+                                );
+                                let plan = &content.rasters().plans()[plan_index];
+                                assert_eq!(plan.width(), r.image().width());
+                                assert_eq!(plan.height(), r.image().height());
+                                assert!(!plan.encoded_bytes().is_empty());
+                                let matrix: Vec<_> = std::str::from_utf8(commands)
+                                    .unwrap()
+                                    .lines()
+                                    .nth(1)
+                                    .unwrap()
+                                    .split_whitespace()
+                                    .collect();
+                                let viewport = r.viewport();
+                                assert_eq!(
+                                    matrix[0].parse::<f64>().unwrap() * 65536.0,
+                                    viewport.width().get().raw() as f64
+                                );
+                                assert_eq!(matrix[1], "0");
+                                assert_eq!(matrix[2], "0");
+                                assert_eq!(
+                                    matrix[3].parse::<f64>().unwrap() * 65536.0,
+                                    -viewport.height().get().raw() as f64
+                                );
+                                assert_eq!(
+                                    matrix[4].parse::<f64>().unwrap() * 65536.0,
+                                    viewport.x().raw() as f64
+                                );
+                                assert_eq!(
+                                    matrix[5].parse::<f64>().unwrap() * 65536.0,
+                                    (viewport.y().raw() + viewport.height().get().raw()) as f64
+                                );
+
+                                assert!(std::str::from_utf8(commands)
+                                    .unwrap()
+                                    .contains(&format!("/PBR{plan_index} Do")));
+                            }
+                            _ => panic!("draw source mismatch"),
+                        }
+                        expected.push_str(std::str::from_utf8(commands).unwrap());
+                        expected.push('\n');
+                        draw_index += 1;
+                    }
+                    assert_eq!(artifact_index, page.artifacts().len());
+                    expected.push_str("Q\n");
+                    assert_eq!(expected, bytes);
+                    if page.draws().is_empty() {
+                        assert!(page.artifacts().is_empty());
+                    }
+                }
+                assert_eq!(draw_index, display.draws().len());
+                assert_eq!(separator_index, display.separators().len());
+                let other = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                assert_eq!(
+                    content.verify(&other, admitted, limits).err().unwrap(),
+                    typaxis_pdf::ProductionBodyPageError::ReceiptMismatch
+                );
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_page_content_accounts_for_prior_records_spool_and_output() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+    let mut output = 0;
+    for mode in 0..7 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            max_output_bytes: match mode {
+                5 => output,
+                6 => output - 1,
+                _ => ResourceLimits::default().max_output_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let result =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits);
+                if mode == 2 || mode == 4 || mode == 6 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_pdf::ProductionBodyPageError::Rasters(
+                                typaxis_resources::ResourceError::ResourceLimit,
+                            )
+                        } else {
+                            typaxis_pdf::ProductionBodyPageError::OutputLimit
+                        }
+                    );
+                } else {
+                    let encoded = result.unwrap();
+                    if mode == 0 {
+                        records = encoded.record_charge();
+                        spool = encoded
+                            .spool_charge()
+                            .max(encoded.rasters().peak_spool_charge());
+                        output = encoded
+                            .pages()
+                            .iter()
+                            .map(|p| p.content().len() as u64)
+                            .sum();
+                    }
+                }
+            },
+        );
+    }
+}

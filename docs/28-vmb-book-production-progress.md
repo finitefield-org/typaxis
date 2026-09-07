@@ -4994,3 +4994,68 @@ display tests, and both existing 5,000-SVG page-content tests (alias sharing
 and distinct Forms). The ignored saved-job test requires explicit input/output
 paths. The 5,000-SVG cases validate the existing ordinary-body content path,
 not original-book or complete joint-footnote PDF acceptance. No branch push.
+
+## Joint vector/raster plans and complete page content
+
+Implemented §14.42–14.43. Joint font plans feed the same Form/alias usage
+projection as ordinary body display. Each vector retains its image ID, draw
+ordinal, page, matrix, scale, currentColor and semantic hook; content sharing
+does not merge occurrences. The joint vector PDF entry verifies that its
+preceding text contribution belongs to the same font-plan instance and derives
+remaining spool from the actual preceding bytes.
+
+Joint raster plans use the existing PNG/alpha/Flate and admitted JPEG pipeline.
+The common page builder combines actual text/vector/raster draws in order,
+retains selected empty pages and applies one page-root Y flip. A 0.5pt black
+butt separator is emitted at its selected geometry immediately before the first
+footnote draw, in an independent Artifact scope. Artifact byte ranges and
+insertion draw indices remain available separately for subsequent marked
+content; no MCID is assigned to a separator.
+
+Verification completed before broad regression:
+- Resource check 3.17 s; PDF vector check 2.84 s; integrated PDF check 3.55 s.
+- Focused vector tests: 2 passed, 1.47 s.
+- Focused page-content filter: 4 passed, 2.72 s.
+- Final footnote regression after adding a real PNG inside a footnote definition
+  and numeric page/raster matrix assertions: **53 passed, 0 failed, 9.37 s**,
+  `/private/tmp/typaxis-joint-content-footnotes.log`.
+- Existing Form tests: **4 passed, 0 failed, 0.14 s**,
+  `/private/tmp/typaxis-joint-content-form-regression.log`.
+
+Commands use `CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build` and
+`--manifest-path workspace/Cargo.toml --locked`:
+```sh
+cargo check --manifest-path workspace/Cargo.toml -p typaxis-resources --locked
+cargo check --manifest-path workspace/Cargo.toml -p typaxis-pdf --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_vectors --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_page_content --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_footnote_ --locked
+cargo test --manifest-path workspace/Cargo.toml -p typaxis-resources safe_vector_v2::tests --locked
+```
+
+New tests cover actual vector Form counts/usage identities and deterministic
+contribution fingerprints, foreign font/text owners, exact/one-short records
+and retained spool; integrated content covers body and definition math, equation
+numbers, continuing notes, leading/consecutive/trailing blank pages, PNG/JPEG,
+PNG inside a definition, actual text/vector/raster command selection, page/raster
+matrix values and Artifact line geometry/order. Final page-content records,
+retained spool and output byte limits include all preceding stages in each run.
+
+This is a content-stream contribution, not a complete public PDF. Marked
+content, ParentTree/font/image objects, links, manifest and the public writer
+still need connection. Complete IR/canonical allocation lifetimes and
+cross-retry/branch budgets remain open, as do dynamic references and original
+full-book/Harano/scale/both-host acceptance. No public receipt or push is claimed.
+
+Final broad regression (terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ --locked
+```
+**152 passed, 0 failed, 1 explicitly ignored, 378.18 s**,
+`/private/tmp/typaxis-joint-content-final.log`. Both existing 5,000-SVG
+page-content cases (one shared Form for aliases and distinct Forms) passed,
+alongside common-driver, ordinary body/raster/object/Unicode/structure tests.
+The ignored saved-job test requires explicit input/output paths. These
+regressions do not replace original-book performance or independent full-PDF
+acceptance. All processes from this implementation step are terminal.

@@ -29,7 +29,8 @@ mod tagged_pdf;
 mod tagged_pdf_v2;
 
 pub use production_body_pages::{
-    build_production_body_page_content, ProductionBodyPage, ProductionBodyPageContent,
+    build_production_body_page_content, build_production_footnote_page_content,
+    ProductionBodyPage, ProductionBodyPageArtifact, ProductionBodyPageContent, ProductionFootnotePageContent,
     ProductionBodyPageDraw, ProductionBodyPageDrawSource, ProductionBodyPageError,
 };
 pub use production_body_text::{
@@ -81,6 +82,7 @@ pub use safe_vector::{
 };
 pub use safe_vector_v2::{
     build_staging_combined_safe_vector_pdf_contribution_v2,
+    build_production_footnote_vector_contribution,
     build_staging_safe_vector_pdf_contribution_v2, seal_staging_safe_vector_pdf_v2,
     write_staging_safe_vector_pdf_contribution_v2, StagingSafeVectorPdfClosureV2,
     StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfExtGStateV2,

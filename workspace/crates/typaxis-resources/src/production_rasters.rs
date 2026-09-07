@@ -61,8 +61,42 @@ pub fn finalize_production_body_rasters<'f, 'v, 'd, 's, 'p, 'a>(
     if record_base < fonts.record_charge() || spool_base < fonts.spool_charge() {
         return Err(E::AdmittedLedgerEpochMismatch);
     }
+    let projected = finalize_raster_projection(
+        fonts.display().draws(),
+        admitted,
+        limits,
+        record_base,
+        spool_base,
+    )?;
+    Ok(ProductionBodyRasterPlans {
+        fonts,
+        plans: projected.plans,
+        draw_plans: projected.draw_plans,
+        record_base: projected.record_base,
+        spool_base: projected.spool_base,
+        record_charge: projected.record_charge,
+        spool_charge: projected.spool_charge,
+        peak_spool_charge: projected.peak_spool_charge,
+    })
+}
+struct RasterProjection {
+    plans: Vec<FrozenPdfImagePlan>,
+    draw_plans: Vec<Option<usize>>,
+    record_base: u64,
+    spool_base: u64,
+    record_charge: u64,
+    spool_charge: u64,
+    peak_spool_charge: u64,
+}
+fn finalize_raster_projection(
+    draws: &[ProductionBodyDraw<'_>],
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    record_base: u64,
+    spool_base: u64,
+) -> Result<RasterProjection, ResourceError> {
+    use ResourceError as E;
     let maximum = limits.base().get().max_spool_bytes;
-    let draws = fonts.display().draws();
     // Include slots, content-hash lookup nodes, temporary plans and per-page
     // resource references before allocating any of these collections.
     let record_charge = draws
@@ -191,8 +225,7 @@ pub fn finalize_production_body_rasters<'f, 'v, 'd, 's, 'p, 'a>(
         };
         draw_plans.push(Some(index));
     }
-    Ok(ProductionBodyRasterPlans {
-        fonts,
+    Ok(RasterProjection {
         plans,
         draw_plans,
         record_base,
@@ -240,4 +273,81 @@ fn compress(bytes: &[u8], maximum: u64) -> Result<Vec<u8>, ResourceError> {
         .finish()
         .map_err(|_| ResourceError::ResourceLimit)?
         .bytes)
+}
+
+pub struct ProductionFootnoteRasterPlans<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    fonts: &'e ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    plans: Vec<FrozenPdfImagePlan>,
+    draw_plans: Vec<Option<usize>>,
+    record_base: u64,
+    spool_base: u64,
+    record_charge: u64,
+    spool_charge: u64,
+    peak_spool_charge: u64,
+}
+impl<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    ProductionFootnoteRasterPlans<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+{
+    pub fn plans(&self) -> &[FrozenPdfImagePlan] {
+        &self.plans
+    }
+    pub fn draw_plan(&self, draw: usize) -> Option<usize> {
+        self.draw_plans.get(draw).copied().flatten()
+    }
+    pub const fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub const fn spool_charge(&self) -> u64 {
+        self.spool_charge
+    }
+    pub const fn peak_spool_charge(&self) -> u64 {
+        self.peak_spool_charge
+    }
+    pub fn verify(
+        &self,
+        fonts: &ProductionFootnoteFontPlans<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+        record_base: u64,
+        spool_base: u64,
+    ) -> Result<(), ResourceError> {
+        if !std::ptr::eq(fonts, self.fonts)
+            || self.record_base != record_base
+            || self.spool_base != spool_base
+        {
+            return Err(ResourceError::AdmittedLedgerEpochMismatch);
+        }
+        fonts.verify(fonts.structure(), admitted, limits)
+    }
+}
+
+pub fn finalize_production_footnote_rasters<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+    fonts: &'e ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    record_base: u64,
+    spool_base: u64,
+) -> Result<ProductionFootnoteRasterPlans<'e, 't, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, ResourceError>
+{
+    fonts.verify(fonts.structure(), admitted, limits)?;
+    if record_base < fonts.record_charge() || spool_base < fonts.spool_charge() {
+        return Err(ResourceError::AdmittedLedgerEpochMismatch);
+    }
+    let projected = finalize_raster_projection(
+        fonts.structure().display().draws(),
+        admitted,
+        limits,
+        record_base,
+        spool_base,
+    )?;
+    Ok(ProductionFootnoteRasterPlans {
+        fonts,
+        plans: projected.plans,
+        draw_plans: projected.draw_plans,
+        record_base: projected.record_base,
+        spool_base: projected.spool_base,
+        record_charge: projected.record_charge,
+        spool_charge: projected.spool_charge,
+        peak_spool_charge: projected.peak_spool_charge,
+    })
 }

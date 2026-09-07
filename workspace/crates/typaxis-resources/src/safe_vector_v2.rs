@@ -408,15 +408,16 @@ pub fn finalize_staging_combined_safe_vector_forms_v2(
     )
 }
 
-pub(crate) fn finalize_production_display_forms(
-    display: &typaxis_display_list::ProductionBodyDisplay<'_, '_, '_, '_>,
+pub(crate) fn finalize_production_draw_forms(
+    draws: &[typaxis_display_list::ProductionBodyDraw<'_>],
+    display_fingerprint: [u8; 32],
     registry: &VectorContentCandidateRegistry,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<StagingSafeVectorFormPlansV2, StagingSafeVectorResourceV2Error> {
     use typaxis_display_list::ProductionBodyDraw;
     let mut keys = BTreeSet::new();
     let mut usages = Vec::new();
-    for (draw_index, draw) in display.draws().iter().enumerate() {
+    for (draw_index, draw) in draws.iter().enumerate() {
         let ProductionBodyDraw::Vector(vector) = draw else {
             continue;
         };
@@ -438,7 +439,7 @@ pub(crate) fn finalize_production_display_forms(
         });
     }
     assemble_form_plans_v2(
-        display.fingerprint(),
+        display_fingerprint,
         u32::try_from(keys.len()).map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
         u32::try_from(usages.len()).map_err(|_| StagingSafeVectorResourceV2Error::CountOverflow)?,
         &usages,

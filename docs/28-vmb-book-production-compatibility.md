@@ -1939,3 +1939,38 @@ recordsはフォント計画までのchargeに実text描画ごとの保持レコ
 新経路のvector／raster／区切り線を含むページcontent、marked content、ParentTree、
 font object、リンク、manifest、公開writerへの接続は引き続き必要である。動的参照の収束、
 元全巻・原ノ味・規模・両hostの完了条件は維持する。
+
+### 14.42 本文・脚注vectorのForm確定とPDF使用命令（実装追補）
+
+`finalize_production_footnote_vectors`は認証済みfont計画を借用し、本文と脚注の実draw列を
+通常本文と共通のForm確定処理へ渡す。admissionと宣言catalogの一致を保ち、content keyごとに
+Formを共有する一方、source occurrenceごとのimage ID、ページ、draw順、描画fingerprintを
+保持する。描画しない候補のauditとalias対応は既存のregistry／Form確定処理を維持する。
+
+`build_production_footnote_vector_contribution`は上記計画と§14.41の文字結果が同じfont計画に
+結び付くことを検証する。実viewport、変換行列、scale、currentColorを共通PDFエンコーダーへ
+渡し、各出現のDo命令、ページ内Form resource、後続tagging用のsemantic hookを作る。
+先行font spoolと実text bytesを引いてからvector命令を確定する。任意の小さい先行spool値を
+この入口の引数で指定することはできない。
+
+### 14.43 本文・脚注の統合ページcontentと区切り線Artifact（実装追補）
+
+`build_production_footnote_page_content`は上記の文字・vector処理と共通raster確定処理を
+順に実行し、本文と脚注のdraw順を保ったページcontentを作る。rasterは実選択画像から
+PNG decode／Flate／alpha mask、または認証済みJPEGを使い、内容hashでpayloadを共有する。
+実viewportの幅・高さ・原点から描画行列を作り、figureやcaptionのsource関係を保持する。
+
+ページ冒頭のY反転は1回とし、強制改ページで選択された空ページも残す。脚注区切り線は
+実ink矩形から0.5ptの黒いbutt線を作り、最初の脚注drawの直前に独立した
+`/Artifact BMC ... EMC`として置く。MCIDは付けない。各ページは通常draw範囲とは別に
+Artifactのbyte範囲と挿入先draw番号を保持し、後続marked-content処理が再配置せず取り込める。
+
+通常本文も同じページ合成処理を使い、そのArtifact列は空になる。draw／text／vectorの
+未消費、ページの逆行、区切り線の未消費を拒否する。結果は実font計画との同一性を維持する。
+先行record計画、text／vectorの保持bytes、rasterの保持bytesとPNG一時workspaceを引き継ぎ、
+ページcontentの保持bytesをspoolとoutput上限へ加算する。既存vector計画が持つIR／canonical
+表現などを含めた全allocationの寿命管理、再試行・分岐の横断予算は引き続き別の完了要件である。
+
+この段階は統合ページcontentであり、構造groupからのmarked content、ParentTree・font／image
+objectの最終統合、注釈・リンク・manifest・公開writerの接続はまだ必要である。
+動的参照の収束、元全巻・原ノ味・規模・両hostの完了条件を緩和しない。

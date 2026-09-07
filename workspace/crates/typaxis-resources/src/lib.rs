@@ -8,8 +8,14 @@ mod safe_vector_v2;
 mod staging_text;
 mod vector_content;
 
-pub use production_vectors::{finalize_production_body_vectors, ProductionBodyVectorPlans};
-pub use production_rasters::{finalize_production_body_rasters, ProductionBodyRasterPlans};
+pub use production_vectors::{
+    finalize_production_body_vectors, finalize_production_footnote_vectors,
+    ProductionBodyVectorPlans, ProductionFootnoteVectorPlans,
+};
+pub use production_rasters::{
+    finalize_production_body_rasters, finalize_production_footnote_rasters,
+    ProductionBodyRasterPlans, ProductionFootnoteRasterPlans,
+};
 pub use production_body::{
     finalize_production_footnote_fonts, ProductionFootnoteFontPlans, finalize_production_body_fonts, ProductionBodyFontPlans, PRODUCTION_BODY_FONTS_ALGORITHM,
 };

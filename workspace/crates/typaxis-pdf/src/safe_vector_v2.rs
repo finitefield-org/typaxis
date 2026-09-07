@@ -531,13 +531,82 @@ pub(crate) fn build_production_body_vector_contribution(
     limits: &M4EffectiveResourceLimits,
     spool_limit: u64,
 ) -> Result<StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfV2Error> {
-    use typaxis_display_list::ProductionBodyDraw;
     plans
         .verify(plans.fonts(), admitted, limits)
         .map_err(|_| StagingSafeVectorPdfV2Error::DisplayMismatch)?;
     let display = plans.fonts().display();
+    build_production_vector_projection(
+        display.draws(),
+        display.fingerprint(),
+        display.selected().pages().len(),
+        plans.forms(),
+        plans.registry(),
+        limits,
+        spool_limit,
+    )
+}
+
+/// The authenticated joint text contribution fixes the preceding retained bytes;
+/// callers cannot supply an arbitrary smaller spool charge.
+pub fn build_production_footnote_vector_contribution(
+    plans: &typaxis_resources::ProductionFootnoteVectorPlans<
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+        '_,
+    >,
+    text: &crate::ProductionFootnoteTextContribution<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_>,
+    admitted: &typaxis_resource_admission::AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfV2Error> {
+    use StagingSafeVectorPdfV2Error as E;
+    plans
+        .verify(plans.fonts(), admitted, limits)
+        .map_err(|_| E::DisplayMismatch)?;
+    text.verify(plans.fonts(), admitted, limits)
+        .map_err(|_| E::DisplayMismatch)?;
+    let prior = plans
+        .fonts()
+        .spool_charge()
+        .checked_add(text.byte_length())
+        .ok_or(E::SpoolLimit)?;
+    let remaining = limits
+        .base()
+        .get()
+        .max_spool_bytes
+        .checked_sub(prior)
+        .ok_or(E::SpoolLimit)?;
+    let display = plans.fonts().structure().display();
+    build_production_vector_projection(
+        display.draws(),
+        display.fingerprint(),
+        display.source().geometry().pages().len(),
+        plans.forms(),
+        plans.registry(),
+        limits,
+        remaining,
+    )
+}
+
+fn build_production_vector_projection(
+    draws: &[typaxis_display_list::ProductionBodyDraw<'_>],
+    display_fingerprint: [u8; 32],
+    page_count: usize,
+    forms: &StagingSafeVectorFormPlansV2,
+    registry: &VectorContentCandidateRegistry,
+    limits: &M4EffectiveResourceLimits,
+    spool_limit: u64,
+) -> Result<StagingSafeVectorPdfContributionV2, StagingSafeVectorPdfV2Error> {
+    use typaxis_display_list::ProductionBodyDraw;
     let mut inputs = Vec::new();
-    for (index, draw) in display.draws().iter().enumerate() {
+    for (index, draw) in draws.iter().enumerate() {
         let ProductionBodyDraw::Vector(vector) = draw else {
             continue;
         };
@@ -563,12 +632,11 @@ pub(crate) fn build_production_body_vector_contribution(
         });
     }
     build_staging_safe_vector_pdf_contribution_v2_from_inputs(
-        display.fingerprint(),
-        u32::try_from(display.selected().pages().len())
-            .map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
+        display_fingerprint,
+        u32::try_from(page_count).map_err(|_| StagingSafeVectorPdfV2Error::CountOverflow)?,
         &inputs,
-        plans.forms(),
-        plans.registry(),
+        forms,
+        registry,
         limits,
         spool_limit,
     )
