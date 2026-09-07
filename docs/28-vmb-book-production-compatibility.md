@@ -2351,3 +2351,18 @@ object欠落・末尾追加を検証する。fixtureはenvelopeのみを検証�
 ローカル検証: `cargo test -p typaxis-pdf --lib production_body_assembly::production_parent_tree`
 は7件成功。`cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
 1件ignored（36.40秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.63 実Catalogのsource navigation照合（実装追補）
+
+公開接続条件の照合では、既存book closureが適合宣言付きXMPを要求し、既存tagged観測が成立済み
+book／safe-vector closureに依存することを再確認した。適合宣言なしのjoint assemblyをそのまま
+公開receiptへ変換せず、必要な実PDF検証を継続する。
+
+本文・脚注assemblyの`verify`は実Catalog全体も照合する。Pages・Metadata参照、sourceのdocument
+language、MarkInfo・ViewerPreferences、実StructTreeRoot参照、destination／outlineの有無と
+絶対参照を確認する。source navigationにdestination／outlineがない場合は対応するobject roleも
+存在しないことを要求する。UTF-16言語文字列と各参照は借用sliceへ直接照合し、複製文字列を作らない。
+公開receipt／manifest・writer／CLIおよび元全巻等の受入ゲートは引き続き未完了である。
+
+ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は163件成功・
+1件ignored（12.30秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

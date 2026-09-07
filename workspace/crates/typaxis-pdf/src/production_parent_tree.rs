@@ -173,6 +173,37 @@ fn verify_id_tree<'a>(
 }
 
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub(super) fn verify_catalog(&self) -> Result<(), E> {
+        let annotations = self.source.structure_objects().annotations();
+        let navigation = annotations.navigation();
+        let source = annotations
+            .marked()
+            .structure()
+            .display()
+            .source()
+            .line_layout()
+            .source_flow()
+            .navigation();
+        compare_payload(self.object_bytes(1).ok_or(E::ReceiptMismatch)?, |sink| {
+            sink.write_str("<< /Type /Catalog /Pages 2 0 R /Metadata 4 0 R /Lang ")?;
+            sink.text(source.languages().document_language())?;
+            let root = self.object_number(R::StructureRoot).ok_or(fmt::Error)?;
+            write!(sink, " /MarkInfo << /Marked true >> /ViewerPreferences << /DisplayDocTitle true >> /StructTreeRoot {root} 0 R")?;
+            if !navigation.destinations().is_empty() {
+                let destinations = self.object_number(R::Destinations).ok_or(fmt::Error)?;
+                write!(sink, " /Names << /Dests {destinations} 0 R >>")?;
+            } else if self.object_number(R::Destinations).is_some() {
+                return Err(fmt::Error);
+            }
+            if !navigation.outline().is_empty() {
+                let outlines = self.object_number(R::Outlines).ok_or(fmt::Error)?;
+                write!(sink, " /Outlines {outlines} 0 R")?;
+            } else if self.object_number(R::Outlines).is_some() {
+                return Err(fmt::Error);
+            }
+            sink.write_str(" >>")
+        })
+    }
     pub(super) fn verify_envelope(&self) -> Result<(), E> {
         verify_pdf_envelope(self.bytes(), self.objects(), self.content_hash())
     }
