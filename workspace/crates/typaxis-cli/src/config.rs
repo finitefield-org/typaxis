@@ -1271,6 +1271,30 @@ mod tests {
     }
 
     #[test]
+    fn vmb_book_config_covers_all_limits_and_matches_effective_json() {
+        let raw = include_bytes!("../tests/fixtures/vmb-book-config-1.toml");
+        let expected = include_str!("../tests/fixtures/vmb-book-config-1.json");
+        let value: serde_json::Value = serde_json::from_str(expected).unwrap();
+        let declared = value["limits"].as_object().unwrap();
+        assert_eq!(declared.len(), LIMIT_NAMES.len());
+        for name in LIMIT_NAMES {
+            assert!(declared.contains_key(*name), "missing {name}");
+        }
+        let file = TempConfig::new(raw);
+        let actual = load_for_profile(
+            MachinePdfProfileId::ProductionBook1,
+            Some(&file.0),
+            std::iter::empty::<(OsString, OsString)>(),
+            &ConfigOverrides::default(),
+        ).unwrap();
+        assert_eq!(actual.canonical_jcs(), expected);
+        assert_eq!(actual.limits().get().max_images, 8192);
+        assert_eq!(actual.limits().get().max_page_break_lookback, 128);
+        assert_eq!(actual.m4_limits().unwrap().extension().get().max_vector_path_segments, 4_000_000);
+        assert!(actual.resource_roots().is_empty());
+    }
+
+    #[test]
     fn defaults_form_a_complete_effective_config() {
         let config = load(
             None,

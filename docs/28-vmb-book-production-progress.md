@@ -5859,3 +5859,28 @@ Typaxis runtime was unchanged; its tests were not repeated for this exporter cha
 Canonical config, requirements derived from staged input, same-input check/build
 sequencing, strict output verification and ArtifactSink remain. Public common
 writer/manifest and original-book/Harano/scale/host acceptance are still open.
+
+
+## 2026-09-08 — Complete fixed book config and cross-parser evidence
+
+VMB `f430f335` implements exporter §15.43's `vmb.typaxis-book-config/1`, separate
+from the old contract 1.0 TSF policy. It explicitly generates every base/M4 limit
+(43 fields) and the remaining contract, URI, resource root, strictness, compression
+and data-version fields. Raw and effective bytes are retained with SHA-256 and
+returned by copy. The current uniform-font policy uses one font, 8,192 images,
+4,000,000 vector segments, lookback 128 and explicit finite resource/spool/output
+limits. The staged/readback adapter must enforce limits no looser than this policy.
+
+New Typaxis tests use the real config parser, cover every LIMIT_NAMES entry and
+compare the entire canonical effective JSON with the VMB golden. Config regression:
+19 passed, 0.03 s (`/private/tmp/typaxis-vmb-book-config-regression.log`).
+VMB public check now uses the generated config and bounded process runner; PATH
+is excluded from the child environment to match the existing backend design.
+Targeted config/process/public-check tests passed in 2.768 s
+(`/private/tmp/vmb-book-config-final.log`). All processes exited.
+
+Raw config hash: `3f708506f7353fbde56046b015c61cb49c74970bb59ff8c417a74a9bea701144`.
+Effective hash: `d184cb5bb40770236ec79a7d710911f163d7d7dd6b7af1abde25ddb1dcce13d3`.
+Small staged package admission passed; no build/full-book success is claimed.
+Same-input check/build adapter, strict output verification, ArtifactSink, public
+common writer/manifest and full-book/Harano/scale/host acceptance remain open.
