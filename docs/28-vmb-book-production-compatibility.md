@@ -2420,3 +2420,17 @@ D8101と混同しない。receiptやline context等の内部不一致と、実�
 （12.07秒）。shape OutputLimitの分類修正後、実max_fragments=5／6境界を使う
 `production_authored_text_charges_output_across_paragraphs`が成功（0.10秒）し、L5110／Limitと
 元node 5の保持を確認した。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。
+
+### 14.67 共通display・structureの予算診断（実装追補）
+
+共通本文・脚注driverのdisplay／structure生成は型付きエラーを分類する。記録数・allocation上限は
+L5110／Limit、structureのspool超過はD8101／Limitとする。receipt・registry・paint不一致や
+算術overflowはI9190／Internalとして区別し、displayのowner nodeも保持する。未対応の式番号は
+入力エラーとして維持する。
+
+実脚注displayの記録数1不足でL5110とownerを検証する。structureでは記録数とspoolの各必要量
+ちょうど／1不足を確認し、別displayによるreceipt不一致がI9190／Internalとなることも検証する。
+font／content内部の診断、公開writer／manifest・CLIへの接続と全巻受入ゲートは引き続き必要である。
+
+ローカル検証: `cargo test -p typaxis-cli --bin typaxis production_ -- --skip 5000`は164件成功・
+1件ignored（12.28秒）。`--manifest-path workspace/Cargo.toml`と前節のtargetを使用した。

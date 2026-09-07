@@ -272,7 +272,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             let display = typaxis_display_list::build_production_footnote_display(
                 &terminals, admitted, limits,
             )
-            .map_err(|e| Failure::internal(format!("common footnote display: {e:?}")))?;
+            .map_err(map_common_display_error)?;
             let structure = typaxis_display_list::build_production_footnote_structure(
                 &display,
                 semantics,
@@ -281,7 +281,7 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
                 admitted,
                 limits,
             )
-            .map_err(|e| Failure::internal(format!("common footnote structure: {e:?}")))?;
+            .map_err(map_common_structure_error)?;
             let fonts =
                 typaxis_resources::finalize_production_footnote_fonts(&structure, admitted, limits)
                     .map_err(|e| Failure::input(format!("common footnote fonts: {e:?}")))?;
@@ -490,4 +490,24 @@ fn map_common_reshape_error(error: typaxis_layout::ProductionBodyReshapeError) -
         FailureKind::Internal => Failure::internal(message),
         _ => Failure::input(message),
     }
+}
+
+fn map_common_display_error(error: typaxis_display_list::ProductionBodyDisplayError) -> Failure {
+    use typaxis_display_list::ProductionBodyDisplayErrorKind as E;
+    match error.kind {
+        E::RecordLimit | E::AllocationFailure => Failure::limit(format!("L5110: {error}")),
+        E::PendingEquationNumber => Failure::input(error.to_string()),
+        E::ReceiptMismatch | E::ArithmeticOverflow => Failure::internal(format!("I9190: {error}")),
+    }
+}
+fn map_common_structure_error(
+    error: typaxis_display_list::ProductionBodyStructureError,
+) -> Failure {
+    use typaxis_display_list::ProductionBodyStructureError as E;
+    let code = match error {
+        E::RecordLimit | E::AllocationFailure => Some("L5110"),
+        E::SpoolLimit => Some("D8101"),
+        E::ReceiptMismatch | E::Registry | E::MissingPaint | E::InvalidPaint => None,
+    };
+    common_pdf_failure("structure", code, error)
 }

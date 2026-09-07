@@ -1328,7 +1328,13 @@ fn production_footnote_display_retains_preceding_and_projection_record_charges()
                     .unwrap();
                 let result = build_production_footnote_display(&terminals, admitted, limits);
                 if mode == 2 {
-                    assert_eq!(result.err().unwrap().kind, E::RecordLimit);
+                    let error = result.err().unwrap();
+                    assert_eq!(error.kind, E::RecordLimit);
+                    let owner = error.owner.get();
+                    let failure = map_common_display_error(error);
+                    assert_eq!(failure.kind, FailureKind::Limit);
+                    assert!(failure.message.starts_with("L5110:"));
+                    assert!(failure.message.contains(&format!("node {owner}")));
                 } else {
                     let display = result.unwrap();
                     assert!(display.record_charge() > terminals.record_charge());
@@ -1456,12 +1462,18 @@ fn production_footnote_structure_keeps_shared_record_budget_and_display_identity
     use typaxis_pagination::prepare_production_footnote_demand_search;
     let value = production_footnote_flow_fixture();
     let mut records = 0;
-    for mode in 0..3 {
+    let mut spool = 0;
+    for mode in 0..5 {
         let cfg = config_with_limits(ResourceLimits {
             max_fragments: match mode {
                 1 => records,
                 2 => records - 1,
                 _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
             },
             ..ResourceLimits::default()
         });
@@ -1486,19 +1498,25 @@ fn production_footnote_structure_keeps_shared_record_budget_and_display_identity
                     admitted,
                     limits,
                 );
-                if mode == 2 {
-                    assert_eq!(result.err().unwrap(), E::RecordLimit);
+                if mode == 2 || mode == 4 {
+                    let error = result.err().unwrap();
+                    assert_eq!(error, if mode == 2 { E::RecordLimit } else { E::SpoolLimit });
+                    let failure = map_common_structure_error(error);
+                    assert_eq!(failure.kind, FailureKind::Limit);
+                    assert!(failure.message.starts_with(if mode == 2 { "L5110:" } else { "D8101:" }));
                 } else {
                     let structure = result.unwrap();
                     if mode == 0 {
                         records = structure.record_charge();
+                        spool = structure.spool_charge();
                     }
                     let other =
                         build_production_footnote_display(&terminals, admitted, limits).unwrap();
-                    assert_eq!(
-                        structure.verify(&other, admitted, limits).err().unwrap(),
-                        E::ReceiptMismatch
-                    );
+                    let error = structure.verify(&other, admitted, limits).err().unwrap();
+                    assert_eq!(error, E::ReceiptMismatch);
+                    let failure = map_common_structure_error(error);
+                    assert_eq!(failure.kind, FailureKind::Internal);
+                    assert!(failure.message.starts_with("I9190:"));
                 }
             },
         );
