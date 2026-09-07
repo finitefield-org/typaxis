@@ -14,7 +14,7 @@ use typaxis_syntax::{
     ValidatedStagingStructureSemanticsV2,
 };
 
-pub const PRODUCTION_BODY_STRUCTURE_ALGORITHM: &str = "typaxis.production-body-structure/3";
+pub const PRODUCTION_BODY_STRUCTURE_ALGORITHM: &str = "typaxis.production-body-structure/4";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyStructureError {
@@ -250,10 +250,26 @@ pub fn build_production_body_structure<'v, 'd, 's, 'p, 'a>(
                 }
                 ProductionBodyDraw::Text(t) => {
                     if node.vector_binding_v2().is_some()
-                        || node.equation_number_binding_v2().is_some()
-                        || node.actual_text().is_none()
+                        || (node.actual_text().is_none()
+                            && node.equation_number_binding_v2().is_none())
                     {
                         return Err(E::InvalidPaint);
+                    }
+                    match (node.equation_number_binding_v2(), t.equation_number()) {
+                        (None, None) => (),
+                        (Some(binding), Some(shape)) => {
+                            if binding.parent_owner() != shape.owner()
+                                || binding.text_span() != shape.text_span()
+                                || binding.text_buffer_sha256() != shape.text_buffer_sha256()
+                                || binding.exact_text() != shape.exact_text()
+                                || binding.exact_text_sha256() != shape.exact_text_sha256()
+                                || node.actual_text().is_some()
+                                || t.generated_provenance().is_some()
+                            {
+                                return Err(E::InvalidPaint);
+                            }
+                        }
+                        _ => return Err(E::InvalidPaint),
                     }
                     match t.generated_provenance() {
                         None if node.role() != StructureRole::Span => return Err(E::InvalidPaint),

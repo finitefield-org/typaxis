@@ -15,10 +15,12 @@ use typaxis_pagination::{ProductionBodyFragmentSource, ProductionBodySelectedLay
 use typaxis_resource_admission::{AdmittedResourceLedger, VectorContentKey};
 use typaxis_syntax::PrecomposedVectorKind;
 
+#[path = "production_equation_numbers.rs"]
+mod equation_numbers;
 #[path = "production_list.rs"]
 mod list;
 
-pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/4";
+pub const PRODUCTION_BODY_DISPLAY_ALGORITHM: &str = "typaxis.production-body-display/5";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionBodyDisplayErrorKind {
     ReceiptMismatch,
@@ -77,10 +79,16 @@ pub struct ProductionBodyTextDraw<'d> {
     text_span: DisplayTextSpan,
     exact_text: &'d str,
     generated_provenance: Option<typaxis_text::GeneratedProvenance>,
+    equation_number: Option<&'d typaxis_shaping::StagingEquationNumberShapeReceipt>,
     logical_bounds: Option<Rect>,
     glyphs: Vec<ProductionBodyGlyph>,
 }
 impl<'d> ProductionBodyTextDraw<'d> {
+    pub fn equation_number(
+        &self,
+    ) -> Option<&'d typaxis_shaping::StagingEquationNumberShapeReceipt> {
+        self.equation_number
+    }
     pub const fn generated_provenance(&self) -> Option<typaxis_text::GeneratedProvenance> {
         self.generated_provenance
     }
@@ -462,6 +470,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                                 .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
                                 exact_text: cluster.utf8(),
                                 generated_provenance: None,
+                                equation_number: None,
                                 logical_bounds,
                                 glyphs,
                             })
@@ -494,9 +503,6 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
             }
             ProductionBodyFragmentSource::VectorBlock { block_index } => {
                 let block = &selected.block_layout().blocks()[block_index as usize];
-                if block.equation_number().is_some() {
-                    return Err(error(block.owner(), E::PendingEquationNumber));
-                }
                 take(&mut remaining, 1, block.owner())?;
                 draws
                     .try_reserve(1)
@@ -511,6 +517,16 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
                         .viewport()
                         .ok_or_else(|| error(block.owner(), E::ReceiptMismatch))?,
                 )?));
+                if block.equation_number().is_some() {
+                    equation_numbers::append_number(
+                        selected,
+                        block.owner(),
+                        index,
+                        admitted,
+                        &mut remaining,
+                        &mut draws,
+                    )?;
+                }
             }
         }
     }

@@ -980,8 +980,8 @@ package/configの新しい試験条件として記録する。失敗後の暗黙
 `typaxis.production-body-frames/1`の内部fingerprintに結ぶ。公開profileは変更しない。
 
 この実装は共通配置経路の幅伝播を閉じる。式番号付きblockのitem/container幅での
-再準備、named page、最終行reshapingと汎用収束、terminal/paint/manifest、公開全巻
-buildは別の必須残件であり、本節の試験でそれらの完了を代替しない。
+配置は§14.11で追補する。named page、最終行reshapingと汎用収束、公開terminal/paint/manifest、
+公開全巻buildは別の必須残件であり、本節の試験でそれらの完了を代替しない。
 
 ### 14.10 共通body fragmentに結び付けるblock数式の完了記録
 
@@ -991,12 +991,41 @@ buildは別の必須残件であり、本節の試験でそれらの完了を代
 owner、flow identity、ページ、viewport、baselineとcontent heightを確認した後にterminal 1を
 一度消費し、registryに残る未消費flowがあれば成功しない。改ページ、caption、vector figureや
 inline数式をblock terminalとして数えない。式番号の準備だけでは完全な選択を意味しないため、
-番号の共通配置・描画が未接続の間は`PendingEquationNumber`を返す。
+§14.11の真正な番号配置を同じfragmentから選択した後にterminalを消費する。
+番号付きblockの描画にその選択結果が渡されない場合は`PendingEquationNumber`を返す。
 
 ledgerの補助recordとreceiptは既存の累積fragment予算へ課金する。文字列の検証・生成に
 必要な保守的な上限をspool予算で事前検査し、生成後に保持するcanonical JCSの実byte数を
 font、content、object、PDF組立てへ引き継ぐ。元のplacement fingerprintとterminal setの
-fingerprintを`typaxis.production-body-terminal/1`で結ぶ。
+fingerprintと番号の選択矩形を`typaxis.production-body-terminal/2`で結ぶ。
+/2は番号のない初期stage /1を置き換える内部識別子であり、公開contract/profileは変更しない。
 
 これはblock数式の配置完了stageであり、汎用収束のreceipt、paint認可、公開writerの
 `VerifiedPdfBytesReceipt`を発行しない。公開pipelineへの接続と§10の全巻検証は必須残件のままとする。
+
+### 14.11 共通fragment内の明示式番号
+
+共通bodyのblock数式について、同じ準備registryの封印済み番号shapeを借用し、
+親fragment index・page index・親owner・番号owner・shape fingerprint・番号矩形を保持する。
+番号の右端は実際のinner frameの右端、topはcontent height内の既定の垂直中央位置とする。
+数式viewportの整列は既定のtext-alignを維持し、番号を入れるために勝手に左へ動かさない。
+container/listで幅が縮んだ場合は式と番号のminimum gapをその幅で再検査し、衝突を拒否する。
+式と番号の両方を選択した後にatomic terminalを消費し、強制改ページでも二重に消費しない。
+
+番号shapeのglyphを共通displayへ投影し、本文と同じfont usage／共有CID／content／objectの
+経路で描画する。数式のActualTextへ番号を連結せず、既存の式番号bindingを持つ独立Spanへ
+MCIDを割り当てる。番号Span自身に重複するstructure-level ActualTextを追加しない。
+各clusterの選択位置・text span・exact textと真正なshapeを結び、PDF marked-content側が
+番号全体の文字を一度まとめる。visual run位置にはbidi levelの反転を適用し、描画の所有順は
+source cluster順を保つ。これは段落の最終line reshapingや汎用bidi行選択の完了を意味しない。
+
+番号baselineはadmitted fontの実hhea ascent/descentをfont sizeへ変換し、
+`top + (line_height - ascender + descender) / 2 + ascender`とする。raw固定小数点で
+checked演算し、整数除算はゼロ方向へ丸める。line heightがfont extentより小さい場合の
+負のhalf-leadingも保持する。glyphの上向きoffsetは下向きページ座標で引く。
+従来の凍結staging writerのbaseline recipeは変更しない。
+
+番号の配置record、visual-order/run位置の補助record、glyphコピーとdrawは共通の累積予算へ
+加算する。内部displayは`typaxis.production-body-display/5`、structureは
+`typaxis.production-body-structure/4`で識別する。これらは診断用PDFの組立てまで接続済みだが、
+public writerの認可とmanifestへの接続、正式VMB全巻出力と独立全巻検査は必須残件である。

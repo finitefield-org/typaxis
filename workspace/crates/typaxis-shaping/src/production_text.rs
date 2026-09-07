@@ -603,3 +603,43 @@ fn paragraph_fingerprint(
     }
     Ok(sha256(&b))
 }
+
+/// Resolve actual horizontal metrics for a sealed, producer-authored number.
+/// The production path uses these metrics; the frozen staging PDF recipe is unchanged.
+pub fn production_equation_number_font(
+    shape: &StagingEquationNumberShapeReceipt,
+    admitted: &AdmittedResourceLedger,
+) -> Result<ProductionBodyFont, ProductionTextShapeError> {
+    use ProductionTextShapeErrorKind as E;
+    let owner = shape.node_id();
+    let font = admitted
+        .font(shape.font_face_id())
+        .filter(|f| f.content_hash() == shape.font_sha256() && f.face_index() == shape.face_index())
+        .ok_or_else(|| error(owner, E::MissingSelectedFont))?;
+    let face = harfrust::FontRef::from_index(font.bytes(), font.face_index())
+        .map_err(|_| error(owner, E::InvalidFontMetrics))?;
+    let hhea = face
+        .hhea()
+        .map_err(|_| error(owner, E::InvalidFontMetrics))?;
+    let scale = |v| {
+        scale_design_units(
+            i32::from(v),
+            shape.font_size().get(),
+            font.metadata().units_per_em,
+        )
+        .map_err(|e| error(owner, E::Backend(e)))
+    };
+    let metrics = ProductionBodyFont {
+        face_id: shape.font_face_id(),
+        content_hash: font.content_hash(),
+        face_index: font.face_index(),
+        size: shape.font_size(),
+        ascender: scale(hhea.ascender().to_i16())?,
+        descender: scale(hhea.descender().to_i16())?,
+        line_gap: scale(hhea.line_gap().to_i16())?,
+    };
+    if metrics.ascender() < Length::ZERO || metrics.descender() > Length::ZERO {
+        return Err(error(owner, E::InvalidFontMetrics));
+    }
+    Ok(metrics)
+}

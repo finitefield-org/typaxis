@@ -2370,3 +2370,83 @@ pagination **92 passed**; resources **28 passed** — **427 passed** total,
 0 failures. Log: `/private/tmp/typaxis-terminal-regression.log`. Large resource
 and glyph tests previously validated are explicitly filtered here; ignored
 external validators and full-book public acceptance were not run by this command.
+
+## 2026-09-07: selected and painted authored equation numbers
+
+The preceding terminal-only checkpoint `33ca445` changed authoritative code and
+passed local regression; it was progress. The current checkpoint connects the
+previously missing numbered block atom through actual common-body selection,
+display, shared text-font finalization, structure, marked content and diagnostic
+PDF object assembly. It does not complete the full implementation goal.
+
+The consuming terminal finalizer now borrows the original math registry and
+selects number rectangles from the actual parent fragments before closing each
+atomic terminal. Parent/child owners, page/fragment indices, shape identity and
+rectangles are bound by `typaxis.production-body-terminal/2`. Reduced container
+and list frames recompute the right edge and minimum gap without shifting the
+formula to conceal a collision. Number placement records use the same cumulative
+budget. Display refuses numbered blocks if genuine number selection is absent.
+
+Number glyphs use the actual admitted hhea ascent/descent, signed half-leading,
+visual run origins and the correct sign for vertical glyph offsets. The frozen
+staging PDF number recipe is unchanged. Number draws enter the existing body
+font/CID path and retain their own source spans and sealed shape association.
+The source equation-number binding authorizes a distinct Span, with a single
+marked-content replacement and no duplicate structure-level ActualText. Internal
+display/structure identities advance to /5 and /4 respectively.
+
+Focused tests cover parent/number atomic placement, missing-selection refusal,
+forced-page retention, reduced-frame right alignment and collision rejection,
+actual-metrics baseline, independent Span/ParentTree ownership, four-character
+replacement and repeated-glyph CID sharing. The first new test incorrectly
+assumed the number used font 0; the resolved style selects face 2. It now checks
+against the real shape. A collision test originally failed on unrelated inline
+line fitting; it now isolates the block. The first structure bridge assumed
+number text lived in the node ActualText field; existing semantics correctly
+keep it in the dedicated equation-number binding, and the bridge now uses that
+binding without changing the frozen registry.
+
+Independent fixed-probe verification:
+
+```sh
+TYPAXIS_NUMBER_PDF_PROBE_DIR=/private/tmp/typaxis-number-probe \
+  cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build -p typaxis-cli --bin typaxis \
+  production_body_equation_numbers --locked
+/Users/kazuyoshitoshiya/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  tools/verify_production_number_probe.py /private/tmp/typaxis-number-probe/number.pdf \
+  /private/tmp/typaxis-number-probe/verified
+```
+
+The 1-page diagnostic probe has six source-order groups. Poppler and MuPDF both
+extract both formula speeches, the surrounding body and `ABAB` exactly once
+(disregarding extractor-specific whitespace). Independent pypdf traversal checks
+the number Span, Formula parent, MCR and ParentTree. MuPDF renders the original
+and a counterfactual with only the number MCID removed; the visible ink difference
+has pixel bounds `[207, 67, 259, 84]` at 144 dpi. The image was inspected. The font
+is a synthetic fixture whose A glyph is triangular, and body fixture outlines
+are not a publication-quality face. These checks establish actual number paint
+and extraction, not real-book typographic appearance or Harano acceptance.
+
+The public writer/manifest, generic convergence and final line reshaping,
+formal VMB exporter, 5,000 actual distinct engine formulas/mixed PNG, unchanged
+Harano CID-CFF/IVS and full-book independent acceptance remain required.
+
+Broader local regression:
+
+```sh
+cargo test --manifest-path workspace/Cargo.toml \
+  --target-dir /private/tmp/typaxis-vmb-book-build \
+  -p typaxis-shaping -p typaxis-layout -p typaxis-pagination \
+  -p typaxis-display-list -p typaxis-resources -p typaxis-cli \
+  --lib --bins --locked -- --skip places_5000 --skip more_than_65535
+```
+
+Result: CLI **244 passed, 3 ignored, 3 filtered**; display-list **56 passed**;
+layout **65 passed**; pagination **92 passed**; resources **28 passed**;
+shaping **24 passed** — **509 passed**, no failures.
+Log: `/private/tmp/typaxis-number-regression.log`. The final metric-sign guard is
+covered by rerunning the three focused number tests with regenerated PDF output;
+the guard rejects invalid horizontal ascender/descender signs just as body text
+preparation does. No previously filtered large-corpus test or ignored external
+validator is claimed as rerun here.

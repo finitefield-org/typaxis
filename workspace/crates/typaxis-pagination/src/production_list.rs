@@ -68,11 +68,6 @@ pub(super) fn block_frame(
             block.viewport_left(),
         ));
     }
-    // Numbered blocks need their real number glyph/height/gap preparation in
-    // this frame too; the production display currently rejects them globally.
-    if block.equation_number().is_some() {
-        return Err(error(owner, E::PendingEquationNumber));
-    }
     let width = width
         .get()
         .checked_sub(block.start_indent().get())
@@ -92,7 +87,21 @@ pub(super) fn block_frame(
             Length::from_raw(slack.raw() / 2).ok_or_else(|| error(owner, E::ArithmeticOverflow))?
         }
     };
-    Ok((left, width, add(left, offset, owner)?))
+    let viewport_left = add(left, offset, owner)?;
+    if let Some(number) = block.equation_number() {
+        let number_left = add(left, width.get(), owner)?
+            .checked_sub(number.width().get())
+            .ok_or_else(|| error(owner, E::ArithmeticOverflow))?;
+        let required = add(
+            add(viewport_left, block.viewport_width().get(), owner)?,
+            number.minimum_gap().get(),
+            owner,
+        )?;
+        if number_left < required {
+            return Err(error(owner, E::WidthMismatch));
+        }
+    }
+    Ok((left, width, viewport_left))
 }
 
 pub(super) fn has_paint(item: &Item, lines: &ProductionInlineLineLayout<'_, '_>) -> bool {

@@ -21,8 +21,8 @@ pub use page_breaks::{
 #[path = "production_terminals.rs"]
 mod terminals;
 pub use terminals::{
-    finalize_production_body_math_terminals, ProductionBodyMathTerminals,
-    PRODUCTION_BODY_TERMINAL_ALGORITHM,
+    finalize_production_body_math_terminals, ProductionBodyEquationNumber,
+    ProductionBodyMathTerminals, PRODUCTION_BODY_TERMINAL_ALGORITHM,
 };
 
 pub const PRODUCTION_BODY_PAGINATION_ALGORITHM: &str = "typaxis.production-body-pagination/4";
@@ -156,10 +156,18 @@ pub struct ProductionBodySelectedLayout<'s, 'p, 'a> {
     list_markers: Vec<ProductionBodyListMarker>,
     decisions: Vec<ProductionBodyBreakDecision>,
     math_terminals: Option<ProductionBodyMathTerminals>,
+    math_registry: Option<&'s typaxis_layout::StagingMathVectorFlowRegistry>,
+    equation_numbers: Vec<ProductionBodyEquationNumber>,
     record_charge: u64,
     fingerprint: [u8; 32],
 }
 impl<'s, 'p, 'a> ProductionBodySelectedLayout<'s, 'p, 'a> {
+    pub fn equation_numbers(&self) -> &[ProductionBodyEquationNumber] {
+        &self.equation_numbers
+    }
+    pub fn math_flow_registry(&self) -> Option<&'s typaxis_layout::StagingMathVectorFlowRegistry> {
+        self.math_registry
+    }
     pub fn math_terminals(&self) -> Option<&ProductionBodyMathTerminals> {
         self.math_terminals.as_ref()
     }
@@ -489,6 +497,8 @@ pub fn paginate_production_body<'s, 'p, 'a>(
         list_markers,
         decisions,
         math_terminals: None,
+        math_registry: None,
+        equation_numbers: Vec::new(),
         record_charge: limits.base().get().max_fragments - charge.remaining,
         fingerprint: [0; 32],
     };

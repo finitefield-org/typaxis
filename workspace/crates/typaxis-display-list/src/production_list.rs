@@ -115,6 +115,7 @@ pub(super) fn append_marker<'d>(
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
             exact_text: text,
             generated_provenance: Some(provenance),
+            equation_number: None,
             logical_bounds,
             glyphs,
         }));
