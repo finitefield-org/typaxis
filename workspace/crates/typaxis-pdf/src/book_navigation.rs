@@ -653,24 +653,15 @@ impl BookNavigationPdfFinalWriterObservationV2 {
             fingerprint: [0; 32],
         };
         let hashes = [
-            sha256(
-                encode_book_bounded(spool, maximum_spool, |out| {
-                    write_info_observation_v2(out, &value.info)
-                })?
-                .as_bytes(),
-            ),
-            sha256(
-                encode_book_bounded(spool, maximum_spool, |out| {
-                    write_pdf_language_paints_v2(out, &value.language_paints)
-                })?
-                .as_bytes(),
-            ),
-            sha256(
-                encode_book_bounded(spool, maximum_spool, |out| {
-                    write_pdf_outlines_v2(out, &value.outlines)
-                })?
-                .as_bytes(),
-            ),
+            hash_book_bounded(spool, maximum_spool, |out| {
+                write_info_observation_v2(out, &value.info)
+            })?,
+            hash_book_bounded(spool, maximum_spool, |out| {
+                write_pdf_language_paints_v2(out, &value.language_paints)
+            })?,
+            hash_book_bounded(spool, maximum_spool, |out| {
+                write_pdf_outlines_v2(out, &value.outlines)
+            })?,
         ];
         value.canonical_jcs = encode_book_bounded(spool, maximum_spool, |out| {
             write_final_writer_observation_v2(out, &value, &hashes)
@@ -822,9 +813,14 @@ fn validate_final_writer_observation_v2(
     writer: &BookNavigationPdfFinalWriterObservationV2,
     final_pdf: &crate::VerifiedPdfBytesReceipt,
 ) -> Result<(), BookNavigationPdfError> {
-    let canonical = encode_final_writer_observation_v2(writer);
-    if writer.canonical_jcs != canonical
-        || writer.fingerprint != sha256(canonical.as_bytes())
+    let hashes = [
+        hash_book_canonical(|out| write_info_observation_v2(out, &writer.info)),
+        hash_book_canonical(|out| write_pdf_language_paints_v2(out, &writer.language_paints)),
+        hash_book_canonical(|out| write_pdf_outlines_v2(out, &writer.outlines)),
+    ];
+    if !matches_book_canonical(&writer.canonical_jcs, |out| {
+        write_final_writer_observation_v2(out, writer, &hashes)
+    }) || writer.fingerprint != sha256(writer.canonical_jcs.as_bytes())
         || writer.final_pdf_sha256 != final_pdf.content_hash()
         || writer.final_pdf_byte_length != final_pdf.byte_length()
         || writer.page_count != final_pdf.page_count()
@@ -958,6 +954,7 @@ fn validate_final_writer_observation_v2(
     Ok(())
 }
 
+#[cfg(test)]
 fn encode_final_writer_observation_v2(value: &BookNavigationPdfFinalWriterObservationV2) -> String {
     let hashes = [
         sha256(encode_info_observation_v2(&value.info).as_bytes()),
@@ -1012,6 +1009,7 @@ fn write_final_writer_observation_v2(
     output.push_str("}}");
 }
 
+#[cfg(test)]
 fn encode_info_observation_v2(value: &BookNavigationPdfInfoObservationV2) -> String {
     let mut output = String::new();
     write_info_observation_v2(&mut output, value);
@@ -1042,6 +1040,7 @@ fn write_info_observation_v2(
     output.push('}');
 }
 
+#[cfg(test)]
 fn encode_pdf_outlines_v2(values: &[BookNavigationPdfOutlineObservationV2]) -> String {
     let mut output = String::new();
     write_pdf_outlines_v2(&mut output, values);
@@ -1073,6 +1072,7 @@ fn write_pdf_outlines_v2(
     output.push(']');
 }
 
+#[cfg(test)]
 fn encode_pdf_language_paints_v2(values: &[BookNavigationPdfLanguagePaintObservationV2]) -> String {
     let mut output = String::new();
     write_pdf_language_paints_v2(&mut output, values);
@@ -2842,6 +2842,29 @@ mod tests {
             bounded(&mut 0, expected_spool - 1).unwrap_err(),
             BookNavigationPdfError::SpoolLimit
         );
+        for mode in 0..3 {
+            let mut altered = final_writer.clone();
+            match mode {
+                0 => altered.canonical_jcs.push(' '),
+                1 => {
+                    altered.canonical_jcs.pop();
+                }
+                _ => altered.canonical_jcs.replace_range(0..1, "["),
+            }
+            altered.fingerprint = sha256(altered.canonical_jcs.as_bytes());
+            assert_eq!(
+                observe_staging_book_navigation_pdf_v2(
+                    &navigation,
+                    &profile,
+                    &selected,
+                    limits,
+                    &engine,
+                    &altered,
+                    &final_pdf,
+                ),
+                Err(BookNavigationPdfError::ReceiptMismatch)
+            );
+        }
         let mut diagnostic = final_writer.clone();
         diagnostic.xmp = BookXmpObservationV2::from_final_writer(
             crate::tagged_pdf::encode_book_xmp_with_conformance(
@@ -3148,6 +3171,89 @@ fn encode_book_bounded(
     maximum: u64,
     emit: impl Fn(&mut dyn BookCanonicalSink),
 ) -> Result<String, BookNavigationPdfError> {
+    let length = charge_book_canonical(spool, maximum, &emit)?;
+    let mut result = String::new();
+    result
+        .try_reserve_exact(length)
+        .map_err(|_| BookNavigationPdfError::AllocationFailure)?;
+    emit(&mut result);
+    Ok(result)
+}
+
+// The serializers may still create small numeric/escape fragments, but these
+// sinks never allocate whole metadata, language-paint, outline or writer JSON.
+fn hash_book_canonical(emit: impl FnOnce(&mut dyn BookCanonicalSink)) -> [u8; 32] {
+    struct Hash(crate::PdfSha256);
+    impl BookCanonicalSink for Hash {
+        fn push_str(&mut self, text: &str) {
+            self.0.update(text.as_bytes());
+        }
+        fn push(&mut self, value: char) {
+            self.0.update(value.encode_utf8(&mut [0; 4]).as_bytes());
+        }
+    }
+    let mut out = Hash(crate::PdfSha256::new());
+    emit(&mut out);
+    out.0.finish()
+}
+fn matches_book_canonical(expected: &str, emit: impl FnOnce(&mut dyn BookCanonicalSink)) -> bool {
+    struct Exact<'a>(Option<&'a str>);
+    impl BookCanonicalSink for Exact<'_> {
+        fn push_str(&mut self, text: &str) {
+            self.0 = self.0.and_then(|s| s.strip_prefix(text));
+        }
+        fn push(&mut self, value: char) {
+            self.push_str(value.encode_utf8(&mut [0; 4]));
+        }
+    }
+    let mut out = Exact(Some(expected));
+    emit(&mut out);
+    out.0 == Some("")
+}
+
+#[cfg(test)]
+mod canonical_stream_tests {
+    use super::*;
+    #[test]
+    fn streamed_book_canonical_matches_utf8_and_sha256_boundaries() {
+        for size in [0, 1, 31, 55, 56, 63, 64, 65, 127, 128, 1024] {
+            let text = "和文🙂\"\\\n\t\u{0001}".repeat(size);
+            let emit = |out: &mut dyn BookCanonicalSink| {
+                out.push_str("{\"value\":");
+                push_book_string(out, &text);
+                out.push('}');
+            };
+            let mut expected = String::new();
+            emit(&mut expected);
+            assert_eq!(hash_book_canonical(emit), sha256(expected.as_bytes()));
+            assert!(matches_book_canonical(&expected, emit));
+            assert!(!matches_book_canonical(&(expected.clone() + " "), emit));
+            assert!(!matches_book_canonical(
+                &expected[..expected.len() - 1],
+                emit
+            ));
+            let mut changed = expected.clone();
+            changed.replace_range(0..1, "[");
+            assert!(!matches_book_canonical(&changed, emit));
+        }
+    }
+}
+
+// Preserve the existing conservative serialized-byte charge even though the
+// intermediate JSON is now hashed without retaining its bytes.
+fn hash_book_bounded(
+    spool: &mut u64,
+    maximum: u64,
+    emit: impl Fn(&mut dyn BookCanonicalSink),
+) -> Result<[u8; 32], BookNavigationPdfError> {
+    charge_book_canonical(spool, maximum, &emit)?;
+    Ok(hash_book_canonical(emit))
+}
+fn charge_book_canonical(
+    spool: &mut u64,
+    maximum: u64,
+    emit: &impl Fn(&mut dyn BookCanonicalSink),
+) -> Result<usize, BookNavigationPdfError> {
     struct Count(Option<usize>);
     impl BookCanonicalSink for Count {
         fn push_str(&mut self, value: &str) {
@@ -3166,10 +3272,5 @@ fn encode_book_bounded(
     if *spool > maximum {
         return Err(BookNavigationPdfError::SpoolLimit);
     }
-    let mut result = String::new();
-    result
-        .try_reserve_exact(length)
-        .map_err(|_| BookNavigationPdfError::AllocationFailure)?;
-    emit(&mut result);
-    Ok(result)
+    Ok(length)
 }

@@ -2604,3 +2604,24 @@ safe-vector単体テストは7件成功（0.15秒、
 `/private/tmp/typaxis-safe-vector-closure-final-unit.log`）。既存の公開closureとの一致、closure JSONの
 必要spool量ちょうど／1不足、観測JSONの末尾追加・欠落・先頭改変をhash更新後も拒否することを
 確認した。全コマンドはworkspace manifestと前節のtargetを使用し、全プロセスは終了済み。
+
+### 14.76 book観測JSONの中間コピー削減（実装追補）
+
+book final-writer観測の生成・検証で、Info／language-paint／outlineのcanonical JSONを一度
+Stringへ構築してからハッシュ化する処理をstreaming SHA-256 sinkへ置き換えた。生成時は同じ
+serializerで長さを計数し、従来の保守的なspool課金を確認してからハッシュ化するため、既存の
+境界値・canonical形式・fingerprintは維持する。再検証ではfinal-writer JSONも比較sinkへ流し、
+丸ごとの再コピーを行わない。小さな数値・escape断片の一時文字列は残っており、全工程の
+allocation管理が完了したとは扱わない。
+
+日本語・絵文字・制御文字・引用符・backslashを含む値とSHA-256ブロック境界で、従来の
+文字列serializerに対するhash／内容一致を確認する。余分な末尾、欠落、先頭改変は拒否する。
+公開book validatorでも、改変したJSONに合わせてhashを更新した観測を拒否する。従来の
+PDF/UAなしXMPの拒否は維持し、未完成の共通PDFに公開適合宣言を付ける変更は行っていない。
+
+ローカル検証: PDF crateのbook_navigationテスト5件成功（0.25秒、
+`/private/tmp/typaxis-book-stream-final-unit.log`）、CLI production回帰167件成功・1件ignored
+（12.76秒、`/private/tmp/typaxis-book-stream-final-regression.log`）。workspace manifestと
+`/private/tmp/typaxis-vmb-book-build`を使用し、5,000画像は今回再実行していない。
+公開writer／manifest・book/tagged closure、全allocation管理、正式exporter、元全巻・原ノ味・
+規模・両hostゲートは引き続き必要である。

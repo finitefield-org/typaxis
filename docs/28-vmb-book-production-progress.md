@@ -5697,3 +5697,21 @@ equality with the existing closure and hash-updated canonical JSON tampering
 (`/private/tmp/typaxis-safe-vector-closure-final-unit.log`). All processes ended.
 Public book/tagged closure and writer/manifest integration, full allocation
 accounting, exporter and the original-book/Harano/scale/host gates remain open.
+
+## 2026-09-08 — Stream book observation hashes and comparisons
+
+Implemented design §14.76. Info, language-paint and outline JSON is now hashed
+through the canonical serializer without whole intermediate String buffers.
+Construction still counts and charges the same conservative spool amount before
+hashing, preserving the existing limits and bytes. Final-writer verification also
+compares serialized pieces with the retained JSON instead of rebuilding it.
+Small numeric/escape fragments and other stages' allocations remain outside this
+change; public PDF/UA and metadata acceptance conditions are unchanged.
+
+Tests cover Unicode/escaping, SHA-256 block boundaries, exact/one-short spool,
+and hash-updated tampering. Final book-navigation tests: 5 passed, 0.25 s
+(`/private/tmp/typaxis-book-stream-final-unit.log`). CLI production regression:
+167 passed, 1 ignored, 12.76 s; unchanged 5,000-image cases excluded
+(`/private/tmp/typaxis-book-stream-final-regression.log`). All processes ended.
+Public writer/manifest and book/tagged closure, full allocation accounting,
+exporter and original-book/Harano/scale/host acceptance remain incomplete.
