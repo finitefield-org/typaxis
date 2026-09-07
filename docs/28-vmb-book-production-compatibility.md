@@ -1899,3 +1899,23 @@ vector usageを構築する。要求されたpaint nodeの未描画、描画の�
 ParentTree object、注釈・リンク、font usage／content／manifestへの接続はまだ必要である。
 registryの論理的な順序と実PDFの読み上げ順・抽出順は最終の独立検証対象として維持する。
 動的参照の収束、元全巻・原ノ味・規模・両hostのゲートを緩和しない。
+
+### 14.40 本文・脚注の構造付き描画からのフォント使用計画（実装追補）
+
+`finalize_production_footnote_fonts`は§14.39の構造結果を借用し、display／admission／limitsを
+照合してから実draw列を共通の`finalize_font_projection`へ渡す。通常本文の確定処理も同じ
+関数を使う。本文・脚注・参照番号・定義番号・list marker・式番号を、それぞれの実face、
+文字範囲、exact text、original glyph IDから使用計画へ集める。非text drawと区切り線には
+フォント使用を作らない。描画していないfaceを追加したり、異なるfaceを一つへ置き換えたりしない。
+
+`ProductionFootnoteFontPlans`は元の構造結果に結び付き、draw番号からfont／cluster／CID計画を
+引ける。既存のfont finalizerのsubset byte・glyph・Unicode対応とprofile制約を維持する。
+生成番号を普通の本文bufferへ読み替えず、displayの生成namespaceを含むtext spanを保つ。
+
+構造までのrecord charge、保持するmath terminal bytesとstructure spoolを引き継ぎ、usage・
+文字列／glyph／CID／抽出用コピーとsubset bytesを同じ呼出しの予算へ加算する。全pipelineの
+再試行や複数分岐の同時保持を、このimmutable計画だけで認可するものではない。
+
+この段階は使用計画とsubsetの確定であり、新しい経路のPDF text/content命令、marked content、
+ParentTree・font object・リンク・manifestの公開接続はまだ必要である。原ノ味の次期profileを
+現行CFF経路へ混入しない。動的参照の収束、元全巻・原ノ味・規模・両hostのゲートは維持する。

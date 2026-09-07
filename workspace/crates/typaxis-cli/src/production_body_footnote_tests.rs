@@ -1504,3 +1504,163 @@ fn production_footnote_structure_keeps_shared_record_budget_and_display_identity
         );
     }
 }
+
+#[test]
+fn production_footnote_fonts_bind_selected_glyphs_and_generated_unicode() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure, ProductionBodyDraw,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let mut multi = production_footnote_multi_digit_fixture();
+    multi["page_masters"]["masters"][0]["footnote"]["height"] = 16_000_000.into();
+    multi["page_masters"]["masters"][0]["footnote"]["y"] = 3_000_000.into();
+    for value in [
+        production_footnote_flow_fixture(),
+        production_footnote_numbered_definition_fixture(),
+        multi,
+    ] {
+        with_production_footnote_structure_prepared(
+            &value,
+            &config(),
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                fonts.verify(&structure, admitted, limits).unwrap();
+                assert!(std::ptr::eq(fonts.structure(), &structure));
+                let expected: std::collections::BTreeSet<_> = display
+                    .draws()
+                    .iter()
+                    .filter_map(|draw| match draw {
+                        ProductionBodyDraw::Text(t) => Some(t.font_face_id()),
+                        _ => None,
+                    })
+                    .collect();
+                let actual: std::collections::BTreeSet<_> =
+                    fonts.fonts().iter().map(|f| f.font_face_id()).collect();
+                assert_eq!(fonts.fonts().len(), expected.len());
+                assert_eq!(actual, expected);
+                assert!(fonts.spool_charge() >= structure.spool_charge() + terminals.spool_bytes());
+                assert!(fonts.record_charge() > structure.record_charge());
+                for (index, draw) in display.draws().iter().enumerate() {
+                    match draw {
+                        ProductionBodyDraw::Text(text) => {
+                            let (font, cluster) = fonts.text_plan(index).unwrap();
+                            assert_eq!(font.font_face_id(), text.font_face_id());
+                            assert_eq!(cluster.text_span(), text.text_span());
+                            assert_eq!(cluster.exact_text(), text.exact_text());
+                            assert_eq!(
+                                cluster.glyphs(),
+                                text.glyphs()
+                                    .iter()
+                                    .map(|g| g.original_gid())
+                                    .collect::<Vec<_>>()
+                            );
+                            assert_eq!(cluster.cids().len(), text.glyphs().len());
+                            assert!(!font.pdf_font().subset_bytes().is_empty());
+                        }
+                        _ => assert!(fonts.text_plan(index).is_none()),
+                    }
+                }
+                assert!(fonts.text_plan(display.draws().len()).is_none());
+                let other = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                assert_eq!(
+                    fonts.verify(&other, admitted, limits).err().unwrap(),
+                    typaxis_resources::ResourceError::AdmittedLedgerEpochMismatch
+                );
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_fonts_account_for_prior_structure_records_and_spool() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let result = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                );
+                if mode == 2 || mode == 4 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        typaxis_resources::ResourceError::ResourceLimit
+                    );
+                } else {
+                    let fonts = result.unwrap();
+                    if mode == 0 {
+                        records = fonts.record_charge();
+                        spool = fonts.spool_charge();
+                    }
+                }
+            },
+        );
+    }
+}

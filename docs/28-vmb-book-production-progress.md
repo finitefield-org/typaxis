@@ -4909,3 +4909,49 @@ No joint marked-content/ParentTree/PDF/annotation/manifest output is claimed.
 Those integrations, logical-versus-physical reading-order/extraction checks,
 complete pipeline accounting, dynamic references and original full-book/Harano/
 scale/both-host acceptance remain incomplete. No branch push is claimed.
+
+### Joint font usage/subset planning after structure validation
+
+Implemented design §14.40. `finalize_production_footnote_fonts` authenticates and
+borrows the joint structure/display, then uses the extracted common font
+projection also used by ordinary body finalization. Actual text face/span/string/
+glyph usage covers body, footnotes, reference/definition/list labels and equation
+numbers. Non-text draws have no usage slot. The result maps draw indices to
+frozen font/cluster/CID plans and rejects verification with another structure
+instance. It starts with structure record charges and retained structure plus
+math-terminal spool bytes before charging font work/copies/subset bytes.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-resources --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_footnote --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_objects_preserve_tt_ttc_cff_font_programs_and_unicode --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_display --locked
+```
+Check **3.62 s**. Final footnote regression **48 passed, 0 failed, 3.50 s**,
+`/private/tmp/typaxis-joint-font-final.log`. New tests compare actual used face sets,
+source spans, exact strings, glyph IDs and CID counts for real list/formula/
+numbered-footnote/multi-digit fixtures; verify nonempty subsets and absent
+non-text plans; reject foreign structure identity; and exercise exact/one-short
+record and spool budgets including preceding stages. An initial test incorrectly
+assumed one face; the fixture actually uses two. The test now requires exact set
+equality instead of changing the implementation or substituting a font.
+Regression logs: `/private/tmp/typaxis-joint-font-{common,formats,body}.log`.
+Common **2 passed, 1 explicitly ignored**; existing TT/TTC/CFF object/Unicode test
+**1 passed**; body display **2 passed**. The format regression covers the existing
+small ordinary-body path, not original Harano or a complete joint PDF.
+
+Joint PDF text/content, marked content, ParentTree/font objects, links, manifest
+and public writer remain pending, together with full pipeline retry/retention
+accounting, dynamic references and original full-book/Harano/scale/both-host
+acceptance. No new public/full-book PDF or branch push is claimed.

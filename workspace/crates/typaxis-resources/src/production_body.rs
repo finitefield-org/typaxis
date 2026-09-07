@@ -68,15 +68,44 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
     display
         .verify_resources(admitted, limits)
         .map_err(|_| ResourceError::AdmittedLedgerEpochMismatch)?;
+    let projection = finalize_font_projection(
+        display.draws(),
+        display.record_charge(),
+        display.selected().spool_charge(),
+        admitted,
+        limits,
+    )?;
+    Ok(ProductionBodyFontPlans {
+        display,
+        fonts: projection.fonts,
+        draw_clusters: projection.draw_clusters,
+        record_charge: projection.record_charge,
+        spool_charge: projection.spool_charge,
+    })
+}
+
+struct FontProjection {
+    fonts: Vec<FrozenStagingPdfTextFontPlan>,
+    draw_clusters: Vec<Option<(usize, usize)>>,
+    record_charge: u64,
+    spool_charge: u64,
+}
+fn finalize_font_projection(
+    draws: &[ProductionBodyDraw<'_>],
+    prior_records: u64,
+    prior_spool: u64,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<FontProjection, ResourceError> {
     // Count all occurrences before copying text or allocating usage maps. The
     // conservative charge includes temporary glyph/CID/extraction copies.
-    let mut record_charge = display.record_charge();
-    let mut copied_bytes = display.selected().spool_charge();
+    let mut record_charge = prior_records;
+    let mut copied_bytes = prior_spool;
     if copied_bytes > limits.base().get().max_spool_bytes {
         return Err(ResourceError::ResourceLimit);
     }
     let mut text_count = 0usize;
-    for draw in display.draws() {
+    for draw in draws {
         record_charge = record_charge
             .checked_add(1)
             .ok_or(ResourceError::ResourceLimit)?;
@@ -107,7 +136,7 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
     usages
         .try_reserve_exact(text_count)
         .map_err(|_| ResourceError::ResourceLimit)?;
-    for draw in display.draws() {
+    for draw in draws {
         if let ProductionBodyDraw::Text(text) = draw {
             usages.push(StagingPdfTextClusterUsage::new(
                 text.font_face_id(),
@@ -139,10 +168,10 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
         .collect::<BTreeMap<_, _>>();
     let mut draw_clusters = Vec::new();
     draw_clusters
-        .try_reserve_exact(display.draws().len())
+        .try_reserve_exact(draws.len())
         .map_err(|_| ResourceError::ResourceLimit)?;
     let mut usage_iter = usages.iter();
-    for draw in display.draws() {
+    for draw in draws {
         draw_clusters.push(if matches!(draw, ProductionBodyDraw::Text(_)) {
             let usage = usage_iter
                 .next()
@@ -164,11 +193,110 @@ pub fn finalize_production_body_fonts<'v, 'd, 's, 'p, 'a>(
             None
         });
     }
-    Ok(ProductionBodyFontPlans {
-        display,
+    Ok(FontProjection {
         fonts,
         draw_clusters,
         record_charge,
         spool_charge: copied_bytes,
+    })
+}
+
+/// Shared font usage for the actual tagged joint display, including generated
+/// footnote/reference/list labels. Separators deliberately have no font usage.
+pub struct ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a> {
+    structure:
+        &'t typaxis_display_list::ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>,
+    projection: FontProjection,
+}
+impl<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+{
+    pub fn structure(
+        &self,
+    ) -> &'t typaxis_display_list::ProductionFootnoteStructure<'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>
+    {
+        self.structure
+    }
+    pub fn fonts(&self) -> &[FrozenStagingPdfTextFontPlan] {
+        &self.projection.fonts
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.projection.record_charge
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.projection.spool_charge
+    }
+    pub fn text_plan(
+        &self,
+        draw_index: usize,
+    ) -> Option<(
+        &FrozenStagingPdfTextFontPlan,
+        &FrozenStagingPdfTextClusterPlan,
+    )> {
+        let (font, cluster) = self
+            .projection
+            .draw_clusters
+            .get(draw_index)
+            .copied()
+            .flatten()?;
+        let font = &self.projection.fonts[font];
+        Some((font, &font.clusters()[cluster]))
+    }
+    pub fn verify(
+        &self,
+        structure: &typaxis_display_list::ProductionFootnoteStructure<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+    ) -> Result<(), ResourceError> {
+        if !std::ptr::eq(self.structure, structure) {
+            return Err(ResourceError::AdmittedLedgerEpochMismatch);
+        }
+        structure
+            .verify(structure.display(), admitted, limits)
+            .map_err(|_| ResourceError::AdmittedLedgerEpochMismatch)
+    }
+}
+pub fn finalize_production_footnote_fonts<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>(
+    structure: &'t typaxis_display_list::ProductionFootnoteStructure<
+        'v,
+        'd,
+        'g,
+        'q,
+        'b,
+        'f,
+        's,
+        'p,
+        'a,
+    >,
+    admitted: &AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+) -> Result<ProductionFootnoteFontPlans<'t, 'v, 'd, 'g, 'q, 'b, 'f, 's, 'p, 'a>, ResourceError> {
+    structure
+        .verify(structure.display(), admitted, limits)
+        .map_err(|_| ResourceError::AdmittedLedgerEpochMismatch)?;
+    let prior_spool = structure
+        .spool_charge()
+        .checked_add(structure.display().source().spool_bytes())
+        .ok_or(ResourceError::ResourceLimit)?;
+    let projection = finalize_font_projection(
+        structure.display().draws(),
+        structure.record_charge(),
+        prior_spool,
+        admitted,
+        limits,
+    )?;
+    Ok(ProductionFootnoteFontPlans {
+        structure,
+        projection,
     })
 }
