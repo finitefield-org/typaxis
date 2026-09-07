@@ -4775,3 +4775,40 @@ Common driver **2 passed, 1 explicitly ignored, 0.64 s**, log
 Public joint display/tag/navigation/PDF/manifest integration, dynamic reference
 convergence, original full-book/Harano/scale/both-host acceptance remain incomplete.
 No public/full-book PDF or branch push is claimed.
+
+### Internal display projection inputs separated from ordinary-body ownership
+
+Implemented design §14.37. A private borrowed `DisplayInput` now supplies the
+existing glyph/inline-anchor/vector/raster/list/equation projection. The public
+ordinary-body builder still authenticates and retains its existing selected
+layout; no public arbitrary-geometry constructor was added. Shape provenance,
+resource checks, record charging and fingerprint rules remain in the common
+projection. Equation numbers are located by their selected fragment index and
+then checked against parent owner, avoiding a source-owner ordering assumption
+for the forthcoming demand-ordered footnote adapter.
+
+Verification (all terminal):
+```sh
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo check --manifest-path workspace/Cargo.toml -p typaxis-display-list --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_display --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_body_equation_numbers --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_list --locked
+CARGO_TARGET_DIR=/private/tmp/typaxis-vmb-book-build \
+  cargo test --manifest-path workspace/Cargo.toml -p typaxis-cli --bin typaxis \
+  production_common_driver --locked
+```
+Check **4.51 s**. Display **2 passed, 0.17 s**; equation numbers **3 passed**;
+lists **11 passed**; common driver **2 passed, 1 explicitly ignored**. Logs:
+`/private/tmp/typaxis-display-input-{tests,numbers,lists,common}.log`.
+These are regressions of the existing entry point, not evidence of joint footnote
+paint. The authenticated joint adapter, footnote-number/separator draws and
+complete tags/navigation/PDF/manifest remain pending, as do dynamic reference
+convergence and original full-book/Harano/scale/both-host acceptance. No public
+full-book PDF or branch push is claimed.

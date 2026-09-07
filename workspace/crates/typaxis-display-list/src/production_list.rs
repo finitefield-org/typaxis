@@ -3,7 +3,7 @@ use super::*;
 use typaxis_shaping::ShapeSourceSpan;
 
 pub(super) fn append_marker<'d>(
-    selected: &'d ProductionBodySelectedLayout<'_, '_, '_>,
+    selected: &DisplayInput<'d, '_, '_>,
     placement: &typaxis_pagination::ProductionBodyListMarker,
     admitted: &AdmittedResourceLedger,
     remaining: &mut u64,

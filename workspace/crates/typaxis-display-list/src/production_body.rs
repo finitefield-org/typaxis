@@ -305,11 +305,79 @@ impl<'d, 's, 'p, 'a> ProductionBodyDisplay<'d, 's, 'p, 'a> {
     }
 }
 
+/// Borrowed projection inputs. Constructors remain inside this module so each
+/// public pathway must authenticate its own complete selection first.
+struct DisplayInput<'d, 'p, 'a> {
+    lines: &'d typaxis_layout::ProductionInlineLineLayout<'p, 'a>,
+    blocks: &'d typaxis_layout::StagingPrecomposedVectorBlockLayout,
+    fragments: &'d [typaxis_pagination::ProductionBodyFragment],
+    markers: &'d [typaxis_pagination::ProductionBodyListMarker],
+    numbers: &'d [typaxis_pagination::ProductionBodyEquationNumber],
+    registry: Option<&'d typaxis_layout::StagingMathVectorFlowRegistry>,
+    fingerprint: [u8; 32],
+}
+impl<'d, 'p, 'a> DisplayInput<'d, 'p, 'a> {
+    fn line_layout(&self) -> &'d typaxis_layout::ProductionInlineLineLayout<'p, 'a> {
+        self.lines
+    }
+    fn block_layout(&self) -> &'d typaxis_layout::StagingPrecomposedVectorBlockLayout {
+        self.blocks
+    }
+    fn fragments(&self) -> &'d [typaxis_pagination::ProductionBodyFragment] {
+        self.fragments
+    }
+    fn list_markers(&self) -> &'d [typaxis_pagination::ProductionBodyListMarker] {
+        self.markers
+    }
+    fn equation_numbers(&self) -> &'d [typaxis_pagination::ProductionBodyEquationNumber] {
+        self.numbers
+    }
+    fn math_flow_registry(&self) -> Option<&'d typaxis_layout::StagingMathVectorFlowRegistry> {
+        self.registry
+    }
+    fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+struct Projection<'d> {
+    draws: Vec<ProductionBodyDraw<'d>>,
+    inline_anchors: Vec<ProductionBodyInlineAnchor<'d>>,
+    record_charge: u64,
+}
+
 pub fn build_production_body_display<'d, 's, 'p, 'a>(
     selected: &'d ProductionBodySelectedLayout<'s, 'p, 'a>,
     admitted: &'d AdmittedResourceLedger,
     limits: &M4EffectiveResourceLimits,
 ) -> Result<ProductionBodyDisplay<'d, 's, 'p, 'a>, ProductionBodyDisplayError> {
+    let input = DisplayInput {
+        lines: selected.line_layout(),
+        blocks: selected.block_layout(),
+        fragments: selected.fragments(),
+        markers: selected.list_markers(),
+        numbers: selected.equation_numbers(),
+        registry: selected.math_flow_registry(),
+        fingerprint: selected.fingerprint(),
+    };
+    let projection = project_display(&input, admitted, limits, selected.record_charge())?;
+    let mut digest = [0u8; 64];
+    digest[..32].copy_from_slice(&sha256(PRODUCTION_BODY_DISPLAY_ALGORITHM.as_bytes()));
+    digest[32..].copy_from_slice(&selected.fingerprint());
+    Ok(ProductionBodyDisplay {
+        selected,
+        admitted,
+        draws: projection.draws,
+        inline_anchors: projection.inline_anchors,
+        record_charge: projection.record_charge,
+        fingerprint: sha256(&digest),
+    })
+}
+fn project_display<'d, 'p, 'a>(
+    selected: &DisplayInput<'d, 'p, 'a>,
+    admitted: &'d AdmittedResourceLedger,
+    limits: &M4EffectiveResourceLimits,
+    prior_charge: u64,
+) -> Result<Projection<'d>, ProductionBodyDisplayError> {
     let root = NodeId::new(0);
     let lines = selected.line_layout();
     if lines.binding_epoch().admitted_fingerprint() != admitted.fingerprint().bytes()
@@ -321,7 +389,7 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
         .base()
         .get()
         .max_fragments
-        .checked_sub(selected.record_charge())
+        .checked_sub(prior_charge)
         .ok_or_else(|| error(root, E::RecordLimit))?;
     let mut draws = Vec::new();
     let mut inline_anchors = Vec::new();
@@ -573,20 +641,14 @@ pub fn build_production_body_display<'d, 's, 'p, 'a>(
     if marker_cursor != selected.list_markers().len() {
         return Err(error(root, E::ReceiptMismatch));
     }
-    let mut digest = [0u8; 64];
-    digest[..32].copy_from_slice(&sha256(PRODUCTION_BODY_DISPLAY_ALGORITHM.as_bytes()));
-    digest[32..].copy_from_slice(&selected.fingerprint());
-    Ok(ProductionBodyDisplay {
-        selected,
-        admitted,
+    Ok(Projection {
         draws,
         inline_anchors,
         record_charge: limits.base().get().max_fragments - remaining,
-        fingerprint: sha256(&digest),
     })
 }
 fn vector_draw<'d>(
-    selected: &'d ProductionBodySelectedLayout<'_, '_, '_>,
+    selected: &DisplayInput<'d, '_, '_>,
     admitted: &AdmittedResourceLedger,
     owner: NodeId,
     fragment_index: u32,

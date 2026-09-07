@@ -3,7 +3,7 @@ use super::*;
 use typaxis_shaping::ShapeSourceSpan;
 
 pub(super) fn append_number<'d>(
-    selected: &'d ProductionBodySelectedLayout<'_, '_, '_>,
+    selected: &DisplayInput<'d, '_, '_>,
     parent: NodeId,
     fragment_index: u32,
     admitted: &AdmittedResourceLedger,
@@ -12,10 +12,10 @@ pub(super) fn append_number<'d>(
 ) -> Result<(), ProductionBodyDisplayError> {
     let placement = selected
         .equation_numbers()
-        .binary_search_by_key(&parent, |n| n.parent_owner())
+        .binary_search_by_key(&fragment_index, |n| n.fragment_index())
         .ok()
         .and_then(|i| selected.equation_numbers().get(i))
-        .filter(|n| n.fragment_index() == fragment_index)
+        .filter(|n| n.parent_owner() == parent)
         .ok_or_else(|| error(parent, E::PendingEquationNumber))?;
     let shape = selected
         .math_flow_registry()

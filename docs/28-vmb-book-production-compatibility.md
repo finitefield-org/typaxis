@@ -1839,3 +1839,17 @@ JCS／integrity encoderの保守的なピークspool予約を実行前に確保�
 
 新しいterminal結果は実選択への結び付きを持つが、公開display/tag/navigation/PDF/manifestの
 完成ではない。動的参照の再整形・収束、元全巻・原ノ味・規模・両hostのゲートは引き続き必要。
+
+### 14.37 描画計算の内部入力分離（実装追補）
+
+通常本文専用の所有型に描画計算を固定しないため、内部の`DisplayInput`と`project_display`へ
+実行・block・実fragment・list marker・式番号・registry・配置fingerprintを借用する処理を
+分離した。型と構築経路はdisplay module内部に閉じ、公開の任意geometry入力は作らない。
+既存の`build_production_body_display`は従来のselected layoutを認可入口に保ち、同じ計算を
+呼び出す。glyph・inline anchor・vector・raster・generated provenance・予算会計・fingerprint
+の生成規則は変更しない。
+
+式番号の検索は、terminalが実選択順に保持した`fragment_index`で行い、parent ownerも
+一致することを要求する。脚注の要求順ではparent owner番号の昇順を前提にできないためである。
+この分離は共用描画処理の準備であり、本文・脚注terminalからの新しい描画入口、脚注番号・
+区切り線・タグ・公開PDFの接続自体は引き続き必要である。
