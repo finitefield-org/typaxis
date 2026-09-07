@@ -2579,3 +2579,28 @@ workspace/Cargo.toml -p typaxis-cli --bin typaxis production_ -- --skip 5000`は
 `/private/tmp/typaxis-page-reference-closure-regression.log`。5,000画像の再実行は含まない。
 公開writer／manifestの統合、全allocation予算、Text／Number参照、正式exporter、元全巻・
 原ノ味・規模・両host受入は引き続き必要である。
+
+### 14.75 共通PDFのsafe-vector closure接続（実装追補）
+
+ProductionFootnotePdfAssembly::seal_safe_vectorは、完成した共通PDFのsource／structure／
+object graph／bytesを検証した後、実際のvector contributionと絶対object/use観測値から既存の
+StagingSafeVectorPdfClosureV2を生成する。公開serializer用APIは引き続きVerifiedPdfBytesReceiptを
+要求し、raw bytes/hashによる入口はcrate内部だけとする。共通経路のために公開PDF認可を先に
+捏造しない。共通driverはclosure生成をbook projectionの前へ接続し、その費用を引き継ぐ。
+
+validation用のobject索引2組とpage索引・object集合をusage数による上界で記録予算へ事前計上する。
+closure JSONは書き込み先を計数器にして長さを求め、spool上限確認後に必要量を確保する。
+final-writer観測のverifyは同じcanonical serializerを既存文字列の比較sinkへ流し、観測JSON全体の
+コピーを廃止する。既存algorithm／canonical JSON形式と公開serializerの検証条件は維持する。
+全工程の一時allocation課金がこの局所接続だけで完了したとは扱わない。
+
+実共通PDFでfinal hash・byte length・object count・writer fingerprintを照合し、record／spoolの
+必要量ちょうど／1不足を検証する。CLI production回帰は167件成功・1件ignored（12.60秒、
+`/private/tmp/typaxis-common-safe-vector-regression.log`）。5,000画像は今回再実行していない。
+公開tagged/book closure・writer／manifest、正式exporter、元全巻・原ノ味・規模・両hostゲートは
+引き続き必要である。
+
+safe-vector単体テストは7件成功（0.15秒、
+`/private/tmp/typaxis-safe-vector-closure-final-unit.log`）。既存の公開closureとの一致、closure JSONの
+必要spool量ちょうど／1不足、観測JSONの末尾追加・欠落・先頭改変をhash更新後も拒否することを
+確認した。全コマンドはworkspace manifestと前節のtargetを使用し、全プロセスは終了済み。

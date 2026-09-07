@@ -2196,14 +2196,24 @@ impl StagingSafeVectorPdfFinalWriterObservationV2 {
         contribution: &StagingSafeVectorPdfContributionV2,
     ) -> Result<(), StagingSafeVectorPdfV2Error> {
         validate_final_writer_rows(contribution, &self.object_table, &self.usages)?;
-        let canonical = encode_final_writer_observation(
+        struct Exact<'a>(&'a str);
+        impl std::fmt::Write for Exact<'_> {
+            fn write_str(&mut self, text: &str) -> std::fmt::Result {
+                self.0 = self.0.strip_prefix(text).ok_or(std::fmt::Error)?;
+                Ok(())
+            }
+        }
+        let mut exact = Exact(&self.canonical_jcs);
+        write_final_writer_observation(
+            &mut exact,
             contribution.fingerprint(),
             &self.object_table,
             &self.usages,
-        );
+        )
+        .map_err(|_| StagingSafeVectorPdfV2Error::FinalWriterMismatch)?;
         if self.contribution_fingerprint != contribution.fingerprint()
-            || self.canonical_jcs != canonical
-            || self.fingerprint != sha256(canonical.as_bytes())
+            || !exact.0.is_empty()
+            || self.fingerprint != sha256(self.canonical_jcs.as_bytes())
         {
             return Err(StagingSafeVectorPdfV2Error::FinalWriterMismatch);
         }
@@ -2264,37 +2274,61 @@ pub fn seal_staging_safe_vector_pdf_v2(
     final_writer: &StagingSafeVectorPdfFinalWriterObservationV2,
     final_pdf: &VerifiedPdfBytesReceipt,
 ) -> Result<StagingSafeVectorPdfClosureV2, StagingSafeVectorPdfV2Error> {
+    seal_safe_vector_pdf_bytes_v2(
+        contribution,
+        final_writer,
+        final_pdf.bytes(),
+        final_pdf.content_hash(),
+        final_pdf.byte_length(),
+        final_pdf.page_count(),
+        final_pdf.object_count(),
+        u64::MAX,
+    )
+}
+
+// Internal entry for complete source-verified common assemblies. Public callers
+// still need the serializer receipt; raw hash/size facts are not a public API.
+pub(crate) fn seal_safe_vector_pdf_bytes_v2(
+    contribution: &StagingSafeVectorPdfContributionV2,
+    final_writer: &StagingSafeVectorPdfFinalWriterObservationV2,
+    bytes: &[u8],
+    pdf_sha256: [u8; 32],
+    byte_length: u64,
+    page_count: u32,
+    object_count: u32,
+    available_spool: u64,
+) -> Result<StagingSafeVectorPdfClosureV2, StagingSafeVectorPdfV2Error> {
     final_writer.verify(contribution)?;
-    if final_pdf.bytes().is_empty()
-        || final_pdf.content_hash() != sha256(final_pdf.bytes())
-        || u64::try_from(final_pdf.bytes().len()).ok() != Some(final_pdf.byte_length())
-        || usize::try_from(final_pdf.page_count()).ok() != Some(contribution.pages.len())
+    if bytes.is_empty()
+        || pdf_sha256 != sha256(bytes)
+        || u64::try_from(bytes.len()).ok() != Some(byte_length)
+        || usize::try_from(page_count).ok() != Some(contribution.pages.len())
         || final_writer.object_table.iter().any(|object| {
-            object.absolute_object_number == 0
-                || object.absolute_object_number > final_pdf.object_count()
+            object.absolute_object_number == 0 || object.absolute_object_number > object_count
         })
         || final_writer.usages.iter().any(|usage| {
             usage.page_object_number == 0
                 || usage.page_content_object_number == 0
-                || usage.page_object_number > final_pdf.object_count()
-                || usage.page_content_object_number > final_pdf.object_count()
+                || usage.page_object_number > object_count
+                || usage.page_content_object_number > object_count
         })
     {
         return Err(StagingSafeVectorPdfV2Error::FinalPdfMismatch);
     }
-    let canonical_jcs = encode_pdf_closure(
+    let canonical_jcs = encode_pdf_closure_bounded(
         contribution.fingerprint(),
         final_writer.fingerprint(),
-        final_pdf.content_hash(),
-        final_pdf.byte_length(),
-        final_pdf.object_count(),
-    );
+        pdf_sha256,
+        byte_length,
+        object_count,
+        available_spool,
+    )?;
     Ok(StagingSafeVectorPdfClosureV2 {
         contribution_fingerprint: contribution.fingerprint(),
         final_writer_observation_fingerprint: final_writer.fingerprint(),
-        final_pdf_sha256: final_pdf.content_hash(),
-        final_pdf_byte_length: final_pdf.byte_length(),
-        final_pdf_object_count: final_pdf.object_count(),
+        final_pdf_sha256: pdf_sha256,
+        final_pdf_byte_length: byte_length,
+        final_pdf_object_count: object_count,
         fingerprint: sha256(canonical_jcs.as_bytes()),
         canonical_jcs,
     })
@@ -2368,16 +2402,6 @@ fn validate_final_writer_rows(
     Ok(())
 }
 
-fn encode_final_writer_observation(
-    contribution_fingerprint: [u8; 32],
-    object_table: &[StagingSafeVectorPdfFinalObjectObservationV2],
-    usages: &[StagingSafeVectorPdfFinalUsageObservationV2],
-) -> String {
-    let mut output = String::new();
-    write_final_writer_observation(&mut output, contribution_fingerprint, object_table, usages)
-        .expect("writing into String cannot fail");
-    output
-}
 fn write_final_writer_observation(
     output: &mut impl std::fmt::Write,
     contribution_fingerprint: [u8; 32],
@@ -2431,27 +2455,54 @@ fn write_final_writer_observation(
     Ok(())
 }
 
-fn encode_pdf_closure(
+fn encode_pdf_closure_bounded(
     contribution_fingerprint: [u8; 32],
     final_writer_fingerprint: [u8; 32],
     final_pdf_sha256: [u8; 32],
     final_pdf_byte_length: u64,
     final_pdf_object_count: u32,
-) -> String {
-    let mut output = String::from("{\"algorithm\":");
-    push_jcs_string(&mut output, STAGING_SAFE_VECTOR_PDF_ALGORITHM_V2);
-    output.push_str(",\"contribution_fingerprint\":");
-    push_hash(&mut output, contribution_fingerprint);
-    output.push_str(",\"final_pdf_byte_length\":");
-    output.push_str(&final_pdf_byte_length.to_string());
-    output.push_str(",\"final_pdf_object_count\":");
-    output.push_str(&final_pdf_object_count.to_string());
-    output.push_str(",\"final_pdf_sha256\":");
-    push_hash(&mut output, final_pdf_sha256);
-    output.push_str(",\"final_writer_observation_fingerprint\":");
-    push_hash(&mut output, final_writer_fingerprint);
-    output.push('}');
+    available_spool: u64,
+) -> Result<String, StagingSafeVectorPdfV2Error> {
+    fn write_hash(out: &mut impl std::fmt::Write, hash: [u8; 32]) -> std::fmt::Result {
+        out.write_char('"')?;
+        for byte in hash {
+            write!(out, "{byte:02x}")?;
+        }
+        out.write_char('"')
+    }
+    let write = |out: &mut dyn std::fmt::Write| -> std::fmt::Result {
+        // The algorithm identifier is a fixed ASCII constant.
+        write!(
+            out,
+            "{{\"algorithm\":\"{}\",\"contribution_fingerprint\":",
+            STAGING_SAFE_VECTOR_PDF_ALGORITHM_V2
+        )?;
+        let mut out = out;
+        write_hash(&mut out, contribution_fingerprint)?;
+        write!(out, ",\"final_pdf_byte_length\":{final_pdf_byte_length},\"final_pdf_object_count\":{final_pdf_object_count},\"final_pdf_sha256\":")?;
+        write_hash(&mut out, final_pdf_sha256)?;
+        out.write_str(",\"final_writer_observation_fingerprint\":")?;
+        write_hash(&mut out, final_writer_fingerprint)?;
+        out.write_char('}')
+    };
+    struct Counter(usize);
+    impl std::fmt::Write for Counter {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.0 = self.0.checked_add(text.len()).ok_or(std::fmt::Error)?;
+            Ok(())
+        }
+    }
+    let mut count = Counter(0);
+    write(&mut count).map_err(|_| StagingSafeVectorPdfV2Error::SpoolLimit)?;
+    if count.0 as u64 > available_spool {
+        return Err(StagingSafeVectorPdfV2Error::SpoolLimit);
+    }
+    let mut output = String::new();
     output
+        .try_reserve_exact(count.0)
+        .map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
+    write(&mut output).map_err(|_| StagingSafeVectorPdfV2Error::AllocationFailure)?;
+    Ok(output)
 }
 
 /// Complete assertion-only PDF built from one reusable contribution. This
@@ -3078,6 +3129,40 @@ mod tests {
             seal_staging_safe_vector_pdf_v2(&contribution, &final_writer, &final_pdf).unwrap();
         assert_eq!(closure.algorithm(), STAGING_SAFE_VECTOR_PDF_ALGORITHM_V2);
         assert_eq!(closure.final_pdf_sha256(), sha256(final_pdf.bytes()));
+        let exact = closure.canonical_jcs().len() as u64;
+        for available in [exact - 1, exact] {
+            let result = seal_safe_vector_pdf_bytes_v2(
+                &contribution,
+                &final_writer,
+                final_pdf.bytes(),
+                final_pdf.content_hash(),
+                final_pdf.byte_length(),
+                final_pdf.page_count(),
+                final_pdf.object_count(),
+                available,
+            );
+            if available == exact {
+                assert_eq!(result.unwrap(), closure);
+            } else {
+                assert_eq!(result, Err(StagingSafeVectorPdfV2Error::SpoolLimit));
+            }
+        }
+        for mode in 0..3 {
+            let mut altered = final_writer.clone();
+            match mode {
+                0 => altered.canonical_jcs.push(' '),
+                1 => {
+                    altered.canonical_jcs.pop();
+                }
+                _ => altered.canonical_jcs.replace_range(0..1, "["),
+            }
+            // A matching hash does not make noncanonical or truncated bytes valid.
+            altered.fingerprint = sha256(altered.canonical_jcs.as_bytes());
+            assert_eq!(
+                altered.verify(&contribution),
+                Err(StagingSafeVectorPdfV2Error::FinalWriterMismatch)
+            );
+        }
     }
 
     #[test]

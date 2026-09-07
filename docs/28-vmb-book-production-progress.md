@@ -5676,3 +5676,24 @@ cases passed 167 tests, 1 ignored, 15.43 s
 This proves final page labels only. It does not issue a public PDF receipt or
 PDF/UA declaration; public writer/manifest, full allocation ownership, other
 reference formats, exporter and full acceptance gates remain open.
+
+## 2026-09-08 — Safe-vector closure from the common final PDF
+
+Implemented design §14.75. The common PDF assembly now seals the existing
+StagingSafeVectorPdfClosureV2 from its verified source, actual bytes and actual
+absolute object/use observations. The common driver carries its record/spool
+charges into book projection. The public serializer API still requires its
+VerifiedPdfBytesReceipt; the byte-based shared implementation is crate-internal.
+
+Validation indices are charged before allocation. Closure JSON is counted before
+reservation, and final-writer JSON verification compares serialized pieces with
+the existing string instead of allocating a second whole JSON buffer. Existing
+algorithms and canonical formats are preserved.
+
+CLI production regression: 167 passed, 1 ignored, 12.60 s; unchanged 5,000-image
+cases excluded (`/private/tmp/typaxis-common-safe-vector-regression.log`). Final
+safe-vector unit tests: 7 passed, 0.15 s, including exact/one-short spool,
+equality with the existing closure and hash-updated canonical JSON tampering
+(`/private/tmp/typaxis-safe-vector-closure-final-unit.log`). All processes ended.
+Public book/tagged closure and writer/manifest integration, full allocation
+accounting, exporter and the original-book/Harano/scale/host gates remain open.

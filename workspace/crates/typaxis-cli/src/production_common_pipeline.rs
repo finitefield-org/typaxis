@@ -442,12 +442,15 @@ pub(crate) fn with_production_common_footnote_pdf_candidates<R>(
             pdf.verify(&resources, admitted, limits).map_err(|e| {
                 Failure::internal(format!("common footnote assembly identity: {e:?}"))
             })?;
+            let safe_vector = pdf
+                .seal_safe_vector(admitted, limits, pdf.record_charge(), pdf.spool_charge())
+                .map_err(|e| map_common_assembly_error("safe vector closure", e))?;
             let book_inputs = typaxis_display_list::project_production_footnote_book_navigation(
                 annotations.navigation(),
                 admitted,
                 limits,
-                pdf.record_charge(),
-                pdf.spool_charge(),
+                safe_vector.record_charge(),
+                safe_vector.spool_charge(),
             )
             .map_err(map_production_input_error)?;
             book_inputs

@@ -185,6 +185,46 @@ fn production_common_footnote_driver_closes_actual_source_to_pdf() {
                 typaxis_linebreak::JapaneseLineBreakMode::Normal,
                 100_000,
                 |pdf, stable, book_inputs, book_pdf, observation| {
+                    let sealed = pdf
+                        .seal_safe_vector(
+                            &admitted,
+                            &limits,
+                            pdf.record_charge(),
+                            pdf.spool_charge(),
+                        )
+                        .unwrap();
+                    assert_eq!(sealed.closure().final_pdf_sha256(), pdf.content_hash());
+                    assert_eq!(
+                        sealed.closure().final_pdf_byte_length(),
+                        pdf.bytes().len() as u64
+                    );
+                    assert_eq!(
+                        sealed.closure().final_pdf_object_count(),
+                        pdf.objects().len() as u32
+                    );
+                    assert_eq!(
+                        sealed.closure().final_writer_observation_fingerprint(),
+                        pdf.vector_final_writer().fingerprint()
+                    );
+                    let records = sealed.record_charge() - pdf.record_charge();
+                    let spool = sealed.spool_charge() - pdf.spool_charge();
+                    assert_eq!(spool, sealed.closure().canonical_jcs().len() as u64);
+                    let record_base = limits.base().get().max_fragments - records;
+                    let spool_base = limits.base().get().max_spool_bytes - spool;
+                    let exact = pdf
+                        .seal_safe_vector(&admitted, &limits, record_base, spool_base)
+                        .unwrap();
+                    assert_eq!(exact.record_charge(), limits.base().get().max_fragments);
+                    assert_eq!(exact.spool_charge(), limits.base().get().max_spool_bytes);
+                    assert_eq!(exact.closure(), sealed.closure());
+                    assert_eq!(
+                        pdf.seal_safe_vector(&admitted, &limits, record_base + 1, spool_base),
+                        Err(typaxis_pdf::ProductionBodyAssemblyError::RecordLimit)
+                    );
+                    assert_eq!(
+                        pdf.seal_safe_vector(&admitted, &limits, record_base, spool_base + 1),
+                        Err(typaxis_pdf::ProductionBodyAssemblyError::SpoolLimit)
+                    );
                     assert!(pdf.bytes().starts_with(b"%PDF-1.7"));
                     assert_eq!(pdf.page_count() as usize, stable.sequence().pages().len());
                     assert!(observation.line_reshape_passes >= 2);

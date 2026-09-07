@@ -7,7 +7,7 @@ pub use production_body_assembly::{
     observe_production_footnote_book_pdf, seal_production_page_reference_pdf,
     ProductionPageReferencePdfClosure, ProductionBodyAssemblyError,
     ProductionBodyAssemblyObject, ProductionBodyAssemblyRole, ProductionBodyPdfAssembly,
-    ProductionBookPdfObservation, ProductionFootnotePdfAssembly,
+    ProductionBookPdfObservation, ProductionFootnotePdfAssembly, ProductionSafeVectorPdfClosure,
 };
 mod production_body_objects;
 pub use production_body_objects::{

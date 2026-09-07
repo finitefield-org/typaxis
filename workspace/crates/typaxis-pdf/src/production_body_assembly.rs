@@ -427,7 +427,88 @@ pub struct ProductionFootnotePdfAssembly<
     record_charge: u64,
     spool_charge: u64,
 }
+/// Existing safe-vector closure plus cumulative admission for its validation
+/// maps and canonical JSON. This is not a public PDF publication receipt.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ProductionSafeVectorPdfClosure {
+    closure: crate::StagingSafeVectorPdfClosureV2,
+    record_charge: u64,
+    spool_charge: u64,
+}
+impl ProductionSafeVectorPdfClosure {
+    pub fn closure(&self) -> &crate::StagingSafeVectorPdfClosureV2 {
+        &self.closure
+    }
+    pub fn record_charge(&self) -> u64 {
+        self.record_charge
+    }
+    pub fn spool_charge(&self) -> u64 {
+        self.spool_charge
+    }
+}
+
 impl ProductionFootnotePdfAssembly<'_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_, '_> {
+    pub fn seal_safe_vector(
+        &self,
+        admitted: &AdmittedResourceLedger,
+        limits: &M4EffectiveResourceLimits,
+        record_base: u64,
+        spool_base: u64,
+    ) -> Result<ProductionSafeVectorPdfClosure, E> {
+        if record_base < self.record_charge || spool_base < self.spool_charge {
+            return Err(E::ReceiptMismatch);
+        }
+        // Validation owns two maps per object and at most three entries per
+        // used page. Charge the usage count as a conservative page upper bound.
+        let records = (self.vector_final_writer.object_table().len() as u64)
+            .checked_mul(2)
+            .and_then(|n| {
+                n.checked_add((self.vector_final_writer.usages().len() as u64).checked_mul(3)?)
+            })
+            .and_then(|n| n.checked_add(2))
+            .ok_or(E::RecordLimit)?;
+        let record_charge = record_base.checked_add(records).ok_or(E::RecordLimit)?;
+        if record_charge > limits.base().get().max_fragments {
+            return Err(E::RecordLimit);
+        }
+        let available = limits
+            .base()
+            .get()
+            .max_spool_bytes
+            .checked_sub(spool_base)
+            .ok_or(E::SpoolLimit)?;
+        self.verify(self.source, admitted, limits)?;
+        let contribution = self
+            .source
+            .structure_objects()
+            .annotations()
+            .marked()
+            .content()
+            .vectors();
+        let closure = crate::safe_vector_v2::seal_safe_vector_pdf_bytes_v2(
+            contribution,
+            &self.vector_final_writer,
+            &self.bytes,
+            self.hash,
+            self.bytes.len() as u64,
+            self.page_count,
+            u32::try_from(self.observations.len()).map_err(|_| E::ObjectLimit)?,
+            available,
+        )
+        .map_err(|e| match e {
+            crate::StagingSafeVectorPdfV2Error::SpoolLimit => E::SpoolLimit,
+            crate::StagingSafeVectorPdfV2Error::AllocationFailure => E::AllocationFailure,
+            _ => E::ReceiptMismatch,
+        })?;
+        let spool_charge = spool_base
+            .checked_add(closure.canonical_jcs().len() as u64)
+            .ok_or(E::SpoolLimit)?;
+        Ok(ProductionSafeVectorPdfClosure {
+            closure,
+            record_charge,
+            spool_charge,
+        })
+    }
     pub fn vector_final_writer(&self) -> &crate::StagingSafeVectorPdfFinalWriterObservationV2 {
         &self.vector_final_writer
     }
