@@ -3750,3 +3750,44 @@ cover limits, hash/path/face/profile errors, malformed directories, FIFO, cancel
 CFF operand boundaries and snapshot preservation after host-file replacement.
 All runs are terminal. Complete style/config/package assembly, public PDF and
 original-book/Harano/scale/both-host gates remain. No profile changed or push ran.
+
+
+### 2026-09-07: Package assembly without a fixture envelope
+
+Companion **`61005bdd`** adds `StageBookPackage`. The same prepared book owns body,
+metadata, outline, pages, text/source records, real math resources and explicitly
+selected font. All package members are generated; none come from a fixture
+package. The initial explicit uniform font/size/line-height policy applies to
+paragraphs, headings and list markers, with paragraph rules covering text inside
+semantic containers. Unsupported root glossary/bibliography/verification pages
+are rejected rather than omitted. Footnotes require an explicit page region.
+
+A `vmb.typaxis-book-export/1` record binds book identity, original resolved profile,
+explicit layout/font settings, package hash and metadata-source hash. Package
+bytes are bounded during record emission. Tests cover exact package ceiling and
+ceiling minus one, determinism, joined resources, root rejection and cleanup after
+math-sidecar staging has begun. All regression tests passed in **61.072 s**,
+including **14 public admission cases**. A later cleanup extension passed in
+**2.211 s**. Logs: `/private/tmp/vmb-package-regression.log`,
+`/private/tmp/vmb-package-cleanup-final.log`, `/private/tmp/vmb-package-public-v5.log`.
+
+Saved generated job: `/private/tmp/vmb-assembled-package-smoke/typaxis-body-335423113`.
+Package SHA-256: `abc08e432448f3464934d60ea18cbd06c9425657ac59d73f330ce337070aaeec`.
+Source SHA-256: `fe9f74e6f7aaa1bdb78945e828cd4866ad6801bb4bcc3780b25de65f5669a6e3`.
+It contains 2 images, 2 math occurrences and 88 projection bytes. Public check
+passed with empty diagnostics. Its explicit test config is not yet the complete
+backend policy config. This is an authored body-only diagnostic fixture, not the
+original whole-book acceptance input.
+
+One public build of the **same input bytes** failed with exit **4**,
+`I9190: production tagged-PDF native math mismatch`; no PDF was emitted. Package,
+config, source and every declared resource hash matched before/after. Full command,
+hashes and result: `/private/tmp/vmb-assembled-build.log`; diagnostics remain in
+the saved job. The public writer still has a path that requires a native-math
+font for standard text. This observation does not isolate the precise failing
+return site. Connecting genuine common body/math selection to public terminal,
+paint and manifest remains required; dummy native math is not a repair.
+
+Full RenderBook coverage, complete config/process/publication, original-book,
+Harano, scale, both-host and independent PDF gates remain. All processes are
+terminal; no public profile was changed or branch pushed.
