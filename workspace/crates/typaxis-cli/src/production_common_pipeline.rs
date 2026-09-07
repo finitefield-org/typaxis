@@ -148,6 +148,7 @@ pub(crate) struct ProductionCommonFootnoteObservation {
     pub line_candidate_steps: u64,
     pub page_work_steps: u64,
     pub record_charge: u64,
+    pub spool_charge: u64,
     pub display_sha256: [u8; 32],
     pub flow_registry_sha256: [u8; 32],
     pub block_math_terminals: usize,
@@ -185,6 +186,19 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             '_,
         >,
         &typaxis_pagination::ProductionBodyFootnoteStablePages<'_, '_, '_, '_, '_>,
+        &typaxis_display_list::ProductionFootnoteBookNavigationInputs<
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+            '_,
+        >,
         ProductionCommonFootnoteObservation,
     ) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
@@ -297,17 +311,29 @@ pub(crate) fn with_production_common_footnote_pdf<R>(
             pdf.verify(&resources, admitted, limits).map_err(|e| {
                 Failure::internal(format!("common footnote assembly identity: {e:?}"))
             })?;
+            let book_inputs = typaxis_display_list::project_production_footnote_book_navigation(
+                annotations.navigation(),
+                admitted,
+                limits,
+                pdf.record_charge(),
+                pdf.spool_charge(),
+            )
+            .map_err(map_production_input_error)?;
+            book_inputs
+                .verify(annotations.navigation(), admitted, limits)
+                .map_err(map_production_internal_error)?;
             let observation = ProductionCommonFootnoteObservation {
                 line_reshape_passes: stable.passes().len(),
                 page_passes: pages.passes(),
                 line_candidate_steps: stable.candidate_steps(),
                 page_work_steps: search.work_steps(),
-                record_charge: pdf.record_charge(),
+                record_charge: book_inputs.record_charge(),
+                spool_charge: book_inputs.spool_charge(),
                 display_sha256: display.fingerprint(),
                 flow_registry_sha256: math.receipt().fingerprint(),
                 block_math_terminals: terminals.terminals().receipts().len(),
             };
-            inspect(&pdf, &pages, observation)
+            inspect(&pdf, &pages, &book_inputs, observation)
         },
     )
     .map_err(map_production_input_error)?

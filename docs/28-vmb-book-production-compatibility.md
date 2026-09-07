@@ -2167,3 +2167,26 @@ fingerprintを保持する。番号を別の予測表で作らず、未解決rol
 との観測値一致を検証する。既存のassembly境界テストはこの追加records／JSONも含める。
 これはvector closureへ接続するための最終番号観測であり、PDF receipt・book／tagged
 manifest全体の成立や公開writerの置換を証明するものではない。元全巻等の受入ゲートを維持する。
+
+### 14.53 実ページ・リンク・言語からbook navigation入力を構成（実装追補）
+
+`project_production_footnote_book_navigation`は本文・脚注navigationとその構造／displayの
+所有関係を検証して借用し、book選択に必要な実ページ寸法、destinationのsource owner・
+fragment・座標、通常内部リンクの実矩形を構成する。リンクは既存book契約のpage／owner／
+座標順へ並べ、複数行・複数ページの各矩形を保持する。URIと脚注参照は専用注釈に残し、
+通常の内部destinationと混同しない。既存のpage・destination・link検証器を共有する。
+
+通常本文の非既定言語paintは実drawと論理ownerのoccurrenceから作る。vector言語paintは
+全usageの実draw ordinal・source owner・kind・言語record fingerprint・draw fingerprintを
+保持する。式番号は通常ownerと異なる言語child recordへ結び付け、親言語fingerprintと
+全childの実paint被覆を検証して別のchild paint列で保持する。既存言語検証器が通常ownerと
+vectorの被覆を確認する。旧Display receiptを仮生成しない。
+
+保持行と検証用入力／map／setのrecord予算を確保前に検査し、複製するanchor名・リンク名・
+言語文字列を累積spoolへ加算する。結果は別navigation ownerによる検証を拒否する。
+共通source-to-PDF driverは最終assemblyの実records／spoolを引き継いでこの入力を作り、
+成功callbackの中でPDF・安定ページ・book入力を同じ寿命で提供する。
+
+これは既存book receipt／PDF観測／manifestへ実情報を渡す入力境界であり、それらの封印や
+公開出力はまだ完了していない。動的参照、全allocation寿命、元全巻・原ノ味・規模・両hostの
+必須ゲートを維持する。

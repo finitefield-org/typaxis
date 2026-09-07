@@ -184,13 +184,16 @@ fn production_common_footnote_driver_closes_actual_source_to_pdf() {
                 &limits,
                 typaxis_linebreak::JapaneseLineBreakMode::Normal,
                 100_000,
-                |pdf, stable, observation| {
+                |pdf, stable, book_inputs, observation| {
                     assert!(pdf.bytes().starts_with(b"%PDF-1.7"));
                     assert_eq!(pdf.page_count() as usize, stable.sequence().pages().len());
                     assert!(observation.line_reshape_passes >= 2);
                     assert_eq!(observation.page_passes, stable.passes());
                     assert!(observation.page_passes >= 2);
-                    assert_eq!(observation.record_charge, pdf.record_charge());
+                    assert_eq!(observation.record_charge, book_inputs.record_charge());
+                    assert_eq!(observation.spool_charge, book_inputs.spool_charge());
+                    assert!(observation.record_charge > pdf.record_charge());
+                    assert_eq!(book_inputs.pages().len(), pdf.page_count() as usize);
                     assert!(observation.page_work_steps >= stable.work_steps());
                     assert!(observation.line_candidate_steps > 0);
                     used_steps = observation.line_candidate_steps + observation.page_work_steps;
@@ -215,7 +218,7 @@ fn production_common_footnote_driver_closes_actual_source_to_pdf() {
                 &limits,
                 typaxis_linebreak::JapaneseLineBreakMode::Normal,
                 budget,
-                |pdf, _, observation| {
+                |pdf, _, _, observation| {
                     called = true;
                     assert_eq!(pdf.bytes(), previous.as_ref().unwrap().0);
                     assert_eq!(observation, previous.as_ref().unwrap().1);
@@ -270,7 +273,7 @@ fn production_common_footnote_driver_never_exposes_partial_pages() {
             &limits,
             typaxis_linebreak::JapaneseLineBreakMode::Normal,
             100_000,
-            |_, _, _| {
+            |_, _, _, _| {
                 called = true;
                 Ok(())
             },

@@ -301,6 +301,7 @@ impl BookNavigationSelectedReceipt {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookNavigationSelectedError {
+    SpoolLimit,
     ProfileMismatch,
     NonCanonicalPage,
     DestinationMismatch,
@@ -315,6 +316,9 @@ pub enum BookNavigationSelectedError {
 impl std::fmt::Display for BookNavigationSelectedError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SpoolLimit => {
+                formatter.write_str("D8101: book-navigation projection spool limit exceeded")
+            }
             Self::ProfileMismatch => formatter.write_str("L5100: book-navigation profile mismatch"),
             Self::NonCanonicalPage => formatter.write_str("L5100: selected page geometry mismatch"),
             Self::DestinationMismatch => {
@@ -2059,3 +2063,9 @@ mod tests {
             .unwrap();
     }
 }
+
+#[path = "production_book_navigation.rs"]
+mod production_book_navigation;
+pub use production_book_navigation::{
+    project_production_footnote_book_navigation, ProductionFootnoteBookNavigationInputs,
+};

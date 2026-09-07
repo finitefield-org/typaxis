@@ -2096,6 +2096,10 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
         "target":{"kind":"internal","anchor_id":"foot-target"},"children":linked})];
     children.extend(references);
     production_body_renumber(&mut navigation_note["document"], &mut 0);
+    let mut language_note = production_footnote_flow_fixture();
+    language_note["document"]["blocks"][0]["language"] = "fr".into();
+    let mut language_equation = production_footnote_numbered_definition_fixture();
+    language_equation["document"]["footnotes"][0]["blocks"][0]["language"] = "fr".into();
     for (case_index, value) in [
         serde_json::from_slice(&production_text_single_paragraph(&["A B"], "Body")).unwrap(),
         serde_json::from_slice(&production_text_single_paragraph(&["A B"], "Collection")).unwrap(),
@@ -2117,6 +2121,8 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
         blank,
         production_raster_fixture("book-venn.png", 2_000_001, 6_000_000),
         production_raster_fixture("color-2x1.jpg", 2_000_001, 6_000_000),
+        language_note,
+        language_equation,
     ]
     .into_iter()
     .enumerate()
@@ -3121,6 +3127,133 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                 )
                 .unwrap();
                 pdf.verify(&resource_objects, admitted, limits).unwrap();
+                let book_inputs =
+                    typaxis_display_list::project_production_footnote_book_navigation(
+                        annotations.navigation(),
+                        admitted,
+                        limits,
+                        pdf.record_charge(),
+                        pdf.spool_charge(),
+                    )
+                    .unwrap_or_else(|e| panic!("book inputs case {case_index}: {e:?}"));
+                book_inputs
+                    .verify(annotations.navigation(), admitted, limits)
+                    .unwrap();
+                assert_eq!(book_inputs.pages().len(), pdf.page_count() as usize);
+                assert_eq!(
+                    book_inputs.destinations().len(),
+                    annotations.navigation().destinations().len()
+                );
+                for (selected, actual) in book_inputs
+                    .destinations()
+                    .iter()
+                    .zip(annotations.navigation().destinations())
+                {
+                    assert_eq!(selected.source_node_id, actual.owner());
+                    assert_eq!(selected.frame_id, actual.fragment_index());
+                    assert_eq!(selected.destination.page_index, actual.page_index());
+                    assert_eq!(
+                        selected.destination.view,
+                        typaxis_display_list::DestinationView::Xyz {
+                            point: typaxis_core::Point {
+                                x: actual.x(),
+                                y: actual.y()
+                            }
+                        }
+                    );
+                }
+                let internal = annotations
+                    .navigation()
+                    .links()
+                    .iter()
+                    .filter(|link| link.destination_index().is_some())
+                    .collect::<Vec<_>>();
+                assert_eq!(book_inputs.links().len(), internal.len());
+                for link in book_inputs.links() {
+                    assert!(internal
+                        .iter()
+                        .any(|actual| actual.owner() == link.owner_node_id()
+                            && actual.page_index() == link.page_index()
+                            && actual.bounds().x().raw() == link.x_raw()
+                            && actual.bounds().y().raw() == link.y_raw()
+                            && actual.bounds().width().get().raw() == link.width_raw()
+                            && actual.bounds().height().get().raw() == link.height_raw()));
+                }
+                assert_eq!(
+                    book_inputs.vector_paints().len(),
+                    content.vectors().usages().len()
+                );
+                for (paint, usage) in book_inputs
+                    .vector_paints()
+                    .iter()
+                    .zip(content.vectors().usages())
+                {
+                    assert_eq!(paint.usage_id(), usage.usage_id());
+                    assert_eq!(paint.page_index(), usage.page_index());
+                    assert_eq!(paint.paint_ordinal(), usage.paint_ordinal());
+                }
+                for paint in book_inputs.language_paints() {
+                    let typaxis_display_list::ProductionBodyDraw::Text(text) =
+                        &display.draws()[paint.paint_ordinal() as usize]
+                    else {
+                        panic!()
+                    };
+                    assert_eq!(paint.owner_node_id(), text.owner());
+                    assert_eq!(paint.page_index(), text.page_index());
+                    let source_language = terminals
+                        .line_layout()
+                        .source_flow()
+                        .navigation()
+                        .languages()
+                        .record(text.owner())
+                        .unwrap();
+                    assert_eq!(
+                        paint.language(),
+                        source_language.effective_language.as_ref()
+                    );
+                    assert_eq!(
+                        paint.language_record_fingerprint(),
+                        source_language.record_fingerprint
+                    );
+                }
+                if value["document"]["blocks"][0]["language"] == "fr" {
+                    assert!(!book_inputs.language_paints().is_empty());
+                    assert!(book_inputs
+                        .vector_paints()
+                        .iter()
+                        .any(|paint| paint.language() == "fr"));
+                }
+                let child_records = terminals
+                    .line_layout()
+                    .source_flow()
+                    .navigation()
+                    .languages();
+                assert_eq!(
+                    book_inputs.child_language_paints().len(),
+                    child_records.child_records().len()
+                );
+                for paint in book_inputs.child_language_paints() {
+                    let typaxis_display_list::ProductionBodyDraw::Text(text) =
+                        &display.draws()[paint.paint_ordinal() as usize]
+                    else {
+                        panic!()
+                    };
+                    assert!(text.equation_number().is_some());
+                    let child = child_records.child_record(text.owner()).unwrap();
+                    assert_eq!(paint.owner_node_id(), child.node_id);
+                    assert_eq!(paint.page_index(), text.page_index());
+                    assert_eq!(paint.language(), child.effective_language.as_ref());
+                    assert_eq!(
+                        paint.language_record_fingerprint(),
+                        child.record_fingerprint
+                    );
+                }
+                if value["document"]["footnotes"][0]["blocks"][0]["language"] == "fr" {
+                    assert!(book_inputs
+                        .child_language_paints()
+                        .iter()
+                        .any(|paint| paint.language() == "fr"));
+                }
                 let writer = pdf.vector_final_writer();
                 assert_eq!(
                     writer.contribution_fingerprint(),
@@ -3309,6 +3442,10 @@ fn production_footnote_page_content_combines_draws_and_separator_artifacts() {
                         .err()
                         .unwrap(),
                     typaxis_pdf::ProductionBodyObjectError::ReceiptMismatch
+                );
+                assert_eq!(
+                    book_inputs.verify(other_annotations.navigation(), admitted, limits),
+                    Err(typaxis_display_list::BookNavigationSelectedError::ReceiptMismatch)
                 );
                 let other_marked = typaxis_pdf::build_production_footnote_marked_content(
                     &content, admitted, limits,
@@ -4063,6 +4200,111 @@ fn production_footnote_assembly_keeps_complete_graph_and_byte_budgets() {
                         spool = projected.spool_charge();
                         objects = projected.objects().len() as u32;
                         output = projected.bytes().len() as u64;
+                    }
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn production_footnote_book_inputs_keep_cumulative_budgets() {
+    use typaxis_display_list::{
+        build_production_footnote_display, build_production_footnote_structure,
+    };
+    use typaxis_pagination::prepare_production_footnote_demand_search;
+    let value = production_footnote_flow_fixture();
+    let mut records = 0;
+    let mut spool = 0;
+
+    for mode in 0..5 {
+        let cfg = config_with_limits(ResourceLimits {
+            max_fragments: match mode {
+                1 => records,
+                2 => records - 1,
+                _ => ResourceLimits::default().max_fragments,
+            },
+            max_spool_bytes: match mode {
+                3 => spool,
+                4 => spool - 1,
+                _ => ResourceLimits::default().max_spool_bytes,
+            },
+            ..ResourceLimits::default()
+        });
+        with_production_footnote_structure_prepared(
+            &value,
+            &cfg,
+            |flow, limits, registry, admitted, semantics, profile| {
+                let mut search =
+                    prepare_production_footnote_demand_search(flow, limits, 100_000).unwrap();
+                let stable = search.select_stable_pages().unwrap();
+                let geometry = search.place_pages_content(stable.sequence()).unwrap();
+                let terminals = search
+                    .finalize_page_math(&stable, &geometry, registry, limits)
+                    .unwrap();
+                let display =
+                    build_production_footnote_display(&terminals, admitted, limits).unwrap();
+                let structure = build_production_footnote_structure(
+                    &display,
+                    semantics,
+                    profile.authorization(),
+                    profile.base().authorization(),
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let fonts = typaxis_resources::finalize_production_footnote_fonts(
+                    &structure, admitted, limits,
+                )
+                .unwrap();
+                let content =
+                    typaxis_pdf::build_production_footnote_page_content(&fonts, admitted, limits)
+                        .unwrap();
+
+                let marked = typaxis_pdf::build_production_footnote_marked_content(
+                    &content, admitted, limits,
+                )
+                .unwrap();
+
+                let annotations =
+                    typaxis_pdf::build_production_footnote_annotations(&marked, admitted, limits)
+                        .unwrap();
+                let structure_objects = typaxis_pdf::build_production_footnote_structure_objects(
+                    &annotations,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let resources = typaxis_pdf::build_production_footnote_resource_objects(
+                    &structure_objects,
+                    admitted,
+                    limits,
+                )
+                .unwrap();
+                let pdf =
+                    typaxis_pdf::assemble_production_footnote_pdf(&resources, admitted, limits)
+                        .unwrap();
+                let result = typaxis_display_list::project_production_footnote_book_navigation(
+                    annotations.navigation(),
+                    admitted,
+                    limits,
+                    pdf.record_charge(),
+                    pdf.spool_charge(),
+                );
+                if mode == 2 || mode == 4 {
+                    assert_eq!(
+                        result.err().unwrap(),
+                        if mode == 2 {
+                            typaxis_display_list::BookNavigationSelectedError::FragmentLimit
+                        } else {
+                            typaxis_display_list::BookNavigationSelectedError::SpoolLimit
+                        }
+                    );
+                } else {
+                    let result = result.unwrap();
+                    if mode == 0 {
+                        records = result.record_charge();
+                        spool = result.spool_charge();
                     }
                 }
             },

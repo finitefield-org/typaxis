@@ -57,11 +57,12 @@ pub use advanced_header_footer::{
     StagingSelectedPageBoxes, ADVANCED_PAINT_CLOSURE_ALGORITHM,
 };
 pub use book_navigation::{
-    select_staging_book_navigation, select_staging_book_navigation_v2, BookInternalLink,
-    BookInternalLinkInput, BookLanguagePaint, BookLanguagePaintInput, BookLanguagePaintInputV2,
-    BookLanguagePaintV2, BookNavigationDestinationBinding, BookNavigationSelectedEntry,
-    BookNavigationSelectedError, BookNavigationSelectedPage, BookNavigationSelectedReceipt,
-    BookNavigationSelectedReceiptV2, BookVectorLanguagePaintV2,
+    project_production_footnote_book_navigation, select_staging_book_navigation,
+    select_staging_book_navigation_v2, BookInternalLink, BookInternalLinkInput, BookLanguagePaint,
+    BookLanguagePaintInput, BookLanguagePaintInputV2, BookLanguagePaintV2,
+    BookNavigationDestinationBinding, BookNavigationSelectedEntry, BookNavigationSelectedError,
+    BookNavigationSelectedPage, BookNavigationSelectedReceipt, BookNavigationSelectedReceiptV2,
+    BookVectorLanguagePaintV2, ProductionFootnoteBookNavigationInputs,
     BOOK_DESTINATION_REGISTRY_ALGORITHM, BOOK_NAVIGATION_SELECTED_ALGORITHM,
     BOOK_NAVIGATION_SELECTED_ALGORITHM_V2,
 };

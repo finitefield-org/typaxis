@@ -5466,3 +5466,44 @@ Existing manifest `safe_vector_manifest_v2` tests passed **2/2, 0.30 s**
 (`/private/tmp/typaxis-vector-observation-manifest-tests.log`). The unchanged
 5,000-SVG tests were excluded and the saved-job probe remains ignored.
 All processes from this step are terminal; no public receipt or push.
+
+## 2026-09-08 — Actual joint book-navigation inputs
+
+Implemented §14.53. `ProductionFootnoteBookNavigationInputs` borrows the exact
+joint navigation owner and projects real page sizes, anchor owner/fragment/XYZ,
+and ordinary internal-link rectangles, including multiple physical fragments.
+It retains URI and footnote references in their existing annotation owners.
+Existing page, destination and internal-link validators check the projection.
+
+Text language paints use actual draw ordinals and owner occurrence counts.
+Vector rows retain every actual usage's owner/kind/page/draw ordinal, language
+record and draw fingerprint. Equation numbers join the separate language-child
+registry, check the parent record fingerprint, and retain a dedicated child
+paint row; no synthetic ordinary owner is introduced. Coverage is validated.
+The common source-to-PDF driver now returns these inputs alongside the PDF and
+stable pages, and observations include their cumulative records/spool.
+
+Rows and validator maps/sets are charged before allocations; copied anchor,
+link and language strings are charged before copying. Tests verify physical
+geometry and usage mapping, foreign-owner rejection, exact/one-short cumulative
+records/spool, inherited non-default text/vector language and equation-child
+language. Initial integration exposed the distinct equation-child registry;
+that case was fixed explicitly rather than excluded from projection.
+
+The successful display-list check took 3.80 s
+(`/private/tmp/typaxis-book-inputs-check-2.log`). Footnote tests passed **62/62,
+7.72 s** (`/private/tmp/typaxis-book-inputs-footnote-tests.log`). Commands use
+workspace manifest, `--locked`, target `/private/tmp/typaxis-vmb-book-build`.
+
+These are actual selection inputs, not a fabricated old Display, a sealed book
+manifest, or a VerifiedPdfBytesReceipt. Public book/tagged closure, writer/CLI,
+dynamic references and original-book/Harano/scale/both-host gates remain.
+
+Final regression: CLI `--bin typaxis production_ -- --skip
+production_body_page_content_places_5000` passed **161 tests, 0 failed,
+1 explicitly ignored, 14.39 s** (`/private/tmp/typaxis-book-inputs-final.log`).
+The final allocation-free link ordering was rechecked by the integrated
+18-fixture test: **1 passed, 3.93 s**
+(`/private/tmp/typaxis-book-inputs-order-test.log`). The unchanged 5,000-SVG tests
+were excluded and the saved-job probe remains ignored. All processes started
+for this implementation step are terminal. No public receipt or push.
