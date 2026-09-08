@@ -516,7 +516,7 @@ fn has_neutral_book_navigation(package: &ValidatedStagingSemanticPackage) -> boo
             .all(|footnote| footnote.language.is_none() && blocks(&footnote.blocks))
 }
 
-fn validate_media_declarations(
+pub(crate) fn validate_media_declarations(
     resources: &typaxis_syntax::machine_profile_boundary::StagingM4ResourceCatalog,
     precomposed_vector: bool,
 ) -> Result<(), StagingSemanticContainerPreflightError> {

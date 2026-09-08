@@ -7,6 +7,9 @@
 //! that descriptor, so advertising a feature and accepting it cannot drift
 //! into independent lists.
 
+#[cfg(feature = "book-v2-staging")]
+pub mod book_v2;
+
 mod advanced_columns;
 mod advanced_float;
 mod advanced_header_footer;

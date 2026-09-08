@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "book-v2-staging")]
+pub mod book_v2_resources;
+
 mod artifacts;
 mod cli;
 mod config;
