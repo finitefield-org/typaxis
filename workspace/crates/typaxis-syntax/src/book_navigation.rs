@@ -1,3 +1,7 @@
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_navigation.rs"]
+pub(crate) mod book_v2;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -15,11 +19,27 @@ use typaxis_document::{
 use typaxis_document_package::{
     staging_m4_wire_ast_node_count, WireAdvancedPageMasterSet, WireDocumentMetadata,
     WireOutlineSourceKind, WirePageRegion, WirePageRegionBlock, WirePageRegionInline,
-    WireSourceSpan, WireStagingM4Block, WireStagingM4Document, WireStagingM4Footnote,
-    WireStagingM4Inline, WireStagingM4LinkTarget, WireStagingM4TableRow, WireStagingSourceSpan,
+    WireSourceSpan, WireStagingM4Block, WireStagingM4Document,
+    WireStagingM4Inline, WireStagingM4LinkTarget, WireStagingSourceSpan,
 };
 
 use crate::{StagingSemanticSyntaxError, ValidatedStagingSemanticPackage};
+use typaxis_document_package::{WireSemanticBlock, WireSemanticDocument, WireSemanticFootnote, WireSemanticTableRow};
+
+trait NavigationSemanticKind: Copy {
+    fn navigation_name(self) -> &'static str;
+}
+impl NavigationSemanticKind for typaxis_document_package::WireStagingSemanticContainerKind {
+    fn navigation_name(self) -> &'static str {
+        self.as_str()
+    }
+}
+#[cfg(feature = "book-v2-staging")]
+impl NavigationSemanticKind for typaxis_document_package::book_v2::WireBookV2SemanticContainerKind {
+    fn navigation_name(self) -> &'static str {
+        self.as_str()
+    }
+}
 
 pub const DOCUMENT_METADATA_ALGORITHM: &str = "typaxis.document-metadata/1";
 pub const BCP47_LANGUAGE_ALGORITHM: &str = "typaxis.bcp47-language/1";
@@ -61,6 +81,8 @@ const GRANDFATHERED: &[&str] = &[
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookNavigationSyntaxErrorKind {
+    #[cfg(feature = "book-v2-staging")]
+    InvalidSourceSpan,
     InvalidMetadata,
     InvalidTimestamp,
     InvalidLanguage,
@@ -931,8 +953,8 @@ fn validate_staging_book_navigation_v2_inner(
     })
 }
 
-fn collect_internal_links(
-    document: &WireStagingM4Document,
+fn collect_internal_links<K>(
+    document: &WireSemanticDocument<K>,
     anchors: &[(AnchorId, NodeId)],
     generation: LanguageRegistryGeneration,
 ) -> Result<Vec<(NodeId, AnchorId)>, BookNavigationSyntaxError> {
@@ -988,8 +1010,8 @@ fn collect_internal_links(
         Ok(())
     }
 
-    fn blocks(
-        values: &[WireStagingM4Block],
+    fn blocks<K>(
+        values: &[WireSemanticBlock<K>],
         pointer: &str,
         generation: LanguageRegistryGeneration,
         output: &mut Vec<(NodeId, AnchorId, String)>,
@@ -997,11 +1019,11 @@ fn collect_internal_links(
         for (index, value) in values.iter().enumerate() {
             let base = format!("{pointer}/{index}");
             match value {
-                WireStagingM4Block::Paragraph { children, .. }
-                | WireStagingM4Block::Heading { children, .. } => {
+                WireSemanticBlock::Paragraph { children, .. }
+                | WireSemanticBlock::Heading { children, .. } => {
                     inlines(children, &format!("{base}/children"), generation, output)?;
                 }
-                WireStagingM4Block::List { items, .. } => {
+                WireSemanticBlock::List { items, .. } => {
                     for (item_index, item) in items.iter().enumerate() {
                         blocks(
                             &item.blocks,
@@ -1011,7 +1033,7 @@ fn collect_internal_links(
                         )?;
                     }
                 }
-                WireStagingM4Block::Table { head, body, .. } => {
+                WireSemanticBlock::Table { head, body, .. } => {
                     for (collection, rows) in [("head", head), ("body", body)] {
                         for (row_index, row) in rows.iter().enumerate() {
                             for (cell_index, cell) in row.cells.iter().enumerate() {
@@ -1027,9 +1049,9 @@ fn collect_internal_links(
                         }
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. }
-                | WireStagingM4Block::VectorFigure { caption, .. } => {
-                    if matches!(value, WireStagingM4Block::VectorFigure { .. })
+                WireSemanticBlock::Figure { caption, .. }
+                | WireSemanticBlock::VectorFigure { caption, .. } => {
+                    if matches!(value, WireSemanticBlock::VectorFigure { .. })
                         && !generation.accepts_precomposed_vectors()
                     {
                         return Err(BookNavigationSyntaxError::producer(
@@ -1039,12 +1061,12 @@ fn collect_internal_links(
                     }
                     blocks(caption, &format!("{base}/caption"), generation, output)?;
                 }
-                WireStagingM4Block::SemanticContainer {
+                WireSemanticBlock::SemanticContainer {
                     blocks: children, ..
                 } => {
                     blocks(children, &format!("{base}/blocks"), generation, output)?;
                 }
-                WireStagingM4Block::MathVectorBlock { .. } => {
+                WireSemanticBlock::MathVectorBlock { .. } => {
                     if !generation.accepts_precomposed_vectors() {
                         return Err(BookNavigationSyntaxError::producer(
                             BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
@@ -1052,7 +1074,7 @@ fn collect_internal_links(
                         ));
                     }
                 }
-                WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
+                WireSemanticBlock::PageBreak { .. } | WireSemanticBlock::DisplayMath { .. } => {}
             }
         }
         Ok(())
@@ -1105,6 +1127,21 @@ fn validate_metadata(
     limits_sha256: [u8; 32],
     limits: &ValidatedResourceLimits,
 ) -> Result<DocumentMetadataReceipt, BookNavigationSyntaxError> {
+    let metadata = validate_metadata_fields(wire, limits)?;
+    let canonical_jcs = encode_metadata(&metadata, package_sha256, limits_sha256);
+    Ok(DocumentMetadataReceipt {
+        metadata,
+        package_sha256,
+        limits_sha256,
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
+fn validate_metadata_fields(
+    wire: &WireDocumentMetadata,
+    limits: &ValidatedResourceLimits,
+) -> Result<StagingDocumentMetadata, BookNavigationSyntaxError> {
     if let Some(author) = &wire.author {
         validate_metadata_string(author, "/metadata/author", limits)?;
     }
@@ -1143,7 +1180,7 @@ fn validate_metadata(
     if let Some(title) = &wire.title {
         validate_metadata_string(title, "/metadata/title", limits)?;
     }
-    let metadata = StagingDocumentMetadata {
+    Ok(StagingDocumentMetadata {
         author: wire.author.clone(),
         created: wire.created.clone(),
         identifier: wire.identifier.clone(),
@@ -1151,14 +1188,6 @@ fn validate_metadata(
         modified: wire.modified.clone(),
         subject: wire.subject.clone(),
         title: wire.title.clone(),
-    };
-    let canonical_jcs = encode_metadata(&metadata, package_sha256, limits_sha256);
-    Ok(DocumentMetadataReceipt {
-        metadata,
-        package_sha256,
-        limits_sha256,
-        fingerprint: sha256(canonical_jcs.as_bytes()),
-        canonical_jcs,
     })
 }
 
@@ -1249,8 +1278,8 @@ fn validate_timestamp(
     Ok(())
 }
 
-fn collect_document(
-    document: &WireStagingM4Document,
+fn collect_document<K: NavigationSemanticKind>(
+    document: &WireSemanticDocument<K>,
     page_masters: &WireAdvancedPageMasterSet,
     generation: LanguageRegistryGeneration,
     sites: &mut Vec<LanguageSite>,
@@ -1384,8 +1413,8 @@ fn staging_span(value: WireSourceSpan) -> WireStagingSourceSpan {
     }
 }
 
-fn collect_footnote(
-    footnote: &WireStagingM4Footnote,
+fn collect_footnote<K: NavigationSemanticKind>(
+    footnote: &WireSemanticFootnote<K>,
     parent: u32,
     pointer: &str,
     generation: LanguageRegistryGeneration,
@@ -1414,8 +1443,8 @@ fn collect_footnote(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_blocks(
-    blocks: &[WireStagingM4Block],
+fn collect_blocks<K: NavigationSemanticKind>(
+    blocks: &[WireSemanticBlock<K>],
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
@@ -1429,10 +1458,10 @@ fn collect_blocks(
         let node_id = block.node_id();
         let span = raw_block_span(block);
         let (kind, raw) = match block {
-            WireStagingM4Block::Paragraph { language, .. } => {
+            WireSemanticBlock::Paragraph { language, .. } => {
                 (Some(StagingLanguageNodeKind::Paragraph), language)
             }
-            WireStagingM4Block::Heading {
+            WireSemanticBlock::Heading {
                 language,
                 level,
                 anchor_id,
@@ -1456,19 +1485,19 @@ fn collect_blocks(
                 }
                 (Some(StagingLanguageNodeKind::Heading), language)
             }
-            WireStagingM4Block::List { language, .. } => {
+            WireSemanticBlock::List { language, .. } => {
                 (Some(StagingLanguageNodeKind::List), language)
             }
-            WireStagingM4Block::Table { language, .. } => {
+            WireSemanticBlock::Table { language, .. } => {
                 (Some(StagingLanguageNodeKind::Table), language)
             }
-            WireStagingM4Block::Figure { language, .. } => {
+            WireSemanticBlock::Figure { language, .. } => {
                 (Some(StagingLanguageNodeKind::Figure), language)
             }
-            WireStagingM4Block::DisplayMath { language, .. } => {
+            WireSemanticBlock::DisplayMath { language, .. } => {
                 (Some(StagingLanguageNodeKind::DisplayMath), language)
             }
-            WireStagingM4Block::VectorFigure { language, .. } => {
+            WireSemanticBlock::VectorFigure { language, .. } => {
                 if !generation.accepts_precomposed_vectors() {
                     return Err(BookNavigationSyntaxError::producer(
                         BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
@@ -1477,7 +1506,7 @@ fn collect_blocks(
                 }
                 (Some(StagingLanguageNodeKind::VectorFigure), language)
             }
-            WireStagingM4Block::MathVectorBlock { language, .. } => {
+            WireSemanticBlock::MathVectorBlock { language, .. } => {
                 if !generation.accepts_precomposed_vectors() {
                     return Err(BookNavigationSyntaxError::producer(
                         BookNavigationSyntaxErrorKind::PrecomposedVectorStaging,
@@ -1486,7 +1515,7 @@ fn collect_blocks(
                 }
                 (Some(StagingLanguageNodeKind::MathVectorBlock), language)
             }
-            WireStagingM4Block::SemanticContainer {
+            WireSemanticBlock::SemanticContainer {
                 language,
                 anchor_id,
                 semantic_kind,
@@ -1504,13 +1533,13 @@ fn collect_blocks(
                             span,
                             anchor: anchor_id.clone(),
                             heading_level: None,
-                            semantic_kind: Some(semantic_kind.as_str().to_owned()),
+                            semantic_kind: Some(semantic_kind.navigation_name().to_owned()),
                         },
                     );
                 }
                 (Some(StagingLanguageNodeKind::SemanticContainer), language)
             }
-            WireStagingM4Block::PageBreak { .. } => (None, &None),
+            WireSemanticBlock::PageBreak { .. } => (None, &None),
         };
         if let Some(kind) = kind {
             sites.push(LanguageSite {
@@ -1523,8 +1552,8 @@ fn collect_blocks(
             });
         }
         match block {
-            WireStagingM4Block::Paragraph { children, .. }
-            | WireStagingM4Block::Heading { children, .. } => collect_inlines(
+            WireSemanticBlock::Paragraph { children, .. }
+            | WireSemanticBlock::Heading { children, .. } => collect_inlines(
                 children,
                 node_id,
                 &format!("{base}/children"),
@@ -1532,7 +1561,7 @@ fn collect_blocks(
                 sites,
                 anchors,
             )?,
-            WireStagingM4Block::List { items, .. } => {
+            WireSemanticBlock::List { items, .. } => {
                 for (item_index, item) in items.iter().enumerate() {
                     let item_pointer = format!("{base}/items/{item_index}");
                     sites.push(LanguageSite {
@@ -1555,7 +1584,7 @@ fn collect_blocks(
                     )?;
                 }
             }
-            WireStagingM4Block::Table { head, body, .. } => {
+            WireSemanticBlock::Table { head, body, .. } => {
                 collect_rows(
                     head,
                     node_id,
@@ -1577,7 +1606,7 @@ fn collect_blocks(
                     anchors,
                 )?;
             }
-            WireStagingM4Block::Figure { caption, .. } => collect_blocks(
+            WireSemanticBlock::Figure { caption, .. } => collect_blocks(
                 caption,
                 node_id,
                 &format!("{base}/caption"),
@@ -1587,7 +1616,7 @@ fn collect_blocks(
                 owners,
                 anchors,
             )?,
-            WireStagingM4Block::SemanticContainer { blocks, .. } => collect_blocks(
+            WireSemanticBlock::SemanticContainer { blocks, .. } => collect_blocks(
                 blocks,
                 node_id,
                 &format!("{base}/blocks"),
@@ -1597,7 +1626,7 @@ fn collect_blocks(
                 owners,
                 anchors,
             )?,
-            WireStagingM4Block::VectorFigure { caption, .. } => collect_blocks(
+            WireSemanticBlock::VectorFigure { caption, .. } => collect_blocks(
                 caption,
                 node_id,
                 &format!("{base}/caption"),
@@ -1607,16 +1636,16 @@ fn collect_blocks(
                 owners,
                 anchors,
             )?,
-            WireStagingM4Block::MathVectorBlock { .. } => {}
-            WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
+            WireSemanticBlock::MathVectorBlock { .. } => {}
+            WireSemanticBlock::PageBreak { .. } | WireSemanticBlock::DisplayMath { .. } => {}
         }
     }
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_rows(
-    rows: &[WireStagingM4TableRow],
+fn collect_rows<K: NavigationSemanticKind>(
+    rows: &[WireSemanticTableRow<K>],
     parent: u32,
     pointer: &str,
     outline_eligible: bool,
@@ -2279,21 +2308,51 @@ fn validate_outline<L: ComputedLanguageProjection>(
     limits_sha256: [u8; 32],
     limits: &ValidatedResourceLimits,
 ) -> Result<ValidatedOutlineRegistryReceipt, BookNavigationSyntaxError> {
+    let output = validate_outline_entries(
+        &wire.outline().entries,
+        owners,
+        anchors,
+        &|node| languages.effective_language(node),
+        limits,
+    )?;
+    let canonical_jcs = encode_outline(
+        &output,
+        package_sha256,
+        limits_sha256,
+        semantic_sha256,
+        languages.registry_fingerprint(),
+    );
+    Ok(ValidatedOutlineRegistryReceipt {
+        entries: output,
+        package_sha256,
+        limits_sha256,
+        semantic_sha256,
+        language_sha256: languages.registry_fingerprint(),
+        fingerprint: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
+}
+
+fn validate_outline_entries(
+    entries: &[typaxis_document_package::WireOutlineEntry],
+    owners: &BTreeMap<u32, OutlineOwner>,
+    anchors: &BTreeMap<String, (u32, String)>,
+    language_for: &impl Fn(NodeId) -> Option<Arc<str>>,
+    limits: &ValidatedResourceLimits,
+) -> Result<Vec<StagingOutlineEntry>, BookNavigationSyntaxError> {
     let mut output = Vec::new();
-    output
-        .try_reserve_exact(wire.outline().entries.len())
-        .map_err(|_| {
-            BookNavigationSyntaxError::limit(
-                BookNavigationSyntaxErrorKind::AllocationFailure,
-                "P1120",
-                "/outline/entries",
-            )
-        })?;
+    output.try_reserve_exact(entries.len()).map_err(|_| {
+        BookNavigationSyntaxError::limit(
+            BookNavigationSyntaxErrorKind::AllocationFailure,
+            "P1120",
+            "/outline/entries",
+        )
+    })?;
     let mut stack: Vec<(u8, u32)> = Vec::new();
     let mut sources = BTreeSet::new();
     let mut destinations = BTreeSet::new();
     let mut previous_source = None;
-    for (index, entry) in wire.outline().entries.iter().enumerate() {
+    for (index, entry) in entries.iter().enumerate() {
         let base = format!("/outline/entries/{index}");
         let destination = AnchorId::new(entry.destination.clone()).map_err(|_| {
             BookNavigationSyntaxError::producer(
@@ -2405,8 +2464,7 @@ fn validate_outline<L: ComputedLanguageProjection>(
                 format!("{base}/destination"),
             )
         })?;
-        let language = languages
-            .effective_language(NodeId::new(owner.node_id))
+        let language = language_for(NodeId::new(owner.node_id))
             .ok_or_else(BookNavigationSyntaxError::mismatch)?;
         output.push(StagingOutlineEntry {
             outline_id: entry.outline_id,
@@ -2431,22 +2489,7 @@ fn validate_outline<L: ComputedLanguageProjection>(
         });
         stack.push((entry.level, entry.outline_id));
     }
-    let canonical_jcs = encode_outline(
-        &output,
-        package_sha256,
-        limits_sha256,
-        semantic_sha256,
-        languages.registry_fingerprint(),
-    );
-    Ok(ValidatedOutlineRegistryReceipt {
-        entries: output,
-        package_sha256,
-        limits_sha256,
-        semantic_sha256,
-        language_sha256: languages.registry_fingerprint(),
-        fingerprint: sha256(canonical_jcs.as_bytes()),
-        canonical_jcs,
-    })
+    Ok(output)
 }
 
 fn validate_navigation_node_limits(
@@ -2737,18 +2780,18 @@ fn math_speech_bytes(document: &WireStagingM4Document) -> u64 {
             .sum::<u64>()
 }
 
-fn raw_block_span(block: &WireStagingM4Block) -> WireStagingSourceSpan {
+fn raw_block_span<K>(block: &WireSemanticBlock<K>) -> WireStagingSourceSpan {
     match block {
-        WireStagingM4Block::Paragraph { span, .. }
-        | WireStagingM4Block::Heading { span, .. }
-        | WireStagingM4Block::List { span, .. }
-        | WireStagingM4Block::Table { span, .. }
-        | WireStagingM4Block::Figure { span, .. }
-        | WireStagingM4Block::PageBreak { span, .. }
-        | WireStagingM4Block::DisplayMath { span, .. }
-        | WireStagingM4Block::VectorFigure { span, .. }
-        | WireStagingM4Block::MathVectorBlock { span, .. }
-        | WireStagingM4Block::SemanticContainer { span, .. } => *span,
+        WireSemanticBlock::Paragraph { span, .. }
+        | WireSemanticBlock::Heading { span, .. }
+        | WireSemanticBlock::List { span, .. }
+        | WireSemanticBlock::Table { span, .. }
+        | WireSemanticBlock::Figure { span, .. }
+        | WireSemanticBlock::PageBreak { span, .. }
+        | WireSemanticBlock::DisplayMath { span, .. }
+        | WireSemanticBlock::VectorFigure { span, .. }
+        | WireSemanticBlock::MathVectorBlock { span, .. }
+        | WireSemanticBlock::SemanticContainer { span, .. } => *span,
     }
 }
 

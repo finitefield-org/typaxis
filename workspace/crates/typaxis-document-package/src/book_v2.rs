@@ -150,3 +150,12 @@ impl BookV2DocumentPackageEncoder {
 #[cfg(test)]
 #[path = "book_v2_tests.rs"]
 mod tests;
+
+/// Counts the declared successor AST, including page regions and outline entries.
+/// This is a bounded carrier count, not source/profile/layout admission.
+pub fn book_v2_wire_ast_node_count(
+    package: &WireBookV2DocumentPackage,
+    max_depth: u32,
+) -> Result<u64, StagingSemanticDecodeError> {
+    crate::semantic_container::semantic_wire_ast_node_count(package, max_depth)
+}

@@ -201,6 +201,18 @@ fn all_twelve_kinds_preserve_typed_ownership_in_all_eight_recursive_slots() {
                 .any(|(_, actual, _)| actual.as_str() == kind.as_str()));
             let styled = style_book_v2_body(prepared).unwrap();
             assert_eq!(styled.containers.len(), actual.len());
+            let navigation = prepare_book_v2_navigation(&styled).unwrap();
+            navigation.verify_for(&styled).unwrap();
+            for (node, kind, _) in &actual {
+                assert_eq!(
+                    navigation
+                        .semantic_kind(NodeId::new(*node))
+                        .unwrap()
+                        .as_str(),
+                    kind.as_str()
+                );
+                assert!(navigation.language(NodeId::new(*node)).is_some());
+            }
             for (id, expected_kind, _) in actual {
                 let style = styled.container_style(NodeId::new(id)).unwrap();
                 assert_eq!(style.semantic_kind().as_str(), expected_kind.as_str());
