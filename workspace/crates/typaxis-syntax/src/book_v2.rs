@@ -1,6 +1,6 @@
-//! Internal contract-1.5 source preparation: typed body, computed styles,
-//! languages/references and source-ordered text flow. These stages do not admit
-//! host sources/resources, a production profile, selected layout or PDF output.
+//! Internal contract-1.5 body, style, navigation and source-flow preparation.
+//! The optional host-admitted path binds exact original source bytes. Resource
+//! bytes, a public production profile, selected layout and PDF remain separate.
 
 use super::*;
 use typaxis_document::book_v2::{BookV2Document, BookV2SemanticContainerKind};
@@ -326,4 +326,11 @@ pub use crate::book_navigation::book_v2::{
 pub use super::production_flow::book_v2::{
     prepare_book_v2_text_flow, prepare_book_v2_text_flow_with_page_references,
     PreparedBookV2TextFlow, BOOK_V2_TEXT_FLOW_ALGORITHM,
+};
+
+#[path = "book_v2_source.rs"]
+mod source;
+pub use source::{
+    prepare_admitted_book_v2_body, BookV2MappingFailure, BookV2SourceFailure,
+    BookV2SourcePreparationError, SourceAdmittedBookV2Body,
 };

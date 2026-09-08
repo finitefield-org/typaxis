@@ -542,6 +542,7 @@ dependencies = [
 name = "typaxis-machine-input"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "typaxis-core",
  "typaxis-document-package",
  "typaxis-host-admission",
