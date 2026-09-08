@@ -5,7 +5,7 @@ pub use production_flow::{
     ProductionFlowEvent, ProductionFlowRegionKind, ProductionInlineContent,
     ProductionInlineLinkTarget, ProductionInlineReference, ProductionInlineSite, ProductionList,
     ProductionListItem, ProductionFootnoteDefinition, ProductionReferenceFormat, ProductionTextFlow, ProductionTextParagraph,
-    PRODUCTION_TEXT_FLOW_ALGORITHM,
+    ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection, PRODUCTION_TEXT_FLOW_ALGORITHM,
 };
 
 use super::*;

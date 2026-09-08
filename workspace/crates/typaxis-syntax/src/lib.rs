@@ -27,6 +27,7 @@ pub use book_navigation::{
 pub use semantic_container::{
     prepare_production_text_flow, prepare_production_text_flow_with_page_references, PrecomposedVectorActualTextResolution, PrecomposedVectorField,
     PrecomposedVectorKind, PrecomposedVectorMetricPayload, PrecomposedVectorVerification,
+    ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection,
     ProductionFootnoteDefinition, ProductionFigure, ProductionFlowError, ProductionFlowErrorKind, ProductionFlowEvent,
     ProductionFlowRegionKind, ProductionInlineContent, ProductionInlineLinkTarget,
     ProductionInlineReference, ProductionInlineSite, ProductionList, ProductionListItem,

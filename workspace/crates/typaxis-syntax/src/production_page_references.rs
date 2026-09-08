@@ -5,10 +5,10 @@ pub(super) fn page_reference_key(owner: NodeId) -> typaxis_core::GeneratedBuffer
     typaxis_core::GeneratedBufferKey::new(owner, typaxis_core::GenerationKind::PageReference, 0)
 }
 
-pub(super) fn add_page_reference_values(
-    collector: &mut Collector<'_>,
+pub(super) fn add_page_reference_values<'a, S: FlowSource<'a>>(
+    collector: &mut Collector<'a, S>,
     values: Option<&[(NodeId, u32)]>,
-    limits: &M4EffectiveResourceLimits,
+    limits: &ValidatedResourceLimits,
 ) -> Result<Option<Vec<(NodeId, u32)>>, ProductionFlowError> {
     let Some(values) = values else {
         return Ok(None);
@@ -21,7 +21,7 @@ pub(super) fn add_page_reference_values(
     if collector
         .node_charge
         .checked_add(values.len() as u64)
-        .is_none_or(|n| n > limits.base().get().max_fragments)
+        .is_none_or(|n| n > limits.get().max_fragments)
     {
         return Err(failure(ProductionFlowErrorKind::NodeLimit, root));
     }
@@ -41,7 +41,7 @@ pub(super) fn add_page_reference_values(
             .binary_search_by_key(&owner, |(id, _)| *id)
             .map_err(|_| mismatch(owner))?;
         let page = values[index].1;
-        if page == 0 || page > limits.base().get().max_pages {
+        if page == 0 || page > limits.get().max_pages {
             return Err(mismatch(owner));
         }
         seen = seen.checked_add(1).ok_or_else(|| mismatch(owner))?;
@@ -50,14 +50,14 @@ pub(super) fn add_page_reference_values(
             .generated_bytes
             .checked_add(bytes)
             .filter(|&total| {
-                bytes <= u64::from(limits.base().get().max_text_buffer_bytes)
+                bytes <= u64::from(limits.get().max_text_buffer_bytes)
                     && collector
                         .retained_text_bytes
                         .checked_add(total)
-                        .is_some_and(|n| n <= limits.base().get().max_text_bytes)
+                        .is_some_and(|n| n <= limits.get().max_text_bytes)
             })
             .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, owner))?;
-        if collector.generated_records.len() as u64 >= limits.base().get().max_fragments {
+        if collector.generated_records.len() as u64 >= limits.get().max_fragments {
             return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
         }
         collector

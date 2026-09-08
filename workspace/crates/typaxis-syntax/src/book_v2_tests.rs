@@ -136,6 +136,14 @@ fn all_twelve_kinds_preserve_typed_ownership_in_all_eight_recursive_slots() {
             "footnote",
         ] {
             let mut input = root(FIXTURE);
+            input["style_sheet"]["rules"].as_array_mut().unwrap().push(json!({
+                "style_id":"flow-paragraph", "selector":"paragraph", "source_order":2, "extends":null,
+                "declarations":[
+                    declaration("font_family",json!({"kind":"font_family_list","families":["Body"]}),false),
+                    declaration("font_size",length_value(12 * 65536),false),
+                    declaration("line_height",length_value(16 * 65536),false)
+                ]
+            }));
             let mut child = input["document"]["blocks"][0].clone();
             child["semantic_kind"] = kind.as_str().into();
             child["anchor_id"] = "authored.group".into();
@@ -203,6 +211,21 @@ fn all_twelve_kinds_preserve_typed_ownership_in_all_eight_recursive_slots() {
             assert_eq!(styled.containers.len(), actual.len());
             let navigation = prepare_book_v2_navigation(&styled).unwrap();
             navigation.verify_for(&styled).unwrap();
+            let flow = prepare_book_v2_text_flow(&styled, &navigation)
+                .unwrap_or_else(|error| panic!("{kind:?}/{slot}: {error}"));
+            flow.verify_for(&styled, &navigation).unwrap();
+            for (node, kind, _) in &actual {
+                assert_eq!(
+                    flow.semantic_container_style(NodeId::new(*node))
+                        .unwrap()
+                        .semantic_kind()
+                        .as_str(),
+                    kind.as_str()
+                );
+                assert!(flow.events().iter().any(|event| matches!(event,
+                    crate::ProductionFlowEvent::Begin { owner, kind: crate::ProductionFlowRegionKind::SemanticContainer }
+                    if owner.get() == *node)));
+            }
             for (node, kind, _) in &actual {
                 assert_eq!(
                     navigation
@@ -488,6 +511,18 @@ fn successor_style_keeps_precedence_extends_and_authored_inheritance() {
         inherited.block_style().text_align(),
         typaxis_style::MachineTextAlign::Center
     );
+    let navigation = prepare_book_v2_navigation(&styled).unwrap();
+    let flow = prepare_book_v2_text_flow(&styled, &navigation).unwrap();
+    for paragraph in flow.paragraphs() {
+        assert_eq!(paragraph.style().font_families().unwrap(), ["Authored"]);
+        assert_eq!(paragraph.style().font_size().unwrap().get().raw(), 12 * 65536);
+        assert_eq!(paragraph.style().line_height().unwrap().get().raw(), 16 * 65536);
+        assert_eq!(paragraph.style().block_style().text_align(), if paragraph.owner() == NodeId::new(5) {
+            typaxis_style::MachineTextAlign::End
+        } else {
+            typaxis_style::MachineTextAlign::Center
+        });
+    }
 }
 
 #[test]

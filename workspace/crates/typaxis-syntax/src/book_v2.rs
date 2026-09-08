@@ -1,6 +1,6 @@
-//! Internal contract-1.5 body preparation. This stage validates source spans,
-//! dense node order, text boundaries and unstyled math/vector facts. It does not
-//! admit styles, host resources, a production profile, layout or PDF output.
+//! Internal contract-1.5 source preparation: typed body, computed styles,
+//! languages/references and source-ordered text flow. These stages do not admit
+//! host sources/resources, a production profile, selected layout or PDF output.
 
 use super::*;
 use typaxis_document::book_v2::{BookV2Document, BookV2SemanticContainerKind};
@@ -321,4 +321,9 @@ impl AsRef<StagingM4MathNode> for PreparedBookMath {
 pub use crate::book_navigation::book_v2::{
     prepare_book_v2_navigation, BookV2ReferenceTarget, PreparedBookV2Language,
     PreparedBookV2LanguageChild, PreparedBookV2Navigation,
+};
+
+pub use super::production_flow::book_v2::{
+    prepare_book_v2_text_flow, prepare_book_v2_text_flow_with_page_references,
+    PreparedBookV2TextFlow, BOOK_V2_TEXT_FLOW_ALGORITHM,
 };

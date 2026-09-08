@@ -4,12 +4,17 @@ use super::*;
 use crate::ValidatedStagingBookNavigationV2;
 use typaxis_document_package::WireStagingM4ReferenceFormat;
 
+#[path = "production_table.rs"]
+mod table;
+pub use table::{ProductionTable, ProductionTableRow, ProductionTableCell, ProductionTableSection};
+
 pub const PRODUCTION_TEXT_FLOW_ALGORITHM: &str = "typaxis.production-text-flow/7";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProductionFlowErrorKind {
     ReceiptMismatch,
     InvalidStyle,
+    InvalidTableGrid,
     MissingTextStyle,
     TextLimit,
     NodeLimit,
@@ -26,6 +31,7 @@ impl std::fmt::Display for ProductionFlowError {
         let reason = match self.kind {
             ProductionFlowErrorKind::ReceiptMismatch => "receipt_mismatch",
             ProductionFlowErrorKind::InvalidStyle => "invalid_style",
+            ProductionFlowErrorKind::InvalidTableGrid => "invalid_table_grid",
             ProductionFlowErrorKind::MissingTextStyle => "missing_text_style",
             ProductionFlowErrorKind::TextLimit => "text_limit",
             ProductionFlowErrorKind::NodeLimit => "node_limit",
@@ -341,12 +347,20 @@ impl<'a> ProductionFootnoteDefinition<'a> {
 
 /// Downstream consumers must bind to this owner and a paragraph/site index;
 /// a copied `ProductionInlineSite` alone does not authorize shaping or paint.
-pub struct ProductionTextFlow<'a> {
-    package: &'a ValidatedStagingSemanticPackage,
-    navigation: &'a ValidatedStagingBookNavigationV2,
+pub type ProductionTextFlow<'a> =
+    SourceTextFlow<'a, ValidatedStagingSemanticPackage, ValidatedStagingBookNavigationV2>;
+
+/// Shared flow storage. Only the version-specific constructors can create it.
+/// Its source owner types cannot be exchanged through a conversion.
+#[doc(hidden)]
+pub struct SourceTextFlow<'a, P, N> {
+    package: &'a P,
+    navigation: &'a N,
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
     figures: Vec<ProductionFigure<'a>>,
+    tables: Vec<ProductionTable>,
+    table_record_charge: u64,
     lists: Vec<ProductionList>,
     list_items: Vec<ProductionListItem<'a>>,
     footnote_definitions: Vec<ProductionFootnoteDefinition<'a>>,
@@ -356,7 +370,7 @@ pub struct ProductionTextFlow<'a> {
     text_bytes: u64,
     fingerprint: [u8; 32],
 }
-impl<'a> ProductionTextFlow<'a> {
+impl<'a, P, N> SourceTextFlow<'a, P, N> {
     pub fn footnote_definitions(&self) -> &[ProductionFootnoteDefinition<'a>] {
         &self.footnote_definitions
     }
@@ -441,6 +455,29 @@ impl<'a> ProductionTextFlow<'a> {
     pub const fn generated_text_bytes(&self) -> u64 {
         self.generated.generated_bytes()
     }
+    pub fn events(&self) -> &[ProductionFlowEvent] {
+        &self.events
+    }
+    pub fn paragraphs(&self) -> &[ProductionTextParagraph<'a>] {
+        &self.paragraphs
+    }
+    pub fn tables(&self) -> &[ProductionTable] {
+        &self.tables
+    }
+    pub const fn table_record_charge(&self) -> u64 {
+        self.table_record_charge
+    }
+    pub fn figures(&self) -> &[ProductionFigure<'a>] {
+        &self.figures
+    }
+    pub const fn text_bytes(&self) -> u64 {
+        self.text_bytes
+    }
+    pub const fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+}
+impl<'a> ProductionTextFlow<'a> {
     /// The exact validated source owners retained by this flow. Downstream
     /// structure builders must use these, rather than a same-hash reparse.
     pub const fn package(&self) -> &'a ValidatedStagingSemanticPackage {
@@ -457,21 +494,6 @@ impl<'a> ProductionTextFlow<'a> {
         owner: NodeId,
     ) -> Option<&SemanticContainerComputedStyle> {
         self.package.computed_style(owner)
-    }
-    pub fn events(&self) -> &[ProductionFlowEvent] {
-        &self.events
-    }
-    pub fn paragraphs(&self) -> &[ProductionTextParagraph<'a>] {
-        &self.paragraphs
-    }
-    pub fn figures(&self) -> &[ProductionFigure<'a>] {
-        &self.figures
-    }
-    pub const fn text_bytes(&self) -> u64 {
-        self.text_bytes
-    }
-    pub const fn fingerprint(&self) -> [u8; 32] {
-        self.fingerprint
     }
     pub const fn package_sha256(&self) -> [u8; 32] {
         self.package.canonical_jcs_sha256()
@@ -494,6 +516,8 @@ impl<'a> ProductionTextFlow<'a> {
         )?;
         if self.events != observed.events
             || self.paragraphs != observed.paragraphs
+            || self.tables != observed.tables
+            || self.table_record_charge != observed.table_record_charge
             || self.figures != observed.figures
             || self.lists != observed.lists
             || self.list_items != observed.list_items
@@ -546,14 +570,44 @@ fn prepare_production_text_flow_inner<'a>(
         .map_err(|_| failure(ProductionFlowErrorKind::ReceiptMismatch, root))?;
     let rules = lower_semantic_style_rules(wire.style_sheet(), package.limits())
         .map_err(|_| failure(ProductionFlowErrorKind::InvalidStyle, root))?;
+    let mut result = collect_source_flow(
+        LegacyFlowSource {
+            package,
+            navigation,
+        },
+        package,
+        navigation,
+        wire.document(),
+        wire.text_buffers(),
+        rules,
+        retained_production_text_bytes(package, navigation)?,
+        limits.base(),
+        values,
+    )?;
+    result.fingerprint = sha256(encode_flow(&result).as_bytes());
+    Ok(result)
+}
+
+fn collect_source_flow<'a, S: FlowSource<'a>, P, N>(
+    source: S,
+    package: &'a P,
+    navigation: &'a N,
+    document: &'a WireSemanticDocument<S::Kind>,
+    buffers: &'a [WireStagingM4TextBuffer],
+    rules: StagingSemanticStyleSheets,
+    retained_text_bytes: u64,
+    limits: &ValidatedResourceLimits,
+    values: Option<&[(NodeId, u32)]>,
+) -> Result<SourceTextFlow<'a, P, N>, ProductionFlowError> {
+    let root = NodeId::new(0);
     let mut footnote_ordinals = Vec::new();
-    if wire.document().footnotes.len() as u64 > limits.base().get().max_fragments {
+    if document.footnotes.len() as u64 > limits.get().max_fragments {
         return Err(failure(ProductionFlowErrorKind::NodeLimit, root));
     }
     footnote_ordinals
-        .try_reserve_exact(wire.document().footnotes.len())
+        .try_reserve_exact(document.footnotes.len())
         .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
-    for (index, footnote) in wire.document().footnotes.iter().enumerate() {
+    for (index, footnote) in document.footnotes.iter().enumerate() {
         let ordinal = u32::try_from(index)
             .ok()
             .and_then(|n| n.checked_add(1))
@@ -567,29 +621,30 @@ fn prepare_production_text_flow_inner<'a>(
     }
     footnote_ordinals.sort_unstable_by_key(|(id, _)| *id);
     let mut collector = Collector {
-        package,
-        navigation,
+        source,
         rules,
-        buffers: wire.text_buffers(),
+        buffers,
         events: Vec::new(),
         paragraphs: Vec::new(),
         figures: Vec::new(),
+        tables: Vec::new(),
+        table_record_charge: 0,
         lists: Vec::new(),
         list_items: Vec::new(),
         footnote_ordinals,
         generated_records: Vec::new(),
         generated_bytes: 0,
-        retained_text_bytes: retained_production_text_bytes(package, navigation)?,
+        retained_text_bytes,
         text_bytes: 0,
         node_charge: 0,
     };
-    collector.blocks(&wire.document().blocks, None)?;
+    collector.blocks(&document.blocks, None)?;
     let mut footnote_definitions = Vec::new();
     footnote_definitions
-        .try_reserve_exact(wire.document().footnotes.len())
+        .try_reserve_exact(document.footnotes.len())
         .map_err(|_| failure(ProductionFlowErrorKind::AllocationFailure, root))?;
     let mut footnote_base_style = None;
-    for footnote in &wire.document().footnotes {
+    for footnote in &document.footnotes {
         let owner = NodeId::new(footnote.node_id);
         collector.add_footnote_marker(owner, &footnote.footnote_id)?;
         collector.begin(owner, ProductionFlowRegionKind::Footnote)?;
@@ -621,16 +676,18 @@ fn prepare_production_text_flow_inner<'a>(
     let page_reference_values = add_page_reference_values(&mut collector, values, limits)?;
     let generated = typaxis_text::GeneratedTextOverlay::new(
         collector.generated_records,
-        limits.base(),
+        limits,
         collector.retained_text_bytes,
     )
     .map_err(|_| failure(ProductionFlowErrorKind::TextLimit, root))?;
-    let mut result = ProductionTextFlow {
+    let result = SourceTextFlow {
         package,
         navigation,
         events: collector.events,
         paragraphs: collector.paragraphs,
         figures: collector.figures,
+        tables: collector.tables,
+        table_record_charge: collector.table_record_charge,
         lists: collector.lists,
         list_items: collector.list_items,
         footnote_definitions,
@@ -640,18 +697,58 @@ fn prepare_production_text_flow_inner<'a>(
         text_bytes: collector.text_bytes,
         fingerprint: [0; 32],
     };
-    result.fingerprint = sha256(encode_flow(&result).as_bytes());
     Ok(result)
 }
 
-struct Collector<'a> {
+trait FlowSource<'a> {
+    type Kind: Copy;
+    fn limits(&self) -> &'a ValidatedResourceLimits;
+    fn container_inheritance(&self, owner: NodeId)
+        -> Option<&'a SemanticContainerInheritanceStyle>;
+    fn language(&self, owner: NodeId) -> Option<&'a str>;
+    fn anchors(&self) -> &'a [(AnchorId, NodeId)];
+}
+struct LegacyFlowSource<'a> {
     package: &'a ValidatedStagingSemanticPackage,
     navigation: &'a ValidatedStagingBookNavigationV2,
+}
+impl<'a> FlowSource<'a> for LegacyFlowSource<'a> {
+    type Kind = typaxis_document_package::WireStagingSemanticContainerKind;
+    fn limits(&self) -> &'a ValidatedResourceLimits {
+        self.package.limits()
+    }
+    fn container_inheritance(
+        &self,
+        owner: NodeId,
+    ) -> Option<&'a SemanticContainerInheritanceStyle> {
+        self.package
+            .computed_style(owner)
+            .map(|style| style.inheritance_style())
+    }
+    fn language(&self, owner: NodeId) -> Option<&'a str> {
+        self.navigation
+            .languages()
+            .record(owner)
+            .map(|record| record.effective_language.as_ref())
+    }
+    fn anchors(&self) -> &'a [(AnchorId, NodeId)] {
+        self.navigation.anchors()
+    }
+}
+
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_flow.rs"]
+pub(super) mod book_v2;
+
+struct Collector<'a, S: FlowSource<'a>> {
+    source: S,
     rules: StagingSemanticStyleSheets,
     buffers: &'a [WireStagingM4TextBuffer],
     events: Vec<ProductionFlowEvent>,
     paragraphs: Vec<ProductionTextParagraph<'a>>,
     figures: Vec<ProductionFigure<'a>>,
+    tables: Vec<ProductionTable>,
+    table_record_charge: u64,
     lists: Vec<ProductionList>,
     list_items: Vec<ProductionListItem<'a>>,
     footnote_ordinals: Vec<(&'a str, u32)>,
@@ -709,7 +806,7 @@ fn retained_production_text_bytes(
 fn footnote_marker_key(owner: NodeId) -> typaxis_core::GeneratedBufferKey {
     typaxis_core::GeneratedBufferKey::new(owner, typaxis_core::GenerationKind::FootnoteMarker, 0)
 }
-impl<'a> Collector<'a> {
+impl<'a, S: FlowSource<'a>> Collector<'a, S> {
     fn add_footnote_marker(&mut self, owner: NodeId, id: &str) -> Result<(), ProductionFlowError> {
         let index = self
             .footnote_ordinals
@@ -721,14 +818,14 @@ impl<'a> Collector<'a> {
             .generated_bytes
             .checked_add(bytes)
             .filter(|n| {
-                bytes <= u64::from(self.package.limits().get().max_text_buffer_bytes)
+                bytes <= u64::from(self.source.limits().get().max_text_buffer_bytes)
                     && self
                         .retained_text_bytes
                         .checked_add(*n)
-                        .is_some_and(|total| total <= self.package.limits().get().max_text_bytes)
+                        .is_some_and(|total| total <= self.source.limits().get().max_text_bytes)
             })
             .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, owner))?;
-        if self.generated_records.len() as u64 >= self.package.limits().get().max_fragments {
+        if self.generated_records.len() as u64 >= self.source.limits().get().max_fragments {
             return Err(failure(ProductionFlowErrorKind::NodeLimit, owner));
         }
         self.generated_records
@@ -743,7 +840,7 @@ impl<'a> Collector<'a> {
         self.node_charge = self
             .node_charge
             .checked_add(1)
-            .filter(|count| *count <= self.package.limits().get().max_ast_nodes)
+            .filter(|count| *count <= self.source.limits().get().max_ast_nodes)
             .ok_or_else(|| failure(ProductionFlowErrorKind::NodeLimit, owner))?;
         Ok(())
     }
@@ -781,28 +878,28 @@ impl<'a> Collector<'a> {
     }
     fn blocks(
         &mut self,
-        blocks: &'a [WireStagingM4Block],
+        blocks: &'a [WireSemanticBlock<S::Kind>],
         parent: Option<&SemanticContainerInheritanceStyle>,
     ) -> Result<(), ProductionFlowError> {
         use ProductionFlowRegionKind as Kind;
         for block in blocks {
             let owner = NodeId::new(block.node_id());
             let kind = match block {
-                WireStagingM4Block::Paragraph { .. } => Kind::Paragraph,
-                WireStagingM4Block::Heading { .. } => Kind::Heading,
-                WireStagingM4Block::List { .. } => Kind::List,
-                WireStagingM4Block::Table { .. } => Kind::Table,
-                WireStagingM4Block::Figure { .. } => Kind::Figure,
-                WireStagingM4Block::VectorFigure { .. } => Kind::VectorFigure,
-                WireStagingM4Block::SemanticContainer { .. } => Kind::SemanticContainer,
-                WireStagingM4Block::DisplayMath { .. } => Kind::DisplayMath,
-                WireStagingM4Block::MathVectorBlock { .. } => Kind::MathVectorBlock,
-                WireStagingM4Block::PageBreak { .. } => Kind::PageBreak,
+                WireSemanticBlock::Paragraph { .. } => Kind::Paragraph,
+                WireSemanticBlock::Heading { .. } => Kind::Heading,
+                WireSemanticBlock::List { .. } => Kind::List,
+                WireSemanticBlock::Table { .. } => Kind::Table,
+                WireSemanticBlock::Figure { .. } => Kind::Figure,
+                WireSemanticBlock::VectorFigure { .. } => Kind::VectorFigure,
+                WireSemanticBlock::SemanticContainer { .. } => Kind::SemanticContainer,
+                WireSemanticBlock::DisplayMath { .. } => Kind::DisplayMath,
+                WireSemanticBlock::MathVectorBlock { .. } => Kind::MathVectorBlock,
+                WireSemanticBlock::PageBreak { .. } => Kind::PageBreak,
             };
             self.begin(owner, kind)?;
             match block {
-                WireStagingM4Block::Paragraph { children, .. }
-                | WireStagingM4Block::Heading { children, .. } => {
+                WireSemanticBlock::Paragraph { children, .. }
+                | WireSemanticBlock::Heading { children, .. } => {
                     let style = self.ordinary(owner, kind.as_str(), block.classes(), parent)?;
                     let mut items = Vec::new();
                     let language = self.language(owner)?;
@@ -844,14 +941,14 @@ impl<'a> Collector<'a> {
                     });
                     self.event(ProductionFlowEvent::Paragraph { index }, owner)?;
                 }
-                WireStagingM4Block::SemanticContainer { blocks, .. } => {
+                WireSemanticBlock::SemanticContainer { blocks, .. } => {
                     let style = self
-                        .package
-                        .computed_style(owner)
+                        .source
+                        .container_inheritance(owner)
                         .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))?;
-                    self.blocks(blocks, Some(style.inheritance_style()))?;
+                    self.blocks(blocks, Some(style))?;
                 }
-                WireStagingM4Block::List {
+                WireSemanticBlock::List {
                     ordered,
                     start,
                     items,
@@ -879,7 +976,7 @@ impl<'a> Collector<'a> {
                     for (index, item) in items.iter().enumerate() {
                         let item_owner = NodeId::new(item.node_id);
                         self.begin(item_owner, Kind::ListItem)?;
-                        if self.list_items.len() as u64 >= self.package.limits().get().max_fragments
+                        if self.list_items.len() as u64 >= self.source.limits().get().max_fragments
                         {
                             return Err(failure(ProductionFlowErrorKind::NodeLimit, item_owner));
                         }
@@ -909,9 +1006,9 @@ impl<'a> Collector<'a> {
                             .checked_add(size)
                             .filter(|n| {
                                 self.retained_text_bytes.checked_add(*n).is_some_and(|n| {
-                                    n <= self.package.limits().get().max_text_bytes
+                                    n <= self.source.limits().get().max_text_bytes
                                 }) && size
-                                    <= u64::from(self.package.limits().get().max_text_buffer_bytes)
+                                    <= u64::from(self.source.limits().get().max_text_buffer_bytes)
                             })
                             .ok_or_else(|| {
                                 failure(ProductionFlowErrorKind::TextLimit, item_owner)
@@ -920,7 +1017,7 @@ impl<'a> Collector<'a> {
                             failure(ProductionFlowErrorKind::AllocationFailure, item_owner)
                         })?;
                         if self.generated_records.len() as u64
-                            >= self.package.limits().get().max_fragments
+                            >= self.source.limits().get().max_fragments
                         {
                             return Err(failure(ProductionFlowErrorKind::NodeLimit, item_owner));
                         }
@@ -948,8 +1045,9 @@ impl<'a> Collector<'a> {
                         self.end(item_owner)?;
                     }
                 }
-                WireStagingM4Block::Table { head, body, .. } => {
+                WireSemanticBlock::Table { head, body, .. } => {
                     let style = self.ordinary(owner, "table", block.classes(), parent)?;
+                    self.table(block, style.clone())?;
                     for (rows, row_kind) in [(head, Kind::TableHeadRow), (body, Kind::TableBodyRow)]
                     {
                         for row in rows {
@@ -965,7 +1063,7 @@ impl<'a> Collector<'a> {
                         }
                     }
                 }
-                WireStagingM4Block::Figure {
+                WireSemanticBlock::Figure {
                     image_id,
                     placement,
                     alt,
@@ -995,20 +1093,17 @@ impl<'a> Collector<'a> {
                     });
                     self.blocks(caption, Some(&style))?;
                 }
-                WireStagingM4Block::VectorFigure { caption, .. } => self.blocks(caption, parent)?,
-                WireStagingM4Block::DisplayMath { .. }
-                | WireStagingM4Block::MathVectorBlock { .. }
-                | WireStagingM4Block::PageBreak { .. } => {}
+                WireSemanticBlock::VectorFigure { caption, .. } => self.blocks(caption, parent)?,
+                WireSemanticBlock::DisplayMath { .. }
+                | WireSemanticBlock::MathVectorBlock { .. }
+                | WireSemanticBlock::PageBreak { .. } => {}
             }
             self.end(owner)?;
         }
         Ok(())
     }
     fn language(&self, owner: NodeId) -> Result<&'a str, ProductionFlowError> {
-        self.navigation
-            .languages()
-            .record(owner)
-            .map(|record| record.effective_language.as_ref())
+        self.source.language(owner)
             .ok_or_else(|| failure(ProductionFlowErrorKind::ReceiptMismatch, owner))
     }
     fn inlines(
@@ -1046,7 +1141,7 @@ impl<'a> Collector<'a> {
                     self.text_bytes = self
                         .text_bytes
                         .checked_add(utf8.len() as u64)
-                        .filter(|total| *total <= self.package.limits().get().max_text_bytes)
+                        .filter(|total| *total <= self.source.limits().get().max_text_bytes)
                         .ok_or_else(|| failure(ProductionFlowErrorKind::TextLimit, owner))?;
                     let span = TextSpan::new(
                         TextBufferId::new(text_span.text_id),
@@ -1077,7 +1172,7 @@ impl<'a> Collector<'a> {
                 content,
                 reference: match inline {
                     WireStagingM4Inline::Reference { target, format, .. } => {
-                        let anchors = self.navigation.anchors();
+                        let anchors = self.source.anchors();
                         let index = anchors
                             .binary_search_by(|(anchor, _)| anchor.as_str().cmp(target.as_str()))
                             .map_err(|_| {
@@ -1139,8 +1234,23 @@ impl<'a> Collector<'a> {
 }
 
 fn encode_flow(flow: &ProductionTextFlow<'_>) -> String {
+    encode_source_flow(
+        flow,
+        PRODUCTION_TEXT_FLOW_ALGORITHM,
+        flow.navigation.languages().fingerprint(),
+        flow.navigation.limits().fingerprint(),
+        flow.package.canonical_jcs_sha256(),
+    )
+}
+fn encode_source_flow<P, N>(
+    flow: &SourceTextFlow<'_, P, N>,
+    algorithm: &str,
+    language_sha256: [u8; 32],
+    limits_sha256: [u8; 32],
+    package_sha256: [u8; 32],
+) -> String {
     let mut s = String::from("{\"algorithm\":");
-    push_jcs_string(&mut s, PRODUCTION_TEXT_FLOW_ALGORITHM);
+    push_jcs_string(&mut s, algorithm);
     s.push_str(",\"events\":[");
     for (i, event) in flow.events.iter().enumerate() {
         if i != 0 {
@@ -1177,11 +1287,11 @@ fn encode_flow(flow: &ProductionTextFlow<'_>) -> String {
     s.push_str("],\"generated_text_sha256\":");
     push_jcs_string(&mut s, &hex(flow.generated.reference_fingerprint().bytes()));
     s.push_str(",\"language_sha256\":");
-    push_jcs_string(&mut s, &hex(flow.navigation.languages().fingerprint()));
+    push_jcs_string(&mut s, &hex(language_sha256));
     s.push_str(",\"limits_sha256\":");
-    push_jcs_string(&mut s, &hex(flow.navigation.limits().fingerprint()));
+    push_jcs_string(&mut s, &hex(limits_sha256));
     s.push_str(",\"package_sha256\":");
-    push_jcs_string(&mut s, &hex(flow.package.canonical_jcs_sha256()));
+    push_jcs_string(&mut s, &hex(package_sha256));
     s.push_str(",\"paragraphs\":[");
     for (i, paragraph) in flow.paragraphs.iter().enumerate() {
         if i != 0 {
@@ -1246,12 +1356,15 @@ fn encode_flow(flow: &ProductionTextFlow<'_>) -> String {
     // independently recomputes all styles and events, not just this hash.
     s
 }
+
+
 fn hex(bytes: [u8; 32]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]
 mod tests {
+    include!("production_table_tests.rs");
     use super::*;
     use typaxis_core::ResourceLimits;
     use typaxis_document_package::{
