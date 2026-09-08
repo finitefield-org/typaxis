@@ -191,33 +191,41 @@ pub struct StagingM4MathNode {
     pub classes: Vec<String>,
 }
 
+/// Frozen contract-1.4 domain aliases. Successor kinds cannot enter these types.
+pub type StagingM4Block = SemanticBlock<SemanticContainerKind>;
+pub type StagingM4ListItem = SemanticListItem<SemanticContainerKind>;
+pub type StagingM4TableCell = SemanticTableCell<SemanticContainerKind>;
+pub type StagingM4TableRow = SemanticTableRow<SemanticContainerKind>;
+pub type StagingM4FootnoteDefinition = SemanticFootnoteDefinition<SemanticContainerKind>;
+pub type StagingM4Document = SemanticDocument<SemanticContainerKind>;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StagingM4ListItem {
+pub struct SemanticListItem<K> {
     pub node_id: NodeId,
     pub span: SourceSpan,
-    pub blocks: Vec<StagingM4Block>,
+    pub blocks: Vec<SemanticBlock<K>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StagingM4TableCell {
+pub struct SemanticTableCell<K> {
     pub node_id: NodeId,
     pub span: SourceSpan,
     pub colspan: NonZeroU16,
     pub rowspan: NonZeroU16,
-    pub blocks: Vec<StagingM4Block>,
+    pub blocks: Vec<SemanticBlock<K>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StagingM4TableRow {
+pub struct SemanticTableRow<K> {
     pub node_id: NodeId,
     pub span: SourceSpan,
-    pub cells: Vec<StagingM4TableCell>,
+    pub cells: Vec<SemanticTableCell<K>>,
 }
 
-/// Contract-1.4 production block domain. It remains separate from the frozen
-/// legacy `Block` enum so old-profile behavior cannot acquire M4 variants.
+/// Recursive semantic body shared by explicitly selected container vocabularies.
+/// Contract-specific aliases remain distinct from the legacy `Block` enum.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StagingM4Block {
+pub enum SemanticBlock<K> {
     Paragraph {
         common: StagingM4BlockCommon,
         has_authored_content: bool,
@@ -230,12 +238,12 @@ pub enum StagingM4Block {
     },
     List {
         common: StagingM4BlockCommon,
-        items: Vec<StagingM4ListItem>,
+        items: Vec<SemanticListItem<K>>,
     },
     Table {
         common: StagingM4BlockCommon,
-        head: Vec<StagingM4TableRow>,
-        body: Vec<StagingM4TableRow>,
+        head: Vec<SemanticTableRow<K>>,
+        body: Vec<SemanticTableRow<K>>,
     },
     Figure {
         common: StagingM4BlockCommon,
@@ -243,7 +251,7 @@ pub enum StagingM4Block {
         placement: StagingM4FigurePlacement,
         alternative: String,
         has_nonempty_alternative: bool,
-        caption: Vec<StagingM4Block>,
+        caption: Vec<SemanticBlock<K>>,
     },
     PageBreak {
         common: StagingM4BlockCommon,
@@ -256,7 +264,7 @@ pub enum StagingM4Block {
         image_id: ImageResourceId,
         viewport: PrecomposedVectorViewport,
         alternative: String,
-        caption: Vec<StagingM4Block>,
+        caption: Vec<SemanticBlock<K>>,
         language: Option<String>,
     },
     MathVectorBlock {
@@ -271,8 +279,8 @@ pub enum StagingM4Block {
     },
     SemanticContainer {
         common: StagingM4BlockCommon,
-        semantic_kind: SemanticContainerKind,
-        blocks: Vec<StagingM4Block>,
+        semantic_kind: K,
+        blocks: Vec<SemanticBlock<K>>,
     },
 }
 
@@ -294,7 +302,7 @@ impl StagingM4FigurePlacement {
     }
 }
 
-impl StagingM4Block {
+impl<K: Copy> SemanticBlock<K> {
     pub const fn common(&self) -> &StagingM4BlockCommon {
         match self {
             Self::Paragraph { common, .. }
@@ -322,7 +330,7 @@ impl StagingM4Block {
         &self.common().classes
     }
 
-    pub const fn semantic_kind(&self) -> Option<SemanticContainerKind> {
+    pub const fn semantic_kind(&self) -> Option<K> {
         match self {
             Self::SemanticContainer { semantic_kind, .. } => Some(*semantic_kind),
             Self::Paragraph { .. }
@@ -337,7 +345,7 @@ impl StagingM4Block {
         }
     }
 
-    pub fn direct_blocks(&self) -> &[StagingM4Block] {
+    pub fn direct_blocks(&self) -> &[SemanticBlock<K>] {
         match self {
             Self::Figure { caption, .. }
             | Self::VectorFigure { caption, .. }
@@ -387,17 +395,17 @@ impl StagingM4Block {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StagingM4FootnoteDefinition {
+pub struct SemanticFootnoteDefinition<K> {
     pub node_id: NodeId,
     pub span: SourceSpan,
-    pub blocks: Vec<StagingM4Block>,
+    pub blocks: Vec<SemanticBlock<K>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StagingM4Document {
+pub struct SemanticDocument<K> {
     pub node_id: NodeId,
-    pub blocks: Vec<StagingM4Block>,
-    pub footnotes: Vec<StagingM4FootnoteDefinition>,
+    pub blocks: Vec<SemanticBlock<K>>,
+    pub footnotes: Vec<SemanticFootnoteDefinition<K>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

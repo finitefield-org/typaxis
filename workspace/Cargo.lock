@@ -678,6 +678,7 @@ dependencies = [
 name = "typaxis-syntax"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "typaxis-core",
  "typaxis-diagnostics",
  "typaxis-document",

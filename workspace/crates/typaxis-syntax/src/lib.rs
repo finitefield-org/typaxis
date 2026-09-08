@@ -3,6 +3,9 @@
 mod advanced;
 mod book_navigation;
 mod semantic_container;
+#[cfg(feature = "book-v2-staging")]
+#[doc(hidden)]
+pub use semantic_container::book_v2;
 mod tagged_structure;
 
 pub use advanced::{

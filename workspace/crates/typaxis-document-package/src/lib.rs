@@ -41,6 +41,9 @@ pub use preflight::{
     DocumentPackageByteLimit, DocumentPackagePreflightLimits, JsonNestingDepthLimit,
     JsonPreflightReport, StrictJsonPreflight,
 };
+#[doc(hidden)]
+pub use semantic_container::{WireSemanticBlock, WireSemanticDocument, WireSemanticTableRow};
+
 pub use semantic_container::{
     encode_reference_document_package_v1_4, staging_m4_wire_ast_node_count,
     DecodedStagingSemanticDocumentPackage, ResourceCountAxis, StagingSemanticDecodeError,

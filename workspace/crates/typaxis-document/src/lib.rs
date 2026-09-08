@@ -9,6 +9,15 @@ use typaxis_core::{
 
 mod book_navigation;
 mod semantic_container;
+#[cfg(feature = "book-v2-staging")]
+#[doc(hidden)]
+pub mod book_v2;
+
+#[doc(hidden)]
+pub use semantic_container::{
+    SemanticBlock, SemanticDocument, SemanticFootnoteDefinition, SemanticListItem,
+    SemanticTableCell, SemanticTableRow,
+};
 
 pub use book_navigation::{
     StagingComputedLanguageChildKindV2, StagingComputedLanguageChildRecordV2,

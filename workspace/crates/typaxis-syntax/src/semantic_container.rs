@@ -10,13 +10,22 @@ pub use production_flow::{
 
 use super::*;
 use typaxis_document::{
+    SemanticBlock, SemanticDocument, SemanticFootnoteDefinition, SemanticListItem,
+    SemanticTableCell, SemanticTableRow,
+};
+use typaxis_document_package::{WireSemanticBlock, WireSemanticDocument, WireSemanticTableRow};
+
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2.rs"]
+pub mod book_v2;
+use typaxis_document::{
     FontMediaDeclaration, FontMediaType, ImageMediaDeclaration, ImageMediaType,
     PrecomposedVectorEquationNumber, PrecomposedVectorMetrics, PrecomposedVectorSourceTex,
     PrecomposedVectorSpacing, PrecomposedVectorViewport, SemanticContainerKind, StagingM4Block,
     StagingM4BlockCommon, StagingM4Document, StagingM4FigurePlacement,
-    StagingM4FontFaceDeclaration, StagingM4FootnoteDefinition, StagingM4ImageDeclaration,
-    StagingM4InlineVector, StagingM4InlineVectorKind, StagingM4ListItem, StagingM4MathKind,
-    StagingM4MathNode, StagingM4ResourceCatalog, StagingM4TableCell, StagingM4TableRow,
+    StagingM4FontFaceDeclaration, StagingM4ImageDeclaration,
+    StagingM4InlineVector, StagingM4InlineVectorKind, StagingM4MathKind,
+    StagingM4MathNode, StagingM4ResourceCatalog,
     VectorProvenance,
 };
 use typaxis_document_package::{
@@ -2806,7 +2815,9 @@ impl StagingSemanticPackageParser {
             node_count: 0,
             admitted_text_and_math_speech_bytes: admitted_text_bytes,
             math_nodes: Vec::new(),
-            precomposed_vector_session: &precomposed_vector_session,
+            precomposed_vector_session: Some(&precomposed_vector_session),
+            #[cfg(feature = "book-v2-staging")]
+            book_v2_vectors: None,
             precomposed_vector_metrics: Vec::new(),
             canonical_package_sha256: canonical_jcs_sha256,
             precomposed_vector_limits_fingerprint,
@@ -2979,7 +2990,9 @@ struct SemanticValidator<'a> {
     node_count: u64,
     admitted_text_and_math_speech_bytes: u64,
     math_nodes: Vec<PendingStagingMathNode>,
-    precomposed_vector_session: &'a PrecomposedVectorSyntaxSessionIdentity,
+    precomposed_vector_session: Option<&'a PrecomposedVectorSyntaxSessionIdentity>,
+    #[cfg(feature = "book-v2-staging")]
+    book_v2_vectors: Option<Vec<book_v2::PreparedBookVector>>,
     precomposed_vector_metrics: Vec<ValidatedPrecomposedVectorMetrics>,
     canonical_package_sha256: [u8; 32],
     precomposed_vector_limits_fingerprint: [u8; 32],
@@ -3270,7 +3283,36 @@ fn lower_document(
     wire: &WireStagingM4Document,
     validator: &mut SemanticValidator<'_>,
 ) -> Result<StagingM4Document, StagingSemanticSyntaxError> {
-    let blocks = lower_blocks(&wire.blocks, validator, None, NodeId::new(wire.node_id), 2)?;
+    lower_document_kind(
+        |semantic_kind| match semantic_kind {
+            typaxis_document_package::WireStagingSemanticContainerKind::Result => {
+                SemanticContainerKind::Result
+            }
+            typaxis_document_package::WireStagingSemanticContainerKind::Proof => {
+                SemanticContainerKind::Proof
+            }
+            typaxis_document_package::WireStagingSemanticContainerKind::Exercise => {
+                SemanticContainerKind::Exercise
+            }
+        },
+        wire,
+        validator,
+    )
+}
+
+fn lower_document_kind<C: Copy, D: Copy>(
+    map_kind: fn(C) -> D,
+    wire: &WireSemanticDocument<C>,
+    validator: &mut SemanticValidator<'_>,
+) -> Result<SemanticDocument<D>, StagingSemanticSyntaxError> {
+    let blocks = lower_blocks_kind(
+        map_kind,
+        &wire.blocks,
+        validator,
+        None,
+        NodeId::new(wire.node_id),
+        2,
+    )?;
     let mut footnotes = Vec::new();
     footnotes
         .try_reserve_exact(wire.footnotes.len())
@@ -3278,10 +3320,11 @@ fn lower_document(
     for footnote in &wire.footnotes {
         validator.node(footnote.node_id, Some(footnote.span), 2)?;
         let span = lower_span(footnote.span)?;
-        footnotes.push(StagingM4FootnoteDefinition {
+        footnotes.push(SemanticFootnoteDefinition {
             node_id: NodeId::new(footnote.node_id),
             span,
-            blocks: lower_blocks(
+            blocks: lower_blocks_kind(
+                map_kind,
                 &footnote.blocks,
                 validator,
                 Some(footnote.span),
@@ -3290,20 +3333,21 @@ fn lower_document(
             )?,
         });
     }
-    Ok(StagingM4Document {
+    Ok(SemanticDocument {
         node_id: NodeId::new(wire.node_id),
         blocks,
         footnotes,
     })
 }
 
-fn lower_blocks(
-    values: &[WireStagingM4Block],
+fn lower_blocks_kind<C: Copy, D: Copy>(
+    map_kind: fn(C) -> D,
+    values: &[WireSemanticBlock<C>],
     validator: &mut SemanticValidator<'_>,
     semantic_owner: Option<WireStagingSourceSpan>,
     math_owner: NodeId,
     depth: u32,
-) -> Result<Vec<StagingM4Block>, StagingSemanticSyntaxError> {
+) -> Result<Vec<SemanticBlock<D>>, StagingSemanticSyntaxError> {
     let mut output = Vec::new();
     output
         .try_reserve_exact(values.len())
@@ -3313,7 +3357,7 @@ fn lower_blocks(
         let span = wire_block_span(block);
         if matches!(
             block,
-            WireStagingM4Block::VectorFigure { .. } | WireStagingM4Block::MathVectorBlock { .. }
+            WireSemanticBlock::VectorFigure { .. } | WireSemanticBlock::MathVectorBlock { .. }
         ) {
             validator.precomposed_vector_node(block.node_id(), Some(span), depth)?;
         } else {
@@ -3333,7 +3377,7 @@ fn lower_blocks(
             classes: block.classes().to_vec(),
         };
         let lowered = match block {
-            WireStagingM4Block::Paragraph { children, .. } => {
+            WireSemanticBlock::Paragraph { children, .. } => {
                 let mut inline_vectors = Vec::new();
                 let has_authored_content = validate_inlines(
                     children,
@@ -3343,13 +3387,13 @@ fn lower_blocks(
                     depth + 1,
                     &mut inline_vectors,
                 )?;
-                StagingM4Block::Paragraph {
+                SemanticBlock::Paragraph {
                     common,
                     has_authored_content,
                     inline_vectors,
                 }
             }
-            WireStagingM4Block::Heading {
+            WireSemanticBlock::Heading {
                 level, children, ..
             } => {
                 if !(1..=6).contains(level) {
@@ -3364,13 +3408,13 @@ fn lower_blocks(
                     depth + 1,
                     &mut inline_vectors,
                 )?;
-                StagingM4Block::Heading {
+                SemanticBlock::Heading {
                     common,
                     has_authored_content,
                     inline_vectors,
                 }
             }
-            WireStagingM4Block::List {
+            WireSemanticBlock::List {
                 items,
                 ordered,
                 start,
@@ -3391,10 +3435,11 @@ fn lower_blocks(
                         return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
                     }
                     previous_item_start = Some(item.span.start_byte);
-                    lowered_items.push(StagingM4ListItem {
+                    lowered_items.push(SemanticListItem {
                         node_id: NodeId::new(item.node_id),
                         span: lower_span(item.span)?,
-                        blocks: lower_blocks(
+                        blocks: lower_blocks_kind(
+                            map_kind,
                             &item.blocks,
                             validator,
                             Some(item.span),
@@ -3403,12 +3448,12 @@ fn lower_blocks(
                         )?,
                     });
                 }
-                StagingM4Block::List {
+                SemanticBlock::List {
                     common,
                     items: lowered_items,
                 }
             }
-            WireStagingM4Block::Table {
+            WireSemanticBlock::Table {
                 columns,
                 head,
                 body,
@@ -3417,13 +3462,13 @@ fn lower_blocks(
                 if columns.is_empty() || (head.is_empty() && body.is_empty()) {
                     return Err(StagingSemanticSyntaxError::InvalidBlock(common.node_id));
                 }
-                StagingM4Block::Table {
+                SemanticBlock::Table {
                     common,
-                    head: lower_rows(head, validator, span, depth + 1)?,
-                    body: lower_rows(body, validator, span, depth + 1)?,
+                    head: lower_rows_kind(map_kind, head, validator, span, depth + 1)?,
+                    body: lower_rows_kind(map_kind, body, validator, span, depth + 1)?,
                 }
             }
-            WireStagingM4Block::Figure {
+            WireSemanticBlock::Figure {
                 image_id,
                 placement,
                 alt,
@@ -3434,7 +3479,7 @@ fn lower_blocks(
                     return Err(StagingSemanticSyntaxError::InvalidBlock(common.node_id));
                 }
                 let caption_owner = common.node_id;
-                StagingM4Block::Figure {
+                SemanticBlock::Figure {
                     common,
                     image_id: ImageResourceId::new(*image_id),
                     placement: match placement.as_str() {
@@ -3444,7 +3489,8 @@ fn lower_blocks(
                     },
                     alternative: alt.clone(),
                     has_nonempty_alternative: !alt.is_empty(),
-                    caption: lower_blocks(
+                    caption: lower_blocks_kind(
+                        map_kind,
                         caption,
                         validator,
                         Some(span),
@@ -3453,8 +3499,8 @@ fn lower_blocks(
                     )?,
                 }
             }
-            WireStagingM4Block::PageBreak { .. } => StagingM4Block::PageBreak { common },
-            WireStagingM4Block::DisplayMath {
+            WireSemanticBlock::PageBreak { .. } => SemanticBlock::PageBreak { common },
+            WireSemanticBlock::DisplayMath {
                 math_source,
                 speech,
                 ..
@@ -3469,9 +3515,9 @@ fn lower_blocks(
                     speech,
                     depth,
                 )?;
-                StagingM4Block::DisplayMath { common }
+                SemanticBlock::DisplayMath { common }
             }
-            WireStagingM4Block::VectorFigure {
+            WireSemanticBlock::VectorFigure {
                 image_id,
                 viewport,
                 alt,
@@ -3502,16 +3548,23 @@ fn lower_blocks(
                     validated_language,
                     None,
                 )?;
-                StagingM4Block::VectorFigure {
+                SemanticBlock::VectorFigure {
                     common,
                     image_id: ImageResourceId::new(*image_id),
                     viewport,
                     alternative: alt.clone(),
-                    caption: lower_blocks(caption, validator, Some(span), owner, depth + 1)?,
+                    caption: lower_blocks_kind(
+                        map_kind,
+                        caption,
+                        validator,
+                        Some(span),
+                        owner,
+                        depth + 1,
+                    )?,
                     language: language.clone(),
                 }
             }
-            WireStagingM4Block::MathVectorBlock {
+            WireSemanticBlock::MathVectorBlock {
                 actual_text,
                 alt,
                 equation_number,
@@ -3560,7 +3613,7 @@ fn lower_blocks(
                     validated_language,
                     validated_equation_number,
                 )?;
-                StagingM4Block::MathVectorBlock {
+                SemanticBlock::MathVectorBlock {
                     common,
                     image_id: ImageResourceId::new(*image_id),
                     metrics,
@@ -3571,7 +3624,7 @@ fn lower_blocks(
                     language: language.clone(),
                 }
             }
-            WireStagingM4Block::SemanticContainer {
+            WireSemanticBlock::SemanticContainer {
                 semantic_kind,
                 blocks,
                 ..
@@ -3579,20 +3632,16 @@ fn lower_blocks(
                 if blocks.is_empty() {
                     return Err(StagingSemanticSyntaxError::EmptyContainer(common.node_id));
                 }
-                let semantic_kind = match semantic_kind {
-                    typaxis_document_package::WireStagingSemanticContainerKind::Result => {
-                        SemanticContainerKind::Result
-                    }
-                    typaxis_document_package::WireStagingSemanticContainerKind::Proof => {
-                        SemanticContainerKind::Proof
-                    }
-                    typaxis_document_package::WireStagingSemanticContainerKind::Exercise => {
-                        SemanticContainerKind::Exercise
-                    }
-                };
-                let blocks =
-                    lower_blocks(blocks, validator, Some(span), common.node_id, depth + 1)?;
-                StagingM4Block::SemanticContainer {
+                let semantic_kind = map_kind(*semantic_kind);
+                let blocks = lower_blocks_kind(
+                    map_kind,
+                    blocks,
+                    validator,
+                    Some(span),
+                    common.node_id,
+                    depth + 1,
+                )?;
+                SemanticBlock::SemanticContainer {
                     common,
                     semantic_kind,
                     blocks,
@@ -3604,12 +3653,13 @@ fn lower_blocks(
     Ok(output)
 }
 
-fn lower_rows(
-    rows: &[typaxis_document_package::WireStagingM4TableRow],
+fn lower_rows_kind<C: Copy, D: Copy>(
+    map_kind: fn(C) -> D,
+    rows: &[WireSemanticTableRow<C>],
     validator: &mut SemanticValidator<'_>,
     table_owner: WireStagingSourceSpan,
     depth: u32,
-) -> Result<Vec<StagingM4TableRow>, StagingSemanticSyntaxError> {
+) -> Result<Vec<SemanticTableRow<D>>, StagingSemanticSyntaxError> {
     let mut output = Vec::new();
     let mut previous_row_start = None;
     for row in rows {
@@ -3628,7 +3678,7 @@ fn lower_rows(
                 return Err(StagingSemanticSyntaxError::InvalidSourceSpan);
             }
             previous_cell_start = Some(cell.span.start_byte);
-            cells.push(StagingM4TableCell {
+            cells.push(SemanticTableCell {
                 node_id: NodeId::new(cell.node_id),
                 span: lower_span(cell.span)?,
                 colspan: NonZeroU16::new(cell.colspan).ok_or(
@@ -3637,7 +3687,8 @@ fn lower_rows(
                 rowspan: NonZeroU16::new(cell.rowspan).ok_or(
                     StagingSemanticSyntaxError::InvalidBlock(NodeId::new(cell.node_id)),
                 )?,
-                blocks: lower_blocks(
+                blocks: lower_blocks_kind(
+                    map_kind,
                     &cell.blocks,
                     validator,
                     Some(cell.span),
@@ -3646,7 +3697,7 @@ fn lower_rows(
                 )?,
             });
         }
-        output.push(StagingM4TableRow {
+        output.push(SemanticTableRow {
             node_id: NodeId::new(row.node_id),
             span: lower_span(row.span)?,
             cells,
@@ -4351,13 +4402,42 @@ fn issue_precomposed_vector_metrics(
     {
         return Err(StagingSemanticSyntaxError::ReceiptMismatch);
     }
+    #[cfg(feature = "book-v2-staging")]
+    if let Some(output) = &mut validator.book_v2_vectors {
+        if validator.precomposed_vector_session.is_some()
+            || !validator.precomposed_vector_metrics.is_empty()
+            || output
+                .last()
+                .is_some_and(|previous| previous.node_id >= node_id)
+        {
+            return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+        }
+        output
+            .try_reserve(1)
+            .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
+        output.push(book_v2::PreparedBookVector {
+            node_id,
+            owner_source_span: lower_span(owner_span)?,
+            kind,
+            image_id,
+            payload,
+            source_tex,
+            alternative,
+            language,
+            equation_number,
+        });
+        return Ok(());
+    }
     validator
         .precomposed_vector_metrics
         .try_reserve(1)
         .map_err(|_| StagingSemanticSyntaxError::AllocationFailure)?;
     let mut receipt = ValidatedPrecomposedVectorMetrics {
         package_sha256: validator.canonical_package_sha256,
-        session: validator.precomposed_vector_session.clone(),
+        session: validator
+            .precomposed_vector_session
+            .ok_or(StagingSemanticSyntaxError::ReceiptMismatch)?
+            .clone(),
         limits_fingerprint: validator.precomposed_vector_limits_fingerprint,
         node_id,
         owner_source_span: lower_span(owner_span)?,
@@ -4400,18 +4480,18 @@ fn validate_text_span(
     Ok(value.start_byte < value.end_byte)
 }
 
-fn wire_block_span(block: &WireStagingM4Block) -> WireStagingSourceSpan {
+fn wire_block_span<K>(block: &WireSemanticBlock<K>) -> WireStagingSourceSpan {
     match block {
-        WireStagingM4Block::Paragraph { span, .. }
-        | WireStagingM4Block::Heading { span, .. }
-        | WireStagingM4Block::List { span, .. }
-        | WireStagingM4Block::Table { span, .. }
-        | WireStagingM4Block::Figure { span, .. }
-        | WireStagingM4Block::PageBreak { span, .. }
-        | WireStagingM4Block::DisplayMath { span, .. }
-        | WireStagingM4Block::VectorFigure { span, .. }
-        | WireStagingM4Block::MathVectorBlock { span, .. }
-        | WireStagingM4Block::SemanticContainer { span, .. } => *span,
+        WireSemanticBlock::Paragraph { span, .. }
+        | WireSemanticBlock::Heading { span, .. }
+        | WireSemanticBlock::List { span, .. }
+        | WireSemanticBlock::Table { span, .. }
+        | WireSemanticBlock::Figure { span, .. }
+        | WireSemanticBlock::PageBreak { span, .. }
+        | WireSemanticBlock::DisplayMath { span, .. }
+        | WireSemanticBlock::VectorFigure { span, .. }
+        | WireSemanticBlock::MathVectorBlock { span, .. }
+        | WireSemanticBlock::SemanticContainer { span, .. } => *span,
     }
 }
 
@@ -6401,7 +6481,9 @@ mod tests {
             node_count: 0,
             admitted_text_and_math_speech_bytes: 0,
             math_nodes: Vec::new(),
-            precomposed_vector_session: &session,
+            precomposed_vector_session: Some(&session),
+            #[cfg(feature = "book-v2-staging")]
+            book_v2_vectors: None,
             precomposed_vector_metrics: Vec::new(),
             canonical_package_sha256: [1; 32],
             precomposed_vector_limits_fingerprint: precomposed_vector_limits_fingerprint(
@@ -6430,7 +6512,9 @@ mod tests {
             node_count: 0,
             admitted_text_and_math_speech_bytes: 0,
             math_nodes: Vec::new(),
-            precomposed_vector_session: &session,
+            precomposed_vector_session: Some(&session),
+            #[cfg(feature = "book-v2-staging")]
+            book_v2_vectors: None,
             precomposed_vector_metrics: Vec::new(),
             canonical_package_sha256: [1; 32],
             precomposed_vector_limits_fingerprint: precomposed_vector_limits_fingerprint(
