@@ -49,6 +49,40 @@ impl Serialize for WireStagingSemanticContainerKind {
     }
 }
 
+// Only crate-owned, closed enums can select a wire contract. The generic tree
+// shares structural checks; it never translates a successor kind into a 1.4 kind.
+pub(super) mod sealed_semantic_kind {
+    pub trait Sealed {}
+}
+#[doc(hidden)]
+pub trait WireSemanticKind:
+    sealed_semantic_kind::Sealed + serde::de::DeserializeOwned + Serialize + Clone + fmt::Debug + Eq
+{
+    const CONTRACT: &'static str;
+    const DEBUG_NAME: &'static str;
+    const ROOT_SHAPE_ERROR: &'static str;
+    fn contract_error() -> StagingSemanticDecodeError;
+}
+impl sealed_semantic_kind::Sealed for WireStagingSemanticContainerKind {}
+impl WireSemanticKind for WireStagingSemanticContainerKind {
+    const CONTRACT: &'static str = STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT;
+    const DEBUG_NAME: &'static str = "DecodedStagingSemanticDocumentPackage";
+    const ROOT_SHAPE_ERROR: &'static str = "root members differ from the contract-1.4 scaffold";
+    fn contract_error() -> StagingSemanticDecodeError {
+        StagingSemanticDecodeError::Contract
+    }
+}
+
+pub type WireStagingM4ListItem = WireSemanticListItem<WireStagingSemanticContainerKind>;
+pub type WireStagingM4TableCell = WireSemanticTableCell<WireStagingSemanticContainerKind>;
+pub type WireStagingM4TableRow = WireSemanticTableRow<WireStagingSemanticContainerKind>;
+pub type WireStagingM4Block = WireSemanticBlock<WireStagingSemanticContainerKind>;
+pub type WireStagingM4Footnote = WireSemanticFootnote<WireStagingSemanticContainerKind>;
+pub type WireStagingM4Document = WireSemanticDocument<WireStagingSemanticContainerKind>;
+pub type WireStagingM4DocumentPackage = WireSemanticDocumentPackage<WireStagingSemanticContainerKind>;
+pub type DecodedStagingSemanticDocumentPackage =
+    DecodedVersionedSemanticDocumentPackage<WireStagingSemanticContainerKind>;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WireImageMediaType {
     Png,
@@ -390,40 +424,40 @@ impl WireStagingM4Inline {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireStagingM4ListItem {
+#[serde(rename = "WireStagingM4ListItem", deny_unknown_fields)]
+pub struct WireSemanticListItem<K> {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
-    pub blocks: Vec<WireStagingM4Block>,
+    pub blocks: Vec<WireSemanticBlock<K>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireStagingM4TableCell {
+#[serde(rename = "WireStagingM4TableCell", deny_unknown_fields)]
+pub struct WireSemanticTableCell<K> {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
     pub colspan: u16,
     pub rowspan: u16,
-    pub blocks: Vec<WireStagingM4Block>,
+    pub blocks: Vec<WireSemanticBlock<K>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireStagingM4TableRow {
+#[serde(rename = "WireStagingM4TableRow", deny_unknown_fields)]
+pub struct WireSemanticTableRow<K> {
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
-    pub cells: Vec<WireStagingM4TableCell>,
+    pub cells: Vec<WireSemanticTableCell<K>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum WireStagingM4Block {
+#[serde(rename = "WireStagingM4Block", tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WireSemanticBlock<K> {
     Paragraph {
         node_id: u32,
         span: WireStagingSourceSpan,
@@ -448,7 +482,7 @@ pub enum WireStagingM4Block {
         classes: Vec<String>,
         ordered: bool,
         start: Option<u32>,
-        items: Vec<WireStagingM4ListItem>,
+        items: Vec<WireSemanticListItem<K>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
@@ -457,8 +491,8 @@ pub enum WireStagingM4Block {
         span: WireStagingSourceSpan,
         classes: Vec<String>,
         columns: Vec<Value>,
-        head: Vec<WireStagingM4TableRow>,
-        body: Vec<WireStagingM4TableRow>,
+        head: Vec<WireSemanticTableRow<K>>,
+        body: Vec<WireSemanticTableRow<K>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
@@ -469,7 +503,7 @@ pub enum WireStagingM4Block {
         image_id: u32,
         placement: String,
         alt: String,
-        caption: Vec<WireStagingM4Block>,
+        caption: Vec<WireSemanticBlock<K>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
@@ -494,7 +528,7 @@ pub enum WireStagingM4Block {
         image_id: u32,
         viewport: WirePrecomposedVectorViewport,
         alt: String,
-        caption: Vec<WireStagingM4Block>,
+        caption: Vec<WireSemanticBlock<K>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
@@ -515,15 +549,15 @@ pub enum WireStagingM4Block {
         node_id: u32,
         span: WireStagingSourceSpan,
         classes: Vec<String>,
-        semantic_kind: WireStagingSemanticContainerKind,
+        semantic_kind: K,
         anchor_id: Option<String>,
-        blocks: Vec<WireStagingM4Block>,
+        blocks: Vec<WireSemanticBlock<K>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
     },
 }
 
-impl WireStagingM4Block {
+impl<K> WireSemanticBlock<K> {
     pub const fn node_id(&self) -> u32 {
         match self {
             Self::Paragraph { node_id, .. }
@@ -605,22 +639,22 @@ impl WireStagingSourceSpan {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireStagingM4Footnote {
+#[serde(rename = "WireStagingM4Footnote", deny_unknown_fields)]
+pub struct WireSemanticFootnote<K> {
     pub footnote_id: String,
     pub node_id: u32,
     pub span: WireStagingSourceSpan,
-    pub blocks: Vec<WireStagingM4Block>,
+    pub blocks: Vec<WireSemanticBlock<K>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WireStagingM4Document {
+#[serde(rename = "WireStagingM4Document", deny_unknown_fields)]
+pub struct WireSemanticDocument<K> {
     pub node_id: u32,
-    pub blocks: Vec<WireStagingM4Block>,
-    pub footnotes: Vec<WireStagingM4Footnote>,
+    pub blocks: Vec<WireSemanticBlock<K>>,
+    pub footnotes: Vec<WireSemanticFootnote<K>>,
     pub language: String,
 }
 
@@ -729,11 +763,11 @@ pub struct WireStagingStyleSheet {
     pub rules: Vec<WireStagingStyleRule>,
 }
 
-/// Typed 1.4 regions plus an opaque carrier for fields whose frozen 1.3 shape
+/// Typed version-bound regions plus an opaque carrier for fields whose frozen 1.3 shape
 /// is unchanged. Only this module may create the carrier from untrusted JSON.
 #[derive(Clone, Debug, PartialEq)]
-pub struct WireStagingM4DocumentPackage {
-    document: WireStagingM4Document,
+pub struct WireSemanticDocumentPackage<K> {
+    document: WireSemanticDocument<K>,
     metadata: WireDocumentMetadata,
     outline: WireDocumentOutline,
     resources: WireStagingM4ResourceCatalog,
@@ -746,8 +780,8 @@ pub struct WireStagingM4DocumentPackage {
     limits: ValidatedResourceLimits,
 }
 
-impl WireStagingM4DocumentPackage {
-    pub const fn document(&self) -> &WireStagingM4Document {
+impl<K: WireSemanticKind> WireSemanticDocumentPackage<K> {
+    pub const fn document(&self) -> &WireSemanticDocument<K> {
         &self.document
     }
 
@@ -785,7 +819,7 @@ impl WireStagingM4DocumentPackage {
 
     pub fn replace_typed_regions(
         &mut self,
-        document: WireStagingM4Document,
+        document: WireSemanticDocument<K>,
         resources: WireStagingM4ResourceCatalog,
     ) {
         self.document = document;
@@ -937,27 +971,32 @@ impl std::error::Error for StagingSemanticDecodeError {
     }
 }
 
-pub struct DecodedStagingSemanticDocumentPackage {
-    wire: WireStagingM4DocumentPackage,
+pub struct DecodedVersionedSemanticDocumentPackage<K> {
+    wire: WireSemanticDocumentPackage<K>,
     limits: ValidatedResourceLimits,
     raw_sha256: [u8; 32],
     canonical_jcs: String,
     canonical_jcs_sha256: [u8; 32],
 }
 
-impl fmt::Debug for DecodedStagingSemanticDocumentPackage {
+impl<K: WireSemanticKind> fmt::Debug for DecodedVersionedSemanticDocumentPackage<K> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("DecodedStagingSemanticDocumentPackage")
-            .field("contract", &STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT)
+            .debug_struct(K::DEBUG_NAME)
+            .field("contract", &K::CONTRACT)
             .field("blocks", &self.wire.document.blocks.len())
             .field("resources", &self.wire.resources)
             .finish_non_exhaustive()
     }
 }
 
-impl DecodedStagingSemanticDocumentPackage {
-    pub const fn wire(&self) -> &WireStagingM4DocumentPackage {
+impl<K: WireSemanticKind> DecodedVersionedSemanticDocumentPackage<K> {
+    /// Version selected by the sealed decoder type, never inferred from a kind
+    /// or from an independently supplied publication profile.
+    pub const fn contract(&self) -> &'static str {
+        K::CONTRACT
+    }
+    pub const fn wire(&self) -> &WireSemanticDocumentPackage<K> {
         &self.wire
     }
     pub const fn raw_sha256(&self) -> [u8; 32] {
@@ -972,7 +1011,7 @@ impl DecodedStagingSemanticDocumentPackage {
     pub fn canonical_jcs(&self) -> &str {
         &self.canonical_jcs
     }
-    pub fn into_wire(self) -> WireStagingM4DocumentPackage {
+    pub fn into_wire(self) -> WireSemanticDocumentPackage<K> {
         self.wire
     }
 }
@@ -990,169 +1029,176 @@ impl StagingSemanticDocumentPackageDecoder {
         input: &[u8],
         policy: &DocumentPackageDecodePolicy<'_>,
     ) -> Result<DecodedStagingSemanticDocumentPackage, StagingSemanticDecodeError> {
-        StrictJsonPreflight::new(policy.preflight_limits())
-            .check(input)
-            .map_err(StagingSemanticDecodeError::Preflight)?;
-        let mut deserializer = serde_json::Deserializer::from_slice(input);
-        deserializer.disable_recursion_limit();
-        let stacker = serde_stacker::Deserializer::new(&mut deserializer);
-        let root = NoDuplicateValue::deserialize(stacker)
-            .map_err(StagingSemanticDecodeError::Json)?
-            .0;
-        deserializer
-            .end()
-            .map_err(StagingSemanticDecodeError::Json)?;
-
-        let object = root
-            .as_object()
-            .ok_or(StagingSemanticDecodeError::Shape("root must be an object"))?;
-        if object.get("contract").and_then(Value::as_str)
-            != Some(STAGING_SEMANTIC_DOCUMENT_PACKAGE_CONTRACT)
-        {
-            return Err(StagingSemanticDecodeError::Contract);
-        }
-        let expected: BTreeSet<&str> = [
-            "contract",
-            "coordinate_unit",
-            "document",
-            "metadata",
-            "outline",
-            "page_masters",
-            "resources",
-            "sources",
-            "style_sheet",
-            "text_buffers",
-        ]
-        .into_iter()
-        .collect();
-        if object.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected {
-            // These required root members already have public precise locations.
-            // Preserve them while keeping root shape ahead of resource counts.
-            for member in ["metadata", "outline"] {
-                if !object.contains_key(member) {
-                    return Err(StagingSemanticDecodeError::BookNavigationShape {
-                        pointer: format!("/{member}"),
-                        message: if member == "metadata" { "metadata is required" } else { "outline is required" },
-                    });
-                }
-            }
-            return Err(StagingSemanticDecodeError::Shape(
-                "root members differ from the contract-1.4 scaffold",
-            ));
-        }
-        if object.get("coordinate_unit").and_then(Value::as_str) != Some("pdf_point_1_65536") {
-            return Err(StagingSemanticDecodeError::Shape(
-                "coordinate_unit must be pdf_point_1_65536",
-            ));
-        }
-        validate_resource_counts(&root, policy)?;
-        validate_book_navigation_wire_shape(&root)?;
-        validate_precomposed_vector_wire_shape(&root)?;
-        let (page_masters, advanced_page_masters) = validate_frozen_carrier(&root, policy)?;
-        let document: WireStagingM4Document = serde_json::from_value(
-            object
-                .get("document")
-                .cloned()
-                .ok_or(StagingSemanticDecodeError::Shape("document is required"))?,
-        )
-        .map_err(StagingSemanticDecodeError::Json)?;
-        validate_semantic_container_shape(&document)?;
-        validate_math_wire(&document)?;
-        let metadata: WireDocumentMetadata = serde_json::from_value(
-            object
-                .get("metadata")
-                .cloned()
-                .ok_or(StagingSemanticDecodeError::Shape("metadata is required"))?,
-        )
-        .map_err(StagingSemanticDecodeError::Json)?;
-        let outline: WireDocumentOutline = serde_json::from_value(
-            object
-                .get("outline")
-                .cloned()
-                .ok_or(StagingSemanticDecodeError::Shape("outline is required"))?,
-        )
-        .map_err(StagingSemanticDecodeError::Json)?;
-        let resources: WireStagingM4ResourceCatalog = serde_json::from_value(
-            object
-                .get("resources")
-                .cloned()
-                .ok_or(StagingSemanticDecodeError::Shape("resources is required"))?,
-        )
-        .map_err(StagingSemanticDecodeError::Json)?;
-        let sources: Vec<WireStagingM4Source> = serde_json::from_value(
-            object
-                .get("sources")
-                .cloned()
-                .ok_or(StagingSemanticDecodeError::Shape("sources is required"))?,
-        )
-        .map_err(StagingSemanticDecodeError::Json)?;
-        let style_sheet: WireStagingStyleSheet = serde_json::from_value(
-            object
-                .get("style_sheet")
-                .cloned()
-                .ok_or(StagingSemanticDecodeError::Shape("style_sheet is required"))?,
-        )
-        .map_err(StagingSemanticDecodeError::Json)?;
-        let text_buffers: Vec<WireStagingM4TextBuffer> =
-            serde_json::from_value(object.get("text_buffers").cloned().ok_or(
-                StagingSemanticDecodeError::Shape("text_buffers is required"),
-            )?)
-            .map_err(StagingSemanticDecodeError::Json)?;
-        validate_supporting_shapes(&sources, &text_buffers)?;
-        reject_page_region_semantic_containers(object.get("page_masters").ok_or(
-            StagingSemanticDecodeError::Shape("page_masters is required"),
-        )?)?;
-        if staging_m4_ast_node_count_parts(
-            &document,
-            &advanced_page_masters,
-            metadata.keywords.len(),
-            outline.entries.len(),
-            policy.resource_limits().get().max_ast_nesting_depth,
-        )? > policy.resource_limits().get().max_ast_nodes
-            || policy.resource_limits().get().max_ast_nesting_depth < 2
-            || outline.entries.iter().any(|entry| {
-                u32::from(entry.level).checked_add(2).map_or(true, |depth| {
-                    depth > policy.resource_limits().get().max_ast_nesting_depth
-                })
-            })
-            || u64::try_from(resources.font_faces.len())
-                .map_err(|_| StagingSemanticDecodeError::Limit)?
-                > u64::from(policy.resource_limits().get().max_fonts)
-            || u64::try_from(resources.images.len())
-                .map_err(|_| StagingSemanticDecodeError::Limit)?
-                > u64::from(policy.resource_limits().get().max_images)
-            || u64::try_from(style_sheet.rules.len())
-                .map_err(|_| StagingSemanticDecodeError::Limit)?
-                > policy.resource_limits().get().max_style_rules
-        {
-            return Err(StagingSemanticDecodeError::Limit);
-        }
-        let canonical_jcs = canonicalize_value(&root, input.len())?;
-        if u64::try_from(canonical_jcs.len()).map_err(|_| StagingSemanticDecodeError::Limit)?
-            > policy.resource_limits().get().max_document_package_bytes
-        {
-            return Err(StagingSemanticDecodeError::Limit);
-        }
-        Ok(DecodedStagingSemanticDocumentPackage {
-            wire: WireStagingM4DocumentPackage {
-                document,
-                metadata,
-                outline,
-                resources,
-                sources,
-                style_sheet,
-                text_buffers,
-                page_masters,
-                advanced_page_masters,
-                carrier: root,
-                limits: policy.resource_limits().clone(),
-            },
-            limits: policy.resource_limits().clone(),
-            raw_sha256: sha256(input),
-            canonical_jcs_sha256: sha256(canonical_jcs.as_bytes()),
-            canonical_jcs,
-        })
+        decode_semantic_document::<WireStagingSemanticContainerKind>(input, policy)
     }
+}
+
+pub(super) fn decode_semantic_document<K: WireSemanticKind>(
+    input: &[u8],
+    policy: &DocumentPackageDecodePolicy<'_>,
+) -> Result<DecodedVersionedSemanticDocumentPackage<K>, StagingSemanticDecodeError> {
+    StrictJsonPreflight::new(policy.preflight_limits())
+        .check(input)
+        .map_err(StagingSemanticDecodeError::Preflight)?;
+    let mut deserializer = serde_json::Deserializer::from_slice(input);
+    deserializer.disable_recursion_limit();
+    let stacker = serde_stacker::Deserializer::new(&mut deserializer);
+    let root = NoDuplicateValue::deserialize(stacker)
+        .map_err(StagingSemanticDecodeError::Json)?
+        .0;
+    deserializer
+        .end()
+        .map_err(StagingSemanticDecodeError::Json)?;
+
+    let object = root
+        .as_object()
+        .ok_or(StagingSemanticDecodeError::Shape("root must be an object"))?;
+    if object.get("contract").and_then(Value::as_str)
+        != Some(K::CONTRACT)
+    {
+        return Err(K::contract_error());
+    }
+    let expected: BTreeSet<&str> = [
+        "contract",
+        "coordinate_unit",
+        "document",
+        "metadata",
+        "outline",
+        "page_masters",
+        "resources",
+        "sources",
+        "style_sheet",
+        "text_buffers",
+    ]
+    .into_iter()
+    .collect();
+    if object.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected {
+        // These required root members already have public precise locations.
+        // Preserve them while keeping root shape ahead of resource counts.
+        for member in ["metadata", "outline"] {
+            if !object.contains_key(member) {
+                return Err(StagingSemanticDecodeError::BookNavigationShape {
+                    pointer: format!("/{member}"),
+                    message: if member == "metadata" { "metadata is required" } else { "outline is required" },
+                });
+            }
+        }
+        return Err(StagingSemanticDecodeError::Shape(
+            K::ROOT_SHAPE_ERROR,
+        ));
+    }
+    if object.get("coordinate_unit").and_then(Value::as_str) != Some("pdf_point_1_65536") {
+        return Err(StagingSemanticDecodeError::Shape(
+            "coordinate_unit must be pdf_point_1_65536",
+        ));
+    }
+    validate_resource_counts(&root, policy)?;
+    validate_book_navigation_wire_shape(&root)?;
+    validate_precomposed_vector_wire_shape(&root)?;
+    let (page_masters, advanced_page_masters) = validate_frozen_carrier(&root, policy)?;
+    let document: WireSemanticDocument<K> = serde_json::from_value(
+        object
+            .get("document")
+            .cloned()
+            .ok_or(StagingSemanticDecodeError::Shape("document is required"))?,
+    )
+    .map_err(StagingSemanticDecodeError::Json)?;
+    validate_semantic_container_shape(&document)?;
+    validate_math_wire(&document)?;
+    let metadata: WireDocumentMetadata = serde_json::from_value(
+        object
+            .get("metadata")
+            .cloned()
+            .ok_or(StagingSemanticDecodeError::Shape("metadata is required"))?,
+    )
+    .map_err(StagingSemanticDecodeError::Json)?;
+    let outline: WireDocumentOutline = serde_json::from_value(
+        object
+            .get("outline")
+            .cloned()
+            .ok_or(StagingSemanticDecodeError::Shape("outline is required"))?,
+    )
+    .map_err(StagingSemanticDecodeError::Json)?;
+    let resources: WireStagingM4ResourceCatalog = serde_json::from_value(
+        object
+            .get("resources")
+            .cloned()
+            .ok_or(StagingSemanticDecodeError::Shape("resources is required"))?,
+    )
+    .map_err(StagingSemanticDecodeError::Json)?;
+    let sources: Vec<WireStagingM4Source> = serde_json::from_value(
+        object
+            .get("sources")
+            .cloned()
+            .ok_or(StagingSemanticDecodeError::Shape("sources is required"))?,
+    )
+    .map_err(StagingSemanticDecodeError::Json)?;
+    let style_sheet: WireStagingStyleSheet = serde_json::from_value(
+        object
+            .get("style_sheet")
+            .cloned()
+            .ok_or(StagingSemanticDecodeError::Shape("style_sheet is required"))?,
+    )
+    .map_err(StagingSemanticDecodeError::Json)?;
+    let text_buffers: Vec<WireStagingM4TextBuffer> =
+        serde_json::from_value(object.get("text_buffers").cloned().ok_or(
+            StagingSemanticDecodeError::Shape("text_buffers is required"),
+        )?)
+        .map_err(StagingSemanticDecodeError::Json)?;
+    validate_supporting_shapes(&sources, &text_buffers)?;
+    reject_page_region_semantic_containers(object.get("page_masters").ok_or(
+        StagingSemanticDecodeError::Shape("page_masters is required"),
+    )?)?;
+    if staging_m4_ast_node_count_parts(
+        &document,
+        &advanced_page_masters,
+        metadata.keywords.len(),
+        outline.entries.len(),
+        policy.resource_limits().get().max_ast_nesting_depth,
+    )? > policy.resource_limits().get().max_ast_nodes
+        || policy.resource_limits().get().max_ast_nesting_depth < 2
+        || outline.entries.iter().any(|entry| {
+            u32::from(entry.level).checked_add(2).map_or(true, |depth| {
+                depth > policy.resource_limits().get().max_ast_nesting_depth
+            })
+        })
+        || u64::try_from(resources.font_faces.len())
+            .map_err(|_| StagingSemanticDecodeError::Limit)?
+            > u64::from(policy.resource_limits().get().max_fonts)
+        || u64::try_from(resources.images.len())
+            .map_err(|_| StagingSemanticDecodeError::Limit)?
+            > u64::from(policy.resource_limits().get().max_images)
+        || u64::try_from(style_sheet.rules.len())
+            .map_err(|_| StagingSemanticDecodeError::Limit)?
+            > policy.resource_limits().get().max_style_rules
+    {
+        return Err(StagingSemanticDecodeError::Limit);
+    }
+    let canonical_jcs = canonicalize_value(&root, input.len())?;
+    if u64::try_from(canonical_jcs.len()).map_err(|_| StagingSemanticDecodeError::Limit)?
+        > policy.resource_limits().get().max_document_package_bytes
+    {
+        return Err(StagingSemanticDecodeError::Limit);
+    }
+    Ok(DecodedVersionedSemanticDocumentPackage {
+        wire: WireSemanticDocumentPackage {
+            document,
+            metadata,
+            outline,
+            resources,
+            sources,
+            style_sheet,
+            text_buffers,
+            page_masters,
+            advanced_page_masters,
+            carrier: root,
+            limits: policy.resource_limits().clone(),
+        },
+        limits: policy.resource_limits().clone(),
+        raw_sha256: sha256(input),
+        canonical_jcs_sha256: sha256(canonical_jcs.as_bytes()),
+        canonical_jcs,
+    })
 }
 
 /// Promotes the frozen contract-1.3 reference-source carrier to public contract 1.4
@@ -2197,13 +2243,13 @@ fn validate_precomposed_vector_wire_shape(root: &Value) -> Result<(), StagingSem
     Ok(())
 }
 
-fn validate_semantic_container_shape(
-    document: &WireStagingM4Document,
+fn validate_semantic_container_shape<K>(
+    document: &WireSemanticDocument<K>,
 ) -> Result<(), StagingSemanticDecodeError> {
-    fn visit(blocks: &[WireStagingM4Block]) -> Result<(), StagingSemanticDecodeError> {
+    fn visit<K>(blocks: &[WireSemanticBlock<K>]) -> Result<(), StagingSemanticDecodeError> {
         for block in blocks {
             match block {
-                WireStagingM4Block::SemanticContainer { blocks, .. } => {
+                WireSemanticBlock::SemanticContainer { blocks, .. } => {
                     if blocks.is_empty() {
                         return Err(StagingSemanticDecodeError::Shape(
                             "semantic_container blocks must not be empty",
@@ -2211,23 +2257,23 @@ fn validate_semantic_container_shape(
                     }
                     visit(blocks)?;
                 }
-                WireStagingM4Block::List { items, .. } => {
+                WireSemanticBlock::List { items, .. } => {
                     for item in items {
                         visit(&item.blocks)?;
                     }
                 }
-                WireStagingM4Block::Table { head, body, .. } => {
+                WireSemanticBlock::Table { head, body, .. } => {
                     for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
                         visit(&cell.blocks)?;
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. }
-                | WireStagingM4Block::VectorFigure { caption, .. } => visit(caption)?,
-                WireStagingM4Block::Paragraph { .. }
-                | WireStagingM4Block::Heading { .. }
-                | WireStagingM4Block::DisplayMath { .. }
-                | WireStagingM4Block::MathVectorBlock { .. }
-                | WireStagingM4Block::PageBreak { .. } => {}
+                WireSemanticBlock::Figure { caption, .. }
+                | WireSemanticBlock::VectorFigure { caption, .. } => visit(caption)?,
+                WireSemanticBlock::Paragraph { .. }
+                | WireSemanticBlock::Heading { .. }
+                | WireSemanticBlock::DisplayMath { .. }
+                | WireSemanticBlock::MathVectorBlock { .. }
+                | WireSemanticBlock::PageBreak { .. } => {}
             }
         }
         Ok(())
@@ -2499,41 +2545,47 @@ impl StagingSemanticDocumentPackageEncoder {
         &self,
         package: &WireStagingM4DocumentPackage,
     ) -> Result<String, StagingSemanticDecodeError> {
-        let limits = package.limits.get();
-        let node_count = staging_m4_wire_ast_node_count(package, limits.max_ast_nesting_depth)?;
-        if node_count > limits.max_ast_nodes
-            || limits.max_ast_nesting_depth < 2
-            || package.outline.entries.iter().any(|entry| {
-                u32::from(entry.level)
-                    .checked_add(2)
-                    .map_or(true, |depth| depth > limits.max_ast_nesting_depth)
-            })
-            || u64::try_from(package.resources.font_faces.len())
-                .map_err(|_| StagingSemanticDecodeError::Limit)?
-                > u64::from(limits.max_fonts)
-            || u64::try_from(package.resources.images.len())
-                .map_err(|_| StagingSemanticDecodeError::Limit)?
-                > u64::from(limits.max_images)
-            || u64::try_from(package.style_sheet.rules.len())
-                .map_err(|_| StagingSemanticDecodeError::Limit)?
-                > limits.max_style_rules
-        {
-            return Err(StagingSemanticDecodeError::Limit);
-        }
-        validate_semantic_container_shape(&package.document)?;
-        validate_math_wire(&package.document)?;
-        validate_book_navigation_wire_shape(&package.materialize()?)?;
-        validate_precomposed_vector_wire_shape(&package.materialize()?)?;
-        validate_supporting_shapes(&package.sources, &package.text_buffers)?;
-        reject_page_region_semantic_containers(&package.carrier["page_masters"])?;
-        let canonical = canonicalize_value(&package.materialize()?, 0)?;
-        if u64::try_from(canonical.len()).map_err(|_| StagingSemanticDecodeError::Limit)?
-            > limits.max_document_package_bytes
-        {
-            return Err(StagingSemanticDecodeError::Limit);
-        }
-        Ok(canonical)
+        encode_semantic_document(package)
     }
+}
+
+pub(super) fn encode_semantic_document<K: WireSemanticKind>(
+    package: &WireSemanticDocumentPackage<K>,
+) -> Result<String, StagingSemanticDecodeError> {
+    let limits = package.limits.get();
+    let node_count = semantic_wire_ast_node_count(package, limits.max_ast_nesting_depth)?;
+    if node_count > limits.max_ast_nodes
+        || limits.max_ast_nesting_depth < 2
+        || package.outline.entries.iter().any(|entry| {
+            u32::from(entry.level)
+                .checked_add(2)
+                .map_or(true, |depth| depth > limits.max_ast_nesting_depth)
+        })
+        || u64::try_from(package.resources.font_faces.len())
+            .map_err(|_| StagingSemanticDecodeError::Limit)?
+            > u64::from(limits.max_fonts)
+        || u64::try_from(package.resources.images.len())
+            .map_err(|_| StagingSemanticDecodeError::Limit)?
+            > u64::from(limits.max_images)
+        || u64::try_from(package.style_sheet.rules.len())
+            .map_err(|_| StagingSemanticDecodeError::Limit)?
+            > limits.max_style_rules
+    {
+        return Err(StagingSemanticDecodeError::Limit);
+    }
+    validate_semantic_container_shape(&package.document)?;
+    validate_math_wire(&package.document)?;
+    validate_book_navigation_wire_shape(&package.materialize()?)?;
+    validate_precomposed_vector_wire_shape(&package.materialize()?)?;
+    validate_supporting_shapes(&package.sources, &package.text_buffers)?;
+    reject_page_region_semantic_containers(&package.carrier["page_masters"])?;
+    let canonical = canonicalize_value(&package.materialize()?, 0)?;
+    if u64::try_from(canonical.len()).map_err(|_| StagingSemanticDecodeError::Limit)?
+        > limits.max_document_package_bytes
+    {
+        return Err(StagingSemanticDecodeError::Limit);
+    }
+    Ok(canonical)
 }
 
 fn validate_supporting_shapes(
@@ -2598,7 +2650,7 @@ fn reject_page_region_semantic_containers(value: &Value) -> Result<(), StagingSe
     Ok(())
 }
 
-fn validate_math_wire(document: &WireStagingM4Document) -> Result<(), StagingSemanticDecodeError> {
+fn validate_math_wire<K>(document: &WireSemanticDocument<K>) -> Result<(), StagingSemanticDecodeError> {
     fn source(value: &WireStagingMathSource) -> Result<(), StagingSemanticDecodeError> {
         if value.language != "typaxis-math" || value.version != "1" {
             return Err(StagingSemanticDecodeError::Shape(
@@ -2628,31 +2680,31 @@ fn validate_math_wire(document: &WireStagingM4Document) -> Result<(), StagingSem
         Ok(())
     }
 
-    fn blocks(values: &[WireStagingM4Block]) -> Result<(), StagingSemanticDecodeError> {
+    fn blocks<K>(values: &[WireSemanticBlock<K>]) -> Result<(), StagingSemanticDecodeError> {
         for value in values {
             match value {
-                WireStagingM4Block::Paragraph { children, .. }
-                | WireStagingM4Block::Heading { children, .. } => inlines(children)?,
-                WireStagingM4Block::List { items, .. } => {
+                WireSemanticBlock::Paragraph { children, .. }
+                | WireSemanticBlock::Heading { children, .. } => inlines(children)?,
+                WireSemanticBlock::List { items, .. } => {
                     for item in items {
                         blocks(&item.blocks)?;
                     }
                 }
-                WireStagingM4Block::Table { head, body, .. } => {
+                WireSemanticBlock::Table { head, body, .. } => {
                     for row in head.iter().chain(body) {
                         for cell in &row.cells {
                             blocks(&cell.blocks)?;
                         }
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. }
-                | WireStagingM4Block::VectorFigure { caption, .. }
-                | WireStagingM4Block::SemanticContainer {
+                WireSemanticBlock::Figure { caption, .. }
+                | WireSemanticBlock::VectorFigure { caption, .. }
+                | WireSemanticBlock::SemanticContainer {
                     blocks: caption, ..
                 } => blocks(caption)?,
-                WireStagingM4Block::DisplayMath { math_source, .. } => source(math_source)?,
-                WireStagingM4Block::PageBreak { .. }
-                | WireStagingM4Block::MathVectorBlock { .. } => {}
+                WireSemanticBlock::DisplayMath { math_source, .. } => source(math_source)?,
+                WireSemanticBlock::PageBreak { .. }
+                | WireSemanticBlock::MathVectorBlock { .. } => {}
             }
         }
         Ok(())
@@ -2665,12 +2717,12 @@ fn validate_math_wire(document: &WireStagingM4Document) -> Result<(), StagingSem
     Ok(())
 }
 
-fn document_node_count(
-    document: &WireStagingM4Document,
+fn document_node_count<K>(
+    document: &WireSemanticDocument<K>,
     max_depth: u32,
 ) -> Result<u64, StagingSemanticDecodeError> {
-    fn blocks(
-        values: &[WireStagingM4Block],
+    fn blocks<K>(
+        values: &[WireSemanticBlock<K>],
         count: &mut u64,
         depth: u32,
         max_depth: u32,
@@ -2683,8 +2735,8 @@ fn document_node_count(
                 .checked_add(1)
                 .ok_or(StagingSemanticDecodeError::Limit)?;
             match block {
-                WireStagingM4Block::Paragraph { children, .. }
-                | WireStagingM4Block::Heading { children, .. } => {
+                WireSemanticBlock::Paragraph { children, .. }
+                | WireSemanticBlock::Heading { children, .. } => {
                     *count = count
                         .checked_add(count_inline_nodes(
                             children,
@@ -2695,7 +2747,7 @@ fn document_node_count(
                         )?)
                         .ok_or(StagingSemanticDecodeError::Limit)?;
                 }
-                WireStagingM4Block::List { items, .. } => {
+                WireSemanticBlock::List { items, .. } => {
                     for item in items {
                         let item_depth = depth
                             .checked_add(1)
@@ -2716,7 +2768,7 @@ fn document_node_count(
                         )?;
                     }
                 }
-                WireStagingM4Block::Table {
+                WireSemanticBlock::Table {
                     columns,
                     head,
                     body,
@@ -2759,9 +2811,9 @@ fn document_node_count(
                         }
                     }
                 }
-                WireStagingM4Block::Figure { caption, .. }
-                | WireStagingM4Block::VectorFigure { caption, .. }
-                | WireStagingM4Block::SemanticContainer {
+                WireSemanticBlock::Figure { caption, .. }
+                | WireSemanticBlock::VectorFigure { caption, .. }
+                | WireSemanticBlock::SemanticContainer {
                     blocks: caption, ..
                 } => {
                     blocks(
@@ -2773,7 +2825,7 @@ fn document_node_count(
                         max_depth,
                     )?;
                 }
-                WireStagingM4Block::MathVectorBlock {
+                WireSemanticBlock::MathVectorBlock {
                     equation_number, ..
                 } => {
                     if equation_number.is_some() {
@@ -2788,7 +2840,7 @@ fn document_node_count(
                             .ok_or(StagingSemanticDecodeError::Limit)?;
                     }
                 }
-                WireStagingM4Block::PageBreak { .. } | WireStagingM4Block::DisplayMath { .. } => {}
+                WireSemanticBlock::PageBreak { .. } | WireSemanticBlock::DisplayMath { .. } => {}
             }
         }
         Ok(())
@@ -2862,6 +2914,13 @@ pub fn staging_m4_wire_ast_node_count(
     package: &WireStagingM4DocumentPackage,
     max_depth: u32,
 ) -> Result<u64, StagingSemanticDecodeError> {
+    semantic_wire_ast_node_count(package, max_depth)
+}
+
+pub(super) fn semantic_wire_ast_node_count<K>(
+    package: &WireSemanticDocumentPackage<K>,
+    max_depth: u32,
+) -> Result<u64, StagingSemanticDecodeError> {
     staging_m4_ast_node_count_parts(
         &package.document,
         &package.advanced_page_masters,
@@ -2871,8 +2930,8 @@ pub fn staging_m4_wire_ast_node_count(
     )
 }
 
-fn staging_m4_ast_node_count_parts(
-    document: &WireStagingM4Document,
+fn staging_m4_ast_node_count_parts<K>(
+    document: &WireSemanticDocument<K>,
     page_masters: &WireAdvancedPageMasterSet,
     keyword_count: usize,
     outline_count: usize,

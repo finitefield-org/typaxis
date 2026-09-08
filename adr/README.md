@@ -55,3 +55,5 @@
 - [ADR-0037: Producer-composed math-vector placement](ADR-0037-producer-composed-math-vector.md) — M4 targetとしてAccepted。組版済み`svg-safe-2`、4つの明示kind、producer metric/baseline、atomic inline/block layout、content-key Form dedupe、SafeVector/resource-set・book-navigation・tagged-PDFのversioned `/2`経路を固定する。MI4-V03〜V19は非公開staging/evidenceであり、MI4-13だけが公開する。
 
 - [ADR-0038: VMB book production compatibility correction](ADR-0038-vmb-book-production-compatibility.md) — Safe-SVG 2のタグ末尾空白に限る仕様訂正、書籍用既定予算、元位置を保持する診断。実装・全巻検証は別途記録する。
+
+- [ADR-0039: Book-2 semantic vocabulary and version-bound carrier](ADR-0039-book-2-semantic-vocabulary.md) — 非公開1.5の囲み・解答・引用をclosed kindとして保持し、1.4の語彙と公開入口を維持する。共通組版と全巻受入は別途必要。

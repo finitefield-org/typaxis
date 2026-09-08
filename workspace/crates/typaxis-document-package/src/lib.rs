@@ -65,3 +65,8 @@ pub use semantic_container::{
     staging_math_document_body_fixture,
 };
 pub use typaxis_core::{DocumentPackageContractId, JsonPointer, MachineInputLimitBounds};
+
+// Successor carrier is private staging: no public registry/profile dispatch.
+#[cfg(any(test, feature = "book-v2-staging"))]
+#[doc(hidden)]
+pub mod book_v2;
