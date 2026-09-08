@@ -5,6 +5,8 @@ pub use production_v3::{shape_production_run_v3, ProductionShapeInputV3,
     ProductionShapeErrorV3, ShapedProductionRunV3};
 mod cff_v2;
 mod production_text;
+#[cfg(feature = "book-v2-staging")]
+pub use production_text::book_v2;
 pub use cff_v2::{shape_cff1_run_v2, Cff1ShapeErrorV2, Cff1ShapeInputV2, Cff1ShapedRunV2};
 pub use production_text::{
     production_equation_number_font, reshape_production_authored_text,

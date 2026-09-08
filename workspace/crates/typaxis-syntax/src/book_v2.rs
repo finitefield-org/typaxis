@@ -2,6 +2,11 @@
 //! The optional host-admitted path binds exact original source bytes. Resource
 //! bytes, a public production profile, selected layout and PDF remain separate.
 
+#[path = "book_v2_resource_policy.rs"]
+mod resource_policy;
+pub use resource_policy::{prepare_book_v2_resource_policy, BookV2ResourcePolicy,
+    BookV2ResourcePolicyError, BOOK_V2_RESOURCE_POLICY_ALGORITHM, BOOK_V2_RESOURCE_SET};
+
 use super::*;
 use typaxis_document::book_v2::{BookV2Document, BookV2SemanticContainerKind};
 use typaxis_document_package::book_v2::{

@@ -90,16 +90,29 @@ fn data() -> Value {
     data
 }
 fn body(root: &Root, data: Value) -> SourceAdmittedBookV2Body {
+    body_with_source(root, data, SOURCE, &limits())
+}
+fn body_with_source(
+    root: &Root,
+    mut data: Value,
+    source: &[u8],
+    limits: &M4EffectiveResourceLimits,
+) -> SourceAdmittedBookV2Body {
+    data["sources"][0]["sha256"] = typaxis_core::sha256(source)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>()
+        .into();
+    data["sources"][0]["utf8_byte_length"] = source.len().into();
     fs::write(
         root.0.join("document-package.json"),
         serde_json::to_vec(&data).unwrap(),
     )
     .unwrap();
-    fs::write(root.0.join("input.tsf"), SOURCE).unwrap();
+    fs::write(root.0.join("input.tsf"), source).unwrap();
     fs::write(root.0.join("body.bin"), FONT).unwrap();
     fs::write(root.0.join("collection.bin"), COLLECTION).unwrap();
     fs::write(root.0.join("cover.bin"), PNG).unwrap();
-    let limits = limits();
     let (session, raw) = HostBookV2InputSession::open(
         MachineInputHostOptions::new(
             HostPath::new(root.0.join("document-package.json")).unwrap(),
@@ -353,3 +366,6 @@ fn book_v2_resource_extension_config_mismatch_stops_before_resource_candidates()
         2
     );
 }
+
+#[path = "book_v2_shaping_tests.rs"]
+mod shaping_tests;

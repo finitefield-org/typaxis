@@ -35,27 +35,24 @@ impl<'a> ProductionFootnoteMarkerShape<'a> {
 }
 
 pub(super) fn shape_markers<'a>(
-    flow: &'a ProductionTextFlow<'a>,
-    admitted: &AdmittedResourceLedger,
+    flow: BodyFlow<'a>,
+    admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
 ) -> Result<Vec<ProductionFootnoteMarkerShape<'a>>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let mut result = Vec::new();
-    for (index, source) in flow.footnote_definitions().iter().enumerate() {
+    for (index, source) in flow_call!(flow, footnote_definitions()).iter().enumerate() {
         let owner = source.owner();
-        let style = flow
-            .footnote_marker_style(index)
+        let style = flow_call!(flow, footnote_marker_style(index))
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
         let glyphs = shape_generated_marker(
             GeneratedMarkerInput {
                 owner,
                 index,
-                text: flow
-                    .footnote_marker_text(owner)
+                text: flow_call!(flow, footnote_marker_text(owner))
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
-                provenance: flow
-                    .footnote_marker_provenance(owner)
+                provenance: flow_call!(flow, footnote_marker_provenance(owner))
                     .ok_or_else(|| error(owner, E::ReceiptMismatch))?,
                 families: style
                     .font_families()

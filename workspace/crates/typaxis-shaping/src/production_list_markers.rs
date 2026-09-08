@@ -40,23 +40,20 @@ impl<'a> ProductionListMarkerShape<'a> {
 }
 
 pub(super) fn shape_markers<'a>(
-    flow: &'a ProductionTextFlow<'a>,
-    admitted: &AdmittedResourceLedger,
+    flow: BodyFlow<'a>,
+    admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
 ) -> Result<Vec<ProductionListMarkerShape<'a>>, ProductionTextShapeError> {
     use ProductionTextShapeErrorKind as E;
     let mut output = Vec::new();
-    for (index, item) in flow.list_items().iter().enumerate() {
+    for (index, item) in flow_call!(flow, list_items()).iter().enumerate() {
         let owner = item.owner();
-        let text = flow
-            .list_marker_text(index)
+        let text = flow_call!(flow, list_marker_text(index))
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        let provenance = flow
-            .list_marker_provenance(index)
+        let provenance = flow_call!(flow, list_marker_provenance(index))
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
-        let list = flow
-            .lists()
+        let list = flow_call!(flow, lists())
             .get(item.list_index() as usize)
             .ok_or_else(|| error(owner, E::ReceiptMismatch))?;
         let style = list.style();
@@ -114,7 +111,7 @@ pub(super) struct GeneratedMarkerGlyphs<'a> {
 }
 pub(super) fn shape_generated_marker<'a>(
     input: GeneratedMarkerInput<'a>,
-    admitted: &AdmittedResourceLedger,
+    admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
 ) -> Result<GeneratedMarkerGlyphs<'a>, ProductionTextShapeError> {
@@ -139,8 +136,16 @@ pub(super) fn shape_generated_marker<'a>(
     let font = admitted
         .font(face_id)
         .ok_or_else(|| error(owner, E::MissingSelectedFont))?;
-    validate_admitted_font_coverage(font, text)
-        .map_err(|_| error(owner, E::MissingDeclaredFontCoverage))?;
+    font.coverage(text).map_err(|kind| {
+        error(
+            owner,
+            match kind {
+                #[cfg(feature = "book-v2-staging")]
+                E::CffV2(_) => kind,
+                _ => E::MissingDeclaredFontCoverage,
+            },
+        )
+    })?;
     if linked_backend_record_bound(text).map_err(|e| error(owner, E::Backend(e)))? > maximum {
         return Err(error(owner, E::ContextLimit));
     }
@@ -183,7 +188,7 @@ pub(super) fn shape_generated_marker<'a>(
     let run = shape_linked(
         LinkedBackendInput {
             run_id,
-            font: FontInstanceId::new(face_id.get()),
+            font: font.instance_id(),
             source,
             utf8: text,
             font_bytes: font.bytes(),
@@ -203,7 +208,7 @@ pub(super) fn shape_generated_marker<'a>(
     .map_err(|e| error(owner, E::Backend(e)))?;
     let expected = ExpectedGlyphRun {
         run_id,
-        font: FontInstanceId::new(face_id.get()),
+        font: font.instance_id(),
         bidi_level: BidiLevel::LTR,
         source,
         utf8_boundaries: utf8_boundaries(source, text)

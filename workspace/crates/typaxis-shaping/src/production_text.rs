@@ -10,6 +10,14 @@ use typaxis_syntax::{
     ValidatedStagingBookNavigationV2,
 };
 
+#[path = "production_text_inputs.rs"]
+mod inputs;
+use inputs::{flow_call, BodyFlow, BodyFonts};
+
+#[cfg(feature = "book-v2-staging")]
+#[path = "book_v2_text.rs"]
+pub mod book_v2;
+
 #[path = "production_list_markers.rs"]
 mod list_markers;
 pub use list_markers::ProductionListMarkerShape;
@@ -25,7 +33,9 @@ pub enum ProductionTextShapeErrorKind {
     MissingTextStyle,
     MissingSelectedFont,
     MissingDeclaredFontCoverage,
-    MissingShapedGlyph { span: TextSpan },
+    MissingShapedGlyph {
+        span: TextSpan,
+    },
     MissingGeneratedGlyph,
     InvalidFontMetrics,
     InvalidLineContext,
@@ -35,6 +45,8 @@ pub enum ProductionTextShapeErrorKind {
     ArithmeticOverflow,
     Itemization(ItemizationError),
     Backend(LinkedShaperError),
+    #[cfg(feature = "book-v2-staging")]
+    CffV2(Cff1ShapeErrorV2),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProductionTextShapeError {
@@ -277,14 +289,62 @@ fn shape_authored_text<'a>(
     {
         return Err(error(root, E::ReceiptMismatch));
     }
+    let BodyShapeOutput {
+        line_context_fingerprint,
+        paragraphs,
+        list_markers,
+        footnote_markers,
+        output_records,
+        fingerprint,
+    } = shape_document(
+        BodyFlow::Legacy(flow),
+        BodyFonts::Legacy(admitted),
+        limits,
+        epoch,
+        lines,
+        PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM,
+    )?;
+
+    Ok(ProductionAuthoredTextShape {
+        flow,
+        admitted,
+        limits_fingerprint: limits.fingerprint(),
+        line_context_fingerprint,
+        epoch,
+        paragraphs,
+        list_markers,
+        footnote_markers,
+        output_records,
+        fingerprint,
+    })
+}
+
+struct BodyShapeOutput<'a> {
+    line_context_fingerprint: Option<[u8; 32]>,
+    paragraphs: Vec<ProductionBodyParagraphShape<'a>>,
+    list_markers: Vec<ProductionListMarkerShape<'a>>,
+    footnote_markers: Vec<ProductionFootnoteMarkerShape<'a>>,
+    output_records: u64,
+    fingerprint: [u8; 32],
+}
+fn shape_document<'a>(
+    flow: BodyFlow<'a>,
+    admitted: BodyFonts<'_>,
+    limits: &M4EffectiveResourceLimits,
+    epoch: [u8; 32],
+    lines: Option<&[ProductionParagraphLineContext<'_>]>,
+    algorithm: &str,
+) -> Result<BodyShapeOutput<'a>, ProductionTextShapeError> {
+    use ProductionTextShapeErrorKind as E;
+    let root = NodeId::new(0);
     let mut output_records = 0u64;
     let mut line_context_fingerprint = None;
     if let Some(contexts) = lines {
-        if contexts.len() != flow.paragraphs().len() {
+        if contexts.len() != flow_call!(flow, paragraphs()).len() {
             return Err(error(root, E::InvalidLineContext));
         }
         let mut hash = sha256(b"typaxis.production-line-context/1");
-        for (context, paragraph) in contexts.iter().zip(flow.paragraphs()) {
+        for (context, paragraph) in contexts.iter().zip(flow_call!(flow, paragraphs())) {
             if context.owner != paragraph.owner() {
                 return Err(error(paragraph.owner(), E::InvalidLineContext));
             }
@@ -309,9 +369,9 @@ fn shape_authored_text<'a>(
     }
     let mut paragraphs = Vec::new();
     paragraphs
-        .try_reserve_exact(flow.paragraphs().len())
+        .try_reserve_exact(flow_call!(flow, paragraphs()).len())
         .map_err(|_| error(root, E::AllocationFailure))?;
-    for (index, paragraph) in flow.paragraphs().iter().enumerate() {
+    for (index, paragraph) in flow_call!(flow, paragraphs()).iter().enumerate() {
         paragraphs.push(shape_paragraph(
             flow,
             paragraph,
@@ -338,9 +398,9 @@ fn shape_authored_text<'a>(
     bytes
         .try_reserve_exact(capacity)
         .map_err(|_| error(root, E::AllocationFailure))?;
-    bytes.extend_from_slice(&sha256(PRODUCTION_AUTHORED_TEXT_SHAPE_ALGORITHM.as_bytes()));
-    bytes.extend_from_slice(&flow.fingerprint());
-    bytes.extend_from_slice(&admitted.fingerprint().bytes());
+    bytes.extend_from_slice(&sha256(algorithm.as_bytes()));
+    bytes.extend_from_slice(&flow_call!(flow, fingerprint()));
+    bytes.extend_from_slice(&admitted.fingerprint());
     bytes.extend_from_slice(&limits.fingerprint());
     bytes.extend_from_slice(&epoch);
     let shaper = ShaperIdentity::linked_reference();
@@ -363,12 +423,8 @@ fn shape_authored_text<'a>(
         record[32..].copy_from_slice(&context);
         fingerprint = sha256(&record);
     }
-    Ok(ProductionAuthoredTextShape {
-        flow,
-        admitted,
-        limits_fingerprint: limits.fingerprint(),
+    Ok(BodyShapeOutput {
         line_context_fingerprint,
-        epoch,
         paragraphs,
         list_markers,
         footnote_markers,
@@ -378,9 +434,9 @@ fn shape_authored_text<'a>(
 }
 
 fn shape_paragraph<'a>(
-    flow: &'a ProductionTextFlow<'a>,
+    flow: BodyFlow<'a>,
     paragraph: &ProductionTextParagraph<'a>,
-    admitted: &AdmittedResourceLedger,
+    admitted: BodyFonts<'_>,
     limits: &M4EffectiveResourceLimits,
     output_records: &mut u64,
     line_ends: Option<&[u32]>,
@@ -481,17 +537,8 @@ fn shape_paragraph<'a>(
             if utf8.is_empty() {
                 continue;
             }
-            validate_admitted_font_coverage(font, utf8).map_err(|e| {
-                error(
-                    site.owner(),
-                    match e {
-                        StagingEquationNumberShapeError::MissingDeclaredFontCoverage => {
-                            E::MissingDeclaredFontCoverage
-                        }
-                        _ => E::InvalidFontMetrics,
-                    },
-                )
-            })?;
+            font.coverage(utf8)
+                .map_err(|kind| error(site.owner(), kind))?;
             while cursor < specs.len() && specs[cursor].end as usize <= start {
                 cursor += 1;
             }
@@ -538,11 +585,13 @@ fn shape_paragraph<'a>(
                         u32::try_from(result.runs.len())
                             .map_err(|_| error(site.owner(), E::ArithmeticOverflow))?,
                     );
+                    font.run_coverage(run_text, &context[run_end..context_end])
+                        .map_err(|kind| error(site.owner(), kind))?;
                     let mut budget = ShapeOutputBudget::new(maximum);
                     let run = shape_linked(
                         LinkedBackendInput {
                             run_id,
-                            font: FontInstanceId::new(face_id.get()),
+                            font: font.instance_id(),
                             source,
                             utf8: run_text,
                             font_bytes: font.bytes(),
@@ -564,7 +613,7 @@ fn shape_paragraph<'a>(
                     .map_err(|e| error(site.owner(), E::Backend(e)))?;
                     let expected = ExpectedGlyphRun {
                         run_id,
-                        font: FontInstanceId::new(face_id.get()),
+                        font: font.instance_id(),
                         bidi_level: spec.bidi_level,
                         source,
                         utf8_boundaries: utf8_boundaries(source, run_text)
@@ -623,25 +672,25 @@ fn validate_body_glyph_coverage(run: &GlyphRun) -> Result<(), ProductionTextShap
 }
 
 fn site_text<'a>(
-    flow: &'a ProductionTextFlow<'a>,
+    flow: BodyFlow<'a>,
     site: &typaxis_syntax::ProductionInlineSite<'a>,
 ) -> Option<(ShapeSourceSpan, &'a str)> {
     match site.content() {
         ProductionInlineContent::Text { span, utf8 } => Some((ShapeSourceSpan::Parsed(span), utf8)),
         ProductionInlineContent::Reference => Some((
-            ShapeSourceSpan::Generated(flow.page_reference_provenance(site.owner())?),
-            flow.page_reference_text(site.owner())?,
+            ShapeSourceSpan::Generated(flow_call!(flow, page_reference_provenance(site.owner()))?),
+            flow_call!(flow, page_reference_text(site.owner()))?,
         )),
         ProductionInlineContent::FootnoteReference => Some((
-            ShapeSourceSpan::Generated(flow.footnote_marker_provenance(site.owner())?),
-            flow.footnote_marker_text(site.owner())?,
+            ShapeSourceSpan::Generated(flow_call!(flow, footnote_marker_provenance(site.owner()))?),
+            flow_call!(flow, footnote_marker_text(site.owner()))?,
         )),
         _ => None,
     }
 }
 
 fn paragraph_context<'a>(
-    flow: &'a ProductionTextFlow<'a>,
+    flow: BodyFlow<'a>,
     paragraph: &ProductionTextParagraph<'a>,
     maximum: u32,
 ) -> Result<(String, Vec<(usize, usize)>), ProductionTextShapeError> {

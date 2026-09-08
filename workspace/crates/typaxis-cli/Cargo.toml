@@ -13,7 +13,7 @@ name = "typaxis"
 path = "src/main.rs"
 
 [features]
-book-v2-staging = ["typaxis-machine-profile/book-v2-staging", "typaxis-syntax/book-v2-staging"]
+book-v2-staging = ["typaxis-machine-profile/book-v2-staging", "typaxis-syntax/book-v2-staging", "typaxis-shaping/book-v2-staging"]
 
 [dependencies]
 rustix = { version = "=1.1.4", features = ["fs"] }

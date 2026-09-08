@@ -71,7 +71,7 @@ impl Cff1ShapedRunV2<'_> {
 fn selector(c: char) -> bool {
     matches!(c as u32,0xfe00..=0xfe0f | 0xe0100..=0xe01ef)
 }
-fn coverage(admission: &Cff1AdmissionV2, text: &str) -> Result<(), Cff1ShapeErrorV2> {
+pub(super) fn coverage(admission: &Cff1AdmissionV2, text: &str) -> Result<(), Cff1ShapeErrorV2> {
     let mut chars = text.char_indices().peekable();
     while let Some((start, base)) = chars.next() {
         let vs = chars.peek().copied().filter(|(_, c)| selector(*c));

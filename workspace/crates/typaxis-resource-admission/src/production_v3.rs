@@ -300,6 +300,36 @@ pub struct AdmittedProductionResourceLedgerV3 {
     canonical_jcs: String,
 }
 impl AdmittedProductionResourceLedgerV3 {
+    pub fn matches_declared_resources(&self, declarations: &StagingM4ResourceCatalog) -> bool {
+        self.fonts.len() == declarations.font_faces.len()
+            && self.images.len() == declarations.images.len()
+            && self
+                .fonts
+                .iter()
+                .zip(&declarations.font_faces)
+                .all(|(font, declaration)| {
+                    matches!(declaration.media, FontMediaDeclaration::Declared(media) if media.as_str() == font.media_kind().as_str())
+                        && font.font_face_id() == declaration.font_face_id
+                        && font.uri() == &declaration.uri
+                        && font.family() == declaration.family
+                        && font.face_index() == declaration.face_index
+                        && declaration
+                            .expected_sha256
+                            .map_or(true, |expected| expected == font.content_hash())
+                })
+            && self
+                .images
+                .iter()
+                .zip(&declarations.images)
+                .all(|(image, declaration)| {
+                    matches!(declaration.media, ImageMediaDeclaration::Declared(media) if media.as_str() == image.media_kind().as_str())
+                        && image.image_id() == declaration.image_id
+                        && image.uri() == &declaration.uri
+                        && declaration
+                            .expected_sha256
+                            .map_or(true, |expected| expected == image.content_hash())
+                })
+    }
     pub fn same_session_as(&self, other: &Self) -> bool {
         self.session == other.session
     }

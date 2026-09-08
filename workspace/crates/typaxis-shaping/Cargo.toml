@@ -8,6 +8,9 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+book-v2-staging = ["typaxis-syntax/book-v2-staging"]
+
 [dependencies]
 # The linked shaper preflight mirrors harfrust 0.1.1's private MAX_LEN_FACTOR
 # and MAX_LEN_MIN. Updating this exact pin requires reviewing those constants.
