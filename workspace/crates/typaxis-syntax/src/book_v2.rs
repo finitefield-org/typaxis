@@ -216,3 +216,104 @@ fn lower_kind(kind: WireBookV2SemanticContainerKind) -> BookV2SemanticContainerK
 #[cfg(test)]
 #[path = "book_v2_tests.rs"]
 mod tests;
+
+/// Style closure of a prepared successor body. It still grants no host-source,
+/// resource, profile, layout, structure or PDF admission.
+#[derive(Debug)]
+pub struct StyledBookV2Body {
+    body: PreparedBookV2Body,
+    containers: BTreeMap<NodeId, typaxis_style::book_v2::BookV2SemanticContainerComputedStyle>,
+    vectors: BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
+    math: BTreeMap<NodeId, StagingMathComputedStyle>,
+}
+impl StyledBookV2Body {
+    pub const fn body(&self) -> &PreparedBookV2Body {
+        &self.body
+    }
+    pub fn container_style(
+        &self,
+        node: NodeId,
+    ) -> Option<&typaxis_style::book_v2::BookV2SemanticContainerComputedStyle> {
+        self.containers.get(&node)
+    }
+    pub fn vector_style(&self, node: NodeId) -> Option<&PrecomposedVectorComputedStyleReceipt> {
+        self.vectors.get(&node)
+    }
+    pub fn math_style(&self, node: NodeId) -> Option<&StagingMathComputedStyle> {
+        self.math.get(&node)
+    }
+}
+
+/// Applies the shared closed selector/property registry and inheritance engine.
+/// Container kinds are copied into the successor style vocabulary exhaustively;
+/// no 1.4 semantic-container kind or syntax package is constructed here.
+pub fn style_book_v2_body(
+    body: PreparedBookV2Body,
+) -> Result<StyledBookV2Body, StagingSemanticSyntaxError> {
+    let rules = lower_semantic_style_rules(body.wire.style_sheet(), &body.limits)?;
+    let mut containers = BTreeMap::new();
+    let mut vectors = BTreeMap::new();
+    let mut math = BTreeMap::new();
+    collect_computed_styles_kind(
+        cascade_book_kind,
+        &body.document.blocks,
+        &rules,
+        None,
+        &body.math,
+        &mut containers,
+        &mut vectors,
+        &mut math,
+    )?;
+    for footnote in &body.document.footnotes {
+        collect_computed_styles_kind(
+            cascade_book_kind,
+            &footnote.blocks,
+            &rules,
+            None,
+            &body.math,
+            &mut containers,
+            &mut vectors,
+            &mut math,
+        )?;
+    }
+    if math.len() != body.math.len() {
+        return Err(StagingSemanticSyntaxError::ReceiptMismatch);
+    }
+    Ok(StyledBookV2Body {
+        body,
+        containers,
+        vectors,
+        math,
+    })
+}
+
+fn cascade_book_kind(
+    kind: BookV2SemanticContainerKind,
+    classes: &[String],
+    sheet: &StyleSheet,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+) -> Result<typaxis_style::book_v2::BookV2SemanticContainerComputedStyle, StyleValidationError> {
+    use typaxis_style::book_v2::BookV2SemanticContainerStyleKind as S;
+    use BookV2SemanticContainerKind as D;
+    let kind = match kind {
+        D::Result => S::Result,
+        D::Proof => S::Proof,
+        D::Exercise => S::Exercise,
+        D::Solution => S::Solution,
+        D::Example => S::Example,
+        D::Counterexample => S::Counterexample,
+        D::Remark => S::Remark,
+        D::Note => S::Note,
+        D::Warning => S::Warning,
+        D::CommonError => S::CommonError,
+        D::FormalizationNote => S::FormalizationNote,
+        D::Quote => S::Quote,
+    };
+    typaxis_style::book_v2::cascade_book_v2_semantic_container_style(kind, classes, sheet, parent)
+}
+
+impl AsRef<StagingM4MathNode> for PreparedBookMath {
+    fn as_ref(&self) -> &StagingM4MathNode {
+        self.domain()
+    }
+}

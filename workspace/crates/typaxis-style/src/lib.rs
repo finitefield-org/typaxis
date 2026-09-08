@@ -1,5 +1,9 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "book-v2-staging")]
+#[doc(hidden)]
+pub mod book_v2;
+
 use core::num::{NonZeroU32, NonZeroU64};
 use std::collections::{BTreeMap, BTreeSet};
 use typaxis_core::{
@@ -1156,15 +1160,17 @@ impl SemanticContainerInheritanceStyle {
     }
 }
 
+pub type SemanticContainerComputedStyle = ComputedSemanticContainerStyle<SemanticContainerStyleKind>;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SemanticContainerComputedStyle {
-    semantic_kind: SemanticContainerStyleKind,
+pub struct ComputedSemanticContainerStyle<K> {
+    semantic_kind: K,
     inheritance: SemanticContainerInheritanceStyle,
     page_name: Option<PageName>,
 }
 
-impl SemanticContainerComputedStyle {
-    pub const fn semantic_kind(&self) -> SemanticContainerStyleKind {
+impl<K: Copy> ComputedSemanticContainerStyle<K> {
+    pub const fn semantic_kind(&self) -> K {
         self.semantic_kind
     }
 
@@ -1192,6 +1198,15 @@ pub fn cascade_staging_semantic_container_style(
     sheet: &StyleSheet,
     parent: Option<&SemanticContainerInheritanceStyle>,
 ) -> Result<SemanticContainerComputedStyle, StyleValidationError> {
+    cascade_semantic_container_style_kind(semantic_kind, classes, sheet, parent)
+}
+
+fn cascade_semantic_container_style_kind<K>(
+    semantic_kind: K,
+    classes: &[String],
+    sheet: &StyleSheet,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+) -> Result<ComputedSemanticContainerStyle<K>, StyleValidationError> {
     sheet.validate_basic_document_styles()?;
     let computed = sheet.cascade_validated(BasicStyleBlockKind::Paragraph.as_str(), classes)?;
     let inheritance = close_semantic_inheritance_style(&computed, parent)?;
@@ -1200,7 +1215,7 @@ pub fn cascade_staging_semantic_container_style(
     {
         return Err(StyleValidationError::InapplicableProperty);
     }
-    Ok(SemanticContainerComputedStyle {
+    Ok(ComputedSemanticContainerStyle {
         semantic_kind,
         page_name: computed.page_name()?,
         inheritance,

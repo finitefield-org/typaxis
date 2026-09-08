@@ -353,6 +353,12 @@ struct PendingStagingMathNode {
     domain: StagingM4MathNode,
     parsed: ParsedMathReceipt,
 }
+impl AsRef<StagingM4MathNode> for PendingStagingMathNode {
+    fn as_ref(&self) -> &StagingM4MathNode {
+        &self.domain
+    }
+}
+
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PrecomposedVectorMetricPayload {
@@ -4916,30 +4922,58 @@ fn collect_computed_styles(
     vector_output: &mut BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
     math_output: &mut BTreeMap<NodeId, StagingMathComputedStyle>,
 ) -> Result<(), StagingSemanticSyntaxError> {
+    collect_computed_styles_kind(
+        |kind, classes, sheet, parent| {
+            let kind = match kind {
+                SemanticContainerKind::Result => SemanticContainerStyleKind::Result,
+                SemanticContainerKind::Proof => SemanticContainerStyleKind::Proof,
+                SemanticContainerKind::Exercise => SemanticContainerStyleKind::Exercise,
+            };
+            cascade_staging_semantic_container_style(kind, classes, sheet, parent)
+        },
+        blocks,
+        rules,
+        parent,
+        pending_math,
+        output,
+        vector_output,
+        math_output,
+    )
+}
+
+type ContainerStyleCascade<C, S> =
+    fn(
+        C,
+        &[String],
+        &StyleSheet,
+        Option<&SemanticContainerInheritanceStyle>,
+    ) -> Result<typaxis_style::ComputedSemanticContainerStyle<S>, StyleValidationError>;
+
+fn collect_computed_styles_kind<C: Copy, S: Copy, M: AsRef<StagingM4MathNode>>(
+    cascade_kind: ContainerStyleCascade<C, S>,
+    blocks: &[SemanticBlock<C>],
+    rules: &StagingSemanticStyleSheets,
+    parent: Option<&SemanticContainerInheritanceStyle>,
+    pending_math: &[M],
+    output: &mut BTreeMap<NodeId, typaxis_style::ComputedSemanticContainerStyle<S>>,
+    vector_output: &mut BTreeMap<NodeId, PrecomposedVectorComputedStyleReceipt>,
+    math_output: &mut BTreeMap<NodeId, StagingMathComputedStyle>,
+) -> Result<(), StagingSemanticSyntaxError> {
     for block in blocks {
         match block {
-            StagingM4Block::SemanticContainer {
+            SemanticBlock::SemanticContainer {
                 common,
                 semantic_kind,
                 blocks,
             } => {
-                let kind = match semantic_kind {
-                    SemanticContainerKind::Result => SemanticContainerStyleKind::Result,
-                    SemanticContainerKind::Proof => SemanticContainerStyleKind::Proof,
-                    SemanticContainerKind::Exercise => SemanticContainerStyleKind::Exercise,
-                };
-                let style = cascade_staging_semantic_container_style(
-                    kind,
-                    &common.classes,
-                    &rules.semantic,
-                    parent,
-                )
-                .map_err(map_semantic_style_error)?;
+                let style = cascade_kind(*semantic_kind, &common.classes, &rules.semantic, parent)
+                    .map_err(map_semantic_style_error)?;
                 let inheritance = style.inheritance_style().clone();
                 if output.insert(common.node_id, style).is_some() {
                     return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                 }
-                collect_computed_styles(
+                collect_computed_styles_kind(
+                    cascade_kind,
                     blocks,
                     rules,
                     Some(&inheritance),
@@ -4949,10 +4983,10 @@ fn collect_computed_styles(
                     math_output,
                 )?;
             }
-            StagingM4Block::Paragraph { common, .. } | StagingM4Block::Heading { common, .. } => {
+            SemanticBlock::Paragraph { common, .. } | SemanticBlock::Heading { common, .. } => {
                 let block_type = match block {
-                    StagingM4Block::Paragraph { .. } => "paragraph",
-                    StagingM4Block::Heading { .. } => "heading",
+                    SemanticBlock::Paragraph { .. } => "paragraph",
+                    SemanticBlock::Heading { .. } => "heading",
                     _ => unreachable!("matched paragraph or heading"),
                 };
                 let inheritance = cascade_staging_semantic_descendant_style(
@@ -4963,29 +4997,29 @@ fn collect_computed_styles(
                 )
                 .map_err(map_semantic_style_error)?;
                 for math in pending_math.iter().filter(|math| {
-                    math.domain.owner_node_id == common.node_id
-                        && math.domain.kind == StagingM4MathKind::Inline
+                    math.as_ref().owner_node_id == common.node_id
+                        && math.as_ref().kind == StagingM4MathKind::Inline
                 }) {
                     let style = close_staging_inline_math_style(&inheritance)
                         .map_err(map_semantic_style_error)?;
-                    if math_output.insert(math.domain.node_id, style).is_some() {
+                    if math_output.insert(math.as_ref().node_id, style).is_some() {
                         return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                     }
                 }
             }
-            StagingM4Block::DisplayMath { common } => {
+            SemanticBlock::DisplayMath { common } => {
                 let style =
                     cascade_staging_display_math_style(&common.classes, &rules.math, parent)
                         .map_err(map_semantic_style_error)?;
                 if !pending_math.iter().any(|math| {
-                    math.domain.node_id == common.node_id
-                        && math.domain.kind == StagingM4MathKind::Display
+                    math.as_ref().node_id == common.node_id
+                        && math.as_ref().kind == StagingM4MathKind::Display
                 }) || math_output.insert(common.node_id, style).is_some()
                 {
                     return Err(StagingSemanticSyntaxError::ReceiptMismatch);
                 }
             }
-            StagingM4Block::List { common, items } => {
+            SemanticBlock::List { common, items } => {
                 let inheritance = cascade_staging_semantic_descendant_style(
                     "list",
                     &common.classes,
@@ -4994,7 +5028,8 @@ fn collect_computed_styles(
                 )
                 .map_err(map_semantic_style_error)?;
                 for item in items {
-                    collect_computed_styles(
+                    collect_computed_styles_kind(
+                        cascade_kind,
                         &item.blocks,
                         rules,
                         Some(&inheritance),
@@ -5005,7 +5040,7 @@ fn collect_computed_styles(
                     )?;
                 }
             }
-            StagingM4Block::Table { common, head, body } => {
+            SemanticBlock::Table { common, head, body } => {
                 let inheritance = cascade_staging_semantic_descendant_style(
                     "table",
                     &common.classes,
@@ -5014,7 +5049,8 @@ fn collect_computed_styles(
                 )
                 .map_err(map_semantic_style_error)?;
                 for cell in head.iter().chain(body).flat_map(|row| &row.cells) {
-                    collect_computed_styles(
+                    collect_computed_styles_kind(
+                        cascade_kind,
                         &cell.blocks,
                         rules,
                         Some(&inheritance),
@@ -5025,7 +5061,7 @@ fn collect_computed_styles(
                     )?;
                 }
             }
-            StagingM4Block::Figure {
+            SemanticBlock::Figure {
                 common, caption, ..
             } => {
                 let inheritance = cascade_staging_semantic_descendant_style(
@@ -5035,7 +5071,8 @@ fn collect_computed_styles(
                     parent,
                 )
                 .map_err(map_semantic_style_error)?;
-                collect_computed_styles(
+                collect_computed_styles_kind(
+                    cascade_kind,
                     caption,
                     rules,
                     Some(&inheritance),
@@ -5045,7 +5082,7 @@ fn collect_computed_styles(
                     math_output,
                 )?
             }
-            StagingM4Block::VectorFigure {
+            SemanticBlock::VectorFigure {
                 common, caption, ..
             } => {
                 let style = rules
@@ -5059,7 +5096,8 @@ fn collect_computed_styles(
                 if vector_output.insert(common.node_id, style).is_some() {
                     return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                 }
-                collect_computed_styles(
+                collect_computed_styles_kind(
+                    cascade_kind,
                     caption,
                     rules,
                     parent,
@@ -5069,7 +5107,7 @@ fn collect_computed_styles(
                     math_output,
                 )?
             }
-            StagingM4Block::MathVectorBlock { common, .. } => {
+            SemanticBlock::MathVectorBlock { common, .. } => {
                 let style = rules
                     .vector
                     .cascade_precomposed_vector_style(
@@ -5082,7 +5120,7 @@ fn collect_computed_styles(
                     return Err(StagingSemanticSyntaxError::InvalidNodeOrder);
                 }
             }
-            StagingM4Block::PageBreak { .. } => {}
+            SemanticBlock::PageBreak { .. } => {}
         }
     }
     Ok(())

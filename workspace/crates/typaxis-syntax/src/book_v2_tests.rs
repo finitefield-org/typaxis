@@ -199,6 +199,12 @@ fn all_twelve_kinds_preserve_typed_ownership_in_all_eight_recursive_slots() {
             assert!(actual
                 .iter()
                 .any(|(_, actual, _)| actual.as_str() == kind.as_str()));
+            let styled = style_book_v2_body(prepared).unwrap();
+            assert_eq!(styled.containers.len(), actual.len());
+            for (id, expected_kind, _) in actual {
+                let style = styled.container_style(NodeId::new(id)).unwrap();
+                assert_eq!(style.semantic_kind().as_str(), expected_kind.as_str());
+            }
         }
     }
 }
@@ -400,5 +406,161 @@ fn native_math_ast_nodes_share_the_body_budget() {
                 StagingSemanticSyntaxError::MathAstNodeLimit
             );
         }
+    }
+}
+
+fn declaration(name: &str, value: Value, important: bool) -> Value {
+    json!({"name":name,"value":value,"important":important})
+}
+fn length_value(raw: i64) -> Value {
+    json!({"kind":"length","value":raw})
+}
+
+#[test]
+fn successor_style_keeps_precedence_extends_and_authored_inheritance() {
+    let mut input = root(FIXTURE);
+    input["document"]["blocks"][0]["semantic_kind"] = "quote".into();
+    input["document"]["blocks"][0]["blocks"][1]["semantic_kind"] = "solution".into();
+    input["style_sheet"]["rules"][0]["declarations"][0]["important"] = true.into();
+    let feature = input["style_sheet"]["rules"][1]["declarations"]
+        .as_array_mut()
+        .unwrap();
+    feature.extend([
+        declaration(
+            "font_family",
+            json!({"kind":"font_family_list","families":["Authored"]}),
+            false,
+        ),
+        declaration("font_size", length_value(12 * 65536), false),
+        declaration("line_height", length_value(16 * 65536), false),
+        declaration(
+            "text_align",
+            json!({"kind":"keyword","value":"center"}),
+            false,
+        ),
+    ]);
+    input["style_sheet"]["rules"].as_array_mut().unwrap().push(json!({
+        "style_id":"nested-override","selector":"semantic_container.nested","source_order":2,"extends":"semantic-feature",
+        "declarations":[declaration("space_before",length_value(11),false),declaration("text_align",json!({"kind":"keyword","value":"end"}),false)]
+    }));
+    let styled = style_book_v2_body(prepare(&input).unwrap()).unwrap();
+    let root = styled.container_style(NodeId::new(1)).unwrap();
+    let nested = styled.container_style(NodeId::new(4)).unwrap();
+    let inherited = styled.container_style(NodeId::new(7)).unwrap();
+    assert_eq!(root.semantic_kind().as_str(), "quote");
+    assert_eq!(nested.semantic_kind().as_str(), "solution");
+    for style in [root, nested, inherited] {
+        assert_eq!(style.block_style().space_before().get().raw(), 2);
+        assert_eq!(
+            style.inheritance_style().font_families().unwrap(),
+            ["Authored"]
+        );
+        assert_eq!(
+            style.inheritance_style().font_size().unwrap().get().raw(),
+            12 * 65536
+        );
+        assert_eq!(
+            style.inheritance_style().line_height().unwrap().get().raw(),
+            16 * 65536
+        );
+    }
+    assert_eq!(
+        root.block_style().text_align(),
+        typaxis_style::MachineTextAlign::Center
+    );
+    assert_eq!(
+        nested.block_style().text_align(),
+        typaxis_style::MachineTextAlign::End
+    );
+    assert_eq!(
+        inherited.block_style().text_align(),
+        typaxis_style::MachineTextAlign::Center
+    );
+}
+
+#[test]
+fn successor_styles_close_math_and_equation_number_without_reparsing_sources() {
+    let mut native = root(MATH);
+    native["document"]["blocks"][0]["semantic_kind"] = "formalization_note".into();
+    let prepared = prepare(&native).unwrap();
+    let source_ptr = prepared.math()[0].domain().source.as_ptr();
+    let styled = style_book_v2_body(prepared).unwrap();
+    assert_eq!(styled.body().math()[0].domain().source.as_ptr(), source_ptr);
+    let inline = styled.math_style(NodeId::new(3)).unwrap();
+    let display = styled.math_style(NodeId::new(4)).unwrap();
+    assert_eq!(inline.font_families(), ["Math"]);
+    assert_eq!(display.font_size().get().raw(), 12 * 65536);
+    assert_eq!(display.block_style().start_indent().get().raw(), 4 * 65536);
+    assert_eq!(
+        display.block_style().text_align(),
+        typaxis_style::MachineTextAlign::Center
+    );
+
+    let mut vectors = root(VECTOR);
+    vectors["document"]["blocks"][0]["semantic_kind"] = "common_error".into();
+    vectors["style_sheet"]["rules"] = json!([{
+        "style_id":"parent-font","selector":"semantic_container","source_order":0,"extends":null,
+        "declarations":[declaration("font_family",json!({"kind":"font_family_list","families":["Body"]}),false),declaration("font_size",length_value(10*65536),false),declaration("line_height",length_value(14*65536),false)]
+    }]);
+    let styled = style_book_v2_body(prepare(&vectors).unwrap()).unwrap();
+    let number = styled
+        .vector_style(NodeId::new(6))
+        .unwrap()
+        .equation_number_text_style()
+        .unwrap();
+    assert_eq!(number.font_families().unwrap(), ["Body"]);
+    assert_eq!(number.font_size().unwrap().get().raw(), 10 * 65536);
+    assert_eq!(number.line_height().unwrap().get().raw(), 14 * 65536);
+    assert!(styled
+        .vector_style(NodeId::new(5))
+        .unwrap()
+        .equation_number_text_style()
+        .is_none());
+    assert_eq!(
+        styled.body().vectors()[3]
+            .source_tex()
+            .unwrap()
+            .exact_text_sha256(),
+        sha256(b"x+y")
+    );
+}
+
+#[test]
+fn successor_style_rejects_unknown_selectors_inapplicable_properties_and_bad_extends() {
+    for (pointer, value) in [
+        ("/style_sheet/rules/0/selector", json!("solution")),
+        (
+            "/style_sheet/rules/0/declarations/0/name",
+            json!("unrecognized_property"),
+        ),
+        ("/style_sheet/rules/1/extends", json!("missing-style")),
+        ("/style_sheet/rules/1/extends", json!("semantic-feature")),
+    ] {
+        let mut input = root(FIXTURE);
+        *input.pointer_mut(pointer).unwrap() = value;
+        // Some invalid selectors are already rejected by the carrier. Check
+        // the shared style stage directly as well as the end-to-end boundary.
+        let sheet: WireStagingStyleSheet =
+            serde_json::from_value(input["style_sheet"].clone()).unwrap();
+        assert!(
+            lower_semantic_style_rules(&sheet, &limits()).is_err(),
+            "{pointer}"
+        );
+        assert_style_input_rejected(&input);
+    }
+    let mut input = root(FIXTURE);
+    input["style_sheet"]["rules"][0]["declarations"] =
+        json!([declaration("width", length_value(65536), false)]);
+    assert_style_input_rejected(&input);
+}
+
+fn assert_style_input_rejected(input: &Value) {
+    let limits = limits();
+    let bytes = serde_json::to_vec(input).unwrap();
+    if let Ok(decoded) = BookV2DocumentPackageDecoder::new()
+        .decode(&bytes, &DocumentPackageDecodePolicy::new(&limits))
+    {
+        let body = prepare_book_v2_body(decoded, &limits).unwrap();
+        assert!(style_book_v2_body(body).is_err());
     }
 }
