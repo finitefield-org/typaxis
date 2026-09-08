@@ -1,3 +1,6 @@
+#[path = "semantic_host_sources.rs"]
+mod host_sources;
+
 #[path = "production_flow.rs"]
 mod production_flow;
 pub use production_flow::{
@@ -2968,6 +2971,20 @@ impl StagingSemanticPackageParser {
                             .expect("consistent admission retains decoded facts")
                             .canonical_sha256() =>
             {
+                if let Err(error) = host_sources::validate_sources(
+                    package.wire.text_buffers(), package.wire.document(),
+                    package.wire.advanced_page_masters(), &sources, limits,
+                ) {
+                    let failure = match error {
+                        host_sources::SemanticSourceFailure::TextMapping {
+                            reason: host_sources::SemanticMappingFailure::TextLimit, ..
+                        } => StagingSemanticSyntaxError::MathSourceTextLimit,
+                        _ => StagingSemanticSyntaxError::InvalidSourceSpan,
+                    };
+                    return ProductionMachineParseOutcome::Failed {
+                        progress: Box::new(admission.into_failure_progress()), failure,
+                    };
+                }
                 ProductionMachineParseOutcome::Parsed {
                     package: Box::new(ValidatedProductionMachinePackage {
                         package,

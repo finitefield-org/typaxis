@@ -2644,3 +2644,53 @@ fn publication_failure_artifact_sets_are_typed() {
     assert!(manifest_case.join("manifest.json").is_dir());
     drop(tree);
 }
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
+#[test]
+fn machine_book_identity_substitution_is_rejected_before_resource_admission() {
+    let (_tree, job, artifacts, expected) = copy_fixture(
+        "profiles/production-book-1/combined",
+        "book-source-substitution",
+    );
+    let path = job.join("document-package.json");
+    let original_source = fs::read(job.join("input.tsf")).unwrap();
+    let mut package: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let buffer = package["text_buffers"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|b| b["utf8"] == "x^2x+1s1s2x+yf1j1v1v2x+yAB")
+        .unwrap();
+    // Keep every declared source byte, source hash, length and text range intact.
+    buffer["utf8"] = "y^2x+1s1s2x+yf1j1v1v2x+yAB".into();
+    fs::write(&path, serde_json::to_vec(&package).unwrap()).unwrap();
+    let options = build_options(&job, &artifacts, &expected);
+    let checked = run_check_package(CheckPackageOptions {
+        package: path,
+        package_root: Some(job.clone()),
+        profile: options.profile,
+        diagnostics: Some(artifacts.join("check-diagnostics.json")),
+        common: CommonOptions {
+            resource_roots: vec![job.clone()],
+            ..CommonOptions::default()
+        },
+    });
+    let built = run_build_package(options);
+    for result in [&checked, &built] {
+        assert_eq!(failure_exit_code(result), 1);
+        assert!(result.as_ref().unwrap_err().message.starts_with("P1102:"));
+    }
+    for name in ["check-diagnostics.json", "diagnostics.json"] {
+        assert_eq!(
+            read_json(&artifacts.join(name))["diagnostics"][0]["code"],
+            "P1102"
+        );
+    }
+    assert_eq!(fs::read(job.join("input.tsf")).unwrap(), original_source);
+    assert!(!artifacts.join("output.pdf").exists());
+    let manifest = read_json(&artifacts.join("manifest.json"));
+    assert_eq!(manifest["status"], "failed");
+    assert!(manifest["output"].is_null());
+    assert!(manifest["fonts"].as_array().unwrap().is_empty());
+    assert!(manifest["images"].as_array().unwrap().is_empty());
+}

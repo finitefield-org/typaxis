@@ -62,7 +62,7 @@ package["text_buffers"].append(
                 "source_span": span(start, end),
                 "text_range": {"end_byte": end, "start_byte": start},
             }
-            for start, end in ((10, 13), (21, 24), (24, 26))
+            for start, end in ((0, 10), (10, 13), (13, 21), (21, 24), (24, 26))
         ],
         "text_id": source_text_id,
         "utf8": source.decode("ascii"),
